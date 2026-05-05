@@ -28,6 +28,7 @@ Use this skill when the task is browser validation, repro, regression checking, 
 - Prefer `browser_act` with `wait_for` over separate click then wait loops.
 - Use `browser_find` when the target is known but compact state did not include it.
 - Use `browser_get_state detail=compact` for orientation and `detail=standard` only when compact state is insufficient.
+- If the page should expose the fact directly, inspect targeted custom-element attributes, `data-*` attributes, `href`s, or hydration data with a narrow read-only `browser_evaluate` before treating the fact as unavailable.
 - Use `browser_get_console`, `browser_get_errors`, and `browser_list_requests` only after the cheaper orientation/action path failed or the issue is clearly runtime/network-related.
 - Use `browser_get_request` only for one suspect request after `browser_list_requests` narrowed the field.
 - Use `browser_storage_get` and `browser_cookies_get` to inspect auth or state flags before rerunning a long login flow.
@@ -36,6 +37,7 @@ Use this skill when the task is browser validation, repro, regression checking, 
 ## Evidence Rules
 - Capture screenshots only for visual ambiguity, layout issues, or user-visible confirmation.
 - Read page text only when the task depends on the content itself.
+- Treat page-local DOM evidence as primary evidence when the target page appears to render the needed fact; use third-party proxies or alternate sites only as fallback evidence.
 - When a download is involved, prefer `download_started` and `download_completed` waits plus `browser_list_downloads`.
 - Preserve the exact failing condition in the final report: target, wait, URL, and observed result.
 

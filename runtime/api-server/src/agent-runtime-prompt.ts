@@ -678,7 +678,7 @@ export function buildBaseAgentPromptSections(
   ];
   if (capabilityManifest?.browser_tools.length) {
     executionLines.push(
-      "When browser tools are available, use them for UI-specific verification and prefer DOM-grounded actions and extraction; use screenshots only when visual confirmation matters."
+      "When browser tools are available, use them for UI-specific verification and prefer DOM-grounded actions and extraction. If a required fact may be rendered in attributes, custom elements, or hydration data instead of visible text, inspect those page-local DOM sources before concluding it is unavailable. Use screenshots only when visual confirmation matters."
     );
   }
   if (request.workspaceSkillIds.length > 0) {

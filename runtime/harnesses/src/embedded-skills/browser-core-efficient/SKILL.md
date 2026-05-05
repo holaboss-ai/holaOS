@@ -31,6 +31,7 @@ Use this skill when operating the workspace-embedded browser and efficiency matt
 - Default to `browser_get_state` with compact detail.
 - Do not request page text unless the task is primarily about reading content.
 - Do not request screenshots unless DOM-first signals are insufficient.
+- When a fact may live in custom-element attributes, `data-*` attributes, `href`s, or hydration data rather than visible text, inspect that targeted page-local DOM source before concluding the fact is unavailable.
 - If a page change likely invalidated earlier refs or indexes, treat them as stale and re-locate the target.
 
 ## Wait Discipline
@@ -42,5 +43,6 @@ Use this skill when operating the workspace-embedded browser and efficiency matt
 ## Escalation Rules
 - Escalate to `browser_get_state detail=standard` only when compact state is insufficient.
 - Escalate to `include_page_text=true` only when the page content itself is the task output.
+- Escalate to `browser_evaluate` for narrow read-only extraction when the required fact is likely present in page-local attributes or hydration data but not exposed cleanly through visible text.
 - Escalate to screenshots for visual ambiguity, layout validation, canvas/chart/PDF content, or explicit user-visible confirmation.
 - Escalate to debug or observability tools only after the cheaper path fails.

@@ -1100,10 +1100,14 @@ test("composeBaseAgentPrompt requires proactive fallback when partial retrieval 
   );
   assert.match(
     prompt.systemPrompt,
-    /When browser tools are available, use them for UI-specific verification and prefer DOM-grounded actions and extraction; use screenshots only when visual confirmation matters\./
+    /When browser tools are available, use them for UI-specific verification and prefer DOM-grounded actions and extraction\./
   );
   assert.match(
     prompt.systemPrompt,
-    /When browser tools are available, use them for UI-specific verification and prefer DOM-grounded actions and extraction; use screenshots only when visual confirmation matters\./
+    /If a required fact may be rendered in attributes, custom elements, or hydration data instead of visible text, inspect those page-local DOM sources before concluding it is unavailable\./
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Use screenshots only when visual confirmation matters\./
   );
 });
