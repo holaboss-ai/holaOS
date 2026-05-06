@@ -324,6 +324,8 @@ export async function copyCookiesBetweenBrowserSessions(
   let importedCount = 0;
   let skippedCount = 0;
   const warnings = new Set<string>();
+  const nowEpochSeconds = Date.now() / 1000;
+  let expiredCount = 0;
 
   for (const cookie of sourceCookies) {
     const cookieUrl = importedCookieUrl(
@@ -333,6 +335,15 @@ export async function copyCookiesBetweenBrowserSessions(
     );
     if (!cookieUrl || !cookie.name?.trim()) {
       skippedCount += 1;
+      continue;
+    }
+    if (
+      typeof cookie.expirationDate === "number" &&
+      Number.isFinite(cookie.expirationDate) &&
+      cookie.expirationDate <= nowEpochSeconds
+    ) {
+      skippedCount += 1;
+      expiredCount += 1;
       continue;
     }
     try {
@@ -360,6 +371,10 @@ export async function copyCookiesBetweenBrowserSessions(
           : "Some cookies could not be copied into the target workspace.",
       );
     }
+  }
+
+  if (expiredCount > 0) {
+    warnings.add(`Skipped ${expiredCount} expired workspace cookies.`);
   }
 
   await targetSession.cookies.flushStore();
@@ -660,12 +675,21 @@ export async function importChromiumFamilyProfileIntoWorkspace(
     workspace.session,
     selection.profileDir,
   );
+  const warnings = new Set(cookieSummary.warnings);
+  if (
+    cookieSummary.importedCount === 0 &&
+    (bookmarkCount > 0 || historyCount > 0)
+  ) {
+    warnings.add(
+      `No transferable ${browserDisplayName} cookies were imported. Some sites may require signing in again.`,
+    );
+  }
 
   if (
     bookmarkCount === 0 &&
     historyCount === 0 &&
     cookieSummary.importedCount === 0 &&
-    cookieSummary.warnings.length === 0
+    warnings.size === 0
   ) {
     throw new Error(
       `No importable bookmarks, history, or cookies were found in that ${browserDisplayName} profile.`,
@@ -686,7 +710,7 @@ export async function importChromiumFamilyProfileIntoWorkspace(
     importedHistoryEntries: historyCount,
     importedCookies: cookieSummary.importedCount,
     skippedCookies: cookieSummary.skippedCount,
-    warnings: cookieSummary.warnings,
+    warnings: Array.from(warnings),
   };
 }
 

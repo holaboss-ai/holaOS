@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PaneCard } from "@/components/ui/PaneCard";
 import { browserSurfaceStatusSummary } from "@/components/panes/browserSessionUi";
+import { BrowserProfileImportButton } from "@/components/panes/BrowserProfileImportButton";
 import {
   BrowserCaptureStatusToast,
   useBrowserCaptureActions,
@@ -772,6 +773,12 @@ export function BrowserPane({
               <div
                 className={`relative flex shrink-0 items-center gap-1 ${isCompactPane ? "" : "ml-auto"}`}
               >
+                <BrowserProfileImportButton
+                  buttonClassName="shrink-0"
+                  buttonSize="sm"
+                  buttonVariant="outline"
+                  showLabel={!isNarrowPane}
+                />
                 <Button
                   type="button"
                   variant="outline"

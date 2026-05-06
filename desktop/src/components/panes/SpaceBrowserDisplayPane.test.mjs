@@ -57,7 +57,9 @@ test("space browser display exposes screenshot copy without browser comments", a
   const source = await readFile(sourcePath, "utf8");
 
   assert.match(source, /interface SpaceBrowserDisplayPaneProps \{/);
+  assert.match(source, /import \{ BrowserProfileImportButton \} from "@\/components\/panes\/BrowserProfileImportButton";/);
   assert.match(source, /useBrowserCaptureActions\(\)/);
+  assert.match(source, /<BrowserProfileImportButton[\s\S]*buttonSize="icon-sm"[\s\S]*buttonVariant="ghost"[\s\S]*showLabel=\{false\}/);
   assert.match(source, /aria-label="Copy browser screenshot"/);
   assert.match(source, /captureScreenshotToClipboard\(\)/);
   assert.match(source, /screenshotCapturePending \? \(\s*<Loader2 size=\{13\} className="animate-spin" \/>\s*\) : \(\s*<Camera size=\{13\} \/>\s*\)/);

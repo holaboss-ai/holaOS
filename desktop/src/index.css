@@ -17,16 +17,12 @@
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: "Inter Variable", sans-serif;
-  /* Geist Mono — used for tabular numerals, code blocks, datetime
-     stamps. The variable family carries 100-900 weights. */
   --font-mono:
     "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas,
     "Liberation Mono", monospace;
 
-  /* Foreground-mix utilities — solid mix of foreground into background
-     at N%. Use bg-fg-3, bg-fg-6, bg-fg-12 etc. for opaque tinted
-     surfaces (panel headers, list-row hovers, separators). Distinct
-     from Tailwind's bg-foreground/N which is alpha-on-foreground. */
+  /* Foreground-mix utilities — opaque tint of foreground into bg.
+     Use bg-fg-3 etc. (Distinct from bg-foreground/N alpha.) */
   --color-fg-2: var(--fg-2);
   --color-fg-4: var(--fg-4);
   --color-fg-6: var(--fg-6);
@@ -74,18 +70,16 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
-  /* Radius scale — base 0.5rem (8px). Steps land on integer px (4/6/8/10/12/16/20)
-     for a refined craft feel, distinct from Tailwind v4 default progression. */
+  /* Radius scale — integer px steps off base 8px. */
   --radius-sm: calc(var(--radius) * 0.5); /* 4px */
-  --radius-md: calc(var(--radius) * 0.75); /* 6px — default button/menu-item */
-  --radius-lg: var(--radius); /* 8px — default card/input */
+  --radius-md: calc(var(--radius) * 0.75); /* 6px — button/menu-item */
+  --radius-lg: var(--radius); /* 8px — card/input */
   --radius-xl: calc(var(--radius) * 1.25); /* 10px — popover/dropdown */
   --radius-2xl: calc(var(--radius) * 1.5); /* 12px — panel inner */
-  --radius-3xl: calc(var(--radius) * 2); /* 16px — large container */
+  --radius-3xl: calc(var(--radius) * 2); /* 16px */
   --radius-4xl: calc(var(--radius) * 2.5); /* 20px */
 
-  /* Font weight scale — each step ~50 lighter than Tailwind default.
-     Depends on Inter Variable for continuous weights. */
+  /* Font weights — each step ~50 lighter than Tailwind default. */
   --font-weight-thin: 300;
   --font-weight-extralight: 325;
   --font-weight-light: 350;
@@ -96,9 +90,8 @@
   --font-weight-extrabold: 550;
   --font-weight-black: 600;
 
-  /* Subtle layered shadows with a hairline ring as the last layer
-     (0 0 0 1px / 0.5px). Gives cards & buttons a "glass edge" without
-     a real border. Use: shadow-subtle-xs / shadow-subtle-sm */
+  /* Layered shadows with hairline ring as the last layer.
+     Gives cards/buttons a glass edge without a real border. */
   --shadow-subtle-xs:
     rgba(0, 0, 0, 0.025) 0 1px 1px -0.5px, rgba(0, 0, 0, 0.05) 0 2px 2px -1px,
     rgba(0, 0, 0, 0.05) 0 0 0 1px;
@@ -106,16 +99,12 @@
     rgba(0, 0, 0, 0.02) 0 1px 1px -0.5px, rgba(0, 0, 0, 0.04) 0 1px 1px -0.5px,
     rgba(0, 0, 0, 0.04) 0 2px 2px -1px, rgba(0, 0, 0, 0.03) 0 0 0 0.5px;
 
-  /* One step up from shadow-subtle-xs — for elements that should
-     read as gently lifted off the surface (logos, badges, pills). */
+  /* One step up — for badges/logos/pills that read as gently lifted. */
   --shadow-floating-xs:
     rgba(0, 0, 0, 0.04) 0 1px 2px, rgba(0, 0, 0, 0.06) 0 3px 6px -1px,
     rgba(0, 0, 0, 0.08) 0 0 0 1px;
 
-  /* Tight type scale — ~10-20% denser than Tailwind default. The
-     small/extra-small steps shift down for labels/captions; headings
-     compress from 1.875rem → 1.375rem for a refined, Cursor-like feel.
-     Line-heights lean generous to compensate for the smaller sizes. */
+  /* Tight type scale — ~10-20% denser than Tailwind default. */
   --text-xs: 0.725rem;
   --text-xs--line-height: 1.2rem;
   --text-xs--letter-spacing: 0.01em;
@@ -140,25 +129,23 @@
   --animate-reveal-pop: reveal-pop 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   --animate-fade-in-once: fade-in-once 0.6s ease-out forwards;
 
-  /* ============================================================
-   * BRAND ALIAS
-   * `--brand` is a theme-independent semantic name; value tracks
-   * whichever preset is active (tweakcn provides --primary).
-   * Use bg-brand / text-brand in new code instead of bg-primary.
-   * ============================================================ */
+  /* Brand alias — tracks whichever theme is active.
+     Use bg-brand / text-brand in new code. */
   --color-brand: var(--primary);
   --color-brand-foreground: var(--primary-foreground);
 
-  /* ============================================================
-   * ELEVATION — overrides Tailwind shadow-sm/md/lg/xl/2xl
-   *
-   * Hairline ring (1px) + non-doubling blur stack. Layer counts
-   * 1/3/4/5/6 across the scale; alpha tuned per mode (see :root /
-   * .dark). Distinct from craft (0.06/0.06 light, 0.15/0.12 dark
-   * with doubling 1/3/6/12/24px stack).
-   * ============================================================ */
-  --shadow-sm: 0 0 0 1px
-    oklch(from var(--foreground) l c h / var(--hairline-alpha));
+  /* shadow-sm: Linear/Stripe-style 8-layer stack (6 drops + 1px ring +
+     bottom inset). Shared by buttons, cards, popovers. Dark override
+     in `.dark` below. md/lg/xl/2xl keep the hairline + blur scale. */
+  --shadow-sm:
+    0 1px 1px 0.5px rgba(51, 51, 51, 0.03),
+    0 3px 3px -1.5px rgba(51, 51, 51, 0.015),
+    0 6px 6px -3px rgba(51, 51, 51, 0.03),
+    0 12px 12px -6px rgba(51, 51, 51, 0.03),
+    0 24px 24px -12px rgba(51, 51, 51, 0.03),
+    0 48px 48px -24px rgba(51, 51, 51, 0.03),
+    0 0 0 1px rgba(51, 51, 51, 0.08),
+    inset 0 -1px 1px -0.5px rgba(51, 51, 51, 0.05);
   --shadow-md:
     0 0 0 1px oklch(from var(--foreground) l c h / var(--hairline-alpha)),
     0 1px 2px -1px rgba(0, 0, 0, var(--shadow-alpha)),
@@ -182,11 +169,8 @@
     0 14px 22px -6px rgba(0, 0, 0, calc(var(--shadow-alpha) * 0.7)),
     0 24px 36px -8px rgba(0, 0, 0, calc(var(--shadow-alpha) * 0.5));
 
-  /* ============================================================
-   * Z-INDEX — semantic layers. Coexists with Tailwind z-0..z-50
-   * (those stay for in-component layering); these are app chrome.
-   * 100-step rhythm avoids the 390/400/410 collision-prone scheme.
-   * ============================================================ */
+  /* Z-index — semantic app-chrome layers (Tailwind z-0..z-50 still
+     used for in-component layering). 100-step rhythm. */
   --z-index-sticky: 100;
   --z-index-chrome: 200;
   --z-index-panel: 300;
@@ -197,11 +181,7 @@
   --z-index-toast: 900;
   --z-index-splash: 1000;
 
-  /* ============================================================
-   * MOTION — overrides Tailwind transition defaults
-   * 180ms (vs Tailwind 150ms) + custom curve. Named easings &
-   * durations exposed for hand-rolled transitions.
-   * ============================================================ */
+  /* Motion — 180ms default + custom curve. */
   --default-transition-duration: 180ms;
   --default-transition-timing-function: cubic-bezier(0.32, 0.08, 0.24, 1);
   --ease-standard: cubic-bezier(0.32, 0.08, 0.24, 1);
@@ -261,11 +241,8 @@
   }
 }
 
-/* ============================================================
- * @property — register theme colors as animatable so theme
- * switches (and hover-preview) interpolate smoothly. Chromium
- * Houdini support is full; safe in Electron-only context.
- * ============================================================ */
+/* @property — register theme colors as animatable so theme switches
+   interpolate smoothly. */
 @property --background {
   syntax: "<color>";
   inherits: true;
@@ -297,40 +274,28 @@
   initial-value: oklch(0.55 0.24 18);
 }
 
-/* ============================================================
- * Token fallbacks — tweakcn theme imports override these.
- * Anything declared here is the "default Holaboss" baseline.
- * ============================================================ */
+/* Token fallbacks — tweakcn themes override these. */
 :root {
   --radius: 0.5rem;
 
-  /* Semantic status fallbacks (existing — themes may override) */
   --success: oklch(0.58 0.16 148);
   --warning: oklch(0.82 0.17 83);
   --info: oklch(0.62 0.17 240);
   --scrim: oklch(0.15 0.01 240 / 0.46);
   --destructive: oklch(0.55 0.24 18);
 
-  /* Elevation alpha — tuned per mode (light: subtle, dark: stronger).
-     Distinct from craft's 0.06/0.06 light, 0.15/0.12 dark. */
   --hairline-alpha: 0.05;
   --shadow-alpha: 0.07;
 
-  /* Elevated background — for unfocused panels in multi-panel mode.
-     bg-foreground @ 2% mixed into bg-background. */
+  /* Elevated bg for unfocused panels. */
   --background-elevated: color-mix(
     in srgb,
     var(--foreground) 2%,
     var(--background)
   );
 
-  /* ============================================================
-   * MIX AXIS — solid foreground-on-background blends.
-   * Use --fg-N for opaque tinted surfaces (separators, list rows,
-   * unfocused panel bg). Use Tailwind's bg-foreground/N for
-   * transparent overlays. Step rhythm is 4-base (2/4/6/8/12/16/
-   * 24/32/48/64/80/92), distinct from craft's mixed-parity scale.
-   * ============================================================ */
+  /* Foreground-on-background opaque blends. Use --fg-N for tinted
+     surfaces; Tailwind's bg-foreground/N for transparent overlays. */
   --fg-2: color-mix(in srgb, var(--foreground) 2%, var(--background));
   --fg-4: color-mix(in srgb, var(--foreground) 4%, var(--background));
   --fg-6: color-mix(in srgb, var(--foreground) 6%, var(--background));
@@ -344,8 +309,7 @@
   --fg-80: color-mix(in srgb, var(--foreground) 80%, var(--background));
   --fg-92: color-mix(in srgb, var(--foreground) 92%, var(--background));
 
-  /* Status text — perceptually uniform oklab blend toward foreground.
-     For tinted text on neutral backgrounds (e.g. error labels). */
+  /* Status text — tinted toward foreground for labels on neutral bg. */
   --success-text: color-mix(in oklab, var(--success) 45%, var(--foreground));
   --destructive-text: color-mix(
     in oklab,
@@ -355,11 +319,21 @@
   --info-text: color-mix(in oklab, var(--info) 45%, var(--foreground));
 }
 
-/* Dark-mode shadow alpha — deeper to keep edges visible against
-   dark surfaces. Color tokens themselves come from active theme. */
 .dark {
   --hairline-alpha: 0.14;
   --shadow-alpha: 0.13;
+
+  /* Black drops + white hairline ring + white top inset
+     (lit-from-above). Mirrors light stack with inverted polarity. */
+  --shadow-sm:
+    0 1px 1px 0.5px rgba(0, 0, 0, 0.32),
+    0 3px 3px -1.5px rgba(0, 0, 0, 0.16),
+    0 6px 6px -3px rgba(0, 0, 0, 0.32),
+    0 12px 12px -6px rgba(0, 0, 0, 0.32),
+    0 24px 24px -12px rgba(0, 0, 0, 0.32),
+    0 48px 48px -24px rgba(0, 0, 0, 0.32),
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
 }
 
 @layer base {
@@ -403,16 +377,7 @@ body {
   box-sizing: border-box;
 }
 
-/* ============================================================
- * TINTED ELEVATION — derives RGB from oklch source at use site
- *
- * Uses the CSS Color 5 relative-color syntax `rgb(from <c> r g b)`
- * which Chromium has shipped since 119. Avoids the need to keep
- * a parallel `--primary-rgb` declaration in every theme file.
- *
- * Use these for status-tinted surfaces (validation errors, brand-
- * colored CTAs with depth, success toasts).
- * ============================================================ */
+/* Tinted elevation — status-colored shadow for CTAs, toasts, validation. */
 .shadow-tinted-brand {
   box-shadow:
     0 0 0 1px rgb(from var(--primary) r g b / calc(var(--hairline-alpha) * 1.5)),
@@ -439,8 +404,7 @@ body {
     0 3px 5px -1px rgb(from var(--destructive) r g b / var(--shadow-alpha));
 }
 
-/* Dark mode: drop the blur, keep a saturated outline so tinted
-   elements still read as "colored" without glowing through dark bg. */
+/* Dark: drop blur, keep a saturated outline (no glow). */
 .dark .shadow-tinted-brand {
   box-shadow: 0 0 0 1px oklch(from var(--primary) 0.55 c h / 0.55);
 }
@@ -454,31 +418,16 @@ body {
   box-shadow: 0 0 0 1px oklch(from var(--destructive) 0.55 c h / 0.55);
 }
 
-/* ============================================================
- * CONTAINER QUERIES — narrow-window touch-target scaling
- *
- * Activates when a parent has `container-type: inline-size`
- * plus `container-name: shell` (or `panel`). Apply on:
- *   - app shell root → @container shell
- *   - individual panels → @container panel
- *
- * Mobile-ish breakpoint at 820px (vs craft 768) — trips earlier
- * to give iPad-mini split view comfortable hit areas. Scaling
- * factor 1.21× — slightly less aggressive than craft's 1.3×.
- * ============================================================ */
-
-/* Window-level scaling: touch targets grow when whole shell is narrow */
+/* Container queries — touch-target scaling for narrow windows.
+   Trips at 820px on `@container shell` / `@container panel`. */
 @container shell (max-width: 820px) {
-  /* Header chrome buttons (close, share, back chevron) */
   .panel-header-btn {
     padding: 7px;
     border-radius: 7px;
   }
-  /* List rows (sessions, sources, skills) */
   .entity-row-btn {
     padding-block: 15px;
   }
-  /* Top bar icon buttons (+, ?, navigation) */
   .header-icon-btn,
   .send-btn {
     width: 34px;
@@ -490,8 +439,7 @@ body {
   }
 }
 
-/* Panel-level constraints: dropdowns/selects inside a narrow panel
-   should never exceed the panel's content width. */
+/* Narrow panels: clamp popouts and stack settings rows. */
 @container panel (max-width: 448px) {
   [data-popover-popup],
   [data-menu-popup],
@@ -513,9 +461,7 @@ body {
   }
 }
 
-/* Helper to opt into the container queries above. Apply
-   `data-container="shell"` on the app shell root and
-   `data-container="panel"` on each panel container. */
+/* Opt-in helpers — set data-container="shell|panel" on roots. */
 [data-container="shell"] {
   container-type: inline-size;
   container-name: shell;
@@ -606,19 +552,10 @@ body {
   background: var(--card);
 }
 
-/* ---- Window-level vibrancy ----
- * The BrowserWindow opts into the OS-native translucent material:
- * `vibrancy: 'under-window'` on macOS, mica/acrylic on Windows 10+/11.
- * For that material to show through we need the renderer's background
- * stack to be translucent so the panel grid's gutters and rounded-
- * corner edges reveal it.
- *
- * IMPORTANT: we mix our token against transparent rather than going
- * fully transparent — that way if the OS material ever fails to engage
- * (older macOS, light-mode quirk, missing vibrancy support) the user
- * still sees a softly-tinted theme-coloured surface instead of the bare
- * desktop wallpaper.
- */
+/* Window-level vibrancy — translucent surface so OS-native material
+   (vibrancy on macOS, mica/acrylic on Windows) shows through. We
+   mix toward transparent rather than fully transparent so a missing
+   material still falls back to a tinted theme color. */
 html[data-platform="darwin"],
 html[data-platform="darwin"] body,
 html[data-platform="win32"],
@@ -626,16 +563,8 @@ html[data-platform="win32"] body {
   background: color-mix(in oklch, var(--background) 60%, transparent);
 }
 
-/* Dark mode: dial the tint floor down hard. The dark-mode background
- * is intrinsically near-black (e.g. amber-minimal-dark = oklch(0.15)),
- * so even a small alpha layer on top reads as a dark veil that swallows
- * the OS vibrancy material underneath. 15% lets ~85% of the material
- * through — gives the frosted glass real visual presence while keeping
- * a faint theme tint for graceful degradation.
- *
- * (Light-mode keeps a higher 60% floor — light vibrancy is brighter
- * so a heavier tint still reads as glass, and the higher floor protects
- * against see-through-to-desktop if vibrancy fails.) */
+/* Dark mode: lower the tint floor (15% vs light's 60%) so OS vibrancy
+   actually shows through near-black backgrounds. */
 html[data-platform="darwin"][data-theme$="-dark"],
 html[data-platform="darwin"][data-theme$="-dark"] body,
 html[data-platform="win32"][data-theme$="-dark"],
@@ -643,21 +572,14 @@ html[data-platform="win32"][data-theme$="-dark"] body {
   background: color-mix(in oklch, var(--background) 15%, transparent);
 }
 
-/* Dark-mode pane surfaces: take advantage of the backdrop-blur PaneCard
- * already applies. With bg-card solid the pane swallows vibrancy in its
- * area; mixing it with transparent at 78% lets the OS material bleed
- * through subtly behind the panel + composite with backdrop-blur into
- * a real frosted-glass surface (not just a solid card). Keeping the
- * majority solid (78%) so text contrast stays comfortable. */
+/* Dark pane surfaces: 78% solid lets OS vibrancy bleed through PaneCard's
+   backdrop-blur, composing into real frosted glass while keeping text legible. */
 html[data-platform="darwin"][data-theme$="-dark"] [data-pane-card="true"],
 html[data-platform="win32"][data-theme$="-dark"] [data-pane-card="true"] {
   background: color-mix(in oklch, var(--card) 78%, transparent);
 }
 
-/* When the loading shells render before the main grid, keep them mostly
- * solid so pre-roll messages stay legible — but allow a hint of the OS
- * material to breathe through.
- */
+/* Loading shells: mostly solid for legibility, hint of OS material. */
 html[data-platform="darwin"] .theme-shell,
 html[data-platform="win32"] .theme-shell {
   background: color-mix(in oklch, var(--card) 88%, transparent);
@@ -786,12 +708,7 @@ html[data-platform="win32"] .theme-shell {
 
 /* ---- Focus ---- */
 
-/* Single 2px ring driven by box-shadow so it doesn't bleed past
- * overflow boundaries the way outline+offset can. Softer alpha than
- * the prior 14% so it reads as an accent rather than a chunky brand
- * stripe. textarea is excluded because full-pane editors (file
- * preview) would render the ring as a thick brand-coloured line
- * flush against the surrounding chrome. */
+/* 2px focus ring via box-shadow (so it respects overflow). */
 :where(button, [role="button"], input, select, a, summary):focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 50%, transparent);
@@ -1458,9 +1375,8 @@ webview {
   margin: 36px 0;
 }
 
-/* ---- Hairline borders ----
-   Tailwind v4's border utility is hardcoded to 1px with no var entry,
-   so override by source order. 0.8px reads more refined on hi-dpi. */
+/* Hairline borders — 0.8px reads more refined on hi-dpi.
+   Override Tailwind v4's hardcoded 1px by source order. */
 .border {
   border-width: 0.8px;
 }
@@ -1483,31 +1399,13 @@ webview {
   border-left-width: 0.8px;
 }
 
-/* Base UI animation pattern: components opt in per-instance via
-   tw-animate-css classes (data-open:animate-in fade-in-0 zoom-in-95
-   data-closed:animate-out fade-out-0 zoom-out-95). Earlier global
-   selectors here used Radix-style attribute names that Base UI
-   doesn't emit, so they were dead code. See ConfirmDialog and
-   SettingsDialog for the live pattern. */
-
-/* ============================================================
- * Dashboard polish utilities
- * Borrowed patterns (custom scrollbar, shimmer, smooth corners,
- * 9-cube spinner, tinted shadow) — naming + values our own.
- * ============================================================ */
-
-/* ---- Smooth corners (iOS superellipse, falls back to border-radius) ----
-   Apply alongside rounded-* to get the continuous curve where
-   supported. Subtle but tactile; mostly visible on larger radii. */
+/* Smooth corners — iOS superellipse with border-radius fallback. */
 .smooth-corners {
   corner-shape: superellipse;
   -webkit-corner-shape: superellipse;
 }
 
-/* ---- Custom scrollbars ----
-   Theme-aware, 8px thumb, hairline track. Thumb uses the border
-   color so it reads as a continuation of the panel chrome rather
-   than a chrome element of its own. */
+/* Custom scrollbars — 8px, theme-aware, hairline track. */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -1532,8 +1430,7 @@ webview {
   display: none;
 }
 
-/* "Ghost" scrollbar: invisible until the parent (.group) is hovered.
-   Notion uses this to keep dashboards visually clean at rest. */
+/* Ghost scrollbar — invisible until parent .group is hovered. */
 .scrollbar-ghost::-webkit-scrollbar-thumb {
   background: transparent;
   border-radius: 4px;
@@ -1546,11 +1443,8 @@ webview {
   background: var(--muted-foreground);
 }
 
-/* ---- Tinted shadow ----
-   Status-tinted box-shadow. Set --shadow-color (R,G,B triple) on
-   the element and apply .shadow-tinted. Light mode: soft glow.
-   Dark mode: solid 1px tinted ring (no glow — looks better on
-   dark surfaces than a halo). */
+/* Tinted shadow — set --shadow-color (R,G,B) per element.
+   Light: soft glow. Dark: solid 1px tinted ring (no glow). */
 .shadow-tinted {
   --shadow-color: 0, 0, 0;
   box-shadow:
@@ -1596,11 +1490,7 @@ webview {
   border-radius: inherit;
 }
 
-/* ---- 9-cube grid spinner ----
-   3×3 grid of cubes that fade in/out in a wave pattern. Inherits
-   size from font-size, color from currentColor. Use for "still
-   thinking" states where a skeleton row would be misleading
-   (the row count is unknown). */
+/* 9-cube grid spinner — inherits size from font-size, color from currentColor. */
 .hb-spinner {
   display: inline-grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1631,13 +1521,8 @@ webview {
   }
 }
 
-/* ---- Edge fade mask (horizontal scroll containers) ----
-   Fades each side of a horizontally-scrolling area only when content
-   is actually hidden in that direction. Caller drives this by setting
-   --mask-left and --mask-right inline (px values); 0 = no fade. With
-   both at 0 the mask is a solid rectangle (no-op) so it's safe to
-   leave applied at all times. Notion does this on database tables —
-   the left edge stops fading the moment scroll position is 0. */
+/* Edge fade mask — caller sets --mask-left / --mask-right (px).
+   Both at 0 = no-op, safe to leave applied permanently. */
 .mask-edges-x {
   --mask-left: 0px;
   --mask-right: 0px;

@@ -18,6 +18,7 @@ import {
   useState,
 } from "react";
 import { browserSurfaceStatusSummary } from "@/components/panes/browserSessionUi";
+import { BrowserProfileImportButton } from "@/components/panes/BrowserProfileImportButton";
 import {
   BrowserCaptureStatusToast,
   useBrowserCaptureActions,
@@ -449,6 +450,11 @@ export function SpaceBrowserDisplayPane({
               fill={isBookmarked ? "currentColor" : "none"}
             />
           </Button>
+          <BrowserProfileImportButton
+            buttonSize="icon-sm"
+            buttonVariant="ghost"
+            showLabel={false}
+          />
           <Button
             type="button"
             variant="ghost"

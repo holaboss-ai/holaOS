@@ -21,7 +21,9 @@ test("browser pane no longer exposes a dedicated close action in the chrome cont
 test("browser pane exposes screenshot copy without browser comments", async () => {
   const source = await readFile(sourcePath, "utf8");
 
+  assert.match(source, /import \{ BrowserProfileImportButton \} from "@\/components\/panes\/BrowserProfileImportButton";/);
   assert.match(source, /useBrowserCaptureActions\(\)/);
+  assert.match(source, /<BrowserProfileImportButton[\s\S]*buttonSize="sm"[\s\S]*buttonVariant="outline"/);
   assert.match(source, /aria-label="Copy browser screenshot"/);
   assert.match(source, /title="Copy browser screenshot"/);
   assert.match(source, /captureScreenshotToClipboard\(\)/);

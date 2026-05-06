@@ -22,6 +22,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import {
   dialog,
+  session,
   type BrowserWindow,
   type OpenDialogOptions,
   type Session,
@@ -973,6 +974,19 @@ export async function importChromiumFamilyCookiesIntoWorkspaceSession(
       let importedCount = 0;
       let skippedCount = 0;
       const warnings = new Set<string>();
+      const nowEpochSeconds = Date.now() / 1000;
+      let expiredCount = 0;
+      const transferableCookies: Array<{
+        url: string;
+        name: string;
+        value: string;
+        domain?: string;
+        path: string;
+        secure: boolean;
+        httpOnly: boolean;
+        sameSite: ReturnType<typeof chromeSameSiteToElectronSameSite>;
+        expirationDate?: number;
+      }> = [];
 
       for (const row of rows) {
         const cookieUrl = importedCookieUrl(
@@ -1026,8 +1040,18 @@ export async function importChromiumFamilyCookiesIntoWorkspaceSession(
         const expirationDateSeconds = expirationDate
           ? Math.floor(new Date(expirationDate).getTime() / 1000)
           : undefined;
+        if (
+          row.has_expires &&
+          typeof expirationDateSeconds === "number" &&
+          Number.isFinite(expirationDateSeconds) &&
+          expirationDateSeconds <= nowEpochSeconds
+        ) {
+          skippedCount += 1;
+          expiredCount += 1;
+          continue;
+        }
 
-        const cookiePayload = {
+        transferableCookies.push({
           url: cookieUrl,
           name: row.name.trim(),
           value: cookieValue,
@@ -1037,32 +1061,81 @@ export async function importChromiumFamilyCookiesIntoWorkspaceSession(
           httpOnly: Boolean(row.is_httponly),
           sameSite: chromeSameSiteToElectronSameSite(row.samesite),
           expirationDate: row.has_expires ? expirationDateSeconds : undefined,
-        } as const;
+        });
+      }
 
-        try {
-          await browserSession.cookies.set(cookiePayload);
-          importedCount += 1;
-        } catch (error) {
-          const normalizedDomain = cookiePayload.domain?.replace(/^\.+/, "");
-          if (normalizedDomain && normalizedDomain !== cookiePayload.domain) {
-            try {
-              await browserSession.cookies.set({
-                ...cookiePayload,
-                domain: normalizedDomain,
-              });
-              importedCount += 1;
-              continue;
-            } catch {
-              // Fall through to warning path below.
+      if (expiredCount > 0) {
+        warnings.add(
+          `Skipped ${expiredCount} expired ${browserDisplayName} cookies.`,
+        );
+      }
+
+      if (transferableCookies.length === 0) {
+        return {
+          importedCount: 0,
+          skippedCount,
+          warnings: Array.from(warnings),
+        };
+      }
+
+      const stagedSession = session.fromPartition(
+        `holaboss-browser-import-${randomUUID()}`,
+      );
+      const stagedCookies: typeof transferableCookies = [];
+      try {
+        await stagedSession.clearStorageData({ storages: ["cookies"] });
+        for (const cookiePayload of transferableCookies) {
+          try {
+            await stagedSession.cookies.set(cookiePayload);
+            stagedCookies.push(cookiePayload);
+          } catch (error) {
+            const normalizedDomain = cookiePayload.domain?.replace(/^\.+/, "");
+            if (normalizedDomain && normalizedDomain !== cookiePayload.domain) {
+              try {
+                const normalizedPayload = {
+                  ...cookiePayload,
+                  domain: normalizedDomain,
+                };
+                await stagedSession.cookies.set(normalizedPayload);
+                stagedCookies.push(normalizedPayload);
+                continue;
+              } catch {
+                // Fall through to warning path below.
+              }
             }
+            skippedCount += 1;
+            warnings.add(
+              error instanceof Error
+                ? error.message
+                : `Some ${browserDisplayName} cookies could not be imported into Electron.`,
+            );
           }
-          skippedCount += 1;
-          warnings.add(
-            error instanceof Error
-              ? error.message
-              : `Some ${browserDisplayName} cookies could not be imported into Electron.`,
-          );
         }
+        await stagedSession.cookies.flushStore();
+        if (stagedCookies.length === 0) {
+          return {
+            importedCount: 0,
+            skippedCount,
+            warnings: Array.from(warnings),
+          };
+        }
+
+        await browserSession.clearStorageData({ storages: ["cookies"] });
+        for (const cookiePayload of stagedCookies) {
+          try {
+            await browserSession.cookies.set(cookiePayload);
+            importedCount += 1;
+          } catch (error) {
+            skippedCount += 1;
+            warnings.add(
+              error instanceof Error
+                ? error.message
+                : `Some ${browserDisplayName} cookies could not be imported into Electron.`,
+            );
+          }
+        }
+      } finally {
+        await stagedSession.clearStorageData({ storages: ["cookies"] });
       }
 
       await browserSession.cookies.flushStore();

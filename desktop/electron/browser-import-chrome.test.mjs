@@ -8,6 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const mainSourcePath = path.join(__dirname, "main.ts");
 const overflowPreloadPath = path.join(__dirname, "overflowPopupPreload.ts");
 const popupsPath = path.join(__dirname, "browser-pane", "popups.ts");
+const handlersPath = path.join(__dirname, "browser-pane", "handlers.ts");
 const importChromiumPath = path.join(
   __dirname,
   "browser-pane",
@@ -110,7 +111,35 @@ test("desktop browser import flow discovers a Chrome profile and imports bookmar
     chromiumSource,
     /App-Bound encryption and cannot be imported from a different desktop app/,
   );
-  assert.match(chromiumSource, /await browserSession\.cookies\.set\(\{/);
+  assert.match(
+    chromiumSource,
+    /const nowEpochSeconds = Date\.now\(\) \/ 1000;/,
+  );
+  assert.match(
+    chromiumSource,
+    /Skipped \$\{expiredCount\} expired \$\{browserDisplayName\} cookies\./,
+  );
+  assert.match(
+    chromiumSource,
+    /const transferableCookies: Array<\{/,
+  );
+  assert.match(
+    chromiumSource,
+    /if \(transferableCookies\.length === 0\) \{/,
+  );
+  assert.match(
+    chromiumSource,
+    /const stagedSession = session\.fromPartition\(/,
+  );
+  assert.match(
+    chromiumSource,
+    /await stagedSession\.clearStorageData\(\{ storages: \["cookies"\] \}\);/,
+  );
+  assert.match(
+    chromiumSource,
+    /await browserSession\.clearStorageData\(\{ storages: \["cookies"\] \}\);/,
+  );
+  assert.match(chromiumSource, /await browserSession\.cookies\.set\(/);
   assert.match(chromiumSource, /await browserSession\.cookies\.flushStore\(\);/);
 
   // Public orchestration entry points moved to import-browsers.ts.
@@ -136,6 +165,14 @@ test("desktop browser import flow discovers a Chrome profile and imports bookmar
   );
   assert.match(
     browsersSource,
+    /cookieSummary\.importedCount === 0 &&\s*\(bookmarkCount > 0 \|\| historyCount > 0\)/,
+  );
+  assert.match(
+    browsersSource,
+    /Skipped \$\{expiredCount\} expired workspace cookies\./,
+  );
+  assert.match(
+    browsersSource,
     /export async function importChromeProfileIntoWorkspace\(\s*workspaceId: string \| null \| undefined,\s*deps: BrowserImportDeps,\s*\): Promise<BrowserImportSummary \| null> \{/,
   );
 });
@@ -143,6 +180,7 @@ test("desktop browser import flow discovers a Chrome profile and imports bookmar
 test("desktop browser overflow popup exposes Chrome import and reports the result", async () => {
   const source = await readFile(mainSourcePath, "utf8");
   const popupsSource = await readFile(popupsPath, "utf8");
+  const handlersSource = await readFile(handlersPath, "utf8");
 
   // Overflow popup HTML lives in browser-pane/popups.ts (BP-P3 extraction).
   assert.match(
@@ -151,11 +189,14 @@ test("desktop browser overflow popup exposes Chrome import and reports the resul
   );
   assert.match(popupsSource, /window\.overflowPopup\.importChrome\(\)/);
   assert.match(
-    source,
+    handlersSource,
     /ipcMain\.handle\("browser:overflowImportChrome", async \(\) => \{/,
   );
-  assert.match(source, /Chrome data was imported into this workspace browser\./);
-  assert.match(source, /Could not import data from Chrome\./);
+  assert.match(
+    handlersSource,
+    /Chrome data was imported into this workspace browser\./,
+  );
+  assert.match(handlersSource, /Could not import data from Chrome\./);
   assert.match(
     source,
     /handleTrustedIpc\(\s*"workspace:listImportBrowserProfiles",/,
