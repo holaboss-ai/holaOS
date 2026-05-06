@@ -1196,7 +1196,7 @@ test("claimed input writes completed subagent results and queues a background up
     },
   });
 
-  const updatedRun = store.getSubagentRun({ subagentId: run.subagentId });
+  const updatedRun = store.getSubagentRun({ workspaceId: run.workspaceId, subagentId: run.subagentId });
   const queuedEvents = store.listPendingMainSessionEvents({
     ownerMainSessionId: "session-main",
   });
@@ -1291,7 +1291,7 @@ test("claimed input writes waiting-on-user subagent blockers and queues a blocke
     },
   });
 
-  const updatedRun = store.getSubagentRun({ subagentId: run.subagentId });
+  const updatedRun = store.getSubagentRun({ workspaceId: run.workspaceId, subagentId: run.subagentId });
   const queuedEvents = store.listPendingMainSessionEvents({
     ownerMainSessionId: "session-main",
   });
@@ -1372,7 +1372,7 @@ test("claimed input treats recoverable login blockers as waiting-on-user subagen
     },
   });
 
-  const updatedRun = store.getSubagentRun({ subagentId: run.subagentId });
+  const updatedRun = store.getSubagentRun({ workspaceId: run.workspaceId, subagentId: run.subagentId });
   const queuedEvents = store.listPendingMainSessionEvents({
     ownerMainSessionId: "session-main",
   });
@@ -1447,7 +1447,7 @@ test("claimed input writes failed subagent results and queues a failure update",
     },
   });
 
-  const updatedRun = store.getSubagentRun({ subagentId: run.subagentId });
+  const updatedRun = store.getSubagentRun({ workspaceId: run.workspaceId, subagentId: run.subagentId });
   const queuedEvents = store.listPendingMainSessionEvents({
     ownerMainSessionId: "session-main",
   });

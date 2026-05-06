@@ -762,6 +762,7 @@ test("subagent runs round trip and support waiting-user resume metadata", () => 
     status: "running"
   });
   const updated = store.updateSubagentRun({
+    workspaceId: "workspace-1",
     subagentId: created.subagentId,
     fields: {
       status: "waiting_on_user",
@@ -786,11 +787,15 @@ test("subagent runs round trip and support waiting-user resume metadata", () => 
     updated
   );
   assert.deepEqual(
-    store.listSubagentRunsByOwner({ ownerMainSessionId: "session-main" }).map((record) => record.subagentId),
+    store.listSubagentRunsByOwner({ workspaceId: "workspace-1", ownerMainSessionId: "session-main" }).map(
+      (record) => record.subagentId
+    ),
     [created.subagentId]
   );
   assert.deepEqual(
-    store.listWaitingSubagentRuns({ ownerMainSessionId: "session-main" }).map((record) => record.subagentId),
+    store.listWaitingSubagentRuns({ workspaceId: "workspace-1", ownerMainSessionId: "session-main" }).map(
+      (record) => record.subagentId
+    ),
     [created.subagentId]
   );
   assert.deepEqual(
@@ -838,6 +843,7 @@ test("transferring subagent ownership also moves pending queued main-session eve
   });
 
   const transferred = store.transferSubagentOwnership({
+    workspaceId: "workspace-1",
     subagentId: run.subagentId,
     ownerMainSessionId: "session-main-telegram",
     ownerTransferredAt: "2026-04-24T12:21:00.000Z"

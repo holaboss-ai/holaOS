@@ -2059,7 +2059,8 @@ export class RuntimeStateStore {
     const latestChildInputId =
       this.normalizedNullableText(params.latestChildInputId) ?? currentChildInputId ?? initialChildInputId;
 
-    this.db()
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
+    workspaceDb
       .prepare(`
         INSERT INTO subagent_runs (
             subagent_id,
@@ -2135,7 +2136,7 @@ export class RuntimeStateStore {
         now
       );
 
-    const record = this.getSubagentRun({ subagentId });
+    const record = this.getSubagentRun({ workspaceId: params.workspaceId, subagentId });
     if (!record) {
       throw new Error("subagent run row not found after insert");
     }
@@ -2143,14 +2144,15 @@ export class RuntimeStateStore {
   }
 
   updateSubagentRun(params: {
+    workspaceId: string;
     subagentId: string;
     fields: SubagentRunUpdateFields;
   }): SubagentRunRecord | null {
     const entries = Object.entries(params.fields);
     if (entries.length === 0) {
-      return this.getSubagentRun({ subagentId: params.subagentId });
+      return this.getSubagentRun({ workspaceId: params.workspaceId, subagentId: params.subagentId });
     }
-    const existing = this.getSubagentRun({ subagentId: params.subagentId });
+    const existing = this.getSubagentRun({ workspaceId: params.workspaceId, subagentId: params.subagentId });
     if (!existing) {
       return null;
     }
@@ -2280,17 +2282,17 @@ export class RuntimeStateStore {
     assignments.push("updated_at = ?");
     values.push(utcNowIso(), params.subagentId);
 
-    const result = this.db()
+    const result = this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`UPDATE subagent_runs SET ${assignments.join(", ")} WHERE subagent_id = ?`)
       .run(...values);
     if (result.changes <= 0) {
       return null;
     }
-    return this.getSubagentRun({ subagentId: params.subagentId });
+    return this.getSubagentRun({ workspaceId: params.workspaceId, subagentId: params.subagentId });
   }
 
-  getSubagentRun(params: { subagentId: string }): SubagentRunRecord | null {
-    const row = this.db()
+  getSubagentRun(params: { workspaceId: string; subagentId: string }): SubagentRunRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM subagent_runs WHERE subagent_id = ? LIMIT 1")
       .get(params.subagentId);
     return row ? this.rowToSubagentRun(row) : null;
@@ -2300,7 +2302,7 @@ export class RuntimeStateStore {
     workspaceId: string;
     childSessionId: string;
   }): SubagentRunRecord | null {
-    const row = this.db()
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string, string], Record<string, unknown>>(`
         SELECT *
         FROM subagent_runs
@@ -2338,11 +2340,12 @@ export class RuntimeStateStore {
       LIMIT ? OFFSET ?
     `;
     values.push(params.limit ?? 100, params.offset ?? 0);
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToSubagentRun(row));
   }
 
   listSubagentRunsByOwner(params: {
+    workspaceId: string;
     ownerMainSessionId: string;
     status?: string | null;
     limit?: number;
@@ -2363,11 +2366,12 @@ export class RuntimeStateStore {
       LIMIT ? OFFSET ?
     `;
     values.push(params.limit ?? 100, params.offset ?? 0);
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToSubagentRun(row));
   }
 
   listSubagentRunsByOrigin(params: {
+    workspaceId: string;
     originMainSessionId: string;
     status?: string | null;
     limit?: number;
@@ -2388,12 +2392,12 @@ export class RuntimeStateStore {
       LIMIT ? OFFSET ?
     `;
     values.push(params.limit ?? 100, params.offset ?? 0);
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToSubagentRun(row));
   }
 
   listWaitingSubagentRuns(params: {
-    workspaceId?: string | null;
+    workspaceId: string;
     ownerMainSessionId?: string | null;
     limit?: number;
     offset?: number;
@@ -2403,11 +2407,8 @@ export class RuntimeStateStore {
       FROM subagent_runs
       WHERE status = 'waiting_on_user'
     `;
-    const values: Array<string | number> = [];
-    if (params.workspaceId) {
-      query += " AND workspace_id = ?";
-      values.push(params.workspaceId);
-    }
+    const values: Array<string | number> = [params.workspaceId];
+    query += " AND workspace_id = ?";
     if (params.ownerMainSessionId) {
       query += " AND owner_main_session_id = ?";
       values.push(params.ownerMainSessionId);
@@ -2417,12 +2418,12 @@ export class RuntimeStateStore {
       LIMIT ? OFFSET ?
     `;
     values.push(params.limit ?? 100, params.offset ?? 0);
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToSubagentRun(row));
   }
 
   listIncompleteSubagentRuns(params: {
-    workspaceId?: string | null;
+    workspaceId: string;
     ownerMainSessionId?: string | null;
     limit?: number;
     offset?: number;
@@ -2432,11 +2433,8 @@ export class RuntimeStateStore {
       FROM subagent_runs
       WHERE status NOT IN ('completed', 'failed', 'cancelled')
     `;
-    const values: Array<string | number> = [];
-    if (params.workspaceId) {
-      query += " AND workspace_id = ?";
-      values.push(params.workspaceId);
-    }
+    const values: Array<string | number> = [params.workspaceId];
+    query += " AND workspace_id = ?";
     if (params.ownerMainSessionId) {
       query += " AND owner_main_session_id = ?";
       values.push(params.ownerMainSessionId);
@@ -2446,16 +2444,17 @@ export class RuntimeStateStore {
       LIMIT ? OFFSET ?
     `;
     values.push(params.limit ?? 100, params.offset ?? 0);
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToSubagentRun(row));
   }
 
   transferSubagentOwnership(params: {
+    workspaceId: string;
     subagentId: string;
     ownerMainSessionId: string;
     ownerTransferredAt?: string;
   }): SubagentRunRecord | null {
-    const existing = this.getSubagentRun({ subagentId: params.subagentId });
+    const existing = this.getSubagentRun({ workspaceId: params.workspaceId, subagentId: params.subagentId });
     if (!existing) {
       return null;
     }
@@ -2469,6 +2468,7 @@ export class RuntimeStateStore {
     const ownerTransferredAt = params.ownerTransferredAt ?? utcNowIso();
     const transaction = this.db().transaction(() => {
       const updated = this.updateSubagentRun({
+        workspaceId: params.workspaceId,
         subagentId: params.subagentId,
         fields: {
           ownerMainSessionId: params.ownerMainSessionId,
@@ -2488,17 +2488,19 @@ export class RuntimeStateStore {
             AND superseded_at IS NULL
         `)
         .run(params.ownerMainSessionId, utcNowIso(), params.subagentId);
-      return this.getSubagentRun({ subagentId: params.subagentId });
+      return this.getSubagentRun({ workspaceId: params.workspaceId, subagentId: params.subagentId });
     });
     return transaction();
   }
 
   appendSubagentProgress(params: {
+    workspaceId: string;
     subagentId: string;
     latestProgressPayload: Record<string, unknown>;
     lastEventAt?: string | null;
   }): SubagentRunRecord | null {
     return this.updateSubagentRun({
+      workspaceId: params.workspaceId,
       subagentId: params.subagentId,
       fields: {
         latestProgressPayload: params.latestProgressPayload,
@@ -6731,6 +6733,7 @@ export class RuntimeStateStore {
       "conversation_bindings",
       "session_runtime_state",
       "session_messages",
+      "subagent_runs",
       "session_output_events",
       "turn_results",
       "turn_request_snapshots",
@@ -7073,6 +7076,56 @@ export class RuntimeStateStore {
       CREATE INDEX IF NOT EXISTS idx_turn_results_session_input
           ON turn_results (session_id, input_id);
 
+      CREATE TABLE IF NOT EXISTS subagent_runs (
+          subagent_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          parent_session_id TEXT,
+          parent_input_id TEXT,
+          origin_main_session_id TEXT NOT NULL,
+          owner_main_session_id TEXT NOT NULL,
+          child_session_id TEXT NOT NULL,
+          initial_child_input_id TEXT,
+          current_child_input_id TEXT,
+          latest_child_input_id TEXT,
+          title TEXT,
+          goal TEXT NOT NULL,
+          context TEXT,
+          source_type TEXT,
+          source_id TEXT,
+          proposal_id TEXT,
+          cronjob_id TEXT,
+          retry_of_subagent_id TEXT,
+          tool_profile TEXT NOT NULL DEFAULT '{}',
+          requested_model TEXT,
+          effective_model TEXT,
+          status TEXT NOT NULL,
+          summary TEXT,
+          latest_progress_payload TEXT,
+          blocking_payload TEXT,
+          result_payload TEXT,
+          error_payload TEXT,
+          last_event_at TEXT,
+          owner_transferred_at TEXT,
+          created_at TEXT NOT NULL,
+          started_at TEXT,
+          completed_at TEXT,
+          cancelled_at TEXT,
+          updated_at TEXT NOT NULL,
+          UNIQUE (workspace_id, child_session_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_subagent_runs_workspace_status_updated
+          ON subagent_runs (workspace_id, status, updated_at DESC, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_subagent_runs_owner_status_updated
+          ON subagent_runs (owner_main_session_id, status, updated_at DESC, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_subagent_runs_origin_created
+          ON subagent_runs (origin_main_session_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_subagent_runs_retry_created
+          ON subagent_runs (retry_of_subagent_id, created_at DESC);
+
       CREATE TABLE IF NOT EXISTS task_proposals (
           proposal_id TEXT PRIMARY KEY,
           workspace_id TEXT NOT NULL,
@@ -7277,6 +7330,7 @@ export class RuntimeStateStore {
           ON runtime_notifications (state, created_at DESC);
     `);
     this.ensureConversationBindingsTableSchema(db);
+    this.ensureSubagentRunsTableSchema(db);
     this.ensureSessionRuntimeStateTableSchema(db);
     this.ensureTurnArtifactsSchema(db);
     this.ensureTaskProposalsTableSchema(db);

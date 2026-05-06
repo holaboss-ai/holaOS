@@ -908,7 +908,7 @@ test("runtime subagent capability routes create and cancel hidden background tas
     requested_tools: ["web", "browser"],
   });
 
-  const run = store.getSubagentRun({ subagentId: task.subagent_id });
+  const run = store.getSubagentRun({ workspaceId: workspace.id, subagentId: task.subagent_id });
   assert.ok(run);
   assert.equal(run?.parentSessionId, "session-main");
   assert.equal(run?.parentInputId, parentInput.inputId);
@@ -1011,7 +1011,7 @@ test("runtime subagent capability routes create and cancel hidden background tas
   assert.equal(cancelled.statusCode, 200);
   assert.equal(cancelled.json().status, "cancelled");
 
-  const cancelledRun = store.getSubagentRun({ subagentId: task.subagent_id });
+  const cancelledRun = store.getSubagentRun({ workspaceId: workspace.id, subagentId: task.subagent_id });
   assert.equal(cancelledRun?.status, "cancelled");
   const cancelledInput = run?.currentChildInputId ? store.getInput(run.currentChildInputId) : null;
   assert.equal(cancelledInput?.status, "DONE");
@@ -1086,7 +1086,7 @@ test("delegated subagents use the configured global subagent model instead of re
 
   assert.equal(created.statusCode, 200);
   const task = created.json().tasks[0];
-  const run = store.getSubagentRun({ subagentId: task.subagent_id });
+  const run = store.getSubagentRun({ workspaceId: workspace.id, subagentId: task.subagent_id });
   const childInput = run?.currentChildInputId
     ? store.getInput(run.currentChildInputId)
     : null;
@@ -6709,6 +6709,7 @@ test("accept task proposal creates a hidden subagent run with queued work", asyn
     evolve_candidate: null,
   });
   const subagentRun = store.getSubagentRun({
+    workspaceId: workspace.id,
     subagentId: String(childContext.subagent_id),
   });
   assert.ok(subagentRun);

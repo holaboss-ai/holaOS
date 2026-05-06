@@ -585,7 +585,7 @@ test("background task sync preserves persisted waiting-on-user blockers", async 
       statuses: ["waiting_on_user"],
     }) as Record<string, unknown>;
     const tasks = result.tasks as Array<Record<string, unknown>>;
-    const updatedRun = store.getSubagentRun({ subagentId });
+    const updatedRun = store.getSubagentRun({ workspaceId, subagentId });
 
     assert.equal(result.count, 1);
     assert.equal(tasks[0]?.status, "waiting_on_user");

@@ -2510,6 +2510,7 @@ function updateSubagentRunFromTurnResult(params: {
   if (!status) {
     return (
       params.store.updateSubagentRun({
+        workspaceId: run.workspaceId,
         subagentId: run.subagentId,
         fields,
       }) ?? run
@@ -2565,6 +2566,7 @@ function updateSubagentRunFromTurnResult(params: {
 
   const updated =
     params.store.updateSubagentRun({
+      workspaceId: run.workspaceId,
       subagentId: run.subagentId,
       fields,
     }) ?? run;

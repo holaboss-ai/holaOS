@@ -1818,6 +1818,7 @@ export class RuntimeAgentToolsService {
       });
       const updatedRun =
         this.store.updateSubagentRun({
+          workspaceId: params.workspaceId,
           subagentId: createdRun.subagentId,
           fields: {
             initialChildInputId: input.inputId,
@@ -1907,6 +1908,7 @@ export class RuntimeAgentToolsService {
       null;
     const updated =
       this.store.updateSubagentRun({
+        workspaceId: params.workspaceId,
         subagentId: state.run.subagentId,
         fields: {
           status: "cancelled",
@@ -1982,6 +1984,7 @@ export class RuntimeAgentToolsService {
     });
     const updated =
       this.store.updateSubagentRun({
+        workspaceId: params.workspaceId,
         subagentId: state.run.subagentId,
         fields: {
           ownerMainSessionId: controllerSession.sessionId,
@@ -2110,6 +2113,7 @@ export class RuntimeAgentToolsService {
     const nextTitle = normalizedSubagentTaskTitle(params.title, instruction);
     const updated =
       this.store.updateSubagentRun({
+        workspaceId: params.workspaceId,
         subagentId: state.run.subagentId,
         fields: {
           parentInputId: normalizedString(params.inputId) || state.run.parentInputId,
@@ -2900,8 +2904,8 @@ export class RuntimeAgentToolsService {
     if (!subagentId) {
       throw new RuntimeAgentToolsServiceError(400, "subagent_id_required", "subagent_id is required");
     }
-    const run = this.store.getSubagentRun({ subagentId });
-    if (!run || run.workspaceId !== params.workspaceId) {
+    const run = this.store.getSubagentRun({ workspaceId: params.workspaceId, subagentId });
+    if (!run) {
       throw new RuntimeAgentToolsServiceError(404, "subagent_not_found", "subagent not found");
     }
     return run;
@@ -2920,6 +2924,7 @@ export class RuntimeAgentToolsService {
     if (ownerMainSessionId && run.ownerMainSessionId !== ownerMainSessionId) {
       run =
         this.store.transferSubagentOwnership({
+          workspaceId: params.workspaceId,
           subagentId: run.subagentId,
           ownerMainSessionId,
         }) ?? run;
@@ -3042,6 +3047,7 @@ export class RuntimeAgentToolsService {
     const syncedRun =
       Object.keys(updates).length > 0
         ? (this.store.updateSubagentRun({
+            workspaceId: run.workspaceId,
             subagentId: run.subagentId,
             fields: updates,
           }) ?? run)
