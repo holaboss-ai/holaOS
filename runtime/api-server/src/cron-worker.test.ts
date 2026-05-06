@@ -428,36 +428,38 @@ test("cronjob routes compute next_run_at and cron worker lifecycle hooks run", a
       }
     }
   });
+  try {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/cronjobs",
+      payload: {
+        workspace_id: workspace.id,
+        initiated_by: "workspace_agent",
+        cron: "0 9 * * *",
+        description: "Daily check",
+        delivery: { channel: "session_run" }
+      }
+    });
+    const body = created.json() as { id: string; next_run_at: string | null };
+    const updated = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/cronjobs/${body.id}`,
+      payload: {
+        workspace_id: workspace.id,
+        cron: "0 10 * * *"
+      }
+    });
 
-  const created = await app.inject({
-    method: "POST",
-    url: "/api/v1/cronjobs",
-    payload: {
-      workspace_id: workspace.id,
-      initiated_by: "workspace_agent",
-      cron: "0 9 * * *",
-      description: "Daily check",
-      delivery: { channel: "session_run" }
-    }
-  });
-  const body = created.json() as { id: string; next_run_at: string | null };
-  const updated = await app.inject({
-    method: "PATCH",
-    url: `/api/v1/cronjobs/${body.id}`,
-    payload: {
-      cron: "0 10 * * *"
-    }
-  });
-
-  assert.equal(startCalls, 1);
-  assert.equal(created.statusCode, 200);
-  assert.ok(body.next_run_at);
-  assert.equal(updated.statusCode, 200);
-  assert.ok(updated.json().next_run_at);
-
-  await app.close();
-  assert.equal(closeCalls, 1);
-  store.close();
+    assert.equal(startCalls, 1);
+    assert.equal(created.statusCode, 200);
+    assert.ok(body.next_run_at);
+    assert.equal(updated.statusCode, 200);
+    assert.ok(updated.json().next_run_at);
+  } finally {
+    await app.close();
+    assert.equal(closeCalls, 1);
+    store.close();
+  }
 });
 
 test("runtime cron worker does not execute a newly created cronjob before next_run_at", async () => {
