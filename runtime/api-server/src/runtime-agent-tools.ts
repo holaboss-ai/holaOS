@@ -2773,15 +2773,24 @@ export class RuntimeAgentToolsService {
   }
 
   getTerminalSession(params: RuntimeAgentToolsGetTerminalSessionParams): JsonObject {
-    return terminalSessionPayload(this.requireTerminalSession(params));
+    return terminalSessionPayload(
+      this.requireTerminalSession({
+        terminalId: params.terminalId,
+        workspaceId: normalizedString(params.workspaceId),
+      })
+    );
   }
 
   readTerminalSession(params: RuntimeAgentToolsReadTerminalSessionParams): JsonObject {
     const manager = this.requireTerminalSessionManager();
-    const terminal = this.requireTerminalSession(params);
+    const terminal = this.requireTerminalSession({
+      terminalId: params.terminalId,
+      workspaceId: normalizedString(params.workspaceId),
+    });
     const afterSequence = normalizedInteger(params.afterSequence, 0, 0, Number.MAX_SAFE_INTEGER);
     const limit = normalizedInteger(params.limit, 200, 1, 1000);
     const events = manager.listEvents({
+      workspaceId: terminal.workspaceId,
       terminalId: terminal.terminalId,
       afterSequence,
       limit,
@@ -2791,17 +2800,24 @@ export class RuntimeAgentToolsService {
 
   async waitTerminalSession(params: RuntimeAgentToolsWaitTerminalSessionParams): Promise<JsonObject> {
     const manager = this.requireTerminalSessionManager();
-    const initialTerminal = this.requireTerminalSession(params);
+    const initialTerminal = this.requireTerminalSession({
+      terminalId: params.terminalId,
+      workspaceId: normalizedString(params.workspaceId),
+    });
     const afterSequence = normalizedInteger(params.afterSequence, 0, 0, Number.MAX_SAFE_INTEGER);
     const limit = normalizedInteger(params.limit, 200, 1, 1000);
     const timeoutMs = normalizedInteger(params.timeoutMs, 15_000, 1, 60_000);
     const immediateEvents = manager.listEvents({
+      workspaceId: initialTerminal.workspaceId,
       terminalId: initialTerminal.terminalId,
       afterSequence,
       limit,
     });
     if (immediateEvents.length > 0 || !["starting", "running"].includes(initialTerminal.status)) {
-      const terminal = this.requireTerminalSession(params);
+      const terminal = this.requireTerminalSession({
+        terminalId: params.terminalId,
+        workspaceId: normalizedString(params.workspaceId),
+      });
       return terminalSessionReadPayload({
         terminal,
         events: immediateEvents,
@@ -2823,8 +2839,12 @@ export class RuntimeAgentToolsService {
           clearTimeout(timeoutHandle);
         }
         unsubscribe();
-        const terminal = this.requireTerminalSession(params);
+        const terminal = this.requireTerminalSession({
+          terminalId: params.terminalId,
+          workspaceId: normalizedString(params.workspaceId),
+        });
         const events = manager.listEvents({
+          workspaceId: terminal.workspaceId,
           terminalId: terminal.terminalId,
           afterSequence,
           limit,
@@ -2851,8 +2871,12 @@ export class RuntimeAgentToolsService {
   }
 
   async sendTerminalSessionInput(params: RuntimeAgentToolsSendTerminalSessionInputParams): Promise<JsonObject> {
-    this.requireTerminalSession(params);
+    const terminal = this.requireTerminalSession({
+      terminalId: params.terminalId,
+      workspaceId: normalizedString(params.workspaceId),
+    });
     const session = await this.requireTerminalSessionManager().sendInput({
+      workspaceId: terminal.workspaceId,
       terminalId: normalizedString(params.terminalId),
       data: params.data,
     });
@@ -2860,8 +2884,12 @@ export class RuntimeAgentToolsService {
   }
 
   async signalTerminalSession(params: RuntimeAgentToolsSignalTerminalSessionParams): Promise<JsonObject> {
-    this.requireTerminalSession(params);
+    const terminal = this.requireTerminalSession({
+      terminalId: params.terminalId,
+      workspaceId: normalizedString(params.workspaceId),
+    });
     const session = await this.requireTerminalSessionManager().signal({
+      workspaceId: terminal.workspaceId,
       terminalId: normalizedString(params.terminalId),
       signal: normalizedString(params.signal) || null,
     });
@@ -2869,8 +2897,12 @@ export class RuntimeAgentToolsService {
   }
 
   async closeTerminalSession(params: RuntimeAgentToolsCloseTerminalSessionParams): Promise<JsonObject> {
-    this.requireTerminalSession(params);
+    const terminal = this.requireTerminalSession({
+      terminalId: params.terminalId,
+      workspaceId: normalizedString(params.workspaceId),
+    });
     const session = await this.requireTerminalSessionManager().closeSession({
+      workspaceId: terminal.workspaceId,
       terminalId: normalizedString(params.terminalId),
     });
     return terminalSessionPayload(session);
@@ -3181,15 +3213,19 @@ export class RuntimeAgentToolsService {
 
   private requireTerminalSession(params: {
     terminalId: string;
-    workspaceId?: string | null;
+    workspaceId: string;
   }): TerminalSessionRecord {
     const terminalId = normalizedString(params.terminalId);
     if (!terminalId) {
       throw new RuntimeAgentToolsServiceError(400, "terminal_session_id_required", "terminal_id is required");
     }
+    const workspaceId = normalizedString(params.workspaceId);
+    if (!workspaceId) {
+      throw new RuntimeAgentToolsServiceError(400, "workspace_id_required", "workspace_id is required");
+    }
     const terminal = this.requireTerminalSessionManager().getSession({
       terminalId,
-      workspaceId: normalizedString(params.workspaceId) || undefined,
+      workspaceId,
     });
     if (!terminal) {
       throw new RuntimeAgentToolsServiceError(404, "terminal_session_not_found", "terminal session not found");

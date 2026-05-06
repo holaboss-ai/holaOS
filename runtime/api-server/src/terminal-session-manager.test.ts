@@ -138,12 +138,12 @@ test("terminal session manager persists started output and exit events", async (
   ptyProcess.emitExit({ exitCode: 0 });
 
   await waitFor(() => {
-    const current = manager.getSession({ terminalId: session.terminalId });
+    const current = manager.getSession({ workspaceId: "workspace-1", terminalId: session.terminalId });
     return current?.status === "exited";
   });
 
-  const current = manager.getSession({ terminalId: session.terminalId });
-  const events = manager.listEvents({ terminalId: session.terminalId });
+  const current = manager.getSession({ workspaceId: "workspace-1", terminalId: session.terminalId });
+  const events = manager.listEvents({ workspaceId: "workspace-1", terminalId: session.terminalId });
 
   assert.ok(current);
   assert.equal(current.status, "exited");
@@ -184,17 +184,17 @@ test("terminal session manager proxies input resize and close operations", async
   });
   const ptyProcess = requirePty(currentPty);
 
-  await manager.sendInput({ terminalId: session.terminalId, data: "npm run dev\r" });
-  await manager.resize({ terminalId: session.terminalId, cols: 140, rows: 48 });
-  await manager.closeSession({ terminalId: session.terminalId });
+  await manager.sendInput({ workspaceId: "workspace-1", terminalId: session.terminalId, data: "npm run dev\r" });
+  await manager.resize({ workspaceId: "workspace-1", terminalId: session.terminalId, cols: 140, rows: 48 });
+  await manager.closeSession({ workspaceId: "workspace-1", terminalId: session.terminalId });
 
-  await waitFor(() => manager.getSession({ terminalId: session.terminalId })?.status === "closed");
+  await waitFor(() => manager.getSession({ workspaceId: "workspace-1", terminalId: session.terminalId })?.status === "closed");
 
   assert.deepEqual(ptyProcess.writeCalls, ["npm run dev\r"]);
   assert.deepEqual(ptyProcess.resizeCalls, [{ cols: 140, rows: 48 }]);
   assert.deepEqual(ptyProcess.killCalls, ["SIGTERM"]);
   assert.deepEqual(
-    manager.listEvents({ terminalId: session.terminalId }).map((event) => event.eventType),
+    manager.listEvents({ workspaceId: "workspace-1", terminalId: session.terminalId }).map((event) => event.eventType),
     ["started", "input", "resize", "signal", "exit"],
   );
 
@@ -229,8 +229,8 @@ test("terminal session manager reconciles stale running sessions on startup", as
   const manager = new TerminalSessionManager({ store });
   await manager.start();
 
-  const stale = manager.getSession({ terminalId: "term-stale" });
-  const events = manager.listEvents({ terminalId: "term-stale" });
+  const stale = manager.getSession({ workspaceId: "workspace-1", terminalId: "term-stale" });
+  const events = manager.listEvents({ workspaceId: "workspace-1", terminalId: "term-stale" });
 
   assert.ok(stale);
   assert.equal(stale.status, "interrupted");
@@ -287,7 +287,7 @@ test("terminal session manager captures output persistence failures instead of c
     ptyProcess.emitData("terminal-ready\n");
   });
 
-  await waitFor(() => manager.getSession({ terminalId: session.terminalId })?.status === "closed");
+  await waitFor(() => manager.getSession({ workspaceId: "workspace-1", terminalId: session.terminalId })?.status === "closed");
 
   assert.equal(sentryCaptures.length, 1);
   assert.equal(

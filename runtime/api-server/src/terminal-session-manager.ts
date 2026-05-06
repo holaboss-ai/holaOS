@@ -24,6 +24,7 @@ interface LoggerLike {
 
 interface LiveTerminalSession {
   terminalId: string;
+  workspaceId: string;
   ptyProcess: TerminalSessionPtyProcess;
   finalized: boolean;
   requestedClose: boolean;
@@ -51,13 +52,13 @@ export interface TerminalSessionManagerLike {
   start(): Promise<void>;
   close(): Promise<void>;
   createSession(params: TerminalSessionManagerCreateParams): Promise<TerminalSessionRecord>;
-  getSession(params: { terminalId: string; workspaceId?: string }): TerminalSessionRecord | null;
+  getSession(params: { terminalId: string; workspaceId: string }): TerminalSessionRecord | null;
   listSessions(params?: { workspaceId?: string; sessionId?: string; statuses?: TerminalSessionStatus[] }): TerminalSessionRecord[];
-  listEvents(params: { terminalId: string; afterSequence?: number; limit?: number }): TerminalSessionEventRecord[];
-  sendInput(params: { terminalId: string; data: string }): Promise<TerminalSessionRecord>;
-  resize(params: { terminalId: string; cols: number; rows: number }): Promise<TerminalSessionRecord>;
-  signal(params: { terminalId: string; signal?: NodeJS.Signals | string | null }): Promise<TerminalSessionRecord>;
-  closeSession(params: { terminalId: string }): Promise<TerminalSessionRecord>;
+  listEvents(params: { workspaceId: string; terminalId: string; afterSequence?: number; limit?: number }): TerminalSessionEventRecord[];
+  sendInput(params: { workspaceId: string; terminalId: string; data: string }): Promise<TerminalSessionRecord>;
+  resize(params: { workspaceId: string; terminalId: string; cols: number; rows: number }): Promise<TerminalSessionRecord>;
+  signal(params: { workspaceId: string; terminalId: string; signal?: NodeJS.Signals | string | null }): Promise<TerminalSessionRecord>;
+  closeSession(params: { workspaceId: string; terminalId: string }): Promise<TerminalSessionRecord>;
   subscribe(terminalId: string, listener: (event: TerminalSessionEventRecord) => void): () => void;
 }
 
@@ -135,7 +136,7 @@ function resolveWorkspaceScopedCwd(workspaceDir: string, cwd: string | null | un
 
 function requireTerminalSession(
   store: RuntimeStateStore,
-  params: { terminalId: string; workspaceId?: string }
+  params: { terminalId: string; workspaceId: string }
 ): TerminalSessionRecord {
   const record = store.getTerminalSession(params);
   if (!record) {
@@ -181,6 +182,7 @@ export class TerminalSessionManager implements TerminalSessionManagerLike {
     });
     for (const session of staleSessions) {
       const event = this.appendTerminalSessionEventWithCapture({
+        workspaceId: session.workspaceId,
         terminalId: session.terminalId,
         eventType: "exit",
         payload: {
@@ -233,7 +235,7 @@ export class TerminalSessionManager implements TerminalSessionManagerLike {
     this.started = false;
   }
 
-  getSession(params: { terminalId: string; workspaceId?: string }): TerminalSessionRecord | null {
+  getSession(params: { terminalId: string; workspaceId: string }): TerminalSessionRecord | null {
     return this.options.store.getTerminalSession(params);
   }
 
@@ -241,8 +243,11 @@ export class TerminalSessionManager implements TerminalSessionManagerLike {
     return this.options.store.listTerminalSessions(params);
   }
 
-  listEvents(params: { terminalId: string; afterSequence?: number; limit?: number }): TerminalSessionEventRecord[] {
-    requireTerminalSession(this.options.store, { terminalId: params.terminalId });
+  listEvents(params: { workspaceId: string; terminalId: string; afterSequence?: number; limit?: number }): TerminalSessionEventRecord[] {
+    requireTerminalSession(this.options.store, {
+      workspaceId: params.workspaceId,
+      terminalId: params.terminalId,
+    });
     return this.options.store.listTerminalSessionEvents(params);
   }
 
@@ -297,6 +302,7 @@ export class TerminalSessionManager implements TerminalSessionManagerLike {
       });
     } catch (error) {
       const event = this.options.store.appendTerminalSessionEvent({
+        workspaceId: record.workspaceId,
         terminalId: record.terminalId,
         eventType: "error",
         payload: { message: error instanceof Error ? error.message : String(error) },
@@ -314,6 +320,7 @@ export class TerminalSessionManager implements TerminalSessionManagerLike {
 
     const live: LiveTerminalSession = {
       terminalId: record.terminalId,
+      workspaceId: record.workspaceId,
       ptyProcess,
       finalized: false,
       requestedClose: false,
@@ -327,6 +334,7 @@ export class TerminalSessionManager implements TerminalSessionManagerLike {
         return;
       }
       const event = this.appendTerminalSessionEventWithCapture({
+        workspaceId: record.workspaceId,
         terminalId: record.terminalId,
         eventType: "output",
         payload: { data },
@@ -369,6 +377,7 @@ export class TerminalSessionManager implements TerminalSessionManagerLike {
     });
 
     const startedEvent = this.options.store.appendTerminalSessionEvent({
+      workspaceId: record.workspaceId,
       terminalId: record.terminalId,
       eventType: "started",
       payload: {
@@ -382,10 +391,14 @@ export class TerminalSessionManager implements TerminalSessionManagerLike {
     });
     this.emit(startedEvent);
 
-    return requireTerminalSession(this.options.store, { terminalId: record.terminalId });
+    return requireTerminalSession(this.options.store, { workspaceId: record.workspaceId, terminalId: record.terminalId });
   }
 
-  async sendInput(params: { terminalId: string; data: string }): Promise<TerminalSessionRecord> {
+  async sendInput(params: { workspaceId: string; terminalId: string; data: string }): Promise<TerminalSessionRecord> {
+    const terminal = requireTerminalSession(this.options.store, {
+      workspaceId: params.workspaceId,
+      terminalId: params.terminalId,
+    });
     const live = this.requireLiveSession(params.terminalId);
     try {
       live.ptyProcess.write(params.data);
@@ -397,15 +410,20 @@ export class TerminalSessionManager implements TerminalSessionManagerLike {
       );
     }
     const event = this.options.store.appendTerminalSessionEvent({
+      workspaceId: terminal.workspaceId,
       terminalId: params.terminalId,
       eventType: "input",
       payload: { data: params.data },
     });
     this.emit(event);
-    return requireTerminalSession(this.options.store, { terminalId: params.terminalId });
+    return requireTerminalSession(this.options.store, { workspaceId: terminal.workspaceId, terminalId: params.terminalId });
   }
 
-  async resize(params: { terminalId: string; cols: number; rows: number }): Promise<TerminalSessionRecord> {
+  async resize(params: { workspaceId: string; terminalId: string; cols: number; rows: number }): Promise<TerminalSessionRecord> {
+    const terminal = requireTerminalSession(this.options.store, {
+      workspaceId: params.workspaceId,
+      terminalId: params.terminalId,
+    });
     const live = this.requireLiveSession(params.terminalId);
     const cols = normalizedPositiveInteger(params.cols, DEFAULT_COLS, 20, 400);
     const rows = normalizedPositiveInteger(params.rows, DEFAULT_ROWS, 5, 200);
@@ -419,15 +437,20 @@ export class TerminalSessionManager implements TerminalSessionManagerLike {
       );
     }
     const event = this.options.store.appendTerminalSessionEvent({
+      workspaceId: terminal.workspaceId,
       terminalId: params.terminalId,
       eventType: "resize",
       payload: { cols, rows },
     });
     this.emit(event);
-    return requireTerminalSession(this.options.store, { terminalId: params.terminalId });
+    return requireTerminalSession(this.options.store, { workspaceId: terminal.workspaceId, terminalId: params.terminalId });
   }
 
-  async signal(params: { terminalId: string; signal?: NodeJS.Signals | string | null }): Promise<TerminalSessionRecord> {
+  async signal(params: { workspaceId: string; terminalId: string; signal?: NodeJS.Signals | string | null }): Promise<TerminalSessionRecord> {
+    const terminal = requireTerminalSession(this.options.store, {
+      workspaceId: params.workspaceId,
+      terminalId: params.terminalId,
+    });
     const live = this.requireLiveSession(params.terminalId);
     const signal = normalizedSignal(params.signal);
     try {
@@ -440,15 +463,20 @@ export class TerminalSessionManager implements TerminalSessionManagerLike {
       );
     }
     const event = this.options.store.appendTerminalSessionEvent({
+      workspaceId: terminal.workspaceId,
       terminalId: params.terminalId,
       eventType: "signal",
       payload: { signal },
     });
     this.emit(event);
-    return requireTerminalSession(this.options.store, { terminalId: params.terminalId });
+    return requireTerminalSession(this.options.store, { workspaceId: terminal.workspaceId, terminalId: params.terminalId });
   }
 
-  async closeSession(params: { terminalId: string }): Promise<TerminalSessionRecord> {
+  async closeSession(params: { workspaceId: string; terminalId: string }): Promise<TerminalSessionRecord> {
+    const terminal = requireTerminalSession(this.options.store, {
+      workspaceId: params.workspaceId,
+      terminalId: params.terminalId,
+    });
     const live = this.requireLiveSession(params.terminalId);
     live.requestedClose = true;
     try {
@@ -461,12 +489,13 @@ export class TerminalSessionManager implements TerminalSessionManagerLike {
       );
     }
     const event = this.options.store.appendTerminalSessionEvent({
+      workspaceId: terminal.workspaceId,
       terminalId: params.terminalId,
       eventType: "signal",
       payload: { signal: "SIGTERM", requested_close: true },
     });
     this.emit(event);
-    return requireTerminalSession(this.options.store, { terminalId: params.terminalId });
+    return requireTerminalSession(this.options.store, { workspaceId: terminal.workspaceId, terminalId: params.terminalId });
   }
 
   private requireLiveSession(terminalId: string): LiveTerminalSession {
@@ -518,6 +547,7 @@ export class TerminalSessionManager implements TerminalSessionManagerLike {
     live.finalized = true;
     this.liveSessions.delete(live.terminalId);
     const event = this.appendTerminalSessionEventWithCapture({
+      workspaceId: live.workspaceId,
       terminalId: live.terminalId,
       eventType: params.eventType,
       payload: params.payload,

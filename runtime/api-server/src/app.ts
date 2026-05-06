@@ -534,7 +534,7 @@ function requiredCapabilityWorkspaceId(params: {
 function requireTerminalSession(params: {
   manager: TerminalSessionManagerLike | null | undefined;
   terminalId: string;
-  workspaceId?: string;
+  workspaceId: string;
 }) {
   if (!params.manager) {
     throw new Error("terminal session capability is not available");
@@ -3570,11 +3570,13 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const params = request.params as { terminalId: string };
     const query = isRecord(request.query) ? request.query : {};
     try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        query,
+      });
       const session = terminalSessionManager?.getSession({
         terminalId: requiredString(params.terminalId, "terminalId"),
-        workspaceId:
-          headerString(request.headers as Record<string, unknown>, "x-holaboss-workspace-id") ||
-          optionalString(query.workspace_id),
+        workspaceId,
       });
       if (!session) {
         return sendError(reply, 404, "terminal session not found");
@@ -3592,16 +3594,19 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const params = request.params as { terminalId: string };
     const query = isRecord(request.query) ? request.query : {};
     try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        query,
+      });
       return {
         terminal:
           terminalSessionManager?.getSession({
             terminalId: requiredString(params.terminalId, "terminalId"),
-            workspaceId:
-              headerString(request.headers as Record<string, unknown>, "x-holaboss-workspace-id") ||
-              optionalString(query.workspace_id),
+            workspaceId,
           }) ?? null,
         events:
           terminalSessionManager?.listEvents({
+            workspaceId,
             terminalId: requiredString(params.terminalId, "terminalId"),
             afterSequence: optionalInteger(query.after_sequence, 0),
             limit: optionalInteger(query.limit, 0) || undefined,
@@ -3621,7 +3626,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
     const params = request.params as { terminalId: string };
     try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
       return await terminalSessionManager?.sendInput({
+        workspaceId,
         terminalId: requiredString(params.terminalId, "terminalId"),
         data: requiredString(request.body.data, "data"),
       });
@@ -3639,7 +3649,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
     const params = request.params as { terminalId: string };
     try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
       return await terminalSessionManager?.resize({
+        workspaceId,
         terminalId: requiredString(params.terminalId, "terminalId"),
         cols: optionalInteger(request.body.cols, DEFAULT_TERMINAL_COLS),
         rows: optionalInteger(request.body.rows, DEFAULT_TERMINAL_ROWS),
@@ -3658,7 +3673,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
     const params = request.params as { terminalId: string };
     try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
       return await terminalSessionManager?.signal({
+        workspaceId,
         terminalId: requiredString(params.terminalId, "terminalId"),
         signal: nullableString(request.body.signal),
       });
@@ -3673,7 +3693,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   app.post("/api/v1/terminal-sessions/:terminalId/close", async (request, reply) => {
     const params = request.params as { terminalId: string };
     try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: isRecord(request.body) ? request.body : null,
+      });
       return await terminalSessionManager?.closeSession({
+        workspaceId,
         terminalId: requiredString(params.terminalId, "terminalId"),
       });
     } catch (error) {
@@ -3697,10 +3722,11 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       wsHandler: (socket, request) => {
         const params = request.params as { terminalId: string };
         const query = isRecord(request.query) ? request.query : {};
-        const workspaceId =
-          headerString(request.headers as Record<string, unknown>, "x-holaboss-workspace-id") ||
-          optionalString(query.workspace_id);
         try {
+          const workspaceId = requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            query,
+          });
           const terminal = requireTerminalSession({
             manager: terminalSessionManager,
             terminalId: requiredString(params.terminalId, "terminalId"),
@@ -3710,6 +3736,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           const snapshotSequence = terminal.lastEventSeq;
           socket.send(JSON.stringify({ type: "connected", terminal }));
           const replayEvents = (terminalSessionManager?.listEvents({
+            workspaceId: terminal.workspaceId,
             terminalId: terminal.terminalId,
             afterSequence,
           }) ?? []).filter((event) => event.sequence <= snapshotSequence);
@@ -4931,7 +4958,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     try {
       return runtimeAgentToolsService.getTerminalSession({
         terminalId: requiredString(params.terminalId, "terminalId"),
-        workspaceId: capabilityWorkspaceId({
+        workspaceId: requiredCapabilityWorkspaceId({
           headers: request.headers as Record<string, unknown>,
           query: isRecord(request.query) ? request.query : null,
         }),
@@ -4950,7 +4977,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
     const params = request.params as { terminalId: string };
     try {
-      const workspaceId = capabilityWorkspaceId({
+      const requiredWorkspaceId = requiredCapabilityWorkspaceId({
         headers: request.headers as Record<string, unknown>,
         body: request.body,
       });
@@ -4960,7 +4987,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       });
       const result = runtimeAgentToolsService.readTerminalSession({
         terminalId: requiredString(params.terminalId, "terminalId"),
-        workspaceId,
+        workspaceId: requiredWorkspaceId,
         afterSequence: hasOwn(request.body, "after_sequence")
           ? optionalInteger(request.body.after_sequence, 0)
           : undefined,
@@ -4972,7 +4999,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         headers: request.headers as Record<string, unknown>,
         toolId: "terminal_session_read",
         payload: result,
-        workspaceId,
+        workspaceId: requiredWorkspaceId,
         sessionId,
       });
     } catch (error) {
@@ -4989,7 +5016,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
     const params = request.params as { terminalId: string };
     try {
-      const workspaceId = capabilityWorkspaceId({
+      const workspaceId = requiredCapabilityWorkspaceId({
         headers: request.headers as Record<string, unknown>,
         body: request.body,
       });
@@ -5033,7 +5060,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     try {
       return await runtimeAgentToolsService.sendTerminalSessionInput({
         terminalId: requiredString(params.terminalId, "terminalId"),
-        workspaceId: capabilityWorkspaceId({
+        workspaceId: requiredCapabilityWorkspaceId({
           headers: request.headers as Record<string, unknown>,
           body: request.body,
         }),
@@ -5055,7 +5082,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     try {
       return await runtimeAgentToolsService.signalTerminalSession({
         terminalId: requiredString(params.terminalId, "terminalId"),
-        workspaceId: capabilityWorkspaceId({
+        workspaceId: requiredCapabilityWorkspaceId({
           headers: request.headers as Record<string, unknown>,
           body: request.body,
         }),
@@ -5074,7 +5101,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     try {
       return await runtimeAgentToolsService.closeTerminalSession({
         terminalId: requiredString(params.terminalId, "terminalId"),
-        workspaceId: capabilityWorkspaceId({
+        workspaceId: requiredCapabilityWorkspaceId({
           headers: request.headers as Record<string, unknown>,
           body: isRecord(request.body) ? request.body : null,
         }),

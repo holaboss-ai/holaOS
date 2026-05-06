@@ -477,11 +477,11 @@ test("terminal session routes proxy to the terminal session manager", async () =
       };
       return currentSession;
     },
-    getSession(params: { terminalId: string; workspaceId?: string }) {
+    getSession(params: { terminalId: string; workspaceId: string }) {
       if (params.terminalId !== currentSession.terminalId) {
         return null;
       }
-      if (params.workspaceId && params.workspaceId !== currentSession.workspaceId) {
+      if (params.workspaceId !== currentSession.workspaceId) {
         return null;
       }
       return currentSession;
@@ -489,19 +489,34 @@ test("terminal session routes proxy to the terminal session manager", async () =
     listSessions() {
       return [currentSession];
     },
-    listEvents(params: { terminalId: string; afterSequence?: number }) {
+    listEvents(params: { workspaceId: string; terminalId: string; afterSequence?: number }) {
+      if (params.workspaceId !== currentSession.workspaceId) {
+        return [];
+      }
       return events.filter((event) => event.terminalId === params.terminalId && event.sequence > (params.afterSequence ?? 0));
     },
-    async sendInput() {
+    async sendInput(params: { workspaceId: string }) {
+      if (params.workspaceId !== currentSession.workspaceId) {
+        throw new Error("workspace mismatch");
+      }
       return currentSession;
     },
-    async resize() {
+    async resize(params: { workspaceId: string }) {
+      if (params.workspaceId !== currentSession.workspaceId) {
+        throw new Error("workspace mismatch");
+      }
       return currentSession;
     },
-    async signal() {
+    async signal(params: { workspaceId: string }) {
+      if (params.workspaceId !== currentSession.workspaceId) {
+        throw new Error("workspace mismatch");
+      }
       return currentSession;
     },
-    async closeSession() {
+    async closeSession(params: { workspaceId: string }) {
+      if (params.workspaceId !== currentSession.workspaceId) {
+        throw new Error("workspace mismatch");
+      }
       currentSession = {
         ...currentSession,
         status: "closed",
@@ -547,7 +562,7 @@ test("terminal session routes proxy to the terminal session manager", async () =
 
   const eventsResponse = await app.inject({
     method: "GET",
-    url: "/api/v1/terminal-sessions/term-1/events?after_sequence=0",
+    url: "/api/v1/terminal-sessions/term-1/events?workspace_id=workspace-1&after_sequence=0",
   });
   assert.equal(eventsResponse.statusCode, 200);
   assert.equal(eventsResponse.json().events.length, 1);
@@ -556,6 +571,9 @@ test("terminal session routes proxy to the terminal session manager", async () =
   const closeResponse = await app.inject({
     method: "POST",
     url: "/api/v1/terminal-sessions/term-1/close",
+    payload: {
+      workspace_id: "workspace-1",
+    },
   });
   assert.equal(closeResponse.statusCode, 200);
   assert.equal(closeResponse.json().status, "closed");
@@ -638,7 +656,7 @@ test("terminal session stream route replays history and forwards live events", a
   };
   const app = buildTestRuntimeApiServer({ store, terminalSessionManager });
   const baseUrl = await app.listen({ port: 0, host: "127.0.0.1" });
-  const wsUrl = `${String(baseUrl).replace(/^http/, "ws")}/api/v1/terminal-sessions/term-1/stream`;
+  const wsUrl = `${String(baseUrl).replace(/^http/, "ws")}/api/v1/terminal-sessions/term-1/stream?workspace_id=workspace-1`;
   const socket = new WebSocket(wsUrl);
   const messages: Array<Record<string, unknown>> = [];
   const waitForMessageCount = async (expectedCount: number) => {
@@ -1506,11 +1524,11 @@ test("runtime terminal session tools proxy terminal session manager operations",
       };
       return currentSession;
     },
-    getSession(params: { terminalId: string; workspaceId?: string }) {
+    getSession(params: { terminalId: string; workspaceId: string }) {
       if (params.terminalId !== currentSession.terminalId) {
         return null;
       }
-      if (params.workspaceId && params.workspaceId !== currentSession.workspaceId) {
+      if (params.workspaceId !== currentSession.workspaceId) {
         return null;
       }
       return currentSession;
@@ -1518,22 +1536,34 @@ test("runtime terminal session tools proxy terminal session manager operations",
     listSessions() {
       return [currentSession];
     },
-    listEvents(params: { terminalId: string; afterSequence?: number; limit?: number }) {
+    listEvents(params: { workspaceId: string; terminalId: string; afterSequence?: number; limit?: number }) {
+      if (params.workspaceId !== currentSession.workspaceId) {
+        return [];
+      }
       return events
         .filter((event) => event.terminalId === params.terminalId && event.sequence > (params.afterSequence ?? 0))
         .slice(0, params.limit ?? events.length);
     },
-    async sendInput() {
+    async sendInput(params: { workspaceId: string }) {
+      if (params.workspaceId !== currentSession.workspaceId) {
+        throw new Error("workspace mismatch");
+      }
       currentSession = {
         ...currentSession,
         lastActivityAt: "2026-01-01T00:00:02.000Z",
       };
       return currentSession;
     },
-    async resize() {
+    async resize(params: { workspaceId: string }) {
+      if (params.workspaceId !== currentSession.workspaceId) {
+        throw new Error("workspace mismatch");
+      }
       return currentSession;
     },
-    async signal() {
+    async signal(params: { workspaceId: string }) {
+      if (params.workspaceId !== currentSession.workspaceId) {
+        throw new Error("workspace mismatch");
+      }
       currentSession = {
         ...currentSession,
         status: "failed",
@@ -1541,7 +1571,10 @@ test("runtime terminal session tools proxy terminal session manager operations",
       };
       return currentSession;
     },
-    async closeSession() {
+    async closeSession(params: { workspaceId: string }) {
+      if (params.workspaceId !== currentSession.workspaceId) {
+        throw new Error("workspace mismatch");
+      }
       currentSession = {
         ...currentSession,
         status: "closed",

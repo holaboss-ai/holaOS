@@ -4087,7 +4087,8 @@ export class RuntimeStateStore {
     const startedAt = params.startedAt ?? createdAt;
     const lastActivityAt = params.lastActivityAt ?? startedAt;
 
-    this.db()
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
+    workspaceDb
       .prepare(`
         INSERT INTO terminal_sessions (
             terminal_id, workspace_id, session_id, input_id, title, backend, owner, status,
@@ -4117,7 +4118,7 @@ export class RuntimeStateStore {
         JSON.stringify(params.metadata ?? {})
       );
 
-    const row = this.db()
+    const row = workspaceDb
       .prepare<[string], Record<string, unknown>>("SELECT * FROM terminal_sessions WHERE terminal_id = ? LIMIT 1")
       .get(terminalId);
     if (!row) {
@@ -4126,19 +4127,10 @@ export class RuntimeStateStore {
     return this.rowToTerminalSession(row);
   }
 
-  getTerminalSession(params: { terminalId: string; workspaceId?: string }): TerminalSessionRecord | null {
-    let query = `
-      SELECT *
-      FROM terminal_sessions
-      WHERE terminal_id = ?
-    `;
-    const values: string[] = [params.terminalId];
-    if (params.workspaceId) {
-      query += " AND workspace_id = ?";
-      values.push(params.workspaceId);
-    }
-    query += " LIMIT 1";
-    const row = this.db().prepare(query).get(...values) as Record<string, unknown> | undefined;
+  getTerminalSession(params: { workspaceId: string; terminalId: string }): TerminalSessionRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<[string], Record<string, unknown>>("SELECT * FROM terminal_sessions WHERE terminal_id = ? LIMIT 1")
+      .get(params.terminalId);
     return row ? this.rowToTerminalSession(row) : null;
   }
 
@@ -4147,31 +4139,63 @@ export class RuntimeStateStore {
     sessionId?: string;
     statuses?: TerminalSessionStatus[];
   } = {}): TerminalSessionRecord[] {
+    const statuses = (params.statuses ?? []).filter((value) => Boolean(value));
+    if (!params.workspaceId) {
+      const sessions = this.listReadableWorkspaceRuntimeDbs().flatMap(({ db }) => {
+        let query = `
+          SELECT *
+          FROM terminal_sessions
+          WHERE 1 = 1
+        `;
+        const values: string[] = [];
+        if (params.sessionId) {
+          query += " AND session_id = ?";
+          values.push(params.sessionId);
+        }
+        if (statuses.length > 0) {
+          query += ` AND status IN (${statuses.map(() => "?").join(", ")})`;
+          values.push(...statuses);
+        }
+        query += " ORDER BY datetime(last_activity_at) DESC, datetime(created_at) DESC, terminal_id DESC";
+        const rows = db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+        return rows.map((row) => this.rowToTerminalSession(row));
+      });
+      sessions.sort((left, right) => {
+        const activityCompare = right.lastActivityAt.localeCompare(left.lastActivityAt);
+        if (activityCompare !== 0) {
+          return activityCompare;
+        }
+        const createdAtCompare = right.createdAt.localeCompare(left.createdAt);
+        if (createdAtCompare !== 0) {
+          return createdAtCompare;
+        }
+        return right.terminalId.localeCompare(left.terminalId);
+      });
+      return sessions;
+    }
     let query = `
       SELECT *
       FROM terminal_sessions
       WHERE 1 = 1
     `;
     const values: string[] = [];
-    if (params.workspaceId) {
-      query += " AND workspace_id = ?";
-      values.push(params.workspaceId);
-    }
+    query += " AND workspace_id = ?";
+    values.push(params.workspaceId);
     if (params.sessionId) {
       query += " AND session_id = ?";
       values.push(params.sessionId);
     }
-    const statuses = (params.statuses ?? []).filter((value) => Boolean(value));
     if (statuses.length > 0) {
       query += ` AND status IN (${statuses.map(() => "?").join(", ")})`;
       values.push(...statuses);
     }
     query += " ORDER BY datetime(last_activity_at) DESC, datetime(created_at) DESC, terminal_id DESC";
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToTerminalSession(row));
   }
 
   updateTerminalSession(params: {
+    workspaceId: string;
     terminalId: string;
     title?: string | null;
     status?: TerminalSessionStatus;
@@ -4180,7 +4204,7 @@ export class RuntimeStateStore {
     endedAt?: string | null;
     metadata?: Record<string, unknown> | null;
   }): TerminalSessionRecord {
-    const existing = this.getTerminalSession({ terminalId: params.terminalId });
+    const existing = this.getTerminalSession({ workspaceId: params.workspaceId, terminalId: params.terminalId });
     if (!existing) {
       throw new Error(`terminal session ${params.terminalId} not found`);
     }
@@ -4191,7 +4215,8 @@ export class RuntimeStateStore {
     const nextEndedAt = params.endedAt !== undefined ? params.endedAt : existing.endedAt;
     const nextMetadata = params.metadata !== undefined ? params.metadata ?? {} : existing.metadata;
 
-    this.db()
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
+    workspaceDb
       .prepare(`
         UPDATE terminal_sessions
         SET title = ?,
@@ -4212,7 +4237,7 @@ export class RuntimeStateStore {
         params.terminalId
       );
 
-    const row = this.db()
+    const row = workspaceDb
       .prepare<[string], Record<string, unknown>>("SELECT * FROM terminal_sessions WHERE terminal_id = ? LIMIT 1")
       .get(params.terminalId);
     if (!row) {
@@ -4222,6 +4247,7 @@ export class RuntimeStateStore {
   }
 
   appendTerminalSessionEvent(params: {
+    workspaceId: string;
     terminalId: string;
     eventType: string;
     payload: Record<string, unknown>;
@@ -4231,8 +4257,9 @@ export class RuntimeStateStore {
     endedAt?: string | null;
   }): TerminalSessionEventRecord {
     const createdAt = params.createdAt ?? utcNowIso();
-    const transaction = this.db().transaction(() => {
-      const row = this.db()
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
+    const transaction = workspaceDb.transaction(() => {
+      const row = workspaceDb
         .prepare<[string], Record<string, unknown>>("SELECT * FROM terminal_sessions WHERE terminal_id = ? LIMIT 1")
         .get(params.terminalId);
       if (!row) {
@@ -4240,7 +4267,7 @@ export class RuntimeStateStore {
       }
       const session = this.rowToTerminalSession(row);
       const nextSequence = session.lastEventSeq + 1;
-      this.db()
+      workspaceDb
         .prepare(`
           INSERT INTO terminal_session_events (
               terminal_id, workspace_id, session_id, sequence, event_type, payload, created_at
@@ -4255,7 +4282,7 @@ export class RuntimeStateStore {
           JSON.stringify(params.payload),
           createdAt
         );
-      this.db()
+      workspaceDb
         .prepare(`
           UPDATE terminal_sessions
           SET last_event_seq = ?,
@@ -4273,7 +4300,7 @@ export class RuntimeStateStore {
           params.endedAt !== undefined ? params.endedAt : session.endedAt,
           session.terminalId
         );
-      const eventRow = this.db()
+      const eventRow = workspaceDb
         .prepare<[string, number], Record<string, unknown>>(
           "SELECT * FROM terminal_session_events WHERE terminal_id = ? AND sequence = ? LIMIT 1"
         )
@@ -4287,6 +4314,7 @@ export class RuntimeStateStore {
   }
 
   listTerminalSessionEvents(params: {
+    workspaceId: string;
     terminalId: string;
     afterSequence?: number;
     limit?: number;
@@ -4303,7 +4331,7 @@ export class RuntimeStateStore {
       query += " LIMIT ?";
       values.push(Math.trunc(params.limit));
     }
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToTerminalSessionEvent(row));
   }
 
@@ -6735,6 +6763,8 @@ export class RuntimeStateStore {
       "session_messages",
       "subagent_runs",
       "session_output_events",
+      "terminal_sessions",
+      "terminal_session_events",
       "turn_results",
       "turn_request_snapshots",
       "task_proposals",
@@ -7048,6 +7078,51 @@ export class RuntimeStateStore {
 
       CREATE INDEX IF NOT EXISTS idx_session_output_events_workspace_session_created
           ON session_output_events (workspace_id, session_id, created_at ASC);
+
+      CREATE TABLE IF NOT EXISTS terminal_sessions (
+          terminal_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          session_id TEXT,
+          input_id TEXT,
+          title TEXT NOT NULL DEFAULT '',
+          backend TEXT NOT NULL,
+          owner TEXT NOT NULL,
+          status TEXT NOT NULL,
+          cwd TEXT NOT NULL,
+          shell TEXT,
+          command TEXT NOT NULL,
+          exit_code INTEGER,
+          last_event_seq INTEGER NOT NULL DEFAULT 0,
+          created_by TEXT,
+          created_at TEXT NOT NULL,
+          started_at TEXT NOT NULL,
+          last_activity_at TEXT NOT NULL,
+          ended_at TEXT,
+          metadata TEXT NOT NULL DEFAULT '{}'
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_terminal_sessions_workspace_status
+          ON terminal_sessions (workspace_id, status, last_activity_at DESC, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_terminal_sessions_session_created
+          ON terminal_sessions (session_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS terminal_session_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          terminal_id TEXT NOT NULL,
+          workspace_id TEXT NOT NULL,
+          session_id TEXT,
+          sequence INTEGER NOT NULL,
+          event_type TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_terminal_session_events_terminal_sequence
+          ON terminal_session_events (terminal_id, sequence ASC);
+
+      CREATE INDEX IF NOT EXISTS idx_terminal_session_events_workspace_created
+          ON terminal_session_events (workspace_id, created_at ASC);
 
       CREATE TABLE IF NOT EXISTS turn_results (
           input_id TEXT PRIMARY KEY,

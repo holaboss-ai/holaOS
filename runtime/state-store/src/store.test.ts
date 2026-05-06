@@ -2028,12 +2028,14 @@ test("terminal sessions support create update event append and list", () => {
   });
 
   const outputEvent = store.appendTerminalSessionEvent({
+    workspaceId: "workspace-1",
     terminalId: "term-1",
     eventType: "output",
     payload: { data: "ready\n" },
     status: "running",
   });
   const exitEvent = store.appendTerminalSessionEvent({
+    workspaceId: "workspace-1",
     terminalId: "term-1",
     eventType: "exit",
     payload: { exit_code: 0 },
@@ -2042,6 +2044,7 @@ test("terminal sessions support create update event append and list", () => {
     endedAt: "2026-01-01T00:00:10.000Z",
   });
   const updated = store.updateTerminalSession({
+    workspaceId: "workspace-1",
     terminalId: "term-1",
     title: "Dev Server Ready",
     metadata: { source: "test", ready: true },
@@ -2051,6 +2054,7 @@ test("terminal sessions support create update event append and list", () => {
     statuses: ["exited"],
   });
   const events = store.listTerminalSessionEvents({
+    workspaceId: "workspace-1",
     terminalId: "term-1",
   });
 
@@ -2066,7 +2070,12 @@ test("terminal sessions support create update event append and list", () => {
   assert.deepEqual(listed.map((record) => record.terminalId), ["term-1"]);
   assert.deepEqual(events.map((event) => event.eventType), ["output", "exit"]);
   assert.deepEqual(events[0]?.payload, { data: "ready\n" });
-  assert.deepEqual(store.listTerminalSessionEvents({ terminalId: "term-1", afterSequence: 1 }).map((event) => event.sequence), [2]);
+  assert.deepEqual(
+    store.listTerminalSessionEvents({ workspaceId: "workspace-1", terminalId: "term-1", afterSequence: 1 }).map(
+      (event) => event.sequence
+    ),
+    [2]
+  );
 
   store.close();
 });

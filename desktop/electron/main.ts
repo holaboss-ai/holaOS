@@ -4065,6 +4065,39 @@ function openRuntimeDiagnosticsDatabase(): Database.Database | null {
   return database;
 }
 
+function openWorkspaceRuntimeDiagnosticsDatabases(): Database.Database[] {
+  const databases: Database.Database[] = [];
+  const seenPaths = new Set<string>();
+  let workspaces: WorkspaceRecordPayload[] = [];
+  try {
+    workspaces = localWorkspaceRegistry.listCachedWorkspaces().items;
+  } catch {
+    return [];
+  }
+  for (const workspace of workspaces) {
+    const workspacePath = workspace.workspace_path?.trim() || "";
+    if (!workspacePath) {
+      continue;
+    }
+    const workspaceRuntimeDbPath = path.join(workspacePath, ".holaboss", "state", "runtime.db");
+    if (!existsSync(workspaceRuntimeDbPath) || seenPaths.has(workspaceRuntimeDbPath)) {
+      continue;
+    }
+    try {
+      const database = new Database(workspaceRuntimeDbPath, {
+        readonly: true,
+        fileMustExist: true,
+      });
+      database.pragma(`busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
+      databases.push(database);
+      seenPaths.add(workspaceRuntimeDbPath);
+    } catch {
+      // Ignore unhealthy or missing workspace-local runtime DBs in diagnostics snapshots.
+    }
+  }
+  return databases;
+}
+
 function readDesktopRuntimeDiagnosticsSnapshot(): Record<string, unknown> {
   const snapshot: Record<string, unknown> = {
     captured_at: utcNowIso(),
@@ -4094,23 +4127,52 @@ function readDesktopRuntimeDiagnosticsSnapshot(): Record<string, unknown> {
     return redactDesktopSentryValue(snapshot) as Record<string, unknown>;
   }
 
+  const workspaceDatabases = openWorkspaceRuntimeDiagnosticsDatabases();
   try {
     const readCount = (sql: string): number => {
       const row = database.prepare(sql).get() as { count?: number } | undefined;
       return Number(row?.count ?? 0);
     };
 
+    const workspaceTerminalSessions = workspaceDatabases.flatMap((workspaceDatabase) =>
+      workspaceDatabase.prepare(`
+        SELECT terminal_id, workspace_id, session_id, input_id, owner, status, title, command, last_activity_at, created_at
+        FROM terminal_sessions
+      `).all() as Array<Record<string, unknown>>
+    );
+    workspaceTerminalSessions.sort((left, right) => {
+      const activityCompare = String(right.last_activity_at ?? "").localeCompare(String(left.last_activity_at ?? ""));
+      if (activityCompare !== 0) {
+        return activityCompare;
+      }
+      const createdCompare = String(right.created_at ?? "").localeCompare(String(left.created_at ?? ""));
+      if (createdCompare !== 0) {
+        return createdCompare;
+      }
+      return String(right.terminal_id ?? "").localeCompare(String(left.terminal_id ?? ""));
+    });
+    const activeTerminalSessionCount = workspaceTerminalSessions.filter((row) =>
+      ["starting", "running"].includes(String(row.status ?? ""))
+    ).length;
+
+    const workspaceAppBuilds = workspaceDatabases.flatMap((workspaceDatabase) =>
+      workspaceDatabase.prepare(`
+        SELECT workspace_id, app_id, status, error, updated_at
+        FROM app_builds
+        WHERE status IN ('running', 'failed')
+      `).all() as Array<Record<string, unknown>>
+    );
+    workspaceAppBuilds.sort((left, right) =>
+      String(right.updated_at ?? "").localeCompare(String(left.updated_at ?? ""))
+    );
+
     snapshot.database = {
       counts: {
         active_sessions: readCount(
           "SELECT COUNT(*) AS count FROM session_runtime_state WHERE status IN ('BUSY', 'QUEUED') OR current_input_id IS NOT NULL",
         ),
-        active_terminal_sessions: readCount(
-          "SELECT COUNT(*) AS count FROM terminal_sessions WHERE status IN ('starting', 'running')",
-        ),
-        failed_app_builds: readCount(
-          "SELECT COUNT(*) AS count FROM app_builds WHERE status IN ('failed', 'running')",
-        ),
+        active_terminal_sessions: activeTerminalSessionCount,
+        failed_app_builds: workspaceAppBuilds.length,
         queued_inputs: readCount(
           "SELECT COUNT(*) AS count FROM agent_session_inputs WHERE status IN ('queued', 'claimed')",
         ),
@@ -4127,25 +4189,21 @@ function readDesktopRuntimeDiagnosticsSnapshot(): Record<string, unknown> {
         ORDER BY updated_at DESC
         LIMIT ?
       `).all(SENTRY_RECENT_STATE_LIMIT),
-      terminal_sessions: database.prepare(`
-        SELECT terminal_id, workspace_id, session_id, input_id, owner, status, title, command, last_activity_at
-        FROM terminal_sessions
-        ORDER BY last_activity_at DESC
-        LIMIT ?
-      `).all(SENTRY_RECENT_STATE_LIMIT),
-      app_builds: database.prepare(`
-        SELECT workspace_id, app_id, status, error, updated_at
-        FROM app_builds
-        WHERE status IN ('running', 'failed')
-        ORDER BY updated_at DESC
-        LIMIT ?
-      `).all(SENTRY_RECENT_STATE_LIMIT),
+      terminal_sessions: workspaceTerminalSessions.slice(0, SENTRY_RECENT_STATE_LIMIT),
+      app_builds: workspaceAppBuilds.slice(0, SENTRY_RECENT_STATE_LIMIT),
     };
   } catch (error) {
     snapshot.database = {
       error: error instanceof Error ? error.message : String(error),
     };
   } finally {
+    for (const workspaceDatabase of workspaceDatabases) {
+      try {
+        workspaceDatabase.close();
+      } catch {
+        // Ignore close errors while collecting diagnostics.
+      }
+    }
     database.close();
   }
 
