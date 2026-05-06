@@ -6,7 +6,7 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { RuntimeStateStore } from "@holaboss/runtime-state-store";
+import { RuntimeStateStore, hostStateDbPath } from "@holaboss/runtime-state-store";
 
 import {
   RuntimeAppLifecycleExecutor,
@@ -303,6 +303,10 @@ function turnRequestSnapshotFingerprint(
   return fingerprintJsonValue(sanitizeSnapshotValue(payload));
 }
 
+function defaultHostStateDbPathForSandbox(sandboxRoot: string): string {
+  return hostStateDbPath({ sandboxRoot });
+}
+
 function persistTurnRequestSnapshot(params: {
   workspaceRoot: string;
   workspaceId: string;
@@ -318,7 +322,7 @@ function persistTurnRequestSnapshot(params: {
   >;
   const fingerprint = fingerprintJsonValue(sanitizedPayload);
   const sandboxRoot = path.dirname(params.workspaceRoot);
-  const dbPath = path.join(sandboxRoot, "state", "runtime.db");
+  const dbPath = defaultHostStateDbPathForSandbox(sandboxRoot);
   try {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   } catch (error) {
@@ -525,7 +529,7 @@ async function loadRecalledMemoryContext(params: {
   logger?: LoggerLike;
 }): Promise<AgentRecalledMemoryContext | null> {
   const sandboxRoot = path.dirname(params.workspaceRoot);
-  const dbPath = path.join(sandboxRoot, "state", "runtime.db");
+  const dbPath = defaultHostStateDbPathForSandbox(sandboxRoot);
   const store = fs.existsSync(dbPath)
     ? new RuntimeStateStore({
         workspaceRoot: params.workspaceRoot,
@@ -672,7 +676,7 @@ function loadCurrentUserContext(params: {
   logger?: LoggerLike;
 }): AgentCurrentUserContext | null {
   const sandboxRoot = path.dirname(params.workspaceRoot);
-  const dbPath = path.join(sandboxRoot, "state", "runtime.db");
+  const dbPath = defaultHostStateDbPathForSandbox(sandboxRoot);
   const defaultContext: AgentCurrentUserContext = {
     profile_id: "default",
     name: null,
@@ -714,7 +718,7 @@ function loadPendingUserMemoryContext(params: {
   logger?: LoggerLike;
 }): AgentPendingUserMemoryContext | null {
   const sandboxRoot = path.dirname(params.workspaceRoot);
-  const dbPath = path.join(sandboxRoot, "state", "runtime.db");
+  const dbPath = defaultHostStateDbPathForSandbox(sandboxRoot);
   if (!fs.existsSync(dbPath)) {
     return null;
   }
@@ -820,7 +824,7 @@ function loadRecentRuntimeContext(params: {
     return null;
   }
   const sandboxRoot = path.dirname(params.workspaceRoot);
-  const dbPath = path.join(sandboxRoot, "state", "runtime.db");
+  const dbPath = defaultHostStateDbPathForSandbox(sandboxRoot);
   let staleBrowserRefusal = false;
 
   if (fs.existsSync(dbPath)) {
@@ -1664,7 +1668,7 @@ function resolveRegisteredWorkspaceDir(
 ): string {
   const workspaceRoot = managedWorkspaceRoot();
   const sandboxRoot = path.dirname(workspaceRoot);
-  const dbPath = path.join(sandboxRoot, "state", "runtime.db");
+  const dbPath = defaultHostStateDbPathForSandbox(sandboxRoot);
   if (!fs.existsSync(dbPath)) {
     return workspaceDirForId(workspaceId);
   }

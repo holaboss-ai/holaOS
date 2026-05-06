@@ -11,8 +11,11 @@ import {
   RUNTIME_DB_MIGRATIONS,
 } from "./migrations/index.js";
 
-const RUNTIME_DB_PATH_ENV = "HOLABOSS_RUNTIME_DB_PATH";
+const HOST_STATE_DB_PATH_ENV = "HOLABOSS_HOST_STATE_DB_PATH";
+const LEGACY_RUNTIME_DB_PATH_ENV = "HOLABOSS_RUNTIME_DB_PATH";
 const CONTROL_PLANE_DB_PATH_ENV = "HOLABOSS_CONTROL_PLANE_DB_PATH";
+const HOST_STATE_DB_FILENAME = "host-state.db";
+const LEGACY_RUNTIME_DB_FILENAME = "runtime.db";
 const WORKSPACE_RUNTIME_DIRNAME = ".holaboss";
 const WORKSPACE_STATE_DIRNAME = "state";
 const WORKSPACE_RUNTIME_DB_FILENAME = "runtime.db";
@@ -611,6 +614,7 @@ export interface CreateWorkspaceParams {
 }
 
 export interface RuntimeStateStoreOptions {
+  hostStateDbPath?: string;
   dbPath?: string;
   controlPlaneDbPath?: string;
   workspaceRoot?: string;
@@ -844,14 +848,45 @@ export function sanitizeWorkspaceId(workspaceId: string): string {
   return workspaceId.replace(/[^A-Za-z0-9._-]+/g, "-");
 }
 
-export function runtimeDbPath(options: RuntimeStateStoreOptions = {}): string {
-  const explicit = (options.dbPath ?? process.env[RUNTIME_DB_PATH_ENV] ?? "").trim();
+function hasExplicitHostStatePath(options: RuntimeStateStoreOptions = {}): boolean {
+  return Boolean(
+    (options.hostStateDbPath ?? "").trim()
+      || (process.env[HOST_STATE_DB_PATH_ENV] ?? "").trim()
+      || (options.dbPath ?? "").trim()
+      || (process.env[LEGACY_RUNTIME_DB_PATH_ENV] ?? "").trim(),
+  );
+}
+
+function defaultHostStateDbPath(options: RuntimeStateStoreOptions = {}): string {
+  const sandboxRoot = options.sandboxRoot ?? path.join(os.tmpdir(), "sandbox");
+  return path.join(sandboxRoot, "state", HOST_STATE_DB_FILENAME);
+}
+
+function legacyRuntimeDbPath(options: RuntimeStateStoreOptions = {}): string {
+  const explicit = (options.dbPath ?? process.env[LEGACY_RUNTIME_DB_PATH_ENV] ?? "").trim();
   if (explicit) {
     return path.resolve(explicit);
   }
-
   const sandboxRoot = options.sandboxRoot ?? path.join(os.tmpdir(), "sandbox");
-  return path.join(sandboxRoot, "state", "runtime.db");
+  return path.join(sandboxRoot, "state", LEGACY_RUNTIME_DB_FILENAME);
+}
+
+export function hostStateDbPath(options: RuntimeStateStoreOptions = {}): string {
+  const explicit = (
+    options.hostStateDbPath
+    ?? process.env[HOST_STATE_DB_PATH_ENV]
+    ?? options.dbPath
+    ?? process.env[LEGACY_RUNTIME_DB_PATH_ENV]
+    ?? ""
+  ).trim();
+  if (explicit) {
+    return path.resolve(explicit);
+  }
+  return defaultHostStateDbPath(options);
+}
+
+export function runtimeDbPath(options: RuntimeStateStoreOptions = {}): string {
+  return hostStateDbPath(options);
 }
 
 export function controlPlaneDbPath(options: RuntimeStateStoreOptions = {}): string {
@@ -860,12 +895,11 @@ export function controlPlaneDbPath(options: RuntimeStateStoreOptions = {}): stri
     return path.resolve(explicit);
   }
 
-  if (options.dbPath) {
-    return path.join(path.dirname(path.resolve(options.dbPath)), "control-plane.db");
+  const resolvedHostStateDbPath = hostStateDbPath(options);
+  if (hasExplicitHostStatePath(options)) {
+    return path.join(path.dirname(resolvedHostStateDbPath), "control-plane.db");
   }
-
-  const sandboxRoot = options.sandboxRoot ?? path.join(os.tmpdir(), "sandbox");
-  return path.join(sandboxRoot, "state", "control-plane.db");
+  return path.join(path.dirname(resolvedHostStateDbPath), "control-plane.db");
 }
 
 function workspaceRuntimeDir(workspacePath: string): string {
@@ -904,6 +938,8 @@ function ensureWorkspaceIdentityMigrated(workspacePath: string): string {
 
 export class RuntimeStateStore {
   readonly dbPath: string;
+  readonly legacyDbPath: string;
+  readonly usesImplicitHostStatePath: boolean;
   readonly controlPlaneDbPath: string;
   readonly workspaceRoot: string;
   readonly sandboxAgentHarness: string | null;
@@ -915,7 +951,9 @@ export class RuntimeStateStore {
   #statementCache: Map<string, Database.Statement> = new Map();
 
   constructor(options: RuntimeStateStoreOptions = {}) {
-    this.dbPath = runtimeDbPath(options);
+    this.dbPath = hostStateDbPath(options);
+    this.legacyDbPath = legacyRuntimeDbPath(options);
+    this.usesImplicitHostStatePath = !hasExplicitHostStatePath(options);
     this.controlPlaneDbPath = controlPlaneDbPath(options);
     this.workspaceRoot = path.resolve(options.workspaceRoot ?? path.join(os.tmpdir(), "workspace-root"));
     this.#onMigrationEvent = options.onMigrationEvent;
@@ -2466,7 +2504,8 @@ export class RuntimeStateStore {
       { touchExisting: false }
     );
     const ownerTransferredAt = params.ownerTransferredAt ?? utcNowIso();
-    const transaction = this.db().transaction(() => {
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
+    const transaction = workspaceDb.transaction(() => {
       const updated = this.updateSubagentRun({
         workspaceId: params.workspaceId,
         subagentId: params.subagentId,
@@ -2926,7 +2965,7 @@ export class RuntimeStateStore {
       WHERE input_id = ?
         AND status = 'FAILED'
     `);
-    const transaction = this.db().transaction(
+    const transaction = workspaceDb.transaction(
       (records: Array<{ eventId: string; materializedInputId: string | null }>) => {
         for (const record of records) {
           resetEventStatement.run(now, now, record.eventId);
@@ -5782,7 +5821,7 @@ export class RuntimeStateStore {
   // --- App Ports ---
 
   allocateAppPort(params: { workspaceId: string; appId: string }): AppPortRecord {
-    const allocate = this.db().transaction(() => {
+    const allocate = this.controlPlaneDb().transaction(() => {
       const existing = this.getAppPort({ workspaceId: params.workspaceId, appId: params.appId });
       if (existing) {
         return existing;
@@ -6743,6 +6782,7 @@ export class RuntimeStateStore {
       return this.#db;
     }
 
+    this.migrateLegacyHostStateDb();
     fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
     const db = new Database(this.dbPath);
     db.pragma("journal_mode = WAL");
@@ -6750,6 +6790,9 @@ export class RuntimeStateStore {
     db.pragma("foreign_keys = ON");
     this.#vectorIndexSupported = this.tryLoadVectorExtension(db);
     this.ensureRuntimeDbSchema(db);
+    if (this.controlPlaneDbPath === this.dbPath) {
+      this.ensureControlPlaneDbSchema(db);
+    }
     this.runPendingMigrations(db);
     this.#db = db;
     return db;
@@ -7156,27 +7199,36 @@ export class RuntimeStateStore {
       return;
     }
 
-    const columns = (
+    const targetColumns = (
       params.db.prepare(`PRAGMA table_info(${params.tableName})`).all() as Array<{ name: string }>
     ).map((row) => row.name);
-    if (columns.length === 0) {
+    if (targetColumns.length === 0) {
+      return;
+    }
+    const legacyColumns = new Set<string>(
+      (params.legacy.prepare(`PRAGMA table_info(${params.tableName})`).all() as Array<{ name: string }>).map(
+        (row) => row.name
+      )
+    );
+    const sharedColumns = targetColumns.filter((column) => legacyColumns.has(column));
+    if (sharedColumns.length === 0) {
       return;
     }
 
     const rows = params.legacy
-      .prepare(`SELECT ${columns.join(", ")} FROM ${params.tableName} WHERE workspace_id = ?`)
+      .prepare(`SELECT ${sharedColumns.join(", ")} FROM ${params.tableName} WHERE workspace_id = ?`)
       .all(params.workspaceId) as Array<Record<string, unknown>>;
     if (rows.length === 0) {
       return;
     }
 
     const insert = params.db.prepare(`
-      INSERT OR IGNORE INTO ${params.tableName} (${columns.join(", ")})
-      VALUES (${columns.map(() => "?").join(", ")})
+      INSERT OR IGNORE INTO ${params.tableName} (${sharedColumns.join(", ")})
+      VALUES (${sharedColumns.map(() => "?").join(", ")})
     `);
     const insertMany = params.db.transaction((items: Array<Record<string, unknown>>) => {
       for (const row of items) {
-        insert.run(...columns.map((column) => row[column] ?? null));
+        insert.run(...sharedColumns.map((column) => row[column] ?? null));
       }
     });
     insertMany(rows);
@@ -7191,25 +7243,34 @@ export class RuntimeStateStore {
     if (!this.tableExists(params.legacy, params.tableName) || !this.tableExists(params.db, params.tableName)) {
       return;
     }
-    const columns = (
+    const targetColumns = (
       params.db.prepare(`PRAGMA table_info(${params.tableName})`).all() as Array<{ name: string }>
     ).map((row) => row.name);
-    if (columns.length === 0) {
+    if (targetColumns.length === 0) {
+      return;
+    }
+    const legacyColumns = new Set<string>(
+      (params.legacy.prepare(`PRAGMA table_info(${params.tableName})`).all() as Array<{ name: string }>).map(
+        (row) => row.name
+      )
+    );
+    const sharedColumns = targetColumns.filter((column) => legacyColumns.has(column));
+    if (sharedColumns.length === 0) {
       return;
     }
     const rows = params.legacy
-      .prepare(`SELECT ${columns.join(", ")} FROM ${params.tableName} WHERE ${params.whereClause}`)
+      .prepare(`SELECT ${sharedColumns.join(", ")} FROM ${params.tableName} WHERE ${params.whereClause}`)
       .all() as Array<Record<string, unknown>>;
     if (rows.length === 0) {
       return;
     }
     const insert = params.db.prepare(`
-      INSERT OR IGNORE INTO ${params.tableName} (${columns.join(", ")})
-      VALUES (${columns.map(() => "?").join(", ")})
+      INSERT OR IGNORE INTO ${params.tableName} (${sharedColumns.join(", ")})
+      VALUES (${sharedColumns.map(() => "?").join(", ")})
     `);
     const insertMany = params.db.transaction((items: Array<Record<string, unknown>>) => {
       for (const row of items) {
-        insert.run(...columns.map((column) => row[column] ?? null));
+        insert.run(...sharedColumns.map((column) => row[column] ?? null));
       }
     });
     insertMany(rows);
@@ -7263,6 +7324,32 @@ export class RuntimeStateStore {
 
   private ensureWorkspaceMetadataReady(): void {
     void this.controlPlaneDb();
+  }
+
+  private migrateLegacyHostStateDb(): void {
+    if (!this.usesImplicitHostStatePath || this.dbPath === this.legacyDbPath) {
+      return;
+    }
+    if (fs.existsSync(this.dbPath) || !fs.existsSync(this.legacyDbPath)) {
+      return;
+    }
+    fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
+    for (const suffix of ["", "-wal", "-shm"]) {
+      const legacyPath = `${this.legacyDbPath}${suffix}`;
+      if (!fs.existsSync(legacyPath)) {
+        continue;
+      }
+      const nextPath = `${this.dbPath}${suffix}`;
+      if (fs.existsSync(nextPath)) {
+        continue;
+      }
+      try {
+        fs.renameSync(legacyPath, nextPath);
+      } catch {
+        fs.copyFileSync(legacyPath, nextPath);
+        fs.unlinkSync(legacyPath);
+      }
+    }
   }
 
   private tryLoadVectorExtension(db: Database.Database): boolean {
@@ -7963,13 +8050,8 @@ export class RuntimeStateStore {
 
   private ensureRuntimeDbSchema(db: Database.Database): void {
     this.ensureWorkspacesTableSchema(db);
-    this.ensureTaskProposalsTableSchema(db);
-    this.ensureEvolveSkillCandidatesTableSchema(db);
-    this.ensureMemoryUpdateProposalsTableSchema(db);
-    this.ensureMemoryEmbeddingIndexSchema(db);
-    this.ensureTurnArtifactsSchema(db);
-    this.ensureOutputsTableSchema(db);
-    this.migrateSandboxRunTokensTable(db);
+    this.migrateRevertIntegrationConnectionsWorkspace(db);
+    this.migrateIntegrationConnectionIdentityColumns(db);
     db.exec(`
       CREATE TABLE IF NOT EXISTS workspaces (
           id TEXT PRIMARY KEY,
@@ -7991,585 +8073,7 @@ export class RuntimeStateStore {
 
       CREATE INDEX IF NOT EXISTS idx_workspaces_updated
           ON workspaces (updated_at DESC, created_at DESC);
-
-      CREATE TABLE IF NOT EXISTS agent_sessions (
-          workspace_id TEXT NOT NULL,
-          session_id TEXT NOT NULL,
-          kind TEXT NOT NULL DEFAULT 'workspace_session',
-          title TEXT,
-          parent_session_id TEXT,
-          source_proposal_id TEXT,
-          created_by TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          archived_at TEXT,
-          PRIMARY KEY (workspace_id, session_id),
-          UNIQUE (workspace_id, source_proposal_id)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_agent_sessions_workspace_updated
-          ON agent_sessions (workspace_id, updated_at DESC, created_at DESC);
-
-      CREATE TABLE IF NOT EXISTS agent_runtime_sessions (
-          workspace_id TEXT NOT NULL,
-          session_id TEXT NOT NULL,
-          harness TEXT NOT NULL,
-          harness_session_id TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          PRIMARY KEY (workspace_id, session_id),
-          UNIQUE (workspace_id, harness, harness_session_id)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_agent_runtime_sessions_workspace_updated
-          ON agent_runtime_sessions (workspace_id, updated_at DESC);
-
-      CREATE TABLE IF NOT EXISTS conversation_bindings (
-          binding_id TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          channel TEXT NOT NULL,
-          conversation_key TEXT NOT NULL,
-          session_id TEXT NOT NULL,
-          role TEXT NOT NULL DEFAULT 'main',
-          is_active INTEGER NOT NULL DEFAULT 1,
-          metadata TEXT NOT NULL DEFAULT '{}',
-          last_active_at TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          UNIQUE (workspace_id, channel, conversation_key, role),
-          UNIQUE (session_id)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_conversation_bindings_workspace_role_active_updated
-          ON conversation_bindings (workspace_id, role, is_active, updated_at DESC, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_conversation_bindings_channel_key_active
-          ON conversation_bindings (channel, conversation_key, is_active);
-
-      CREATE TABLE IF NOT EXISTS agent_session_inputs (
-          input_id TEXT PRIMARY KEY,
-          session_id TEXT NOT NULL,
-          workspace_id TEXT NOT NULL,
-          payload TEXT NOT NULL,
-          status TEXT NOT NULL,
-          priority INTEGER NOT NULL DEFAULT 0,
-          available_at TEXT NOT NULL,
-          attempt INTEGER NOT NULL DEFAULT 0,
-          idempotency_key TEXT,
-          claimed_by TEXT,
-          claimed_until TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_agent_session_inputs_workspace_created
-          ON agent_session_inputs (workspace_id, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_agent_session_inputs_session_status
-          ON agent_session_inputs (session_id, status, available_at);
-
-      CREATE TABLE IF NOT EXISTS post_run_jobs (
-          job_id TEXT PRIMARY KEY,
-          job_type TEXT NOT NULL,
-          input_id TEXT NOT NULL,
-          session_id TEXT NOT NULL,
-          workspace_id TEXT NOT NULL,
-          payload TEXT NOT NULL,
-          status TEXT NOT NULL,
-          priority INTEGER NOT NULL DEFAULT 0,
-          available_at TEXT NOT NULL,
-          attempt INTEGER NOT NULL DEFAULT 0,
-          idempotency_key TEXT,
-          claimed_by TEXT,
-          claimed_until TEXT,
-          last_error TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_post_run_jobs_workspace_created
-          ON post_run_jobs (workspace_id, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_post_run_jobs_session_status
-          ON post_run_jobs (session_id, status, available_at);
-
-      CREATE TABLE IF NOT EXISTS main_session_event_queue (
-          event_id TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          owner_main_session_id TEXT NOT NULL,
-          origin_main_session_id TEXT NOT NULL,
-          subagent_id TEXT,
-          event_type TEXT NOT NULL,
-          delivery_bucket TEXT NOT NULL,
-          status TEXT NOT NULL DEFAULT 'pending',
-          payload TEXT NOT NULL DEFAULT '{}',
-          coalesce_key TEXT,
-          earliest_deliver_at TEXT,
-          latest_deliver_at TEXT,
-          materialized_input_id TEXT,
-          superseded_by_event_id TEXT,
-          delivered_at TEXT,
-          superseded_at TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_main_session_event_queue_owner_status_earliest
-          ON main_session_event_queue (owner_main_session_id, status, earliest_deliver_at, created_at ASC);
-
-      CREATE INDEX IF NOT EXISTS idx_main_session_event_queue_workspace_status_created
-          ON main_session_event_queue (workspace_id, status, created_at ASC);
-
-      CREATE INDEX IF NOT EXISTS idx_main_session_event_queue_subagent_created
-          ON main_session_event_queue (subagent_id, created_at ASC);
-
-      CREATE INDEX IF NOT EXISTS idx_main_session_event_queue_materialized_input
-          ON main_session_event_queue (materialized_input_id);
-
-      CREATE TABLE IF NOT EXISTS session_runtime_state (
-          workspace_id TEXT NOT NULL,
-          session_id TEXT NOT NULL,
-          status TEXT NOT NULL CHECK (status IN (${SESSION_RUNTIME_STATE_STATUS_SQL})),
-          current_input_id TEXT,
-          current_worker_id TEXT,
-          lease_until TEXT,
-          heartbeat_at TEXT,
-          last_error TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          PRIMARY KEY (workspace_id, session_id)
-      );
-
-      CREATE INDEX IF NOT EXISTS session_runtime_state_workspace_session_idx
-          ON session_runtime_state (workspace_id, session_id);
-
-      CREATE INDEX IF NOT EXISTS session_runtime_state_session_id_idx
-          ON session_runtime_state (session_id);
-
-      CREATE TABLE IF NOT EXISTS sandbox_run_tokens (
-          token TEXT PRIMARY KEY,
-          run_id TEXT NOT NULL UNIQUE,
-          workspace_id TEXT NOT NULL,
-          session_id TEXT NOT NULL,
-          input_id TEXT NOT NULL,
-          scopes TEXT NOT NULL DEFAULT '[]',
-          expires_at TEXT NOT NULL,
-          revoked_at TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS session_messages (
-          id TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          session_id TEXT NOT NULL,
-          role TEXT NOT NULL,
-          text TEXT NOT NULL,
-          created_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_session_messages_workspace_session_created
-          ON session_messages (workspace_id, session_id, created_at ASC);
-
-      CREATE TABLE IF NOT EXISTS session_output_events (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          workspace_id TEXT NOT NULL,
-          session_id TEXT NOT NULL,
-          input_id TEXT NOT NULL,
-          sequence INTEGER NOT NULL,
-          event_type TEXT NOT NULL,
-          payload TEXT NOT NULL,
-          created_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_session_output_events_session_input_sequence
-          ON session_output_events (session_id, input_id, sequence ASC);
-
-      CREATE INDEX IF NOT EXISTS idx_session_output_events_workspace_session_created
-          ON session_output_events (workspace_id, session_id, created_at ASC);
-
-      CREATE TABLE IF NOT EXISTS terminal_sessions (
-          terminal_id TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          session_id TEXT,
-          input_id TEXT,
-          title TEXT NOT NULL DEFAULT '',
-          backend TEXT NOT NULL,
-          owner TEXT NOT NULL,
-          status TEXT NOT NULL,
-          cwd TEXT NOT NULL,
-          shell TEXT,
-          command TEXT NOT NULL,
-          exit_code INTEGER,
-          last_event_seq INTEGER NOT NULL DEFAULT 0,
-          created_by TEXT,
-          created_at TEXT NOT NULL,
-          started_at TEXT NOT NULL,
-          last_activity_at TEXT NOT NULL,
-          ended_at TEXT,
-          metadata TEXT NOT NULL DEFAULT '{}'
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_terminal_sessions_workspace_status
-          ON terminal_sessions (workspace_id, status, last_activity_at DESC, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_terminal_sessions_session_created
-          ON terminal_sessions (session_id, created_at DESC);
-
-      CREATE TABLE IF NOT EXISTS terminal_session_events (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          terminal_id TEXT NOT NULL,
-          workspace_id TEXT NOT NULL,
-          session_id TEXT,
-          sequence INTEGER NOT NULL,
-          event_type TEXT NOT NULL,
-          payload TEXT NOT NULL,
-          created_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_terminal_session_events_terminal_sequence
-          ON terminal_session_events (terminal_id, sequence ASC);
-
-      CREATE INDEX IF NOT EXISTS idx_terminal_session_events_workspace_created
-          ON terminal_session_events (workspace_id, created_at ASC);
-
-      CREATE TABLE IF NOT EXISTS turn_results (
-          input_id TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          session_id TEXT NOT NULL,
-          started_at TEXT NOT NULL,
-          completed_at TEXT,
-          status TEXT NOT NULL,
-          stop_reason TEXT,
-          assistant_text TEXT NOT NULL DEFAULT '',
-          tool_usage_summary TEXT NOT NULL DEFAULT '{}',
-          permission_denials TEXT NOT NULL DEFAULT '[]',
-          prompt_section_ids TEXT NOT NULL DEFAULT '[]',
-          capability_manifest_fingerprint TEXT,
-          request_snapshot_fingerprint TEXT,
-          prompt_cache_profile TEXT,
-          context_budget_decisions TEXT,
-          token_usage TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_turn_results_workspace_session_completed
-          ON turn_results (workspace_id, session_id, completed_at DESC, started_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_turn_results_session_input
-          ON turn_results (session_id, input_id);
-
-      CREATE TABLE IF NOT EXISTS subagent_runs (
-          subagent_id TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          parent_session_id TEXT,
-          parent_input_id TEXT,
-          origin_main_session_id TEXT NOT NULL,
-          owner_main_session_id TEXT NOT NULL,
-          child_session_id TEXT NOT NULL,
-          initial_child_input_id TEXT,
-          current_child_input_id TEXT,
-          latest_child_input_id TEXT,
-          title TEXT,
-          goal TEXT NOT NULL,
-          context TEXT,
-          source_type TEXT,
-          source_id TEXT,
-          proposal_id TEXT,
-          cronjob_id TEXT,
-          retry_of_subagent_id TEXT,
-          tool_profile TEXT NOT NULL DEFAULT '{}',
-          requested_model TEXT,
-          effective_model TEXT,
-          status TEXT NOT NULL,
-          summary TEXT,
-          latest_progress_payload TEXT,
-          blocking_payload TEXT,
-          result_payload TEXT,
-          error_payload TEXT,
-          last_event_at TEXT,
-          owner_transferred_at TEXT,
-          created_at TEXT NOT NULL,
-          started_at TEXT,
-          completed_at TEXT,
-          cancelled_at TEXT,
-          updated_at TEXT NOT NULL,
-          UNIQUE (workspace_id, child_session_id)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_subagent_runs_workspace_status_updated
-          ON subagent_runs (workspace_id, status, updated_at DESC, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_subagent_runs_owner_status_updated
-          ON subagent_runs (owner_main_session_id, status, updated_at DESC, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_subagent_runs_origin_created
-          ON subagent_runs (origin_main_session_id, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_subagent_runs_retry_created
-          ON subagent_runs (retry_of_subagent_id, created_at DESC);
-
-      CREATE TABLE IF NOT EXISTS turn_request_snapshots (
-          input_id TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          session_id TEXT NOT NULL,
-          snapshot_kind TEXT NOT NULL,
-          fingerprint TEXT NOT NULL,
-          payload TEXT NOT NULL DEFAULT '{}',
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_turn_request_snapshots_workspace_session_updated
-          ON turn_request_snapshots (workspace_id, session_id, updated_at DESC, created_at DESC);
-
-      CREATE TABLE IF NOT EXISTS memory_entries (
-          memory_id TEXT PRIMARY KEY,
-          workspace_id TEXT,
-          session_id TEXT,
-          scope TEXT NOT NULL,
-          memory_type TEXT NOT NULL,
-          subject_key TEXT NOT NULL,
-          path TEXT NOT NULL,
-          title TEXT NOT NULL,
-          summary TEXT NOT NULL,
-          tags TEXT NOT NULL DEFAULT '[]',
-          verification_policy TEXT NOT NULL,
-          staleness_policy TEXT NOT NULL DEFAULT 'stable',
-          stale_after_seconds INTEGER,
-          source_turn_input_id TEXT,
-          source_message_id TEXT,
-          source_type TEXT,
-          observed_at TEXT,
-          last_verified_at TEXT,
-          confidence REAL,
-          fingerprint TEXT NOT NULL,
-          status TEXT NOT NULL DEFAULT 'active',
-          superseded_at TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_memory_entries_workspace_scope_updated
-          ON memory_entries (workspace_id, scope, status, updated_at DESC, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_memory_entries_scope_updated
-          ON memory_entries (scope, status, updated_at DESC, created_at DESC);
-
-      CREATE TABLE IF NOT EXISTS task_proposals (
-          proposal_id TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          task_name TEXT NOT NULL,
-          task_prompt TEXT NOT NULL,
-          task_generation_rationale TEXT NOT NULL,
-          proposal_source TEXT NOT NULL DEFAULT 'proactive',
-          source_event_ids TEXT NOT NULL DEFAULT '[]',
-          created_at TEXT NOT NULL,
-          state TEXT NOT NULL DEFAULT 'not_reviewed',
-          accepted_session_id TEXT,
-          accepted_input_id TEXT,
-          accepted_at TEXT
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_task_proposals_workspace_created
-          ON task_proposals (workspace_id, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_task_proposals_workspace_state_created
-          ON task_proposals (workspace_id, state, created_at DESC);
-
-      CREATE TABLE IF NOT EXISTS evolve_skill_candidates (
-          candidate_id TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          session_id TEXT NOT NULL,
-          input_id TEXT NOT NULL,
-          task_proposal_id TEXT,
-          kind TEXT NOT NULL,
-          status TEXT NOT NULL DEFAULT 'draft',
-          title TEXT NOT NULL,
-          summary TEXT NOT NULL,
-          slug TEXT NOT NULL,
-          skill_path TEXT NOT NULL,
-          content_fingerprint TEXT NOT NULL,
-          confidence REAL,
-          evaluation_notes TEXT,
-          source_turn_input_ids TEXT NOT NULL DEFAULT '[]',
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          proposed_at TEXT,
-          dismissed_at TEXT,
-          accepted_at TEXT,
-          promoted_at TEXT
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_evolve_skill_candidates_workspace_created
-          ON evolve_skill_candidates (workspace_id, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_evolve_skill_candidates_workspace_status_created
-          ON evolve_skill_candidates (workspace_id, status, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_evolve_skill_candidates_task_proposal
-          ON evolve_skill_candidates (task_proposal_id);
-
-      CREATE TABLE IF NOT EXISTS memory_update_proposals (
-          proposal_id TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          session_id TEXT NOT NULL,
-          input_id TEXT NOT NULL,
-          proposal_kind TEXT NOT NULL,
-          target_key TEXT NOT NULL,
-          title TEXT NOT NULL,
-          summary TEXT NOT NULL,
-          payload TEXT NOT NULL DEFAULT '{}',
-          evidence TEXT,
-          confidence REAL,
-          source_message_id TEXT,
-          state TEXT NOT NULL DEFAULT 'pending',
-          persisted_memory_id TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          accepted_at TEXT,
-          dismissed_at TEXT
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_memory_update_proposals_workspace_created
-          ON memory_update_proposals (workspace_id, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_memory_update_proposals_session_input_created
-          ON memory_update_proposals (session_id, input_id, created_at ASC);
-
-      CREATE INDEX IF NOT EXISTS idx_memory_update_proposals_workspace_state_created
-          ON memory_update_proposals (workspace_id, state, created_at DESC);
-
-      CREATE TABLE IF NOT EXISTS output_folders (
-          id TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          name TEXT NOT NULL,
-          position INTEGER NOT NULL DEFAULT 0,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_output_folders_workspace_position
-          ON output_folders (workspace_id, position ASC, created_at ASC);
-
-      CREATE TABLE IF NOT EXISTS outputs (
-          id TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          output_type TEXT NOT NULL,
-          title TEXT NOT NULL DEFAULT '',
-          status TEXT NOT NULL DEFAULT 'draft',
-          module_id TEXT,
-          module_resource_id TEXT,
-          file_path TEXT,
-          html_content TEXT,
-          session_id TEXT,
-          input_id TEXT,
-          artifact_id TEXT,
-          folder_id TEXT,
-          platform TEXT,
-          metadata TEXT NOT NULL DEFAULT '{}',
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_outputs_workspace_created
-          ON outputs (workspace_id, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_outputs_workspace_folder_created
-          ON outputs (workspace_id, folder_id, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_outputs_session_input_created
-          ON outputs (session_id, input_id, created_at DESC);
-
-      CREATE TABLE IF NOT EXISTS app_builds (
-          workspace_id TEXT NOT NULL,
-          app_id TEXT NOT NULL,
-          status TEXT NOT NULL,
-          started_at TEXT,
-          completed_at TEXT,
-          error TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          PRIMARY KEY (workspace_id, app_id)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_app_builds_workspace
-          ON app_builds (workspace_id);
-
-      CREATE TABLE IF NOT EXISTS app_ports (
-          workspace_id TEXT NOT NULL,
-          app_id TEXT NOT NULL,
-          port INTEGER NOT NULL UNIQUE,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          PRIMARY KEY (workspace_id, app_id)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_app_ports_workspace
-          ON app_ports (workspace_id);
-
-      CREATE TABLE IF NOT EXISTS cronjobs (
-          id TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          initiated_by TEXT NOT NULL,
-          name TEXT NOT NULL DEFAULT '',
-          cron TEXT NOT NULL,
-          description TEXT NOT NULL,
-          instruction TEXT NOT NULL DEFAULT '',
-          enabled INTEGER NOT NULL DEFAULT 1,
-          delivery TEXT NOT NULL,
-          metadata TEXT NOT NULL DEFAULT '{}',
-          last_run_at TEXT,
-          next_run_at TEXT,
-          run_count INTEGER NOT NULL DEFAULT 0,
-          last_status TEXT,
-          last_error TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_cronjobs_workspace_created
-          ON cronjobs (workspace_id, created_at ASC);
-
-      CREATE INDEX IF NOT EXISTS idx_cronjobs_enabled_next_run
-          ON cronjobs (enabled, next_run_at);
-
-      CREATE TABLE IF NOT EXISTS runtime_notifications (
-          id TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          cronjob_id TEXT,
-          source_type TEXT NOT NULL,
-          source_label TEXT,
-          title TEXT NOT NULL,
-          message TEXT NOT NULL,
-          level TEXT NOT NULL DEFAULT 'info',
-          priority TEXT NOT NULL DEFAULT 'normal',
-          state TEXT NOT NULL DEFAULT 'unread',
-          metadata TEXT NOT NULL DEFAULT '{}',
-          read_at TEXT,
-          dismissed_at TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_runtime_notifications_workspace_state_created
-          ON runtime_notifications (workspace_id, state, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_runtime_notifications_state_created
-          ON runtime_notifications (state, created_at DESC);
-
     `);
-    this.ensureConversationBindingsTableSchema(db);
-    this.ensureSubagentRunsTableSchema(db);
-    this.ensureMainSessionEventQueueTableSchema(db);
-    this.ensureSessionRuntimeStateTableSchema(db);
-    this.migrateLegacySessionArtifactsToOutputs(db);
-    this.migrateRuntimeNotificationPriority(db);
-    this.migrateCronjobInstructions(db);
-    this.migrateAppBuildRestartAttempts(db);
-    this.migrateRevertIntegrationConnectionsWorkspace(db);
-    this.migrateIntegrationConnectionIdentityColumns(db);
   }
 
   private ensureConversationBindingsTableSchema(db: Database.Database): void {
@@ -8937,68 +8441,6 @@ export class RuntimeStateStore {
       )
       .get(tableName);
     return Boolean(row);
-  }
-
-  private migrateSandboxRunTokensTable(db: Database.Database): void {
-    const tables = new Set<string>(
-      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
-        (row) => row.name
-      )
-    );
-    if (!tables.has("sandbox_run_tokens")) {
-      return;
-    }
-
-    const columns = new Set<string>(
-      (db.prepare("PRAGMA table_info(sandbox_run_tokens)").all() as Array<{ name: string }>).map((row) => row.name)
-    );
-    if (!columns.has("holaboss_user_id")) {
-      return;
-    }
-
-    db.exec(`
-      ALTER TABLE sandbox_run_tokens RENAME TO sandbox_run_tokens_legacy_with_user;
-
-      CREATE TABLE sandbox_run_tokens (
-          token TEXT PRIMARY KEY,
-          run_id TEXT NOT NULL UNIQUE,
-          workspace_id TEXT NOT NULL,
-          session_id TEXT NOT NULL,
-          input_id TEXT NOT NULL,
-          scopes TEXT NOT NULL DEFAULT '[]',
-          expires_at TEXT NOT NULL,
-          revoked_at TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-      );
-
-      INSERT INTO sandbox_run_tokens (
-          token,
-          run_id,
-          workspace_id,
-          session_id,
-          input_id,
-          scopes,
-          expires_at,
-          revoked_at,
-          created_at,
-          updated_at
-      )
-      SELECT
-          token,
-          run_id,
-          workspace_id,
-          session_id,
-          input_id,
-          scopes,
-          expires_at,
-          revoked_at,
-          created_at,
-          updated_at
-      FROM sandbox_run_tokens_legacy_with_user;
-
-      DROP TABLE sandbox_run_tokens_legacy_with_user;
-    `);
   }
 
   private ensureTaskProposalsTableSchema(db: Database.Database): void {

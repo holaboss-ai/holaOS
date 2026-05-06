@@ -22,7 +22,9 @@ The tables below focus on the names that are already used in the current repo an
 | `SANDBOX_AGENT_BIND_PORT` | Runtime API port. |
 | `SANDBOX_AGENT_HARNESS` | Harness selector, typically `pi`. |
 | `HOLABOSS_RUNTIME_WORKFLOW_BACKEND` | Workflow backend selector used by the runtime. |
-| `HOLABOSS_RUNTIME_DB_PATH` | Path to the SQLite runtime database. |
+| `HOLABOSS_HOST_STATE_DB_PATH` | Preferred override for the sandbox-global host-state SQLite path. |
+| `HOLABOSS_CONTROL_PLANE_DB_PATH` | Optional override for the control-plane SQLite path. |
+| `HOLABOSS_RUNTIME_DB_PATH` | Legacy alias for `HOLABOSS_HOST_STATE_DB_PATH`. |
 | `HOLABOSS_RUNTIME_CONFIG_PATH` | Optional override for `runtime-config.json`. |
 | `HOLABOSS_DEFAULT_MODEL` | Default model id used when one is not selected explicitly. |
 | `HOLABOSS_MODEL_PROXY_BASE_URL` | Proxy base URL for model routing. |

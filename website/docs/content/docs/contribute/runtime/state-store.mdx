@@ -1,9 +1,9 @@
 ---
 title: Runtime State Store
-description: SQLite-backed state store for sessions, inputs, and artifacts.
+description: SQLite-backed state store for host, control-plane, and workspace execution data.
 ---
 
-Use this page when you are changing `runtime.db`, queue behavior, continuity records, or any runtime-owned persistent state.
+Use this page when you are changing `host-state.db`, `control-plane.db`, workspace runtime DBs, queue behavior, continuity records, or any runtime-owned persistent state.
 
 The source of truth is:
 
@@ -13,25 +13,33 @@ The source of truth is:
 
 ## What This Package Owns
 
-`@holaboss/runtime-state-store` is the durable SQLite registry for the runtime.
+`@holaboss/runtime-state-store` owns the runtime's durable SQLite surfaces.
 
 It does not replace the workspace filesystem or the markdown memory tree. It stores the runtime-owned metadata around them:
 
-- workspace registry and discovery
-- session and harness binding state
-- input and post-run job queues
-- turn results and request snapshots
-- memory registry metadata and vector index entries
-- outputs, app build state, cronjobs, notifications, and proposals
+- host/bootstrap state for the local embedded runtime
+- control-plane metadata such as workspace registry, runtime profiles, and integrations
+- workspace execution state such as sessions, queues, outputs, turns, and notifications
+- durable memory registry metadata and vector index entries
 
 If the runtime needs durable state that is not just a file in the workspace, it usually lands here.
 
-## Where `runtime.db` Lives
+## Where the SQLite surfaces live
 
-`runtimeDbPath()` resolves the database path this way:
+`hostStateDbPath()` resolves the sandbox-global host-state path this way:
 
-- `HOLABOSS_RUNTIME_DB_PATH` if set
-- else `<sandboxRoot>/state/runtime.db`
+- `HOLABOSS_HOST_STATE_DB_PATH` if set
+- else `HOLABOSS_RUNTIME_DB_PATH` as a legacy alias
+- else `<sandboxRoot>/state/host-state.db`
+
+`controlPlaneDbPath()` defaults to:
+
+- `HOLABOSS_CONTROL_PLANE_DB_PATH` if set
+- else `<sandboxRoot>/state/control-plane.db`
+
+Workspace execution state lives at:
+
+- `<workspaceRoot>/<workspace-id>/.holaboss/state/runtime.db`
 
 The store also resolves workspace paths from:
 
@@ -43,16 +51,41 @@ That means the runtime uses both the database and filesystem markers to keep wor
 
 ## Major Record Families
 
-### Workspace and session registry
+### Control-plane metadata
 
-The store owns:
+`control-plane.db` owns:
 
 - `workspaces`
+- `runtime_user_profiles`
+- `integration_connections`
+- `integration_bindings`
+- `oauth_app_configs`
+- `app_catalog`
+
+This is the durable product/control metadata that exists above one workspace run.
+
+### Workspace execution state
+
+Each workspace runtime DB owns:
+
 - `agent_sessions`
 - session-to-harness bindings
 - session runtime state
+- queue records and leases
+- continuity artifacts such as turn results, request snapshots, and output events
+- outputs, app build/runtime state, cronjobs, notifications, and proposals
 
-This is the durable registry that tells the runtime which workspaces and sessions exist, which harness path they use, and whether a session is idle, busy, waiting on user input, or errored.
+This is the durable execution truth for one workspace: which sessions exist, what the runtime is currently doing, and which artifacts must survive a restart.
+
+### Host/bootstrap state
+
+`host-state.db` keeps only sandbox-global host concerns such as:
+
+- local embedded-runtime bootstrap state
+- desktop/runtime process diagnostics
+- compatibility mirrors needed during migration from older local layouts
+
+This is deliberately not the home for workspace execution state anymore.
 
 ### Queues and leases
 
@@ -71,11 +104,11 @@ Both support:
 - optional `distinctSessions` claiming so one worker does not take multiple queued items from the same session in one batch
 - input claiming can also exclude specific session ids so queue workers do not claim a second active run for a session that is already executing
 
-This is the runtime’s queue and lease model. If job pickup or replay behavior is wrong, inspect these records before you patch workers.
+This is the runtime's queue and lease model. If job pickup or replay behavior is wrong, inspect the workspace runtime DB records before you patch workers.
 
 ### Continuity and replay state
 
-The store persists:
+The workspace runtime DB persists:
 
 - session messages
 - output events
@@ -86,7 +119,7 @@ This is part of the persistent continuity seam between runs. It is how the runti
 
 ### Memory registry and vector index
 
-The store tracks memory metadata with:
+The state store tracks memory metadata with:
 
 - runtime user profile rows
 - memory entries
@@ -98,18 +131,17 @@ Important distinction:
 
 - workspace-scoped markdown memory lives on disk under each workspace's `.holaboss/memory/`
 - profile-global markdown memory still lives under `memory/preference/`, `memory/identity/`, and the root `MEMORY.md`
-- the runtime-state-store keeps the searchable registry and embedding index around those documents
+- workspace-scoped memory metadata lives in the corresponding workspace runtime DB
+- profile-global memory metadata and canonical runtime profiles live in `control-plane.db`
 
 ### Workspace-visible product state
 
-The same database also stores:
+Workspace runtime DBs also store:
 
 - output folders and outputs
 - app builds, app restart-attempt counters, and app port allocation
-- app catalog metadata
 - cronjobs
 - runtime notifications
-- OAuth app config
 - task proposals
 - evolve skill candidates
 - memory update proposals
@@ -170,7 +202,9 @@ Do not collapse the persistence model into one place.
 
 The runtime currently uses:
 
-- `runtime.db` for registry, queue, and durable runtime metadata
+- `state/host-state.db` for sandbox-global host/bootstrap state
+- `state/control-plane.db` for registry, profiles, and integrations
+- `<workspace-id>/.holaboss/state/runtime.db` for workspace execution truth and workspace-scoped runtime metadata
 - workspace files for authored config and app/template state
 - `.holaboss/memory/` under each workspace for workspace-scoped markdown memory
 - global `memory/` for profile-global memory
@@ -186,9 +220,9 @@ Current migration seams in `store.ts` include:
 
 - workspace-table migration and workspace-path recovery
 - legacy session-artifact migration into outputs
+- legacy `state/runtime.db` rename/migration into `state/host-state.db`
 - runtime-notification priority normalization
 - cronjob instruction migration
-- sandbox run-token table migration
 - queue/runtime-state lease-column migrations
 - app-build `restart_attempts` persistence migration
 
@@ -216,7 +250,7 @@ For development, the tests are usually the better executable reference than manu
 The CLI expects `cli <operation> --request-base64 <base64-json>`. A representative claim flow looks like this:
 
 ```bash
-REQ='{"options":{"dbPath":"/tmp/runtime.db","workspaceRoot":"/tmp/workspace"},"claimed_by":"worker-1","limit":2,"lease_seconds":60,"distinct_sessions":true}'
+REQ='{"options":{"dbPath":"/tmp/host-state.db","workspaceRoot":"/tmp/workspace"},"claimed_by":"worker-1","limit":2,"lease_seconds":60,"distinct_sessions":true}'
 holaboss-state-store claim-inputs --request-base64 "$(printf '%s' "$REQ" | base64 | tr -d '\n')"
 ```
 

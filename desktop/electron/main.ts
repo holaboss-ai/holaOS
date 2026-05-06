@@ -3804,8 +3804,16 @@ function runtimeModelCatalogCachePath() {
   return path.join(runtimeSandboxRoot(), "state", "runtime-model-catalog.json");
 }
 
-function runtimeDatabasePath() {
+function legacyRuntimeDatabasePath() {
   return path.join(runtimeSandboxRoot(), "state", "runtime.db");
+}
+
+function hostStateDatabasePath() {
+  return path.join(runtimeSandboxRoot(), "state", "host-state.db");
+}
+
+function runtimeDatabasePath() {
+  return hostStateDatabasePath();
 }
 
 function controlPlaneDatabasePath() {
@@ -3814,6 +3822,47 @@ function controlPlaneDatabasePath() {
 
 function runtimeWorkspaceRoot() {
   return path.join(runtimeSandboxRoot(), "workspace");
+}
+
+async function migrateLegacyHostStateDatabaseFiles() {
+  const nextPath = hostStateDatabasePath();
+  const legacyPath = legacyRuntimeDatabasePath();
+  if (nextPath === legacyPath) {
+    return;
+  }
+  try {
+    await fs.access(nextPath);
+    return;
+  } catch {
+    // continue
+  }
+  try {
+    await fs.access(legacyPath);
+  } catch {
+    return;
+  }
+  await fs.mkdir(path.dirname(nextPath), { recursive: true });
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const source = `${legacyPath}${suffix}`;
+    const target = `${nextPath}${suffix}`;
+    try {
+      await fs.access(source);
+    } catch {
+      continue;
+    }
+    try {
+      await fs.access(target);
+      continue;
+    } catch {
+      // continue
+    }
+    try {
+      await fs.rename(source, target);
+    } catch {
+      await fs.copyFile(source, target);
+      await fs.unlink(source);
+    }
+  }
 }
 
 function diagnosticsBundleWorkspaceSegment(
@@ -4098,6 +4147,16 @@ function openWorkspaceRuntimeDiagnosticsDatabases(): Database.Database[] {
   return databases;
 }
 
+function closeRuntimeDatabases(databases: Database.Database[]) {
+  for (const database of databases) {
+    try {
+      database.close();
+    } catch {
+      // Ignore close errors while collecting diagnostics.
+    }
+  }
+}
+
 function readDesktopRuntimeDiagnosticsSnapshot(): Record<string, unknown> {
   const snapshot: Record<string, unknown> = {
     captured_at: utcNowIso(),
@@ -4116,7 +4175,7 @@ function readDesktopRuntimeDiagnosticsSnapshot(): Record<string, unknown> {
     runtime_status: runtimeStatus,
     persisted_runtime_process: readPersistedRuntimeProcessState(),
     files: {
-      runtime_db: runtimeSentryFileMetadata(runtimeDatabasePath()),
+      host_state_db: runtimeSentryFileMetadata(runtimeDatabasePath()),
       runtime_log: runtimeSentryFileMetadata(runtimeLogsPath()),
       runtime_config: runtimeSentryFileMetadata(runtimeConfigPath()),
     },
@@ -4129,11 +4188,6 @@ function readDesktopRuntimeDiagnosticsSnapshot(): Record<string, unknown> {
 
   const workspaceDatabases = openWorkspaceRuntimeDiagnosticsDatabases();
   try {
-    const readCount = (sql: string): number => {
-      const row = database.prepare(sql).get() as { count?: number } | undefined;
-      return Number(row?.count ?? 0);
-    };
-
     const workspaceTerminalSessions = workspaceDatabases.flatMap((workspaceDatabase) =>
       workspaceDatabase.prepare(`
         SELECT terminal_id, workspace_id, session_id, input_id, owner, status, title, command, last_activity_at, created_at
@@ -4166,16 +4220,42 @@ function readDesktopRuntimeDiagnosticsSnapshot(): Record<string, unknown> {
       String(right.updated_at ?? "").localeCompare(String(left.updated_at ?? ""))
     );
 
+    const workspaceRuntimeStateRows = workspaceDatabases.flatMap((workspaceDatabase) =>
+      workspaceDatabase.prepare(`
+        SELECT workspace_id, session_id, status, current_input_id, updated_at
+        FROM session_runtime_state
+      `).all() as Array<Record<string, unknown>>
+    );
+    workspaceRuntimeStateRows.sort((left, right) => {
+      const updatedCompare = String(right.updated_at ?? "").localeCompare(String(left.updated_at ?? ""));
+      if (updatedCompare !== 0) {
+        return updatedCompare;
+      }
+      const sessionCompare = String(right.session_id ?? "").localeCompare(String(left.session_id ?? ""));
+      if (sessionCompare !== 0) {
+        return sessionCompare;
+      }
+      return String(right.workspace_id ?? "").localeCompare(String(left.workspace_id ?? ""));
+    });
+    const activeSessionCount = workspaceRuntimeStateRows.filter((row) => {
+      const status = String(row.status ?? "");
+      return status === "BUSY" || status === "QUEUED" || row.current_input_id != null;
+    }).length;
+    const queuedInputCount = workspaceDatabases.reduce((total, workspaceDatabase) => {
+      const row = workspaceDatabase
+        .prepare(
+          "SELECT COUNT(*) AS count FROM agent_session_inputs WHERE status IN ('queued', 'claimed')",
+        )
+        .get() as { count?: number } | undefined;
+      return total + Number(row?.count ?? 0);
+    }, 0);
+
     snapshot.database = {
       counts: {
-        active_sessions: readCount(
-          "SELECT COUNT(*) AS count FROM session_runtime_state WHERE status IN ('BUSY', 'QUEUED') OR current_input_id IS NOT NULL",
-        ),
+        active_sessions: activeSessionCount,
         active_terminal_sessions: activeTerminalSessionCount,
         failed_app_builds: workspaceAppBuilds.length,
-        queued_inputs: readCount(
-          "SELECT COUNT(*) AS count FROM agent_session_inputs WHERE status IN ('queued', 'claimed')",
-        ),
+        queued_inputs: queuedInputCount,
       },
       recent_event_log: database.prepare(`
         SELECT category, event, outcome, detail, created_at
@@ -4183,12 +4263,7 @@ function readDesktopRuntimeDiagnosticsSnapshot(): Record<string, unknown> {
         ORDER BY created_at DESC
         LIMIT ?
       `).all(SENTRY_RECENT_EVENT_LIMIT),
-      session_runtime_state: database.prepare(`
-        SELECT workspace_id, session_id, status, current_input_id, updated_at
-        FROM session_runtime_state
-        ORDER BY updated_at DESC
-        LIMIT ?
-      `).all(SENTRY_RECENT_STATE_LIMIT),
+      session_runtime_state: workspaceRuntimeStateRows.slice(0, SENTRY_RECENT_STATE_LIMIT),
       terminal_sessions: workspaceTerminalSessions.slice(0, SENTRY_RECENT_STATE_LIMIT),
       app_builds: workspaceAppBuilds.slice(0, SENTRY_RECENT_STATE_LIMIT),
     };
@@ -4197,13 +4272,7 @@ function readDesktopRuntimeDiagnosticsSnapshot(): Record<string, unknown> {
       error: error instanceof Error ? error.message : String(error),
     };
   } finally {
-    for (const workspaceDatabase of workspaceDatabases) {
-      try {
-        workspaceDatabase.close();
-      } catch {
-        // Ignore close errors while collecting diagnostics.
-      }
-    }
+    closeRuntimeDatabases(workspaceDatabases);
     database.close();
   }
 
@@ -4508,6 +4577,7 @@ function migrateRuntimeProcessStateTable(database: Database.Database) {
 
 async function bootstrapRuntimeDatabase() {
   await fs.mkdir(path.dirname(runtimeDatabasePath()), { recursive: true });
+  await migrateLegacyHostStateDatabaseFiles();
 
   const database = openRuntimeDatabase();
   try {
@@ -4529,23 +4599,6 @@ async function bootstrapRuntimeDatabase() {
         updated_at TEXT NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS agent_runtime_sessions (
-        workspace_id TEXT NOT NULL,
-        session_id TEXT NOT NULL,
-        harness TEXT NOT NULL,
-        harness_session_id TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        PRIMARY KEY (workspace_id, session_id),
-        UNIQUE (workspace_id, harness, harness_session_id)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_agent_runtime_sessions_workspace_updated
-        ON agent_runtime_sessions (workspace_id, updated_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_agent_runtime_sessions_workspace_harness_session
-        ON agent_runtime_sessions (workspace_id, harness_session_id);
-
       CREATE TABLE IF NOT EXISTS workspaces (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -4565,86 +4618,6 @@ async function bootstrapRuntimeDatabase() {
 
       CREATE INDEX IF NOT EXISTS idx_workspaces_updated
         ON workspaces (updated_at DESC);
-
-      CREATE TABLE IF NOT EXISTS agent_session_inputs (
-        input_id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        workspace_id TEXT NOT NULL,
-        payload TEXT NOT NULL,
-        status TEXT NOT NULL,
-        priority INTEGER NOT NULL DEFAULT 0,
-        available_at TEXT NOT NULL,
-        attempt INTEGER NOT NULL DEFAULT 0,
-        idempotency_key TEXT,
-        claimed_by TEXT,
-        claimed_until TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_agent_session_inputs_workspace_created
-        ON agent_session_inputs (workspace_id, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_agent_session_inputs_session_status
-        ON agent_session_inputs (session_id, status, available_at);
-
-      CREATE TABLE IF NOT EXISTS session_runtime_state (
-        workspace_id TEXT NOT NULL,
-        session_id TEXT NOT NULL,
-        status TEXT NOT NULL CHECK (status IN ('IDLE', 'BUSY', 'WAITING_USER', 'ERROR', 'QUEUED')),
-        current_input_id TEXT,
-        current_worker_id TEXT,
-        lease_until TEXT,
-        heartbeat_at TEXT,
-        last_error TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        PRIMARY KEY (workspace_id, session_id)
-      );
-
-      CREATE INDEX IF NOT EXISTS session_runtime_state_status_idx
-        ON session_runtime_state (status, lease_until);
-
-      CREATE INDEX IF NOT EXISTS session_runtime_state_session_id_idx
-        ON session_runtime_state (session_id);
-
-      CREATE INDEX IF NOT EXISTS session_runtime_state_workspace_session_idx
-        ON session_runtime_state (workspace_id, session_id);
-
-      CREATE TABLE IF NOT EXISTS sandbox_run_tokens (
-        token TEXT PRIMARY KEY,
-        run_id TEXT NOT NULL UNIQUE,
-        holaboss_user_id TEXT NOT NULL,
-        workspace_id TEXT NOT NULL,
-        session_id TEXT NOT NULL,
-        input_id TEXT NOT NULL,
-        scopes TEXT NOT NULL DEFAULT '[]',
-        expires_at TEXT NOT NULL,
-        revoked_at TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS sandbox_run_tokens_run_id_idx
-        ON sandbox_run_tokens (run_id);
-
-      CREATE INDEX IF NOT EXISTS sandbox_run_tokens_expires_at_idx
-        ON sandbox_run_tokens (expires_at);
-
-      CREATE INDEX IF NOT EXISTS sandbox_run_tokens_revoked_at_idx
-        ON sandbox_run_tokens (revoked_at);
-
-      CREATE TABLE IF NOT EXISTS session_messages (
-        id TEXT PRIMARY KEY,
-        workspace_id TEXT NOT NULL,
-        session_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        text TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_session_messages_workspace_session_created
-        ON session_messages (workspace_id, session_id, created_at ASC);
 
       CREATE TABLE IF NOT EXISTS runtime_process_state (
         process_key TEXT PRIMARY KEY,
@@ -7212,10 +7185,10 @@ function listRuntimeRestartBlockingSessions(): Array<{
   status: string;
   currentInputId: string | null;
 }> {
-  const database = openRuntimeDatabase();
+  const databases = openWorkspaceRuntimeDiagnosticsDatabases();
   try {
-    const rows = database
-      .prepare(
+    const rows = databases.flatMap((database) =>
+      database.prepare(
         `
         SELECT
           workspace_id,
@@ -7225,15 +7198,13 @@ function listRuntimeRestartBlockingSessions(): Array<{
         FROM session_runtime_state
         WHERE status IN ('BUSY', 'QUEUED')
            OR current_input_id IS NOT NULL
-        ORDER BY updated_at DESC
       `,
-      )
-      .all() as Array<{
+      ).all() as Array<{
       workspace_id: string;
       session_id: string;
       status: string;
       current_input_id: string | null;
-    }>;
+    }>);
     return rows
       .map((row) => ({
         workspaceId: row.workspace_id.trim(),
@@ -7247,7 +7218,7 @@ function listRuntimeRestartBlockingSessions(): Array<{
       }))
       .filter((row) => row.workspaceId && row.sessionId);
   } finally {
-    database.close();
+    closeRuntimeDatabases(databases);
   }
 }
 
@@ -9549,22 +9520,26 @@ async function getProactiveStatus(
   const workspaceRuntimeDbPath = workspacePath
     ? path.join(workspacePath, ".holaboss", "state", "runtime.db")
     : "";
-  const database =
-    workspaceRuntimeDbPath && existsSync(workspaceRuntimeDbPath)
-      ? new Database(workspaceRuntimeDbPath, { readonly: true })
-      : openRuntimeDatabase();
-  try {
-    const proposalRow = database
-      .prepare(
-        `
+  if (workspaceRuntimeDbPath && existsSync(workspaceRuntimeDbPath)) {
+    const workspaceDatabase = new Database(workspaceRuntimeDbPath, { readonly: true });
+    try {
+      const proposalRow = workspaceDatabase
+        .prepare(
+          `
           SELECT COUNT(*) AS proposal_count
           FROM task_proposals
           WHERE workspace_id = ?
         `,
-      )
-      .get(normalizedWorkspaceId) as { proposal_count?: number } | undefined;
-    proposalCount = Number(proposalRow?.proposal_count ?? 0);
+        )
+        .get(normalizedWorkspaceId) as { proposal_count?: number } | undefined;
+      proposalCount = Number(proposalRow?.proposal_count ?? 0);
+    } finally {
+      workspaceDatabase.close();
+    }
+  }
 
+  const database = openRuntimeDatabase();
+  try {
     const correlationId = `workspace-ready-${normalizedWorkspaceId}`;
     const heartbeatRow = database
       .prepare(
@@ -12597,102 +12572,6 @@ async function stageSessionAttachmentPaths(
   return { attachments };
 }
 
-function insertSessionMessage(message: {
-  id: string;
-  workspaceId: string;
-  sessionId: string;
-  role: string;
-  text: string;
-  createdAt?: string;
-}) {
-  const database = openRuntimeDatabase();
-  try {
-    database
-      .prepare(
-        `
-        INSERT OR REPLACE INTO session_messages (
-          id, workspace_id, session_id, role, text, created_at
-        ) VALUES (
-          @id, @workspace_id, @session_id, @role, @text, @created_at
-        )
-      `,
-      )
-      .run({
-        id: message.id,
-        workspace_id: message.workspaceId,
-        session_id: message.sessionId,
-        role: message.role,
-        text: message.text,
-        created_at: message.createdAt ?? utcNowIso(),
-      });
-  } finally {
-    database.close();
-  }
-}
-
-function upsertRuntimeState(record: {
-  workspaceId: string;
-  sessionId: string;
-  status: "IDLE" | "BUSY" | "WAITING_USER" | "ERROR" | "QUEUED";
-  currentInputId?: string | null;
-  lastError?: Record<string, unknown> | string | null;
-}) {
-  const now = utcNowIso();
-  const database = openRuntimeDatabase();
-  try {
-    database
-      .prepare(
-        `
-        INSERT INTO session_runtime_state (
-          workspace_id,
-          session_id,
-          status,
-          current_input_id,
-          current_worker_id,
-          lease_until,
-          heartbeat_at,
-          last_error,
-          created_at,
-          updated_at
-        ) VALUES (
-          @workspace_id,
-          @session_id,
-          @status,
-          @current_input_id,
-          NULL,
-          NULL,
-          NULL,
-          @last_error,
-          @created_at,
-          @updated_at
-        )
-        ON CONFLICT(workspace_id, session_id) DO UPDATE SET
-          status = excluded.status,
-          current_input_id = excluded.current_input_id,
-          heartbeat_at = excluded.heartbeat_at,
-          last_error = excluded.last_error,
-          updated_at = excluded.updated_at
-      `,
-      )
-      .run({
-        workspace_id: record.workspaceId,
-        session_id: record.sessionId,
-        status: record.status,
-        current_input_id: record.currentInputId ?? null,
-        last_error:
-          typeof record.lastError === "string"
-            ? record.lastError
-            : record.lastError
-              ? JSON.stringify(record.lastError)
-              : null,
-        created_at: now,
-        updated_at: now,
-      });
-  } finally {
-    database.close();
-  }
-}
-
 function cloneRuntimeStateRecord(
   record: SessionRuntimeRecordPayload,
 ): SessionRuntimeRecordPayload {
@@ -12904,27 +12783,6 @@ function runtimeRecordEffectiveStatus(
   return record?.effective_state?.trim().toUpperCase()
     || record?.status?.trim().toUpperCase()
     || "";
-}
-
-function updateQueuedInputStatus(inputId: string, status: string) {
-  const database = openRuntimeDatabase();
-  try {
-    database
-      .prepare(
-        `
-        UPDATE agent_session_inputs
-        SET status = @status, updated_at = @updated_at
-        WHERE input_id = @input_id
-      `,
-      )
-      .run({
-        input_id: inputId,
-        status,
-        updated_at: utcNowIso(),
-      });
-  } finally {
-    database.close();
-  }
 }
 
 const localWorkspaceRegistry = createLocalWorkspaceRegistry({
@@ -14727,61 +14585,6 @@ function emitSessionStreamEvent(payload: HolabossSessionStreamEventPayload) {
   }
 }
 
-function getQueuedInput(inputId: string) {
-  const database = openRuntimeDatabase();
-  try {
-    const row = database
-      .prepare(
-        `
-        SELECT
-          input_id,
-          session_id,
-          workspace_id,
-          payload,
-          status,
-          priority,
-          available_at,
-          attempt,
-          idempotency_key,
-          created_at,
-          updated_at
-        FROM agent_session_inputs
-        WHERE input_id = @input_id
-      `,
-      )
-      .get({ input_id: inputId }) as
-      | {
-          input_id: string;
-          session_id: string;
-          workspace_id: string;
-          payload: string;
-          status: string;
-          priority: number;
-          available_at: string;
-          attempt: number;
-          idempotency_key: string | null;
-          created_at: string;
-          updated_at: string;
-        }
-      | undefined;
-    if (!row) {
-      return null;
-    }
-    let parsedPayload: Record<string, unknown> = {};
-    try {
-      parsedPayload = JSON.parse(row.payload) as Record<string, unknown>;
-    } catch {
-      parsedPayload = {};
-    }
-    return {
-      ...row,
-      payload: parsedPayload,
-    };
-  } finally {
-    database.close();
-  }
-}
-
 async function openSessionOutputStream(
   payload: HolabossStreamSessionOutputsPayload,
 ): Promise<HolabossSessionStreamHandlePayload> {
@@ -15835,6 +15638,7 @@ async function startEmbeddedRuntime() {
           HOLABOSS_EMBEDDED_RUNTIME: "1",
           SANDBOX_AGENT_HARNESS: harness,
           HOLABOSS_RUNTIME_WORKFLOW_BACKEND: workflowBackend,
+          HOLABOSS_HOST_STATE_DB_PATH: runtimeDatabasePath(),
           HOLABOSS_RUNTIME_DB_PATH: runtimeDatabasePath(),
           HOLABOSS_CONTROL_PLANE_DB_PATH: controlPlaneDatabasePath(),
           HOLABOSS_RUNTIME_LOG_PATH: runtimeLogsPath(),
@@ -20960,7 +20764,7 @@ app.whenReady().then(async () => {
     ["main", "auth-popup"],
     async () => localWorkspaceControlPlane.listWorkspaces(),
   );
-  // Cached read straight from runtime.db without going through the
+  // Cached read straight from control-plane.db without going through the
   // sidecar — used by the splash to hydrate before the sidecar
   // finishes spawning. Returns empty on any failure so the renderer
   // can silently fall back to the live sidecar path.

@@ -6,7 +6,7 @@ set -e
 
 DATA_DIR="${HOLABOSS_DESKTOP_USER_DATA_PATH:-$HOME/.holaboss-desktop}"
 SANDBOX_ROOT="$DATA_DIR/sandbox-host"
-RUNTIME_DB="$SANDBOX_ROOT/state/runtime.db"
+RUNTIME_DB="$SANDBOX_ROOT/state/host-state.db"
 RUNTIME_CONFIG="$SANDBOX_ROOT/state/runtime-config.json"
 RUNTIME_LOG="$DATA_DIR/runtime.log"
 RUNTIME_PORT=5060

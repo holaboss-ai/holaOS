@@ -12,6 +12,7 @@ import {
 
 const tempDirs: string[] = [];
 const ENV_KEYS = [
+  "HOLABOSS_HOST_STATE_DB_PATH",
   "HOLABOSS_RUNTIME_DB_PATH",
   "HOLABOSS_RUNTIME_LOG_PATH",
   "HOLABOSS_RUNTIME_CONFIG_PATH",
@@ -45,11 +46,11 @@ function makeTempDir(prefix: string): string {
 
 test("runtime sentry diagnostics redact config and log attachments", () => {
   const root = makeTempDir("hb-runtime-sentry-");
-  const runtimeDbPath = path.join(root, "runtime.db");
+  const hostStateDbPath = path.join(root, "host-state.db");
   const runtimeLogPath = path.join(root, "runtime.log");
   const runtimeConfigPath = path.join(root, "runtime-config.json");
 
-  fs.writeFileSync(runtimeDbPath, "");
+  fs.writeFileSync(hostStateDbPath, "");
   fs.writeFileSync(
     runtimeLogPath,
     'token=abc123\ncookie=session-secret\nnormal line\n',
@@ -70,7 +71,7 @@ test("runtime sentry diagnostics redact config and log attachments", () => {
     "utf8",
   );
 
-  process.env.HOLABOSS_RUNTIME_DB_PATH = runtimeDbPath;
+  process.env.HOLABOSS_HOST_STATE_DB_PATH = hostStateDbPath;
   process.env.HOLABOSS_RUNTIME_LOG_PATH = runtimeLogPath;
   process.env.HOLABOSS_RUNTIME_CONFIG_PATH = runtimeConfigPath;
   process.env.HOLABOSS_RUNTIME_VERSION = "holaboss-desktop-2026.420.1";

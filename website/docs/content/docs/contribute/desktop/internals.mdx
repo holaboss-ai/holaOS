@@ -39,7 +39,7 @@ The desktop does not talk to the runtime through a vague helper. `desktop/electr
 
 1. Resolve the staged runtime bundle under `desktop/out/runtime-<platform>` or an override such as `HOLABOSS_RUNTIME_ROOT`.
 2. Validate that the bundle includes the executable, packaged Node runtime, packaged Python runtime, `package-metadata.json`, and `runtime/api-server/dist/index.mjs`.
-3. Spawn `bin/sandbox-runtime` with desktop-owned env such as `HB_SANDBOX_ROOT`, `SANDBOX_AGENT_BIND_HOST=127.0.0.1`, `SANDBOX_AGENT_BIND_PORT=5160`, `SANDBOX_AGENT_HARNESS`, `HOLABOSS_RUNTIME_DB_PATH`, and the bridge settings.
+3. Spawn `bin/sandbox-runtime` with desktop-owned env such as `HB_SANDBOX_ROOT`, `SANDBOX_AGENT_BIND_HOST=127.0.0.1`, `SANDBOX_AGENT_BIND_PORT=5160`, `SANDBOX_AGENT_HARNESS`, `HOLABOSS_HOST_STATE_DB_PATH`, `HOLABOSS_CONTROL_PLANE_DB_PATH`, the legacy `HOLABOSS_RUNTIME_DB_PATH` alias, and the bridge settings.
 4. Wait for the embedded runtime health check to pass.
 5. Stream stdout and stderr into `runtime.log` under the Electron `userData` directory.
 6. On app quit, block final Electron exit until desktop-owned cleanup tears down the embedded runtime and browser service.
@@ -58,6 +58,8 @@ const child = spawn(launchSpec.command, launchSpec.args, {
     SANDBOX_AGENT_BIND_PORT: String(RUNTIME_API_PORT),
     HOLABOSS_EMBEDDED_RUNTIME: "1",
     SANDBOX_AGENT_HARNESS: harness,
+    HOLABOSS_HOST_STATE_DB_PATH: runtimeDatabasePath(),
+    HOLABOSS_CONTROL_PLANE_DB_PATH: controlPlaneDatabasePath(),
     HOLABOSS_RUNTIME_DB_PATH: runtimeDatabasePath(),
     PROACTIVE_ENABLE_REMOTE_BRIDGE: "1",
     HOLABOSS_AUTH_COOKIE: authCookieHeader() ?? "",

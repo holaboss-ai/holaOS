@@ -11,7 +11,7 @@ That separation is what keeps the next run cheap to restore while still allowing
 
 The current flow is:
 
-1. User input is queued, and strong-signal user-scoped proposals may be captured in `state/runtime.db`.
+1. User input is queued, and strong-signal user-scoped proposals may be captured in `<workspace-id>/.holaboss/state/runtime.db`.
 2. The runtime compiles the workspace, projects capabilities, computes the prompt package, and persists a sanitized request snapshot before the harness starts.
 3. The current run may use pending proposals as ephemeral context without promoting them into durable memory yet.
 4. When the run finishes, the runtime persists `turn_results`.
@@ -23,11 +23,11 @@ The current flow is:
 10. `MEMORY.md` indexes are refreshed only for the durable scopes that changed.
 11. Later runs restore from persisted harness session state, `session-memory`, and scratchpad context.
 
-User-memory proposals remain staged in `state/runtime.db` until they are accepted. That acceptance path is what creates durable preference memory or updates the canonical runtime profile; queued evolve does not create user preference or profile memory automatically. Repeated runtime blockers can also graduate into durable `knowledge/blockers/` during queued evolve when they stop looking like a one-off run artifact and start looking like stable workspace knowledge.
+User-memory proposals remain staged in `<workspace-id>/.holaboss/state/runtime.db` until they are accepted. That acceptance path is what creates durable preference memory or updates the canonical runtime profile in `state/control-plane.db`; queued evolve does not create user preference or profile memory automatically. Repeated runtime blockers can also graduate into durable `knowledge/blockers/` during queued evolve when they stop looking like a one-off run artifact and start looking like stable workspace knowledge.
 
 ## Recall behavior
 
-Runtime recall is manifest-based and model-mediated. It starts from active durable memory catalog entries in `state/runtime.db`, opens the scoped `MEMORY.md` indexes plus candidate leaf files under the memory root, and selects a bounded set of durable memories to inject as context.
+Runtime recall is manifest-based and model-mediated. It starts from active durable memory catalog entries in the workspace runtime DB and `state/control-plane.db`, opens the scoped `MEMORY.md` indexes plus candidate leaf files under the memory root, and selects a bounded set of durable memories to inject as context.
 
 Important characteristics:
 
@@ -49,7 +49,7 @@ When embeddings are configured and the state store has vector support, recall ca
    - keeps next-run continuity fresh without waiting on heavier extraction work
    - refreshes runtime projections and `session-memory` immediately
 2. queued `evolve` jobs
-   - persist as post-run jobs in `state/runtime.db`
+   - persist as post-run jobs in `<workspace-id>/.holaboss/state/runtime.db`
    - drain through the dedicated evolve worker
    - handles durable-memory promotion, index refresh, and background skill review
 
@@ -78,7 +78,7 @@ Reusable procedural patterns do not become live skills automatically. The curren
 
 1. queued evolve reviews a cadence turn
 2. if it finds a reusable pattern, it writes a draft under `workspace/<workspace-id>/evolve/skills/<candidate-id>/SKILL.md`
-3. the runtime stores candidate metadata in `state/runtime.db`
+3. the runtime stores candidate metadata in `<workspace-id>/.holaboss/state/runtime.db`
 4. candidate skills that merit attention are raised through proposal surfaces rather than silently activated
 5. an accepted proposal opens a tightly scoped review session
 6. after successful review, the candidate can be promoted into the live workspace `skills/` namespace

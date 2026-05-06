@@ -16,8 +16,12 @@ Workspaces live under the runtime OS root. In desktop mode that root comes from 
         children: [
           { name: "runtime-config.json", meta: "Model providers" },
           {
-            name: "runtime.db",
-            meta: "Sessions · turns · integrations · notifications",
+            name: "host-state.db",
+            meta: "Host bootstrap · diagnostics · compatibility",
+          },
+          {
+            name: "control-plane.db",
+            meta: "Workspaces · profiles · integrations · catalog",
           },
         ],
       },
@@ -72,6 +76,10 @@ Workspaces live under the runtime OS root. In desktop mode that root comes from 
                     meta: "Workspace runtime state",
                     children: [
                       { name: "workspace_id", meta: "Identity marker" },
+                      {
+                        name: "runtime.db",
+                        meta: "Sessions · turns · queues · outputs · notifications",
+                      },
                       {
                         name: "harness-session-state.json",
                         meta: "Harness session mapping",
@@ -271,9 +279,17 @@ If you are changing app behavior, continue into [App Anatomy](/docs/build/apps/a
 - `.holaboss/input-attachments/`
   - staged attachment batches referenced by in-flight runs
 
-### `state/runtime.db`
+### `state/host-state.db`
 
-`state/runtime.db` is the durable runtime registry for workspaces, onboarding status/session state, sessions, bindings, queue state, turn results, request snapshots, durable memory catalog metadata, integration connections, integration bindings, output folders, app port allocation, runtime notifications, task proposals, evolve skill candidates, and memory update proposals. The workspace identity file now lives at `<workspace-id>/.holaboss/state/workspace_id` as the on-disk marker for workspace discovery and migration.
+`state/host-state.db` is the sandbox-global host database. It keeps local host/bootstrap state, embedded-runtime diagnostics, and compatibility metadata used while older local installs migrate forward. It is no longer the canonical home for workspace execution truth.
+
+### `state/control-plane.db`
+
+`state/control-plane.db` is the sandbox-global control-plane database. It keeps workspace registry metadata, runtime user profiles, integration connections and bindings, OAuth app config, and app catalog metadata.
+
+### `<workspace-id>/.holaboss/state/runtime.db`
+
+`<workspace-id>/.holaboss/state/runtime.db` is the durable runtime execution database for one workspace. It keeps sessions, bindings, queue state, turn results, request snapshots, output folders, app runtime state, cronjobs, runtime notifications, task proposals, evolve skill candidates, memory update proposals, and workspace-scoped memory catalog metadata. The workspace identity file still lives alongside it at `<workspace-id>/.holaboss/state/workspace_id` as the on-disk marker for workspace discovery and migration.
 
 ### `memory/`
 

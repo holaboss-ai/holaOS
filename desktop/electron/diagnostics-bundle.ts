@@ -390,7 +390,7 @@ export async function exportDiagnosticsBundle(
       includedFiles.push("runtime.log");
     }
 
-    const runtimeDbSnapshotPath = path.join(stagingRoot, "runtime.db");
+    const runtimeDbSnapshotPath = path.join(stagingRoot, "host-state.db");
     if (
       await backupRuntimeDatabase(
         params.runtimeDbPath,
@@ -400,9 +400,9 @@ export async function exportDiagnosticsBundle(
     ) {
       entries.push({
         sourcePath: runtimeDbSnapshotPath,
-        archivePath: "runtime.db",
+        archivePath: "host-state.db",
       });
-      includedFiles.push("runtime.db");
+      includedFiles.push("host-state.db");
     }
 
     const redactedConfigPath = path.join(

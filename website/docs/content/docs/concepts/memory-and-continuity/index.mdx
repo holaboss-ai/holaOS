@@ -21,15 +21,16 @@ Today the runtime stores those concerns on different surfaces:
 - operational projections live under `<workspace-id>/.holaboss/memory/runtime/`, including the latest turn, session state, blockers, recent turns, and permission-blocker snapshots
 - durable recalled memory lives under `<workspace-id>/.holaboss/memory/knowledge/`, `memory/preference/`, and `memory/identity/`
 
-The canonical operator profile also lives in `state/runtime.db`. That profile is runtime-owned identity state, not markdown memory. The runtime also keeps pending user-memory proposals in `state/runtime.db` so the current run can use them ephemerally without promoting them into durable memory yet.
+The canonical operator profile now lives in `state/control-plane.db`. That profile is runtime-owned identity state, not markdown memory. The runtime keeps pending user-memory proposals in `<workspace-id>/.holaboss/state/runtime.db` so the current run can use them ephemerally without promoting them into durable memory yet.
 
-Accepted user-memory proposals are the separate path that promotes user preference memory into `memory/preference/` or updates the runtime profile in `state/runtime.db`. The background evolve path does not create user preference or profile memory on its own.
+Accepted user-memory proposals are the separate path that promotes user preference memory into `memory/preference/` or updates the runtime profile in `state/control-plane.db`. The background evolve path does not create user preference or profile memory on its own.
 
 The easiest way to think about the storage boundary is:
 
 | Layer | Purpose | Durable? |
 | --- | --- | --- |
-| `state/runtime.db` | execution truth, profile state, continuity records | yes |
+| `state/control-plane.db` | canonical profile state and profile-global memory metadata | yes |
+| `<workspace-id>/.holaboss/state/runtime.db` | workspace execution truth, continuity records, workspace-scoped memory metadata, pending proposals | yes |
 | `<workspace-id>/.holaboss/memory/runtime/` | latest-turn projections, blockers, recent-turn snapshots | no |
 | `<workspace-id>/.holaboss/memory/runtime/session-memory/` | resume-friendly continuity snapshots | semi-volatile |
 | `<workspace-id>/.holaboss/memory/knowledge/` | workspace facts, procedures, blockers, reference memories | yes |
@@ -42,8 +43,8 @@ Runtime files under `runtime/` are meant for inspection and restoration. They ar
 
 The source-of-truth split is deliberate:
 
-- runtime execution truth lives in `state/runtime.db`
-- canonical operator profile data lives in `state/runtime.db`
+- runtime execution truth lives in `<workspace-id>/.holaboss/state/runtime.db`
+- canonical operator profile data lives in `state/control-plane.db`
 - durable recalled memory lives in markdown under workspace-local `.holaboss/memory/` plus profile-global `memory/`
 - standing workspace policy lives in `AGENTS.md`
 

@@ -167,7 +167,7 @@ The runner then loads the context that is specific to this run:
 - operator surface context from the desktop browser capability base URL when desktop browser tooling is active
 - pending user-memory proposals for the current input
 
-Those inputs come from both filesystem state and `runtime.db`. They are runtime-owned context, not authored workspace config.
+Those inputs come from filesystem state plus the runtime-owned SQLite layers, primarily the workspace runtime DB and control-plane DB. They are runtime-owned context, not authored workspace config.
 
 ## Stage 5: Project Agent Runtime Config
 
@@ -235,7 +235,7 @@ After runtime config projection, the harness adapter builds the host request.
 
 - computes a request fingerprint
 - measures the `persist_turn_request_snapshot` bootstrap stage and calls `persistTurnRequestSnapshot()`
-- persists a sanitized `turn_request_snapshot` in `runtime.db`
+- persists a sanitized `turn_request_snapshot` in the workspace runtime DB
 - carries request-scoped execution metadata such as `thinking_value` into the reduced host request alongside the resolved model client
 - includes MCP server mapping metadata and bootstrap timing details in the run-started payload
 - launches the harness host with the reduced request payload

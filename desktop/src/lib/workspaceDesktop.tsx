@@ -445,8 +445,8 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     setWorkspaceBlockingReasonState("");
   }, [selectedWorkspaceId]);
 
-  // Optimistic splash hydration — read the workspaces table directly
-  // from runtime.db on the desktop side, without waiting for the
+  // Optimistic splash hydration — read the cached workspace registry
+  // from control-plane.db on the desktop side, without waiting for the
   // sidecar to spawn or run schema-ensure. Sidecar takes 2-4s on cold
   // launch; this synchronous local read is 5-15ms. If we get any
   // rows, we hydrate the splash immediately; the sidecar's later

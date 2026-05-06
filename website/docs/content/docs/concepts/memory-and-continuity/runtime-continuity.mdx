@@ -25,7 +25,7 @@ The most important continuity artifacts are:
   - latest-turn summaries, session snapshots, blocker snapshots, recent-turn history, and permission-blocker artifacts
 - session-memory snapshots under `<workspace-id>/.holaboss/memory/runtime/session-memory/`
   - compact continuity views used to restore the next run without replaying the full transcript
-- user-memory proposals in `state/runtime.db`
+- user-memory proposals in `<workspace-id>/.holaboss/state/runtime.db`
   - staged strong-signal user-memory candidates that the current run can use ephemerally before acceptance
 
 ## Continuity writeback
@@ -63,8 +63,10 @@ That is the point of runtime continuity: resume the important state cheaply, not
 
 Use these rules of thumb when reasoning about resume state:
 
-- `state/runtime.db`
-  - execution truth, session continuity, canonical runtime profile, user-memory proposals, and memory catalog metadata
+- `<workspace-id>/.holaboss/state/runtime.db`
+  - execution truth, session continuity, user-memory proposals, and workspace-scoped memory catalog metadata
+- `state/control-plane.db`
+  - canonical runtime profile plus profile-global memory metadata
 - `<workspace-id>/.holaboss/memory/runtime/`
   - volatile runtime projections for inspection and debugging
 - `<workspace-id>/.holaboss/memory/runtime/session-memory/`

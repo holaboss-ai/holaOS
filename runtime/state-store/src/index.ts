@@ -9,6 +9,7 @@ export {
   type ConversationBindingRecord,
   RuntimeStateStore,
   controlPlaneDbPath,
+  hostStateDbPath,
   runtimeDbPath,
   sanitizeWorkspaceId,
   utcNowIso,

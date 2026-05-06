@@ -134,6 +134,31 @@ test("control-plane metadata lives in control-plane.db while runtime.db keeps th
   assert.equal(appCatalogRow?.name, "Calendar");
 });
 
+test("opening the store migrates legacy runtime.db files into host-state.db by default", () => {
+  const root = makeTempDir("hb-state-store-");
+  const legacyPath = path.join(root, "state", "runtime.db");
+  const hostStatePath = path.join(root, "state", "host-state.db");
+  const workspaceRoot = path.join(root, "workspace");
+
+  fs.mkdirSync(path.dirname(legacyPath), { recursive: true });
+  const legacyDb = new Database(legacyPath);
+  legacyDb.exec("CREATE TABLE legacy_marker (value TEXT NOT NULL);");
+  legacyDb.exec("INSERT INTO legacy_marker (value) VALUES ('migrated');");
+  legacyDb.close();
+
+  const store = new RuntimeStateStore({ workspaceRoot, sandboxRoot: root });
+  store.listWorkspaces();
+  store.close();
+
+  assert.equal(fs.existsSync(hostStatePath), true);
+  const migratedDb = new Database(hostStatePath, { readonly: true });
+  const row = migratedDb
+    .prepare<[], { value: string }>("SELECT value FROM legacy_marker LIMIT 1")
+    .get();
+  migratedDb.close();
+  assert.equal(row?.value, "migrated");
+});
+
 test("createWorkspace honors explicit workspacePath and registers it", () => {
   const root = makeTempDir("hb-state-store-");
   const dbPath = path.join(root, "runtime.db");
@@ -1771,7 +1796,8 @@ test("runtime state migration expands the status check constraint to include pau
   });
   store.close();
 
-  const db = new Database(dbPath);
+  const workspaceDbPath = workspaceRuntimeDbFile(workspaceRoot, "workspace-1");
+  const db = new Database(workspaceDbPath);
   db.exec(`
     ALTER TABLE session_runtime_state RENAME TO session_runtime_state_current;
 
@@ -2564,16 +2590,11 @@ test("workspace-scoped runtime tables persist inside the workspace bundle and mi
   workspaceDb.close();
 
   const runtimeDb = new Database(dbPath, { readonly: true });
-  const runtimeCounts = {
-    outputs: Number((runtimeDb.prepare("SELECT COUNT(*) AS count FROM outputs").get() as { count: number }).count),
-    appBuilds: Number((runtimeDb.prepare("SELECT COUNT(*) AS count FROM app_builds").get() as { count: number }).count),
-    appPorts: Number((runtimeDb.prepare("SELECT COUNT(*) AS count FROM app_ports").get() as { count: number }).count),
-    cronjobs: Number((runtimeDb.prepare("SELECT COUNT(*) AS count FROM cronjobs").get() as { count: number }).count),
-    notifications: Number((runtimeDb.prepare("SELECT COUNT(*) AS count FROM runtime_notifications").get() as { count: number }).count),
-    taskProposals: Number((runtimeDb.prepare("SELECT COUNT(*) AS count FROM task_proposals").get() as { count: number }).count),
-    evolveCandidates: Number((runtimeDb.prepare("SELECT COUNT(*) AS count FROM evolve_skill_candidates").get() as { count: number }).count),
-    memoryUpdateProposals: Number((runtimeDb.prepare("SELECT COUNT(*) AS count FROM memory_update_proposals").get() as { count: number }).count),
-  };
+  const runtimeTables = new Set<string>(
+    (runtimeDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
+      (row) => row.name,
+    ),
+  );
   runtimeDb.close();
 
   assert.deepEqual(workspaceCounts, {
@@ -2586,16 +2607,14 @@ test("workspace-scoped runtime tables persist inside the workspace bundle and mi
     evolveCandidates: 1,
     memoryUpdateProposals: 1,
   });
-  assert.deepEqual(runtimeCounts, {
-    outputs: 0,
-    appBuilds: 0,
-    appPorts: 0,
-    cronjobs: 0,
-    notifications: 0,
-    taskProposals: 0,
-    evolveCandidates: 0,
-    memoryUpdateProposals: 0,
-  });
+  assert.equal(runtimeTables.has("outputs"), false);
+  assert.equal(runtimeTables.has("app_builds"), false);
+  assert.equal(runtimeTables.has("app_ports"), false);
+  assert.equal(runtimeTables.has("cronjobs"), false);
+  assert.equal(runtimeTables.has("runtime_notifications"), false);
+  assert.equal(runtimeTables.has("task_proposals"), false);
+  assert.equal(runtimeTables.has("evolve_skill_candidates"), false);
+  assert.equal(runtimeTables.has("memory_update_proposals"), false);
 });
 
 test("cronjobs round trip supports create, list, update, get, and delete", () => {
@@ -2710,6 +2729,27 @@ test("workspace-scoped runtime db backfills legacy cronjobs from runtime.db on f
   assert.equal(fs.existsSync(workspaceDbPath), false);
 
   const db = new Database(dbPath);
+  db.exec(`
+    CREATE TABLE cronjobs (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        initiated_by TEXT NOT NULL,
+        name TEXT NOT NULL DEFAULT '',
+        cron TEXT NOT NULL,
+        description TEXT NOT NULL,
+        instruction TEXT NOT NULL DEFAULT '',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        delivery TEXT NOT NULL,
+        metadata TEXT NOT NULL DEFAULT '{}',
+        last_run_at TEXT,
+        next_run_at TEXT,
+        run_count INTEGER NOT NULL DEFAULT 0,
+        last_status TEXT,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+  `);
   db.prepare(`
     INSERT INTO cronjobs (
       id, workspace_id, initiated_by, name, cron, description, instruction, enabled, delivery, metadata,

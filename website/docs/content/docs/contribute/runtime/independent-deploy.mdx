@@ -80,12 +80,14 @@ $HB_SANDBOX_ROOT/
       .holaboss/
         memory/
         state/
+          runtime.db
   memory/
     MEMORY.md
     preference/
     identity/
   state/
-    runtime.db
+    host-state.db
+    control-plane.db
     runtime-config.json
 ```
 
@@ -100,7 +102,9 @@ $HB_SANDBOX_ROOT/
 | `SANDBOX_AGENT_BIND_HOST` | Bind the runtime to a specific host |
 | `SANDBOX_AGENT_BIND_PORT` | Bind the runtime to a specific port |
 | `SANDBOX_AGENT_HARNESS` | Select the harness path, currently `pi` in OSS |
-| `HOLABOSS_RUNTIME_DB_PATH` | Override the SQLite runtime DB path used by `runtime/state-store` |
+| `HOLABOSS_HOST_STATE_DB_PATH` | Override the sandbox-global host-state DB path used for host/bootstrap state |
+| `HOLABOSS_CONTROL_PLANE_DB_PATH` | Override the control-plane DB path used for workspace registry, profiles, and integrations |
+| `HOLABOSS_RUNTIME_DB_PATH` | Legacy alias for `HOLABOSS_HOST_STATE_DB_PATH` |
 | `HOLABOSS_SANDBOX_AUTH_TOKEN` | Provide product auth when you are running against the holaOS-backed model proxy path |
 | `HOLABOSS_USER_ID` | Provide the runtime user identity for auth-backed flows |
 | `HOLABOSS_MODEL_PROXY_BASE_URL` | Override the model-proxy base URL instead of relying on the default |
@@ -149,7 +153,8 @@ SANDBOX_AGENT_BIND_HOST=127.0.0.1 \
 SANDBOX_AGENT_BIND_PORT=8080 \
 SANDBOX_AGENT_HARNESS=pi \
 HOLABOSS_RUNTIME_WORKFLOW_BACKEND=remote_api \
-HOLABOSS_RUNTIME_DB_PATH=/var/lib/holaboss/state/runtime.db \
+HOLABOSS_HOST_STATE_DB_PATH=/var/lib/holaboss/state/host-state.db \
+HOLABOSS_CONTROL_PLANE_DB_PATH=/var/lib/holaboss/state/control-plane.db \
 PROACTIVE_ENABLE_REMOTE_BRIDGE=1 \
 PROACTIVE_BRIDGE_BASE_URL=https://your-bridge.example \
 holaboss-runtime
@@ -168,7 +173,8 @@ SANDBOX_AGENT_BIND_HOST=127.0.0.1 \
 SANDBOX_AGENT_BIND_PORT=8080 \
 SANDBOX_AGENT_HARNESS=pi \
 HOLABOSS_RUNTIME_WORKFLOW_BACKEND=remote_api \
-HOLABOSS_RUNTIME_DB_PATH="$HOME/Library/Application Support/HolabossRuntime/state/runtime.db" \
+HOLABOSS_HOST_STATE_DB_PATH="$HOME/Library/Application Support/HolabossRuntime/state/host-state.db" \
+HOLABOSS_CONTROL_PLANE_DB_PATH="$HOME/Library/Application Support/HolabossRuntime/state/control-plane.db" \
 PROACTIVE_ENABLE_REMOTE_BRIDGE=1 \
 PROACTIVE_BRIDGE_BASE_URL=https://your-bridge.example \
 holaboss-runtime
@@ -185,7 +191,8 @@ $env:SANDBOX_AGENT_BIND_HOST="127.0.0.1"
 $env:SANDBOX_AGENT_BIND_PORT="8080"
 $env:SANDBOX_AGENT_HARNESS="pi"
 $env:HOLABOSS_RUNTIME_WORKFLOW_BACKEND="remote_api"
-$env:HOLABOSS_RUNTIME_DB_PATH="$env:LOCALAPPDATA\holaboss\state\runtime.db"
+$env:HOLABOSS_HOST_STATE_DB_PATH="$env:LOCALAPPDATA\holaboss\state\host-state.db"
+$env:HOLABOSS_CONTROL_PLANE_DB_PATH="$env:LOCALAPPDATA\holaboss\state\control-plane.db"
 $env:PROACTIVE_ENABLE_REMOTE_BRIDGE="1"
 $env:PROACTIVE_BRIDGE_BASE_URL="https://your-bridge.example"
 
@@ -210,7 +217,9 @@ Independent deploy does not change the runtime contract:
 
 - workspace layout is still the same
 - `AGENTS.md` is still the instruction surface
-- `state/runtime.db` is still the durable runtime registry
+- each workspace still keeps execution truth in `<workspace-id>/.holaboss/state/runtime.db`
+- `state/host-state.db` now keeps sandbox-global host/bootstrap state
+- `state/control-plane.db` keeps workspace registry, runtime profiles, and integration metadata
 - `memory/` still holds the profile-global memory surfaces, while workspace-scoped memory lives under each workspace's `.holaboss/memory/`
 - app manifests still drive app lifecycle
 

@@ -276,7 +276,9 @@ function readFileTail(filePath: string, maxBytes: number): string | null {
 }
 
 function runtimeSentrySnapshot(): Record<string, unknown> {
-  const runtimeDbPath = envPath("HOLABOSS_RUNTIME_DB_PATH");
+  const runtimeDbPath =
+    envPath("HOLABOSS_HOST_STATE_DB_PATH")
+    || envPath("HOLABOSS_RUNTIME_DB_PATH");
   const runtimeLogPath = envPath("HOLABOSS_RUNTIME_LOG_PATH");
   const runtimeConfigPath = envPath("HOLABOSS_RUNTIME_CONFIG_PATH");
   return {
@@ -295,7 +297,7 @@ function runtimeSentrySnapshot(): Record<string, unknown> {
       cwd: process.cwd(),
     },
     files: {
-      runtime_db: safeStat(runtimeDbPath),
+      host_state_db: safeStat(runtimeDbPath),
       runtime_log: safeStat(runtimeLogPath),
       runtime_config: safeStat(runtimeConfigPath),
     },
