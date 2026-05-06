@@ -1798,6 +1798,56 @@ test("chat pane idly refreshes the active main session to surface autonomous bac
   );
 });
 
+test("chat pane suppresses empty synthetic background follow-up failures and keeps a stable retry status", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  assert.match(
+    source,
+    /const MAIN_SESSION_EVENT_BATCH_HEADER =\s*"\[Holaboss Main Session Event Batch v1\]";/,
+  );
+  assert.match(
+    source,
+    /const BACKGROUND_DELIVERY_RETRY_STATUS_MESSAGE =\s*"Background update delayed\. Retrying automatically\.";/,
+  );
+  assert.match(
+    source,
+    /const \[backgroundDeliveryStatusMessage, setBackgroundDeliveryStatusMessage\] =\s*useState\(""\);/,
+  );
+  assert.match(
+    source,
+    /const mainSessionEventBatchInputIdsRef = useRef<Set<string>>\(new Set\(\)\);/,
+  );
+  assert.match(
+    source,
+    /const trackedMainSessionEventBatchInput =[\s\S]*rememberMainSessionEventBatchInput\(eventInputId, eventPayload\);[\s\S]*const isMainSessionEventBatchInput =[\s\S]*isRememberedMainSessionEventBatchInput\(eventInputId\);/,
+  );
+  assert.match(
+    source,
+    /if \(isMainSessionEventBatchInput && shouldPersistFailureText\) \{[\s\S]*setBackgroundDeliveryStatusMessage\(\s*BACKGROUND_DELIVERY_RETRY_STATUS_MESSAGE,\s*\);[\s\S]*action: "suppress_background_delivery_failure"[\s\S]*scheduleConversationRefresh\(eventSessionId, selectedWorkspaceId\);[\s\S]*return;\s*\}/,
+  );
+  assert.match(
+    source,
+    /if \(isMainSessionEventBatchInput\) \{\s*setBackgroundDeliveryStatusMessage\(""\);\s*\}/,
+  );
+  assert.match(
+    source,
+    /\{chatErrorMessage \|\|\s*backgroundDeliveryStatusMessage \|\|[\s\S]*\{backgroundDeliveryStatusMessage \? \(\s*<div className="theme-chat-system-bubble mt-3 rounded-xl border px-3 py-2 text-xs">\s*\{backgroundDeliveryStatusMessage\}\s*<\/div>/,
+  );
+});
+
+test("chat pane suppresses paused synthetic background follow-up completions before first token", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  assert.match(
+    source,
+    /const suppressBackgroundDeliveryCompletion =\s*isMainSessionEventBatchInput &&\s*completedStatus === "paused" &&\s*!liveAssistantHasVisibleOutput\(\);/,
+  );
+  assert.match(
+    source,
+    /if \(suppressBackgroundDeliveryCompletion\) \{[\s\S]*setBackgroundDeliveryStatusMessage\(\s*BACKGROUND_DELIVERY_RETRY_STATUS_MESSAGE,\s*\);[\s\S]*action: "suppress_background_delivery_completion"[\s\S]*void refreshWorkspaceData\(\)\.catch\(\(\) => undefined\);[\s\S]*return;\s*\}/,
+  );
+});
+
 test("chat pane suppresses the in-flight assistant history row when attaching a live stream", async () => {
   const source = await readFile(sourcePath, "utf8");
 
