@@ -37,7 +37,6 @@ export const APP_TO_PROVIDER_MAP: Record<string, string> = {
   zoominfo: "zoominfo",
   notion: "notion",
   instagram: "instagram",
-  threads: "threads",
 };
 
 export function getProviderForApp(appId: string): string | undefined {
