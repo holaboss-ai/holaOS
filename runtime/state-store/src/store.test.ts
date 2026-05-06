@@ -2317,8 +2317,21 @@ test("memory entries round trip and filter by workspace or scope", () => {
   ]);
   assert.deepEqual(
     store.listMemoryEntries({ status: "active" }).map((entry) => entry.memoryId),
-    [preference.memoryId, blocker.memoryId]
+    [blocker.memoryId, preference.memoryId]
   );
+
+  const controlPlaneDb = new Database(store.controlPlaneDbPath, { readonly: true });
+  const workspaceDb = new Database(workspaceRuntimeDbFile(store.workspaceRoot, "workspace-1"), { readonly: true });
+  assert.equal(
+    Number((controlPlaneDb.prepare("SELECT COUNT(*) AS count FROM memory_entries").get() as { count: number }).count),
+    1,
+  );
+  assert.equal(
+    Number((workspaceDb.prepare("SELECT COUNT(*) AS count FROM memory_entries").get() as { count: number }).count),
+    1,
+  );
+  controlPlaneDb.close();
+  workspaceDb.close();
   store.close();
 });
 
@@ -2387,7 +2400,7 @@ test("memory embedding index supports vector replacement, search, and delete", (
 
   store.deleteMemoryEmbeddingIndex("workspace-fact:workspace-1:deploy");
 
-  assert.equal(store.getMemoryEmbeddingIndexByMemoryId("workspace-fact:workspace-1:deploy"), null);
+  assert.equal(store.getMemoryEmbeddingIndexByMemoryId({ memoryId: "workspace-fact:workspace-1:deploy" }), null);
   assert.equal(
     store.searchWorkspaceMemoryRecallVectors({
       workspaceId: "workspace-1",

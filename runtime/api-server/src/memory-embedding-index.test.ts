@@ -31,7 +31,7 @@ function makeMemoryEntry(
 ): MemoryEntryRecord {
   return {
     memoryId: overrides.memoryId,
-    workspaceId: overrides.workspaceId ?? "workspace-1",
+    workspaceId: overrides.workspaceId === undefined ? "workspace-1" : overrides.workspaceId,
     sessionId: overrides.sessionId ?? "session-1",
     scope: overrides.scope,
     memoryType: overrides.memoryType,
@@ -119,7 +119,10 @@ test("syncDurableMemoryEmbedding indexes markdown leaves and skips unchanged con
     },
   });
 
-  const indexed = store.getMemoryEmbeddingIndexByMemoryId(entry.memoryId);
+  const indexed = store.getMemoryEmbeddingIndexByMemoryId({
+    memoryId: entry.memoryId,
+    workspaceId: entry.workspaceId,
+  });
   assert.equal(first, "indexed");
   assert.ok(indexed);
   assert.equal(indexed?.path, entry.path);

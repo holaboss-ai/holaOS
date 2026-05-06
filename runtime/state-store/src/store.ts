@@ -4809,10 +4809,14 @@ export class RuntimeStateStore {
     createdAt?: string;
     updatedAt?: string;
   }): MemoryEntryRecord {
-    const existing = this.getMemoryEntry({ memoryId: params.memoryId });
+    const existing = this.getMemoryEntry({
+      memoryId: params.memoryId,
+      workspaceId: params.workspaceId ?? null,
+    });
     const now = params.updatedAt ?? utcNowIso();
     const createdAt = existing?.createdAt ?? params.createdAt ?? now;
-    this.db()
+    const memoryDb = this.memoryDbForWorkspace(params.workspaceId ?? null);
+    memoryDb
       .prepare(`
         INSERT INTO memory_entries (
             memory_id,
@@ -4891,18 +4895,29 @@ export class RuntimeStateStore {
         now
       );
 
-    const record = this.getMemoryEntry({ memoryId: params.memoryId });
+    const record = this.getMemoryEntry({
+      memoryId: params.memoryId,
+      workspaceId: params.workspaceId ?? null,
+    });
     if (!record) {
       throw new Error("memory entry row not found after upsert");
     }
     return record;
   }
 
-  getMemoryEntry(params: { memoryId: string }): MemoryEntryRecord | null {
-    const row = this.db()
-      .prepare<[string], Record<string, unknown>>("SELECT * FROM memory_entries WHERE memory_id = ? LIMIT 1")
-      .get(params.memoryId);
-    return row ? this.rowToMemoryEntry(row) : null;
+  getMemoryEntry(params: { memoryId: string; workspaceId?: string | null }): MemoryEntryRecord | null {
+    const databases = params.workspaceId === undefined
+      ? this.listReadableMemoryDbs()
+      : [{ workspaceId: params.workspaceId ?? null, db: this.memoryDbForWorkspace(params.workspaceId ?? null) }];
+    for (const { db } of databases) {
+      const row = db
+        .prepare<[string], Record<string, unknown>>("SELECT * FROM memory_entries WHERE memory_id = ? LIMIT 1")
+        .get(params.memoryId);
+      if (row) {
+        return this.rowToMemoryEntry(row);
+      }
+    }
+    return null;
   }
 
   listMemoryEntries(params: {
@@ -4913,97 +4928,148 @@ export class RuntimeStateStore {
     limit?: number;
     offset?: number;
   } = {}): MemoryEntryRecord[] {
-    let query = `
-      SELECT *
-      FROM memory_entries
-      WHERE 1 = 1
-    `;
-    const values: Array<string | number> = [];
-    if (params.workspaceId !== undefined) {
+    const fetchLimit = (params.limit ?? 200) + (params.offset ?? 0);
+    const queryRows = (db: Database.Database, limit: number, offset: number): MemoryEntryRecord[] => {
+      let query = `
+        SELECT *
+        FROM memory_entries
+        WHERE 1 = 1
+      `;
+      const values: Array<string | number> = [];
+      if (params.workspaceId !== undefined) {
+        if (params.workspaceId === null) {
+          query += " AND workspace_id IS NULL";
+        } else {
+          query += " AND workspace_id = ?";
+          values.push(params.workspaceId);
+        }
+      }
+      if (params.scope !== undefined) {
+        if (params.scope === null) {
+          query += " AND scope IS NULL";
+        } else {
+          query += " AND scope = ?";
+          values.push(params.scope);
+        }
+      }
+      if (params.memoryType !== undefined) {
+        if (params.memoryType === null) {
+          query += " AND memory_type IS NULL";
+        } else {
+          query += " AND memory_type = ?";
+          values.push(params.memoryType);
+        }
+      }
+      if (params.status !== undefined) {
+        if (params.status === null) {
+          query += " AND status IS NULL";
+        } else {
+          query += " AND status = ?";
+          values.push(params.status);
+        }
+      }
+      query += `
+        ORDER BY updated_at DESC, created_at DESC, memory_id ASC
+        LIMIT ? OFFSET ?
+      `;
+      values.push(limit, offset);
+      const rows = db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+      return rows.map((row) => this.rowToMemoryEntry(row));
+    };
+    const databases = (() => {
       if (params.workspaceId === null) {
-        query += " AND workspace_id IS NULL";
-      } else {
-        query += " AND workspace_id = ?";
-        values.push(params.workspaceId);
+        return [{ workspaceId: null, db: this.controlPlaneDb() }];
       }
-    }
-    if (params.scope !== undefined) {
-      if (params.scope === null) {
-        query += " AND scope IS NULL";
-      } else {
-        query += " AND scope = ?";
-        values.push(params.scope);
+      if (typeof params.workspaceId === "string") {
+        return [{ workspaceId: params.workspaceId, db: this.workspaceRuntimeDb(params.workspaceId) }];
       }
-    }
-    if (params.memoryType !== undefined) {
-      if (params.memoryType === null) {
-        query += " AND memory_type IS NULL";
-      } else {
-        query += " AND memory_type = ?";
-        values.push(params.memoryType);
+      if (params.scope === "user") {
+        return [{ workspaceId: null, db: this.controlPlaneDb() }];
       }
-    }
-    if (params.status !== undefined) {
-      if (params.status === null) {
-        query += " AND status IS NULL";
-      } else {
-        query += " AND status = ?";
-        values.push(params.status);
+      if (params.scope && params.scope !== "user") {
+        return this.listReadableMemoryDbs({ includeControlPlane: false, includeWorkspace: true });
       }
+      return this.listReadableMemoryDbs();
+    })();
+    if (databases.length === 1) {
+      return queryRows(databases[0].db, params.limit ?? 200, params.offset ?? 0);
     }
-    query += `
-      ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC, memory_id ASC
-      LIMIT ? OFFSET ?
-    `;
-    values.push(params.limit ?? 200, params.offset ?? 0);
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
-    return rows.map((row) => this.rowToMemoryEntry(row));
+    const records = databases.flatMap(({ db }) => queryRows(db, fetchLimit, 0));
+    records.sort((left, right) => {
+      const updatedCompare = right.updatedAt.localeCompare(left.updatedAt);
+      if (updatedCompare !== 0) {
+        return updatedCompare;
+      }
+      const createdCompare = right.createdAt.localeCompare(left.createdAt);
+      if (createdCompare !== 0) {
+        return createdCompare;
+      }
+      return left.memoryId.localeCompare(right.memoryId);
+    });
+    return records.slice(params.offset ?? 0, (params.offset ?? 0) + (params.limit ?? 200));
   }
 
   listWorkspaceMemoryEntryCounts(params: {
     status?: string | null;
   } = {}): Array<{ workspaceId: string; count: number }> {
-    let query = `
-      SELECT workspace_id, COUNT(*) AS total
-      FROM memory_entries
-      WHERE scope = 'workspace'
-        AND workspace_id IS NOT NULL
-    `;
-    const values: string[] = [];
-    if (params.status !== undefined) {
-      if (params.status === null) {
-        query += " AND status IS NULL";
-      } else {
-        query += " AND status = ?";
-        values.push(params.status);
+    const counts = this.listReadableWorkspaceRuntimeDbs().flatMap(({ db, workspaceId }) => {
+      let query = `
+        SELECT COUNT(*) AS total
+        FROM memory_entries
+        WHERE scope = 'workspace'
+          AND workspace_id = ?
+      `;
+      const values: Array<string | number> = [workspaceId];
+      if (params.status !== undefined) {
+        if (params.status === null) {
+          query += " AND status IS NULL";
+        } else {
+          query += " AND status = ?";
+          values.push(params.status);
+        }
+      }
+      const row = db.prepare(query).get(...values) as { total: number } | undefined;
+      const count = Number(row?.total ?? 0);
+      return count > 0 ? [{ workspaceId, count }] : [];
+    });
+    counts.sort((left, right) => left.workspaceId.localeCompare(right.workspaceId));
+    return counts;
+  }
+
+  getMemoryEmbeddingIndexByMemoryId(params: {
+    memoryId: string;
+    workspaceId?: string | null;
+  }): MemoryEmbeddingIndexRecord | null {
+    const databases = params.workspaceId === undefined
+      ? this.listReadableMemoryDbs()
+      : [{ workspaceId: params.workspaceId ?? null, db: this.memoryDbForWorkspace(params.workspaceId ?? null) }];
+    for (const { db } of databases) {
+      const row = db
+        .prepare<[string], Record<string, unknown>>("SELECT * FROM memory_embedding_index WHERE memory_id = ? LIMIT 1")
+        .get(params.memoryId);
+      if (row) {
+        return this.rowToMemoryEmbeddingIndex(row);
       }
     }
-    query += `
-      GROUP BY workspace_id
-      ORDER BY workspace_id ASC
-    `;
-    const rows = this.db().prepare(query).all(...values) as Array<{
-      workspace_id: string;
-      total: number;
-    }>;
-    return rows.map((row) => ({
-      workspaceId: row.workspace_id,
-      count: Number(row.total),
-    }));
+    return null;
   }
 
-  getMemoryEmbeddingIndexByMemoryId(memoryId: string): MemoryEmbeddingIndexRecord | null {
-    const row = this.db()
-      .prepare<[string], Record<string, unknown>>("SELECT * FROM memory_embedding_index WHERE memory_id = ? LIMIT 1")
-      .get(memoryId);
-    return row ? this.rowToMemoryEmbeddingIndex(row) : null;
-  }
-
-  getMemoryEmbeddingIndexByPath(pathValue: string): MemoryEmbeddingIndexRecord | null {
-    const row = this.db()
-      .prepare<[string], Record<string, unknown>>("SELECT * FROM memory_embedding_index WHERE path = ? LIMIT 1")
-      .get(pathValue);
-    return row ? this.rowToMemoryEmbeddingIndex(row) : null;
+  getMemoryEmbeddingIndexByPath(params: {
+    path: string;
+    workspaceId?: string | null;
+  }): MemoryEmbeddingIndexRecord | null {
+    const databases = params.workspaceId === undefined
+      ? this.listReadableMemoryDbs()
+      : [{ workspaceId: params.workspaceId ?? null, db: this.memoryDbForWorkspace(params.workspaceId ?? null) }];
+    for (const { db } of databases) {
+      const row = db
+        .prepare<[string], Record<string, unknown>>("SELECT * FROM memory_embedding_index WHERE path = ? LIMIT 1")
+        .get(params.path);
+      if (row) {
+        return this.rowToMemoryEmbeddingIndex(row);
+      }
+    }
+    return null;
   }
 
   listMemoryEmbeddingIndexes(params: {
@@ -5014,47 +5080,68 @@ export class RuntimeStateStore {
     limit?: number;
     offset?: number;
   } = {}): MemoryEmbeddingIndexRecord[] {
-    let query = `
-      SELECT *
-      FROM memory_embedding_index
-      WHERE 1 = 1
-    `;
-    const values: Array<string | number> = [];
-    if (params.memoryIds && params.memoryIds.length > 0) {
-      query += ` AND memory_id IN (${params.memoryIds.map(() => "?").join(", ")})`;
-      values.push(...params.memoryIds);
-    }
-    if (params.workspaceId !== undefined) {
+    const fetchLimit = (params.limit ?? 5000) + (params.offset ?? 0);
+    const queryRows = (db: Database.Database): MemoryEmbeddingIndexRecord[] => {
+      let query = `
+        SELECT *
+        FROM memory_embedding_index
+        WHERE 1 = 1
+      `;
+      const values: Array<string | number> = [];
+      if (params.memoryIds && params.memoryIds.length > 0) {
+        query += ` AND memory_id IN (${params.memoryIds.map(() => "?").join(", ")})`;
+        values.push(...params.memoryIds);
+      }
+      if (params.workspaceId !== undefined) {
+        if (params.workspaceId === null) {
+          query += " AND workspace_id IS NULL";
+        } else {
+          query += " AND workspace_id = ?";
+          values.push(params.workspaceId);
+        }
+      }
+      if (params.scopeBucket !== undefined) {
+        if (params.scopeBucket === null) {
+          query += " AND scope_bucket IS NULL";
+        } else {
+          query += " AND scope_bucket = ?";
+          values.push(params.scopeBucket);
+        }
+      }
+      if (params.embeddingModel !== undefined) {
+        if (params.embeddingModel === null) {
+          query += " AND embedding_model IS NULL";
+        } else {
+          query += " AND embedding_model = ?";
+          values.push(params.embeddingModel);
+        }
+      }
+      query += `
+        ORDER BY vec_rowid ASC
+        LIMIT ? OFFSET 0
+      `;
+      values.push(fetchLimit);
+      const rows = db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+      return rows.map((row) => this.rowToMemoryEmbeddingIndex(row));
+    };
+    const databases = (() => {
       if (params.workspaceId === null) {
-        query += " AND workspace_id IS NULL";
-      } else {
-        query += " AND workspace_id = ?";
-        values.push(params.workspaceId);
+        return [{ workspaceId: null, db: this.controlPlaneDb() }];
       }
-    }
-    if (params.scopeBucket !== undefined) {
-      if (params.scopeBucket === null) {
-        query += " AND scope_bucket IS NULL";
-      } else {
-        query += " AND scope_bucket = ?";
-        values.push(params.scopeBucket);
+      if (typeof params.workspaceId === "string") {
+        return [{ workspaceId: params.workspaceId, db: this.workspaceRuntimeDb(params.workspaceId) }];
       }
-    }
-    if (params.embeddingModel !== undefined) {
-      if (params.embeddingModel === null) {
-        query += " AND embedding_model IS NULL";
-      } else {
-        query += " AND embedding_model = ?";
-        values.push(params.embeddingModel);
+      if (params.scopeBucket && params.scopeBucket !== "workspace") {
+        return [{ workspaceId: null, db: this.controlPlaneDb() }];
       }
-    }
-    query += `
-      ORDER BY vec_rowid ASC
-      LIMIT ? OFFSET ?
-    `;
-    values.push(params.limit ?? 5000, params.offset ?? 0);
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
-    return rows.map((row) => this.rowToMemoryEmbeddingIndex(row));
+      if (params.scopeBucket === "workspace") {
+        return this.listReadableMemoryDbs({ includeControlPlane: false, includeWorkspace: true });
+      }
+      return this.listReadableMemoryDbs();
+    })();
+    const records = databases.flatMap(({ db }) => queryRows(db));
+    records.sort((left, right) => left.vecRowid - right.vecRowid);
+    return records.slice(params.offset ?? 0, (params.offset ?? 0) + (params.limit ?? 5000));
   }
 
   upsertMemoryEmbeddingIndex(params: {
@@ -5070,14 +5157,21 @@ export class RuntimeStateStore {
     updatedAt?: string;
   }): MemoryEmbeddingIndexRecord {
     const existing =
-      this.getMemoryEmbeddingIndexByMemoryId(params.memoryId) ??
-      this.getMemoryEmbeddingIndexByPath(params.path);
+      this.getMemoryEmbeddingIndexByMemoryId({
+        memoryId: params.memoryId,
+        workspaceId: params.workspaceId,
+      }) ??
+      this.getMemoryEmbeddingIndexByPath({
+        path: params.path,
+        workspaceId: params.workspaceId,
+      });
     const now = params.updatedAt ?? utcNowIso();
     const indexedAt = existing?.indexedAt ?? params.indexedAt ?? now;
     if (existing && existing.memoryId !== params.memoryId) {
       this.deleteMemoryEmbeddingIndex(existing.memoryId);
     }
-    this.db()
+    const memoryDb = this.memoryDbForWorkspace(params.workspaceId);
+    memoryDb
       .prepare(`
         INSERT INTO memory_embedding_index (
             vec_rowid,
@@ -5116,7 +5210,10 @@ export class RuntimeStateStore {
         indexedAt,
         now,
       );
-    const record = this.getMemoryEmbeddingIndexByMemoryId(params.memoryId);
+    const record = this.getMemoryEmbeddingIndexByMemoryId({
+      memoryId: params.memoryId,
+      workspaceId: params.workspaceId,
+    });
     if (!record) {
       throw new Error("memory embedding index row not found after upsert");
     }
@@ -5124,14 +5221,15 @@ export class RuntimeStateStore {
   }
 
   deleteMemoryEmbeddingIndex(memoryId: string): void {
-    const existing = this.getMemoryEmbeddingIndexByMemoryId(memoryId);
+    const existing = this.getMemoryEmbeddingIndexByMemoryId({ memoryId });
     if (!existing) {
       return;
     }
+    const memoryDb = this.memoryDbForWorkspace(existing.workspaceId);
     if (this.#vectorIndexSupported) {
-      this.db().prepare("DELETE FROM memory_recall_vec WHERE vec_rowid = ?").run(existing.vecRowid);
+      memoryDb.prepare("DELETE FROM memory_recall_vec WHERE vec_rowid = ?").run(existing.vecRowid);
     }
-    this.db().prepare("DELETE FROM memory_embedding_index WHERE memory_id = ?").run(memoryId);
+    memoryDb.prepare("DELETE FROM memory_embedding_index WHERE memory_id = ?").run(memoryId);
   }
 
   replaceMemoryRecallVector(params: {
@@ -5144,8 +5242,9 @@ export class RuntimeStateStore {
     if (!this.#vectorIndexSupported) {
       return;
     }
-    this.db().prepare("DELETE FROM memory_recall_vec WHERE vec_rowid = ?").run(params.vecRowid);
-    this.db()
+    const memoryDb = this.memoryDbForWorkspace(params.workspaceId);
+    memoryDb.prepare("DELETE FROM memory_recall_vec WHERE vec_rowid = ?").run(params.vecRowid);
+    memoryDb
       .prepare(`
         INSERT INTO memory_recall_vec (vec_rowid, embedding, scope_bucket, workspace_id, memory_type)
         VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
@@ -5182,8 +5281,9 @@ export class RuntimeStateStore {
       query += ` AND memory_type IN (${params.memoryTypes.map(() => "?").join(", ")})`;
       values.push(...params.memoryTypes);
     }
-    const rows = this.db().prepare(query).all(...values) as Array<{ vec_rowid: number; distance: number }>;
-    return this.vectorResultsForRows(rows);
+    const memoryDb = this.memoryDbForWorkspace(params.workspaceId);
+    const rows = memoryDb.prepare(query).all(...values) as Array<{ vec_rowid: number; distance: number }>;
+    return this.vectorResultsForRows(memoryDb, rows);
   }
 
   searchUserMemoryRecallVectors(params: {
@@ -5211,8 +5311,9 @@ export class RuntimeStateStore {
       query += ` AND memory_type IN (${params.memoryTypes.map(() => "?").join(", ")})`;
       values.push(...params.memoryTypes);
     }
-    const rows = this.db().prepare(query).all(...values) as Array<{ vec_rowid: number; distance: number }>;
-    return this.vectorResultsForRows(rows);
+    const memoryDb = this.controlPlaneDb();
+    const rows = memoryDb.prepare(query).all(...values) as Array<{ vec_rowid: number; distance: number }>;
+    return this.vectorResultsForRows(memoryDb, rows);
   }
 
   upsertTurnRequestSnapshot(params: {
@@ -6668,6 +6769,7 @@ export class RuntimeStateStore {
     db.pragma("journal_mode = WAL");
     db.pragma("busy_timeout = 5000");
     db.pragma("foreign_keys = ON");
+    this.#vectorIndexSupported = this.tryLoadVectorExtension(db) || this.#vectorIndexSupported;
     this.ensureControlPlaneDbSchema(db);
     this.backfillControlPlaneDbFromLegacyRuntimeDb(db, legacy);
     this.#controlPlaneDb = db;
@@ -6696,6 +6798,7 @@ export class RuntimeStateStore {
     db.pragma("journal_mode = WAL");
     db.pragma("busy_timeout = 5000");
     db.pragma("foreign_keys = ON");
+    this.#vectorIndexSupported = this.tryLoadVectorExtension(db) || this.#vectorIndexSupported;
     this.ensureWorkspaceRuntimeDbSchema(db);
     this.backfillWorkspaceRuntimeDbFromLegacyRuntimeDb(db, this.db(), workspaceId);
     this.#workspaceRuntimeDbs.set(workspaceId, { dbPath, db });
@@ -6726,6 +6829,29 @@ export class RuntimeStateStore {
       workspaceId,
       db,
     }));
+  }
+
+  private memoryDbForWorkspace(workspaceId?: string | null): Database.Database {
+    if (typeof workspaceId === "string" && workspaceId.trim().length > 0) {
+      return this.workspaceRuntimeDb(workspaceId);
+    }
+    return this.controlPlaneDb();
+  }
+
+  private listReadableMemoryDbs(params: {
+    includeControlPlane?: boolean;
+    includeWorkspace?: boolean;
+  } = {}): Array<{ workspaceId: string | null; db: Database.Database }> {
+    const includeControlPlane = params.includeControlPlane ?? true;
+    const includeWorkspace = params.includeWorkspace ?? true;
+    const databases: Array<{ workspaceId: string | null; db: Database.Database }> = [];
+    if (includeControlPlane) {
+      databases.push({ workspaceId: null, db: this.controlPlaneDb() });
+    }
+    if (includeWorkspace) {
+      databases.push(...this.listReadableWorkspaceRuntimeDbs());
+    }
+    return databases;
   }
 
   private backfillControlPlaneDbFromLegacyRuntimeDb(
@@ -6932,6 +7058,7 @@ export class RuntimeStateStore {
         );
       }
     }
+    this.backfillControlPlaneMemoryTables(db, legacy);
   }
 
   private backfillWorkspaceRuntimeDbFromLegacyRuntimeDb(
@@ -6957,6 +7084,8 @@ export class RuntimeStateStore {
       "task_proposals",
       "evolve_skill_candidates",
       "memory_update_proposals",
+      "memory_entries",
+      "memory_embedding_index",
       "output_folders",
       "outputs",
       "app_builds",
@@ -6972,6 +7101,49 @@ export class RuntimeStateStore {
         tableName,
       });
     }
+    this.backfillWorkspaceScopedMemoryVectors({
+      db,
+      legacy,
+      workspaceId,
+    });
+  }
+
+  private backfillControlPlaneMemoryTables(db: Database.Database, legacy: Database.Database): void {
+    this.backfillControlPlaneMemoryTableRows({
+      db,
+      legacy,
+      tableName: "memory_entries",
+      whereClause: "workspace_id IS NULL",
+    });
+    this.backfillControlPlaneMemoryTableRows({
+      db,
+      legacy,
+      tableName: "memory_embedding_index",
+      whereClause: "workspace_id IS NULL",
+    });
+    if (!this.#vectorIndexSupported || !this.tableExists(legacy, "memory_recall_vec") || !this.tableExists(db, "memory_recall_vec")) {
+      return;
+    }
+    const rows = legacy
+      .prepare(`
+        SELECT vec_rowid, embedding, scope_bucket, workspace_id, memory_type
+        FROM memory_recall_vec
+        WHERE COALESCE(workspace_id, '') = ''
+      `)
+      .all() as Array<Record<string, unknown>>;
+    if (rows.length === 0) {
+      return;
+    }
+    const insert = db.prepare(`
+      INSERT OR IGNORE INTO memory_recall_vec (vec_rowid, embedding, scope_bucket, workspace_id, memory_type)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const insertMany = db.transaction((items: Array<Record<string, unknown>>) => {
+      for (const row of items) {
+        insert.run(row.vec_rowid, row.embedding, row.scope_bucket, row.workspace_id, row.memory_type);
+      }
+    });
+    insertMany(rows);
   }
 
   private backfillWorkspaceScopedTableRows(params: {
@@ -7005,6 +7177,70 @@ export class RuntimeStateStore {
     const insertMany = params.db.transaction((items: Array<Record<string, unknown>>) => {
       for (const row of items) {
         insert.run(...columns.map((column) => row[column] ?? null));
+      }
+    });
+    insertMany(rows);
+  }
+
+  private backfillControlPlaneMemoryTableRows(params: {
+    db: Database.Database;
+    legacy: Database.Database;
+    tableName: "memory_entries" | "memory_embedding_index";
+    whereClause: string;
+  }): void {
+    if (!this.tableExists(params.legacy, params.tableName) || !this.tableExists(params.db, params.tableName)) {
+      return;
+    }
+    const columns = (
+      params.db.prepare(`PRAGMA table_info(${params.tableName})`).all() as Array<{ name: string }>
+    ).map((row) => row.name);
+    if (columns.length === 0) {
+      return;
+    }
+    const rows = params.legacy
+      .prepare(`SELECT ${columns.join(", ")} FROM ${params.tableName} WHERE ${params.whereClause}`)
+      .all() as Array<Record<string, unknown>>;
+    if (rows.length === 0) {
+      return;
+    }
+    const insert = params.db.prepare(`
+      INSERT OR IGNORE INTO ${params.tableName} (${columns.join(", ")})
+      VALUES (${columns.map(() => "?").join(", ")})
+    `);
+    const insertMany = params.db.transaction((items: Array<Record<string, unknown>>) => {
+      for (const row of items) {
+        insert.run(...columns.map((column) => row[column] ?? null));
+      }
+    });
+    insertMany(rows);
+  }
+
+  private backfillWorkspaceScopedMemoryVectors(params: {
+    db: Database.Database;
+    legacy: Database.Database;
+    workspaceId: string;
+  }): void {
+    if (!this.#vectorIndexSupported || !this.tableExists(params.legacy, "memory_recall_vec") || !this.tableExists(params.db, "memory_recall_vec")) {
+      return;
+    }
+    const rows = params.legacy
+      .prepare(`
+        SELECT vec_rowid, embedding, scope_bucket, workspace_id, memory_type
+        FROM memory_recall_vec
+        WHERE scope_bucket = 'workspace'
+          AND workspace_id = ?
+      `)
+      .all(params.workspaceId) as Array<Record<string, unknown>>;
+    if (rows.length === 0) {
+      return;
+    }
+    const insert = params.db.prepare(`
+      INSERT OR IGNORE INTO memory_recall_vec (vec_rowid, embedding, scope_bucket, workspace_id, memory_type)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const insertMany = params.db.transaction((items: Array<Record<string, unknown>>) => {
+      for (const row of items) {
+        insert.run(row.vec_rowid, row.embedding, row.scope_bucket, row.workspace_id, row.memory_type);
       }
     });
     insertMany(rows);
@@ -7077,6 +7313,43 @@ export class RuntimeStateStore {
           workspace_id TEXT,
           memory_type TEXT
       );
+    `);
+  }
+
+  private ensureMemoryEntriesTableSchema(db: Database.Database): void {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS memory_entries (
+          memory_id TEXT PRIMARY KEY,
+          workspace_id TEXT,
+          session_id TEXT,
+          scope TEXT NOT NULL,
+          memory_type TEXT NOT NULL,
+          subject_key TEXT NOT NULL,
+          path TEXT NOT NULL,
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          tags TEXT NOT NULL DEFAULT '[]',
+          verification_policy TEXT NOT NULL,
+          staleness_policy TEXT NOT NULL DEFAULT 'stable',
+          stale_after_seconds INTEGER,
+          source_turn_input_id TEXT,
+          source_message_id TEXT,
+          source_type TEXT,
+          observed_at TEXT,
+          last_verified_at TEXT,
+          confidence REAL,
+          fingerprint TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'active',
+          superseded_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_memory_entries_workspace_scope_updated
+          ON memory_entries (workspace_id, scope, status, updated_at DESC, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_memory_entries_scope_updated
+          ON memory_entries (scope, status, updated_at DESC, created_at DESC);
     `);
   }
 
@@ -7158,6 +7431,8 @@ export class RuntimeStateStore {
           updated_at TEXT NOT NULL
       );
     `);
+    this.ensureMemoryEntriesTableSchema(db);
+    this.ensureMemoryEmbeddingIndexSchema(db);
     this.migrateIntegrationConnectionIdentityColumns(db);
   }
 
@@ -7671,6 +7946,8 @@ export class RuntimeStateStore {
       CREATE INDEX IF NOT EXISTS idx_runtime_notifications_state_created
           ON runtime_notifications (state, created_at DESC);
     `);
+    this.ensureMemoryEntriesTableSchema(db);
+    this.ensureMemoryEmbeddingIndexSchema(db);
     this.ensureConversationBindingsTableSchema(db);
     this.ensureSubagentRunsTableSchema(db);
     this.ensureSessionRuntimeStateTableSchema(db);
@@ -9645,7 +9922,10 @@ export class RuntimeStateStore {
     };
   }
 
-  private vectorResultsForRows(rows: Array<{ vec_rowid: number; distance: number }>): MemoryVectorSearchResult[] {
+  private vectorResultsForRows(
+    db: Database.Database,
+    rows: Array<{ vec_rowid: number; distance: number }>
+  ): MemoryVectorSearchResult[] {
     if (rows.length === 0) {
       return [];
     }
@@ -9653,7 +9933,7 @@ export class RuntimeStateStore {
     if (rowIds.length === 0) {
       return [];
     }
-    const mappingRows = this.db()
+    const mappingRows = db
       .prepare(`
         SELECT *
         FROM memory_embedding_index

@@ -128,7 +128,10 @@ export async function syncDurableMemoryEmbedding(params: {
     tags: params.entry.tags,
     excerpt,
   });
-  const existing = params.store.getMemoryEmbeddingIndexByMemoryId(params.entry.memoryId);
+  const existing = params.store.getMemoryEmbeddingIndexByMemoryId({
+    memoryId: params.entry.memoryId,
+    workspaceId: params.entry.workspaceId,
+  });
   if (
     existing &&
     existing.contentFingerprint === contentFingerprint &&

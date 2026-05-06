@@ -34,7 +34,7 @@ function makeMemoryEntry(
 ): MemoryEntryRecord {
   return {
     memoryId: overrides.memoryId,
-    workspaceId: overrides.workspaceId ?? "workspace-1",
+    workspaceId: overrides.workspaceId === undefined ? "workspace-1" : overrides.workspaceId,
     sessionId: overrides.sessionId ?? "session-1",
     scope: overrides.scope,
     memoryType: overrides.memoryType,
