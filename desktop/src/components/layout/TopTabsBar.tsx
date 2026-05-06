@@ -38,6 +38,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { useDesktopBilling } from "@/lib/billing/useDesktopBilling";
 import {
@@ -307,24 +312,38 @@ export function TopTabsBar({
           className={`${integratedTitleBar ? "window-no-drag " : ""}flex min-w-0 items-center justify-self-end gap-1.5`}
         >
           {!controlCenterActive ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onOpenControlCenter?.()}
-              className="h-7 shrink-0 rounded-full px-2.5 text-xs"
-            >
-              <Home className="size-3.5" />
-              Control Center
-            </Button>
-          ) : null}
-          {isBillingAvailable ? (
-            <CreditsPill
-              balance={overview?.creditsBalance ?? 0}
-              isLoading={isBillingLoading}
-              isLowBalance={isLowBalance}
-              onClick={() => onOpenBilling?.()}
-            />
-          ) : null}
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="bordered"
+                    size="icon-sm"
+                    aria-label="Show all workspaces"
+                    onClick={() => onOpenControlCenter?.()}
+                  >
+                    <Home />
+                  </Button>
+                }
+              />
+              <TooltipContent side="bottom">Show all workspaces</TooltipContent>
+            </Tooltip>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="bordered"
+                    size="icon-sm"
+                    aria-label="Create new workspace"
+                    onClick={() => onOpenWorkspaceCreatePanel?.()}
+                  >
+                    <Plus />
+                  </Button>
+                }
+              />
+              <TooltipContent side="bottom">Create new workspace</TooltipContent>
+            </Tooltip>
+          )}
           {!controlCenterActive ? (
             <div
               ref={workspaceSwitcherRef}
@@ -359,6 +378,14 @@ export function TopTabsBar({
                 />
               </Button>
             </div>
+          ) : null}
+          {isBillingAvailable ? (
+            <CreditsPill
+              balance={overview?.creditsBalance ?? 0}
+              isLoading={isBillingLoading}
+              isLowBalance={isLowBalance}
+              onClick={() => onOpenBilling?.()}
+            />
           ) : null}
           <RuntimeStatusIndicator status={runtimeStatus} />
           <DropdownMenu>

@@ -601,9 +601,12 @@ test("app shell uses the top toolbar for shell navigation and removes the left r
   const source = await readFile(APP_SHELL_PATH, "utf8");
 
   assert.match(source, /type ShellView = "control_center" \| "space";/);
+  // Default landing changed from "control_center" to "space" — the app
+  // resumes the user's last workspace on launch (Cursor/VSCode/Notion
+  // convention; control center remains opt-in via the toolbar).
   assert.match(
     source,
-    /const \[activeShellView, setActiveShellView\] =\s*useState<ShellView>\("control_center"\);/,
+    /const \[activeShellView, setActiveShellView\] =\s*useState<ShellView>\("space"\);/,
   );
   assert.match(source, /const handleOpenControlCenter = useCallback\(\(\) => \{/);
   assert.match(source, /const handleEnterWorkspace = useCallback\(\s*\(workspaceId: string\) => \{/);
@@ -637,17 +640,22 @@ test("app shell uses the top toolbar for shell navigation and removes the left r
   assert.doesNotMatch(source, /LeftNavigationRail/);
 });
 
-test("app shell auto-enters the sole workspace after startup hydration", async () => {
+test("app shell defaults to the user's last workspace on startup", async () => {
   const source = await readFile(APP_SHELL_PATH, "utf8");
 
+  // Default activeShellView is "space" — control center is opt-in.
+  assert.match(source, /useState<ShellView>\("space"\)/);
+
+  // Startup ref renamed to reflect general scope (no longer single-workspace-only).
   assert.match(
     source,
-    /const singleWorkspaceStartupEntryHandledRef = useRef\(false\);/,
+    /const startupWorkspaceSelectionHandledRef = useRef\(false\);/,
   );
-  assert.match(
-    source,
-    /useEffect\(\(\) => \{\s*if \(singleWorkspaceStartupEntryHandledRef\.current\) \{\s*return;\s*\}\s*if \(!hasHydratedWorkspaceList\) \{\s*return;\s*\}\s*singleWorkspaceStartupEntryHandledRef\.current = true;\s*if \(activeShellView !== "control_center" \|\| workspaces\.length !== 1\) \{\s*return;\s*\}\s*handleEnterWorkspace\(workspaces\[0\]\?\.id \?\? ""\);\s*\}, \[\s*activeShellView,\s*handleEnterWorkspace,\s*hasHydratedWorkspaceList,\s*workspaces,\s*\]\);/,
-  );
+
+  // Auto-pick most-recent workspace when stored selection is invalid.
+  assert.match(source, /workspaces\.length === 0/);
+  assert.match(source, /selectionIsValid/);
+  assert.match(source, /setSelectedWorkspaceId\(fallbackWorkspaceId\)/);
 });
 
 test("app shell no longer renders the dedicated app mode after removing the left rail", async () => {
