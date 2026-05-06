@@ -288,6 +288,20 @@ test("chat pane blocks overlapping older-history loads before state commits", as
   );
 });
 
+test("chat pane only uses workspace lifecycle blocking state for startup composer disablement", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  assert.match(
+    source,
+    /const readinessMessage =[\s\S]*workspaceBlockingReason \|\|[\s\S]*isActivatingWorkspace[\s\S]*"Preparing workspace apps\.\.\."[\s\S]*"Workspace apps are still starting\."/,
+  );
+  assert.match(
+    source,
+    /if \(!isOnboardingVariant && !workspaceAppsReady\) \{[\s\S]*workspaceBlockingReason \|\| "Workspace apps are still starting\."/,
+  );
+  assert.doesNotMatch(source, /workspaceErrorMessage/);
+});
+
 test("chat pane does not adopt unmatched done or error stream frames and refreshes after matching done", async () => {
   const source = await readFile(sourcePath, "utf8");
 
