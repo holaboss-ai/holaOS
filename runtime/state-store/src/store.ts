@@ -6877,14 +6877,27 @@ export class RuntimeStateStore {
   }
 
   private workspaceRuntimeDb(workspaceId: string): Database.Database {
+    const cached = this.#workspaceRuntimeDbs.get(workspaceId);
     const workspaceRecord = this.getWorkspace(workspaceId, { includeDeleted: true });
     if (workspaceRecord?.deletedAtUtc) {
-      return this.db();
+      if (cached) {
+        return cached.db;
+      }
+      const db = new Database(":memory:");
+      db.pragma("journal_mode = MEMORY");
+      db.pragma("busy_timeout = 5000");
+      db.pragma("foreign_keys = ON");
+      this.#vectorIndexSupported = this.tryLoadVectorExtension(db) || this.#vectorIndexSupported;
+      this.ensureWorkspaceRuntimeDbSchema(db);
+      this.#workspaceRuntimeDbs.set(workspaceId, {
+        dbPath: `__deleted__/${workspaceId}`,
+        db,
+      });
+      return db;
     }
     const registeredPath = this.workspacePathFromRegistry(workspaceId);
     const workspacePath = registeredPath ? this.assertWorkspaceFolderHealthy(workspaceId) : this.workspaceDir(workspaceId);
     const dbPath = workspaceRuntimeDbPathForWorkspacePath(workspacePath);
-    const cached = this.#workspaceRuntimeDbs.get(workspaceId);
     if (cached && cached.dbPath === dbPath) {
       return cached.db;
     }

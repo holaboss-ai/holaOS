@@ -3589,47 +3589,6 @@ test("workspace delete stops installed apps and clears local workspace files", a
     dbPath: path.join(root, "runtime.db"),
     workspaceRoot
   });
-
-  const workspace = store.createWorkspace({
-    workspaceId: "workspace-1",
-    name: "Workspace 1",
-    harness: "pi",
-    status: "active",
-  });
-  const workspaceDir = store.workspaceDir(workspace.id);
-  const appId = "app-a";
-  const appDir = path.join(workspaceDir, "apps", appId);
-  fs.mkdirSync(appDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(workspaceDir, "workspace.yaml"),
-    `applications:\n  - app_id: ${appId}\n    config_path: apps/${appId}/app.runtime.yaml\n`,
-    "utf8"
-  );
-  fs.writeFileSync(
-    path.join(appDir, "app.runtime.yaml"),
-    [
-      `app_id: ${appId}`,
-      "mcp:",
-      "  transport: http-sse",
-      "  port: 4100",
-      "  path: /mcp",
-      "healthchecks:",
-      "  mcp:",
-      "    path: /health",
-      "    timeout_s: 60",
-      "    interval_s: 5",
-      "lifecycle:",
-      "  setup: ''",
-      "  start: npm run start",
-      "  stop: npm run stop"
-    ].join("\n"),
-    "utf8"
-  );
-  store.upsertAppBuild({ workspaceId: workspace.id, appId, status: "running" });
-  store.allocateAppPort({ workspaceId: workspace.id, appId: `${appId}__http` });
-  store.allocateAppPort({ workspaceId: workspace.id, appId: `${appId}__mcp` });
-  assert.equal(store.listAppPorts({ workspaceId: workspace.id }).length, 2);
-
   const stopCalls: Array<{ appId: string; appDir?: string; hasResolvedApp: boolean }> = [];
   const executor: AppLifecycleExecutorLike = {
     async startApp() {
@@ -3654,26 +3613,68 @@ test("workspace delete stops installed apps and clears local workspace files", a
   };
   const app = buildTestRuntimeApiServer({ store, appLifecycleExecutor: executor });
 
-  const deleted = await app.inject({ method: "DELETE", url: `/api/v1/workspaces/${workspace.id}` });
+  try {
+    const workspace = store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    const workspaceDir = store.workspaceDir(workspace.id);
+    const appId = "app-a";
+    const appDir = path.join(workspaceDir, "apps", appId);
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceDir, "workspace.yaml"),
+      `applications:\n  - app_id: ${appId}\n    config_path: apps/${appId}/app.runtime.yaml\n`,
+      "utf8"
+    );
+    fs.writeFileSync(
+      path.join(appDir, "app.runtime.yaml"),
+      [
+        `app_id: ${appId}`,
+        "mcp:",
+        "  transport: http-sse",
+        "  port: 4100",
+        "  path: /mcp",
+        "healthchecks:",
+        "  mcp:",
+        "    path: /health",
+        "    timeout_s: 60",
+        "    interval_s: 5",
+        "lifecycle:",
+        "  setup: ''",
+        "  start: npm run start",
+        "  stop: npm run stop"
+      ].join("\n"),
+      "utf8"
+    );
+    store.upsertAppBuild({ workspaceId: workspace.id, appId, status: "running" });
+    store.allocateAppPort({ workspaceId: workspace.id, appId: `${appId}__http` });
+    store.allocateAppPort({ workspaceId: workspace.id, appId: `${appId}__mcp` });
+    assert.equal(store.listAppPorts({ workspaceId: workspace.id }).length, 2);
 
-  assert.equal(deleted.statusCode, 200);
-  assert.equal(deleted.json().workspace.status, "deleted");
-  assert.equal(stopCalls.length, 1);
-  assert.deepEqual(stopCalls[0], {
-    appId,
-    appDir,
-    hasResolvedApp: true
-  });
-  assert.equal(store.getAppBuild({ workspaceId: workspace.id, appId }), null);
-  assert.equal(store.listAppPorts({ workspaceId: workspace.id }).length, 0);
-  assert.equal(fs.existsSync(workspaceDir), false);
-  const deletedWorkspace = store.getWorkspace(workspace.id, { includeDeleted: true });
-  assert.ok(deletedWorkspace);
-  assert.equal(deletedWorkspace.status, "deleted");
-  assert.ok(deletedWorkspace.deletedAtUtc);
+    const deleted = await app.inject({ method: "DELETE", url: `/api/v1/workspaces/${workspace.id}` });
 
-  await app.close();
-  store.close();
+    assert.equal(deleted.statusCode, 200);
+    assert.equal(deleted.json().workspace.status, "deleted");
+    assert.equal(stopCalls.length, 1);
+    assert.deepEqual(stopCalls[0], {
+      appId,
+      appDir,
+      hasResolvedApp: true
+    });
+    assert.equal(store.getAppBuild({ workspaceId: workspace.id, appId }), null);
+    assert.equal(store.listAppPorts({ workspaceId: workspace.id }).length, 0);
+    assert.equal(fs.existsSync(workspaceDir), false);
+    const deletedWorkspace = store.getWorkspace(workspace.id, { includeDeleted: true });
+    assert.ok(deletedWorkspace);
+    assert.equal(deletedWorkspace.status, "deleted");
+    assert.ok(deletedWorkspace.deletedAtUtc);
+  } finally {
+    await app.close();
+    store.close();
+  }
 });
 
 test("runtime states and history endpoints read TS state store", async () => {
