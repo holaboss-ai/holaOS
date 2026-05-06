@@ -3042,8 +3042,8 @@ test("PATCH workspace_path accepts a folder with matching identity (move case)",
   const workspaceId = (created.json().workspace as { id: string }).id;
 
   // Simulate the user moving the whole workspace folder elsewhere.
-  fs.mkdirSync(path.join(movedPath, ".holaboss"), { recursive: true });
-  fs.writeFileSync(path.join(movedPath, ".holaboss", "workspace_id"), workspaceId);
+  fs.mkdirSync(path.join(movedPath, ".holaboss", "state"), { recursive: true });
+  fs.writeFileSync(path.join(movedPath, ".holaboss", "state", "workspace_id"), workspaceId);
   fs.writeFileSync(path.join(movedPath, "AGENTS.md"), "preserved");
 
   const resp = await app.inject({
@@ -3053,6 +3053,40 @@ test("PATCH workspace_path accepts a folder with matching identity (move case)",
   });
   assert.equal(resp.statusCode, 200);
   assert.equal(fs.readFileSync(path.join(movedPath, "AGENTS.md"), "utf-8"), "preserved");
+
+  await app.close();
+  store.close();
+});
+
+test("PATCH workspace_path still accepts a folder with the legacy identity path", async () => {
+  const root = makeTempDir("hb-runtime-api-");
+  const customRoot = makeTempDir("hb-custom-ws-");
+  const movedPath = path.join(customRoot, "moved-legacy");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const app = buildTestRuntimeApiServer({ store });
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/v1/workspaces",
+    payload: { name: "M", harness: "pi" }
+  });
+  const workspaceId = (created.json().workspace as { id: string }).id;
+
+  fs.mkdirSync(path.join(movedPath, ".holaboss"), { recursive: true });
+  fs.writeFileSync(path.join(movedPath, ".holaboss", "workspace_id"), workspaceId);
+
+  const resp = await app.inject({
+    method: "PATCH",
+    url: `/api/v1/workspaces/${workspaceId}`,
+    payload: { workspace_path: movedPath }
+  });
+  assert.equal(resp.statusCode, 200);
+  assert.equal(
+    fs.readFileSync(path.join(movedPath, ".holaboss", "state", "workspace_id"), "utf-8").trim(),
+    workspaceId,
+  );
 
   await app.close();
   store.close();
@@ -3357,6 +3391,7 @@ test("DELETE ?keep_files=true preserves files even for managed workspaces", asyn
   const workspaceId = (created.json().workspace as { id: string }).id;
   const workspaceDir = store.workspaceDir(workspaceId);
   fs.writeFileSync(path.join(workspaceDir, "important.txt"), "keep me");
+  const identityPath = path.join(workspaceDir, ".holaboss", "state", "workspace_id");
 
   const resp = await app.inject({
     method: "DELETE",
@@ -3364,7 +3399,7 @@ test("DELETE ?keep_files=true preserves files even for managed workspaces", asyn
   });
   assert.equal(resp.statusCode, 200);
   assert.equal(fs.existsSync(path.join(workspaceDir, "important.txt")), true);
-  assert.equal(fs.existsSync(path.join(workspaceDir, ".holaboss")), false);
+  assert.equal(fs.existsSync(identityPath), true);
 
   await app.close();
   store.close();
@@ -3398,7 +3433,7 @@ test("DELETE ?keep_files=false wipes files even for custom-path workspaces", asy
   store.close();
 });
 
-test("DELETE workspace at custom path preserves user files, wipes only metadata", async () => {
+test("DELETE workspace at custom path preserves user files and the workspace bundle", async () => {
   const root = makeTempDir("hb-runtime-api-");
   const customRoot = makeTempDir("hb-runtime-api-custom-ws-");
   const customPath = path.join(customRoot, "user-folder");
@@ -3422,6 +3457,7 @@ test("DELETE workspace at custom path preserves user files, wipes only metadata"
 
   // User drops a file into their own folder after creation.
   fs.writeFileSync(path.join(customPath, "my-notes.txt"), "keep me");
+  const identityPath = path.join(customPath, ".holaboss", "state", "workspace_id");
 
   const deleted = await app.inject({
     method: "DELETE",
@@ -3431,8 +3467,8 @@ test("DELETE workspace at custom path preserves user files, wipes only metadata"
 
   // User's file survives.
   assert.equal(fs.existsSync(path.join(customPath, "my-notes.txt")), true);
-  // Runtime's metadata is gone.
-  assert.equal(fs.existsSync(path.join(customPath, ".holaboss")), false);
+  // Workspace runtime state and memory survive too.
+  assert.equal(fs.existsSync(identityPath), true);
   // The user's folder itself is preserved.
   assert.equal(fs.existsSync(customPath), true);
 

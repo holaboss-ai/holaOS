@@ -1245,7 +1245,7 @@ export class RuntimeStateStore {
       // Allow a folder that already contains this workspace's identity file
       // (relocate case — user moved the folder elsewhere on disk).
       if (options.allowMatchingIdentity) {
-        const identityPath = path.join(resolved, WORKSPACE_RUNTIME_DIRNAME, WORKSPACE_IDENTITY_FILENAME);
+        const identityPath = ensureWorkspaceIdentityMigrated(resolved);
         if (fs.existsSync(identityPath)) {
           try {
             const raw = fs.readFileSync(identityPath, "utf-8").trim();
@@ -7177,16 +7177,25 @@ export class RuntimeStateStore {
     if (rows.length === 0) {
       return;
     }
+    const existingRowIds = new Set<number>(
+      (db.prepare("SELECT vec_rowid FROM memory_recall_vec").all() as Array<{ vec_rowid: number }>).map((row) =>
+        Number(row.vec_rowid)
+      )
+    );
+    const pendingRows = rows.filter((row) => !existingRowIds.has(Number(row.vec_rowid)));
+    if (pendingRows.length === 0) {
+      return;
+    }
     const insert = db.prepare(`
       INSERT OR IGNORE INTO memory_recall_vec (vec_rowid, embedding, scope_bucket, workspace_id, memory_type)
-      VALUES (?, ?, ?, ?, ?)
+      VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
     `);
     const insertMany = db.transaction((items: Array<Record<string, unknown>>) => {
       for (const row of items) {
         insert.run(row.vec_rowid, row.embedding, row.scope_bucket, row.workspace_id, row.memory_type);
       }
     });
-    insertMany(rows);
+    insertMany(pendingRows);
   }
 
   private backfillWorkspaceScopedTableRows(params: {
@@ -7295,16 +7304,25 @@ export class RuntimeStateStore {
     if (rows.length === 0) {
       return;
     }
+    const existingRowIds = new Set<number>(
+      (params.db.prepare("SELECT vec_rowid FROM memory_recall_vec").all() as Array<{ vec_rowid: number }>).map((row) =>
+        Number(row.vec_rowid)
+      )
+    );
+    const pendingRows = rows.filter((row) => !existingRowIds.has(Number(row.vec_rowid)));
+    if (pendingRows.length === 0) {
+      return;
+    }
     const insert = params.db.prepare(`
       INSERT OR IGNORE INTO memory_recall_vec (vec_rowid, embedding, scope_bucket, workspace_id, memory_type)
-      VALUES (?, ?, ?, ?, ?)
+      VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
     `);
     const insertMany = params.db.transaction((items: Array<Record<string, unknown>>) => {
       for (const row of items) {
         insert.run(row.vec_rowid, row.embedding, row.scope_bucket, row.workspace_id, row.memory_type);
       }
     });
-    insertMany(rows);
+    insertMany(pendingRows);
   }
 
   private runPendingMigrations(db: Database.Database): void {

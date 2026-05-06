@@ -6,6 +6,7 @@ import { afterEach, test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import Database from "better-sqlite3";
+import * as sqliteVec from "sqlite-vec";
 
 import { RuntimeStateStore } from "./store.js";
 
@@ -157,6 +158,232 @@ test("opening the store migrates legacy runtime.db files into host-state.db by d
     .get();
   migratedDb.close();
   assert.equal(row?.value, "migrated");
+});
+
+test("control-plane memory vector backfill migrates legacy user-scoped vec rows", () => {
+  const root = makeTempDir("hb-state-store-control-plane-vec-");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceRoot = path.join(root, "workspace");
+
+  const legacyDb = new Database(dbPath);
+  sqliteVec.load(legacyDb);
+  legacyDb.exec(`
+    CREATE TABLE memory_embedding_index (
+      vec_rowid INTEGER PRIMARY KEY,
+      memory_id TEXT NOT NULL UNIQUE,
+      path TEXT NOT NULL UNIQUE,
+      workspace_id TEXT,
+      scope_bucket TEXT NOT NULL,
+      memory_type TEXT NOT NULL,
+      content_fingerprint TEXT NOT NULL,
+      embedding_model TEXT NOT NULL,
+      embedding_dim INTEGER NOT NULL,
+      indexed_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE VIRTUAL TABLE memory_recall_vec USING vec0(
+      vec_rowid INTEGER PRIMARY KEY,
+      embedding float[1536],
+      scope_bucket TEXT,
+      workspace_id TEXT,
+      memory_type TEXT
+    );
+  `);
+  legacyDb
+    .prepare(`
+      INSERT INTO memory_embedding_index (
+        vec_rowid,
+        memory_id,
+        path,
+        workspace_id,
+        scope_bucket,
+        memory_type,
+        content_fingerprint,
+        embedding_model,
+        embedding_dim,
+        indexed_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      14,
+      "user-preference:style",
+      "preference/response-style.md",
+      null,
+      "preference",
+      "preference",
+      "b".repeat(64),
+      "text-embedding-3-small",
+      1536,
+      "2026-05-06T00:00:00.000Z",
+      "2026-05-06T00:00:00.000Z",
+    );
+  const embedding = new Float32Array(1536);
+  embedding[1] = 1;
+  legacyDb
+    .prepare(`
+      INSERT INTO memory_recall_vec (vec_rowid, embedding, scope_bucket, workspace_id, memory_type)
+      VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
+    `)
+    .run(14, embedding, "preference", "", "preference");
+  legacyDb.close();
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  assert.equal(store.supportsVectorIndex(), true);
+
+  const results = store.searchUserMemoryRecallVectors({
+    embedding,
+    limit: 5,
+  });
+
+  assert.equal(results[0]?.memoryId, "user-preference:style");
+  assert.equal(results[0]?.path, "preference/response-style.md");
+  store.close();
+});
+
+test("control-plane memory vector backfill is idempotent when a prior retry already inserted the vec row", () => {
+  const root = makeTempDir("hb-state-store-control-plane-vec-retry-");
+  const dbPath = path.join(root, "runtime.db");
+  const controlPlanePath = path.join(root, "control-plane.db");
+  const workspaceRoot = path.join(root, "workspace");
+
+  const embedding = new Float32Array(1536);
+  embedding[1] = 1;
+
+  const legacyDb = new Database(dbPath);
+  sqliteVec.load(legacyDb);
+  legacyDb.exec(`
+    CREATE TABLE memory_embedding_index (
+      vec_rowid INTEGER PRIMARY KEY,
+      memory_id TEXT NOT NULL UNIQUE,
+      path TEXT NOT NULL UNIQUE,
+      workspace_id TEXT,
+      scope_bucket TEXT NOT NULL,
+      memory_type TEXT NOT NULL,
+      content_fingerprint TEXT NOT NULL,
+      embedding_model TEXT NOT NULL,
+      embedding_dim INTEGER NOT NULL,
+      indexed_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE VIRTUAL TABLE memory_recall_vec USING vec0(
+      vec_rowid INTEGER PRIMARY KEY,
+      embedding float[1536],
+      scope_bucket TEXT,
+      workspace_id TEXT,
+      memory_type TEXT
+    );
+  `);
+  legacyDb
+    .prepare(`
+      INSERT INTO memory_embedding_index (
+        vec_rowid,
+        memory_id,
+        path,
+        workspace_id,
+        scope_bucket,
+        memory_type,
+        content_fingerprint,
+        embedding_model,
+        embedding_dim,
+        indexed_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      14,
+      "user-preference:style",
+      "preference/response-style.md",
+      null,
+      "preference",
+      "preference",
+      "b".repeat(64),
+      "text-embedding-3-small",
+      1536,
+      "2026-05-06T00:00:00.000Z",
+      "2026-05-06T00:00:00.000Z",
+    );
+  legacyDb
+    .prepare(`
+      INSERT INTO memory_recall_vec (vec_rowid, embedding, scope_bucket, workspace_id, memory_type)
+      VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
+    `)
+    .run(14, embedding, "preference", "", "preference");
+  legacyDb.close();
+
+  const controlPlaneDb = new Database(controlPlanePath);
+  sqliteVec.load(controlPlaneDb);
+  controlPlaneDb.exec(`
+    CREATE TABLE memory_embedding_index (
+      vec_rowid INTEGER PRIMARY KEY,
+      memory_id TEXT NOT NULL UNIQUE,
+      path TEXT NOT NULL UNIQUE,
+      workspace_id TEXT,
+      scope_bucket TEXT NOT NULL,
+      memory_type TEXT NOT NULL,
+      content_fingerprint TEXT NOT NULL,
+      embedding_model TEXT NOT NULL,
+      embedding_dim INTEGER NOT NULL,
+      indexed_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE VIRTUAL TABLE memory_recall_vec USING vec0(
+      vec_rowid INTEGER PRIMARY KEY,
+      embedding float[1536],
+      scope_bucket TEXT,
+      workspace_id TEXT,
+      memory_type TEXT
+    );
+  `);
+  controlPlaneDb
+    .prepare(`
+      INSERT INTO memory_embedding_index (
+        vec_rowid,
+        memory_id,
+        path,
+        workspace_id,
+        scope_bucket,
+        memory_type,
+        content_fingerprint,
+        embedding_model,
+        embedding_dim,
+        indexed_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      14,
+      "user-preference:style",
+      "preference/response-style.md",
+      null,
+      "preference",
+      "preference",
+      "b".repeat(64),
+      "text-embedding-3-small",
+      1536,
+      "2026-05-06T00:00:00.000Z",
+      "2026-05-06T00:00:00.000Z",
+    );
+  controlPlaneDb
+    .prepare(`
+      INSERT INTO memory_recall_vec (vec_rowid, embedding, scope_bucket, workspace_id, memory_type)
+      VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
+    `)
+    .run(14, embedding, "preference", "", "preference");
+  controlPlaneDb.close();
+
+  const store = new RuntimeStateStore({ dbPath, controlPlaneDbPath: controlPlanePath, workspaceRoot });
+  store.listWorkspaces();
+  store.close();
+
+  const verifyDb = new Database(controlPlanePath, { readonly: true });
+  sqliteVec.load(verifyDb);
+  const countRow = verifyDb
+    .prepare<[], { total: number }>("SELECT COUNT(*) AS total FROM memory_recall_vec WHERE vec_rowid = 14")
+    .get();
+  verifyDb.close();
+
+  assert.equal(countRow?.total, 1);
 });
 
 test("createWorkspace honors explicit workspacePath and registers it", () => {
@@ -417,8 +644,8 @@ test("relocateWorkspace accepts a directory that already has a matching identity
   const customRoot = makeTempDir("hb-custom-ws-");
   const movedPath = path.join(customRoot, "moved");
   // Pre-seed the folder as if the user moved a workspace dir here.
-  fs.mkdirSync(path.join(movedPath, ".holaboss"), { recursive: true });
-  fs.writeFileSync(path.join(movedPath, ".holaboss", "workspace_id"), "ws-moved");
+  fs.mkdirSync(path.join(movedPath, ".holaboss", "state"), { recursive: true });
+  fs.writeFileSync(path.join(movedPath, ".holaboss", "state", "workspace_id"), "ws-moved");
   fs.writeFileSync(path.join(movedPath, "AGENTS.md"), "preserved");
 
   const store = new RuntimeStateStore({
@@ -432,6 +659,28 @@ test("relocateWorkspace accepts a directory that already has a matching identity
   // Pre-existing content is preserved (we don't wipe).
   assert.equal(fs.readFileSync(path.join(movedPath, "AGENTS.md"), "utf-8"), "preserved");
   assert.equal(path.resolve(store.workspaceDir("ws-moved")), path.resolve(movedPath));
+  store.close();
+});
+
+test("relocateWorkspace still accepts a directory with the legacy identity file path", () => {
+  const root = makeTempDir("hb-state-store-");
+  const customRoot = makeTempDir("hb-custom-ws-");
+  const movedPath = path.join(customRoot, "moved-legacy");
+  fs.mkdirSync(path.join(movedPath, ".holaboss"), { recursive: true });
+  fs.writeFileSync(path.join(movedPath, ".holaboss", "workspace_id"), "ws-moved");
+
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  store.createWorkspace({ workspaceId: "ws-moved", name: "M", harness: "pi" });
+
+  store.relocateWorkspace("ws-moved", movedPath);
+
+  assert.equal(
+    fs.readFileSync(path.join(movedPath, ".holaboss", "state", "workspace_id"), "utf-8").trim(),
+    "ws-moved",
+  );
   store.close();
 });
 

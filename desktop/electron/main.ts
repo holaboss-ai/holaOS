@@ -14177,9 +14177,14 @@ async function pickWorkspaceRelocationFolder(
     if (!stat.isDirectory()) {
       throw new Error("Selected path is not a directory.");
     }
-    // Accept if it contains a matching .holaboss/state/workspace_id identity file.
-    const identityFilePath = path.join(rootPath, ".holaboss", "workspace_id");
-    if (existsSync(identityFilePath)) {
+    // Accept if it contains a matching workspace identity file.
+    for (const identityFilePath of [
+      path.join(rootPath, ".holaboss", "state", "workspace_id"),
+      path.join(rootPath, ".holaboss", "workspace_id"),
+    ]) {
+      if (!existsSync(identityFilePath)) {
+        continue;
+      }
       const storedId = readFileSync(identityFilePath, "utf-8").trim();
       if (storedId === safeWorkspaceId) {
         return { canceled: false, rootPath };

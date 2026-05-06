@@ -5716,8 +5716,6 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const workspace = store.getWorkspace(params.workspaceId, { includeDeleted: true });
     if (!workspace || workspace.deletedAtUtc) {
       // Idempotent: workspace already gone or never existed — treat as success
-      const workspaceDir = store.workspaceDir(params.workspaceId);
-      fs.rmSync(workspaceDir, { recursive: true, force: true });
       return {
         workspace: {
           id: params.workspaceId,
@@ -5747,7 +5745,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       });
       const deletedWorkspace = store.deleteWorkspace(params.workspaceId);
       // Decide whether to wipe the folder. Three cases:
-      //   keep_files=true  → never wipe, only remove .holaboss metadata
+      //   keep_files=true  → never wipe; preserve the full workspace bundle
       //   keep_files=false → always wipe the whole folder
       //   unspecified      → default: managed paths wipe, custom paths keep
       const isManagedPath = isPathWithinWorkspaceRoot(workspaceDir, store.workspaceRoot);
@@ -5759,9 +5757,6 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
             : isManagedPath;
       if (shouldWipe) {
         fs.rmSync(workspaceDir, { recursive: true, force: true });
-      } else {
-        const metadataDir = path.join(workspaceDir, ".holaboss");
-        fs.rmSync(metadataDir, { recursive: true, force: true });
       }
       return { workspace: workspaceRecordPayload(deletedWorkspace, workspaceDir, "missing") };
     } catch (error) {

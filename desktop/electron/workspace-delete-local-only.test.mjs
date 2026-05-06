@@ -17,7 +17,7 @@ test("workspace deletion is handled locally without calling the control plane", 
 
   assert.match(
     deleteWorkspaceFunction,
-    /requestRuntimeJson<WorkspaceResponsePayload>\(\{[\s\S]*?method: "DELETE",[\s\S]*?path: `\/api\/v1\/workspaces\/\$\{encodeURIComponent\(safeWorkspaceId\)\}`/,
+    /runtimeClient\.workspaces\.delete\(\s*safeWorkspaceId,\s*keepFiles !== undefined \? \{ keepFiles \} : undefined,\s*\)/,
   );
   assert.match(deleteWorkspaceFunction, /forgetWorkspaceDir\(safeWorkspaceId\)/);
   assert.doesNotMatch(deleteWorkspaceFunction, /requestControlPlaneJson/);
