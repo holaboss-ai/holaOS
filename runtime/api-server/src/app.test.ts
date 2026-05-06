@@ -3506,6 +3506,54 @@ test("DELETE workspace at managed path still wipes the whole directory", async (
   store.close();
 });
 
+test("POST /api/v1/workspaces revives a kept workspace bundle instead of rejecting the preserved folder", async () => {
+  const root = makeTempDir("hb-runtime-api-");
+  const customRoot = makeTempDir("hb-runtime-api-custom-ws-");
+  const customPath = path.join(customRoot, "revive-me");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/v1/workspaces",
+    payload: {
+      name: "Original",
+      harness: "pi",
+      workspace_path: customPath
+    }
+  });
+  assert.equal(created.statusCode, 200);
+  const original = created.json().workspace as { id: string; workspace_path: string };
+  fs.writeFileSync(path.join(customPath, "AGENTS.md"), "preserved\n");
+
+  const deleted = await app.inject({
+    method: "DELETE",
+    url: `/api/v1/workspaces/${original.id}`
+  });
+  assert.equal(deleted.statusCode, 200);
+
+  const revived = await app.inject({
+    method: "POST",
+    url: "/api/v1/workspaces",
+    payload: {
+      name: "Ignored",
+      harness: "pi",
+      workspace_path: customPath
+    }
+  });
+  assert.equal(revived.statusCode, 200);
+  const revivedWorkspace = revived.json().workspace as { id: string; workspace_path: string | null };
+  assert.equal(revivedWorkspace.id, original.id);
+  assert.equal(path.resolve(revivedWorkspace.workspace_path ?? ""), path.resolve(customPath));
+  assert.equal(fs.readFileSync(path.join(customPath, "AGENTS.md"), "utf8"), "preserved\n");
+
+  await app.close();
+  store.close();
+});
+
 test("POST /api/v1/workspaces rejects a non-empty workspace_path", async () => {
   const root = makeTempDir("hb-runtime-api-");
   const customRoot = makeTempDir("hb-runtime-api-custom-ws-");

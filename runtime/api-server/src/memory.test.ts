@@ -129,6 +129,47 @@ test("filesystem memory service preserves search/get/upsert/status/sync payload 
   });
 });
 
+test("filesystem memory service resolves workspace-local bundles from the registered custom workspace path", async () => {
+  const root = makeTempDir("hb-memory-custom-");
+  const workspaceRoot = path.join(root, "workspace");
+  const customWorkspaceDir = path.join(root, "custom-workspace");
+  const service = new MemoryService({
+    workspaceRoot,
+    resolveWorkspaceDir(workspaceId) {
+      assert.equal(workspaceId, "workspace-custom");
+      return customWorkspaceDir;
+    },
+  });
+
+  await service.upsert({
+    workspace_id: "workspace-custom",
+    path: "workspace/workspace-custom/notes.md",
+    content: "custom workspace memory\n",
+    append: false,
+  });
+
+  const fetched = await service.get({
+    workspace_id: "workspace-custom",
+    path: "workspace/workspace-custom/notes.md",
+  });
+  const captured = await service.capture({ workspace_id: "workspace-custom" });
+  const capturedFiles = captured.files as Record<string, string>;
+
+  assert.deepEqual(fetched, {
+    path: "workspace/workspace-custom/notes.md",
+    text: "custom workspace memory\n",
+  });
+  assert.equal(
+    fs.existsSync(path.join(workspaceMemoryDir(customWorkspaceDir), "notes.md")),
+    true,
+  );
+  assert.equal(
+    fs.existsSync(path.join(workspaceRoot, "workspace-custom", ".holaboss", "memory", "notes.md")),
+    false,
+  );
+  assert.equal(capturedFiles["workspace/workspace-custom/notes.md"], "custom workspace memory\n");
+});
+
 test("filesystem memory service reports generic fallback metadata for unsupported backends", async () => {
   const root = makeTempDir("hb-memory-");
   process.env.MEMORY_BACKEND = "sqlite";

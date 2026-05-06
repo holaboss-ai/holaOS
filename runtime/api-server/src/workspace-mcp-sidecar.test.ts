@@ -188,6 +188,79 @@ test("startWorkspaceMcpSidecar terminates stale state, spawns, and persists the 
   assert.equal(fs.existsSync(path.join(legacyStateDir, "workspace-mcp-sidecar-state.json")), false);
 });
 
+test("startWorkspaceMcpSidecar migrates only the matching legacy sidecar entry for this workspace", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hb-workspace-mcp-shared-"));
+  tempDirs.push(root);
+  const workspaceADir = path.join(root, "workspace-a");
+  const workspaceBDir = path.join(root, "workspace-b");
+  fs.mkdirSync(workspaceADir, { recursive: true });
+  fs.mkdirSync(workspaceBDir, { recursive: true });
+  const request = makeRequest(workspaceADir);
+  const legacyStateDir = path.join(root, ".holaboss");
+  fs.mkdirSync(legacyStateDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(legacyStateDir, "workspace-mcp-sidecar-state.json"),
+    JSON.stringify(
+      {
+        version: 1,
+        sidecars: {
+          [request.physical_server_id]: {
+            physical_server_id: request.physical_server_id,
+            url: "http://127.0.0.1:9001/mcp",
+            pid: 2001,
+            config_fingerprint: request.expected_fingerprint,
+            updated_at: "2026-03-25T00:00:00.000Z"
+          },
+          "workspace-other": {
+            physical_server_id: "workspace-other",
+            url: "http://127.0.0.1:9002/mcp",
+            pid: 2002,
+            config_fingerprint: "fp-2",
+            updated_at: "2026-03-25T00:00:00.000Z"
+          }
+        }
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
+
+  const result = await startWorkspaceMcpSidecar(request, {
+    pidAlive(pid) {
+      assert.equal(pid, 2001);
+      return true;
+    },
+    async isReady(url) {
+      assert.equal(url, "http://127.0.0.1:9001/mcp");
+      return true;
+    },
+    spawnProcess() {
+      throw new Error("should not spawn");
+    }
+  });
+
+  assert.deepEqual(result, {
+    url: "http://127.0.0.1:9001/mcp",
+    pid: 2001,
+    reused: true
+  });
+
+  const workspaceAState = JSON.parse(
+    fs.readFileSync(path.join(workspaceStateDir(workspaceADir), "workspace-mcp-sidecar-state.json"), "utf8")
+  );
+  const remainingLegacyState = JSON.parse(
+    fs.readFileSync(path.join(legacyStateDir, "workspace-mcp-sidecar-state.json"), "utf8")
+  );
+
+  assert.deepEqual(Object.keys(workspaceAState.sidecars), [request.physical_server_id]);
+  assert.deepEqual(Object.keys(remainingLegacyState.sidecars), ["workspace-other"]);
+  assert.equal(
+    fs.existsSync(path.join(workspaceStateDir(workspaceBDir), "workspace-mcp-sidecar-state.json")),
+    false,
+  );
+});
+
 test("startWorkspaceMcpSidecar terminates a spawned sidecar if readiness never succeeds", async () => {
   const { root, workspaceDir } = makeTempWorkspaceRoot("hb-workspace-mcp-timeout-");
   const request = makeRequest(workspaceDir);

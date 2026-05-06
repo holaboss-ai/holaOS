@@ -2634,7 +2634,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   // race-write app.runtime.yaml producing corrupt state.
   const appInstallTasks = new Map<string, Promise<unknown>>();
   const appLifecycleExecutor = options.appLifecycleExecutor ?? new RuntimeAppLifecycleExecutor({ store });
-  const memoryService = options.memoryService ?? new FilesystemMemoryService({ workspaceRoot: store.workspaceRoot });
+  const memoryService = options.memoryService ?? new FilesystemMemoryService({
+    workspaceRoot: store.workspaceRoot,
+    resolveWorkspaceDir: (workspaceId) => store.workspaceDir(workspaceId),
+  });
   const runtimeConfigService = options.runtimeConfigService ?? new FileRuntimeConfigService();
   const browserToolService = options.browserToolService ?? new DesktopBrowserToolService({ artifactStore: store });
   const terminalSessionManager =

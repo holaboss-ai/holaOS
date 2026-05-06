@@ -1147,6 +1147,11 @@ export class RuntimeStateStore {
   createWorkspace(params: CreateWorkspaceParams): WorkspaceRecord {
     this.ensureWorkspaceMetadataReady();
 
+    const revived = this.tryReviveDeletedWorkspace(params);
+    if (revived) {
+      return revived;
+    }
+
     const workspaceId = params.workspaceId ?? randomUUID();
     if (this.getWorkspace(workspaceId, { includeDeleted: true })) {
       throw new Error(`workspace ${workspaceId} already exists`);
@@ -1175,6 +1180,58 @@ export class RuntimeStateStore {
     this.writeWorkspaceIdentityFile(workspacePath, workspaceId);
     this.upsertWorkspaceRow(record, workspacePath);
     return record;
+  }
+
+  private tryReviveDeletedWorkspace(params: CreateWorkspaceParams): WorkspaceRecord | null {
+    const requestedPath = params.workspacePath?.trim();
+    if (!requestedPath || !path.isAbsolute(requestedPath) || !fs.existsSync(requestedPath)) {
+      return null;
+    }
+    const stat = fs.statSync(requestedPath);
+    if (!stat.isDirectory()) {
+      return null;
+    }
+    const resolvedPath = path.resolve(requestedPath);
+    const identityPath = ensureWorkspaceIdentityMigrated(resolvedPath);
+    if (!fs.existsSync(identityPath)) {
+      return null;
+    }
+    let identityWorkspaceId: string;
+    try {
+      identityWorkspaceId = fs.readFileSync(identityPath, "utf-8").trim();
+    } catch {
+      return null;
+    }
+    if (!identityWorkspaceId) {
+      return null;
+    }
+    if (params.workspaceId && params.workspaceId !== identityWorkspaceId) {
+      throw new Error(
+        `workspacePath belongs to workspace ${identityWorkspaceId}, not requested workspace ${params.workspaceId}`,
+      );
+    }
+    const existing = this.getWorkspace(identityWorkspaceId, { includeDeleted: true });
+    if (!existing?.deletedAtUtc) {
+      return null;
+    }
+
+    const workspacePath = this.validateUserChosenWorkspacePath(resolvedPath, {
+      workspaceId: identityWorkspaceId,
+      allowMatchingIdentity: true,
+    });
+    const now = utcNowIso();
+    const revived: WorkspaceRecord = {
+      ...existing,
+      name: existing.name,
+      status: params.status ?? "provisioning",
+      harness: existing.harness ?? params.harness,
+      errorMessage: params.errorMessage ?? null,
+      updatedAt: now,
+      deletedAtUtc: null,
+    };
+    this.writeWorkspaceIdentityFile(workspacePath, identityWorkspaceId);
+    this.upsertWorkspaceRow(revived, workspacePath);
+    return revived;
   }
 
   private resolveCreateWorkspacePath(requested: string | undefined, workspaceId: string): string {

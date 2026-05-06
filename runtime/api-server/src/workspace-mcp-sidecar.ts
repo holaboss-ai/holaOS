@@ -59,26 +59,7 @@ function sanitizeId(value: string): string {
 
 function stateDirForWorkspace(workspaceDir: string): string {
   const resolvedWorkspaceDir = path.resolve(workspaceDir);
-  const targetStateDir = ensureWorkspaceStateDir(resolvedWorkspaceDir);
-  const legacySharedDir = path.join(path.dirname(resolvedWorkspaceDir), ".holaboss");
-  const legacyStatePath = path.join(legacySharedDir, "workspace-mcp-sidecar-state.json");
-  const nextStatePath = path.join(targetStateDir, "workspace-mcp-sidecar-state.json");
-  if (fs.existsSync(legacyStatePath) && !fs.existsSync(nextStatePath)) {
-    fs.renameSync(legacyStatePath, nextStatePath);
-  }
-  if (fs.existsSync(legacySharedDir) && fs.statSync(legacySharedDir).isDirectory()) {
-    for (const childName of fs.readdirSync(legacySharedDir)) {
-      if (!childName.endsWith(".workspace-mcp-sidecar.stdout.log") && !childName.endsWith(".workspace-mcp-sidecar.stderr.log")) {
-        continue;
-      }
-      const sourcePath = path.join(legacySharedDir, childName);
-      const targetPath = path.join(targetStateDir, childName);
-      if (!fs.existsSync(targetPath)) {
-        fs.renameSync(sourcePath, targetPath);
-      }
-    }
-  }
-  return targetStateDir;
+  return ensureWorkspaceStateDir(resolvedWorkspaceDir);
 }
 
 function workspaceMcpStatePath(workspaceDir: string): string {
@@ -96,21 +77,7 @@ function ensureStateDir(workspaceDir: string): string {
   return stateDir;
 }
 
-function decodeCliRequest(encoded: string): WorkspaceMcpSidecarCliRequest {
-  const trimmed = encoded.trim();
-  if (!trimmed) {
-    throw new Error("request_base64 is required");
-  }
-  const raw = Buffer.from(trimmed, "base64").toString("utf8");
-  const parsed = JSON.parse(raw);
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("request payload must be an object");
-  }
-  return parsed as WorkspaceMcpSidecarCliRequest;
-}
-
-function readWorkspaceMcpSidecarState(workspaceDir: string): Record<string, SidecarStateEntry> {
-  const statePath = workspaceMcpStatePath(workspaceDir);
+function readSidecarStateFile(statePath: string): Record<string, SidecarStateEntry> {
   if (!fs.existsSync(statePath)) {
     return {};
   }
@@ -137,6 +104,76 @@ function readWorkspaceMcpSidecarState(workspaceDir: string): Record<string, Side
   } catch {
     return {};
   }
+}
+
+function writeSidecarStateFile(statePath: string, entries: Record<string, SidecarStateEntry>): void {
+  if (Object.keys(entries).length === 0) {
+    fs.rmSync(statePath, { force: true });
+    return;
+  }
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  fs.writeFileSync(
+    statePath,
+    JSON.stringify(
+      {
+        version: WORKSPACE_MCP_STATE_VERSION,
+        sidecars: entries,
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+}
+
+function migrateLegacySidecarArtifactsForWorkspace(workspaceDir: string, physicalServerId: string): void {
+  const resolvedWorkspaceDir = path.resolve(workspaceDir);
+  const legacySharedDir = path.join(path.dirname(resolvedWorkspaceDir), ".holaboss");
+  const legacyStatePath = path.join(legacySharedDir, "workspace-mcp-sidecar-state.json");
+  const targetStatePath = workspaceMcpStatePath(resolvedWorkspaceDir);
+
+  const legacyEntries = readSidecarStateFile(legacyStatePath);
+  const matchingEntry = legacyEntries[physicalServerId];
+  if (matchingEntry) {
+    const nextEntries = readSidecarStateFile(targetStatePath);
+    if (!nextEntries[physicalServerId]) {
+      nextEntries[physicalServerId] = matchingEntry;
+      writeSidecarStateFile(targetStatePath, nextEntries);
+    }
+    delete legacyEntries[physicalServerId];
+    writeSidecarStateFile(legacyStatePath, legacyEntries);
+  }
+
+  if (fs.existsSync(legacySharedDir) && fs.statSync(legacySharedDir).isDirectory()) {
+    for (const stream of ["stdout", "stderr"] as const) {
+      const basename = stream === "stdout"
+        ? "workspace-mcp-sidecar.stdout.log"
+        : "workspace-mcp-sidecar.stderr.log";
+      const childName = `${sanitizeId(physicalServerId)}.${basename}`;
+      const sourcePath = path.join(legacySharedDir, childName);
+      const targetPath = path.join(stateDirForWorkspace(resolvedWorkspaceDir), childName);
+      if (fs.existsSync(sourcePath) && !fs.existsSync(targetPath)) {
+        fs.renameSync(sourcePath, targetPath);
+      }
+    }
+  }
+}
+
+function decodeCliRequest(encoded: string): WorkspaceMcpSidecarCliRequest {
+  const trimmed = encoded.trim();
+  if (!trimmed) {
+    throw new Error("request_base64 is required");
+  }
+  const raw = Buffer.from(trimmed, "base64").toString("utf8");
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("request payload must be an object");
+  }
+  return parsed as WorkspaceMcpSidecarCliRequest;
+}
+
+function readWorkspaceMcpSidecarState(workspaceDir: string): Record<string, SidecarStateEntry> {
+  return readSidecarStateFile(workspaceMcpStatePath(workspaceDir));
 }
 
 function writeWorkspaceMcpSidecarState(workspaceDir: string, entries: Record<string, SidecarStateEntry>): void {
@@ -268,6 +305,7 @@ export async function startWorkspaceMcpSidecar(
   deps: WorkspaceMcpSidecarDeps = {}
 ): Promise<WorkspaceMcpSidecarCliResponse> {
   const workspaceDir = path.resolve(request.workspace_dir);
+  migrateLegacySidecarArtifactsForWorkspace(workspaceDir, request.physical_server_id);
   const stateEntries = readWorkspaceMcpSidecarState(workspaceDir);
   const stateEntry = stateEntries[request.physical_server_id];
   const pidAlive = deps.pidAlive ?? workspaceMcpPidAlive;

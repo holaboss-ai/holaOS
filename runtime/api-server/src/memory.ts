@@ -288,8 +288,10 @@ type ResolvedMemoryRoots = {
 function resolveMemoryRoots(params: {
   workspaceRoot: string;
   workspaceId: string;
+  resolveWorkspaceDir?: ((workspaceId: string) => string) | null;
 }): ResolvedMemoryRoots {
-  const workspaceDir = workspaceDirForWorkspaceId(params.workspaceRoot, params.workspaceId);
+  const workspaceDir = params.resolveWorkspaceDir?.(params.workspaceId)
+    ?? workspaceDirForWorkspaceId(params.workspaceRoot, params.workspaceId);
   const migration = migrateLegacyWorkspaceMemoryIfNeeded({
     workspaceRoot: params.workspaceRoot,
     workspaceDir,
@@ -416,13 +418,16 @@ function capturePayload(params: {
 
 export interface FilesystemMemoryServiceOptions {
   workspaceRoot: string;
+  resolveWorkspaceDir?: ((workspaceId: string) => string) | null;
 }
 
 export class FilesystemMemoryService implements MemoryServiceLike {
   readonly #workspaceRoot: string;
+  readonly #resolveWorkspaceDir: ((workspaceId: string) => string) | null;
 
   constructor(options: FilesystemMemoryServiceOptions) {
     this.#workspaceRoot = options.workspaceRoot;
+    this.#resolveWorkspaceDir = options.resolveWorkspaceDir ?? null;
   }
 
   async search(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -430,7 +435,11 @@ export class FilesystemMemoryService implements MemoryServiceLike {
     const query = requiredString(payload.query, "query");
     const maxResults = optionalInteger(payload.max_results, 6);
     const minScore = optionalNumber(payload.min_score, 0.0);
-    const roots = resolveMemoryRoots({ workspaceRoot: this.#workspaceRoot, workspaceId });
+    const roots = resolveMemoryRoots({
+      workspaceRoot: this.#workspaceRoot,
+      workspaceId,
+      resolveWorkspaceDir: this.#resolveWorkspaceDir,
+    });
     const results: Array<Record<string, unknown>> = [];
 
     for (const filePath of workspaceMemoryFiles(roots.workspaceMemoryRootDir)) {
@@ -513,7 +522,11 @@ export class FilesystemMemoryService implements MemoryServiceLike {
     if (!isMemoryPath(normalized, workspaceId)) {
       throw new MemoryServiceError(400, MEMORY_ALLOWED_PATHS_MESSAGE);
     }
-    const roots = resolveMemoryRoots({ workspaceRoot: this.#workspaceRoot, workspaceId });
+    const roots = resolveMemoryRoots({
+      workspaceRoot: this.#workspaceRoot,
+      workspaceId,
+      resolveWorkspaceDir: this.#resolveWorkspaceDir,
+    });
     const resolvedTarget = resolveMemoryTargetPath({
       normalizedPath: normalized,
       workspaceId,
@@ -549,7 +562,11 @@ export class FilesystemMemoryService implements MemoryServiceLike {
     }
     const content = typeof payload.content === "string" ? payload.content : "";
     const append = optionalBoolean(payload.append, false);
-    const roots = resolveMemoryRoots({ workspaceRoot: this.#workspaceRoot, workspaceId });
+    const roots = resolveMemoryRoots({
+      workspaceRoot: this.#workspaceRoot,
+      workspaceId,
+      resolveWorkspaceDir: this.#resolveWorkspaceDir,
+    });
     const resolvedTarget = resolveMemoryTargetPath({
       normalizedPath: normalized,
       workspaceId,
@@ -579,7 +596,11 @@ export class FilesystemMemoryService implements MemoryServiceLike {
 
   async status(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     const workspaceId = requiredString(payload.workspace_id, "workspace_id");
-    const roots = resolveMemoryRoots({ workspaceRoot: this.#workspaceRoot, workspaceId });
+    const roots = resolveMemoryRoots({
+      workspaceRoot: this.#workspaceRoot,
+      workspaceId,
+      resolveWorkspaceDir: this.#resolveWorkspaceDir,
+    });
     return statusPayload({
       workspaceDir: roots.workspaceDir,
       workspaceId,
@@ -591,7 +612,11 @@ export class FilesystemMemoryService implements MemoryServiceLike {
 
   async sync(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     const workspaceId = requiredString(payload.workspace_id, "workspace_id");
-    const roots = resolveMemoryRoots({ workspaceRoot: this.#workspaceRoot, workspaceId });
+    const roots = resolveMemoryRoots({
+      workspaceRoot: this.#workspaceRoot,
+      workspaceId,
+      resolveWorkspaceDir: this.#resolveWorkspaceDir,
+    });
     return {
       success: true,
       status: statusPayload({
@@ -606,7 +631,11 @@ export class FilesystemMemoryService implements MemoryServiceLike {
 
   async capture(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     const workspaceId = requiredString(payload.workspace_id, "workspace_id");
-    const roots = resolveMemoryRoots({ workspaceRoot: this.#workspaceRoot, workspaceId });
+    const roots = resolveMemoryRoots({
+      workspaceRoot: this.#workspaceRoot,
+      workspaceId,
+      resolveWorkspaceDir: this.#resolveWorkspaceDir,
+    });
     return capturePayload({
       workspaceDir: roots.workspaceDir,
       workspaceId,

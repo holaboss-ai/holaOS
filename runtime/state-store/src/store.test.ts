@@ -618,6 +618,38 @@ test("createWorkspace allows reusing a soft-deleted workspace's former path", ()
   store.close();
 });
 
+test("createWorkspace revives a deleted workspace when the preserved folder still has its identity bundle", () => {
+  const root = makeTempDir("hb-state-store-");
+  const customRoot = makeTempDir("hb-custom-ws-");
+  const customPath = path.join(customRoot, "revive-folder");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+
+  const created = store.createWorkspace({
+    workspaceId: "ws-revive",
+    name: "Revive Me",
+    harness: "pi",
+    workspacePath: customPath
+  });
+  fs.writeFileSync(path.join(customPath, "AGENTS.md"), "preserved\n");
+  store.deleteWorkspace(created.id);
+
+  const revived = store.createWorkspace({
+    name: "Ignored New Name",
+    harness: "pi",
+    workspacePath: customPath
+  });
+
+  assert.equal(revived.id, created.id);
+  assert.equal(revived.deletedAtUtc, null);
+  assert.equal(revived.name, "Revive Me");
+  assert.equal(path.resolve(store.workspaceDir(created.id)), path.resolve(customPath));
+  assert.equal(fs.readFileSync(path.join(customPath, "AGENTS.md"), "utf8"), "preserved\n");
+  store.close();
+});
+
 test("relocateWorkspace accepts an empty directory and re-registers", () => {
   const root = makeTempDir("hb-state-store-");
   const customRoot = makeTempDir("hb-custom-ws-");
