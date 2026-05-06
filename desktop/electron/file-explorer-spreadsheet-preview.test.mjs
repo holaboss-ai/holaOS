@@ -31,6 +31,18 @@ test("desktop file preview supports tabular spreadsheet kinds", async () => {
     source,
     /if \(kind === "table"\) \{[\s\S]*const tableSheets = await buildTablePreviewSheets\(buffer, extension\);/,
   );
+  assert.match(source, /type TablePreviewSheetCollection = FilePreviewTableSheetPayload\[\] & \{/);
+  assert.match(source, /interface FilePreviewTableImagePayload \{/);
+  assert.match(source, /images\?: FilePreviewTableImagePayload\[\];/);
+  assert.match(
+    source,
+    /const PREVIEW_STRIPPABLE_WORKSHEET_RELATIONSHIP_TYPES = new Set\(\[\s*"comments",\s*"drawing",\s*"vmlDrawing",\s*\]\);/,
+  );
+  assert.match(source, /async function stripWorkbookVisualArtifactsForPreview\(/);
+  assert.match(source, /async function extractWorkbookPreviewImages\(/);
+  assert.match(source, /async function extractWorkbookPreviewImagesIfAvailable\(/);
+  assert.match(source, /async function buildWorkbookPreviewSheetsWithFallback\(/);
+  assert.match(source, /!tableSheets\.previewOnly/);
   assert.match(source, /hasHeaderRow: boolean;/);
   assert.match(source, /links\?: \(string \| null\)\[\]\[\];/);
   assert.match(source, /const hasHeaderRow =/);
@@ -41,7 +53,13 @@ test("desktop file preview supports tabular spreadsheet kinds", async () => {
   assert.match(source, /async function writeTableFile\(/);
   assert.match(source, /async function writeCsvTablePreview\(/);
   assert.match(source, /async function writeWorkbookTablePreview\(/);
+  assert.match(source, /const anchorMatches = drawingXml\.matchAll\(/);
+  assert.match(source, /dataUrl: `data:\$\{mimeType\};base64,\$\{Buffer\.from\(imageBuffer\)\.toString\("base64"\)\}`,/);
   assert.match(source, /if \(extension === "\.xls"\) \{\s*throw new Error\("Legacy \.xls files are preview-only in the inline editor\."\);\s*\}/);
+  assert.match(
+    source,
+    /return annotateTablePreviewSheets\(\s*await extractWorkbookPreviewImagesIfAvailable\(\s*buffer,\s*await buildWorkbookPreviewSheets\(sanitizedBuffer\),\s*\),\s*true,\s*\);/,
+  );
   assert.match(
     source,
     /const TEXT_FILE_EXTENSIONS = new Set\(\[[\s\S]*"\.md"[\s\S]*"\.mdx"[\s\S]*"\.markdown"[\s\S]*\]\);/,
@@ -217,8 +235,10 @@ test("desktop file explorer enforces the selected workspace root as a filesystem
 test("desktop preload exposes file preview watch subscriptions and change events", async () => {
   const source = await readFile(preloadSourcePath, "utf8");
 
+  assert.match(source, /interface FilePreviewTableImagePayload \{/);
   assert.match(source, /hasHeaderRow: boolean;/);
   assert.match(source, /links\?: \(string \| null\)\[\]\[\];/);
+  assert.match(source, /images\?: FilePreviewTableImagePayload\[\];/);
   assert.match(
     source,
     /createPath: \(\s*parentPath: string \| null \| undefined,\s*kind: "file" \| "directory",\s*workspaceId\?: string \| null,\s*\) =>[\s\S]*ipcRenderer\.invoke\("fs:createPath", parentPath, kind, workspaceId\) as Promise<FileSystemMutationPayload>/,

@@ -482,17 +482,31 @@ type FilePreviewKind =
   | "presentation"
   | "unsupported";
 
+interface FilePreviewTableImagePayload {
+  row: number;
+  column: number;
+  dataUrl: string;
+  widthPx?: number;
+  heightPx?: number;
+  alt?: string;
+}
+
 interface FilePreviewTableSheetPayload {
   name: string;
   index: number;
   columns: string[];
   rows: string[][];
   links?: (string | null)[][];
+  images?: FilePreviewTableImagePayload[];
   totalRows: number;
   totalColumns: number;
   truncated: boolean;
   hasHeaderRow: boolean;
 }
+
+type TablePreviewSheetCollection = FilePreviewTableSheetPayload[] & {
+  previewOnly?: boolean;
+};
 
 interface FilePreviewPresentationTextBoxPayload {
   xPct: number;
@@ -16726,6 +16740,11 @@ const TEXT_FILE_EXTENSIONS = new Set([
 ]);
 
 const TABLE_FILE_EXTENSIONS = new Set([".csv", ".xlsx", ".xls"]);
+const PREVIEW_STRIPPABLE_WORKSHEET_RELATIONSHIP_TYPES = new Set([
+  "comments",
+  "drawing",
+  "vmlDrawing",
+]);
 const PRESENTATION_FILE_EXTENSIONS = new Set([".pptx"]);
 
 const IMAGE_FILE_MIME_TYPES = new Map<string, string>([
@@ -16818,6 +16837,515 @@ function trimTrailingEmptyTableLinkRow(
     { length: targetLength },
     (_unused, columnIndex) => row[columnIndex] ?? null,
   );
+}
+
+function worksheetRelationshipTypeKey(type: string): string {
+  const normalizedType = type.trim();
+  const lastSlashIndex = normalizedType.lastIndexOf("/");
+  return lastSlashIndex >= 0
+    ? normalizedType.slice(lastSlashIndex + 1)
+    : normalizedType;
+}
+
+function zipPartPathFromRelationshipTarget(
+  relationshipsPath: string,
+  targetPath: string,
+): string {
+  if (targetPath.startsWith("/")) {
+    return targetPath.slice(1);
+  }
+  const relationshipsDirectory = path.posix.dirname(relationshipsPath);
+  const sourcePartDirectory = path.posix.dirname(relationshipsDirectory);
+  return path.posix.normalize(
+    path.posix.join(sourcePartDirectory, targetPath),
+  );
+}
+
+function zipRelationshipsPathForPart(partPath: string): string {
+  return path.posix.join(
+    path.posix.dirname(partPath),
+    "_rels",
+    `${path.posix.basename(partPath)}.rels`,
+  );
+}
+
+function zipPartPathFromRelationshipsPath(relationshipsPath: string): string {
+  const relationshipsDirectory = path.posix.dirname(relationshipsPath);
+  const sourcePartDirectory = path.posix.dirname(relationshipsDirectory);
+  return path.posix.join(
+    sourcePartDirectory,
+    path.posix.basename(relationshipsPath, ".rels"),
+  );
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseOpenXmlRelationships(relationshipsXml: string): Map<
+  string,
+  { type: string; target: string }
+> {
+  const relationships = new Map<string, { type: string; target: string }>();
+  const relationshipMatches = relationshipsXml.matchAll(
+    /<Relationship\b([^>]*)\/>/g,
+  );
+  for (const match of relationshipMatches) {
+    const attributes = match[1] ?? "";
+    const id = attributes.match(/\bId="([^"]+)"/)?.[1]?.trim();
+    const type = attributes.match(/\bType="([^"]+)"/)?.[1]?.trim();
+    const target = attributes.match(/\bTarget="([^"]+)"/)?.[1]?.trim();
+    if (!id || !type || !target) {
+      continue;
+    }
+    relationships.set(id, { type, target });
+  }
+  return relationships;
+}
+
+function workbookSheetPartPathsFromArchive(
+  workbookXml: string,
+  workbookRelationshipsXml: string,
+): string[] {
+  const workbookRelationships = parseOpenXmlRelationships(
+    workbookRelationshipsXml,
+  );
+  const sheetPartPaths: string[] = [];
+  const sheetMatches = workbookXml.matchAll(
+    /<sheet\b[^>]*r:id="([^"]+)"[^>]*\/>/g,
+  );
+  for (const match of sheetMatches) {
+    const relationshipId = match[1]?.trim();
+    if (!relationshipId) {
+      continue;
+    }
+    const relationship = workbookRelationships.get(relationshipId);
+    if (!relationship) {
+      continue;
+    }
+    sheetPartPaths.push(
+      zipPartPathFromRelationshipTarget(
+        "xl/_rels/workbook.xml.rels",
+        relationship.target,
+      ),
+    );
+  }
+  return sheetPartPaths;
+}
+
+function openXmlIntTagValue(
+  xml: string,
+  tagName: string,
+): number | null {
+  const match = xml.match(
+    new RegExp(`<${tagName}>(-?\\d+)</${tagName}>`, "i"),
+  );
+  const parsed = Number.parseInt(match?.[1] ?? "", 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function openXmlAttributeValue(
+  xml: string,
+  tagName: string,
+  attributeName: string,
+): string | null {
+  const match = xml.match(
+    new RegExp(
+      `<(?:[A-Za-z0-9_]+:)?${tagName}\\b[^>]*${attributeName}="([^"]+)"[^>]*>`,
+      "i",
+    ),
+  );
+  return match?.[1]?.trim() || null;
+}
+
+function openXmlImageSizeFromAnchor(anchorXml: string): {
+  widthPx?: number;
+  heightPx?: number;
+} {
+  const extMatch = anchorXml.match(/<ext\b[^>]*cx="(\d+)"[^>]*cy="(\d+)"[^>]*\/>/i);
+  const widthEmu = Number.parseInt(extMatch?.[1] ?? "", 10);
+  const heightEmu = Number.parseInt(extMatch?.[2] ?? "", 10);
+  return {
+    widthPx:
+      Number.isFinite(widthEmu) && widthEmu > 0
+        ? Math.max(1, Math.round(widthEmu / 9525))
+        : undefined,
+    heightPx:
+      Number.isFinite(heightEmu) && heightEmu > 0
+        ? Math.max(1, Math.round(heightEmu / 9525))
+        : undefined,
+  };
+}
+
+function normalizeWorkbookPreviewSheetImages(
+  images: Array<
+    {
+      sourceRow: number;
+      sourceColumn: number;
+      dataUrl: string;
+      widthPx?: number;
+      heightPx?: number;
+      alt?: string;
+    }
+  >,
+  sheet: FilePreviewTableSheetPayload,
+): FilePreviewTableImagePayload[] {
+  const headerOffset = sheet.hasHeaderRow ? 1 : 0;
+  return images
+    .map<FilePreviewTableImagePayload | null>((image) => {
+      const row = image.sourceRow - headerOffset;
+      const column = image.sourceColumn;
+      if (
+        row < 0 ||
+        column < 0 ||
+        row >= sheet.rows.length ||
+        column >= sheet.columns.length
+      ) {
+        return null;
+      }
+      return {
+        row,
+        column,
+        dataUrl: image.dataUrl,
+        widthPx: image.widthPx,
+        heightPx: image.heightPx,
+        alt: image.alt,
+      };
+    })
+    .filter((image): image is FilePreviewTableImagePayload => image !== null);
+}
+
+async function extractWorkbookPreviewImages(
+  buffer: Buffer,
+  tableSheets: FilePreviewTableSheetPayload[],
+): Promise<FilePreviewTableSheetPayload[]> {
+  if (tableSheets.length === 0) {
+    return tableSheets;
+  }
+
+  const zip = await JSZip.loadAsync(buffer);
+  const workbookFile = zip.file("xl/workbook.xml");
+  const workbookRelationshipsFile = zip.file("xl/_rels/workbook.xml.rels");
+  if (!workbookFile || !workbookRelationshipsFile) {
+    return tableSheets;
+  }
+
+  const workbookXml = await workbookFile.async("string");
+  const workbookRelationshipsXml = await workbookRelationshipsFile.async("string");
+  const sheetPartPaths = workbookSheetPartPathsFromArchive(
+    workbookXml,
+    workbookRelationshipsXml,
+  );
+
+  const imagesBySheetIndex = new Map<
+    number,
+    Array<{
+      sourceRow: number;
+      sourceColumn: number;
+      dataUrl: string;
+      widthPx?: number;
+      heightPx?: number;
+      alt?: string;
+    }>
+  >();
+
+  for (const [sheetIndex, worksheetPath] of sheetPartPaths.entries()) {
+    if (sheetIndex >= tableSheets.length) {
+      break;
+    }
+
+    const worksheetRelationshipsPath = zipRelationshipsPathForPart(worksheetPath);
+    const worksheetRelationshipsFile = zip.file(worksheetRelationshipsPath);
+    if (!worksheetRelationshipsFile) {
+      continue;
+    }
+
+    const worksheetRelationshipsXml = await worksheetRelationshipsFile.async(
+      "string",
+    );
+    const worksheetRelationships = parseOpenXmlRelationships(
+      worksheetRelationshipsXml,
+    );
+    for (const relationship of worksheetRelationships.values()) {
+      if (worksheetRelationshipTypeKey(relationship.type) !== "drawing") {
+        continue;
+      }
+
+      const drawingPath = zipPartPathFromRelationshipTarget(
+        worksheetRelationshipsPath,
+        relationship.target,
+      );
+      const drawingFile = zip.file(drawingPath);
+      if (!drawingFile) {
+        continue;
+      }
+      const drawingRelationshipsPath = zipRelationshipsPathForPart(drawingPath);
+      const drawingRelationshipsFile = zip.file(drawingRelationshipsPath);
+      if (!drawingRelationshipsFile) {
+        continue;
+      }
+
+      const drawingXml = await drawingFile.async("string");
+      const drawingRelationshipsXml = await drawingRelationshipsFile.async(
+        "string",
+      );
+      const drawingRelationships = parseOpenXmlRelationships(
+        drawingRelationshipsXml,
+      );
+      const anchorMatches = drawingXml.matchAll(
+        /<(?:xdr:)?(?:oneCellAnchor|twoCellAnchor)\b[\s\S]*?<\/(?:xdr:)?(?:oneCellAnchor|twoCellAnchor)>/g,
+      );
+
+      for (const anchorMatch of anchorMatches) {
+        const anchorXml = anchorMatch[0];
+        const fromXmlMatch = anchorXml.match(/<from>([\s\S]*?)<\/from>/i);
+        const fromXml = fromXmlMatch?.[1] ?? "";
+        const sourceColumn = openXmlIntTagValue(fromXml, "col");
+        const sourceRow = openXmlIntTagValue(fromXml, "row");
+        const imageRelationshipId =
+          anchorXml.match(/<(?:[A-Za-z0-9_]+:)?blip\b[^>]*r:embed="([^"]+)"/i)?.[1] ??
+          null;
+        if (
+          sourceColumn === null ||
+          sourceRow === null ||
+          !imageRelationshipId
+        ) {
+          continue;
+        }
+
+        const imageRelationship = drawingRelationships.get(imageRelationshipId);
+        if (!imageRelationship) {
+          continue;
+        }
+
+        const mediaPath = zipPartPathFromRelationshipTarget(
+          drawingRelationshipsPath,
+          imageRelationship.target,
+        );
+        const mediaFile = zip.file(mediaPath);
+        if (!mediaFile) {
+          continue;
+        }
+
+        const extension = path.posix.extname(mediaPath).toLowerCase();
+        const mimeType = IMAGE_FILE_MIME_TYPES.get(extension);
+        if (!mimeType) {
+          continue;
+        }
+
+        const imageBuffer = await mediaFile.async("nodebuffer");
+        const alt =
+          openXmlAttributeValue(anchorXml, "cNvPr", "descr") ??
+          openXmlAttributeValue(anchorXml, "cNvPr", "name") ??
+          undefined;
+        const sheetImages = imagesBySheetIndex.get(sheetIndex) ?? [];
+        sheetImages.push({
+          sourceRow,
+          sourceColumn,
+          dataUrl: `data:${mimeType};base64,${Buffer.from(imageBuffer).toString("base64")}`,
+          ...openXmlImageSizeFromAnchor(anchorXml),
+          alt: alt ? decodeXmlEntities(alt) : undefined,
+        });
+        imagesBySheetIndex.set(sheetIndex, sheetImages);
+      }
+    }
+  }
+
+  return tableSheets.map((sheet, sheetIndex) => {
+    const sheetImages = normalizeWorkbookPreviewSheetImages(
+      imagesBySheetIndex.get(sheetIndex) ?? [],
+      sheet,
+    );
+    return sheetImages.length > 0
+      ? {
+          ...sheet,
+          images: sheetImages,
+        }
+      : sheet;
+  });
+}
+
+async function extractWorkbookPreviewImagesIfAvailable(
+  buffer: Buffer,
+  tableSheets: FilePreviewTableSheetPayload[],
+): Promise<FilePreviewTableSheetPayload[]> {
+  try {
+    return await extractWorkbookPreviewImages(buffer, tableSheets);
+  } catch {
+    return tableSheets;
+  }
+}
+
+function annotateTablePreviewSheets(
+  tableSheets: FilePreviewTableSheetPayload[],
+  previewOnly = false,
+): TablePreviewSheetCollection {
+  const sheets = [...tableSheets] as TablePreviewSheetCollection;
+  if (previewOnly) {
+    sheets.previewOnly = true;
+  }
+  return sheets;
+}
+
+async function collectWorkbookPreviewRelatedParts(
+  zip: JSZip,
+  partPath: string,
+  partsToRemove: Set<string>,
+  visitedParts: Set<string>,
+): Promise<void> {
+  if (visitedParts.has(partPath)) {
+    return;
+  }
+  visitedParts.add(partPath);
+
+  const partFile = zip.file(partPath);
+  if (!partFile) {
+    return;
+  }
+  partsToRemove.add(partPath);
+
+  const relationshipsPath = zipRelationshipsPathForPart(partPath);
+  const relationshipsFile = zip.file(relationshipsPath);
+  if (!relationshipsFile) {
+    return;
+  }
+  partsToRemove.add(relationshipsPath);
+
+  const relationshipsXml = await relationshipsFile.async("string");
+  const relationshipMatches = relationshipsXml.matchAll(
+    /<Relationship\b[^>]*Target="([^"]+)"[^>]*\/>/g,
+  );
+  for (const match of relationshipMatches) {
+    const targetPath = match[1];
+    if (!targetPath) {
+      continue;
+    }
+    await collectWorkbookPreviewRelatedParts(
+      zip,
+      zipPartPathFromRelationshipTarget(relationshipsPath, targetPath),
+      partsToRemove,
+      visitedParts,
+    );
+  }
+}
+
+async function stripWorkbookVisualArtifactsForPreview(
+  buffer: Buffer,
+): Promise<Buffer | null> {
+  const zip = await JSZip.loadAsync(buffer);
+  const partsToRemove = new Set<string>();
+  const visitedParts = new Set<string>();
+  const worksheetPartsToUpdate = new Set<string>();
+  let removedAnyRelationships = false;
+
+  for (const relationshipsPath of Object.keys(zip.files).filter(
+    (candidatePath) =>
+      candidatePath.startsWith("xl/worksheets/_rels/") &&
+      candidatePath.endsWith(".xml.rels"),
+  )) {
+    const relationshipsFile = zip.file(relationshipsPath);
+    if (!relationshipsFile) {
+      continue;
+    }
+
+    const relationshipsXml = await relationshipsFile.async("string");
+    const relationshipMatches = Array.from(
+      relationshipsXml.matchAll(
+        /<Relationship\b[^>]*Type="([^"]+)"[^>]*Target="([^"]+)"[^>]*\/>/g,
+      ),
+    );
+    const removableRelationships = relationshipMatches.filter((match) =>
+      PREVIEW_STRIPPABLE_WORKSHEET_RELATIONSHIP_TYPES.has(
+        worksheetRelationshipTypeKey(match[1] ?? ""),
+      ),
+    );
+
+    if (removableRelationships.length === 0) {
+      continue;
+    }
+
+    removedAnyRelationships = true;
+    worksheetPartsToUpdate.add(
+      zipPartPathFromRelationshipsPath(relationshipsPath),
+    );
+
+    for (const match of removableRelationships) {
+      const targetPath = match[2];
+      if (!targetPath) {
+        continue;
+      }
+      await collectWorkbookPreviewRelatedParts(
+        zip,
+        zipPartPathFromRelationshipTarget(relationshipsPath, targetPath),
+        partsToRemove,
+        visitedParts,
+      );
+    }
+
+    const sanitizedRelationshipsXml = relationshipsXml.replace(
+      /<Relationship\b[^>]*Type="([^"]+)"[^>]*\/>/g,
+      (relationshipXml, rawType) =>
+        PREVIEW_STRIPPABLE_WORKSHEET_RELATIONSHIP_TYPES.has(
+          worksheetRelationshipTypeKey(String(rawType ?? "")),
+        )
+          ? ""
+          : relationshipXml,
+    );
+    zip.file(relationshipsPath, sanitizedRelationshipsXml);
+  }
+
+  if (!removedAnyRelationships) {
+    return null;
+  }
+
+  for (const worksheetPartPath of worksheetPartsToUpdate) {
+    const worksheetFile = zip.file(worksheetPartPath);
+    if (!worksheetFile) {
+      continue;
+    }
+    const worksheetXml = await worksheetFile.async("string");
+    const sanitizedWorksheetXml = worksheetXml.replace(
+      /<(?:drawing|legacyDrawing|legacyDrawingHF)\b[^>]*\/>/g,
+      "",
+    );
+    zip.file(worksheetPartPath, sanitizedWorksheetXml);
+  }
+
+  for (const partPath of partsToRemove) {
+    zip.remove(partPath);
+  }
+
+  const contentTypesFile = zip.file("[Content_Types].xml");
+  if (contentTypesFile) {
+    let contentTypesXml = await contentTypesFile.async("string");
+    for (const partPath of partsToRemove) {
+      contentTypesXml = contentTypesXml.replace(
+        new RegExp(
+          `<Override PartName="/${escapeRegExp(partPath)}"[^>]*/>`,
+          "g",
+        ),
+        "",
+      );
+    }
+
+    for (const extension of ["png", "vml"]) {
+      const extensionStillExists = Object.keys(zip.files).some((candidatePath) =>
+        candidatePath.toLowerCase().endsWith(`.${extension}`),
+      );
+      if (extensionStillExists) {
+        continue;
+      }
+      contentTypesXml = contentTypesXml.replace(
+        new RegExp(`<Default Extension="${extension}"[^>]*/>`, "g"),
+        "",
+      );
+    }
+
+    zip.file("[Content_Types].xml", contentTypesXml);
+  }
+
+  const sanitizedBuffer = await zip.generateAsync({ type: "nodebuffer" });
+  return Buffer.from(sanitizedBuffer);
 }
 
 function worksheetPreviewRows(worksheet: ExcelJS.Worksheet): {
@@ -17096,6 +17624,31 @@ async function buildWorkbookPreviewSheets(
   );
 }
 
+async function buildWorkbookPreviewSheetsWithFallback(
+  buffer: Buffer,
+): Promise<TablePreviewSheetCollection> {
+  try {
+    return annotateTablePreviewSheets(
+      await extractWorkbookPreviewImagesIfAvailable(
+        buffer,
+        await buildWorkbookPreviewSheets(buffer),
+      ),
+    );
+  } catch (error) {
+    const sanitizedBuffer = await stripWorkbookVisualArtifactsForPreview(buffer);
+    if (!sanitizedBuffer) {
+      throw error;
+    }
+    return annotateTablePreviewSheets(
+      await extractWorkbookPreviewImagesIfAvailable(
+        buffer,
+        await buildWorkbookPreviewSheets(sanitizedBuffer),
+      ),
+      true,
+    );
+  }
+}
+
 async function buildCsvPreviewSheets(
   buffer: Buffer,
 ): Promise<FilePreviewTableSheetPayload[]> {
@@ -17129,11 +17682,11 @@ async function buildCsvPreviewSheets(
 async function buildTablePreviewSheets(
   buffer: Buffer,
   extension: string,
-): Promise<FilePreviewTableSheetPayload[]> {
+): Promise<TablePreviewSheetCollection> {
   if (extension === ".csv") {
-    return buildCsvPreviewSheets(buffer);
+    return annotateTablePreviewSheets(await buildCsvPreviewSheets(buffer));
   }
-  return buildWorkbookPreviewSheets(buffer);
+  return buildWorkbookPreviewSheetsWithFallback(buffer);
 }
 
 function decodeXmlEntities(value: string): string {
@@ -17520,6 +18073,7 @@ async function readFilePreview(
         kind: "table",
         isEditable:
           extension !== ".xls" &&
+          !tableSheets.previewOnly &&
           tableSheets.every((sheet) => !sheet.truncated),
         tableSheets,
       };

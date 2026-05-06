@@ -1,14 +1,7 @@
-import { Loader2, UploadCloud } from "lucide-react";
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+import { Globe, Loader2, UploadCloud, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 
@@ -30,11 +23,13 @@ const PROFILE_SETUP_MODE_OPTIONS = [
     value: "copy_workspace",
     label: "Copy from another workspace",
     detail: "Clone the browser state from one of your existing workspaces.",
+    icon: Globe,
   },
   {
     value: "import_browser",
     label: "Import from a browser",
     detail: "Bring bookmarks, cookies, and history from Chrome, Arc, or Safari.",
+    icon: UploadCloud,
   },
 ] as const;
 
@@ -77,6 +72,8 @@ interface BrowserProfileImportButtonProps {
   buttonSize?: "sm" | "icon-sm";
   buttonVariant?: "ghost" | "outline";
   showLabel?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function BrowserProfileImportButton({
@@ -84,9 +81,11 @@ export function BrowserProfileImportButton({
   buttonSize = "sm",
   buttonVariant = "outline",
   showLabel = true,
+  open: controlledOpen,
+  onOpenChange,
 }: BrowserProfileImportButtonProps) {
   const { selectedWorkspaceId } = useWorkspaceSelection();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
   const [profileSetupMode, setProfileSetupMode] =
     useState<BrowserProfileSetupMode>("import_browser");
   const [browserImportSource, setBrowserImportSource] =
@@ -112,6 +111,14 @@ export function BrowserProfileImportButton({
   const [statusTone, setStatusTone] =
     useState<BrowserImportStatusTone>("info");
   const [resultWarnings, setResultWarnings] = useState<string[]>([]);
+  const open = controlledOpen ?? internalOpen;
+
+  const setOpen = (nextOpen: boolean) => {
+    if (controlledOpen === undefined) {
+      setInternalOpen(nextOpen);
+    }
+    onOpenChange?.(nextOpen);
+  };
 
   useEffect(() => {
     if (!open) {
@@ -347,266 +354,318 @@ export function BrowserProfileImportButton({
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        render={
-          <Button
-            type="button"
-            variant={buttonVariant}
-            size={buttonSize}
-            className={cn(
-              showLabel ? "gap-1.5" : "",
-              buttonClassName,
-            )}
-            aria-label="Import browser profile"
-            title="Import browser profile"
-            disabled={!trimmedWorkspaceId}
-          />
-        }
+    <>
+      <Button
+        type="button"
+        variant={buttonVariant}
+        size={buttonSize}
+        className={cn(showLabel ? "gap-1.5" : "", buttonClassName)}
+        aria-label="Import browser profile"
+        aria-expanded={open}
+        title="Import browser profile"
+        disabled={!trimmedWorkspaceId}
+        onClick={() => setOpen(true)}
       >
         <UploadCloud size={13} />
         {showLabel ? <span>Import</span> : null}
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-[min(24rem,calc(100vw-24px))]">
-        <PopoverHeader>
-          <PopoverTitle>Set Up Browser Profile</PopoverTitle>
-          <PopoverDescription className="text-xs leading-5">
-            Re-import a browser profile or copy one from another workspace into
-            this workspace browser.
-          </PopoverDescription>
-        </PopoverHeader>
+      </Button>
 
-        <div className="space-y-3">
-          <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
-            Current workspace cookies are replaced before import so stale login
-            state does not linger. Sites that rely on app-bound encryption or
-            non-cookie storage may still ask you to sign in again.
-          </div>
+      <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Backdrop className="fixed inset-0 z-[120] bg-scrim backdrop-blur-sm data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 duration-200" />
+          <DialogPrimitive.Popup className="fixed top-1/2 left-1/2 z-[121] flex max-h-[min(780px,calc(100vh-32px))] w-[min(720px,calc(100vw-32px))] min-w-0 -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[28px] border border-border bg-background shadow-subtle-sm outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.97] data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[0.98] duration-200 ease-out">
+            <header className="flex items-start justify-between gap-4 border-b border-border px-6 py-5">
+              <div className="min-w-0">
+                <DialogPrimitive.Title className="text-[20px] font-semibold text-foreground">
+                  Set Up Browser Profile
+                </DialogPrimitive.Title>
+                <p className="mt-1.5 max-w-[44rem] text-sm leading-relaxed text-muted-foreground">
+                  Re-import a browser profile or copy one from another
+                  workspace into this workspace browser.
+                </p>
+              </div>
 
-          <div className="grid gap-1.5">
-            {PROFILE_SETUP_MODE_OPTIONS.map((option) => {
-              const active = profileSetupMode === option.value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={active}
-                  className={cn(
-                    "flex items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
-                    active
-                      ? "border-primary/30 bg-primary/[0.06]"
-                      : "border-border/60 bg-background hover:bg-muted/20",
-                  )}
-                  onClick={() => setProfileSetupMode(option.value)}
-                >
-                  <span
-                    aria-hidden
+              <DialogPrimitive.Close
+                render={
+                  <button
+                    type="button"
+                    aria-label="Close browser profile import"
                     className={cn(
-                      "mt-1 size-3 shrink-0 rounded-full border",
-                      active
-                        ? "border-primary bg-primary"
-                        : "border-border bg-background",
+                      buttonVariants({ variant: "outline", size: "icon" }),
+                      "shrink-0 rounded-full",
                     )}
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium text-foreground">
-                      {option.label}
-                    </span>
-                    <span className="block text-xs leading-5 text-muted-foreground">
-                      {option.detail}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                  >
+                    <X size={16} />
+                  </button>
+                }
+              />
+            </header>
 
-          {profileSetupMode === "copy_workspace" ? (
-            <div className="grid gap-1">
-              <span className="text-xs font-medium text-foreground">
-                Source workspace
-              </span>
-              <div className="overflow-hidden rounded-lg border border-border/60 bg-background">
-                {copySourceWorkspacesLoading ? (
-                  <p className="px-3 py-2.5 text-sm text-muted-foreground">
-                    Loading workspaces…
-                  </p>
-                ) : copySourceWorkspaces.length === 0 ? (
-                  <p className="px-3 py-2.5 text-sm text-muted-foreground">
-                    {copySourceWorkspacesError ||
-                      "No other workspaces are available to copy from."}
-                  </p>
-                ) : (
-                  <div className="max-h-44 divide-y divide-border/40 overflow-y-auto">
-                    {copySourceWorkspaces.map((workspace) => {
-                      const checked = copySourceWorkspaceId === workspace.id;
-                      return (
-                        <label
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 [scrollbar-gutter:stable]">
+              <div className="space-y-5">
+                <div className="rounded-xl bg-fg-2 px-4 py-3 text-sm leading-relaxed text-muted-foreground shadow-subtle-xs">
+                  Current workspace cookies are replaced before import so stale
+                  login state does not linger. Sites that rely on app-bound
+                  encryption or non-cookie storage may still ask you to sign in
+                  again.
+                </div>
+
+                <div className="grid gap-1.5">
+                  {PROFILE_SETUP_MODE_OPTIONS.map((option) => {
+                    const active = profileSetupMode === option.value;
+                    const OptionIcon = option.icon;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={active}
+                        className={cn(
+                          "flex items-start gap-3 rounded-lg px-3.5 py-3 text-left transition-colors shadow-subtle-xs focus-visible:[box-shadow:none!important]",
+                          active
+                            ? "bg-primary/[0.06] ring-1 ring-primary/30"
+                            : "bg-fg-2 hover:bg-fg-4",
+                        )}
+                        onClick={() => setProfileSetupMode(option.value)}
+                      >
+                        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-background shadow-subtle-xs">
+                          <OptionIcon className="size-4 text-muted-foreground" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-foreground">
+                            {option.label}
+                          </p>
+                          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                            {option.detail}
+                          </p>
+                        </div>
+                        <span
+                          aria-hidden
                           className={cn(
-                            "flex cursor-pointer items-start gap-2 px-3 py-2 text-sm transition-colors",
-                            checked ? "bg-muted/40" : "hover:bg-muted/20",
+                            "mt-1 size-3.5 shrink-0 rounded-full border transition-colors",
+                            active
+                              ? "border-primary bg-primary"
+                              : "border-fg-24 bg-background",
                           )}
-                          key={workspace.id}
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {profileSetupMode === "copy_workspace" ? (
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-foreground">
+                      Source workspace
+                    </label>
+                    <div className="overflow-hidden rounded-lg bg-fg-2 shadow-subtle-xs">
+                      {copySourceWorkspacesLoading ? (
+                        <p className="px-3 py-2.5 text-sm text-muted-foreground">
+                          Loading workspaces…
+                        </p>
+                      ) : copySourceWorkspaces.length === 0 ? (
+                        <p className="px-3 py-2.5 text-sm text-muted-foreground">
+                          {copySourceWorkspacesError ||
+                            "No other workspaces are available to copy from."}
+                        </p>
+                      ) : (
+                        <div className="max-h-56 divide-y divide-border/40 overflow-y-auto">
+                          {copySourceWorkspaces.map((workspace) => {
+                            const checked =
+                              copySourceWorkspaceId === workspace.id;
+                            return (
+                              <label
+                                className={cn(
+                                  "flex cursor-pointer items-start gap-2 px-3 py-2.5 text-sm transition-colors",
+                                  checked ? "bg-background" : "hover:bg-fg-4",
+                                )}
+                                key={workspace.id}
+                              >
+                                <input
+                                  checked={checked}
+                                  className="mt-0.5 accent-primary"
+                                  name="workspace-profile-copy"
+                                  onChange={() =>
+                                    setCopySourceWorkspaceId(workspace.id)
+                                  }
+                                  type="radio"
+                                />
+                                <span className="min-w-0">
+                                  <span className="block font-medium text-foreground">
+                                    {workspace.name || workspace.id}
+                                  </span>
+                                  <span className="block truncate text-xs text-muted-foreground">
+                                    {workspace.workspace_path || workspace.id}
+                                  </span>
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <label className="block">
+                      <span className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-foreground">
+                        Source
+                      </span>
+                      <div className="rounded-lg bg-fg-2 shadow-subtle-xs transition-colors focus-within:bg-background focus-within:shadow-subtle-sm">
+                        <select
+                          className="h-10 w-full rounded-lg border-0 bg-transparent px-3 text-sm text-foreground outline-none focus-visible:ring-0"
+                          onChange={(event) =>
+                            setBrowserImportSource(
+                              event.target.value as BrowserImportSource,
+                            )
+                          }
+                          value={browserImportSource}
                         >
-                          <input
-                            checked={checked}
-                            className="mt-0.5 accent-primary"
-                            name="workspace-profile-copy"
-                            onChange={() =>
-                              setCopySourceWorkspaceId(workspace.id)
-                            }
-                            type="radio"
-                          />
-                          <span className="min-w-0">
-                            <span className="block font-medium text-foreground">
-                              {workspace.name || workspace.id}
-                            </span>
-                            <span className="block truncate text-xs text-muted-foreground">
-                              {workspace.workspace_path || workspace.id}
-                            </span>
-                          </span>
-                        </label>
-                      );
-                    })}
+                          {IMPORT_SOURCE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </label>
+
+                    {browserImportSource === "safari" ? (
+                      <p className="rounded-lg bg-fg-2 px-3 py-2.5 text-sm text-muted-foreground shadow-subtle-xs">
+                        Safari import opens a file picker for a Safari export
+                        zip and only brings in bookmarks and history.
+                      </p>
+                    ) : (
+                      <div>
+                        <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-foreground">
+                          Profile
+                        </div>
+                        {importProfilesError &&
+                        !profileSelectionDeferredToImportDialog ? (
+                          <p className="mb-1.5 text-xs leading-relaxed text-destructive">
+                            {importProfilesError}
+                          </p>
+                        ) : null}
+                        <div className="overflow-hidden rounded-lg bg-fg-2 shadow-subtle-xs">
+                          {importProfilesLoading ? (
+                            <p className="px-3 py-2.5 text-sm text-muted-foreground">
+                              Loading profiles…
+                            </p>
+                          ) : profileSelectionDeferredToImportDialog ? (
+                            <p className="px-3 py-2.5 text-sm text-muted-foreground">
+                              {importProfilesError}
+                            </p>
+                          ) : importProfiles.length === 0 ? (
+                            <p className="px-3 py-2.5 text-sm text-muted-foreground">
+                              {importProfilesError ||
+                                "No importable profiles found for this browser."}
+                            </p>
+                          ) : (
+                            <div className="max-h-56 divide-y divide-border/40 overflow-y-auto">
+                              {importProfiles.map((profile) => {
+                                const checked =
+                                  browserImportProfileDir === profile.profileDir;
+                                return (
+                                  <label
+                                    className={cn(
+                                      "flex cursor-pointer items-start gap-2 px-3 py-2.5 text-sm transition-colors",
+                                      checked
+                                        ? "bg-background"
+                                        : "hover:bg-fg-4",
+                                    )}
+                                    key={profile.profileDir}
+                                  >
+                                    <input
+                                      checked={checked}
+                                      className="mt-0.5 accent-primary"
+                                      name="browser-profile-import"
+                                      onChange={() =>
+                                        setBrowserImportProfileDir(
+                                          profile.profileDir,
+                                        )
+                                      }
+                                      type="radio"
+                                    />
+                                    <span className="min-w-0">
+                                      <span className="block font-medium text-foreground">
+                                        {profile.profileLabel}
+                                      </span>
+                                      <span className="block truncate text-xs text-muted-foreground">
+                                        {profile.profileDir}
+                                      </span>
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             </div>
-          ) : (
-            <>
-              <label className="grid gap-1">
-                <span className="text-xs font-medium text-foreground">
-                  Source
-                </span>
-                <select
-                  className="h-9 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:border-ring"
-                  onChange={(event) =>
-                    setBrowserImportSource(
-                      event.target.value as BrowserImportSource,
-                    )
-                  }
-                  value={browserImportSource}
+
+            <div className="shrink-0 border-t border-border px-6 py-4">
+              {statusMessage ? (
+                <div
+                  className={cn(
+                    "mb-3 rounded-lg border px-3 py-2 text-xs leading-5",
+                    statusTone === "error"
+                      ? "border-destructive/25 bg-destructive/5 text-destructive"
+                      : statusTone === "success"
+                        ? "border-emerald-500/20 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
+                        : "border-border/60 bg-muted/30 text-foreground",
+                  )}
                 >
-                  {IMPORT_SOURCE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {browserImportSource === "safari" ? (
-                <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
-                  Safari import opens a file picker for a Safari export zip and
-                  only brings in bookmarks and history.
+                  <p>{statusMessage}</p>
+                  {resultWarnings.length > 0 ? (
+                    <ul className="mt-2 list-disc space-y-1 pl-4">
+                      {resultWarnings.map((warning) => (
+                        <li key={warning}>{warning}</li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
-              ) : (
-                <div className="grid gap-1">
-                  <span className="text-xs font-medium text-foreground">
-                    Profile
-                  </span>
-                  <div className="overflow-hidden rounded-lg border border-border/60 bg-background">
-                    {importProfilesLoading ? (
-                      <p className="px-3 py-2.5 text-sm text-muted-foreground">
-                        Loading profiles…
-                      </p>
-                    ) : profileSelectionDeferredToImportDialog ? (
-                      <p className="px-3 py-2.5 text-sm text-muted-foreground">
-                        {importProfilesError}
-                      </p>
-                    ) : importProfiles.length === 0 ? (
-                      <p className="px-3 py-2.5 text-sm text-muted-foreground">
-                        {importProfilesError ||
-                          "No importable profiles found for this browser."}
-                      </p>
-                    ) : (
-                      <div className="max-h-44 divide-y divide-border/40 overflow-y-auto">
-                        {importProfiles.map((profile) => {
-                          const checked =
-                            browserImportProfileDir === profile.profileDir;
-                          return (
-                            <label
-                              className={cn(
-                                "flex cursor-pointer items-start gap-2 px-3 py-2 text-sm transition-colors",
-                                checked ? "bg-muted/40" : "hover:bg-muted/20",
-                              )}
-                              key={profile.profileDir}
-                            >
-                              <input
-                                checked={checked}
-                                className="mt-0.5 accent-primary"
-                                name="browser-profile-import"
-                                onChange={() =>
-                                  setBrowserImportProfileDir(profile.profileDir)
-                                }
-                                type="radio"
-                              />
-                              <span className="min-w-0">
-                                <span className="block font-medium text-foreground">
-                                  {profile.profileLabel}
-                                </span>
-                                <span className="block truncate text-xs text-muted-foreground">
-                                  {profile.profileDir}
-                                </span>
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          <Button
-            type="button"
-            onClick={() => void handleImport()}
-            disabled={!canImport}
-            className="w-full"
-          >
-            {importPending ? (
-              <>
-                <Loader2 className="animate-spin" />
-                <span>
-                  {profileSetupMode === "copy_workspace"
-                    ? "Copying…"
-                    : "Importing…"}
-                </span>
-              </>
-            ) : (
-              <span>
-                {profileSetupMode === "copy_workspace"
-                  ? "Copy Into Workspace Browser"
-                  : "Import Into Workspace Browser"}
-              </span>
-            )}
-          </Button>
-
-          {statusMessage ? (
-            <div
-              className={cn(
-                "rounded-lg border px-3 py-2 text-xs leading-5",
-                statusTone === "error"
-                  ? "border-destructive/25 bg-destructive/5 text-destructive"
-                  : statusTone === "success"
-                    ? "border-emerald-500/20 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
-                    : "border-border/60 bg-muted/30 text-foreground",
-              )}
-            >
-              <p>{statusMessage}</p>
-              {resultWarnings.length > 0 ? (
-                <ul className="mt-2 list-disc space-y-1 pl-4">
-                  {resultWarnings.map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
               ) : null}
+
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+                <DialogPrimitive.Close
+                  render={
+                    <button
+                      type="button"
+                      className={buttonVariants({
+                        variant: "outline",
+                        size: "sm",
+                      })}
+                    >
+                      Close
+                    </button>
+                  }
+                />
+                <Button type="button" onClick={() => void handleImport()} disabled={!canImport}>
+                  {importPending ? (
+                    <>
+                      <Loader2 className="animate-spin" />
+                      <span>
+                        {profileSetupMode === "copy_workspace"
+                          ? "Copying…"
+                          : "Importing…"}
+                      </span>
+                    </>
+                  ) : (
+                    <span>
+                      {profileSetupMode === "copy_workspace"
+                        ? "Copy Into Workspace Browser"
+                        : "Import Into Workspace Browser"}
+                    </span>
+                  )}
+                </Button>
+              </div>
             </div>
-          ) : null}
-        </div>
-      </PopoverContent>
-    </Popover>
+          </DialogPrimitive.Popup>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
+    </>
   );
 }

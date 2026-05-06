@@ -23,12 +23,22 @@ declare global {
     | "presentation"
     | "unsupported";
 
+  interface FilePreviewTableImagePayload {
+    row: number;
+    column: number;
+    dataUrl: string;
+    widthPx?: number;
+    heightPx?: number;
+    alt?: string;
+  }
+
   interface FilePreviewTableSheetPayload {
     name: string;
     index: number;
     columns: string[];
     rows: string[][];
     links?: (string | null)[][];
+    images?: FilePreviewTableImagePayload[];
     totalRows: number;
     totalColumns: number;
     truncated: boolean;

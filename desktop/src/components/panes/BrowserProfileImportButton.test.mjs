@@ -7,24 +7,34 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const sourcePath = path.join(__dirname, "BrowserProfileImportButton.tsx");
 
-test("browser profile import button exposes a workspace re-import popover", async () => {
+test("browser profile import button exposes a centered workspace re-import dialog", async () => {
   const source = await readFile(sourcePath, "utf8");
 
   assert.match(source, /export function BrowserProfileImportButton\(/);
   assert.match(source, /useWorkspaceSelection\(\)/);
-  assert.match(source, /PopoverContent align="end"/);
+  assert.match(source, /import \{ Dialog as DialogPrimitive \} from "@base-ui\/react\/dialog";/);
+  assert.match(source, /const \[internalOpen, setInternalOpen\] = useState\(false\);/);
+  assert.match(source, /const open = controlledOpen \?\? internalOpen;/);
+  assert.match(source, /<DialogPrimitive.Root open=\{open\} onOpenChange=\{setOpen\}>/);
+  assert.match(source, /DialogPrimitive.Backdrop className="fixed inset-0 z-\[120\] bg-scrim backdrop-blur-sm/);
+  assert.match(source, /DialogPrimitive.Popup className="fixed top-1\/2 left-1\/2 z-\[121\] flex max-h-\[min\(780px,calc\(100vh-32px\)\)\] w-\[min\(720px,calc\(100vw-32px\)\)\]/);
   assert.match(source, /Set Up Browser Profile/);
-  assert.match(source, /Re-import a browser profile or copy one from another workspace into[\s\S]*this workspace browser\./);
+  assert.match(source, /Re-import a browser profile or copy one from another[\s\S]*workspace into this workspace browser\./);
   assert.match(source, /PROFILE_SETUP_MODE_OPTIONS/);
   assert.match(source, /Copy from another workspace/);
   assert.match(source, /Import from a browser/);
-  assert.match(source, /Current workspace cookies are replaced before import so stale login[\s\S]*state does not linger\./);
-  assert.match(source, /Sites that rely on app-bound encryption or[\s\S]*non-cookie storage may still ask you to sign in again\./);
+  assert.match(source, /Current workspace cookies are replaced before import so stale[\s\S]*login[\s\S]*state does not linger\./);
+  assert.match(source, /app-bound/);
+  assert.match(source, /non-cookie storage/);
+  assert.match(source, /sign in/);
+  assert.doesNotMatch(source, /PopoverContent/);
 });
 
 test("browser profile import button loads profiles and invokes the import IPC", async () => {
   const source = await readFile(sourcePath, "utf8");
 
+  assert.match(source, /aria-expanded=\{open\}/);
+  assert.match(source, /onClick=\{\(\) => setOpen\(true\)\}/);
   assert.match(source, /listImportBrowserProfiles\(browserImportSource\)/);
   assert.match(source, /workspaceId: trimmedWorkspaceId,/);
   assert.match(source, /source: browserImportSource,/);

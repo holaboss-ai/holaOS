@@ -22,7 +22,7 @@ test("space browser display selects the full address when the navigation field i
   );
   assert.match(
     source,
-    /className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-muted\/50 px-3 py-2 transition-colors focus-within:border-ring"[\s\S]*onClick=\{selectAddressInput\}/,
+    /className="flex h-7 min-w-0 items-center gap-2 rounded-md border border-border bg-muted px-2\.5 transition-colors focus-within:border-muted-foreground"[\s\S]*onClick=\{selectAddressInput\}/,
   );
   assert.match(source, /ref=\{addressInputRef\}/);
   assert.match(
@@ -44,11 +44,11 @@ test("space browser display keeps loading state in the address bar and turns ref
   );
   assert.match(
     source,
-    /\{activeTab\.loading \? \(\s*<X size=\{13\} \/>\s*\) : \(\s*<RefreshCcw size=\{13\} \/>\s*\)\}/,
+    /\{activeTab\.loading \? <X size=\{13\} \/> : <RefreshCcw size=\{13\} \/>\}/,
   );
   assert.match(
     source,
-    /\{isActiveTabBusy \? \(\s*<Loader2[\s\S]*className="shrink-0 animate-spin text-primary\/85"[\s\S]*\/>\s*\) : \(\s*<Globe size=\{13\} className="shrink-0 text-muted-foreground" \/>\s*\)\}/,
+    /\{isActiveTabBusy \? \(\s*<Loader2[\s\S]*className="shrink-0 animate-spin text-primary"[\s\S]*\/>\s*\) : \(\s*<Globe size=\{13\} className="shrink-0 text-muted-foreground" \/>\s*\)\}/,
   );
   assert.doesNotMatch(source, /activeTab\.initialized && activeTab\.loading/);
 });
@@ -59,7 +59,9 @@ test("space browser display exposes screenshot copy without browser comments", a
   assert.match(source, /interface SpaceBrowserDisplayPaneProps \{/);
   assert.match(source, /import \{ BrowserProfileImportButton \} from "@\/components\/panes\/BrowserProfileImportButton";/);
   assert.match(source, /useBrowserCaptureActions\(\)/);
-  assert.match(source, /<BrowserProfileImportButton[\s\S]*buttonSize="icon-sm"[\s\S]*buttonVariant="ghost"[\s\S]*showLabel=\{false\}/);
+  assert.match(source, /const \[browserProfileImportDialogOpen, setBrowserProfileImportDialogOpen\] =\s*useState\(false\);/);
+  assert.match(source, /const effectiveSuspendNativeView =\s*suspendNativeView \|\| browserProfileImportDialogOpen;/);
+  assert.match(source, /<BrowserProfileImportButton[\s\S]*buttonSize="icon-sm"[\s\S]*buttonVariant="ghost"[\s\S]*open=\{browserProfileImportDialogOpen\}[\s\S]*onOpenChange=\{setBrowserProfileImportDialogOpen\}[\s\S]*showLabel=\{false\}/);
   assert.match(source, /aria-label="Copy browser screenshot"/);
   assert.match(source, /captureScreenshotToClipboard\(\)/);
   assert.match(source, /screenshotCapturePending \? \(\s*<Loader2 size=\{13\} className="animate-spin" \/>\s*\) : \(\s*<Camera size=\{13\} \/>\s*\)/);
@@ -115,7 +117,7 @@ test("space browser display keeps takeover status without chrome session control
     /const showAgentActivityHighlight =\s*sessionBrowserStatus\?\.tone === "active" \|\| glowPreviewEnabled;/,
   );
   assert.doesNotMatch(source, /<span className="truncate">\{sessionBrowserStatus\.detail\}<\/span>/);
-  assert.match(source, /browser-active-glow border-border\/45/);
+  assert.match(source, /browser-active-glow border-border/);
   assert.match(source, /browser-active-glow-frame pointer-events-none absolute inset-0 rounded-\[inherit\]/);
   assert.doesNotMatch(source, /border-primary\/70/);
   assert.doesNotMatch(source, /browserBoundsRef/);
@@ -130,7 +132,10 @@ test("browser glow styles animate the active browser border", async () => {
   assert.match(source, /@keyframes holaboss-browser-active-frame/);
   assert.match(source, /0 0 44px color-mix\(in oklch, var\(--primary\) 56%, transparent\)/);
   assert.match(source, /inset 0 0 72px color-mix\(in oklch, var\(--primary\) 24%, transparent\)/);
-  assert.match(source, /inset 0 0 38px color-mix\(in oklch, var\(--primary\) 30%, transparent\)/);
+  assert.match(
+    source,
+    /box-shadow:\s*inset 0 0 38px[\s\S]*color-mix\(in oklch, var\(--primary\) 30%, transparent\);/,
+  );
   assert.match(source, /\.browser-active-glow \{[\s\S]*animation: holaboss-browser-active-glow 2\.8s ease-in-out infinite;/);
   assert.match(source, /\.browser-active-glow-frame \{[\s\S]*animation: holaboss-browser-active-frame 2\.8s ease-in-out infinite;/);
   assert.match(source, /@media \(prefers-reduced-motion: reduce\)/);
@@ -151,7 +156,7 @@ test("browser glow preview hook exposes a console toggle", async () => {
 test("space browser display only clears native browser bounds on suspend or unmount, not every layout sync", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /if \(suspendNativeView\) \{\s*void window\.electronAPI\.browser\.setBounds\(\{\s*x: 0,\s*y: 0,\s*width: 0,\s*height: 0,\s*\}\);\s*return;\s*\}/s);
-  assert.match(source, /useLayoutEffect\(\(\) => \{[\s\S]*window\.setTimeout\(queueSync, 400\);[\s\S]*return \(\) => \{\s*observer\.disconnect\(\);[\s\S]*window\.cancelAnimationFrame\(rafId\);\s*\};\s*\}, \[layoutSyncKey, suspendNativeView\]\);/s);
+  assert.match(source, /if \(effectiveSuspendNativeView\) \{\s*void window\.electronAPI\.browser\.setBounds\(\{\s*x: 0,\s*y: 0,\s*width: 0,\s*height: 0,\s*\}\);\s*return;\s*\}/s);
+  assert.match(source, /useLayoutEffect\(\(\) => \{[\s\S]*window\.setTimeout\(queueSync, 400\);[\s\S]*return \(\) => \{\s*observer\.disconnect\(\);[\s\S]*window\.removeEventListener\("resize", queueSync\);[\s\S]*window\.cancelAnimationFrame\(rafId\);\s*\};\s*\}, \[effectiveSuspendNativeView, layoutSyncKey\]\);/s);
   assert.match(source, /useEffect\(\(\) => \{\s*return \(\) => \{\s*void window\.electronAPI\.browser\.setBounds\(\{\s*x: 0,\s*y: 0,\s*width: 0,\s*height: 0,\s*\}\);\s*\};\s*\}, \[\]\);/s);
 });

@@ -23,7 +23,9 @@ test("browser pane exposes screenshot copy without browser comments", async () =
 
   assert.match(source, /import \{ BrowserProfileImportButton \} from "@\/components\/panes\/BrowserProfileImportButton";/);
   assert.match(source, /useBrowserCaptureActions\(\)/);
-  assert.match(source, /<BrowserProfileImportButton[\s\S]*buttonSize="sm"[\s\S]*buttonVariant="outline"/);
+  assert.match(source, /const \[browserProfileImportDialogOpen, setBrowserProfileImportDialogOpen\] =\s*useState\(false\);/);
+  assert.match(source, /const effectiveSuspendNativeView =\s*suspendNativeView \|\| browserProfileImportDialogOpen;/);
+  assert.match(source, /<BrowserProfileImportButton[\s\S]*buttonSize="sm"[\s\S]*buttonVariant="outline"[\s\S]*open=\{browserProfileImportDialogOpen\}[\s\S]*onOpenChange=\{setBrowserProfileImportDialogOpen\}/);
   assert.match(source, /aria-label="Copy browser screenshot"/);
   assert.match(source, /title="Copy browser screenshot"/);
   assert.match(source, /captureScreenshotToClipboard\(\)/);
@@ -44,7 +46,10 @@ test("browser pane exposes a single inline browser-space switcher", async () => 
   assert.match(source, /const visibleBrowserSpace = browserState\.space \|\| DEFAULT_BROWSER_SPACE;/);
   assert.match(source, /const VisibleBrowserIcon = visibleBrowserSpace === "user" \? Globe : Bot;/);
   assert.match(source, /Switch to \$\{alternateBrowserLabel\} browser/);
-  assert.match(source, /window\.electronAPI\.browser\.setActiveWorkspace\(selectedWorkspaceId, space\)/);
+  assert.match(
+    source,
+    /void window\.electronAPI\.browser\.setActiveWorkspace\(\s*selectedWorkspaceId,\s*space,\s*\);/,
+  );
   assert.match(source, /activeDownloadCount > 0/);
   assert.doesNotMatch(source, /visibleBrowserCount/);
   assert.doesNotMatch(source, /aria-label="Downloads"/);
@@ -125,7 +130,7 @@ test("browser pane keeps loading state in the address bar and turns refresh into
   );
   assert.match(
     source,
-    /\{isActiveTabBusy \? \(\s*<Loader2[\s\S]*className="shrink-0 animate-spin text-primary\/85"[\s\S]*\/>\s*\) : \(\s*<Globe size=\{12\} className="shrink-0 text-primary\/85" \/>\s*\)\}/,
+    /\{isActiveTabBusy \? \(\s*<Loader2[\s\S]*className="shrink-0 animate-spin text-primary"[\s\S]*\/>\s*\) : \(\s*<Globe size=\{12\} className="shrink-0 text-primary" \/>\s*\)\}/,
   );
   assert.doesNotMatch(source, /tab\.loading \? \(\s*<Loader2 size=\{11\} className="shrink-0 animate-spin" \/>\s*\) : null/);
   assert.doesNotMatch(source, /activeTab\.initialized && activeTab\.loading/);
@@ -134,8 +139,8 @@ test("browser pane keeps loading state in the address bar and turns refresh into
 test("browser pane only clears native browser bounds on suspend or unmount, not every layout sync", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /if \(suspendNativeView\) \{\s*void window\.electronAPI\.browser\.setBounds\(\{\s*x: 0,\s*y: 0,\s*width: 0,\s*height: 0,\s*\}\);\s*return;\s*\}/s);
-  assert.match(source, /useLayoutEffect\(\(\) => \{[\s\S]*window\.setTimeout\(queueSync, 400\);[\s\S]*return \(\) => \{\s*observer\.disconnect\(\);[\s\S]*window\.cancelAnimationFrame\(rafId\);\s*\};\s*\}, \[layoutSyncKey, suspendNativeView\]\);/s);
+  assert.match(source, /if \(effectiveSuspendNativeView\) \{\s*void window\.electronAPI\.browser\.setBounds\(\{\s*x: 0,\s*y: 0,\s*width: 0,\s*height: 0,\s*\}\);\s*return;\s*\}/s);
+  assert.match(source, /useLayoutEffect\(\(\) => \{[\s\S]*window\.setTimeout\(queueSync, 400\);[\s\S]*return \(\) => \{\s*observer\.disconnect\(\);[\s\S]*window\.removeEventListener\("resize", queueSync\);[\s\S]*window\.cancelAnimationFrame\(rafId\);\s*\};\s*\}, \[effectiveSuspendNativeView, layoutSyncKey\]\);/s);
   assert.match(source, /useEffect\(\(\) => \{\s*return \(\) => \{\s*void window\.electronAPI\.browser\.setBounds\(\{\s*x: 0,\s*y: 0,\s*width: 0,\s*height: 0,\s*\}\);\s*\};\s*\}, \[\]\);/s);
 });
 
