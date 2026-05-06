@@ -1612,6 +1612,12 @@ interface RuntimeNotificationListOptionsPayload {
         workspaceId?: string | null,
       ) => Promise<FileSystemMutationPayload>;
       deletePath: (targetPath: string, workspaceId?: string | null) => Promise<{ deleted: boolean }>;
+      revealInFolder: (targetPath: string, workspaceId?: string | null) => Promise<{ revealed: boolean }>;
+      exportFileTo: (
+        targetPath: string,
+        workspaceId?: string | null,
+        payload?: { content?: string; suggestedName?: string },
+      ) => Promise<{ path: string | null; canceled: boolean }>;
       getBookmarks: (workspaceId?: string | null) => Promise<FileBookmarkPayload[]>;
       addBookmark: (targetPath: string, label?: string, workspaceId?: string | null) => Promise<FileBookmarkPayload[]>;
       removeBookmark: (bookmarkId: string) => Promise<FileBookmarkPayload[]>;

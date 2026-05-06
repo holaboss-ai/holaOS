@@ -1156,6 +1156,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("fs:movePath", sourcePath, destinationDirectoryPath, workspaceId) as Promise<FileSystemMutationPayload>,
     deletePath: (targetPath: string, workspaceId?: string | null) =>
       ipcRenderer.invoke("fs:deletePath", targetPath, workspaceId) as Promise<{ deleted: boolean }>,
+    revealInFolder: (targetPath: string, workspaceId?: string | null) =>
+      ipcRenderer.invoke("fs:revealInFolder", targetPath, workspaceId) as Promise<{ revealed: boolean }>,
+    exportFileTo: (
+      targetPath: string,
+      workspaceId?: string | null,
+      payload?: { content?: string; suggestedName?: string },
+    ) =>
+      ipcRenderer.invoke(
+        "fs:exportFileTo",
+        targetPath,
+        workspaceId,
+        payload,
+      ) as Promise<{ path: string | null; canceled: boolean }>,
     getBookmarks: (workspaceId?: string | null) =>
       ipcRenderer.invoke("fs:getBookmarks", workspaceId) as Promise<FileBookmarkPayload[]>,
     addBookmark: (targetPath: string, label?: string, workspaceId?: string | null) =>

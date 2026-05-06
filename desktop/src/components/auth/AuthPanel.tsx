@@ -12,7 +12,6 @@ import {
   Plug,
   Plus,
   RefreshCw,
-  Search,
   ShieldCheck,
   Terminal,
   Unplug,
@@ -3653,7 +3652,6 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
                 ? "Holaboss Search requires an active Holaboss runtime binding. Sign in or refresh the session to re-enable it."
                 : selectedWebSearchTemplate.description
             }
-            leading={<Search className="size-4 text-muted-foreground" />}
             value={webSearchDraft.providerId}
             onValueChange={(value) =>
               applyWebSearchProviderSelection(webSearchProviderDraftId(value))

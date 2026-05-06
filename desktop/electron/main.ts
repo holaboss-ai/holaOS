@@ -58,6 +58,7 @@ import {
   shell,
   type IpcMainInvokeEvent,
   type OpenDialogOptions,
+  type SaveDialogOptions,
   type Session,
   type WebContents,
 } from "electron";
@@ -18308,6 +18309,61 @@ async function deleteExplorerPath(
   return { deleted: true };
 }
 
+async function revealExplorerPath(
+  targetPath: string,
+  workspaceId?: string | null,
+): Promise<{ revealed: boolean }> {
+  const { absolutePath } = await resolveWorkspaceScopedExplorerPath(
+    targetPath,
+    workspaceId,
+  );
+  if (!(await fileExists(absolutePath))) {
+    throw new Error("Target path no longer exists.");
+  }
+  shell.showItemInFolder(absolutePath);
+  return { revealed: true };
+}
+
+async function exportExplorerPathToFile(
+  targetPath: string,
+  workspaceId: string | null | undefined,
+  payload?: { content?: string; suggestedName?: string },
+): Promise<{ path: string | null; canceled: boolean }> {
+  const { absolutePath } = await resolveWorkspaceScopedExplorerPath(
+    targetPath,
+    workspaceId,
+  );
+  const stat = await fs.stat(absolutePath);
+  if (!stat.isFile()) {
+    throw new Error("Only files can be exported.");
+  }
+
+  const sourceBaseName = path.basename(absolutePath);
+  const suggestedName = payload?.suggestedName?.trim() || sourceBaseName;
+  const downloadsDir = app.getPath("downloads");
+  const ownerWindow = BrowserWindow.getFocusedWindow() ?? mainWindow ?? null;
+  const options: SaveDialogOptions = {
+    title: "Export file",
+    defaultPath: path.join(downloadsDir, suggestedName),
+    buttonLabel: "Export",
+  };
+  const result = ownerWindow
+    ? await dialog.showSaveDialog(ownerWindow, options)
+    : await dialog.showSaveDialog(options);
+  if (result.canceled || !result.filePath) {
+    return { path: null, canceled: true };
+  }
+
+  const destination = path.resolve(result.filePath);
+  await fs.mkdir(path.dirname(destination), { recursive: true });
+  if (typeof payload?.content === "string") {
+    await fs.writeFile(destination, payload.content, "utf-8");
+  } else {
+    await fs.copyFile(absolutePath, destination);
+  }
+  return { path: destination, canceled: false };
+}
+
 async function listDirectory(
   targetPath?: string | null,
   workspaceId?: string | null,
@@ -20365,6 +20421,22 @@ app.whenReady().then(async () => {
     ["main"],
     async (_event, targetPath: string, workspaceId?: string | null) =>
       deleteExplorerPath(targetPath, workspaceId),
+  );
+  handleTrustedIpc(
+    "fs:revealInFolder",
+    ["main"],
+    async (_event, targetPath: string, workspaceId?: string | null) =>
+      revealExplorerPath(targetPath, workspaceId),
+  );
+  handleTrustedIpc(
+    "fs:exportFileTo",
+    ["main"],
+    async (
+      _event,
+      targetPath: string,
+      workspaceId?: string | null,
+      payload?: { content?: string; suggestedName?: string },
+    ) => exportExplorerPathToFile(targetPath, workspaceId, payload),
   );
   handleTrustedIpc("fs:getBookmarks", ["main"], () => fileBookmarks);
   handleTrustedIpc(

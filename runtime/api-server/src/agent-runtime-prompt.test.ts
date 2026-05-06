@@ -158,11 +158,19 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
   );
   assert.match(
     prompt.systemPrompt,
-    /Create or update a workspace-local skill when the user describes a reusable workflow/
+    /Create or update a workspace-local skill for reusable workflows/
   );
   assert.match(
     prompt.systemPrompt,
-    /do not create skills for one-off state\./i
+    /do not use skills for unconditional policy or one-off state\./i
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Put always-on workspace rules in `AGENTS\.md`/i
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /use skills for reusable workflows that load when relevant/i
   );
   assert.match(prompt.systemPrompt, /Session policy:/);
   assert.match(prompt.systemPrompt, /front-of-house workspace session/i);

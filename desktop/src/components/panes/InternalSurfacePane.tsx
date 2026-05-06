@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronsLeftRight,
   ChevronsRightLeft,
+  Download,
   Eye,
   FileText,
   FileWarning,
@@ -15,6 +16,11 @@ import {
   SpreadsheetEditor,
 } from "@/components/panes/SpreadsheetEditor";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { DashboardRenderer } from "@/components/dashboard/DashboardRenderer";
 import { SimpleMarkdown } from "@/components/marketplace/SimpleMarkdown";
 import { PresentationPreview } from "@/components/panes/PresentationPreview";
@@ -460,6 +466,28 @@ export function InternalSurfacePane({
     });
   }, [isDirty, isSaving, loadPreviewFromDisk]);
 
+  const exportPreview = useCallback(async () => {
+    if (!preview) {
+      return;
+    }
+    setErrorMessage("");
+    try {
+      const useDraftContent = preview.kind === "text";
+      await window.electronAPI.fs.exportFileTo(
+        preview.absolutePath,
+        selectedWorkspaceId ?? null,
+        {
+          suggestedName: preview.name,
+          content: useDraftContent ? previewDraft : undefined,
+        },
+      );
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to export file.",
+      );
+    }
+  }, [preview, previewDraft, selectedWorkspaceId]);
+
   const savePreview = useCallback(async () => {
     if (!preview || !preview.isEditable) {
       return;
@@ -660,6 +688,24 @@ export function InternalSurfacePane({
                   {isSaving ? "Saving" : "Save"}
                 </Button>
               ) : null}
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => void exportPreview()}
+                      aria-label="Export"
+                    />
+                  }
+                >
+                  <Download className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="py-1">
+                  Export
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
 
@@ -785,8 +831,8 @@ export function InternalSurfacePane({
                   {isDirty ? " · Unsaved changes" : ""}
                 </div>
               </div>
-              {preview.isEditable ? (
-                <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
+                {preview.isEditable ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -797,8 +843,26 @@ export function InternalSurfacePane({
                     <Save size={12} />
                     {isSaving ? "Saving" : "Save"}
                   </Button>
-                </div>
-              ) : null}
+                ) : null}
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => void exportPreview()}
+                        aria-label="Export"
+                      />
+                    }
+                  >
+                    <Download className="size-3.5" />
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="py-1">
+                    Export
+                  </TooltipContent>
+                </Tooltip>
+              </div>
             </div>
 
             <div className="min-h-0 flex-1 overflow-hidden p-3">

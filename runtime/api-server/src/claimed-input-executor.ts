@@ -70,6 +70,8 @@ const CLAIMED_INPUT_SENTRY_PERMISSION_DENIAL_LIMIT = 10;
 const BACKEND_OUTPUT_DELTA_RELAY_FLUSH_CHARS = 1200;
 const SUBAGENT_EVENT_COALESCE_WINDOW_MS = 5_000;
 const SUBAGENT_EVENT_IDLE_TIMEOUT_MS = 5_000;
+const MAIN_SESSION_EVENT_RETRY_BASE_DELAY_MS = 5_000;
+const MAIN_SESSION_EVENT_RETRY_MAX_DELAY_MS = 5 * 60_000;
 const CONTEXT_BUDGET_OBSERVABILITY_SCHEMA_VERSION = 1;
 const CONTEXT_BUDGET_COMPACTION_EVENT_TYPES = new Set([
   "auto_compaction_start",
@@ -2611,6 +2613,77 @@ function mainSessionEventIdsFromContext(
     .filter((value): value is string => Boolean(value));
 }
 
+function mainSessionEventRetryAttemptCount(
+  payload: Record<string, unknown> | null | undefined,
+): number {
+  const retry =
+    payload && isRecord(payload.delivery_retry) ? payload.delivery_retry : null;
+  const rawValue = retry?.attempt_count;
+  if (typeof rawValue !== "number" || !Number.isFinite(rawValue)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(rawValue));
+}
+
+function nextMainSessionEventRetryDelayMs(attemptCount: number): number {
+  const normalizedAttemptCount = Math.max(1, Math.floor(attemptCount));
+  const exponent = Math.max(0, normalizedAttemptCount - 1);
+  return Math.min(
+    MAIN_SESSION_EVENT_RETRY_MAX_DELAY_MS,
+    MAIN_SESSION_EVENT_RETRY_BASE_DELAY_MS * (2 ** exponent),
+  );
+}
+
+function requeueMainSessionEventForRetry(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  eventId: string;
+  completedAt: string;
+  stopReason: string | null;
+  incrementAttemptCount: boolean;
+}): void {
+  const existing = params.store.getMainSessionEvent({
+    workspaceId: params.workspaceId,
+    eventId: params.eventId,
+  });
+  if (!existing) {
+    return;
+  }
+  const basePayload = isRecord(existing.payload) ? existing.payload : {};
+  const priorAttemptCount = mainSessionEventRetryAttemptCount(basePayload);
+  const attemptCount = params.incrementAttemptCount
+    ? priorAttemptCount + 1
+    : priorAttemptCount;
+  const retryDelayMs = params.incrementAttemptCount
+    ? nextMainSessionEventRetryDelayMs(attemptCount)
+    : 0;
+  const earliestDeliverAt =
+    retryDelayMs > 0
+      ? plusMillisecondsIso(params.completedAt, retryDelayMs)
+      : params.completedAt;
+  const retryPayload: Record<string, unknown> = {
+    ...basePayload,
+    delivery_retry: {
+      attempt_count: attemptCount,
+      retry_delay_ms: retryDelayMs,
+      next_retry_at: earliestDeliverAt,
+      last_stop_reason: params.stopReason ?? null,
+      last_attempt_at: params.completedAt,
+    },
+  };
+  params.store.updateMainSessionEvent({
+    workspaceId: params.workspaceId,
+    eventId: params.eventId,
+    fields: {
+      status: "pending",
+      payload: retryPayload,
+      materializedInputId: null,
+      deliveredAt: null,
+      earliestDeliverAt,
+    },
+  });
+}
+
 function maybeFinalizeMainSessionEvents(params: {
   store: RuntimeStateStore;
   record: SessionInputRecord;
@@ -2627,7 +2700,10 @@ function maybeFinalizeMainSessionEvents(params: {
     params.turnResult.completedAt ??
     params.turnResult.updatedAt ??
     new Date().toISOString();
-  if (params.turnResult.status !== "failed") {
+  if (
+    params.turnResult.status !== "failed" &&
+    params.turnResult.status !== "paused"
+  ) {
     params.store.markMainSessionEventsDelivered({
       workspaceId: params.record.workspaceId,
       eventIds,
@@ -2636,18 +2712,13 @@ function maybeFinalizeMainSessionEvents(params: {
     return;
   }
   for (const eventId of eventIds) {
-    params.store.updateMainSessionEvent({
+    requeueMainSessionEventForRetry({
+      store: params.store,
       workspaceId: params.record.workspaceId,
       eventId,
-      fields: {
-        status: "pending",
-        materializedInputId: null,
-        deliveredAt: null,
-        earliestDeliverAt: plusMillisecondsIso(
-          now,
-          SUBAGENT_EVENT_COALESCE_WINDOW_MS,
-        ),
-      },
+      completedAt: now,
+      stopReason: params.turnResult.stopReason ?? null,
+      incrementAttemptCount: params.turnResult.status === "failed",
     });
   }
 }

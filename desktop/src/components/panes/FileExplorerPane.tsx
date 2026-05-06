@@ -1169,6 +1169,9 @@ export function FileExplorerPane({
   const currentPathRef = useRef("");
   const isDirtyRef = useRef(false);
   const isSavingRef = useRef(false);
+  const deleteEntryRef = useRef<
+    ((entry: LocalFileEntry) => Promise<void>) | null
+  >(null);
   const [currentPath, setCurrentPath] = useState<string>("");
   const [entries, setEntries] = useState<LocalFileEntry[]>([]);
   const [directoryEntriesByPath, setDirectoryEntriesByPath] = useState<
@@ -1760,6 +1763,13 @@ export function FileExplorerPane({
     resetPreviewState();
   }, [error, hasVisibleEntryRows, loading, resetPreviewState]);
 
+  useEffect(() => {
+    if (!selectedPath) return;
+    const rowElement = document.getElementById(getExplorerRowId(selectedPath));
+    if (!rowElement) return;
+    rowElement.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [selectedPath, expandedDirectoryPaths, visibleRows]);
+
   const openPreviewLink = useCallback(
     (url: string) => {
       if (onOpenLinkInBrowser) {
@@ -2260,7 +2270,7 @@ export function FileExplorerPane({
 
   const openFilePreview = async (
     targetPath: string,
-    options?: { skipConfirm?: boolean; syncDirectory?: boolean },
+    options?: { skipConfirm?: boolean },
   ) => {
     const workspaceSessionKey = workspaceSessionKeyRef.current;
     const requestKey = ++previewRequestKeyRef.current;
@@ -2289,9 +2299,7 @@ export function FileExplorerPane({
       return;
     }
 
-    if (options?.syncDirectory) {
-      await revealPathInTree(validatedTargetPath);
-    }
+    await revealPathInTree(validatedTargetPath);
 
     setSelectedPath(validatedTargetPath);
     setPreviewLoading(true);
@@ -2341,7 +2349,7 @@ export function FileExplorerPane({
   const openFileTarget = useCallback(
     async (
       targetPath: string,
-      options?: { skipConfirm?: boolean; syncDirectory?: boolean },
+      options?: { skipConfirm?: boolean },
     ) => {
       if (previewInPane || !onFileOpen) {
         await openFilePreview(targetPath, options);
@@ -2359,9 +2367,7 @@ export function FileExplorerPane({
         return;
       }
 
-      if (options?.syncDirectory) {
-        await revealPathInTree(validatedTargetPath);
-      }
+      await revealPathInTree(validatedTargetPath);
 
       setSelectedPath(validatedTargetPath);
       resetPreviewState();
@@ -2461,6 +2467,19 @@ export function FileExplorerPane({
           }
           return;
         }
+        case "F2": {
+          if (currentIndex < 0) return;
+          event.preventDefault();
+          startRenamingEntry(entryRows[currentIndex].entry);
+          return;
+        }
+        case "Delete":
+        case "Backspace": {
+          if (currentIndex < 0) return;
+          event.preventDefault();
+          void deleteEntryRef.current?.(entryRows[currentIndex].entry);
+          return;
+        }
         default:
           return;
       }
@@ -2471,6 +2490,7 @@ export function FileExplorerPane({
       previewInPane,
       renamingPath,
       selectedPath,
+      startRenamingEntry,
       toggleDirectoryExpansion,
       visibleRows,
     ],
@@ -2609,10 +2629,7 @@ export function FileExplorerPane({
       return;
     }
 
-    await openFileTarget(bookmark.targetPath, {
-      skipConfirm: false,
-      syncDirectory: true,
-    });
+    await openFileTarget(bookmark.targetPath, { skipConfirm: false });
   };
 
   useEffect(() => {
@@ -2649,7 +2666,7 @@ export function FileExplorerPane({
       }
 
       try {
-        await openFileTarget(targetPath, { syncDirectory: true });
+        await openFileTarget(targetPath);
       } finally {
         if (!cancelled) {
           onFocusRequestConsumed?.(request.requestKey);
@@ -3142,6 +3159,33 @@ export function FileExplorerPane({
     ],
   );
 
+  const revealEntryInFolder = useCallback(
+    async (entry: LocalFileEntry) => {
+      setError("");
+      try {
+        await window.electronAPI.fs.revealInFolder(
+          entry.absolutePath,
+          selectedWorkspaceId ?? null,
+        );
+      } catch (cause) {
+        const message =
+          cause instanceof Error
+            ? cause.message
+            : "Failed to reveal in file manager.";
+        setError(message);
+      }
+    },
+    [selectedWorkspaceId],
+  );
+
+  const revealEntryFromContextMenu = useCallback(
+    async (entry: LocalFileEntry) => {
+      closeContextMenu();
+      await revealEntryInFolder(entry);
+    },
+    [closeContextMenu, revealEntryInFolder],
+  );
+
   useEffect(() => {
     const isExplorerShortcutTarget = (target: EventTarget | null) => {
       if (renamingPath) {
@@ -3445,6 +3489,10 @@ export function FileExplorerPane({
       workspaceRootPath,
     ],
   );
+
+  useEffect(() => {
+    deleteEntryRef.current = deleteEntryFromContextMenu;
+  }, [deleteEntryFromContextMenu]);
 
   const contextMenuPosition = useMemo(() => {
     if (!contextMenu) {
@@ -4242,6 +4290,13 @@ export function FileExplorerPane({
     Boolean(explorerClipboardEntry) &&
     Boolean(contextMenuTargetDirectoryPath) &&
     !contextMenuTargetDirectoryIsProtected;
+  const desktopPlatform = window.electronAPI?.platform ?? "";
+  const revealInFolderLabel =
+    desktopPlatform === "darwin"
+      ? "Show in Finder"
+      : desktopPlatform === "win32"
+        ? "Show in Explorer"
+        : "Show in File Manager";
 
   return (
     <>
@@ -4351,6 +4406,18 @@ export function FileExplorerPane({
                 className="w-full justify-start font-normal"
               >
                 Paste
+              </Button>
+              <Button
+                type="button"
+                role="menuitem"
+                variant="ghost"
+                size="default"
+                onClick={() => {
+                  void revealEntryFromContextMenu(contextMenu.entry);
+                }}
+                className="w-full justify-start font-normal"
+              >
+                {revealInFolderLabel}
               </Button>
               <Button
                 type="button"
