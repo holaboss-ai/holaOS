@@ -458,12 +458,14 @@ export function handleRequest(operation: string, envelope: RequestEnvelope): Jso
         return { ok: true };
       case "latest-output-event-id":
         return store.latestOutputEventId({
+          workspaceId: String(envelope.workspace_id),
           sessionId: String(envelope.session_id),
           inputId: typeof envelope.input_id === "string" ? envelope.input_id : undefined
         });
       case "list-output-events":
         return store
           .listOutputEvents({
+            workspaceId: String(envelope.workspace_id),
             sessionId: String(envelope.session_id),
             inputId: typeof envelope.input_id === "string" ? envelope.input_id : undefined,
             includeHistory: typeof envelope.include_history === "boolean" ? envelope.include_history : true,

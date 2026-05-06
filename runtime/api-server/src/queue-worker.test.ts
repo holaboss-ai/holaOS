@@ -52,6 +52,27 @@ async function waitFor(
   }
 }
 
+function outputEventsForInput(
+  store: RuntimeStateStore,
+  record: { workspaceId: string; sessionId: string; inputId: string },
+) {
+  return store.listOutputEvents({
+    workspaceId: record.workspaceId,
+    sessionId: record.sessionId,
+    inputId: record.inputId,
+  });
+}
+
+function turnResultForInput(
+  store: RuntimeStateStore,
+  record: { workspaceId: string; inputId: string },
+) {
+  return store.getTurnResult({
+    workspaceId: record.workspaceId,
+    inputId: record.inputId,
+  });
+}
+
 test("runtime queue worker claims queued inputs and executes them in claim order", async () => {
   const root = makeTempDir("hb-runtime-queue-worker-");
   const store = new RuntimeStateStore({
@@ -325,10 +346,14 @@ test("runtime queue worker can pause a queued session input before it is claimed
     sessionId: "session-main",
   });
   const events = store.listOutputEvents({
+    workspaceId: queued.workspaceId,
     sessionId: "session-main",
     inputId: queued.inputId,
   });
-  const turnResult = store.getTurnResult({ inputId: queued.inputId });
+  const turnResult = store.getTurnResult({
+    workspaceId: queued.workspaceId,
+    inputId: queued.inputId,
+  });
 
   assert.deepEqual(paused, {
     inputId: queued.inputId,
@@ -434,6 +459,7 @@ test("runtime queue worker recovers expired claimed input before processing fres
     sessionId: "session-main"
   });
   const staleEvents = store.listOutputEvents({
+    workspaceId: stale.workspaceId,
     sessionId: "session-main",
     inputId: stale.inputId
   });
@@ -527,6 +553,7 @@ test("runtime queue worker recovers a stale claimed input from another worker be
   const staleUpdated = store.getInput(stale.inputId);
   const freshUpdated = store.getInput(fresh.inputId);
   const events = store.listOutputEvents({
+    workspaceId: stale.workspaceId,
     sessionId: "session-main",
     inputId: stale.inputId
   });
@@ -615,6 +642,7 @@ test("runtime queue worker requeues a stale claimed input when execution never s
     sessionId: "session-main",
   });
   const events = store.listOutputEvents({
+    workspaceId: stale.workspaceId,
     sessionId: "session-main",
     inputId: stale.inputId,
   });
@@ -754,6 +782,7 @@ test("runtime queue worker aborts an active run when recovering an expired claim
     sessionId: "session-main"
   });
   const events = store.listOutputEvents({
+    workspaceId: queued.workspaceId,
     sessionId: "session-main",
     inputId: queued.inputId
   });
@@ -865,6 +894,7 @@ test("runtime queue worker renews an expired claimed input while it waits on a s
 
   const updated = store.getInput(queued.inputId);
   const events = store.listOutputEvents({
+    workspaceId: queued.workspaceId,
     sessionId: "session-main",
     inputId: queued.inputId,
   });

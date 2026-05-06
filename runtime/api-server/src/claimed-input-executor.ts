@@ -1414,11 +1414,13 @@ function claimLeaseUntilIso(
 
 function latestPersistedTerminalOutputEvent(params: {
   store: RuntimeStateStore;
+  workspaceId: string;
   sessionId: string;
   inputId: string;
 }) {
   return params.store
     .listOutputEvents({
+      workspaceId: params.workspaceId,
       sessionId: params.sessionId,
       inputId: params.inputId,
     })
@@ -3620,6 +3622,7 @@ export async function processClaimedInput(params: {
 
       const persistedTerminalEvent = latestPersistedTerminalOutputEvent({
         store,
+        workspaceId: record.workspaceId,
         sessionId: record.sessionId,
         inputId: record.inputId,
       });

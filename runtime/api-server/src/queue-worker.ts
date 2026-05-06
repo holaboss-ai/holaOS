@@ -361,6 +361,7 @@ export class RuntimeQueueWorker implements QueueWorkerLike {
 
       activeRun?.controller.abort("claim_expired");
       const events = this.#store.listOutputEvents({
+        workspaceId: record.workspaceId,
         sessionId: record.sessionId,
         inputId: record.inputId
       });
@@ -551,7 +552,10 @@ export class RuntimeQueueWorker implements QueueWorkerLike {
     record: SessionInputRecord,
     events: Array<{ eventType: string }>,
   ): boolean {
-    const turnResult = this.#store.getTurnResult({ inputId: record.inputId });
+    const turnResult = this.#store.getTurnResult({
+      workspaceId: record.workspaceId,
+      inputId: record.inputId,
+    });
     if (turnResult) {
       return false;
     }
@@ -561,6 +565,7 @@ export class RuntimeQueueWorker implements QueueWorkerLike {
   #persistPausedQueuedInput(record: SessionInputRecord): void {
     const completedAt = utcNowIso();
     const events = this.#store.listOutputEvents({
+      workspaceId: record.workspaceId,
       sessionId: record.sessionId,
       inputId: record.inputId,
     });

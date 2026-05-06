@@ -112,6 +112,37 @@ function writeRuntimeConfigDocument(document: Record<string, unknown>): string {
   return configPath;
 }
 
+function outputEventsForInput(
+  store: RuntimeStateStore,
+  record: { workspaceId: string; sessionId: string; inputId: string },
+) {
+  return store.listOutputEvents({
+    workspaceId: record.workspaceId,
+    sessionId: record.sessionId,
+    inputId: record.inputId,
+  });
+}
+
+function turnResultForInput(
+  store: RuntimeStateStore,
+  record: { workspaceId: string; inputId: string },
+) {
+  return store.getTurnResult({
+    workspaceId: record.workspaceId,
+    inputId: record.inputId,
+  });
+}
+
+function turnRequestSnapshotForInput(
+  store: RuntimeStateStore,
+  record: { workspaceId: string; inputId: string },
+) {
+  return store.getTurnRequestSnapshot({
+    workspaceId: record.workspaceId,
+    inputId: record.inputId,
+  });
+}
+
 function createSubagentRunFixture(params: {
   store: RuntimeStateStore;
   workspaceId: string;
@@ -189,11 +220,8 @@ test("claimed input marks missing workspace failed and runtime error", async () 
     workspaceId: workspace.id,
     sessionId: "session-main",
   });
-  const events = store.listOutputEvents({
-    sessionId: "session-main",
-    inputId: queued.inputId,
-  });
-  const turnResult = store.getTurnResult({ inputId: queued.inputId });
+  const events = outputEventsForInput(store, queued);
+  const turnResult = turnResultForInput(store, queued);
 
   assert.ok(updated);
   assert.equal(updated.status, "FAILED");
@@ -278,12 +306,9 @@ test("claimed input persists runner events, assistant text, and idle state on su
   ): ReturnType<typeof store.updateInput> => {
     const [inputId, fields] = args;
     if (inputId === queued.inputId && fields.status === "DONE") {
-      terminalPersistedBeforeDone = store
-        .listOutputEvents({
-          sessionId: "session-main",
-          inputId: queued.inputId,
-        })
-        .some((event) => event.eventType === "run_completed");
+      terminalPersistedBeforeDone = outputEventsForInput(store, queued).some(
+        (event) => event.eventType === "run_completed"
+      );
     }
     return originalUpdateInput(...args);
   }) as typeof store.updateInput;
@@ -295,12 +320,9 @@ test("claimed input persists runner events, assistant text, and idle state on su
     memoryService,
     runEvolveTasksFn: async (options) => {
       scheduledEvolveTasks += 1;
-      eventTypesAtSchedule = store
-        .listOutputEvents({
-          sessionId: options.record.sessionId,
-          inputId: options.record.inputId,
-        })
-        .map((event) => event.eventType);
+      eventTypesAtSchedule = outputEventsForInput(store, options.record).map(
+        (event) => event.eventType
+      );
     },
   });
 
@@ -309,15 +331,12 @@ test("claimed input persists runner events, assistant text, and idle state on su
     workspaceId: workspace.id,
     sessionId: "session-main",
   });
-  const events = store.listOutputEvents({
-    sessionId: "session-main",
-    inputId: queued.inputId,
-  });
+  const events = outputEventsForInput(store, queued);
   const messages = store.listSessionMessages({
     workspaceId: workspace.id,
     sessionId: "session-main",
   });
-  const turnResult = store.getTurnResult({ inputId: queued.inputId });
+  const turnResult = turnResultForInput(store, queued);
 
   assert.ok(updated);
   assert.equal(updated.status, "DONE");
@@ -414,7 +433,7 @@ test("claimed input persists runner events, assistant text, and idle state on su
     input_tokens: 12,
     output_tokens: 34,
   });
-  const snapshot = store.getTurnRequestSnapshot({ inputId: queued.inputId });
+  const snapshot = turnRequestSnapshotForInput(store, queued);
   assert.equal(snapshot, null);
 
   store.close();
@@ -540,11 +559,8 @@ test("claimed input persists context-budget telemetry from replay clipping and c
     runEvolveTasksFn: async () => {},
   });
 
-  const turnResult = store.getTurnResult({ inputId: queued.inputId });
-  const events = store.listOutputEvents({
-    sessionId: "session-main",
-    inputId: queued.inputId,
-  });
+  const turnResult = turnResultForInput(store, queued);
+  const events = outputEventsForInput(store, queued);
   const terminalEvent = events.at(-1);
   const terminalBudgetDecisions = recordValue(
     terminalEvent?.payload.context_budget_decisions,
@@ -601,7 +617,7 @@ test("claimed input summarizes browser tool usage and browser telemetry", async 
     claimedBy: "sandbox-agent-ts-worker",
   });
 
-  const turnResult = store.getTurnResult({ inputId: queued.inputId });
+  const turnResult = turnResultForInput(store, queued);
   assert.ok(turnResult);
   assert.deepEqual(turnResult.toolUsageSummary, {
     total_calls: 3,
@@ -931,7 +947,7 @@ test("claimed input persists waiting_user terminal status for harnesses that sup
     workspaceId: workspace.id,
     sessionId: "session-main",
   });
-  const turnResult = store.getTurnResult({ inputId: queued.inputId });
+  const turnResult = turnResultForInput(store, queued);
 
   assert.ok(updated);
   assert.equal(updated.status, "DONE");
@@ -983,10 +999,7 @@ test("claimed input persists a paused turn when the run is aborted mid-execution
 
   for (let attempt = 0; attempt < 50; attempt += 1) {
     if (
-      store.listOutputEvents({
-        sessionId: "session-main",
-        inputId: queued.inputId,
-      }).length > 0
+      outputEventsForInput(store, queued).length > 0
     ) {
       break;
     }
@@ -1000,11 +1013,8 @@ test("claimed input persists a paused turn when the run is aborted mid-execution
     workspaceId: workspace.id,
     sessionId: "session-main",
   });
-  const events = store.listOutputEvents({
-    sessionId: "session-main",
-    inputId: queued.inputId,
-  });
-  const turnResult = store.getTurnResult({ inputId: queued.inputId });
+  const events = outputEventsForInput(store, queued);
+  const turnResult = turnResultForInput(store, queued);
   const completedBudgetDecisions = recordValue(
     events[1]?.payload.context_budget_decisions,
   );
@@ -2036,15 +2046,12 @@ test("claimed input honors a persisted failure terminal after claim recovery abo
     workspaceId: workspace.id,
     sessionId: "session-main",
   });
-  const events = store.listOutputEvents({
-    sessionId: "session-main",
-    inputId: queued.inputId,
-  });
+  const events = outputEventsForInput(store, queued);
   const messages = store.listSessionMessages({
     workspaceId: workspace.id,
     sessionId: "session-main",
   });
-  const turnResult = store.getTurnResult({ inputId: queued.inputId });
+  const turnResult = turnResultForInput(store, queued);
 
   assert.ok(updated);
   assert.equal(updated.status, "FAILED");
@@ -2282,7 +2289,7 @@ test("claimed input records skill-policy denial audit in tool usage summary", as
     },
   });
 
-  const turnResult = store.getTurnResult({ inputId: queued.inputId });
+  const turnResult = turnResultForInput(store, queued);
   assert.ok(turnResult);
   assert.deepEqual(turnResult.toolUsageSummary, {
     total_calls: 1,
@@ -2344,11 +2351,8 @@ test("claimed input synthesizes run_failed when runner exits without terminal ev
     workspaceId: workspace.id,
     sessionId: "session-main",
   });
-  const events = store.listOutputEvents({
-    sessionId: "session-main",
-    inputId: queued.inputId,
-  });
-  const turnResult = store.getTurnResult({ inputId: queued.inputId });
+  const events = outputEventsForInput(store, queued);
+  const turnResult = turnResultForInput(store, queued);
 
   assert.ok(updated);
   assert.equal(updated.status, "FAILED");
@@ -2408,11 +2412,8 @@ test("claimed input succeeds when runner emits terminal event but keeps the proc
     workspaceId: workspace.id,
     sessionId: "session-main",
   });
-  const events = store.listOutputEvents({
-    sessionId: "session-main",
-    inputId: queued.inputId,
-  });
-  const turnResult = store.getTurnResult({ inputId: queued.inputId });
+  const events = outputEventsForInput(store, queued);
+  const turnResult = turnResultForInput(store, queued);
 
   assert.ok(updated);
   assert.equal(updated.status, "DONE");
@@ -2468,11 +2469,8 @@ test("claimed input fails when runner becomes idle after run_started", async () 
     workspaceId: workspace.id,
     sessionId: "session-main",
   });
-  const events = store.listOutputEvents({
-    sessionId: "session-main",
-    inputId: queued.inputId,
-  });
-  const turnResult = store.getTurnResult({ inputId: queued.inputId });
+  const events = outputEventsForInput(store, queued);
+  const turnResult = turnResultForInput(store, queued);
 
   assert.ok(updated);
   assert.equal(updated.status, "FAILED");
@@ -2573,15 +2571,12 @@ test("claimed input stops without overwriting state after it loses its claim mid
     workspaceId: workspace.id,
     sessionId: "session-main",
   });
-  const events = store.listOutputEvents({
-    sessionId: "session-main",
-    inputId: queued.inputId,
-  });
+  const events = outputEventsForInput(store, queued);
   const messages = store.listSessionMessages({
     workspaceId: workspace.id,
     sessionId: "session-main",
   });
-  const turnResult = store.getTurnResult({ inputId: queued.inputId });
+  const turnResult = turnResultForInput(store, queued);
 
   assert.equal(updated?.status, "FAILED");
   assert.equal(updated?.claimedBy, null);
@@ -2879,10 +2874,7 @@ test("claimed input hydrates runtime exec context from runtime config", async ()
     },
   });
 
-  const events = store.listOutputEvents({
-    sessionId: "session-main",
-    inputId: queued.inputId,
-  });
+  const events = outputEventsForInput(store, queued);
   assert.equal(events.length, 2);
   const runtimeExecContext = events[0].payload.runtime_exec_context as Record<
     string,

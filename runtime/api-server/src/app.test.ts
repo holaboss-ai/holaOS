@@ -3938,15 +3938,15 @@ test("output events endpoint supports incremental fetches and tail mode", async 
 
   const incremental = await app.inject({
     method: "GET",
-    url: "/api/v1/agent-sessions/session-main/outputs/events?input_id=input-1&after_event_id=1"
+    url: "/api/v1/agent-sessions/session-main/outputs/events?workspace_id=workspace-1&input_id=input-1&after_event_id=1"
   });
   const tailed = await app.inject({
     method: "GET",
-    url: "/api/v1/agent-sessions/session-main/outputs/events?input_id=input-1&include_history=false"
+    url: "/api/v1/agent-sessions/session-main/outputs/events?workspace_id=workspace-1&input_id=input-1&include_history=false"
   });
   const withNative = await app.inject({
     method: "GET",
-    url: "/api/v1/agent-sessions/session-main/outputs/events?input_id=input-1&after_event_id=0&include_native=true"
+    url: "/api/v1/agent-sessions/session-main/outputs/events?workspace_id=workspace-1&input_id=input-1&after_event_id=0&include_native=true"
   });
 
   assert.equal(incremental.statusCode, 200);
@@ -4011,7 +4011,7 @@ test("output stream endpoint emits SSE events and stops on terminal", async () =
 
   const response = await app.inject({
     method: "GET",
-    url: "/api/v1/agent-sessions/session-main/outputs/stream?input_id=input-1"
+    url: "/api/v1/agent-sessions/session-main/outputs/stream?workspace_id=workspace-1&input_id=input-1"
   });
   const body = response.body;
 
@@ -4022,7 +4022,7 @@ test("output stream endpoint emits SSE events and stops on terminal", async () =
 
   const responseWithNative = await app.inject({
     method: "GET",
-    url: "/api/v1/agent-sessions/session-main/outputs/stream?input_id=input-1&include_native=true"
+    url: "/api/v1/agent-sessions/session-main/outputs/stream?workspace_id=workspace-1&input_id=input-1&include_native=true"
   });
 
   assert.equal(responseWithNative.statusCode, 200);

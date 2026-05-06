@@ -760,6 +760,7 @@ interface SessionOutputEventPayload {
 }
 
 interface SessionOutputEventListRequestPayload {
+  workspaceId: string;
   sessionId: string;
   inputId?: string | null;
 }

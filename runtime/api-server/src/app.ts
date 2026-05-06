@@ -8511,9 +8511,13 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     };
   });
 
-  app.get("/api/v1/agent-sessions/:sessionId/outputs/events", async (request) => {
+  app.get("/api/v1/agent-sessions/:sessionId/outputs/events", async (request, reply) => {
     const params = request.params as { sessionId: string };
     const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(query.workspace_id);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
     const inputId = optionalString(query.input_id);
     const includeHistory = optionalBoolean(query.include_history, true);
     const includeNative = optionalBoolean(query.include_native, false);
@@ -8521,6 +8525,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     let afterEventId = Math.max(0, optionalInteger(query.after_event_id, 0));
     if (!includeHistory && afterEventId <= 0) {
       afterEventId = store.latestOutputEventId({
+        workspaceId,
         sessionId: params.sessionId,
         inputId,
         excludedEventTypes
@@ -8529,6 +8534,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
 
     const items = store
       .listOutputEvents({
+        workspaceId,
         sessionId: params.sessionId,
         inputId,
         includeHistory: true,
@@ -8549,6 +8555,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   app.get("/api/v1/agent-sessions/:sessionId/outputs/stream", async (request, reply) => {
     const params = request.params as { sessionId: string };
     const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(query.workspace_id);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
     const inputId = optionalString(query.input_id);
     const includeHistory = optionalBoolean(query.include_history, true);
     const includeNative = optionalBoolean(query.include_native, false);
@@ -8565,6 +8575,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         let lastEventId = includeHistory
           ? 0
           : store.latestOutputEventId({
+              workspaceId,
               sessionId: params.sessionId,
               inputId,
               excludedEventTypes
@@ -8573,6 +8584,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
 
         while (true) {
           const events = store.listOutputEvents({
+            workspaceId,
             sessionId: params.sessionId,
             inputId,
             includeHistory: true,

@@ -2943,7 +2943,12 @@ export class RuntimeAgentToolsService {
       normalizedString(run.initialChildInputId);
     const currentInput = currentInputId ? this.store.getInput(currentInputId) : null;
     const latestInput = latestInputId ? this.store.getInput(latestInputId) : null;
-    const latestTurnResult = latestInputId ? this.store.getTurnResult({ inputId: latestInputId }) : null;
+    const latestTurnResult = latestInputId
+      ? this.store.getTurnResult({
+          workspaceId: run.workspaceId,
+          inputId: latestInputId,
+        })
+      : null;
 
     const runtimeStatus = normalizedString(runtimeState?.status).toUpperCase();
     const currentInputStatus = normalizedString(currentInput?.status).toUpperCase();

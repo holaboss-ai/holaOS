@@ -1973,13 +1973,19 @@ test("output events support latest id, incremental listing, and tail mode", () =
     payload: { delta: "hi" }
   });
 
-  const latest = store.latestOutputEventId({ sessionId: "session-main", inputId: "input-1" });
+  const latest = store.latestOutputEventId({
+    workspaceId: "workspace-1",
+    sessionId: "session-main",
+    inputId: "input-1",
+  });
   const incremental = store.listOutputEvents({
+    workspaceId: "workspace-1",
     sessionId: "session-main",
     inputId: "input-1",
     afterEventId: 1
   });
   const tail = store.listOutputEvents({
+    workspaceId: "workspace-1",
     sessionId: "session-main",
     inputId: "input-1",
     includeHistory: false
@@ -2155,13 +2161,14 @@ test("turn results support upsert, lookup, count, and listing", () => {
   assert.deepEqual(updated.permissionDenials, [
     { tool_name: "deploy", tool_id: null, reason: "permission denied" }
   ]);
-  assert.deepEqual(store.getTurnResult({ inputId: "input-1" }), updated);
+  assert.deepEqual(store.getTurnResult({ workspaceId: "workspace-1", inputId: "input-1" }), updated);
   assert.equal(store.countTurnResults({ workspaceId: "workspace-1", sessionId: "session-main" }), 1);
   assert.equal(store.countTurnResults({ workspaceId: "workspace-1", sessionId: "session-main", status: "completed" }), 0);
   assert.equal(store.countTurnResults({ workspaceId: "workspace-1", sessionId: "session-main", status: "waiting_user" }), 1);
   assert.deepEqual(store.listTurnResults({ workspaceId: "workspace-1", sessionId: "session-main" }), [updated]);
   assert.deepEqual(store.listTurnResults({ workspaceId: "workspace-1", sessionId: "session-main", status: "waiting_user" }), [updated]);
   const telemetryOnlyUpdate = store.updateTurnResultContextBudgetDecisions({
+    workspaceId: "workspace-1",
     inputId: "input-1",
     contextBudgetDecisions: {
       mode: "observability_only",
@@ -2195,7 +2202,10 @@ test("turn request snapshots round trip", () => {
     },
   });
 
-  assert.deepEqual(store.getTurnRequestSnapshot({ inputId: "input-1" }), snapshot);
+  assert.deepEqual(
+    store.getTurnRequestSnapshot({ workspaceId: "workspace-1", inputId: "input-1" }),
+    snapshot
+  );
   assert.deepEqual(store.listTurnRequestSnapshots({ workspaceId: "workspace-1", sessionId: "session-main" }), [snapshot]);
   store.close();
 });

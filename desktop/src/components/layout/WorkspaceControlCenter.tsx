@@ -490,6 +490,7 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
                   memoryProposalListResult,
                 ] = await Promise.allSettled([
                   window.electronAPI.workspace.getSessionOutputEvents({
+                    workspaceId,
                     sessionId,
                     inputId,
                   }),

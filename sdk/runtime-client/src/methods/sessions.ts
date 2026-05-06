@@ -103,6 +103,7 @@ export type SessionOutputEventListResponse = {
 };
 
 export type GetSessionOutputEventsParams = {
+  workspaceId: string;
   sessionId: string;
   inputId?: string | null;
 };
@@ -234,6 +235,7 @@ export function makeSessionsMethods(request: RequestFn): SessionsMethods {
         method: "GET",
         path: `/api/v1/agent-sessions/${encodeURIComponent(params.sessionId)}/outputs/events`,
         params: {
+          workspace_id: params.workspaceId,
           input_id: params.inputId ?? undefined,
           include_history: true,
           after_event_id: 0,

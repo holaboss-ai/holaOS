@@ -3969,7 +3969,7 @@ export class RuntimeStateStore {
     payload: Record<string, unknown>;
     createdAt?: string;
   }): void {
-    this.db()
+    this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`
         INSERT INTO session_output_events (
             workspace_id, session_id, input_id, sequence, event_type, payload, created_at
@@ -3986,13 +3986,14 @@ export class RuntimeStateStore {
       );
   }
 
-  latestOutputEventId(params: { sessionId: string; inputId?: string; excludedEventTypes?: string[] }): number {
+  latestOutputEventId(params: { workspaceId: string; sessionId: string; inputId?: string; excludedEventTypes?: string[] }): number {
     let query = `
       SELECT MAX(id) AS max_id
       FROM session_output_events
-      WHERE session_id = ?
+      WHERE workspace_id = ?
+        AND session_id = ?
     `;
-    const values: string[] = [params.sessionId];
+    const values: string[] = [params.workspaceId, params.sessionId];
     if (params.inputId) {
       query += " AND input_id = ?";
       values.push(params.inputId);
@@ -4002,11 +4003,12 @@ export class RuntimeStateStore {
       query += ` AND event_type NOT IN (${excludedEventTypes.map(() => "?").join(", ")})`;
       values.push(...excludedEventTypes);
     }
-    const row = this.db().prepare(query).get(...values) as { max_id: number | null } | undefined;
+    const row = this.workspaceRuntimeDb(params.workspaceId).prepare(query).get(...values) as { max_id: number | null } | undefined;
     return row?.max_id ?? 0;
   }
 
   listOutputEvents(params: {
+    workspaceId: string;
     sessionId: string;
     inputId?: string;
     includeHistory?: boolean;
@@ -4016,10 +4018,11 @@ export class RuntimeStateStore {
     let query = `
       SELECT id, workspace_id, session_id, input_id, sequence, event_type, payload, created_at
       FROM session_output_events
-      WHERE session_id = ?
+      WHERE workspace_id = ?
+        AND session_id = ?
         AND id > ?
     `;
-    const values: Array<string | number> = [params.sessionId, params.afterEventId ?? 0];
+    const values: Array<string | number> = [params.workspaceId, params.sessionId, params.afterEventId ?? 0];
     if (params.inputId) {
       query += " AND input_id = ?";
       values.push(params.inputId);
@@ -4034,7 +4037,7 @@ export class RuntimeStateStore {
     }
     query += " ORDER BY id ASC";
 
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => ({
       id: Number(row.id),
       workspaceId: String(row.workspace_id),
@@ -4330,10 +4333,14 @@ export class RuntimeStateStore {
       { touchExisting: false }
     );
 
-    const existing = this.getTurnResult({ inputId: params.inputId });
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
+    const existing = this.getTurnResult({
+      workspaceId: params.workspaceId,
+      inputId: params.inputId,
+    });
     const now = params.updatedAt ?? utcNowIso();
     const createdAt = existing?.createdAt ?? params.createdAt ?? now;
-    this.db()
+    workspaceDb
       .prepare(`
         INSERT INTO turn_results (
             workspace_id,
@@ -4396,27 +4403,31 @@ export class RuntimeStateStore {
         now
       );
 
-    const record = this.getTurnResult({ inputId: params.inputId });
+    const record = this.getTurnResult({
+      workspaceId: params.workspaceId,
+      inputId: params.inputId,
+    });
     if (!record) {
       throw new Error("turn result row not found after upsert");
     }
     return record;
   }
 
-  getTurnResult(params: { inputId: string }): TurnResultRecord | null {
-    const row = this.db()
+  getTurnResult(params: { workspaceId: string; inputId: string }): TurnResultRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM turn_results WHERE input_id = ? LIMIT 1")
       .get(params.inputId);
     return row ? this.rowToTurnResult(row) : null;
   }
 
   updateTurnResultContextBudgetDecisions(params: {
+    workspaceId: string;
     inputId: string;
     contextBudgetDecisions: Record<string, unknown> | null;
     updatedAt?: string;
   }): TurnResultRecord | null {
     const now = params.updatedAt ?? utcNowIso();
-    const result = this.db()
+    const result = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string | null, string, string]>(
         `
           UPDATE turn_results
@@ -4429,20 +4440,20 @@ export class RuntimeStateStore {
     if (result.changes === 0) {
       return null;
     }
-    return this.getTurnResult({ inputId: params.inputId });
+    return this.getTurnResult({
+      workspaceId: params.workspaceId,
+      inputId: params.inputId,
+    });
   }
 
-  countTurnResults(params: { sessionId: string; workspaceId?: string; inputId?: string; status?: string }): number {
+  countTurnResults(params: { workspaceId: string; sessionId: string; inputId?: string; status?: string }): number {
     let query = `
       SELECT COUNT(*) AS total
       FROM turn_results
-      WHERE session_id = ?
+      WHERE workspace_id = ?
+        AND session_id = ?
     `;
-    const values: string[] = [params.sessionId];
-    if (params.workspaceId) {
-      query += " AND workspace_id = ?";
-      values.push(params.workspaceId);
-    }
+    const values: string[] = [params.workspaceId, params.sessionId];
     if (params.inputId) {
       query += " AND input_id = ?";
       values.push(params.inputId);
@@ -4451,13 +4462,13 @@ export class RuntimeStateStore {
       query += " AND status = ?";
       values.push(params.status);
     }
-    const row = this.db().prepare(query).get(...values) as { total: number } | undefined;
+    const row = this.workspaceRuntimeDb(params.workspaceId).prepare(query).get(...values) as { total: number } | undefined;
     return Number(row?.total ?? 0);
   }
 
   listTurnResults(params: {
+    workspaceId: string;
     sessionId: string;
-    workspaceId?: string;
     inputId?: string;
     status?: string;
     limit?: number;
@@ -4466,13 +4477,10 @@ export class RuntimeStateStore {
     let query = `
       SELECT *
       FROM turn_results
-      WHERE session_id = ?
+      WHERE workspace_id = ?
+        AND session_id = ?
     `;
-    const values: Array<string | number> = [params.sessionId];
-    if (params.workspaceId) {
-      query += " AND workspace_id = ?";
-      values.push(params.workspaceId);
-    }
+    const values: Array<string | number> = [params.workspaceId, params.sessionId];
     if (params.inputId) {
       query += " AND input_id = ?";
       values.push(params.inputId);
@@ -4486,7 +4494,7 @@ export class RuntimeStateStore {
       LIMIT ? OFFSET ?
     `;
     values.push(params.limit ?? 100, params.offset ?? 0);
-    const rows = this.#cachedPrepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToTurnResult(row));
   }
 
@@ -5011,10 +5019,14 @@ export class RuntimeStateStore {
       { touchExisting: false }
     );
 
-    const existing = this.getTurnRequestSnapshot({ inputId: params.inputId });
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
+    const existing = this.getTurnRequestSnapshot({
+      workspaceId: params.workspaceId,
+      inputId: params.inputId,
+    });
     const now = params.updatedAt ?? utcNowIso();
     const createdAt = existing?.createdAt ?? params.createdAt ?? now;
-    this.db()
+    workspaceDb
       .prepare(`
         INSERT INTO turn_request_snapshots (
             workspace_id,
@@ -5045,23 +5057,26 @@ export class RuntimeStateStore {
         now
       );
 
-    const record = this.getTurnRequestSnapshot({ inputId: params.inputId });
+    const record = this.getTurnRequestSnapshot({
+      workspaceId: params.workspaceId,
+      inputId: params.inputId,
+    });
     if (!record) {
       throw new Error("turn request snapshot row not found after upsert");
     }
     return record;
   }
 
-  getTurnRequestSnapshot(params: { inputId: string }): TurnRequestSnapshotRecord | null {
-    const row = this.db()
+  getTurnRequestSnapshot(params: { workspaceId: string; inputId: string }): TurnRequestSnapshotRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM turn_request_snapshots WHERE input_id = ? LIMIT 1")
       .get(params.inputId);
     return row ? this.rowToTurnRequestSnapshot(row) : null;
   }
 
   listTurnRequestSnapshots(params: {
+    workspaceId: string;
     sessionId: string;
-    workspaceId?: string;
     inputId?: string;
     limit?: number;
     offset?: number;
@@ -5069,13 +5084,10 @@ export class RuntimeStateStore {
     let query = `
       SELECT *
       FROM turn_request_snapshots
-      WHERE session_id = ?
+      WHERE workspace_id = ?
+        AND session_id = ?
     `;
-    const values: Array<string | number> = [params.sessionId];
-    if (params.workspaceId) {
-      query += " AND workspace_id = ?";
-      values.push(params.workspaceId);
-    }
+    const values: Array<string | number> = [params.workspaceId, params.sessionId];
     if (params.inputId) {
       query += " AND input_id = ?";
       values.push(params.inputId);
@@ -5085,7 +5097,7 @@ export class RuntimeStateStore {
       LIMIT ? OFFSET ?
     `;
     values.push(params.limit ?? 100, params.offset ?? 0);
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToTurnRequestSnapshot(row));
   }
 
@@ -6719,6 +6731,9 @@ export class RuntimeStateStore {
       "conversation_bindings",
       "session_runtime_state",
       "session_messages",
+      "session_output_events",
+      "turn_results",
+      "turn_request_snapshots",
       "task_proposals",
       "evolve_skill_candidates",
       "memory_update_proposals",
@@ -7014,6 +7029,50 @@ export class RuntimeStateStore {
       CREATE INDEX IF NOT EXISTS idx_session_messages_workspace_session_created
           ON session_messages (workspace_id, session_id, created_at ASC);
 
+      CREATE TABLE IF NOT EXISTS session_output_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          workspace_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          input_id TEXT NOT NULL,
+          sequence INTEGER NOT NULL,
+          event_type TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_session_output_events_session_input_sequence
+          ON session_output_events (session_id, input_id, sequence ASC);
+
+      CREATE INDEX IF NOT EXISTS idx_session_output_events_workspace_session_created
+          ON session_output_events (workspace_id, session_id, created_at ASC);
+
+      CREATE TABLE IF NOT EXISTS turn_results (
+          input_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          started_at TEXT NOT NULL,
+          completed_at TEXT,
+          status TEXT NOT NULL,
+          stop_reason TEXT,
+          assistant_text TEXT NOT NULL DEFAULT '',
+          tool_usage_summary TEXT NOT NULL DEFAULT '{}',
+          permission_denials TEXT NOT NULL DEFAULT '[]',
+          prompt_section_ids TEXT NOT NULL DEFAULT '[]',
+          capability_manifest_fingerprint TEXT,
+          request_snapshot_fingerprint TEXT,
+          prompt_cache_profile TEXT,
+          context_budget_decisions TEXT,
+          token_usage TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_turn_results_workspace_session_completed
+          ON turn_results (workspace_id, session_id, completed_at DESC, started_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_turn_results_session_input
+          ON turn_results (session_id, input_id);
+
       CREATE TABLE IF NOT EXISTS task_proposals (
           proposal_id TEXT PRIMARY KEY,
           workspace_id TEXT NOT NULL,
@@ -7219,6 +7278,7 @@ export class RuntimeStateStore {
     `);
     this.ensureConversationBindingsTableSchema(db);
     this.ensureSessionRuntimeStateTableSchema(db);
+    this.ensureTurnArtifactsSchema(db);
     this.ensureTaskProposalsTableSchema(db);
     this.ensureEvolveSkillCandidatesTableSchema(db);
     this.ensureMemoryUpdateProposalsTableSchema(db);

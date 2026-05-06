@@ -133,7 +133,10 @@ export async function processEvolveJob(params: {
   ) {
     throw new Error(`unsupported evolve job type: ${params.record.jobType}`);
   }
-  const turnResult = params.store.getTurnResult({ inputId: params.record.inputId });
+  const turnResult = params.store.getTurnResult({
+    workspaceId: params.record.workspaceId,
+    inputId: params.record.inputId,
+  });
   if (!turnResult) {
     throw new Error(`turn result not found for evolve job input ${params.record.inputId}`);
   }

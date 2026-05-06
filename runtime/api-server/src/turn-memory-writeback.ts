@@ -1378,7 +1378,12 @@ export async function writeTurnDurableMemory(params: {
   });
   const durableCandidates = mergeDurableCandidates(acceptedExtractedCandidates, heuristicDurableCandidates);
   if (durableCandidates.length === 0) {
-    return params.store.getTurnResult({ inputId: context.turnResult.inputId }) ?? context.turnResult;
+    return (
+      params.store.getTurnResult({
+        workspaceId: context.turnResult.workspaceId,
+        inputId: context.turnResult.inputId,
+      }) ?? context.turnResult
+    );
   }
   const changedWorkspaceIds = new Set<string>();
   let rebuildPreference = false;
@@ -1416,7 +1421,12 @@ export async function writeTurnDurableMemory(params: {
       rebuildRoot,
     });
   }
-  return params.store.getTurnResult({ inputId: context.turnResult.inputId }) ?? context.turnResult;
+  return (
+    params.store.getTurnResult({
+      workspaceId: context.turnResult.workspaceId,
+      inputId: context.turnResult.inputId,
+    }) ?? context.turnResult
+  );
 }
 
 export async function writeTurnMemory(params: {
@@ -1433,6 +1443,11 @@ export async function writeTurnMemory(params: {
       modelContext: params.modelContext ?? null,
     });
   } catch {
-    return params.store.getTurnResult({ inputId: params.turnResult.inputId }) ?? params.turnResult;
+    return (
+      params.store.getTurnResult({
+        workspaceId: params.turnResult.workspaceId,
+        inputId: params.turnResult.inputId,
+      }) ?? params.turnResult
+    );
   }
 }

@@ -3874,6 +3874,7 @@ const [queuedSessionInputs, setQueuedSessionInputs] = useState<
         const [outputEventsResult, outputListResult, memoryProposalListResult] =
           await Promise.allSettled([
             window.electronAPI.workspace.getSessionOutputEvents({
+              workspaceId: params.workspaceId,
               sessionId: params.sessionId,
               inputId,
             }),

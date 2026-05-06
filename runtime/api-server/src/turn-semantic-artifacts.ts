@@ -60,6 +60,7 @@ export function assistantTextFromTurnArtifacts(
 ): string {
   const deltas = store
     .listOutputEvents({
+      workspaceId: turnResult.workspaceId,
       sessionId: turnResult.sessionId,
       inputId: turnResult.inputId,
     })
@@ -89,6 +90,7 @@ export function permissionDenialsFromTurnArtifacts(
   const seen = new Set<string>();
   const denials: Array<Record<string, unknown>> = [];
   for (const event of store.listOutputEvents({
+    workspaceId: turnResult.workspaceId,
     sessionId: turnResult.sessionId,
     inputId: turnResult.inputId,
   })) {
@@ -127,6 +129,7 @@ export function toolUsageSummaryFromTurnArtifacts(
     }
   >();
   for (const event of store.listOutputEvents({
+    workspaceId: turnResult.workspaceId,
     sessionId: turnResult.sessionId,
     inputId: turnResult.inputId,
   })) {

@@ -809,6 +809,7 @@ export async function processSessionCheckpointJob(params: {
   }
 
   const snapshot = params.store.getTurnRequestSnapshot({
+    workspaceId: params.record.workspaceId,
     inputId: params.record.inputId,
   });
   if (!snapshot) {

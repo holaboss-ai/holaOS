@@ -150,11 +150,13 @@ test("handleRequest maps output event operations to snake_case payloads", () => 
 
   const latest = handleRequest("latest-output-event-id", {
     options,
+    workspace_id: "workspace-1",
     session_id: "session-main",
     input_id: "input-1"
   });
   const incremental = handleRequest("list-output-events", {
     options,
+    workspace_id: "workspace-1",
     session_id: "session-main",
     input_id: "input-1",
     after_event_id: 1

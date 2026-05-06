@@ -3228,6 +3228,7 @@ interface SessionOutputEventPayload {
 }
 
 interface SessionOutputEventListRequestPayload {
+  workspaceId: string;
   sessionId: string;
   inputId?: string | null;
 }
@@ -14470,6 +14471,7 @@ async function getSessionOutputEvents(
   payload: SessionOutputEventListRequestPayload,
 ): Promise<SessionOutputEventListResponsePayload> {
   return runtimeClient.sessions.getOutputEvents({
+    workspaceId: payload.workspaceId,
     sessionId: payload.sessionId,
     inputId: payload.inputId,
   });
