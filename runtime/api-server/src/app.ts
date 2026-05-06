@@ -7204,6 +7204,9 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 422, "workspace_id and profile_id must match when both are provided");
     }
     const resolvedWorkspaceId = workspaceId ?? profileId;
+    if (!resolvedWorkspaceId) {
+      return sendError(reply, 422, "workspace_id or profile_id is required");
+    }
     const runtimeState = store.getRuntimeState({
       sessionId: params.sessionId,
       workspaceId: resolvedWorkspaceId
@@ -7449,13 +7452,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 422, "workspace_id and profile_id must match when both are provided");
     }
     const resolvedWorkspaceId = workspaceId ?? profileId;
-    const outputWorkspaceId = resolvedWorkspaceId ?? store.getRuntimeState({ sessionId: params.sessionId })?.workspaceId ?? null;
-    if (!outputWorkspaceId) {
-      return { items: [], count: 0 };
+    if (!resolvedWorkspaceId) {
+      return sendError(reply, 422, "workspace_id or profile_id is required");
     }
     const items = store
       .listOutputs({
-        workspaceId: outputWorkspaceId,
+        workspaceId: resolvedWorkspaceId,
         sessionId: params.sessionId,
         limit: 500,
         offset: 0,

@@ -1348,6 +1348,7 @@ export class RuntimeStateStore {
     },
     options: { touchExisting?: boolean } = {}
   ): AgentSessionRecord {
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
     const existing = this.getSession({
       workspaceId: params.workspaceId,
       sessionId: params.sessionId
@@ -1355,7 +1356,7 @@ export class RuntimeStateStore {
     const now = utcNowIso();
 
     if (!existing) {
-      this.db()
+      workspaceDb
         .prepare(`
           INSERT INTO agent_sessions (
               workspace_id,
@@ -1420,7 +1421,7 @@ export class RuntimeStateStore {
       return existing;
     }
 
-    this.db()
+    workspaceDb
       .prepare("UPDATE agent_sessions SET updated_at = ? WHERE workspace_id = ? AND session_id = ?")
       .run(now, params.workspaceId, params.sessionId);
     return this.requireSession({
@@ -1430,7 +1431,7 @@ export class RuntimeStateStore {
   }
 
   getSession(params: { workspaceId: string; sessionId: string }): AgentSessionRecord | null {
-    const row = this.db()
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string, string], Record<string, unknown>>(`
         SELECT *
         FROM agent_sessions
@@ -1447,7 +1448,7 @@ export class RuntimeStateStore {
     limit?: number;
     offset?: number;
   }): AgentSessionRecord[] {
-    const rows = this.db()
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string, number, number, number], Record<string, unknown>>(`
         SELECT *
         FROM agent_sessions
@@ -1650,8 +1651,9 @@ export class RuntimeStateStore {
       existingHarnessBinding?.createdAt ??
       existingSessionBinding?.createdAt ??
       now;
-    const transaction = this.db().transaction(() => {
-      this.db()
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
+    const transaction = workspaceDb.transaction(() => {
+      workspaceDb
         .prepare(
           `
             DELETE FROM agent_runtime_sessions
@@ -1659,7 +1661,7 @@ export class RuntimeStateStore {
           `,
         )
         .run(params.workspaceId, params.sessionId);
-      this.db()
+      workspaceDb
         .prepare(
           `
             DELETE FROM agent_runtime_sessions
@@ -1667,7 +1669,7 @@ export class RuntimeStateStore {
           `,
         )
         .run(params.workspaceId, params.harness, params.harnessSessionId);
-      this.db()
+      workspaceDb
         .prepare(`
           INSERT INTO agent_runtime_sessions (
               workspace_id, session_id, harness, harness_session_id, created_at, updated_at
@@ -1695,7 +1697,7 @@ export class RuntimeStateStore {
   }
 
   getBinding(params: { workspaceId: string; sessionId: string }): SessionBindingRecord | null {
-    const row = this.db()
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string, string], {
         workspace_id: string;
         session_id: string;
@@ -1728,7 +1730,7 @@ export class RuntimeStateStore {
     harness: string;
     harnessSessionId: string;
   }): SessionBindingRecord | null {
-    const row = this.db()
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<
         [string, string, string],
         {
@@ -1785,8 +1787,9 @@ export class RuntimeStateStore {
     const channel = this.requiredNormalizedText(params.channel, "channel");
     const conversationKey = this.requiredNormalizedText(params.conversationKey, "conversationKey");
     const bindingId = params.bindingId ?? randomUUID();
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
 
-    this.db()
+    workspaceDb
       .prepare(`
         INSERT INTO conversation_bindings (
             binding_id,
@@ -1834,8 +1837,8 @@ export class RuntimeStateStore {
     return record;
   }
 
-  getConversationBinding(params: { bindingId: string }): ConversationBindingRecord | null {
-    const row = this.db()
+  getConversationBinding(params: { workspaceId: string; bindingId: string }): ConversationBindingRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM conversation_bindings WHERE binding_id = ? LIMIT 1")
       .get(params.bindingId);
     return row ? this.rowToConversationBinding(row) : null;
@@ -1865,7 +1868,7 @@ export class RuntimeStateStore {
       values.push(role);
     }
     query += " ORDER BY is_active DESC, datetime(updated_at) DESC, created_at DESC LIMIT 1";
-    const row = this.db().prepare(query).get(...values) as Record<string, unknown> | undefined;
+    const row = this.workspaceRuntimeDb(params.workspaceId).prepare(query).get(...values) as Record<string, unknown> | undefined;
     return row ? this.rowToConversationBinding(row) : null;
   }
 
@@ -1887,7 +1890,7 @@ export class RuntimeStateStore {
       values.push(role);
     }
     query += " ORDER BY is_active DESC, datetime(updated_at) DESC, created_at DESC LIMIT 1";
-    const row = this.db().prepare(query).get(...values) as Record<string, unknown> | undefined;
+    const row = this.workspaceRuntimeDb(params.workspaceId).prepare(query).get(...values) as Record<string, unknown> | undefined;
     return row ? this.rowToConversationBinding(row) : null;
   }
 
@@ -1922,35 +1925,43 @@ export class RuntimeStateStore {
       LIMIT ? OFFSET ?
     `;
     values.push(params.limit ?? 100, params.offset ?? 0);
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToConversationBinding(row));
   }
 
   setConversationBindingActive(params: {
+    workspaceId: string;
     bindingId: string;
     isActive: boolean;
   }): ConversationBindingRecord | null {
     return this.updateConversationBinding({
+      workspaceId: params.workspaceId,
       bindingId: params.bindingId,
       fields: { isActive: params.isActive },
     });
   }
 
   touchConversationBinding(params: {
+    workspaceId: string;
     bindingId: string;
     lastActiveAt?: string | null;
   }): ConversationBindingRecord | null {
     return this.updateConversationBinding({
+      workspaceId: params.workspaceId,
       bindingId: params.bindingId,
       fields: { lastActiveAt: params.lastActiveAt ?? utcNowIso() },
     });
   }
 
   transferConversationBindingSession(params: {
+    workspaceId: string;
     bindingId: string;
     sessionId: string;
   }): ConversationBindingRecord | null {
-    const binding = this.getConversationBinding({ bindingId: params.bindingId });
+    const binding = this.getConversationBinding({
+      workspaceId: params.workspaceId,
+      bindingId: params.bindingId,
+    });
     if (!binding) {
       return null;
     }
@@ -1962,6 +1973,7 @@ export class RuntimeStateStore {
       { touchExisting: false }
     );
     return this.updateConversationBinding({
+      workspaceId: params.workspaceId,
       bindingId: params.bindingId,
       fields: { sessionId: params.sessionId },
     });
@@ -3757,6 +3769,7 @@ export class RuntimeStateStore {
     status?: string;
     currentInputId?: string | null;
   }): SessionRuntimeStateRecord {
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
     this.ensureSession(
       {
         workspaceId: params.workspaceId,
@@ -3765,7 +3778,7 @@ export class RuntimeStateStore {
       { touchExisting: false }
     );
     const now = utcNowIso();
-    this.db()
+    workspaceDb
       .prepare(`
         INSERT INTO session_runtime_state (
             workspace_id, session_id, status, current_input_id, current_worker_id,
@@ -3777,7 +3790,7 @@ export class RuntimeStateStore {
             updated_at = excluded.updated_at
       `)
       .run(params.workspaceId, params.sessionId, params.status ?? "QUEUED", params.currentInputId ?? null, now, now);
-    const row = this.db()
+    const row = workspaceDb
       .prepare<[string, string], Record<string, unknown>>(
         "SELECT * FROM session_runtime_state WHERE workspace_id = ? AND session_id = ? LIMIT 1"
       )
@@ -3795,6 +3808,7 @@ export class RuntimeStateStore {
     heartbeatAt?: string | null;
     lastError?: Record<string, unknown> | string | null;
   }): SessionRuntimeStateRecord {
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
     this.ensureSession(
       {
         workspaceId: params.workspaceId,
@@ -3810,7 +3824,7 @@ export class RuntimeStateStore {
         ? params.lastError
         : JSON.stringify(params.lastError);
 
-    this.db()
+    workspaceDb
       .prepare(`
         INSERT INTO session_runtime_state (
             workspace_id, session_id, status, current_input_id, current_worker_id,
@@ -3837,7 +3851,7 @@ export class RuntimeStateStore {
         heartbeatAt,
         heartbeatAt
       );
-    const row = this.db()
+    const row = workspaceDb
       .prepare<[string, string], Record<string, unknown>>(
         "SELECT * FROM session_runtime_state WHERE workspace_id = ? AND session_id = ? LIMIT 1"
       )
@@ -3846,7 +3860,7 @@ export class RuntimeStateStore {
   }
 
   listRuntimeStates(workspaceId: string): SessionRuntimeStateRecord[] {
-    const rows = this.db()
+    const rows = this.workspaceRuntimeDb(workspaceId)
       .prepare<[string], Record<string, unknown>>(`
         SELECT * FROM session_runtime_state
         WHERE workspace_id = ?
@@ -3856,18 +3870,14 @@ export class RuntimeStateStore {
     return rows.map((row) => this.rowToRuntimeState(row));
   }
 
-  getRuntimeState(params: { sessionId: string; workspaceId?: string }): SessionRuntimeStateRecord | null {
-    let query = `
-      SELECT * FROM session_runtime_state
-      WHERE session_id = ?
-    `;
-    const values: string[] = [params.sessionId];
-    if (params.workspaceId) {
-      query += " AND workspace_id = ?";
-      values.push(params.workspaceId);
-    }
-    query += " ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC LIMIT 1";
-    const row = this.db().prepare(query).get(...values) as Record<string, unknown> | undefined;
+  getRuntimeState(params: { workspaceId: string; sessionId: string }): SessionRuntimeStateRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<[string, string], Record<string, unknown>>(`
+        SELECT * FROM session_runtime_state
+        WHERE workspace_id = ? AND session_id = ?
+        ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC LIMIT 1
+      `)
+      .get(params.workspaceId, params.sessionId);
     return row ? this.rowToRuntimeState(row) : null;
   }
 
@@ -3879,7 +3889,7 @@ export class RuntimeStateStore {
     messageId?: string;
     createdAt?: string;
   }): void {
-    this.db()
+    this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`
         INSERT OR REPLACE INTO session_messages (
             id, workspace_id, session_id, role, text, created_at
@@ -3910,7 +3920,7 @@ export class RuntimeStateStore {
       query += " AND role = ?";
       values.push(params.role);
     }
-    const row = this.db().prepare(query).get(...values) as { total: number } | undefined;
+    const row = this.workspaceRuntimeDb(params.workspaceId).prepare(query).get(...values) as { total: number } | undefined;
     return Number(row?.total ?? 0);
   }
 
@@ -3938,7 +3948,7 @@ export class RuntimeStateStore {
       query += " LIMIT ? OFFSET ?";
       values.push(params.limit ?? -1, params.offset ?? 0);
     }
-    const rows = this.db()
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<typeof values, { id: string; role: string; text: string; created_at: string }>(query)
       .all(...values);
     return rows.map((row) => ({
@@ -6704,6 +6714,11 @@ export class RuntimeStateStore {
     workspaceId: string,
   ): void {
     const workspaceScopedTables = [
+      "agent_sessions",
+      "agent_runtime_sessions",
+      "conversation_bindings",
+      "session_runtime_state",
+      "session_messages",
       "task_proposals",
       "evolve_skill_candidates",
       "memory_update_proposals",
@@ -6913,6 +6928,92 @@ export class RuntimeStateStore {
 
   private ensureWorkspaceRuntimeDbSchema(db: Database.Database): void {
     db.exec(`
+      CREATE TABLE IF NOT EXISTS agent_sessions (
+          workspace_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          kind TEXT NOT NULL DEFAULT 'workspace_session',
+          title TEXT,
+          parent_session_id TEXT,
+          source_proposal_id TEXT,
+          created_by TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          archived_at TEXT,
+          PRIMARY KEY (workspace_id, session_id),
+          UNIQUE (workspace_id, source_proposal_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_agent_sessions_workspace_updated
+          ON agent_sessions (workspace_id, updated_at DESC, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS agent_runtime_sessions (
+          workspace_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          harness TEXT NOT NULL,
+          harness_session_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, session_id),
+          UNIQUE (workspace_id, harness, harness_session_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_agent_runtime_sessions_workspace_updated
+          ON agent_runtime_sessions (workspace_id, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS conversation_bindings (
+          binding_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          channel TEXT NOT NULL,
+          conversation_key TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'main',
+          is_active INTEGER NOT NULL DEFAULT 1,
+          metadata TEXT NOT NULL DEFAULT '{}',
+          last_active_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE (workspace_id, channel, conversation_key, role),
+          UNIQUE (session_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_conversation_bindings_workspace_role_active_updated
+          ON conversation_bindings (workspace_id, role, is_active, updated_at DESC, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_conversation_bindings_channel_key_active
+          ON conversation_bindings (channel, conversation_key, is_active);
+
+      CREATE TABLE IF NOT EXISTS session_runtime_state (
+          workspace_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN (${SESSION_RUNTIME_STATE_STATUS_SQL})),
+          current_input_id TEXT,
+          current_worker_id TEXT,
+          lease_until TEXT,
+          heartbeat_at TEXT,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, session_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS session_runtime_state_workspace_session_idx
+          ON session_runtime_state (workspace_id, session_id);
+
+      CREATE INDEX IF NOT EXISTS session_runtime_state_session_id_idx
+          ON session_runtime_state (session_id);
+
+      CREATE TABLE IF NOT EXISTS session_messages (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          role TEXT NOT NULL,
+          text TEXT NOT NULL,
+          created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_session_messages_workspace_session_created
+          ON session_messages (workspace_id, session_id, created_at ASC);
+
       CREATE TABLE IF NOT EXISTS task_proposals (
           proposal_id TEXT PRIMARY KEY,
           workspace_id TEXT NOT NULL,
@@ -7116,6 +7217,8 @@ export class RuntimeStateStore {
       CREATE INDEX IF NOT EXISTS idx_runtime_notifications_state_created
           ON runtime_notifications (state, created_at DESC);
     `);
+    this.ensureConversationBindingsTableSchema(db);
+    this.ensureSessionRuntimeStateTableSchema(db);
     this.ensureTaskProposalsTableSchema(db);
     this.ensureEvolveSkillCandidatesTableSchema(db);
     this.ensureMemoryUpdateProposalsTableSchema(db);
@@ -9546,10 +9649,14 @@ export class RuntimeStateStore {
   }
 
   private updateConversationBinding(params: {
+    workspaceId: string;
     bindingId: string;
     fields: ConversationBindingUpdateFields;
   }): ConversationBindingRecord | null {
-    const existing = this.getConversationBinding({ bindingId: params.bindingId });
+    const existing = this.getConversationBinding({
+      workspaceId: params.workspaceId,
+      bindingId: params.bindingId,
+    });
     if (!existing) {
       return null;
     }
@@ -9572,7 +9679,7 @@ export class RuntimeStateStore {
       updatedAt: utcNowIso(),
     };
 
-    this.db()
+    this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`
         UPDATE conversation_bindings
         SET session_id = ?,
@@ -9592,7 +9699,10 @@ export class RuntimeStateStore {
         next.updatedAt,
         params.bindingId
       );
-    return this.getConversationBinding({ bindingId: params.bindingId });
+    return this.getConversationBinding({
+      workspaceId: params.workspaceId,
+      bindingId: params.bindingId,
+    });
   }
 
   private listMainSessionEventsByIds(eventIds: string[]): MainSessionEventQueueRecord[] {
@@ -9638,7 +9748,7 @@ export class RuntimeStateStore {
       updatedAt: utcNowIso()
     };
 
-    this.db()
+    this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`
         UPDATE agent_sessions
         SET kind = ?,

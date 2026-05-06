@@ -419,9 +419,12 @@ export function handleRequest(operation: string, envelope: RequestEnvelope): Jso
       case "list-runtime-states":
         return store.listRuntimeStates(String(envelope.workspace_id)).map((record) => toRuntimeStateRecord(record));
       case "get-runtime-state": {
+        if (typeof envelope.workspace_id !== "string" || !envelope.workspace_id.trim()) {
+          throw new Error("workspace_id is required");
+        }
         const record = store.getRuntimeState({
           sessionId: String(envelope.session_id),
-          workspaceId: typeof envelope.workspace_id === "string" ? envelope.workspace_id : undefined
+          workspaceId: envelope.workspace_id
         });
         return record ? toRuntimeStateRecord(record) : null;
       }

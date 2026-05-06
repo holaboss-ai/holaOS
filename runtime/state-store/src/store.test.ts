@@ -701,10 +701,12 @@ test("conversation bindings round trip across channels and session ownership", (
     metadata: { chat_id: "chat-123" }
   });
   const touched = store.touchConversationBinding({
+    workspaceId: "workspace-1",
     bindingId: desktop.bindingId,
     lastActiveAt: "2026-04-24T12:00:00.000Z"
   });
   const inactive = store.setConversationBindingActive({
+    workspaceId: "workspace-1",
     bindingId: telegram.bindingId,
     isActive: false
   });
