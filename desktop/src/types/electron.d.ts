@@ -721,6 +721,7 @@ interface RuntimeNotificationListOptionsPayload {
 
   interface TaskProposalAcceptPayload {
     proposal_id: string;
+    workspace_id: string;
     task_name?: string | null;
     task_prompt?: string | null;
     session_id?: string | null;
@@ -776,6 +777,7 @@ interface RuntimeNotificationListOptionsPayload {
 
   interface MemoryUpdateProposalAcceptPayload {
     proposalId: string;
+    workspaceId: string;
     summary?: string | null;
   }
 
@@ -1719,16 +1721,17 @@ interface RuntimeNotificationListOptionsPayload {
       createWorkspace: (payload: HolabossCreateWorkspacePayload) => Promise<WorkspaceResponsePayload>;
       deleteWorkspace: (workspaceId: string, keepFiles?: boolean) => Promise<WorkspaceResponsePayload>;
       listCronjobs: (workspaceId: string, enabledOnly?: boolean) => Promise<CronjobListResponsePayload>;
-      runCronjobNow: (jobId: string) => Promise<CronjobRunResponsePayload>;
+      runCronjobNow: (workspaceId: string, jobId: string) => Promise<CronjobRunResponsePayload>;
       createCronjob: (payload: CronjobCreatePayload) => Promise<CronjobRecordPayload>;
-      updateCronjob: (jobId: string, payload: CronjobUpdatePayload) => Promise<CronjobRecordPayload>;
-      deleteCronjob: (jobId: string) => Promise<{ success: boolean }>;
+      updateCronjob: (workspaceId: string, jobId: string, payload: CronjobUpdatePayload) => Promise<CronjobRecordPayload>;
+      deleteCronjob: (workspaceId: string, jobId: string) => Promise<{ success: boolean }>;
       listNotifications: (
         workspaceId?: string | null,
         includeDismissed?: boolean,
         options?: RuntimeNotificationListOptionsPayload
       ) => Promise<RuntimeNotificationListResponsePayload>;
       updateNotification: (
+        workspaceId: string,
         notificationId: string,
         payload: RuntimeNotificationUpdatePayload
       ) => Promise<RuntimeNotificationRecordPayload>;
@@ -1746,7 +1749,7 @@ interface RuntimeNotificationListOptionsPayload {
       acceptMemoryUpdateProposal: (
         payload: MemoryUpdateProposalAcceptPayload
       ) => Promise<MemoryUpdateProposalAcceptResponsePayload>;
-      dismissMemoryUpdateProposal: (proposalId: string) => Promise<MemoryUpdateProposalDismissResponsePayload>;
+      dismissMemoryUpdateProposal: (workspaceId: string, proposalId: string) => Promise<MemoryUpdateProposalDismissResponsePayload>;
       getProactiveStatus: (workspaceId: string) => Promise<ProactiveAgentStatusPayload>;
       getProactiveTaskProposalPreference: () => Promise<ProactiveTaskProposalPreferencePayload>;
       setProactiveTaskProposalPreference: (
@@ -1759,7 +1762,11 @@ interface RuntimeNotificationListOptionsPayload {
       setProactiveHeartbeatWorkspaceEnabled: (
         payload: ProactiveHeartbeatWorkspaceUpdatePayload
       ) => Promise<ProactiveHeartbeatConfigPayload>;
-      updateTaskProposalState: (proposalId: string, state: string) => Promise<TaskProposalStateUpdatePayload>;
+      updateTaskProposalState: (
+        workspaceId: string,
+        proposalId: string,
+        state: string
+      ) => Promise<TaskProposalStateUpdatePayload>;
       requestRemoteTaskProposalGeneration: (
         payload: RemoteTaskProposalGenerationRequestPayload
       ) => Promise<RemoteTaskProposalGenerationResponsePayload>;

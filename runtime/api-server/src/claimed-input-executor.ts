@@ -1818,7 +1818,10 @@ function maybeQueueCronjobCompletionFollowup(params: {
     return;
   }
 
-  const job = params.store.getCronjob(cronjobId);
+  const job = params.store.getCronjob({
+    workspaceId: params.record.workspaceId,
+    jobId: cronjobId,
+  });
   const workspace = params.store.getWorkspace(params.record.workspaceId);
   if (!job || !workspace) {
     return;
@@ -1942,7 +1945,10 @@ function maybeCreateCronjobCompletionNotification(params: {
     return;
   }
 
-  const job = params.store.getCronjob(cronjobId);
+  const job = params.store.getCronjob({
+    workspaceId: params.record.workspaceId,
+    jobId: cronjobId,
+  });
   const workspace = params.store.getWorkspace(params.record.workspaceId);
   if (!job || !workspace) {
     return;
@@ -2058,6 +2064,7 @@ async function maybePromoteAcceptedEvolveSkillCandidate(params: {
   await promoteAcceptedSkillCandidate({
     store: params.store,
     memoryService: params.memoryService,
+    workspaceId: params.record.workspaceId,
     candidateId,
   });
 }

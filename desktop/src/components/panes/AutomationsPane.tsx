@@ -293,7 +293,7 @@ export function AutomationsPane({
     setBusyJobId(job.id);
     setStatusMessage("");
     try {
-      await window.electronAPI.workspace.deleteCronjob(job.id);
+      await window.electronAPI.workspace.deleteCronjob(job.workspace_id, job.id);
       setCronjobs((previous) => previous.filter((item) => item.id !== job.id));
       setStatusTone("success");
       setStatusMessage(`Deleted "${jobTitle(job)}".`);
@@ -313,7 +313,7 @@ export function AutomationsPane({
     setBusyJobId(job.id);
     setStatusMessage("");
     try {
-      const updated = await window.electronAPI.workspace.updateCronjob(job.id, {
+      const updated = await window.electronAPI.workspace.updateCronjob(job.workspace_id, job.id, {
         enabled: !job.enabled,
       });
       setCronjobs((previous) =>
@@ -339,7 +339,7 @@ export function AutomationsPane({
     setBusyJobId(job.id);
     setStatusMessage("");
     try {
-      const response = await window.electronAPI.workspace.runCronjobNow(job.id);
+      const response = await window.electronAPI.workspace.runCronjobNow(job.workspace_id, job.id);
       setCronjobs((previous) =>
         previous.map((item) =>
           item.id === response.cronjob.id ? response.cronjob : item,

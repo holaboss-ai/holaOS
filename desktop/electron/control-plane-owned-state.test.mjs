@@ -14,15 +14,17 @@ test("control-plane-owned state module owns local workspace registry and runtime
   assert.match(source, /export interface LocalWorkspaceRegistry \{/);
   assert.match(source, /getWorkspaceRecord\(workspaceId: string\): WorkspaceRegistryRecord \| null/);
   assert.match(source, /listCachedWorkspaces\(\): WorkspaceRegistryListResponse/);
+  assert.match(source, /export function bootstrapLocalControlPlaneDatabase\(/);
   assert.match(source, /export function createLocalWorkspaceRegistry\(/);
-  assert.match(source, /new Database\(options\.runtimeDatabasePath\(\), \{\s*readonly: true,\s*\}\)/);
+  assert.match(source, /new Database\(options\.controlPlaneDatabasePath\(\), \{\s*readonly: true,\s*\}\)/);
   assert.match(source, /SELECT[\s\S]*FROM workspaces/);
   assert.match(source, /export interface LocalRuntimeUserProfileStore \{/);
   assert.match(source, /getProfile\(\): Promise<RuntimeUserProfileRecord>/);
   assert.match(source, /setProfile\(payload: RuntimeUserProfileUpdate\): Promise<RuntimeUserProfileRecord>/);
   assert.match(source, /applyAuthFallback\(/);
   assert.match(source, /export function createLocalRuntimeUserProfileStore\(/);
-  assert.match(source, /requestJson: <T>\(pathname: string, init\?: RequestInit\) => Promise<T>/);
+  assert.match(source, /controlPlaneDatabasePath: \(\) => string/);
+  assert.match(source, /SELECT \* FROM runtime_user_profiles WHERE profile_id = \? LIMIT 1/);
 });
 
 test("electron main delegates control-plane-owned metadata through the local state module", async () => {
@@ -30,16 +32,19 @@ test("electron main delegates control-plane-owned metadata through the local sta
 
   assert.match(
     source,
-    /import \{\s*createLocalRuntimeUserProfileStore,\s*createLocalWorkspaceRegistry,\s*\} from "\.\/control-plane-owned-state\.js"/,
+    /import \{\s*bootstrapLocalControlPlaneDatabase,\s*createLocalRuntimeUserProfileStore,\s*createLocalWorkspaceRegistry,\s*\} from "\.\/control-plane-owned-state\.js"/,
   );
   assert.match(
     source,
-    /const localRuntimeUserProfileStore = createLocalRuntimeUserProfileStore\(\{\s*requestJson: runtimeApiRequest,\s*\}\);/,
+    /const localRuntimeUserProfileStore = createLocalRuntimeUserProfileStore\(\{\s*controlPlaneDatabasePath: controlPlaneDatabasePath,\s*\}\);/,
   );
   assert.match(
     source,
-    /const localWorkspaceRegistry = createLocalWorkspaceRegistry\(\{\s*runtimeDatabasePath: runtimeDatabasePath,\s*location: localWorkspaceLocation\(\),\s*\}\);/,
+    /const localWorkspaceRegistry = createLocalWorkspaceRegistry\(\{\s*controlPlaneDatabasePath: controlPlaneDatabasePath,\s*location: localWorkspaceLocation\(\),\s*\}\);/,
   );
+  assert.match(source, /function bootstrapControlPlaneDatabase\(\) \{/);
+  assert.match(source, /bootstrapLocalControlPlaneDatabase\(\{/);
+  assert.match(source, /HOLABOSS_CONTROL_PLANE_DB_PATH: controlPlaneDatabasePath\(\),/);
   assert.match(source, /return localRuntimeUserProfileStore\.getProfile\(\);/);
   assert.match(source, /return localRuntimeUserProfileStore\.setProfile\(payload\);/);
   assert.match(source, /return localRuntimeUserProfileStore\.applyAuthFallback\(name, profileId\);/);

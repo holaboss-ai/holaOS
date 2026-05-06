@@ -240,6 +240,7 @@ test("handleRequest maps cronjobs and task proposals to snake_case payloads", ()
   }) as Record<string, unknown>;
   const updatedJob = handleRequest("update-cronjob", {
     options,
+    workspace_id: "workspace-1",
     job_id: String(job.id),
     description: "Updated check",
     instruction: "Say hello louder"
@@ -256,6 +257,7 @@ test("handleRequest maps cronjobs and task proposals to snake_case payloads", ()
   }) as Record<string, unknown>;
   const updatedProposal = handleRequest("update-task-proposal-state", {
     options,
+    workspace_id: "workspace-1",
     proposal_id: "proposal-1",
     state: "accepted"
   }) as Record<string, unknown>;

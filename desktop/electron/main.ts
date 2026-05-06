@@ -110,6 +110,7 @@ import {
 import * as modelCatalog from "../shared/model-catalog.js";
 import { buildAppSdkClient } from "./appSdkClient.js";
 import {
+  bootstrapLocalControlPlaneDatabase,
   createLocalRuntimeUserProfileStore,
   createLocalWorkspaceRegistry,
 } from "./control-plane-owned-state.js";
@@ -2850,6 +2851,7 @@ interface MemoryUpdateProposalListResponsePayload {
 
 interface MemoryUpdateProposalAcceptPayload {
   proposalId: string;
+  workspaceId: string;
   summary?: string | null;
 }
 
@@ -3805,6 +3807,10 @@ function runtimeDatabasePath() {
   return path.join(runtimeSandboxRoot(), "state", "runtime.db");
 }
 
+function controlPlaneDatabasePath() {
+  return path.join(runtimeSandboxRoot(), "state", "control-plane.db");
+}
+
 function runtimeWorkspaceRoot() {
   return path.join(runtimeSandboxRoot(), "workspace");
 }
@@ -4664,6 +4670,14 @@ async function bootstrapRuntimeDatabase() {
   } finally {
     database.close();
   }
+}
+
+function bootstrapControlPlaneDatabase() {
+  bootstrapLocalControlPlaneDatabase({
+    controlPlaneDatabasePath: controlPlaneDatabasePath,
+    runtimeDatabasePath: runtimeDatabasePath,
+    workspaceRoot: runtimeWorkspaceRoot,
+  });
 }
 
 // `persistRuntimeProcessState` is invoked from ~13 sites and fires every
@@ -7725,7 +7739,7 @@ async function runtimeApiRequest<T>(
 }
 
 const localRuntimeUserProfileStore = createLocalRuntimeUserProfileStore({
-  requestJson: runtimeApiRequest,
+  controlPlaneDatabasePath: controlPlaneDatabasePath,
 });
 
 async function getRuntimeUserProfile(): Promise<RuntimeUserProfilePayload> {
@@ -9438,9 +9452,10 @@ async function acceptMemoryUpdateProposal(
 }
 
 async function dismissMemoryUpdateProposal(
+  workspaceId: string,
   proposalId: string,
 ): Promise<MemoryUpdateProposalDismissResponsePayload> {
-  return runtimeClient.memory.dismissUpdateProposal(proposalId);
+  return runtimeClient.memory.dismissUpdateProposal(workspaceId, proposalId);
 }
 
 async function getProactiveStatus(
@@ -9471,7 +9486,14 @@ async function getProactiveStatus(
 
   let proposalCount = 0;
   let heartbeat = fallbackHeartbeat;
-  const database = openRuntimeDatabase();
+  const workspacePath = getWorkspaceRecord(normalizedWorkspaceId)?.workspace_path?.trim() || "";
+  const workspaceRuntimeDbPath = workspacePath
+    ? path.join(workspacePath, ".holaboss", "state", "runtime.db")
+    : "";
+  const database =
+    workspaceRuntimeDbPath && existsSync(workspaceRuntimeDbPath)
+      ? new Database(workspaceRuntimeDbPath, { readonly: true })
+      : openRuntimeDatabase();
   try {
     const proposalRow = database
       .prepare(
@@ -9635,9 +9657,10 @@ async function listCronjobs(
 }
 
 async function runCronjobNow(
+  workspaceId: string,
   jobId: string,
 ): Promise<CronjobRunResponsePayload> {
-  return runtimeClient.cronjobs.runNow(jobId);
+  return runtimeClient.cronjobs.runNow(workspaceId, jobId);
 }
 
 async function createCronjob(
@@ -9647,14 +9670,18 @@ async function createCronjob(
 }
 
 async function updateCronjob(
+  workspaceId: string,
   jobId: string,
   payload: CronjobUpdatePayload,
 ): Promise<CronjobRecordPayload> {
-  return runtimeClient.cronjobs.update(jobId, payload);
+  return runtimeClient.cronjobs.update(workspaceId, jobId, payload);
 }
 
-async function deleteCronjob(jobId: string): Promise<{ success: boolean }> {
-  return runtimeClient.cronjobs.delete(jobId);
+async function deleteCronjob(
+  workspaceId: string,
+  jobId: string,
+): Promise<{ success: boolean }> {
+  return runtimeClient.cronjobs.delete(workspaceId, jobId);
 }
 
 const runtimeNotificationListCache = new Map<
@@ -9726,10 +9753,12 @@ async function listNotifications(
 }
 
 async function updateNotification(
+  workspaceId: string,
   notificationId: string,
   payload: RuntimeNotificationUpdatePayload,
 ): Promise<RuntimeNotificationRecordPayload> {
   const response = await runtimeClient.notifications.update(
+    workspaceId,
     notificationId,
     payload,
   );
@@ -10971,10 +11000,11 @@ async function setProactiveHeartbeatWorkspaceEnabled(
 }
 
 async function updateTaskProposalState(
+  workspaceId: string,
   proposalId: string,
   state: string,
 ): Promise<TaskProposalStateUpdatePayload> {
-  return runtimeClient.taskProposals.updateState(proposalId, state);
+  return runtimeClient.taskProposals.updateState(workspaceId, proposalId, state);
 }
 
 const LOCAL_TEMPLATE_IGNORE_NAMES = new Set([
@@ -12839,7 +12869,7 @@ function updateQueuedInputStatus(inputId: string, status: string) {
 }
 
 const localWorkspaceRegistry = createLocalWorkspaceRegistry({
-  runtimeDatabasePath: runtimeDatabasePath,
+  controlPlaneDatabasePath: controlPlaneDatabasePath,
   location: localWorkspaceLocation(),
 });
 
@@ -12855,12 +12885,9 @@ async function listWorkspaces(): Promise<WorkspaceListResponsePayload> {
 }
 
 /**
- * Read the workspaces table directly from runtime.db without going
- * through the sidecar. Used to hydrate the splash before the sidecar
- * finishes spawning + schema-ensure. The desktop and runtime share
- * runtime.db; the schema converges after the sidecar runs once on a
- * given machine, but we tolerate a missing `workspace_path` column on
- * the very first launch by reading PRAGMA table_info first.
+ * Read the cached workspace registry directly from control-plane.db
+ * without going through the sidecar. Used to hydrate the splash before
+ * the sidecar finishes spawning + schema-ensure.
  *
  * Synchronous + fast (5-15ms) — better-sqlite3 with WAL allows this
  * read while the sidecar is still booting in another process.
@@ -15593,6 +15620,7 @@ async function startEmbeddedRuntime() {
 
       await fs.mkdir(sandboxRoot, { recursive: true });
       await bootstrapRuntimeDatabase();
+      bootstrapControlPlaneDatabase();
 
       const preflightRuntimePort = await ensureRuntimePortAvailable({
         url,
@@ -15748,6 +15776,7 @@ async function startEmbeddedRuntime() {
           SANDBOX_AGENT_HARNESS: harness,
           HOLABOSS_RUNTIME_WORKFLOW_BACKEND: workflowBackend,
           HOLABOSS_RUNTIME_DB_PATH: runtimeDatabasePath(),
+          HOLABOSS_CONTROL_PLANE_DB_PATH: controlPlaneDatabasePath(),
           HOLABOSS_RUNTIME_LOG_PATH: runtimeLogsPath(),
           HOLABOSS_RUNTIME_CONFIG_PATH: runtimeConfigPath(),
           HOLABOSS_DESKTOP_LAUNCH_ID: DESKTOP_LAUNCH_ID,
@@ -20334,6 +20363,7 @@ app.whenReady().then(async () => {
 
   await loadBrowserPersistence();
   await bootstrapRuntimeDatabase();
+  bootstrapControlPlaneDatabase();
   ensureOpenAiCodexRefreshLoop();
   void refreshOpenAiCodexProviderCredentials().catch(() => undefined);
 
@@ -21032,18 +21062,20 @@ app.whenReady().then(async () => {
   handleTrustedIpc(
     "workspace:runCronjobNow",
     ["main"],
-    async (_event, jobId: string) => runCronjobNow(jobId),
+    async (_event, workspaceId: string, jobId: string) =>
+      runCronjobNow(workspaceId, jobId),
   );
   handleTrustedIpc(
     "workspace:updateCronjob",
     ["main"],
-    async (_event, jobId: string, payload: CronjobUpdatePayload) =>
-      updateCronjob(jobId, payload),
+    async (_event, workspaceId: string, jobId: string, payload: CronjobUpdatePayload) =>
+      updateCronjob(workspaceId, jobId, payload),
   );
   handleTrustedIpc(
     "workspace:deleteCronjob",
     ["main"],
-    async (_event, jobId: string) => deleteCronjob(jobId),
+    async (_event, workspaceId: string, jobId: string) =>
+      deleteCronjob(workspaceId, jobId),
   );
   handleTrustedIpc(
     "workspace:listNotifications",
@@ -21063,9 +21095,10 @@ app.whenReady().then(async () => {
     ["main"],
     async (
       _event,
+      workspaceId: string,
       notificationId: string,
       payload: RuntimeNotificationUpdatePayload,
-    ) => updateNotification(notificationId, payload),
+    ) => updateNotification(workspaceId, notificationId, payload),
   );
   handleTrustedIpc(
     "workspace:listTaskProposals",
@@ -21105,8 +21138,8 @@ app.whenReady().then(async () => {
   handleTrustedIpc(
     "workspace:dismissMemoryUpdateProposal",
     ["main"],
-    async (_event, proposalId: string) =>
-      dismissMemoryUpdateProposal(proposalId),
+    async (_event, workspaceId: string, proposalId: string) =>
+      dismissMemoryUpdateProposal(workspaceId, proposalId),
   );
   handleTrustedIpc(
     "workspace:getProactiveStatus",
@@ -21116,8 +21149,8 @@ app.whenReady().then(async () => {
   handleTrustedIpc(
     "workspace:updateTaskProposalState",
     ["main"],
-    async (_event, proposalId: string, state: string) =>
-      updateTaskProposalState(proposalId, state),
+    async (_event, workspaceId: string, proposalId: string, state: string) =>
+      updateTaskProposalState(workspaceId, proposalId, state),
   );
   handleTrustedIpc(
     "workspace:requestRemoteTaskProposalGeneration",

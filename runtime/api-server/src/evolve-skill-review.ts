@@ -612,7 +612,10 @@ export async function persistSkillCandidate(params: {
   draft: SkillCandidateDraft;
 }): Promise<EvolveSkillCandidateRecord> {
   const candidateId = skillCandidateIdForInput(params.turnResult.inputId);
-  const existingById = params.store.getEvolveSkillCandidate(candidateId);
+  const existingById = params.store.getEvolveSkillCandidate({
+    workspaceId: params.turnResult.workspaceId,
+    candidateId,
+  });
   if (existingById) {
     return existingById;
   }
@@ -654,9 +657,13 @@ export async function persistSkillCandidate(params: {
 export async function promoteAcceptedSkillCandidate(params: {
   store: RuntimeStateStore;
   memoryService: MemoryServiceLike;
+  workspaceId: string;
   candidateId: string;
 }): Promise<SkillCandidatePromotionResult> {
-  const candidate = params.store.getEvolveSkillCandidate(params.candidateId);
+  const candidate = params.store.getEvolveSkillCandidate({
+    workspaceId: params.workspaceId,
+    candidateId: params.candidateId,
+  });
   if (!candidate || !["skill_create", "skill_patch"].includes(candidate.kind)) {
     return { status: "missing_candidate", targetSkillPath: null };
   }
@@ -675,6 +682,7 @@ export async function promoteAcceptedSkillCandidate(params: {
       removeFileAndEmptyParents(misplacedDraft.filePath, workspaceDir);
     }
     params.store.updateEvolveSkillCandidate({
+      workspaceId: candidate.workspaceId,
       candidateId: candidate.candidateId,
       fields: {
         status: "promoted",
@@ -718,6 +726,7 @@ export async function promoteAcceptedSkillCandidate(params: {
   }
 
   params.store.updateEvolveSkillCandidate({
+    workspaceId: candidate.workspaceId,
     candidateId: candidate.candidateId,
     fields: {
       status: "promoted",

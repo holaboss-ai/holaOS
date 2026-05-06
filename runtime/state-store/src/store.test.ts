@@ -23,6 +23,10 @@ function makeTempDir(prefix: string): string {
   return dir;
 }
 
+function workspaceRuntimeDbFile(workspaceRoot: string, workspaceId: string): string {
+  return path.join(workspaceRoot, workspaceId, ".holaboss", "state", "runtime.db");
+}
+
 test("workspace registry round trip uses hidden identity file", () => {
   const root = makeTempDir("hb-state-store-");
   const dbPath = path.join(root, "runtime.db");
@@ -58,6 +62,76 @@ test("workspace registry round trip uses hidden identity file", () => {
   assert.equal(tables.has("workspaces"), true);
   assert.equal(path.resolve(row.workspace_path), path.join(workspaceRoot, "workspace-1"));
   store.close();
+});
+
+test("control-plane metadata lives in control-plane.db while runtime.db keeps the mirrored workspace registry", () => {
+  const root = makeTempDir("hb-state-store-");
+  const dbPath = path.join(root, "runtime.db");
+  const controlPlanePath = path.join(root, "control-plane.db");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Acme",
+    harness: "pi",
+    status: "active"
+  });
+  store.upsertRuntimeUserProfile({
+    profileId: "default",
+    name: "Jeffrey",
+    nameSource: "manual"
+  });
+  store.upsertAppCatalogEntry({
+    appId: "calendar",
+    source: "marketplace",
+    name: "Calendar",
+    description: "Calendar app",
+    icon: null,
+    category: null,
+    tags: ["productivity"],
+    version: "1.0.0",
+    archiveUrl: null,
+    archivePath: null,
+    target: "apps/calendar",
+    cachedAt: "2026-05-06T00:00:00.000Z"
+  });
+  store.close();
+
+  const runtimeDb = new Database(dbPath, { readonly: true });
+  const runtimeTables = new Set<string>(
+    (runtimeDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
+      (row) => row.name
+    )
+  );
+  const runtimeWorkspace = runtimeDb
+    .prepare<[string], { workspace_path: string }>("SELECT workspace_path FROM workspaces WHERE id = ? LIMIT 1")
+    .get("workspace-1");
+  runtimeDb.close();
+
+  const controlPlaneDb = new Database(controlPlanePath, { readonly: true });
+  const controlPlaneTables = new Set<string>(
+    (controlPlaneDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
+      (row) => row.name
+    )
+  );
+  const profileRow = controlPlaneDb
+    .prepare<[string], { name: string | null }>("SELECT name FROM runtime_user_profiles WHERE profile_id = ? LIMIT 1")
+    .get("default");
+  const appCatalogRow = controlPlaneDb
+    .prepare<[string], { name: string }>("SELECT name FROM app_catalog WHERE app_id = ? LIMIT 1")
+    .get("calendar");
+  controlPlaneDb.close();
+
+  assert.ok(runtimeWorkspace);
+  assert.equal(runtimeTables.has("workspaces"), true);
+  assert.equal(runtimeTables.has("runtime_user_profiles"), false);
+  assert.equal(runtimeTables.has("app_catalog"), false);
+  assert.equal(controlPlaneTables.has("workspaces"), true);
+  assert.equal(controlPlaneTables.has("runtime_user_profiles"), true);
+  assert.equal(controlPlaneTables.has("app_catalog"), true);
+  assert.equal(profileRow?.name, "Jeffrey");
+  assert.equal(appCatalogRow?.name, "Calendar");
 });
 
 test("createWorkspace honors explicit workspacePath and registers it", () => {
@@ -484,6 +558,7 @@ test("workspaceDir recovers when folder is renamed", () => {
 test("getWorkspace recovers missing row from identity file", () => {
   const root = makeTempDir("hb-state-store-");
   const dbPath = path.join(root, "runtime.db");
+  const controlPlanePath = path.join(root, "control-plane.db");
   const workspaceRoot = path.join(root, "workspace");
   const store = new RuntimeStateStore({
     dbPath,
@@ -497,9 +572,12 @@ test("getWorkspace recovers missing row from identity file", () => {
     harness: "pi",
     status: "active"
   });
-  const db = new Database(dbPath);
-  db.prepare("DELETE FROM workspaces WHERE id = ?").run("workspace-1");
-  db.close();
+  const controlPlaneDb = new Database(controlPlanePath);
+  controlPlaneDb.prepare("DELETE FROM workspaces WHERE id = ?").run("workspace-1");
+  controlPlaneDb.close();
+  const runtimeDb = new Database(dbPath);
+  runtimeDb.prepare("DELETE FROM workspaces WHERE id = ?").run("workspace-1");
+  runtimeDb.close();
 
   const recovered = store.getWorkspace("workspace-1");
 
@@ -2321,6 +2399,137 @@ test("app build status round trip supports upsert, lookup, and delete", () => {
   store.close();
 });
 
+test("workspace-scoped runtime tables persist inside the workspace bundle and mirror runtime.db", () => {
+  const root = makeTempDir("hb-state-store-");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath,
+    workspaceRoot
+  });
+
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Acme",
+    harness: "pi",
+    status: "active"
+  });
+  store.ensureSession({
+    workspaceId: "workspace-1",
+    sessionId: "session-1"
+  });
+  store.createOutput({
+    workspaceId: "workspace-1",
+    outputType: "report",
+    title: "Daily note"
+  });
+  store.upsertAppBuild({
+    workspaceId: "workspace-1",
+    appId: "app-a",
+    status: "building"
+  });
+  store.allocateAppPort({
+    workspaceId: "workspace-1",
+    appId: "app-a"
+  });
+  const cronjob = store.createCronjob({
+    workspaceId: "workspace-1",
+    initiatedBy: "workspace_agent",
+    cron: "0 9 * * *",
+    description: "Daily check",
+    instruction: "Say hello",
+    delivery: { mode: "announce", channel: "session_run", to: null }
+  });
+  store.createRuntimeNotification({
+    workspaceId: "workspace-1",
+    cronjobId: cronjob.id,
+    sourceType: "cronjob",
+    title: "Hydrate",
+    message: "Drink water."
+  });
+  store.createTaskProposal({
+    proposalId: "proposal-1",
+    workspaceId: "workspace-1",
+    taskName: "Daily summary",
+    taskPrompt: "Summarize the day.",
+    taskGenerationRationale: "Keep the team aligned.",
+    createdAt: "2026-05-06T00:00:00.000Z"
+  });
+  store.createEvolveSkillCandidate({
+    candidateId: "candidate-1",
+    workspaceId: "workspace-1",
+    sessionId: "session-1",
+    inputId: "input-1",
+    kind: "skill_create",
+    title: "Daily summary helper",
+    summary: "Creates a short summary skill.",
+    slug: "daily-summary-helper",
+    skillPath: "skills/daily-summary-helper/SKILL.md",
+    contentFingerprint: "fp-1"
+  });
+  store.createMemoryUpdateProposal({
+    proposalId: "memory-proposal-1",
+    workspaceId: "workspace-1",
+    sessionId: "session-1",
+    inputId: "input-1",
+    proposalKind: "preference",
+    targetKey: "workspace/daily-summary",
+    title: "Remember summary preference",
+    summary: "Store that daily summaries should stay short.",
+  });
+  store.close();
+
+  const workspaceDbPath = workspaceRuntimeDbFile(workspaceRoot, "workspace-1");
+  assert.equal(fs.existsSync(workspaceDbPath), true);
+
+  const workspaceDb = new Database(workspaceDbPath, { readonly: true });
+  const workspaceCounts = {
+    outputs: Number((workspaceDb.prepare("SELECT COUNT(*) AS count FROM outputs").get() as { count: number }).count),
+    appBuilds: Number((workspaceDb.prepare("SELECT COUNT(*) AS count FROM app_builds").get() as { count: number }).count),
+    appPorts: Number((workspaceDb.prepare("SELECT COUNT(*) AS count FROM app_ports").get() as { count: number }).count),
+    cronjobs: Number((workspaceDb.prepare("SELECT COUNT(*) AS count FROM cronjobs").get() as { count: number }).count),
+    notifications: Number((workspaceDb.prepare("SELECT COUNT(*) AS count FROM runtime_notifications").get() as { count: number }).count),
+    taskProposals: Number((workspaceDb.prepare("SELECT COUNT(*) AS count FROM task_proposals").get() as { count: number }).count),
+    evolveCandidates: Number((workspaceDb.prepare("SELECT COUNT(*) AS count FROM evolve_skill_candidates").get() as { count: number }).count),
+    memoryUpdateProposals: Number((workspaceDb.prepare("SELECT COUNT(*) AS count FROM memory_update_proposals").get() as { count: number }).count),
+  };
+  workspaceDb.close();
+
+  const runtimeDb = new Database(dbPath, { readonly: true });
+  const runtimeCounts = {
+    outputs: Number((runtimeDb.prepare("SELECT COUNT(*) AS count FROM outputs").get() as { count: number }).count),
+    appBuilds: Number((runtimeDb.prepare("SELECT COUNT(*) AS count FROM app_builds").get() as { count: number }).count),
+    appPorts: Number((runtimeDb.prepare("SELECT COUNT(*) AS count FROM app_ports").get() as { count: number }).count),
+    cronjobs: Number((runtimeDb.prepare("SELECT COUNT(*) AS count FROM cronjobs").get() as { count: number }).count),
+    notifications: Number((runtimeDb.prepare("SELECT COUNT(*) AS count FROM runtime_notifications").get() as { count: number }).count),
+    taskProposals: Number((runtimeDb.prepare("SELECT COUNT(*) AS count FROM task_proposals").get() as { count: number }).count),
+    evolveCandidates: Number((runtimeDb.prepare("SELECT COUNT(*) AS count FROM evolve_skill_candidates").get() as { count: number }).count),
+    memoryUpdateProposals: Number((runtimeDb.prepare("SELECT COUNT(*) AS count FROM memory_update_proposals").get() as { count: number }).count),
+  };
+  runtimeDb.close();
+
+  assert.deepEqual(workspaceCounts, {
+    outputs: 1,
+    appBuilds: 1,
+    appPorts: 1,
+    cronjobs: 1,
+    notifications: 1,
+    taskProposals: 1,
+    evolveCandidates: 1,
+    memoryUpdateProposals: 1,
+  });
+  assert.deepEqual(runtimeCounts, {
+    outputs: 0,
+    appBuilds: 0,
+    appPorts: 0,
+    cronjobs: 0,
+    notifications: 0,
+    taskProposals: 0,
+    evolveCandidates: 0,
+    memoryUpdateProposals: 0,
+  });
+});
+
 test("cronjobs round trip supports create, list, update, get, and delete", () => {
   const root = makeTempDir("hb-state-store-");
   const store = new RuntimeStateStore({
@@ -2337,9 +2546,14 @@ test("cronjobs round trip supports create, list, update, get, and delete", () =>
     delivery: { mode: "announce", channel: "session_run", to: null }
   });
   const listed = store.listCronjobs({ workspaceId: "workspace-1" });
-  const fetched = store.getCronjob(job.id);
-  const updated = store.updateCronjob({ jobId: job.id, description: "Updated check", instruction: "Say hello loudly" });
-  const deleted = store.deleteCronjob(job.id);
+  const fetched = store.getCronjob({ workspaceId: "workspace-1", jobId: job.id });
+  const updated = store.updateCronjob({
+    workspaceId: "workspace-1",
+    jobId: job.id,
+    description: "Updated check",
+    instruction: "Say hello loudly"
+  });
+  const deleted = store.deleteCronjob({ workspaceId: "workspace-1", jobId: job.id });
 
   assert.equal(listed.length, 1);
   assert.ok(fetched);
@@ -2403,11 +2617,72 @@ test("cronjob schema migration backfills instruction from legacy description", (
   db.close();
 
   const store = new RuntimeStateStore({ dbPath, workspaceRoot });
-  const migrated = store.getCronjob("job-1");
+  const migrated = store.getCronjob({ workspaceId: "workspace-1", jobId: "job-1" });
 
   assert.ok(migrated);
   assert.equal(migrated.instruction, "Say hello every 5 minutes.");
   store.close();
+});
+
+test("workspace-scoped runtime db backfills legacy cronjobs from runtime.db on first access", () => {
+  const root = makeTempDir("hb-state-store-");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceRoot = path.join(root, "workspace");
+  const initialStore = new RuntimeStateStore({ dbPath, workspaceRoot });
+
+  initialStore.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Legacy",
+    harness: "pi",
+    status: "active"
+  });
+  initialStore.close();
+
+  const workspaceDbPath = workspaceRuntimeDbFile(workspaceRoot, "workspace-1");
+  assert.equal(fs.existsSync(workspaceDbPath), false);
+
+  const db = new Database(dbPath);
+  db.prepare(`
+    INSERT INTO cronjobs (
+      id, workspace_id, initiated_by, name, cron, description, instruction, enabled, delivery, metadata,
+      last_run_at, next_run_at, run_count, last_status, last_error, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    "job-legacy",
+    "workspace-1",
+    "workspace_agent",
+    "Greeting",
+    "*/5 * * * *",
+    "Say hello every 5 minutes.",
+    "Say hello every 5 minutes.",
+    1,
+    JSON.stringify({ channel: "session_run" }),
+    "{}",
+    null,
+    null,
+    0,
+    null,
+    null,
+    "2026-01-01T00:00:00+00:00",
+    "2026-01-01T00:00:00+00:00"
+  );
+  db.close();
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  const listed = store.listCronjobs({ workspaceId: "workspace-1" });
+  store.close();
+
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0]?.id, "job-legacy");
+  assert.equal(fs.existsSync(workspaceDbPath), true);
+
+  const workspaceDb = new Database(workspaceDbPath, { readonly: true });
+  const mirrored = workspaceDb
+    .prepare<[string], { id: string }>("SELECT id FROM cronjobs WHERE id = ? LIMIT 1")
+    .get("job-legacy");
+  workspaceDb.close();
+
+  assert.equal(mirrored?.id, "job-legacy");
 });
 
 test("runtime notifications round trip supports create, list, update, get, and dismiss", () => {
@@ -2428,12 +2703,14 @@ test("runtime notifications round trip supports create, list, update, get, and d
     priority: "high"
   });
   const listed = store.listRuntimeNotifications({ workspaceId: "workspace-1" });
-  const fetched = store.getRuntimeNotification(created.id);
+  const fetched = store.getRuntimeNotification({ workspaceId: "workspace-1", notificationId: created.id });
   const updated = store.updateRuntimeNotification({
+    workspaceId: "workspace-1",
     notificationId: created.id,
     state: "read"
   });
   const dismissed = store.updateRuntimeNotification({
+    workspaceId: "workspace-1",
     notificationId: created.id,
     state: "dismissed"
   });
@@ -2519,8 +2796,12 @@ test("task proposals round trip supports create, list, unreviewed, get, and stat
   });
   const listed = store.listTaskProposals({ workspaceId: "workspace-1" });
   const unreviewed = store.listUnreviewedTaskProposals({ workspaceId: "workspace-1" });
-  const fetched = store.getTaskProposal("proposal-1");
-  const updated = store.updateTaskProposalState({ proposalId: "proposal-1", state: "accepted" });
+  const fetched = store.getTaskProposal({ workspaceId: "workspace-1", proposalId: "proposal-1" });
+  const updated = store.updateTaskProposalState({
+    workspaceId: "workspace-1",
+    proposalId: "proposal-1",
+    state: "accepted"
+  });
 
   assert.equal(proposal.proposalId, "proposal-1");
   assert.equal(proposal.proposalSource, "proactive");
@@ -2561,6 +2842,7 @@ test("task proposal acceptance fields and child session metadata round trip", ()
 
   const sessions = store.listSessions({ workspaceId: "workspace-1" });
   const updated = store.updateTaskProposal({
+    workspaceId: "workspace-1",
     proposalId: "proposal-1",
     fields: {
       state: "accepted",
@@ -2627,7 +2909,10 @@ test("task proposal round trip preserves explicit evolve source", () => {
   });
 
   assert.equal(proposal.proposalSource, "evolve");
-  assert.equal(store.getTaskProposal("proposal-evolve-1")?.proposalSource, "evolve");
+  assert.equal(
+    store.getTaskProposal({ workspaceId: "workspace-1", proposalId: "proposal-evolve-1" })?.proposalSource,
+    "evolve"
+  );
   store.close();
 });
 
@@ -2677,9 +2962,10 @@ test("evolve skill candidates round trip supports create, list, lookup, and upda
     evaluationNotes: "Existing skill is stale.",
     sourceTurnInputIds: ["input-2"],
   });
-  const fetched = store.getEvolveSkillCandidate("candidate-1");
+  const fetched = store.getEvolveSkillCandidate({ workspaceId: "workspace-1", candidateId: "candidate-1" });
   const listed = store.listEvolveSkillCandidates({ workspaceId: "workspace-1" });
   const updated = store.updateEvolveSkillCandidate({
+    workspaceId: "workspace-1",
     candidateId: "candidate-1",
     fields: {
       taskProposalId: "proposal-1",
@@ -2697,7 +2983,13 @@ test("evolve skill candidates round trip supports create, list, lookup, and upda
   assert.equal(listed.length, 2);
   assert.equal(updated?.taskProposalId, "proposal-1");
   assert.equal(updated?.status, "proposed");
-  assert.equal(store.getEvolveSkillCandidateByTaskProposalId("proposal-1")?.candidateId, "candidate-1");
+  assert.equal(
+    store.getEvolveSkillCandidateByTaskProposalId({
+      workspaceId: "workspace-1",
+      proposalId: "proposal-1"
+    })?.candidateId,
+    "candidate-1"
+  );
   store.close();
 });
 
@@ -2740,8 +3032,12 @@ test("memory update proposals round trip supports create list filter get and acc
     limit: 10,
     offset: 0
   });
-  const fetched = store.getMemoryUpdateProposal("memory-proposal-1");
+  const fetched = store.getMemoryUpdateProposal({
+    workspaceId: "workspace-1",
+    proposalId: "memory-proposal-1"
+  });
   const accepted = store.updateMemoryUpdateProposal({
+    workspaceId: "workspace-1",
     proposalId: "memory-proposal-1",
     fields: {
       summary: "Prefer concise responses.",

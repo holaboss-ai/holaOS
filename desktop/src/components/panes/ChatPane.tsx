@@ -4543,6 +4543,7 @@ const [queuedSessionInputs, setQueuedSessionInputs] = useState<
     try {
       await window.electronAPI.workspace.acceptMemoryUpdateProposal({
         proposalId: proposal.proposal_id,
+        workspaceId: proposal.workspace_id,
         summary: nextSummary,
       });
       setEditingMemoryProposalId((current) =>
@@ -4570,6 +4571,7 @@ const [queuedSessionInputs, setQueuedSessionInputs] = useState<
     });
     try {
       await window.electronAPI.workspace.dismissMemoryUpdateProposal(
+        proposal.workspace_id,
         proposal.proposal_id,
       );
       setEditingMemoryProposalId((current) =>

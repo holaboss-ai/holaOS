@@ -4202,12 +4202,16 @@ test("cronjobs, task proposals, and session state routes preserve local payload 
   });
   const runNowJob = await app.inject({
     method: "POST",
-    url: `/api/v1/cronjobs/${jobId}/run`
+    url: `/api/v1/cronjobs/${jobId}/run?workspace_id=${workspace.id}`
   });
   const updatedJob = await app.inject({
     method: "PATCH",
     url: `/api/v1/cronjobs/${jobId}`,
-    payload: { description: "Updated check", instruction: "Say hello louder" }
+    payload: {
+      workspace_id: workspace.id,
+      description: "Updated check",
+      instruction: "Say hello louder"
+    }
   });
   assert.equal(listedJobs.statusCode, 200);
   assert.equal(listedJobs.json().count, 1);
@@ -4248,7 +4252,10 @@ test("cronjobs, task proposals, and session state routes preserve local payload 
   const updatedNotification = await app.inject({
     method: "PATCH",
     url: `/api/v1/notifications/${visibleNotification.id}`,
-    payload: { state: "read" }
+    payload: {
+      workspace_id: workspace.id,
+      state: "read"
+    }
   });
   assert.equal(listedNotifications.statusCode, 200);
   assert.equal(listedNotifications.json().count, 1);
@@ -4296,7 +4303,10 @@ test("cronjobs, task proposals, and session state routes preserve local payload 
   const updatedProposal = await app.inject({
     method: "PATCH",
     url: "/api/v1/task-proposals/proposal-1",
-    payload: { state: "accepted" }
+    payload: {
+      workspace_id: workspace.id,
+      state: "accepted"
+    }
   });
 
   assert.equal(listedProposals.statusCode, 200);
@@ -4340,13 +4350,16 @@ test("cronjobs, task proposals, and session state routes preserve local payload 
     method: "POST",
     url: "/api/v1/memory-update-proposals/memory-proposal-1/accept",
     payload: {
+      workspace_id: workspace.id,
       summary: "Prefer concise responses."
     }
   });
   const dismissedMemoryProposal = await app.inject({
     method: "POST",
     url: "/api/v1/memory-update-proposals/memory-proposal-1/dismiss",
-    payload: {}
+    payload: {
+      workspace_id: workspace.id
+    }
   });
 
   assert.equal(listedMemoryProposals.statusCode, 200);
@@ -6638,6 +6651,7 @@ test("accept task proposal creates a hidden subagent run with queued work", asyn
     method: "POST",
     url: "/api/v1/task-proposals/proposal-1/accept",
     payload: {
+      workspace_id: workspace.id,
       parent_session_id: "session-main",
       task_name: "Follow up",
       task_prompt: "Write the follow-up and send a reminder",
@@ -6714,7 +6728,9 @@ test("accept task proposal creates a hidden subagent run with queued work", asyn
   const secondAccept = await app.inject({
     method: "POST",
     url: "/api/v1/task-proposals/proposal-1/accept",
-    payload: {}
+    payload: {
+      workspace_id: workspace.id
+    }
   });
   assert.equal(secondAccept.statusCode, 409);
 
@@ -6831,6 +6847,7 @@ test("accepting and dismissing evolve task proposals updates linked skill candid
     method: "POST",
     url: "/api/v1/task-proposals/evolve-proposal-1/accept",
     payload: {
+      workspace_id: workspace.id,
       parent_session_id: "session-main",
       created_by: "workspace_user"
     }
@@ -6874,18 +6891,38 @@ test("accepting and dismissing evolve task proposals updates linked skill candid
       task_proposal_id: "evolve-proposal-1",
     },
   });
-  assert.equal(store.getEvolveSkillCandidate("evolve-skill-input-10")?.status, "accepted");
+  assert.equal(
+    store.getEvolveSkillCandidate({
+      workspaceId: "workspace-1",
+      candidateId: "evolve-skill-input-10"
+    })?.status,
+    "accepted"
+  );
   assert.equal(wakeCount, 1);
 
   const dismissed = await app.inject({
     method: "PATCH",
     url: "/api/v1/task-proposals/evolve-proposal-2",
-    payload: { state: "dismissed" }
+    payload: {
+      workspace_id: workspace.id,
+      state: "dismissed"
+    }
   });
   assert.equal(dismissed.statusCode, 200);
   assert.equal(dismissed.json().proposal.proposal_source, "evolve");
-  assert.equal(store.getEvolveSkillCandidate("evolve-skill-input-11")?.status, "dismissed");
-  assert.ok(store.getEvolveSkillCandidate("evolve-skill-input-11")?.dismissedAt);
+  assert.equal(
+    store.getEvolveSkillCandidate({
+      workspaceId: "workspace-1",
+      candidateId: "evolve-skill-input-11"
+    })?.status,
+    "dismissed"
+  );
+  assert.ok(
+    store.getEvolveSkillCandidate({
+      workspaceId: "workspace-1",
+      candidateId: "evolve-skill-input-11"
+    })?.dismissedAt
+  );
 
   await app.close();
   store.close();

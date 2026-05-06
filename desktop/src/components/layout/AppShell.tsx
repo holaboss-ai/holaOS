@@ -2335,7 +2335,7 @@ function AppShellContent() {
             seenNotificationIdsRef.current.add(item.id);
             nativeRuntimeNotificationAttemptedAtRef.current.delete(item.id);
             try {
-              await window.electronAPI.workspace.updateNotification(item.id, {
+              await window.electronAPI.workspace.updateNotification(item.workspace_id, item.id, {
                 state: "dismissed",
               });
             } catch {
@@ -2358,7 +2358,7 @@ function AppShellContent() {
             });
           }
           try {
-            await window.electronAPI.workspace.updateNotification(item.id, {
+            await window.electronAPI.workspace.updateNotification(item.workspace_id, item.id, {
               state: "dismissed",
             });
           } catch {
@@ -2371,7 +2371,7 @@ function AppShellContent() {
           consumeControlCenterComposerSubmissionSuppression();
           seenNotificationIdsRef.current.add(item.id);
           try {
-            await window.electronAPI.workspace.updateNotification(item.id, {
+            await window.electronAPI.workspace.updateNotification(item.workspace_id, item.id, {
               state: "dismissed",
             });
           } catch {
@@ -2428,7 +2428,7 @@ function AppShellContent() {
       const nextState = notificationActivationState(notification);
 
       try {
-        await window.electronAPI.workspace.updateNotification(notification.id, {
+        await window.electronAPI.workspace.updateNotification(notification.workspace_id, notification.id, {
           state: nextState,
         });
         await refreshNotifications();
@@ -2487,7 +2487,7 @@ function AppShellContent() {
 
       try {
         dismissNotificationToast(notificationId);
-        await window.electronAPI.workspace.updateNotification(notificationId, {
+        await window.electronAPI.workspace.updateNotification(notification.workspace_id, notificationId, {
           state: "dismissed",
         });
         await refreshNotifications();
@@ -3045,6 +3045,7 @@ function AppShellContent() {
     try {
       const accepted = await window.electronAPI.workspace.acceptTaskProposal({
         proposal_id: proposal.proposal_id,
+        workspace_id: proposal.workspace_id,
         task_name: proposal.task_name,
         task_prompt: proposal.task_prompt,
         parent_session_id: activeChatSessionId?.trim() || null,
@@ -3069,6 +3070,7 @@ function AppShellContent() {
     setTaskProposalStatusMessage("");
     try {
       await window.electronAPI.workspace.updateTaskProposalState(
+        proposal.workspace_id,
         proposal.proposal_id,
         "dismissed",
       );

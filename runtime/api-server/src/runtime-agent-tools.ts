@@ -1592,7 +1592,8 @@ export class RuntimeAgentToolsService {
     jobId: string;
     workspaceId?: string | null;
   }): JsonObject | null {
-    const job = this.store.getCronjob(params.jobId);
+    const workspaceId = this.requireWorkspaceId(params.workspaceId);
+    const job = this.store.getCronjob({ workspaceId, jobId: params.jobId });
     if (!job) {
       return null;
     }
@@ -1639,8 +1640,12 @@ export class RuntimeAgentToolsService {
   }
 
   updateCronjob(params: RuntimeAgentToolsUpdateCronjobParams): JsonObject {
-    const existing = this.requireCronjob(params.jobId);
-    this.assertCronjobBelongsToWorkspace(existing, params.workspaceId);
+    const workspaceId = this.requireWorkspaceId(params.workspaceId);
+    const existing = this.requireCronjob({
+      workspaceId,
+      jobId: params.jobId,
+    });
+    this.assertCronjobBelongsToWorkspace(existing, workspaceId);
     const cron = params.cron == null ? null : normalizedString(params.cron);
     if (params.cron !== undefined && !cron) {
       throw new RuntimeAgentToolsServiceError(400, "cronjob_cron_required", "cron is required");
@@ -1654,6 +1659,7 @@ export class RuntimeAgentToolsService {
       throw new RuntimeAgentToolsServiceError(400, "cronjob_instruction_required", "instruction is required");
     }
     const updated = this.store.updateCronjob({
+      workspaceId,
       jobId: params.jobId,
       name: params.name === undefined ? undefined : normalizedString(params.name),
       cron,
@@ -1681,12 +1687,13 @@ export class RuntimeAgentToolsService {
     jobId: string;
     workspaceId?: string | null;
   }): JsonObject {
-    const existing = this.store.getCronjob(params.jobId);
+    const workspaceId = this.requireWorkspaceId(params.workspaceId);
+    const existing = this.store.getCronjob({ workspaceId, jobId: params.jobId });
     if (!existing) {
       return { success: false };
     }
     this.assertCronjobBelongsToWorkspace(existing, params.workspaceId);
-    return { success: this.store.deleteCronjob(params.jobId) };
+    return { success: this.store.deleteCronjob({ workspaceId, jobId: params.jobId }) };
   }
 
   delegateTask(params: RuntimeAgentToolsDelegateTaskParams): JsonObject {
@@ -3121,8 +3128,17 @@ export class RuntimeAgentToolsService {
     return workspace;
   }
 
-  private requireCronjob(jobId: string): CronjobRecord {
-    const job = this.store.getCronjob(jobId);
+  private requireWorkspaceId(workspaceId?: string | null): string {
+    const normalized = normalizedString(workspaceId);
+    if (!normalized) {
+      throw new RuntimeAgentToolsServiceError(400, "workspace_id_required", "workspace_id is required");
+    }
+    return normalized;
+  }
+
+  private requireCronjob(params: { workspaceId?: string | null; jobId: string }): CronjobRecord {
+    const workspaceId = this.requireWorkspaceId(params.workspaceId);
+    const job = this.store.getCronjob({ workspaceId, jobId: params.jobId });
     if (!job) {
       throw new RuntimeAgentToolsServiceError(404, "cronjob_not_found", "cronjob not found");
     }

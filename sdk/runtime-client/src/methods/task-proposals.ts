@@ -22,6 +22,7 @@ export type TaskProposalListResponse = {
 
 export type TaskProposalAcceptPayload = {
   proposal_id: string;
+  workspace_id: string;
   task_name?: string | null;
   task_prompt?: string | null;
   session_id?: string | null;
@@ -48,6 +49,7 @@ export type TaskProposalsMethods = {
   listUnreviewed(workspaceId: string): Promise<TaskProposalListResponse>;
   accept(payload: TaskProposalAcceptPayload): Promise<TaskProposalAcceptResponse>;
   updateState(
+    workspaceId: string,
     proposalId: string,
     state: string
   ): Promise<TaskProposalStateUpdateResponse>;
@@ -69,6 +71,7 @@ export function makeTaskProposalsMethods(
         method: "POST",
         path: `/api/v1/task-proposals/${encodeURIComponent(payload.proposal_id)}/accept`,
         payload: {
+          workspace_id: payload.workspace_id,
           task_name: payload.task_name,
           task_prompt: payload.task_prompt,
           session_id: payload.session_id,
@@ -79,11 +82,14 @@ export function makeTaskProposalsMethods(
         },
       });
     },
-    updateState(proposalId, state) {
+    updateState(workspaceId, proposalId, state) {
       return request<TaskProposalStateUpdateResponse>({
         method: "PATCH",
         path: `/api/v1/task-proposals/${encodeURIComponent(proposalId)}`,
-        payload: { state },
+        payload: {
+          workspace_id: workspaceId,
+          state,
+        },
       });
     },
   };

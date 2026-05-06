@@ -62,10 +62,14 @@ export type CronjobUpdatePayload = {
 
 export type CronjobsMethods = {
   list(workspaceId: string, enabledOnly?: boolean): Promise<CronjobListResponse>;
-  runNow(jobId: string): Promise<CronjobRunResponse>;
+  runNow(workspaceId: string, jobId: string): Promise<CronjobRunResponse>;
   create(payload: CronjobCreatePayload): Promise<CronjobRecord>;
-  update(jobId: string, payload: CronjobUpdatePayload): Promise<CronjobRecord>;
-  delete(jobId: string): Promise<{ success: boolean }>;
+  update(
+    workspaceId: string,
+    jobId: string,
+    payload: CronjobUpdatePayload
+  ): Promise<CronjobRecord>;
+  delete(workspaceId: string, jobId: string): Promise<{ success: boolean }>;
 };
 
 export function makeCronjobsMethods(request: RequestFn): CronjobsMethods {
@@ -80,10 +84,13 @@ export function makeCronjobsMethods(request: RequestFn): CronjobsMethods {
         },
       });
     },
-    runNow(jobId) {
+    runNow(workspaceId, jobId) {
       return request<CronjobRunResponse>({
         method: "POST",
         path: `/api/v1/cronjobs/${encodeURIComponent(jobId)}/run`,
+        params: {
+          workspace_id: workspaceId,
+        },
       });
     },
     create(payload) {
@@ -93,17 +100,23 @@ export function makeCronjobsMethods(request: RequestFn): CronjobsMethods {
         payload,
       });
     },
-    update(jobId, payload) {
+    update(workspaceId, jobId, payload) {
       return request<CronjobRecord>({
         method: "PATCH",
         path: `/api/v1/cronjobs/${encodeURIComponent(jobId)}`,
-        payload,
+        payload: {
+          workspace_id: workspaceId,
+          ...payload,
+        },
       });
     },
-    delete(jobId) {
+    delete(workspaceId, jobId) {
       return request<{ success: boolean }>({
         method: "DELETE",
         path: `/api/v1/cronjobs/${encodeURIComponent(jobId)}`,
+        params: {
+          workspace_id: workspaceId,
+        },
       });
     },
   };

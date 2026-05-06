@@ -35,7 +35,12 @@ export function createEvolveTaskProposal(params: {
   createdAt?: string;
   state?: string;
 }): TaskProposalRecord {
-  const existing = params.proposalId ? params.store.getTaskProposal(params.proposalId) : null;
+  const existing = params.proposalId
+    ? params.store.getTaskProposal({
+        workspaceId: params.workspaceId,
+        proposalId: params.proposalId,
+      })
+    : null;
   if (existing) {
     return existing;
   }
@@ -182,6 +187,7 @@ export async function processEvolveJob(params: {
     sourceEventIds: candidate.sourceTurnInputIds,
   });
   params.store.updateEvolveSkillCandidate({
+    workspaceId: candidate.workspaceId,
     candidateId: candidate.candidateId,
     fields: {
       taskProposalId: proposal.proposalId,

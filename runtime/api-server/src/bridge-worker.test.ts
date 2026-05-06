@@ -355,8 +355,14 @@ test("executeBridgeJobNatively creates task proposals in the TS state store", as
 
   assert.equal(result.status, "succeeded");
   assert.deepEqual(result.output, { proposal_id: "job-1" });
-  assert.equal(store.getTaskProposal("job-1")?.taskName, "Review workspace");
-  assert.equal(store.getTaskProposal("job-1")?.proposalSource, "proactive");
+  assert.equal(
+    store.getTaskProposal({ workspaceId: "workspace-1", proposalId: "job-1" })?.taskName,
+    "Review workspace"
+  );
+  assert.equal(
+    store.getTaskProposal({ workspaceId: "workspace-1", proposalId: "job-1" })?.proposalSource,
+    "proactive"
+  );
   store.close();
 });
 

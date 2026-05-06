@@ -28,6 +28,8 @@
  * Exit code: 0 on success, 1 on error, 2 on bad usage.
  */
 import Database from "better-sqlite3";
+import { existsSync } from "node:fs";
+import path from "node:path";
 
 import { LATEST_SEED_VERSION, RUNTIME_DB_MIGRATIONS } from "./migrations/index.js";
 import { runtimeDbPath } from "./store.js";
@@ -217,18 +219,69 @@ const commands: Record<string, (ctx: CommandContext) => Promise<number> | number
       db(),
       `SELECT status, COUNT(*) AS count FROM agent_session_inputs GROUP BY status`,
     );
-    const cronRows = safeAll(
-      db(),
-      `SELECT enabled, COUNT(*) AS count FROM cronjobs GROUP BY enabled`,
-    );
     const postRunRows = safeAll(
       db(),
       `SELECT status, COUNT(*) AS count FROM post_run_jobs GROUP BY status`,
     );
-    const evolveRows = safeAll(
+    const cronCounts = new Map<string, number>();
+    const evolveCounts = new Map<string, number>();
+    const workspaceRows = safeAll(
       db(),
-      `SELECT state, COUNT(*) AS count FROM evolve_skill_candidates GROUP BY state`,
+      `SELECT id, workspace_path FROM workspaces WHERE deleted_at_utc IS NULL`,
     );
+    if (Array.isArray(workspaceRows)) {
+      for (const workspaceRow of workspaceRows as Array<{ id?: string; workspace_path?: string }>) {
+        const workspacePath =
+          typeof workspaceRow.workspace_path === "string"
+            ? workspaceRow.workspace_path.trim()
+            : "";
+        if (!workspacePath) {
+          continue;
+        }
+        const workspaceRuntimeDbPath = path.join(
+          workspacePath,
+          ".holaboss",
+          "state",
+          "runtime.db",
+        );
+        if (!existsSync(workspaceRuntimeDbPath)) {
+          continue;
+        }
+        const workspaceDb = openDb(workspaceRuntimeDbPath);
+        try {
+          const workspaceCronRows = safeAll(
+            workspaceDb,
+            `SELECT enabled, COUNT(*) AS count FROM cronjobs GROUP BY enabled`,
+          );
+          if (Array.isArray(workspaceCronRows)) {
+            for (const row of workspaceCronRows as Array<{ enabled?: number; count?: number }>) {
+              const key = String(row.enabled ?? 0);
+              cronCounts.set(key, (cronCounts.get(key) ?? 0) + Number(row.count ?? 0));
+            }
+          }
+          const workspaceEvolveRows = safeAll(
+            workspaceDb,
+            `SELECT status AS state, COUNT(*) AS count FROM evolve_skill_candidates GROUP BY status`,
+          );
+          if (Array.isArray(workspaceEvolveRows)) {
+            for (const row of workspaceEvolveRows as Array<{ state?: string; count?: number }>) {
+              const key = typeof row.state === "string" ? row.state : "";
+              evolveCounts.set(key, (evolveCounts.get(key) ?? 0) + Number(row.count ?? 0));
+            }
+          }
+        } finally {
+          workspaceDb.close();
+        }
+      }
+    }
+    const cronRows = Array.from(cronCounts.entries()).map(([enabled, count]) => ({
+      enabled: Number(enabled),
+      count,
+    }));
+    const evolveRows = Array.from(evolveCounts.entries()).map(([state, count]) => ({
+      state,
+      count,
+    }));
     out(
       JSON.stringify(
         {

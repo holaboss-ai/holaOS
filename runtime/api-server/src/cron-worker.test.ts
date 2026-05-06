@@ -156,7 +156,7 @@ test("runtime cron worker queues due session_run cronjobs as hidden subagents an
   });
 
   const processed = await worker.processDueCronjobsOnce(new Date("2025-01-01T09:30:00Z"));
-  const updated = store.getCronjob(job.id);
+  const updated = store.getCronjob({ workspaceId: workspace.id, jobId: job.id });
   const runs = store.listSubagentRunsByWorkspace({ workspaceId: workspace.id });
   const run = runs[0];
   const runtimeState = run
@@ -348,7 +348,7 @@ test("runtime cron worker persists system_notification cronjobs as unread notifi
   const worker = new RuntimeCronWorker({ store });
   const processed = await worker.processDueCronjobsOnce(new Date("2025-01-01T09:30:00Z"));
   const notifications = store.listRuntimeNotifications({ workspaceId: workspace.id });
-  const updated = store.getCronjob(job.id);
+  const updated = store.getCronjob({ workspaceId: workspace.id, jobId: job.id });
 
   assert.equal(processed, 1);
   assert.equal(notifications.length, 1);
@@ -389,7 +389,7 @@ test("runtime cron worker records failures for unsupported delivery channels", a
 
   const worker = new RuntimeCronWorker({ store });
   const processed = await worker.processDueCronjobsOnce(new Date("2025-01-01T09:30:00Z"));
-  const updated = store.getCronjob(job.id);
+  const updated = store.getCronjob({ workspaceId: "workspace-1", jobId: job.id });
 
   assert.equal(processed, 1);
   assert.ok(updated);
@@ -512,7 +512,7 @@ test("runtime cron worker does not execute a newly created cronjob before next_r
   });
 
   const processed = await worker.processDueCronjobsOnce(new Date("2025-01-01T09:30:00Z"));
-  const updated = store.getCronjob(job.id);
+  const updated = store.getCronjob({ workspaceId: "workspace-1", jobId: job.id });
   const runs = store.listSubagentRunsByWorkspace({ workspaceId: workspace.id });
   const notifications = store.listRuntimeNotifications({ workspaceId: workspace.id });
 

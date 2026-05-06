@@ -8,6 +8,7 @@ export {
   type OAuthAppConfigRecord,
   type ConversationBindingRecord,
   RuntimeStateStore,
+  controlPlaneDbPath,
   runtimeDbPath,
   sanitizeWorkspaceId,
   utcNowIso,

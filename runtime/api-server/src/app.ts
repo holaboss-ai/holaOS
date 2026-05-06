@@ -7553,8 +7553,13 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   });
 
   app.get("/api/v1/output-folders/:folderId", async (request, reply) => {
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(query.workspace_id);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
     const params = request.params as { folderId: string };
-    const folder = store.getOutputFolder(params.folderId);
+    const folder = store.getOutputFolder({ workspaceId, folderId: params.folderId });
     if (!folder) {
       return sendError(reply, 404, "Folder not found");
     }
@@ -7566,7 +7571,9 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 400, "request body must be an object");
     }
     const params = request.params as { folderId: string };
+    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
     const folder = store.updateOutputFolder({
+      workspaceId,
       folderId: params.folderId,
       name: nullableString(request.body.name),
       position:
@@ -7581,8 +7588,13 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   });
 
   app.delete("/api/v1/output-folders/:folderId", async (request, reply) => {
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(query.workspace_id);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
     const params = request.params as { folderId: string };
-    const deleted = store.deleteOutputFolder(params.folderId);
+    const deleted = store.deleteOutputFolder({ workspaceId, folderId: params.folderId });
     if (!deleted) {
       return sendError(reply, 404, "Folder not found");
     }
@@ -7619,8 +7631,13 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   });
 
   app.get("/api/v1/outputs/:outputId", async (request, reply) => {
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(query.workspace_id);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
     const params = request.params as { outputId: string };
-    const output = store.getOutput(params.outputId);
+    const output = store.getOutput({ workspaceId, outputId: params.outputId });
     if (!output) {
       return sendError(reply, 404, "Output not found");
     }
@@ -7660,12 +7677,13 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 400, "request body must be an object");
     }
     const params = request.params as { outputId: string };
+    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
     let patchMetadata: Record<string, unknown> | undefined;
     if (hasOwn(request.body, "metadata")) {
       const incoming = optionalDict(request.body.metadata) ?? {};
       // Preserve origin_type from existing output if not provided in the patch,
       // so that app updates don't accidentally strip it.
-      const existing = store.getOutput(params.outputId);
+      const existing = store.getOutput({ workspaceId, outputId: params.outputId });
       if (existing && !incoming.origin_type && existing.metadata.origin_type) {
         incoming.origin_type = existing.metadata.origin_type;
       }
@@ -7679,6 +7697,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       patchMetadata = incoming;
     }
     const output = store.updateOutput({
+      workspaceId,
       outputId: params.outputId,
       title: nullableString(request.body.title),
       status: nullableString(request.body.status),
@@ -7695,8 +7714,13 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   });
 
   app.delete("/api/v1/outputs/:outputId", async (request, reply) => {
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(query.workspace_id);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
     const params = request.params as { outputId: string };
-    const deleted = store.deleteOutput(params.outputId);
+    const deleted = store.deleteOutput({ workspaceId, outputId: params.outputId });
     if (!deleted) {
       return sendError(reply, 404, "Output not found");
     }
@@ -7729,7 +7753,9 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 400, "request body must be an object");
     }
     const params = request.params as { notificationId: string };
+    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
     const updated = store.updateRuntimeNotification({
+      workspaceId,
       notificationId: requiredString(params.notificationId, "notificationId"),
       state: nullableString(request.body.state) as "unread" | "read" | "dismissed" | null | undefined
     });
@@ -7778,8 +7804,13 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   });
 
   app.get("/api/v1/cronjobs/:jobId", async (request, reply) => {
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(query.workspace_id);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
     const params = request.params as { jobId: string };
-    const job = store.getCronjob(params.jobId);
+    const job = store.getCronjob({ workspaceId, jobId: params.jobId });
     if (!job) {
       return sendError(reply, 404, "Cronjob not found");
     }
@@ -7787,8 +7818,13 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   });
 
   app.post("/api/v1/cronjobs/:jobId/run", async (request, reply) => {
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(query.workspace_id);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
     const params = request.params as { jobId: string };
-    const job = store.getCronjob(params.jobId);
+    const job = store.getCronjob({ workspaceId, jobId: params.jobId });
     if (!job) {
       return sendError(reply, 404, "Cronjob not found");
     }
@@ -7802,6 +7838,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         () => queueWorker?.wake(),
       );
       const updated = store.updateCronjob({
+        workspaceId,
         jobId: job.id,
         lastRunAt: now.toISOString(),
         nextRunAt: cronjobNextRunAt(job.cron, now),
@@ -7822,6 +7859,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       const message =
         error instanceof Error ? error.message : "cronjob run failed";
       store.updateCronjob({
+        workspaceId,
         jobId: job.id,
         lastRunAt: now.toISOString(),
         nextRunAt: cronjobNextRunAt(job.cron, now),
@@ -7837,7 +7875,8 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 400, "request body must be an object");
     }
     const params = request.params as { jobId: string };
-    const existing = store.getCronjob(params.jobId);
+    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
+    const existing = store.getCronjob({ workspaceId, jobId: params.jobId });
     if (!existing) {
       return sendError(reply, 404, "Cronjob not found");
     }
@@ -7857,6 +7896,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           ? description
           : undefined;
     const job = store.updateCronjob({
+      workspaceId,
       jobId: params.jobId,
       name: nullableString(request.body.name),
       cron,
@@ -7874,8 +7914,13 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   });
 
   app.delete("/api/v1/cronjobs/:jobId", async (request, reply) => {
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(query.workspace_id);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
     const params = request.params as { jobId: string };
-    const deleted = store.deleteCronjob(params.jobId);
+    const deleted = store.deleteCronjob({ workspaceId, jobId: params.jobId });
     if (!deleted) {
       return sendError(reply, 404, "Cronjob not found");
     }
@@ -8099,7 +8144,8 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
 
     const params = request.params as { proposalId: string };
-    const proposal = store.getTaskProposal(params.proposalId);
+    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
+    const proposal = store.getTaskProposal({ workspaceId, proposalId: params.proposalId });
     if (!proposal) {
       return sendError(reply, 404, "Task proposal not found");
     }
@@ -8150,7 +8196,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
 
     const evolveCandidate =
-      proposal.proposalSource === "evolve" ? store.getEvolveSkillCandidateByTaskProposalId(proposal.proposalId) : null;
+      proposal.proposalSource === "evolve"
+        ? store.getEvolveSkillCandidateByTaskProposalId({
+            workspaceId: proposal.workspaceId,
+            proposalId: proposal.proposalId,
+          })
+        : null;
     let evolveCandidateMarkdown: string | null = null;
     if (evolveCandidate) {
       try {
@@ -8260,6 +8311,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     });
 
     const updatedProposal = store.updateTaskProposal({
+      workspaceId: proposal.workspaceId,
       proposalId: proposal.proposalId,
       fields: {
         taskName,
@@ -8272,6 +8324,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     });
     if (evolveCandidate) {
       store.updateEvolveSkillCandidate({
+        workspaceId: evolveCandidate.workspaceId,
         candidateId: evolveCandidate.candidateId,
         fields: {
           status: "accepted",
@@ -8293,8 +8346,13 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   });
 
   app.get("/api/v1/task-proposals/:proposalId", async (request, reply) => {
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(query.workspace_id);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
     const params = request.params as { proposalId: string };
-    const proposal = store.getTaskProposal(params.proposalId);
+    const proposal = store.getTaskProposal({ workspaceId, proposalId: params.proposalId });
     if (!proposal) {
       return sendError(reply, 404, "Task proposal not found");
     }
@@ -8306,7 +8364,9 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 400, "request body must be an object");
     }
     const params = request.params as { proposalId: string };
+    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
     const proposal = store.updateTaskProposalState({
+      workspaceId,
       proposalId: params.proposalId,
       state: requiredString(request.body.state, "state")
     });
@@ -8314,9 +8374,13 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 404, "Task proposal not found");
     }
     if (proposal.proposalSource === "evolve" && proposal.state === "dismissed") {
-      const candidate = store.getEvolveSkillCandidateByTaskProposalId(proposal.proposalId);
+      const candidate = store.getEvolveSkillCandidateByTaskProposalId({
+        workspaceId: proposal.workspaceId,
+        proposalId: proposal.proposalId,
+      });
       if (candidate) {
         store.updateEvolveSkillCandidate({
+          workspaceId: candidate.workspaceId,
           candidateId: candidate.candidateId,
           fields: {
             status: "dismissed",
@@ -8352,7 +8416,8 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   app.post("/api/v1/memory-update-proposals/:proposalId/accept", async (request, reply) => {
     const body = isRecord(request.body) ? request.body : {};
     const params = request.params as { proposalId: string };
-    const proposal = store.getMemoryUpdateProposal(params.proposalId);
+    const workspaceId = requiredString(body.workspace_id, "workspace_id");
+    const proposal = store.getMemoryUpdateProposal({ workspaceId, proposalId: params.proposalId });
     if (!proposal) {
       return sendError(reply, 404, "Memory update proposal not found");
     }
@@ -8402,6 +8467,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
 
     const updatedProposal = store.updateMemoryUpdateProposal({
+      workspaceId: proposal.workspaceId,
       proposalId: proposal.proposalId,
       fields: {
         summary,
@@ -8417,8 +8483,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   });
 
   app.post("/api/v1/memory-update-proposals/:proposalId/dismiss", async (request, reply) => {
+    const body = isRecord(request.body) ? request.body : {};
+    const workspaceId = requiredString(body.workspace_id, "workspace_id");
     const params = request.params as { proposalId: string };
-    const proposal = store.getMemoryUpdateProposal(params.proposalId);
+    const proposal = store.getMemoryUpdateProposal({ workspaceId, proposalId: params.proposalId });
     if (!proposal) {
       return sendError(reply, 404, "Memory update proposal not found");
     }
@@ -8429,6 +8497,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 409, "Memory update proposal has already been dismissed");
     }
     const updatedProposal = store.updateMemoryUpdateProposal({
+      workspaceId: proposal.workspaceId,
       proposalId: proposal.proposalId,
       fields: {
         state: "dismissed",

@@ -40,6 +40,7 @@ export type ListNotificationsParams = {
 export type NotificationsMethods = {
   list(params?: ListNotificationsParams): Promise<RuntimeNotificationListResponse>;
   update(
+    workspaceId: string,
     notificationId: string,
     payload: RuntimeNotificationUpdatePayload
   ): Promise<RuntimeNotificationRecord>;
@@ -60,11 +61,14 @@ export function makeNotificationsMethods(
         },
       });
     },
-    update(notificationId, payload) {
+    update(workspaceId, notificationId, payload) {
       return request<RuntimeNotificationRecord>({
         method: "PATCH",
         path: `/api/v1/notifications/${encodeURIComponent(notificationId)}`,
-        payload,
+        payload: {
+          workspace_id: workspaceId,
+          ...payload,
+        },
       });
     },
   };

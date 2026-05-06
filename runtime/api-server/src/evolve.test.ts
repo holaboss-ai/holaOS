@@ -155,7 +155,13 @@ test("createEvolveTaskProposal tags task proposals with the evolve source", () =
   });
 
   assert.equal(proposal.proposalSource, "evolve");
-  assert.equal(store.getTaskProposal("proposal-evolve-1")?.proposalSource, "evolve");
+  assert.equal(
+    store.getTaskProposal({
+      workspaceId: "workspace-1",
+      proposalId: "proposal-evolve-1"
+    })?.proposalSource,
+    "evolve"
+  );
   store.close();
 });
 
@@ -516,8 +522,19 @@ test("processClaimedInput promotes accepted evolve skill candidates into live wo
 
   const liveSkillPath = path.join(workspaceDir, "skills", "release-verification", "SKILL.md");
   assert.equal(fs.readFileSync(liveSkillPath, "utf8"), draftMarkdown);
-  assert.equal(store.getEvolveSkillCandidate("evolve-skill-input-10")?.status, "promoted");
-  assert.ok(store.getEvolveSkillCandidate("evolve-skill-input-10")?.promotedAt);
+  assert.equal(
+    store.getEvolveSkillCandidate({
+      workspaceId: "workspace-1",
+      candidateId: "evolve-skill-input-10"
+    })?.status,
+    "promoted"
+  );
+  assert.ok(
+    store.getEvolveSkillCandidate({
+      workspaceId: "workspace-1",
+      candidateId: "evolve-skill-input-10"
+    })?.promotedAt
+  );
   store.close();
 });
 
@@ -664,7 +681,13 @@ test("processClaimedInput promotes misplaced evolve workspace skill files into t
     path: "workspace/workspace-1/evolve/skills/evolve-skill-input-10/SKILL.md",
   });
   assert.equal(updatedDraft.text, misplacedMarkdown);
-  assert.equal(store.getEvolveSkillCandidate("evolve-skill-input-10")?.status, "promoted");
+  assert.equal(
+    store.getEvolveSkillCandidate({
+      workspaceId: "workspace-1",
+      candidateId: "evolve-skill-input-10"
+    })?.status,
+    "promoted"
+  );
   store.close();
 });
 

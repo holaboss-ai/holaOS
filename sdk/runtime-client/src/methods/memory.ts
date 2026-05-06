@@ -40,6 +40,7 @@ export type MemoryUpdateProposalListResponse = {
 
 export type MemoryUpdateProposalAcceptPayload = {
   proposalId: string;
+  workspaceId: string;
   summary?: string | null;
 };
 
@@ -59,6 +60,7 @@ export type MemoryMethods = {
     payload: MemoryUpdateProposalAcceptPayload
   ): Promise<MemoryUpdateProposalAcceptResponse>;
   dismissUpdateProposal(
+    workspaceId: string,
     proposalId: string
   ): Promise<MemoryUpdateProposalDismissResponse>;
 };
@@ -84,15 +86,18 @@ export function makeMemoryMethods(request: RequestFn): MemoryMethods {
         method: "POST",
         path: `/api/v1/memory-update-proposals/${encodeURIComponent(payload.proposalId)}/accept`,
         payload: {
+          workspace_id: payload.workspaceId,
           summary: payload.summary ?? undefined,
         },
       });
     },
-    dismissUpdateProposal(proposalId) {
+    dismissUpdateProposal(workspaceId, proposalId) {
       return request<MemoryUpdateProposalDismissResponse>({
         method: "POST",
         path: `/api/v1/memory-update-proposals/${encodeURIComponent(proposalId)}/dismiss`,
-        payload: {},
+        payload: {
+          workspace_id: workspaceId,
+        },
       });
     },
   };

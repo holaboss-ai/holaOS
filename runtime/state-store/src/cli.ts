@@ -554,6 +554,7 @@ export function handleRequest(operation: string, envelope: RequestEnvelope): Jso
           .map((record) => toOutputFolderRecord(record));
       case "update-output-folder": {
         const record = store.updateOutputFolder({
+          workspaceId: String(envelope.workspace_id),
           folderId: String(envelope.folder_id),
           name: typeof envelope.name === "string" ? envelope.name : null,
           position: typeof envelope.position === "number" ? envelope.position : null
@@ -561,11 +562,17 @@ export function handleRequest(operation: string, envelope: RequestEnvelope): Jso
         return record ? toOutputFolderRecord(record) : null;
       }
       case "get-output-folder": {
-        const record = store.getOutputFolder(String(envelope.folder_id));
+        const record = store.getOutputFolder({
+          workspaceId: String(envelope.workspace_id),
+          folderId: String(envelope.folder_id),
+        });
         return record ? toOutputFolderRecord(record) : null;
       }
       case "delete-output-folder":
-        return store.deleteOutputFolder(String(envelope.folder_id));
+        return store.deleteOutputFolder({
+          workspaceId: String(envelope.workspace_id),
+          folderId: String(envelope.folder_id),
+        });
       case "create-output":
         return toOutputRecord(
           store.createOutput({
@@ -601,11 +608,15 @@ export function handleRequest(operation: string, envelope: RequestEnvelope): Jso
           })
           .map((record) => toOutputRecord(record));
       case "get-output": {
-        const record = store.getOutput(String(envelope.output_id));
+        const record = store.getOutput({
+          workspaceId: String(envelope.workspace_id),
+          outputId: String(envelope.output_id),
+        });
         return record ? toOutputRecord(record) : null;
       }
       case "update-output": {
         const record = store.updateOutput({
+          workspaceId: String(envelope.workspace_id),
           outputId: String(envelope.output_id),
           title: typeof envelope.title === "string" ? envelope.title : null,
           status: typeof envelope.status === "string" ? envelope.status : null,
@@ -618,7 +629,10 @@ export function handleRequest(operation: string, envelope: RequestEnvelope): Jso
         return record ? toOutputRecord(record) : null;
       }
       case "delete-output":
-        return store.deleteOutput(String(envelope.output_id));
+        return store.deleteOutput({
+          workspaceId: String(envelope.workspace_id),
+          outputId: String(envelope.output_id),
+        });
       case "get-output-counts":
         return store.getOutputCounts({ workspaceId: String(envelope.workspace_id) }) as JsonValue;
       case "create-cronjob":
@@ -638,7 +652,10 @@ export function handleRequest(operation: string, envelope: RequestEnvelope): Jso
           })
         );
       case "get-cronjob": {
-        const record = store.getCronjob(String(envelope.job_id));
+        const record = store.getCronjob({
+          workspaceId: String(envelope.workspace_id),
+          jobId: String(envelope.job_id),
+        });
         return record ? toCronjobRecord(record) : null;
       }
       case "list-cronjobs":
@@ -650,6 +667,7 @@ export function handleRequest(operation: string, envelope: RequestEnvelope): Jso
           .map((record) => toCronjobRecord(record));
       case "update-cronjob": {
         const record = store.updateCronjob({
+          workspaceId: String(envelope.workspace_id),
           jobId: String(envelope.job_id),
           name: typeof envelope.name === "string" ? envelope.name : null,
           cron: typeof envelope.cron === "string" ? envelope.cron : null,
@@ -667,7 +685,10 @@ export function handleRequest(operation: string, envelope: RequestEnvelope): Jso
         return record ? toCronjobRecord(record) : null;
       }
       case "delete-cronjob":
-        return store.deleteCronjob(String(envelope.job_id));
+        return store.deleteCronjob({
+          workspaceId: String(envelope.workspace_id),
+          jobId: String(envelope.job_id),
+        });
       case "upsert-app-build":
         return toAppBuildRecord(
           store.upsertAppBuild({
@@ -706,7 +727,10 @@ export function handleRequest(operation: string, envelope: RequestEnvelope): Jso
           })
         );
       case "get-task-proposal": {
-        const record = store.getTaskProposal(String(envelope.proposal_id));
+        const record = store.getTaskProposal({
+          workspaceId: String(envelope.workspace_id),
+          proposalId: String(envelope.proposal_id),
+        });
         return record ? toTaskProposalRecord(record) : null;
       }
       case "list-task-proposals":
@@ -719,6 +743,7 @@ export function handleRequest(operation: string, envelope: RequestEnvelope): Jso
           .map((record) => toTaskProposalRecord(record));
       case "update-task-proposal-state": {
         const record = store.updateTaskProposalState({
+          workspaceId: String(envelope.workspace_id),
           proposalId: String(envelope.proposal_id),
           state: String(envelope.state)
         });

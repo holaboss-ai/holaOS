@@ -12,8 +12,10 @@ import {
 } from "./migrations/index.js";
 
 const RUNTIME_DB_PATH_ENV = "HOLABOSS_RUNTIME_DB_PATH";
+const CONTROL_PLANE_DB_PATH_ENV = "HOLABOSS_CONTROL_PLANE_DB_PATH";
 const WORKSPACE_RUNTIME_DIRNAME = ".holaboss";
 const WORKSPACE_STATE_DIRNAME = "state";
+const WORKSPACE_RUNTIME_DB_FILENAME = "runtime.db";
 const WORKSPACE_IDENTITY_FILENAME = "workspace_id";
 const LEGACY_WORKSPACE_METADATA_FILENAME = "workspace.json";
 
@@ -610,6 +612,7 @@ export interface CreateWorkspaceParams {
 
 export interface RuntimeStateStoreOptions {
   dbPath?: string;
+  controlPlaneDbPath?: string;
   workspaceRoot?: string;
   sandboxRoot?: string;
   sandboxAgentHarness?: string;
@@ -851,12 +854,30 @@ export function runtimeDbPath(options: RuntimeStateStoreOptions = {}): string {
   return path.join(sandboxRoot, "state", "runtime.db");
 }
 
+export function controlPlaneDbPath(options: RuntimeStateStoreOptions = {}): string {
+  const explicit = (options.controlPlaneDbPath ?? process.env[CONTROL_PLANE_DB_PATH_ENV] ?? "").trim();
+  if (explicit) {
+    return path.resolve(explicit);
+  }
+
+  if (options.dbPath) {
+    return path.join(path.dirname(path.resolve(options.dbPath)), "control-plane.db");
+  }
+
+  const sandboxRoot = options.sandboxRoot ?? path.join(os.tmpdir(), "sandbox");
+  return path.join(sandboxRoot, "state", "control-plane.db");
+}
+
 function workspaceRuntimeDir(workspacePath: string): string {
   return path.join(workspacePath, WORKSPACE_RUNTIME_DIRNAME);
 }
 
 function workspaceStateDir(workspacePath: string): string {
   return path.join(workspaceRuntimeDir(workspacePath), WORKSPACE_STATE_DIRNAME);
+}
+
+function workspaceRuntimeDbPathForWorkspacePath(workspacePath: string): string {
+  return path.join(workspaceStateDir(workspacePath), WORKSPACE_RUNTIME_DB_FILENAME);
 }
 
 function currentWorkspaceIdentityPath(workspacePath: string): string {
@@ -883,15 +904,19 @@ function ensureWorkspaceIdentityMigrated(workspacePath: string): string {
 
 export class RuntimeStateStore {
   readonly dbPath: string;
+  readonly controlPlaneDbPath: string;
   readonly workspaceRoot: string;
   readonly sandboxAgentHarness: string | null;
   readonly #onMigrationEvent: ((event: MigrationLogEvent) => void) | undefined;
   #db: Database.Database | null = null;
+  #controlPlaneDb: Database.Database | null = null;
+  #workspaceRuntimeDbs: Map<string, { dbPath: string; db: Database.Database }> = new Map();
   #vectorIndexSupported = false;
   #statementCache: Map<string, Database.Statement> = new Map();
 
   constructor(options: RuntimeStateStoreOptions = {}) {
     this.dbPath = runtimeDbPath(options);
+    this.controlPlaneDbPath = controlPlaneDbPath(options);
     this.workspaceRoot = path.resolve(options.workspaceRoot ?? path.join(os.tmpdir(), "workspace-root"));
     this.#onMigrationEvent = options.onMigrationEvent;
     this.sandboxAgentHarness = (options.sandboxAgentHarness ?? process.env.SANDBOX_AGENT_HARNESS ?? "").trim() || null;
@@ -901,6 +926,14 @@ export class RuntimeStateStore {
     this.#statementCache.clear();
     this.#db?.close();
     this.#db = null;
+    if (this.controlPlaneDbPath !== this.dbPath) {
+      this.#controlPlaneDb?.close();
+    }
+    this.#controlPlaneDb = null;
+    for (const entry of this.#workspaceRuntimeDbs.values()) {
+      entry.db.close();
+    }
+    this.#workspaceRuntimeDbs.clear();
     this.#vectorIndexSupported = false;
   }
 
@@ -925,7 +958,7 @@ export class RuntimeStateStore {
    * connection merges atomic.
    */
   transaction<T>(fn: () => T): T {
-    return this.db().transaction(fn)();
+    return this.controlPlaneDb().transaction(fn)();
   }
 
   workspaceIdentityPath(workspaceId: string): string {
@@ -1031,7 +1064,7 @@ export class RuntimeStateStore {
 
   listWorkspaces(options: { includeDeleted?: boolean } = {}): WorkspaceRecord[] {
     this.ensureWorkspaceMetadataReady();
-    const rows = this.db()
+    const rows = this.controlPlaneDb()
       .prepare<[], WorkspaceRow>(`
         SELECT id, workspace_path, name, status, harness, error_message,
                onboarding_status, onboarding_session_id, onboarding_completed_at,
@@ -1051,7 +1084,7 @@ export class RuntimeStateStore {
 
   getWorkspace(workspaceId: string, options: { includeDeleted?: boolean } = {}): WorkspaceRecord | null {
     this.ensureWorkspaceMetadataReady();
-    const row = this.db()
+    const row = this.controlPlaneDb()
       .prepare<[string], WorkspaceRow>(`
         SELECT id, workspace_path, name, status, harness, error_message,
                onboarding_status, onboarding_session_id, onboarding_completed_at,
@@ -1149,7 +1182,7 @@ export class RuntimeStateStore {
     // Soft-deleted rows are excluded: once a workspace is removed, its
     // former path is fair game for reuse (the metadata was already
     // stripped during DELETE).
-    const rows = this.db()
+    const rows = this.controlPlaneDb()
       .prepare<[], { id: string; workspace_path: string }>(
         "SELECT id, workspace_path FROM workspaces WHERE deleted_at_utc IS NULL"
       )
@@ -1295,7 +1328,10 @@ export class RuntimeStateStore {
     // reversible). Stamp a tombstone that is unique per workspace id and
     // identifiable in diagnostics.
     const tombstone = `__deleted__/${workspaceId}/${Date.now()}`;
-    this.db().prepare("UPDATE workspaces SET workspace_path = ? WHERE id = ?").run(tombstone, workspaceId);
+    this.controlPlaneDb().prepare("UPDATE workspaces SET workspace_path = ? WHERE id = ?").run(tombstone, workspaceId);
+    if (this.controlPlaneDbPath !== this.dbPath) {
+      this.db().prepare("UPDATE workspaces SET workspace_path = ? WHERE id = ?").run(tombstone, workspaceId);
+    }
     return result;
   }
 
@@ -1429,10 +1465,17 @@ export class RuntimeStateStore {
     return rows.map((row) => this.rowToAgentSession(row));
   }
 
-  updateTaskProposal(params: { proposalId: string; fields: TaskProposalUpdateFields }): TaskProposalRecord | null {
+  updateTaskProposal(params: { workspaceId: string; proposalId: string; fields: TaskProposalUpdateFields }): TaskProposalRecord | null {
+    const existing = this.getTaskProposal({
+      workspaceId: params.workspaceId,
+      proposalId: params.proposalId,
+    });
+    if (!existing) {
+      return null;
+    }
     const entries = Object.entries(params.fields);
     if (entries.length === 0) {
-      return this.getTaskProposal(params.proposalId);
+      return existing;
     }
 
     const columnMap: Record<keyof TaskProposalUpdateFields, string> = {
@@ -1457,22 +1500,30 @@ export class RuntimeStateStore {
     }
     values.push(params.proposalId);
 
-    const result = this.db()
-      .prepare(`UPDATE task_proposals SET ${assignments.join(", ")} WHERE proposal_id = ?`)
-      .run(...values);
-    if (result.changes <= 0) {
-      return null;
-    }
-    return this.getTaskProposal(params.proposalId);
+    this.mirrorWorkspaceRuntimeMutation(existing.workspaceId, (db) => {
+      db.prepare(`UPDATE task_proposals SET ${assignments.join(", ")} WHERE proposal_id = ?`).run(...values);
+    });
+    return this.getTaskProposal({
+      workspaceId: params.workspaceId,
+      proposalId: params.proposalId,
+    });
   }
 
   updateMemoryUpdateProposal(params: {
+    workspaceId: string;
     proposalId: string;
     fields: MemoryUpdateProposalUpdateFields;
   }): MemoryUpdateProposalRecord | null {
+    const existing = this.getMemoryUpdateProposal({
+      workspaceId: params.workspaceId,
+      proposalId: params.proposalId,
+    });
+    if (!existing) {
+      return null;
+    }
     const entries = Object.entries(params.fields);
     if (entries.length === 0) {
-      return this.getMemoryUpdateProposal(params.proposalId);
+      return existing;
     }
 
     const columnMap: Record<keyof MemoryUpdateProposalUpdateFields, string> = {
@@ -1504,22 +1555,30 @@ export class RuntimeStateStore {
     assignments.push("updated_at = ?");
     values.push(utcNowIso(), params.proposalId);
 
-    const result = this.db()
-      .prepare(`UPDATE memory_update_proposals SET ${assignments.join(", ")} WHERE proposal_id = ?`)
-      .run(...values);
-    if (result.changes <= 0) {
-      return null;
-    }
-    return this.getMemoryUpdateProposal(params.proposalId);
+    this.mirrorWorkspaceRuntimeMutation(existing.workspaceId, (db) => {
+      db.prepare(`UPDATE memory_update_proposals SET ${assignments.join(", ")} WHERE proposal_id = ?`).run(...values);
+    });
+    return this.getMemoryUpdateProposal({
+      workspaceId: params.workspaceId,
+      proposalId: params.proposalId,
+    });
   }
 
   updateEvolveSkillCandidate(params: {
+    workspaceId: string;
     candidateId: string;
     fields: EvolveSkillCandidateUpdateFields;
   }): EvolveSkillCandidateRecord | null {
+    const existing = this.getEvolveSkillCandidate({
+      workspaceId: params.workspaceId,
+      candidateId: params.candidateId,
+    });
+    if (!existing) {
+      return null;
+    }
     const entries = Object.entries(params.fields);
     if (entries.length === 0) {
-      return this.getEvolveSkillCandidate(params.candidateId);
+      return existing;
     }
 
     const columnMap: Record<keyof EvolveSkillCandidateUpdateFields, string> = {
@@ -1555,13 +1614,13 @@ export class RuntimeStateStore {
     assignments.push("updated_at = ?");
     values.push(utcNowIso(), params.candidateId);
 
-    const result = this.db()
-      .prepare(`UPDATE evolve_skill_candidates SET ${assignments.join(", ")} WHERE candidate_id = ?`)
-      .run(...values);
-    if (result.changes <= 0) {
-      return null;
-    }
-    return this.getEvolveSkillCandidate(params.candidateId);
+    this.mirrorWorkspaceRuntimeMutation(existing.workspaceId, (db) => {
+      db.prepare(`UPDATE evolve_skill_candidates SET ${assignments.join(", ")} WHERE candidate_id = ?`).run(...values);
+    });
+    return this.getEvolveSkillCandidate({
+      workspaceId: params.workspaceId,
+      candidateId: params.candidateId,
+    });
   }
 
   upsertBinding(params: {
@@ -2868,7 +2927,7 @@ export class RuntimeStateStore {
     secretRef?: string | null;
   }): IntegrationConnectionRecord {
     const now = utcNowIso();
-    this.db()
+    this.controlPlaneDb()
       .prepare(`
         INSERT INTO integration_connections (
             connection_id, provider_id, owner_user_id, account_label, account_external_id,
@@ -2944,7 +3003,7 @@ export class RuntimeStateStore {
       values.push(email);
     }
     filters.push(`(${identityClauses.join(" OR ")})`);
-    const row = this.db()
+    const row = this.controlPlaneDb()
       .prepare<typeof values, Record<string, unknown>>(
         `SELECT * FROM integration_connections WHERE ${filters.join(" AND ")} ORDER BY datetime(updated_at) DESC LIMIT 1`
       )
@@ -2953,7 +3012,7 @@ export class RuntimeStateStore {
   }
 
   getIntegrationConnection(connectionId: string): IntegrationConnectionRecord | null {
-    const row = this.db()
+    const row = this.controlPlaneDb()
       .prepare<[string], Record<string, unknown>>(
         "SELECT * FROM integration_connections WHERE connection_id = ? LIMIT 1"
       )
@@ -2977,7 +3036,7 @@ export class RuntimeStateStore {
       query += ` WHERE ${filters.join(" AND ")}`;
     }
     query += " ORDER BY datetime(created_at) ASC, connection_id ASC";
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.controlPlaneDb().prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToIntegrationConnection(row));
   }
 
@@ -3004,7 +3063,7 @@ export class RuntimeStateStore {
     });
 
     if (existing) {
-      this.db()
+      this.controlPlaneDb()
         .prepare(`
           UPDATE integration_bindings
           SET binding_id = ?,
@@ -3024,7 +3083,7 @@ export class RuntimeStateStore {
           params.integrationKey
         );
     } else {
-      this.db()
+      this.controlPlaneDb()
         .prepare(`
           INSERT INTO integration_bindings (
               binding_id, workspace_id, target_type, target_id, integration_key,
@@ -3057,7 +3116,7 @@ export class RuntimeStateStore {
   }
 
   getIntegrationBinding(bindingId: string): IntegrationBindingRecord | null {
-    const row = this.db()
+    const row = this.controlPlaneDb()
       .prepare<[string], Record<string, unknown>>("SELECT * FROM integration_bindings WHERE binding_id = ? LIMIT 1")
       .get(bindingId);
     return row ? this.rowToIntegrationBinding(row) : null;
@@ -3069,7 +3128,7 @@ export class RuntimeStateStore {
     targetId: string;
     integrationKey: string;
   }): IntegrationBindingRecord | null {
-    const row = this.db()
+    const row = this.controlPlaneDb()
       .prepare<[string, string, string, string], Record<string, unknown>>(`
         SELECT * FROM integration_bindings
         WHERE workspace_id = ? AND target_type = ? AND target_id = ? AND integration_key = ?
@@ -3087,19 +3146,19 @@ export class RuntimeStateStore {
       values.push(params.workspaceId);
     }
     query += " ORDER BY is_default DESC, datetime(created_at) ASC, binding_id ASC";
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.controlPlaneDb().prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToIntegrationBinding(row));
   }
 
   deleteIntegrationConnection(connectionId: string): boolean {
-    const result = this.db()
+    const result = this.controlPlaneDb()
       .prepare("DELETE FROM integration_connections WHERE connection_id = ?")
       .run(connectionId);
     return result.changes > 0;
   }
 
   deleteIntegrationBinding(bindingId: string): boolean {
-    const result = this.db().prepare("DELETE FROM integration_bindings WHERE binding_id = ?").run(bindingId);
+    const result = this.controlPlaneDb().prepare("DELETE FROM integration_bindings WHERE binding_id = ?").run(bindingId);
     return result.changes > 0;
   }
 
@@ -3114,7 +3173,7 @@ export class RuntimeStateStore {
   }): OAuthAppConfigRecord {
     const now = utcNowIso();
     const redirectPort = params.redirectPort ?? 38765;
-    this.db().prepare(`
+    this.controlPlaneDb().prepare(`
       INSERT INTO oauth_app_configs (provider_id, client_id, client_secret, authorize_url, token_url, scopes, redirect_port, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (provider_id) DO UPDATE SET
@@ -3138,7 +3197,7 @@ export class RuntimeStateStore {
   }
 
   getOAuthAppConfig(providerId: string): OAuthAppConfigRecord | null {
-    const row = this.db().prepare("SELECT * FROM oauth_app_configs WHERE provider_id = ?").get(providerId) as Record<string, unknown> | undefined;
+    const row = this.controlPlaneDb().prepare("SELECT * FROM oauth_app_configs WHERE provider_id = ?").get(providerId) as Record<string, unknown> | undefined;
     if (!row) return null;
     return {
       providerId: row.provider_id as string,
@@ -3154,7 +3213,7 @@ export class RuntimeStateStore {
   }
 
   listOAuthAppConfigs(): OAuthAppConfigRecord[] {
-    const rows = this.db().prepare("SELECT * FROM oauth_app_configs ORDER BY provider_id").all() as Record<string, unknown>[];
+    const rows = this.controlPlaneDb().prepare("SELECT * FROM oauth_app_configs ORDER BY provider_id").all() as Record<string, unknown>[];
     return rows.map((row) => ({
       providerId: row.provider_id as string,
       clientId: row.client_id as string,
@@ -3169,7 +3228,7 @@ export class RuntimeStateStore {
   }
 
   deleteOAuthAppConfig(providerId: string): boolean {
-    const result = this.db().prepare("DELETE FROM oauth_app_configs WHERE provider_id = ?").run(providerId);
+    const result = this.controlPlaneDb().prepare("DELETE FROM oauth_app_configs WHERE provider_id = ?").run(providerId);
     return result.changes > 0;
   }
 
@@ -4422,7 +4481,7 @@ export class RuntimeStateStore {
   }
 
   getRuntimeUserProfile(params: { profileId?: string } = {}): RuntimeUserProfileRecord | null {
-    const row = this.db()
+    const row = this.controlPlaneDb()
       .prepare<[string], Record<string, unknown>>(
         "SELECT * FROM runtime_user_profiles WHERE profile_id = ? LIMIT 1"
       )
@@ -4447,7 +4506,7 @@ export class RuntimeStateStore {
       ? (params.nameSource ?? existing?.nameSource ?? "manual")
       : null;
 
-    this.db()
+    this.controlPlaneDb()
       .prepare(`
         INSERT INTO runtime_user_profiles (
             profile_id,
@@ -5023,18 +5082,19 @@ export class RuntimeStateStore {
   createOutputFolder(params: { workspaceId: string; name: string }): OutputFolderRecord {
     const resolvedId = randomUUID();
     const now = utcNowIso();
-    const countRow = this.db()
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
+    const countRow = workspaceDb
       .prepare<[string], { count: number }>("SELECT COUNT(*) AS count FROM output_folders WHERE workspace_id = ?")
       .get(params.workspaceId);
     const position = countRow?.count ?? 0;
-    this.db()
-      .prepare(`
+    this.mirrorWorkspaceRuntimeMutation(params.workspaceId, (db) => {
+      db.prepare(`
         INSERT INTO output_folders (
             id, workspace_id, name, position, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?)
-      `)
-      .run(resolvedId, params.workspaceId, params.name, position, now, now);
-    const row = this.db()
+      `).run(resolvedId, params.workspaceId, params.name, position, now, now);
+    });
+    const row = workspaceDb
       .prepare<[string], Record<string, unknown>>("SELECT * FROM output_folders WHERE id = ? LIMIT 1")
       .get(resolvedId);
     if (!row) {
@@ -5044,7 +5104,7 @@ export class RuntimeStateStore {
   }
 
   listOutputFolders(params: { workspaceId: string }): OutputFolderRecord[] {
-    const rows = this.db()
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>(`
         SELECT * FROM output_folders
         WHERE workspace_id = ?
@@ -5054,33 +5114,51 @@ export class RuntimeStateStore {
     return rows.map((row) => this.rowToOutputFolder(row));
   }
 
-  updateOutputFolder(params: { folderId: string; name?: string | null; position?: number | null }): OutputFolderRecord | null {
-    const existing = this.getOutputFolder(params.folderId);
+  updateOutputFolder(params: {
+    workspaceId: string;
+    folderId: string;
+    name?: string | null;
+    position?: number | null;
+  }): OutputFolderRecord | null {
+    const existing = this.getOutputFolder({
+      workspaceId: params.workspaceId,
+      folderId: params.folderId,
+    });
     if (!existing) {
       return null;
     }
     const updatedAt = utcNowIso();
-    this.db()
-      .prepare(`
+    this.mirrorWorkspaceRuntimeMutation(existing.workspaceId, (db) => {
+      db.prepare(`
         UPDATE output_folders
         SET name = ?, position = ?, updated_at = ?
         WHERE id = ?
-      `)
-      .run(params.name ?? existing.name, params.position ?? existing.position, updatedAt, params.folderId);
-    return this.getOutputFolder(params.folderId);
+      `).run(params.name ?? existing.name, params.position ?? existing.position, updatedAt, params.folderId);
+    });
+    return this.getOutputFolder({
+      workspaceId: params.workspaceId,
+      folderId: params.folderId,
+    });
   }
 
-  getOutputFolder(folderId: string): OutputFolderRecord | null {
-    const row = this.db()
+  getOutputFolder(params: { workspaceId: string; folderId: string }): OutputFolderRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM output_folders WHERE id = ? LIMIT 1")
-      .get(folderId);
+      .get(params.folderId);
     return row ? this.rowToOutputFolder(row) : null;
   }
 
-  deleteOutputFolder(folderId: string): boolean {
-    this.db().prepare("UPDATE outputs SET folder_id = NULL, updated_at = ? WHERE folder_id = ?").run(utcNowIso(), folderId);
-    const result = this.db().prepare("DELETE FROM output_folders WHERE id = ?").run(folderId);
-    return result.changes > 0;
+  deleteOutputFolder(params: { workspaceId: string; folderId: string }): boolean {
+    const existing = this.getOutputFolder(params);
+    if (!existing) {
+      return false;
+    }
+    const updatedAt = utcNowIso();
+    this.mirrorWorkspaceRuntimeMutation(existing.workspaceId, (db) => {
+      db.prepare("UPDATE outputs SET folder_id = NULL, updated_at = ? WHERE folder_id = ?").run(updatedAt, params.folderId);
+      db.prepare("DELETE FROM output_folders WHERE id = ?").run(params.folderId);
+    });
+    return this.getOutputFolder(params) === null;
   }
 
   createOutput(params: {
@@ -5102,14 +5180,14 @@ export class RuntimeStateStore {
   }): OutputRecord {
     const resolvedId = params.outputId ?? randomUUID();
     const now = utcNowIso();
-    this.db()
-      .prepare(`
+    const metadataJson = JSON.stringify(params.metadata ?? {});
+    this.mirrorWorkspaceRuntimeMutation(params.workspaceId, (db) => {
+      db.prepare(`
         INSERT INTO outputs (
             id, workspace_id, output_type, title, status, module_id, module_resource_id, file_path,
             html_content, session_id, input_id, artifact_id, folder_id, platform, metadata, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      .run(
+      `).run(
         resolvedId,
         params.workspaceId,
         params.outputType,
@@ -5124,11 +5202,14 @@ export class RuntimeStateStore {
         params.artifactId ?? null,
         params.folderId ?? null,
         params.platform ?? null,
-        JSON.stringify(params.metadata ?? {}),
+        metadataJson,
         now,
         now
       );
-    const row = this.db().prepare<[string], Record<string, unknown>>("SELECT * FROM outputs WHERE id = ? LIMIT 1").get(resolvedId);
+    });
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<[string], Record<string, unknown>>("SELECT * FROM outputs WHERE id = ? LIMIT 1")
+      .get(resolvedId);
     if (!row) {
       throw new Error("output row not found after insert");
     }
@@ -5174,16 +5255,19 @@ export class RuntimeStateStore {
     }
     query += " ORDER BY datetime(created_at) DESC LIMIT ? OFFSET ?";
     values.push(params.limit ?? 50, params.offset ?? 0);
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToOutput(row));
   }
 
-  getOutput(outputId: string): OutputRecord | null {
-    const row = this.db().prepare<[string], Record<string, unknown>>("SELECT * FROM outputs WHERE id = ? LIMIT 1").get(outputId);
+  getOutput(params: { workspaceId: string; outputId: string }): OutputRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<[string], Record<string, unknown>>("SELECT * FROM outputs WHERE id = ? LIMIT 1")
+      .get(params.outputId);
     return row ? this.rowToOutput(row) : null;
   }
 
   updateOutput(params: {
+    workspaceId: string;
     outputId: string;
     title?: string | null;
     status?: string | null;
@@ -5193,12 +5277,15 @@ export class RuntimeStateStore {
     metadata?: Record<string, unknown> | null;
     folderId?: string | null;
   }): OutputRecord | null {
-    const existing = this.getOutput(params.outputId);
+    const existing = this.getOutput({
+      workspaceId: params.workspaceId,
+      outputId: params.outputId,
+    });
     if (!existing) {
       return null;
     }
-    this.db()
-      .prepare(`
+    this.mirrorWorkspaceRuntimeMutation(existing.workspaceId, (db) => {
+      db.prepare(`
         UPDATE outputs
         SET title = ?,
             status = ?,
@@ -5209,8 +5296,7 @@ export class RuntimeStateStore {
             folder_id = ?,
             updated_at = ?
         WHERE id = ?
-      `)
-      .run(
+      `).run(
         params.title ?? existing.title,
         params.status ?? existing.status,
         params.moduleResourceId ?? existing.moduleResourceId,
@@ -5221,16 +5307,26 @@ export class RuntimeStateStore {
         utcNowIso(),
         params.outputId
       );
-    return this.getOutput(params.outputId);
+    });
+    return this.getOutput({
+      workspaceId: params.workspaceId,
+      outputId: params.outputId,
+    });
   }
 
-  deleteOutput(outputId: string): boolean {
-    const result = this.db().prepare("DELETE FROM outputs WHERE id = ?").run(outputId);
-    return result.changes > 0;
+  deleteOutput(params: { workspaceId: string; outputId: string }): boolean {
+    const existing = this.getOutput(params);
+    if (!existing) {
+      return false;
+    }
+    this.mirrorWorkspaceRuntimeMutation(existing.workspaceId, (db) => {
+      db.prepare("DELETE FROM outputs WHERE id = ?").run(params.outputId);
+    });
+    return this.getOutput(params) === null;
   }
 
   getOutputCounts(params: { workspaceId: string }): Record<string, unknown> {
-    const rows = this.db()
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT status, platform, folder_id FROM outputs WHERE workspace_id = ?")
       .all(params.workspaceId);
     const byStatus: Record<string, number> = {};
@@ -5259,6 +5355,7 @@ export class RuntimeStateStore {
     error?: string | null;
   }): AppBuildRecord {
     const now = utcNowIso();
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
     const existing = this.getAppBuild({
       workspaceId: params.workspaceId,
       appId: params.appId
@@ -5281,17 +5378,17 @@ export class RuntimeStateStore {
       const setClause = Object.keys(fields)
         .map((column) => `${column} = ?`)
         .join(", ");
-      this.db()
-        .prepare(`UPDATE app_builds SET ${setClause} WHERE workspace_id = ? AND app_id = ?`)
-        .run(...Object.values(fields), params.workspaceId, params.appId);
+      this.mirrorWorkspaceRuntimeMutation(params.workspaceId, (db) => {
+        db.prepare(`UPDATE app_builds SET ${setClause} WHERE workspace_id = ? AND app_id = ?`)
+          .run(...Object.values(fields), params.workspaceId, params.appId);
+      });
     } else {
-      this.db()
-        .prepare(`
+      this.mirrorWorkspaceRuntimeMutation(params.workspaceId, (db) => {
+        db.prepare(`
           INSERT INTO app_builds (
               workspace_id, app_id, status, started_at, completed_at, error, created_at, updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `)
-        .run(
+        `).run(
           params.workspaceId,
           params.appId,
           params.status,
@@ -5301,8 +5398,9 @@ export class RuntimeStateStore {
           now,
           now
         );
+      });
     }
-    const row = this.db()
+    const row = workspaceDb
       .prepare<[string, string], Record<string, unknown>>(
         "SELECT * FROM app_builds WHERE workspace_id = ? AND app_id = ? LIMIT 1"
       )
@@ -5314,7 +5412,7 @@ export class RuntimeStateStore {
   }
 
   getAppBuild(params: { workspaceId: string; appId: string }): AppBuildRecord | null {
-    const row = this.db()
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string, string], Record<string, unknown>>(
         "SELECT * FROM app_builds WHERE workspace_id = ? AND app_id = ? LIMIT 1"
       )
@@ -5323,10 +5421,10 @@ export class RuntimeStateStore {
   }
 
   deleteAppBuild(params: { workspaceId: string; appId: string }): boolean {
-    const result = this.db()
-      .prepare("DELETE FROM app_builds WHERE workspace_id = ? AND app_id = ?")
-      .run(params.workspaceId, params.appId);
-    return result.changes > 0;
+    this.mirrorWorkspaceRuntimeMutation(params.workspaceId, (db) => {
+      db.prepare("DELETE FROM app_builds WHERE workspace_id = ? AND app_id = ?").run(params.workspaceId, params.appId);
+    });
+    return this.getAppBuild(params) === null;
   }
 
   /** Set the persistent restart-attempts counter for an app build row.
@@ -5337,11 +5435,11 @@ export class RuntimeStateStore {
     attempts: number;
   }): void {
     const safeAttempts = Math.max(0, Math.floor(params.attempts) || 0);
-    this.db()
-      .prepare(
+    this.mirrorWorkspaceRuntimeMutation(params.workspaceId, (db) => {
+      db.prepare(
         "UPDATE app_builds SET restart_attempts = ?, updated_at = ? WHERE workspace_id = ? AND app_id = ?",
-      )
-      .run(safeAttempts, utcNowIso(), params.workspaceId, params.appId);
+      ).run(safeAttempts, utcNowIso(), params.workspaceId, params.appId);
+    });
   }
 
   // --- App Ports ---
@@ -5356,10 +5454,12 @@ export class RuntimeStateStore {
       const port = this.findAvailablePort();
       const now = utcNowIso();
 
-      this.db().prepare(`
-        INSERT OR IGNORE INTO app_ports (workspace_id, app_id, port, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(params.workspaceId, params.appId, port, now, now);
+      this.mirrorWorkspaceRuntimeMutation(params.workspaceId, (db) => {
+        db.prepare(`
+          INSERT OR IGNORE INTO app_ports (workspace_id, app_id, port, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(params.workspaceId, params.appId, port, now, now);
+      });
 
       return this.getAppPort({ workspaceId: params.workspaceId, appId: params.appId })!;
     });
@@ -5367,7 +5467,7 @@ export class RuntimeStateStore {
   }
 
   getAppPort(params: { workspaceId: string; appId: string }): AppPortRecord | null {
-    const row = this.db()
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string, string], Record<string, unknown>>(
         "SELECT * FROM app_ports WHERE workspace_id = ? AND app_id = ? LIMIT 1"
       )
@@ -5376,7 +5476,7 @@ export class RuntimeStateStore {
   }
 
   listAppPorts(params: { workspaceId: string }): AppPortRecord[] {
-    const rows = this.db()
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>(
         "SELECT * FROM app_ports WHERE workspace_id = ?"
       )
@@ -5385,19 +5485,21 @@ export class RuntimeStateStore {
   }
 
   listAllAppPorts(): AppPortRecord[] {
-    const rows = this.db()
-      .prepare<[], Record<string, unknown>>(
-        "SELECT * FROM app_ports"
-      )
-      .all();
-    return rows.map((row) => this.rowToAppPort(row));
+    return this.listReadableWorkspaceRuntimeDbs().flatMap(({ db }) => {
+      const rows = db
+        .prepare<[], Record<string, unknown>>(
+          "SELECT * FROM app_ports"
+        )
+        .all();
+      return rows.map((row) => this.rowToAppPort(row));
+    });
   }
 
   deleteAppPort(params: { workspaceId: string; appId: string }): boolean {
-    const result = this.db()
-      .prepare("DELETE FROM app_ports WHERE workspace_id = ? AND app_id = ?")
-      .run(params.workspaceId, params.appId);
-    return result.changes > 0;
+    this.mirrorWorkspaceRuntimeMutation(params.workspaceId, (db) => {
+      db.prepare("DELETE FROM app_ports WHERE workspace_id = ? AND app_id = ?").run(params.workspaceId, params.appId);
+    });
+    return this.getAppPort(params) === null;
   }
 
   // --- App Catalog ---
@@ -5417,7 +5519,7 @@ export class RuntimeStateStore {
     cachedAt: string;
   }): AppCatalogEntryRecord {
     const tagsJson = JSON.stringify(params.tags ?? []);
-    this.db().prepare(`
+    this.controlPlaneDb().prepare(`
       INSERT INTO app_catalog (
         app_id, source, name, description, icon, category,
         tags_json, version, archive_url, archive_path, target, cached_at
@@ -5467,12 +5569,12 @@ export class RuntimeStateStore {
     params: { source?: "marketplace" | "local" } = {},
   ): AppCatalogEntryRecord[] {
     const rows = params.source
-      ? this.db()
+      ? this.controlPlaneDb()
           .prepare<[string], Record<string, unknown>>(
             "SELECT * FROM app_catalog WHERE source = ? ORDER BY app_id",
           )
           .all(params.source)
-      : this.db()
+      : this.controlPlaneDb()
           .prepare<[], Record<string, unknown>>(
             "SELECT * FROM app_catalog ORDER BY source, app_id",
           )
@@ -5481,14 +5583,14 @@ export class RuntimeStateStore {
   }
 
   clearAppCatalogSource(source: "marketplace" | "local"): number {
-    const result = this.db()
+    const result = this.controlPlaneDb()
       .prepare("DELETE FROM app_catalog WHERE source = ?")
       .run(source);
     return result.changes;
   }
 
   deleteAppCatalogEntry(params: { source: string; appId: string }): boolean {
-    const result = this.db()
+    const result = this.controlPlaneDb()
       .prepare("DELETE FROM app_catalog WHERE source = ? AND app_id = ?")
       .run(params.source, params.appId);
     return result.changes > 0;
@@ -5530,12 +5632,7 @@ export class RuntimeStateStore {
     const BASE_PORT = 38080;
     const MAX_PORT = 38979;
 
-    const allocated = new Set(
-      this.db()
-        .prepare<[], { port: number }>("SELECT port FROM app_ports")
-        .all()
-        .map((r) => r.port)
-    );
+    const allocated = new Set(this.listAllAppPorts().map((record) => record.port));
 
     for (let port = BASE_PORT; port <= MAX_PORT; port++) {
       if (!allocated.has(port)) {
@@ -5570,14 +5667,13 @@ export class RuntimeStateStore {
   }): CronjobRecord {
     const resolvedId = params.jobId ?? randomUUID();
     const now = utcNowIso();
-    this.db()
-      .prepare(`
+    this.mirrorWorkspaceRuntimeMutation(params.workspaceId, (db) => {
+      db.prepare(`
         INSERT INTO cronjobs (
             id, workspace_id, initiated_by, name, cron, description, instruction, enabled, delivery, metadata,
             last_run_at, next_run_at, run_count, last_status, last_error, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 0, NULL, NULL, ?, ?)
-      `)
-      .run(
+      `).run(
         resolvedId,
         params.workspaceId,
         params.initiatedBy,
@@ -5592,19 +5688,43 @@ export class RuntimeStateStore {
         now,
         now
       );
-    const row = this.db().prepare<[string], Record<string, unknown>>("SELECT * FROM cronjobs WHERE id = ? LIMIT 1").get(resolvedId);
+    });
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<[string], Record<string, unknown>>("SELECT * FROM cronjobs WHERE id = ? LIMIT 1")
+      .get(resolvedId);
     if (!row) {
       throw new Error("cronjob row not found after insert");
     }
     return this.rowToCronjob(row);
   }
 
-  getCronjob(jobId: string): CronjobRecord | null {
-    const row = this.db().prepare<[string], Record<string, unknown>>("SELECT * FROM cronjobs WHERE id = ? LIMIT 1").get(jobId);
+  getCronjob(params: { workspaceId: string; jobId: string }): CronjobRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<[string], Record<string, unknown>>("SELECT * FROM cronjobs WHERE id = ? LIMIT 1")
+      .get(params.jobId);
     return row ? this.rowToCronjob(row) : null;
   }
 
   listCronjobs(params: { workspaceId?: string | null; enabledOnly?: boolean }): CronjobRecord[] {
+    if (!params.workspaceId) {
+      const jobs = this.listReadableWorkspaceRuntimeDbs().flatMap(({ db }) => {
+        let query = "SELECT * FROM cronjobs";
+        if (params.enabledOnly) {
+          query += " WHERE enabled = 1";
+        }
+        query += " ORDER BY datetime(created_at) ASC, id ASC";
+        const rows = db.prepare(query).all() as Array<Record<string, unknown>>;
+        return rows.map((row) => this.rowToCronjob(row));
+      });
+      jobs.sort((left, right) => {
+        const createdAtCompare = left.createdAt.localeCompare(right.createdAt);
+        if (createdAtCompare !== 0) {
+          return createdAtCompare;
+        }
+        return left.id.localeCompare(right.id);
+      });
+      return jobs;
+    }
     let query = "SELECT * FROM cronjobs";
     const filters: string[] = [];
     const values: string[] = [];
@@ -5619,11 +5739,12 @@ export class RuntimeStateStore {
       query += ` WHERE ${filters.join(" AND ")}`;
     }
     query += " ORDER BY datetime(created_at) ASC, id ASC";
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToCronjob(row));
   }
 
   updateCronjob(params: {
+    workspaceId: string;
     jobId: string;
     name?: string | null;
     cron?: string | null;
@@ -5638,12 +5759,15 @@ export class RuntimeStateStore {
     lastStatus?: string | null;
     lastError?: string | null;
   }): CronjobRecord | null {
-    const existing = this.getCronjob(params.jobId);
+    const existing = this.getCronjob({
+      workspaceId: params.workspaceId,
+      jobId: params.jobId,
+    });
     if (!existing) {
       return null;
     }
-    this.db()
-      .prepare(`
+    this.mirrorWorkspaceRuntimeMutation(existing.workspaceId, (db) => {
+      db.prepare(`
         UPDATE cronjobs
         SET name = ?,
             cron = ?,
@@ -5659,8 +5783,7 @@ export class RuntimeStateStore {
             last_error = ?,
             updated_at = ?
         WHERE id = ?
-      `)
-      .run(
+      `).run(
         params.name ?? existing.name,
         params.cron ?? existing.cron,
         params.description ?? existing.description,
@@ -5676,12 +5799,22 @@ export class RuntimeStateStore {
         utcNowIso(),
         params.jobId
       );
-    return this.getCronjob(params.jobId);
+    });
+    return this.getCronjob({
+      workspaceId: params.workspaceId,
+      jobId: params.jobId,
+    });
   }
 
-  deleteCronjob(jobId: string): boolean {
-    const result = this.db().prepare("DELETE FROM cronjobs WHERE id = ?").run(jobId);
-    return result.changes > 0;
+  deleteCronjob(params: { workspaceId: string; jobId: string }): boolean {
+    const existing = this.getCronjob(params);
+    if (!existing) {
+      return false;
+    }
+    this.mirrorWorkspaceRuntimeMutation(existing.workspaceId, (db) => {
+      db.prepare("DELETE FROM cronjobs WHERE id = ?").run(params.jobId);
+    });
+    return this.getCronjob(params) === null;
   }
 
   createRuntimeNotification(params: {
@@ -5714,14 +5847,13 @@ export class RuntimeStateStore {
     const dismissedAt =
       params.dismissedAt !== undefined ? params.dismissedAt : state === "dismissed" ? now : null;
 
-    this.db()
-      .prepare(`
+    this.mirrorWorkspaceRuntimeMutation(params.workspaceId, (db) => {
+      db.prepare(`
         INSERT INTO runtime_notifications (
             id, workspace_id, cronjob_id, source_type, source_label, title, message, level, priority, state,
             metadata, read_at, dismissed_at, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      .run(
+      `).run(
         resolvedId,
         params.workspaceId,
         this.normalizedNullableText(params.cronjobId),
@@ -5738,8 +5870,9 @@ export class RuntimeStateStore {
         now,
         now
       );
+    });
 
-    const row = this.db()
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM runtime_notifications WHERE id = ? LIMIT 1")
       .get(resolvedId);
     if (!row) {
@@ -5748,10 +5881,10 @@ export class RuntimeStateStore {
     return this.rowToRuntimeNotification(row);
   }
 
-  getRuntimeNotification(notificationId: string): RuntimeNotificationRecord | null {
-    const row = this.db()
+  getRuntimeNotification(params: { workspaceId: string; notificationId: string }): RuntimeNotificationRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM runtime_notifications WHERE id = ? LIMIT 1")
-      .get(notificationId);
+      .get(params.notificationId);
     return row ? this.rowToRuntimeNotification(row) : null;
   }
 
@@ -5762,6 +5895,56 @@ export class RuntimeStateStore {
     sourceType?: string | null;
     excludeSourceTypes?: string[] | null;
   }): RuntimeNotificationRecord[] {
+    if (!params.workspaceId) {
+      const notifications = this.listReadableWorkspaceRuntimeDbs().flatMap(({ db }) => {
+        let query = "SELECT * FROM runtime_notifications";
+        const filters: string[] = [];
+        const values: Array<string | number> = [];
+        const normalizedSourceType = this.normalizedNullableText(params.sourceType);
+        if (normalizedSourceType) {
+          filters.push("source_type = ?");
+          values.push(normalizedSourceType);
+        }
+        if (!params.includeDismissed) {
+          filters.push("state != 'dismissed'");
+        }
+        const excludedSourceTypes =
+          params.excludeSourceTypes
+            ?.map((value) => this.normalizedNullableText(value))
+            .filter((value): value is string => Boolean(value)) ?? [];
+        if (excludedSourceTypes.length > 0) {
+          filters.push(
+            `coalesce(source_type, '') NOT IN (${excludedSourceTypes
+              .map(() => "?")
+              .join(", ")})`,
+          );
+          values.push(...excludedSourceTypes);
+        }
+        if (filters.length > 0) {
+          query += ` WHERE ${filters.join(" AND ")}`;
+        }
+        query += " ORDER BY datetime(created_at) DESC, id DESC";
+        const rows = db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+        return rows.map((row) => this.rowToRuntimeNotification(row));
+      });
+      notifications.sort((left, right) => {
+        const priorityCompare =
+          this.notificationPriorityWeight(right.priority) -
+          this.notificationPriorityWeight(left.priority);
+        if (priorityCompare !== 0) {
+          return priorityCompare;
+        }
+        const createdAtCompare = right.createdAt.localeCompare(left.createdAt);
+        if (createdAtCompare !== 0) {
+          return createdAtCompare;
+        }
+        return right.id.localeCompare(left.id);
+      });
+      if (typeof params.limit === "number" && Number.isFinite(params.limit) && params.limit > 0) {
+        return notifications.slice(0, Math.floor(params.limit));
+      }
+      return notifications;
+    }
     let query = "SELECT * FROM runtime_notifications";
     const filters: string[] = [];
     const values: Array<string | number> = [];
@@ -5797,11 +5980,12 @@ export class RuntimeStateStore {
       query += " LIMIT ?";
       values.push(Math.floor(params.limit));
     }
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToRuntimeNotification(row));
   }
 
   updateRuntimeNotification(params: {
+    workspaceId: string;
     notificationId: string;
     title?: string | null;
     message?: string | null;
@@ -5813,7 +5997,10 @@ export class RuntimeStateStore {
     dismissedAt?: string | null;
     sourceLabel?: string | null;
   }): RuntimeNotificationRecord | null {
-    const existing = this.getRuntimeNotification(params.notificationId);
+    const existing = this.getRuntimeNotification({
+      workspaceId: params.workspaceId,
+      notificationId: params.notificationId,
+    });
     if (!existing) {
       return null;
     }
@@ -5833,8 +6020,8 @@ export class RuntimeStateStore {
           ? existing.dismissedAt ?? now
           : null;
 
-    this.db()
-      .prepare(`
+    this.mirrorWorkspaceRuntimeMutation(existing.workspaceId, (db) => {
+      db.prepare(`
         UPDATE runtime_notifications
         SET source_label = ?,
             title = ?,
@@ -5847,8 +6034,7 @@ export class RuntimeStateStore {
             dismissed_at = ?,
             updated_at = ?
         WHERE id = ?
-      `)
-      .run(
+      `).run(
         params.sourceLabel === undefined ? existing.sourceLabel : this.normalizedNullableText(params.sourceLabel),
         params.title == null ? existing.title : params.title.trim(),
         params.message == null ? existing.message : params.message.trim(),
@@ -5861,8 +6047,12 @@ export class RuntimeStateStore {
         now,
         params.notificationId
       );
+    });
 
-    return this.getRuntimeNotification(params.notificationId);
+    return this.getRuntimeNotification({
+      workspaceId: params.workspaceId,
+      notificationId: params.notificationId,
+    });
   }
 
   createTaskProposal(params: {
@@ -5877,8 +6067,8 @@ export class RuntimeStateStore {
     state?: string;
   }): TaskProposalRecord {
     const proposalSource = normalizeTaskProposalSource(params.proposalSource);
-    this.db()
-      .prepare(`
+    this.mirrorWorkspaceRuntimeMutation(params.workspaceId, (db) => {
+      db.prepare(`
         INSERT INTO task_proposals (
             proposal_id,
             workspace_id,
@@ -5893,8 +6083,7 @@ export class RuntimeStateStore {
             accepted_input_id,
             accepted_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
-      `)
-      .run(
+      `).run(
         params.proposalId,
         params.workspaceId,
         params.taskName,
@@ -5905,7 +6094,8 @@ export class RuntimeStateStore {
         params.createdAt,
         params.state ?? "not_reviewed"
       );
-    const row = this.db()
+    });
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM task_proposals WHERE proposal_id = ? LIMIT 1")
       .get(params.proposalId);
     if (!row) {
@@ -5914,15 +6104,15 @@ export class RuntimeStateStore {
     return this.rowToTaskProposal(row);
   }
 
-  getTaskProposal(proposalId: string): TaskProposalRecord | null {
-    const row = this.db()
+  getTaskProposal(params: { workspaceId: string; proposalId: string }): TaskProposalRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM task_proposals WHERE proposal_id = ? LIMIT 1")
-      .get(proposalId);
+      .get(params.proposalId);
     return row ? this.rowToTaskProposal(row) : null;
   }
 
   listTaskProposals(params: { workspaceId: string }): TaskProposalRecord[] {
-    const rows = this.db()
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>(`
         SELECT * FROM task_proposals
         WHERE workspace_id = ?
@@ -5933,7 +6123,7 @@ export class RuntimeStateStore {
   }
 
   listUnreviewedTaskProposals(params: { workspaceId: string }): TaskProposalRecord[] {
-    const rows = this.db()
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>(`
         SELECT * FROM task_proposals
         WHERE workspace_id = ? AND state = 'not_reviewed'
@@ -5943,8 +6133,9 @@ export class RuntimeStateStore {
     return rows.map((row) => this.rowToTaskProposal(row));
   }
 
-  updateTaskProposalState(params: { proposalId: string; state: string }): TaskProposalRecord | null {
+  updateTaskProposalState(params: { workspaceId: string; proposalId: string; state: string }): TaskProposalRecord | null {
     return this.updateTaskProposal({
+      workspaceId: params.workspaceId,
       proposalId: params.proposalId,
       fields: {
         state: params.state
@@ -5984,8 +6175,8 @@ export class RuntimeStateStore {
     );
     const createdAt = params.createdAt ?? utcNowIso();
     const updatedAt = params.updatedAt ?? createdAt;
-    this.db()
-      .prepare(`
+    this.mirrorWorkspaceRuntimeMutation(params.workspaceId, (db) => {
+      db.prepare(`
         INSERT INTO evolve_skill_candidates (
             candidate_id,
             workspace_id,
@@ -6009,8 +6200,7 @@ export class RuntimeStateStore {
             accepted_at,
             promoted_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      .run(
+      `).run(
         params.candidateId,
         params.workspaceId,
         params.sessionId,
@@ -6033,7 +6223,8 @@ export class RuntimeStateStore {
         this.normalizedNullableText(params.acceptedAt),
         this.normalizedNullableText(params.promotedAt)
       );
-    const row = this.db()
+    });
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM evolve_skill_candidates WHERE candidate_id = ? LIMIT 1")
       .get(params.candidateId);
     if (!row) {
@@ -6042,19 +6233,22 @@ export class RuntimeStateStore {
     return this.rowToEvolveSkillCandidate(row);
   }
 
-  getEvolveSkillCandidate(candidateId: string): EvolveSkillCandidateRecord | null {
-    const row = this.db()
+  getEvolveSkillCandidate(params: { workspaceId: string; candidateId: string }): EvolveSkillCandidateRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM evolve_skill_candidates WHERE candidate_id = ? LIMIT 1")
-      .get(candidateId);
+      .get(params.candidateId);
     return row ? this.rowToEvolveSkillCandidate(row) : null;
   }
 
-  getEvolveSkillCandidateByTaskProposalId(proposalId: string): EvolveSkillCandidateRecord | null {
-    const row = this.db()
+  getEvolveSkillCandidateByTaskProposalId(params: {
+    workspaceId: string;
+    proposalId: string;
+  }): EvolveSkillCandidateRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>(
         "SELECT * FROM evolve_skill_candidates WHERE task_proposal_id = ? ORDER BY datetime(created_at) DESC, candidate_id DESC LIMIT 1"
       )
-      .get(proposalId);
+      .get(params.proposalId);
     return row ? this.rowToEvolveSkillCandidate(row) : null;
   }
 
@@ -6087,7 +6281,7 @@ export class RuntimeStateStore {
     }
     query += " ORDER BY datetime(created_at) DESC, candidate_id DESC LIMIT ? OFFSET ?";
     values.push(params.limit ?? 200, params.offset ?? 0);
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToEvolveSkillCandidate(row));
   }
 
@@ -6120,8 +6314,8 @@ export class RuntimeStateStore {
     );
     const createdAt = params.createdAt ?? utcNowIso();
     const updatedAt = params.updatedAt ?? createdAt;
-    this.db()
-      .prepare(`
+    this.mirrorWorkspaceRuntimeMutation(params.workspaceId, (db) => {
+      db.prepare(`
         INSERT INTO memory_update_proposals (
             proposal_id,
             workspace_id,
@@ -6142,8 +6336,7 @@ export class RuntimeStateStore {
             accepted_at,
             dismissed_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      .run(
+      `).run(
         params.proposalId,
         params.workspaceId,
         params.sessionId,
@@ -6163,7 +6356,8 @@ export class RuntimeStateStore {
         this.normalizedNullableText(params.acceptedAt),
         this.normalizedNullableText(params.dismissedAt)
       );
-    const row = this.db()
+    });
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM memory_update_proposals WHERE proposal_id = ? LIMIT 1")
       .get(params.proposalId);
     if (!row) {
@@ -6172,10 +6366,10 @@ export class RuntimeStateStore {
     return this.rowToMemoryUpdateProposal(row);
   }
 
-  getMemoryUpdateProposal(proposalId: string): MemoryUpdateProposalRecord | null {
-    const row = this.db()
+  getMemoryUpdateProposal(params: { workspaceId: string; proposalId: string }): MemoryUpdateProposalRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM memory_update_proposals WHERE proposal_id = ? LIMIT 1")
-      .get(proposalId);
+      .get(params.proposalId);
     return row ? this.rowToMemoryUpdateProposal(row) : null;
   }
 
@@ -6203,7 +6397,7 @@ export class RuntimeStateStore {
     }
     query += " ORDER BY datetime(created_at) ASC, proposal_id ASC LIMIT ? OFFSET ?";
     values.push(params.limit ?? 200, params.offset ?? 0);
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToMemoryUpdateProposal(row));
   }
 
@@ -6224,6 +6418,348 @@ export class RuntimeStateStore {
     return db;
   }
 
+  private controlPlaneDb(): Database.Database {
+    if (this.controlPlaneDbPath === this.dbPath) {
+      return this.db();
+    }
+    if (this.#controlPlaneDb) {
+      return this.#controlPlaneDb;
+    }
+
+    const legacy = this.db();
+    fs.mkdirSync(path.dirname(this.controlPlaneDbPath), { recursive: true });
+    const db = new Database(this.controlPlaneDbPath);
+    db.pragma("journal_mode = WAL");
+    db.pragma("busy_timeout = 5000");
+    db.pragma("foreign_keys = ON");
+    this.ensureControlPlaneDbSchema(db);
+    this.backfillControlPlaneDbFromLegacyRuntimeDb(db, legacy);
+    this.#controlPlaneDb = db;
+    return db;
+  }
+
+  private workspaceRuntimeDb(workspaceId: string): Database.Database {
+    const workspaceRecord = this.getWorkspace(workspaceId, { includeDeleted: true });
+    if (workspaceRecord?.deletedAtUtc) {
+      return this.db();
+    }
+    const registeredPath = this.workspacePathFromRegistry(workspaceId);
+    const workspacePath = registeredPath ? this.assertWorkspaceFolderHealthy(workspaceId) : this.workspaceDir(workspaceId);
+    const dbPath = workspaceRuntimeDbPathForWorkspacePath(workspacePath);
+    const cached = this.#workspaceRuntimeDbs.get(workspaceId);
+    if (cached && cached.dbPath === dbPath) {
+      return cached.db;
+    }
+    if (cached) {
+      cached.db.close();
+      this.#workspaceRuntimeDbs.delete(workspaceId);
+    }
+
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const db = new Database(dbPath);
+    db.pragma("journal_mode = WAL");
+    db.pragma("busy_timeout = 5000");
+    db.pragma("foreign_keys = ON");
+    this.ensureWorkspaceRuntimeDbSchema(db);
+    this.backfillWorkspaceRuntimeDbFromLegacyRuntimeDb(db, this.db(), workspaceId);
+    this.#workspaceRuntimeDbs.set(workspaceId, { dbPath, db });
+    return db;
+  }
+
+  private mirrorWorkspaceRuntimeMutation(workspaceId: string, mutate: (db: Database.Database) => void): void {
+    const workspaceDb = this.workspaceRuntimeDb(workspaceId);
+    mutate(workspaceDb);
+  }
+
+  private listReadableWorkspaceRuntimeDbs(): Array<{ workspaceId: string; db: Database.Database }> {
+    const databases = new Map<string, Database.Database>();
+    for (const [workspaceId, entry] of this.#workspaceRuntimeDbs.entries()) {
+      databases.set(workspaceId, entry.db);
+    }
+    for (const workspace of this.listWorkspaces({ includeDeleted: false })) {
+      if (databases.has(workspace.id)) {
+        continue;
+      }
+      try {
+        databases.set(workspace.id, this.workspaceRuntimeDb(workspace.id));
+      } catch {
+        // Skip unhealthy or missing workspace bundles during aggregate scans.
+      }
+    }
+    return Array.from(databases.entries()).map(([workspaceId, db]) => ({
+      workspaceId,
+      db,
+    }));
+  }
+
+  private backfillControlPlaneDbFromLegacyRuntimeDb(
+    db: Database.Database,
+    legacy: Database.Database,
+  ): void {
+    if (this.controlPlaneDbPath === this.dbPath) {
+      return;
+    }
+    const tableNames = new Set<string>(
+      (legacy.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
+        (row) => row.name
+      )
+    );
+    if (tableNames.has("workspaces")) {
+      const rows = legacy.prepare("SELECT * FROM workspaces").all() as Array<Record<string, unknown>>;
+      const statement = db.prepare(`
+        INSERT OR IGNORE INTO workspaces (
+          id,
+          workspace_path,
+          name,
+          status,
+          harness,
+          error_message,
+          onboarding_status,
+          onboarding_session_id,
+          onboarding_completed_at,
+          onboarding_completion_summary,
+          onboarding_requested_at,
+          onboarding_requested_by,
+          created_at,
+          updated_at,
+          deleted_at_utc
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const row of rows) {
+        statement.run(
+          row.id,
+          row.workspace_path,
+          row.name,
+          row.status,
+          row.harness ?? null,
+          row.error_message ?? null,
+          row.onboarding_status,
+          row.onboarding_session_id ?? null,
+          row.onboarding_completed_at ?? null,
+          row.onboarding_completion_summary ?? null,
+          row.onboarding_requested_at ?? null,
+          row.onboarding_requested_by ?? null,
+          row.created_at ?? null,
+          row.updated_at ?? null,
+          row.deleted_at_utc ?? null
+        );
+      }
+    }
+    if (tableNames.has("runtime_user_profiles")) {
+      const rows = legacy.prepare("SELECT * FROM runtime_user_profiles").all() as Array<Record<string, unknown>>;
+      const statement = db.prepare(`
+        INSERT OR IGNORE INTO runtime_user_profiles (
+          profile_id,
+          name,
+          name_source,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?)
+      `);
+      for (const row of rows) {
+        statement.run(
+          row.profile_id,
+          row.name ?? null,
+          row.name_source ?? null,
+          row.created_at,
+          row.updated_at
+        );
+      }
+    }
+    if (tableNames.has("integration_connections")) {
+      const rows = legacy.prepare("SELECT * FROM integration_connections").all() as Array<Record<string, unknown>>;
+      const statement = db.prepare(`
+        INSERT OR IGNORE INTO integration_connections (
+          connection_id,
+          provider_id,
+          owner_user_id,
+          account_label,
+          account_external_id,
+          account_handle,
+          account_email,
+          auth_mode,
+          granted_scopes,
+          status,
+          secret_ref,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const row of rows) {
+        statement.run(
+          row.connection_id,
+          row.provider_id,
+          row.owner_user_id,
+          row.account_label,
+          row.account_external_id ?? null,
+          row.account_handle ?? null,
+          row.account_email ?? null,
+          row.auth_mode,
+          row.granted_scopes,
+          row.status,
+          row.secret_ref ?? null,
+          row.created_at,
+          row.updated_at
+        );
+      }
+    }
+    if (tableNames.has("integration_bindings")) {
+      const rows = legacy.prepare("SELECT * FROM integration_bindings").all() as Array<Record<string, unknown>>;
+      const statement = db.prepare(`
+        INSERT OR IGNORE INTO integration_bindings (
+          binding_id,
+          workspace_id,
+          target_type,
+          target_id,
+          integration_key,
+          connection_id,
+          is_default,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const row of rows) {
+        statement.run(
+          row.binding_id,
+          row.workspace_id,
+          row.target_type,
+          row.target_id,
+          row.integration_key,
+          row.connection_id,
+          row.is_default,
+          row.created_at,
+          row.updated_at
+        );
+      }
+    }
+    if (tableNames.has("oauth_app_configs")) {
+      const rows = legacy.prepare("SELECT * FROM oauth_app_configs").all() as Array<Record<string, unknown>>;
+      const statement = db.prepare(`
+        INSERT OR IGNORE INTO oauth_app_configs (
+          provider_id,
+          client_id,
+          client_secret,
+          authorize_url,
+          token_url,
+          scopes,
+          redirect_port,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const row of rows) {
+        statement.run(
+          row.provider_id,
+          row.client_id,
+          row.client_secret,
+          row.authorize_url,
+          row.token_url,
+          row.scopes,
+          row.redirect_port,
+          row.created_at,
+          row.updated_at
+        );
+      }
+    }
+    if (tableNames.has("app_catalog")) {
+      const rows = legacy.prepare("SELECT * FROM app_catalog").all() as Array<Record<string, unknown>>;
+      const statement = db.prepare(`
+        INSERT OR IGNORE INTO app_catalog (
+          app_id,
+          source,
+          name,
+          description,
+          icon,
+          category,
+          tags_json,
+          version,
+          archive_url,
+          archive_path,
+          target,
+          cached_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const row of rows) {
+        statement.run(
+          row.app_id,
+          row.source,
+          row.name,
+          row.description ?? null,
+          row.icon ?? null,
+          row.category ?? null,
+          row.tags_json,
+          row.version ?? null,
+          row.archive_url ?? null,
+          row.archive_path ?? null,
+          row.target,
+          row.cached_at
+        );
+      }
+    }
+  }
+
+  private backfillWorkspaceRuntimeDbFromLegacyRuntimeDb(
+    db: Database.Database,
+    legacy: Database.Database,
+    workspaceId: string,
+  ): void {
+    const workspaceScopedTables = [
+      "task_proposals",
+      "evolve_skill_candidates",
+      "memory_update_proposals",
+      "output_folders",
+      "outputs",
+      "app_builds",
+      "app_ports",
+      "cronjobs",
+      "runtime_notifications",
+    ] as const;
+    for (const tableName of workspaceScopedTables) {
+      this.backfillWorkspaceScopedTableRows({
+        db,
+        legacy,
+        workspaceId,
+        tableName,
+      });
+    }
+  }
+
+  private backfillWorkspaceScopedTableRows(params: {
+    db: Database.Database;
+    legacy: Database.Database;
+    workspaceId: string;
+    tableName: string;
+  }): void {
+    if (!this.tableExists(params.legacy, params.tableName) || !this.tableExists(params.db, params.tableName)) {
+      return;
+    }
+
+    const columns = (
+      params.db.prepare(`PRAGMA table_info(${params.tableName})`).all() as Array<{ name: string }>
+    ).map((row) => row.name);
+    if (columns.length === 0) {
+      return;
+    }
+
+    const rows = params.legacy
+      .prepare(`SELECT ${columns.join(", ")} FROM ${params.tableName} WHERE workspace_id = ?`)
+      .all(params.workspaceId) as Array<Record<string, unknown>>;
+    if (rows.length === 0) {
+      return;
+    }
+
+    const insert = params.db.prepare(`
+      INSERT OR IGNORE INTO ${params.tableName} (${columns.join(", ")})
+      VALUES (${columns.map(() => "?").join(", ")})
+    `);
+    const insertMany = params.db.transaction((items: Array<Record<string, unknown>>) => {
+      for (const row of items) {
+        insert.run(...columns.map((column) => row[column] ?? null));
+      }
+    });
+    insertMany(rows);
+  }
+
   private runPendingMigrations(db: Database.Database): void {
     if (RUNTIME_DB_MIGRATIONS.length === 0 && LATEST_SEED_VERSION === 0) {
       // No migrations registered yet — skip the runner entirely so we don't
@@ -6240,7 +6776,7 @@ export class RuntimeStateStore {
   }
 
   private ensureWorkspaceMetadataReady(): void {
-    void this.db();
+    void this.controlPlaneDb();
   }
 
   private tryLoadVectorExtension(db: Database.Database): boolean {
@@ -6292,6 +6828,301 @@ export class RuntimeStateStore {
           memory_type TEXT
       );
     `);
+  }
+
+  private ensureControlPlaneDbSchema(db: Database.Database): void {
+    this.ensureWorkspacesTableSchema(db);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS runtime_user_profiles (
+          profile_id TEXT PRIMARY KEY,
+          name TEXT,
+          name_source TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS integration_connections (
+          connection_id TEXT PRIMARY KEY,
+          provider_id TEXT NOT NULL,
+          owner_user_id TEXT NOT NULL,
+          account_label TEXT NOT NULL,
+          account_external_id TEXT,
+          account_handle TEXT,
+          account_email TEXT,
+          auth_mode TEXT NOT NULL,
+          granted_scopes TEXT NOT NULL DEFAULT '[]',
+          status TEXT NOT NULL,
+          secret_ref TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_integration_connections_provider_owner_updated
+          ON integration_connections (provider_id, owner_user_id, updated_at DESC, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS integration_bindings (
+          binding_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          target_type TEXT NOT NULL,
+          target_id TEXT NOT NULL,
+          integration_key TEXT NOT NULL,
+          connection_id TEXT NOT NULL,
+          is_default INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE (workspace_id, target_type, target_id, integration_key),
+          FOREIGN KEY (connection_id) REFERENCES integration_connections(connection_id) ON DELETE RESTRICT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_integration_bindings_workspace_updated
+          ON integration_bindings (workspace_id, is_default DESC, updated_at DESC, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS app_catalog (
+          app_id TEXT NOT NULL,
+          source TEXT NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT,
+          icon TEXT,
+          category TEXT,
+          tags_json TEXT NOT NULL DEFAULT '[]',
+          version TEXT,
+          archive_url TEXT,
+          archive_path TEXT,
+          target TEXT NOT NULL,
+          cached_at TEXT NOT NULL,
+          PRIMARY KEY (source, app_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_app_catalog_source
+          ON app_catalog (source);
+
+      CREATE TABLE IF NOT EXISTS oauth_app_configs (
+          provider_id TEXT PRIMARY KEY,
+          client_id TEXT NOT NULL,
+          client_secret TEXT NOT NULL,
+          authorize_url TEXT NOT NULL,
+          token_url TEXT NOT NULL,
+          scopes TEXT NOT NULL DEFAULT '[]',
+          redirect_port INTEGER NOT NULL DEFAULT 38765,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+    `);
+    this.migrateIntegrationConnectionIdentityColumns(db);
+  }
+
+  private ensureWorkspaceRuntimeDbSchema(db: Database.Database): void {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS task_proposals (
+          proposal_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          task_name TEXT NOT NULL,
+          task_prompt TEXT NOT NULL,
+          task_generation_rationale TEXT NOT NULL,
+          proposal_source TEXT NOT NULL DEFAULT 'proactive',
+          source_event_ids TEXT NOT NULL DEFAULT '[]',
+          created_at TEXT NOT NULL,
+          state TEXT NOT NULL DEFAULT 'not_reviewed',
+          accepted_session_id TEXT,
+          accepted_input_id TEXT,
+          accepted_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_task_proposals_workspace_created
+          ON task_proposals (workspace_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_task_proposals_workspace_state_created
+          ON task_proposals (workspace_id, state, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS evolve_skill_candidates (
+          candidate_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          input_id TEXT NOT NULL,
+          task_proposal_id TEXT,
+          kind TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'draft',
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          slug TEXT NOT NULL,
+          skill_path TEXT NOT NULL,
+          content_fingerprint TEXT NOT NULL,
+          confidence REAL,
+          evaluation_notes TEXT,
+          source_turn_input_ids TEXT NOT NULL DEFAULT '[]',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          proposed_at TEXT,
+          dismissed_at TEXT,
+          accepted_at TEXT,
+          promoted_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_evolve_skill_candidates_workspace_created
+          ON evolve_skill_candidates (workspace_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_evolve_skill_candidates_workspace_status_created
+          ON evolve_skill_candidates (workspace_id, status, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_evolve_skill_candidates_task_proposal
+          ON evolve_skill_candidates (task_proposal_id);
+
+      CREATE TABLE IF NOT EXISTS memory_update_proposals (
+          proposal_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          input_id TEXT NOT NULL,
+          proposal_kind TEXT NOT NULL,
+          target_key TEXT NOT NULL,
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          payload TEXT NOT NULL DEFAULT '{}',
+          evidence TEXT,
+          confidence REAL,
+          source_message_id TEXT,
+          state TEXT NOT NULL DEFAULT 'pending',
+          persisted_memory_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          accepted_at TEXT,
+          dismissed_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_memory_update_proposals_workspace_created
+          ON memory_update_proposals (workspace_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_memory_update_proposals_session_input_created
+          ON memory_update_proposals (session_id, input_id, created_at ASC);
+
+      CREATE INDEX IF NOT EXISTS idx_memory_update_proposals_workspace_state_created
+          ON memory_update_proposals (workspace_id, state, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS output_folders (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          position INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_output_folders_workspace_position
+          ON output_folders (workspace_id, position ASC, created_at ASC);
+
+      CREATE TABLE IF NOT EXISTS outputs (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          output_type TEXT NOT NULL,
+          title TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'draft',
+          module_id TEXT,
+          module_resource_id TEXT,
+          file_path TEXT,
+          html_content TEXT,
+          session_id TEXT,
+          input_id TEXT,
+          artifact_id TEXT,
+          folder_id TEXT,
+          platform TEXT,
+          metadata TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_outputs_workspace_created
+          ON outputs (workspace_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_outputs_workspace_folder_created
+          ON outputs (workspace_id, folder_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_outputs_session_input_created
+          ON outputs (session_id, input_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS app_builds (
+          workspace_id TEXT NOT NULL,
+          app_id TEXT NOT NULL,
+          status TEXT NOT NULL,
+          started_at TEXT,
+          completed_at TEXT,
+          error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          restart_attempts INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (workspace_id, app_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_app_builds_workspace
+          ON app_builds (workspace_id);
+
+      CREATE TABLE IF NOT EXISTS app_ports (
+          workspace_id TEXT NOT NULL,
+          app_id TEXT NOT NULL,
+          port INTEGER NOT NULL UNIQUE,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, app_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_app_ports_workspace
+          ON app_ports (workspace_id);
+
+      CREATE TABLE IF NOT EXISTS cronjobs (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          initiated_by TEXT NOT NULL,
+          name TEXT NOT NULL DEFAULT '',
+          cron TEXT NOT NULL,
+          description TEXT NOT NULL,
+          instruction TEXT NOT NULL DEFAULT '',
+          enabled INTEGER NOT NULL DEFAULT 1,
+          delivery TEXT NOT NULL,
+          metadata TEXT NOT NULL DEFAULT '{}',
+          last_run_at TEXT,
+          next_run_at TEXT,
+          run_count INTEGER NOT NULL DEFAULT 0,
+          last_status TEXT,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_cronjobs_workspace_created
+          ON cronjobs (workspace_id, created_at ASC);
+
+      CREATE INDEX IF NOT EXISTS idx_cronjobs_enabled_next_run
+          ON cronjobs (enabled, next_run_at);
+
+      CREATE TABLE IF NOT EXISTS runtime_notifications (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          cronjob_id TEXT,
+          source_type TEXT NOT NULL,
+          source_label TEXT,
+          title TEXT NOT NULL,
+          message TEXT NOT NULL,
+          level TEXT NOT NULL DEFAULT 'info',
+          priority TEXT NOT NULL DEFAULT 'normal',
+          state TEXT NOT NULL DEFAULT 'unread',
+          metadata TEXT NOT NULL DEFAULT '{}',
+          read_at TEXT,
+          dismissed_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_notifications_workspace_state_created
+          ON runtime_notifications (workspace_id, state, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_notifications_state_created
+          ON runtime_notifications (state, created_at DESC);
+    `);
+    this.ensureTaskProposalsTableSchema(db);
+    this.ensureEvolveSkillCandidatesTableSchema(db);
+    this.ensureMemoryUpdateProposalsTableSchema(db);
+    this.ensureOutputsTableSchema(db);
+    this.migrateRuntimeNotificationPriority(db);
+    this.migrateCronjobInstructions(db);
+    this.migrateAppBuildRestartAttempts(db);
   }
 
   private ensureRuntimeDbSchema(db: Database.Database): void {
@@ -6378,48 +7209,6 @@ export class RuntimeStateStore {
 
       CREATE INDEX IF NOT EXISTS idx_conversation_bindings_channel_key_active
           ON conversation_bindings (channel, conversation_key, is_active);
-
-      CREATE TABLE IF NOT EXISTS integration_connections (
-          connection_id TEXT PRIMARY KEY,
-          provider_id TEXT NOT NULL,
-          owner_user_id TEXT NOT NULL,
-          account_label TEXT NOT NULL,
-          account_external_id TEXT,
-          account_handle TEXT,
-          account_email TEXT,
-          auth_mode TEXT NOT NULL,
-          granted_scopes TEXT NOT NULL DEFAULT '[]',
-          status TEXT NOT NULL,
-          secret_ref TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_integration_connections_provider_owner_updated
-          ON integration_connections (provider_id, owner_user_id, updated_at DESC, created_at DESC);
-
-      -- Indexes for account_handle / account_email live in
-      -- migrateIntegrationConnectionIdentityColumns: on an upgrade path the
-      -- columns don't exist when the schema block runs, so creating those
-      -- indexes here would fail. The migration helper runs after the
-      -- ALTER TABLE statements and is idempotent (CREATE INDEX IF NOT EXISTS).
-
-      CREATE TABLE IF NOT EXISTS integration_bindings (
-          binding_id TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          target_type TEXT NOT NULL,
-          target_id TEXT NOT NULL,
-          integration_key TEXT NOT NULL,
-          connection_id TEXT NOT NULL,
-          is_default INTEGER NOT NULL DEFAULT 0,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          UNIQUE (workspace_id, target_type, target_id, integration_key),
-          FOREIGN KEY (connection_id) REFERENCES integration_connections(connection_id) ON DELETE RESTRICT
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_integration_bindings_workspace_updated
-          ON integration_bindings (workspace_id, is_default DESC, updated_at DESC, created_at DESC);
 
       CREATE TABLE IF NOT EXISTS agent_session_inputs (
           input_id TEXT PRIMARY KEY,
@@ -6699,14 +7488,6 @@ export class RuntimeStateStore {
       CREATE INDEX IF NOT EXISTS idx_turn_request_snapshots_workspace_session_updated
           ON turn_request_snapshots (workspace_id, session_id, updated_at DESC, created_at DESC);
 
-      CREATE TABLE IF NOT EXISTS runtime_user_profiles (
-          profile_id TEXT PRIMARY KEY,
-          name TEXT,
-          name_source TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-      );
-
       CREATE TABLE IF NOT EXISTS memory_entries (
           memory_id TEXT PRIMARY KEY,
           workspace_id TEXT,
@@ -6892,25 +7673,6 @@ export class RuntimeStateStore {
       CREATE INDEX IF NOT EXISTS idx_app_ports_workspace
           ON app_ports (workspace_id);
 
-      CREATE TABLE IF NOT EXISTS app_catalog (
-          app_id        TEXT NOT NULL,
-          source        TEXT NOT NULL,
-          name          TEXT NOT NULL,
-          description   TEXT,
-          icon          TEXT,
-          category      TEXT,
-          tags_json     TEXT NOT NULL DEFAULT '[]',
-          version       TEXT,
-          archive_url   TEXT,
-          archive_path  TEXT,
-          target        TEXT NOT NULL,
-          cached_at     TEXT NOT NULL,
-          PRIMARY KEY (source, app_id)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_app_catalog_source
-          ON app_catalog (source);
-
       CREATE TABLE IF NOT EXISTS cronjobs (
           id TEXT PRIMARY KEY,
           workspace_id TEXT NOT NULL,
@@ -6961,17 +7723,6 @@ export class RuntimeStateStore {
       CREATE INDEX IF NOT EXISTS idx_runtime_notifications_state_created
           ON runtime_notifications (state, created_at DESC);
 
-      CREATE TABLE IF NOT EXISTS oauth_app_configs (
-          provider_id TEXT PRIMARY KEY,
-          client_id TEXT NOT NULL,
-          client_secret TEXT NOT NULL,
-          authorize_url TEXT NOT NULL,
-          token_url TEXT NOT NULL,
-          scopes TEXT NOT NULL DEFAULT '[]',
-          redirect_port INTEGER NOT NULL DEFAULT 38765,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-      );
     `);
     this.ensureConversationBindingsTableSchema(db);
     this.ensureSubagentRunsTableSchema(db);
@@ -7243,6 +7994,9 @@ export class RuntimeStateStore {
   // here. Both columns are nullable: legacy rows without whoami data
   // simply won't deduplicate until they next reconnect.
   private migrateIntegrationConnectionIdentityColumns(db: Database.Database): void {
+    if (!this.tableExists(db, "integration_connections")) {
+      return;
+    }
     const columns = new Set<string>(
       (db.prepare("PRAGMA table_info(integration_connections)").all() as Array<{ name: string }>).map((row) => row.name)
     );
@@ -7338,6 +8092,15 @@ export class RuntimeStateStore {
     });
 
     migrate();
+  }
+
+  private tableExists(db: Database.Database, tableName: string): boolean {
+    const row = db
+      .prepare<[string], { name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1"
+      )
+      .get(tableName);
+    return Boolean(row);
   }
 
   private migrateSandboxRunTokensTable(db: Database.Database): void {
@@ -7894,7 +8657,7 @@ export class RuntimeStateStore {
       const rows = db.prepare<[], Omit<WorkspaceRow, "workspace_path">>("SELECT * FROM workspaces_legacy_with_owner").all();
       for (const row of rows) {
         const record = this.workspaceRecordFromRowLike(row);
-        this.upsertWorkspaceRow(record, this.discoverWorkspacePath(record.id) ?? this.defaultWorkspaceDir(record.id), db);
+        this.upsertWorkspaceRowInDb(record, this.discoverWorkspacePath(record.id) ?? this.defaultWorkspaceDir(record.id), db);
       }
       db.exec("DROP TABLE workspaces_legacy_with_owner; DROP INDEX IF EXISTS idx_workspaces_user_updated;");
     }
@@ -7915,7 +8678,7 @@ export class RuntimeStateStore {
 
       const payload = JSON.parse(fs.readFileSync(legacyMetadataPath, "utf-8")) as Record<string, unknown>;
       const record = this.workspaceRecordFromLegacyPayload(payload);
-      this.upsertWorkspaceRow(record, childPath, db);
+      this.upsertWorkspaceRowInDb(record, childPath, db);
       this.writeWorkspaceIdentityFile(childPath, record.id);
       fs.rmSync(legacyMetadataPath, { force: true });
     }
@@ -7966,7 +8729,7 @@ export class RuntimeStateStore {
   }
 
   private workspacePathFromRegistry(workspaceId: string): string | null {
-    const row = this.db()
+    const row = this.controlPlaneDb()
       .prepare<[string], { workspace_path: string | null }>("SELECT workspace_path FROM workspaces WHERE id = ? LIMIT 1")
       .get(workspaceId);
     if (!row || row.workspace_path == null) {
@@ -7976,7 +8739,7 @@ export class RuntimeStateStore {
     return value || null;
   }
 
-  private upsertWorkspaceRow(record: WorkspaceRecord, workspacePath: string, db = this.db()): void {
+  private upsertWorkspaceRowInDb(record: WorkspaceRecord, workspacePath: string, db: Database.Database): void {
     db.prepare(`
       INSERT INTO workspaces (
           id, workspace_path, name, status, harness, error_message,
@@ -8018,6 +8781,13 @@ export class RuntimeStateStore {
     );
   }
 
+  private upsertWorkspaceRow(record: WorkspaceRecord, workspacePath: string): void {
+    this.upsertWorkspaceRowInDb(record, workspacePath, this.controlPlaneDb());
+    if (this.controlPlaneDbPath !== this.dbPath) {
+      this.upsertWorkspaceRowInDb(record, workspacePath, this.db());
+    }
+  }
+
   private writeWorkspaceIdentityFile(workspacePath: string, workspaceId: string): void {
     const identityPath = currentWorkspaceIdentityPath(workspacePath);
     fs.mkdirSync(path.dirname(identityPath), { recursive: true });
@@ -8057,7 +8827,10 @@ export class RuntimeStateStore {
   }
 
   private updateWorkspacePath(workspaceId: string, workspacePath: string): void {
-    this.db().prepare("UPDATE workspaces SET workspace_path = ? WHERE id = ?").run(workspacePath, workspaceId);
+    this.controlPlaneDb().prepare("UPDATE workspaces SET workspace_path = ? WHERE id = ?").run(workspacePath, workspaceId);
+    if (this.controlPlaneDbPath !== this.dbPath) {
+      this.db().prepare("UPDATE workspaces SET workspace_path = ? WHERE id = ?").run(workspacePath, workspaceId);
+    }
   }
 
   private recoverMissingWorkspaceRecord(workspaceId: string): WorkspaceRecord | null {
@@ -8741,6 +9514,19 @@ export class RuntimeStateStore {
   private notificationPrioritySortSql(tableAlias = ""): string {
     const prefix = tableAlias ? `${tableAlias}.` : "";
     return `CASE ${prefix}priority WHEN 'critical' THEN 3 WHEN 'high' THEN 2 WHEN 'normal' THEN 1 ELSE 0 END`;
+  }
+
+  private notificationPriorityWeight(priority: RuntimeNotificationPriority): number {
+    switch (priority) {
+      case "critical":
+        return 3;
+      case "high":
+        return 2;
+      case "normal":
+        return 1;
+      default:
+        return 0;
+    }
   }
 
   private normalizedNotificationState(value: string | null | undefined): RuntimeNotificationState {

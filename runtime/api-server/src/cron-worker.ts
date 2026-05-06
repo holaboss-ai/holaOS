@@ -530,6 +530,7 @@ export class RuntimeCronWorker implements CronWorkerLike {
       }
 
       this.#store.updateCronjob({
+        workspaceId: job.workspaceId,
         jobId: job.id,
         lastRunAt: now.toISOString(),
         nextRunAt: cronjobNextRunAt(job.cron, now),
