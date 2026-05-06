@@ -117,11 +117,15 @@ export class RuntimeEvolveWorker implements DurableMemoryWorkerLike {
       claimed.map(async (record) => {
         try {
           await this.#executeClaimedJob(record);
-          this.#store.updatePostRunJob(record.jobId, {
-            status: "DONE",
-            claimedBy: null,
-            claimedUntil: null,
-            lastError: null,
+          this.#store.updatePostRunJob({
+            workspaceId: record.workspaceId,
+            jobId: record.jobId,
+            fields: {
+              status: "DONE",
+              claimedBy: null,
+              claimedUntil: null,
+              lastError: null,
+            },
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -176,13 +180,17 @@ export class RuntimeEvolveWorker implements DurableMemoryWorkerLike {
   #requeueOrFail(record: PostRunJobRecord, message: string): void {
     const nextAttempt = record.attempt + 1;
     const shouldFail = nextAttempt >= this.#maxAttempts;
-    this.#store.updatePostRunJob(record.jobId, {
-      status: shouldFail ? "FAILED" : "QUEUED",
-      attempt: nextAttempt,
-      claimedBy: null,
-      claimedUntil: null,
-      availableAt: shouldFail ? record.availableAt : new Date(Date.now() + this.#retryDelayMs).toISOString(),
-      lastError: { message },
+    this.#store.updatePostRunJob({
+      workspaceId: record.workspaceId,
+      jobId: record.jobId,
+      fields: {
+        status: shouldFail ? "FAILED" : "QUEUED",
+        attempt: nextAttempt,
+        claimedBy: null,
+        claimedUntil: null,
+        availableAt: shouldFail ? record.availableAt : new Date(Date.now() + this.#retryDelayMs).toISOString(),
+        lastError: { message },
+      },
     });
   }
 }

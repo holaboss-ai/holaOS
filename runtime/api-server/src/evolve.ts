@@ -100,9 +100,18 @@ export function enqueueEvolveJob(params: {
   const legacyReinforceIdempotencyKey = `${LEGACY_REINFORCE_MEMORY_WRITEBACK_JOB_TYPE}:${params.inputId}`;
   const legacyIdempotencyKey = `${LEGACY_DURABLE_MEMORY_WRITEBACK_JOB_TYPE}:${params.inputId}`;
   const existing =
-    params.store.getPostRunJobByIdempotencyKey(evolveIdempotencyKey) ??
-    params.store.getPostRunJobByIdempotencyKey(legacyReinforceIdempotencyKey) ??
-    params.store.getPostRunJobByIdempotencyKey(legacyIdempotencyKey);
+    params.store.getPostRunJobByIdempotencyKey({
+      workspaceId: params.workspaceId,
+      idempotencyKey: evolveIdempotencyKey,
+    }) ??
+    params.store.getPostRunJobByIdempotencyKey({
+      workspaceId: params.workspaceId,
+      idempotencyKey: legacyReinforceIdempotencyKey,
+    }) ??
+    params.store.getPostRunJobByIdempotencyKey({
+      workspaceId: params.workspaceId,
+      idempotencyKey: legacyIdempotencyKey,
+    });
   if (existing) {
     params.wakeWorker?.();
     return existing;

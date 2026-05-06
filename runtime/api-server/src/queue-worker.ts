@@ -177,7 +177,10 @@ export class RuntimeQueueWorker implements QueueWorkerLike {
       return null;
     }
 
-    const record = this.#store.getInput(inputId);
+    const record = this.#store.getInput({
+      workspaceId: params.workspaceId,
+      inputId,
+    });
     if (!record || record.workspaceId !== params.workspaceId || record.sessionId !== params.sessionId) {
       return null;
     }
@@ -278,10 +281,14 @@ export class RuntimeQueueWorker implements QueueWorkerLike {
           sessionId: record.sessionId,
           error: message
         });
-        this.#store.updateInput(record.inputId, {
-          status: "FAILED",
-          claimedBy: null,
-          claimedUntil: null
+        this.#store.updateInput({
+          workspaceId: record.workspaceId,
+          inputId: record.inputId,
+          fields: {
+            status: "FAILED",
+            claimedBy: null,
+            claimedUntil: null
+          }
         });
         this.#store.updateRuntimeState({
           workspaceId: record.workspaceId,
@@ -329,6 +336,7 @@ export class RuntimeQueueWorker implements QueueWorkerLike {
         }).length > 0;
       if (waitingForSessionCheckpoint) {
         const renewedClaim = this.#store.renewInputClaim({
+          workspaceId: record.workspaceId,
           inputId: record.inputId,
           claimedBy: record.claimedBy ?? this.#claimedBy,
           leaseSeconds: this.#leaseSeconds,
@@ -371,12 +379,16 @@ export class RuntimeQueueWorker implements QueueWorkerLike {
         !hasTerminal &&
         this.#shouldRequeueRecoveredClaim(record, events);
       if (shouldRequeue) {
-        this.#store.updateInput(record.inputId, {
-          status: "QUEUED",
-          claimedBy: null,
-          claimedUntil: null,
-          availableAt: utcNowIso(),
-          attempt: record.attempt + 1,
+        this.#store.updateInput({
+          workspaceId: record.workspaceId,
+          inputId: record.inputId,
+          fields: {
+            status: "QUEUED",
+            claimedBy: null,
+            claimedUntil: null,
+            availableAt: utcNowIso(),
+            attempt: record.attempt + 1,
+          },
         });
 
         const runtimeStateAfterRecovery = this.#store.getRuntimeState({
@@ -454,10 +466,14 @@ export class RuntimeQueueWorker implements QueueWorkerLike {
         });
       }
 
-      this.#store.updateInput(record.inputId, {
-        status: "FAILED",
-        claimedBy: null,
-        claimedUntil: null
+      this.#store.updateInput({
+        workspaceId: record.workspaceId,
+        inputId: record.inputId,
+        fields: {
+          status: "FAILED",
+          claimedBy: null,
+          claimedUntil: null
+        }
       });
 
       const runtimeStateAfterRecovery = this.#store.getRuntimeState({
@@ -588,10 +604,14 @@ export class RuntimeQueueWorker implements QueueWorkerLike {
       payload: completed.payload as Record<string, unknown>,
       createdAt: completedAt,
     });
-    this.#store.updateInput(record.inputId, {
-      status: "PAUSED",
-      claimedBy: null,
-      claimedUntil: null,
+    this.#store.updateInput({
+      workspaceId: record.workspaceId,
+      inputId: record.inputId,
+      fields: {
+        status: "PAUSED",
+        claimedBy: null,
+        claimedUntil: null,
+      },
     });
     this.#store.updateRuntimeState({
       workspaceId: record.workspaceId,

@@ -70,7 +70,7 @@ test("continueSubagent queues a new input onto the same completed child session"
       sessionId: childSessionId,
       payload: { text: "search the web for AI" },
     });
-    store.updateInput(firstInput.inputId, { status: "DONE" });
+    store.updateInput({ workspaceId, inputId: firstInput.inputId, fields: { status: "DONE" } });
     store.upsertTurnResult({
       workspaceId,
       sessionId: childSessionId,
@@ -136,7 +136,7 @@ test("continueSubagent queues a new input onto the same completed child session"
     const session = store.getSession({ workspaceId, sessionId: childSessionId });
     assert.equal(session?.archivedAt, null);
     const nextInputId = String(result.latest_child_input_id);
-    const nextInput = store.getInput(nextInputId);
+    const nextInput = store.getInput({ workspaceId, inputId: nextInputId });
     assert.ok(nextInput);
     assert.equal(nextInput?.sessionId, childSessionId);
     assert.equal(nextInput?.payload.model, "gpt-test");
@@ -214,7 +214,7 @@ test("continueSubagent inherits the composer-selected thinking value for the eff
         thinking_value: "medium",
       },
     });
-    store.updateInput(firstInput.inputId, { status: "DONE" });
+    store.updateInput({ workspaceId, inputId: firstInput.inputId, fields: { status: "DONE" } });
     store.upsertTurnResult({
       workspaceId,
       sessionId: childSessionId,
@@ -256,7 +256,7 @@ test("continueSubagent inherits the composer-selected thinking value for the eff
       selectedModel: "openai/gpt-5.5",
     }) as Record<string, unknown>;
 
-    const nextInput = store.getInput(String(result.latest_child_input_id));
+    const nextInput = store.getInput({ workspaceId, inputId: String(result.latest_child_input_id) });
     assert.equal(nextInput?.payload.model, "openai/gpt-5.5");
     assert.equal(nextInput?.payload.thinking_value, "medium");
   } finally {
@@ -325,12 +325,14 @@ test("delegateTask only opts into the user browser surface when the parent input
       ],
     }) as { tasks?: Array<Record<string, unknown>> };
 
-    const explicitInput = store.getInput(
-      String(explicitResult.tasks?.[0]?.latest_child_input_id ?? ""),
-    );
-    const implicitInput = store.getInput(
-      String(implicitResult.tasks?.[0]?.latest_child_input_id ?? ""),
-    );
+    const explicitInput = store.getInput({
+      workspaceId,
+      inputId: String(explicitResult.tasks?.[0]?.latest_child_input_id ?? ""),
+    });
+    const implicitInput = store.getInput({
+      workspaceId,
+      inputId: String(implicitResult.tasks?.[0]?.latest_child_input_id ?? ""),
+    });
 
     assert.equal(
       (explicitInput?.payload.context as Record<string, unknown> | undefined)
@@ -401,7 +403,7 @@ test("delegateTask inherits the composer-selected model and thinking when no sub
 
     const tasks = result.tasks ?? [];
     assert.equal(tasks.length, 1);
-    const childInput = store.getInput(String(tasks[0]?.latest_child_input_id ?? ""));
+    const childInput = store.getInput({ workspaceId, inputId: String(tasks[0]?.latest_child_input_id ?? "") });
     assert.equal(childInput?.payload.model, "openai/gpt-5.5");
     assert.equal(childInput?.payload.thinking_value, "medium");
   } finally {
@@ -453,7 +455,7 @@ test("continueSubagent preserves the user browser surface flag for follow-up wor
         },
       },
     });
-    store.updateInput(firstInput.inputId, { status: "DONE" });
+    store.updateInput({ workspaceId, inputId: firstInput.inputId, fields: { status: "DONE" } });
     store.upsertTurnResult({
       workspaceId,
       sessionId: childSessionId,
@@ -493,7 +495,7 @@ test("continueSubagent preserves the user browser surface flag for follow-up wor
       instruction: "Try again now that the page is ready.",
     }) as Record<string, unknown>;
 
-    const nextInput = store.getInput(String(result.latest_child_input_id));
+    const nextInput = store.getInput({ workspaceId, inputId: String(result.latest_child_input_id) });
     assert.equal(
       (nextInput?.payload.context as Record<string, unknown> | undefined)
         ?.use_user_browser_surface,
@@ -541,7 +543,7 @@ test("background task sync preserves persisted waiting-on-user blockers", async 
       sessionId: childSessionId,
       payload: { text: "check account stats" },
     });
-    store.updateInput(input.inputId, { status: "DONE" });
+    store.updateInput({ workspaceId, inputId: input.inputId, fields: { status: "DONE" } });
     store.upsertTurnResult({
       workspaceId,
       sessionId: childSessionId,
@@ -644,7 +646,7 @@ test("resumeSubagent preserves the user browser surface flag while waiting on us
         },
       },
     });
-    store.updateInput(blockedInput.inputId, { status: "DONE" });
+    store.updateInput({ workspaceId, inputId: blockedInput.inputId, fields: { status: "DONE" } });
     store.upsertTurnResult({
       workspaceId,
       sessionId: childSessionId,
@@ -686,7 +688,7 @@ test("resumeSubagent preserves the user browser surface flag while waiting on us
       answer: "Logged in now.",
     }) as Record<string, unknown>;
 
-    const resumedInput = store.getInput(String(result.latest_child_input_id));
+    const resumedInput = store.getInput({ workspaceId, inputId: String(result.latest_child_input_id) });
     assert.equal(
       (resumedInput?.payload.context as Record<string, unknown> | undefined)
         ?.use_user_browser_surface,
@@ -747,7 +749,7 @@ test("resumeSubagent preserves the prior child thinking value", async () => {
         },
       },
     });
-    store.updateInput(blockedInput.inputId, { status: "DONE" });
+    store.updateInput({ workspaceId, inputId: blockedInput.inputId, fields: { status: "DONE" } });
     store.upsertTurnResult({
       workspaceId,
       sessionId: childSessionId,
@@ -790,7 +792,7 @@ test("resumeSubagent preserves the prior child thinking value", async () => {
       answer: "Logged in now.",
     }) as Record<string, unknown>;
 
-    const resumedInput = store.getInput(String(result.latest_child_input_id));
+    const resumedInput = store.getInput({ workspaceId, inputId: String(result.latest_child_input_id) });
     assert.equal(resumedInput?.payload.model, "openai/gpt-5.5");
     assert.equal(resumedInput?.payload.thinking_value, "medium");
   } finally {
@@ -836,11 +838,11 @@ test("cancelSubagent waits for a claimed child runtime to settle before returnin
       sessionId: childSessionId,
       payload: { text: "do work" },
     });
-    store.updateInput(queued.inputId, {
+    store.updateInput({ workspaceId, inputId: queued.inputId, fields: {
       status: "CLAIMED",
       claimedBy: "worker-1",
       claimedUntil: new Date(Date.now() + 60_000).toISOString(),
-    });
+    } });
     store.updateRuntimeState({
       workspaceId,
       sessionId: childSessionId,
@@ -879,11 +881,11 @@ test("cancelSubagent waits for a claimed child runtime to settle before returnin
           pauseCalls += 1;
           setTimeout(() => {
             const pausedAt = utcNowIso();
-            store.updateInput(queued.inputId, {
+            store.updateInput({ workspaceId, inputId: queued.inputId, fields: {
               status: "PAUSED",
               claimedBy: null,
               claimedUntil: null,
-            });
+            } });
             store.updateRuntimeState({
               workspaceId,
               sessionId: childSessionId,

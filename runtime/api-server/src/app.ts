@@ -1440,7 +1440,12 @@ function exportLegacySessionHistory(params: {
     .map((message) => {
       const inputId = message.role === "user" && message.id.startsWith("user-") ? message.id.slice(5) : "";
       const attachments = inputId
-        ? attachmentsFromInputPayload(params.store.getInput(inputId)?.payload.attachments)
+        ? attachmentsFromInputPayload(
+            params.store.getInput({
+              workspaceId: params.workspace.id,
+              inputId,
+            })?.payload.attachments
+          )
         : [];
       return {
         id: message.id,
@@ -1780,11 +1785,15 @@ function runtimeStateHasClaimedActiveInput(
   store: RuntimeStateStore,
   runtimeState: SessionRuntimeStateRecord | null,
 ): boolean {
+  const workspaceId = runtimeState?.workspaceId?.trim() ?? "";
   const currentInputId = runtimeState?.currentInputId?.trim() ?? "";
-  if (!currentInputId) {
+  if (!currentInputId || !workspaceId) {
     return false;
   }
-  return store.getInput(currentInputId)?.status === "CLAIMED";
+  return store.getInput({
+    workspaceId,
+    inputId: currentInputId,
+  })?.status === "CLAIMED";
 }
 
 function runnerOutputEventPayload(record: OutputEventRecord): Record<string, unknown> {
@@ -7026,6 +7035,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         existingSession?.kind ?? inferredKind,
       )
         ? store.listPendingMainSessionEvents({
+            workspaceId,
             ownerMainSessionId: resolvedSessionId,
             deliveryBucket: "background_update",
             limit: 200,
@@ -7061,6 +7071,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     });
     if (inlineBackgroundUpdateIds.length > 0) {
       store.markMainSessionEventsMaterialized({
+        workspaceId,
         eventIds: inlineBackgroundUpdateIds,
         materializedInputId: record.inputId,
       });
@@ -7159,7 +7170,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 404, "workspace not found");
     }
 
-    const input = store.getInput(params.inputId);
+    const input = store.getInput({
+      workspaceId,
+      inputId: params.inputId,
+    });
     if (
       !input ||
       input.workspaceId !== workspaceId ||
@@ -7180,10 +7194,14 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 422, "text or attachments are required");
     }
 
-    const updated = store.updateInput(params.inputId, {
-      payload: {
-        ...existingPayload,
-        text: trimmedText,
+    const updated = store.updateInput({
+      workspaceId,
+      inputId: params.inputId,
+      fields: {
+        payload: {
+          ...existingPayload,
+          text: trimmedText,
+        },
       },
     });
     if (!updated) {
@@ -7305,7 +7323,14 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       })
       .map((message: SessionMessageRecord) => {
         const inputId = message.role === "user" && message.id.startsWith("user-") ? message.id.slice(5) : "";
-        const inputAttachments = inputId ? attachmentsFromInputPayload(store.getInput(inputId)?.payload.attachments) : [];
+        const inputAttachments = inputId
+          ? attachmentsFromInputPayload(
+              store.getInput({
+                workspaceId,
+                inputId,
+              })?.payload.attachments
+            )
+          : [];
         const metadata = inputAttachments.length > 0 ? { ...message.metadata, attachments: inputAttachments } : message.metadata;
         return sessionMessagePayload(message, metadata);
       });

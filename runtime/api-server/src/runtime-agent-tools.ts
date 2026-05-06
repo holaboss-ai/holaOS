@@ -1727,7 +1727,12 @@ export class RuntimeAgentToolsService {
       const childSessionId = `subagent-${randomUUID()}`;
       const title = normalizedSubagentTaskTitle(task.title, task.goal);
       const requestedModel = task.model || null;
-      const parentInput = parentInputId ? this.store.getInput(parentInputId) : null;
+      const parentInput = parentInputId
+        ? this.store.getInput({
+            workspaceId: params.workspaceId,
+            inputId: parentInputId,
+          })
+        : null;
       const allowUserBrowserSurface = textExplicitlyRequestsUserBrowserSurface(
         inputTextValue(parentInput),
       );
@@ -1850,10 +1855,14 @@ export class RuntimeAgentToolsService {
     }
     const now = utcNowIso();
     if (state.currentInput?.status === "QUEUED") {
-      this.store.updateInput(state.currentInput.inputId, {
-        status: "DONE",
-        claimedBy: null,
-        claimedUntil: null,
+      this.store.updateInput({
+        workspaceId: params.workspaceId,
+        inputId: state.currentInput.inputId,
+        fields: {
+          status: "DONE",
+          claimedBy: null,
+          claimedUntil: null,
+        },
       });
       this.store.updateRuntimeState({
         workspaceId: params.workspaceId,
@@ -1941,7 +1950,10 @@ export class RuntimeAgentToolsService {
       );
     }
     const previousChildInput = normalizedString(state.run.latestChildInputId)
-      ? this.store.getInput(normalizedString(state.run.latestChildInputId))
+      ? this.store.getInput({
+          workspaceId: params.workspaceId,
+          inputId: normalizedString(state.run.latestChildInputId),
+        })
       : null;
     const effectiveProfile = resolveSubagentExecutionProfile({
       selectedModel:
@@ -1972,7 +1984,7 @@ export class RuntimeAgentToolsService {
         },
       },
     });
-    this.store.updateRuntimeState({
+      this.store.updateRuntimeState({
       workspaceId: params.workspaceId,
       sessionId: state.run.childSessionId,
       status: "QUEUED",
@@ -1998,6 +2010,7 @@ export class RuntimeAgentToolsService {
       }) ?? state.run;
     const staleWaitingEventIds = this.store
       .listPendingMainSessionEvents({
+        workspaceId: params.workspaceId,
         ownerMainSessionId: controllerSession.sessionId,
         deliveryBucket: "waiting_on_user",
         limit: 500,
@@ -2006,6 +2019,7 @@ export class RuntimeAgentToolsService {
       .map((event) => event.eventId);
     if (staleWaitingEventIds.length > 0) {
       this.store.markMainSessionEventsSuperseded({
+        workspaceId: params.workspaceId,
         eventIds: staleWaitingEventIds,
       });
     }
@@ -2040,10 +2054,16 @@ export class RuntimeAgentToolsService {
       );
     }
     const parentInput = normalizedString(params.inputId)
-      ? this.store.getInput(normalizedString(params.inputId))
+      ? this.store.getInput({
+          workspaceId: params.workspaceId,
+          inputId: normalizedString(params.inputId),
+        })
       : null;
     const previousChildInput = normalizedString(state.run.latestChildInputId)
-      ? this.store.getInput(normalizedString(state.run.latestChildInputId))
+      ? this.store.getInput({
+          workspaceId: params.workspaceId,
+          inputId: normalizedString(state.run.latestChildInputId),
+        })
       : null;
     const effectiveProfile = resolveSubagentExecutionProfile({
       selectedModel:
@@ -2978,8 +2998,19 @@ export class RuntimeAgentToolsService {
       normalizedString(run.latestChildInputId) ||
       currentInputId ||
       normalizedString(run.initialChildInputId);
-    const currentInput = currentInputId ? this.store.getInput(currentInputId) : null;
-    const latestInput = latestInputId ? this.store.getInput(latestInputId) : null;
+    const workspaceId = run.workspaceId;
+    const currentInput = currentInputId
+      ? this.store.getInput({
+          workspaceId,
+          inputId: currentInputId,
+        })
+      : null;
+    const latestInput = latestInputId
+      ? this.store.getInput({
+          workspaceId,
+          inputId: latestInputId,
+        })
+      : null;
     const latestTurnResult = latestInputId
       ? this.store.getTurnResult({
           workspaceId: run.workspaceId,

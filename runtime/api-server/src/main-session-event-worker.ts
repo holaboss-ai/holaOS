@@ -264,6 +264,7 @@ export class RuntimeMainSessionEventWorker
           },
         });
         this.#store.markMainSessionEventsMaterialized({
+          workspaceId: workspace.id,
           eventIds,
           materializedInputId: input.inputId,
         });

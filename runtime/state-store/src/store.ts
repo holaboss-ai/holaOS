@@ -2478,16 +2478,17 @@ export class RuntimeStateStore {
       if (!updated) {
         return null;
       }
-      this.db()
+      this.workspaceRuntimeDb(params.workspaceId)
         .prepare(`
           UPDATE main_session_event_queue
           SET owner_main_session_id = ?,
               updated_at = ?
-          WHERE subagent_id = ?
+          WHERE workspace_id = ?
+            AND subagent_id = ?
             AND delivered_at IS NULL
             AND superseded_at IS NULL
         `)
-        .run(params.ownerMainSessionId, utcNowIso(), params.subagentId);
+        .run(params.ownerMainSessionId, utcNowIso(), params.workspaceId, params.subagentId);
       return this.getSubagentRun({ workspaceId: params.workspaceId, subagentId: params.subagentId });
     });
     return transaction();
@@ -2546,7 +2547,7 @@ export class RuntimeStateStore {
     const eventId = params.eventId ?? randomUUID();
     const now = params.updatedAt ?? utcNowIso();
     const createdAt = params.createdAt ?? now;
-    this.db()
+    this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`
         INSERT INTO main_session_event_queue (
             event_id,
@@ -2589,7 +2590,10 @@ export class RuntimeStateStore {
         createdAt,
         now
       );
-    const record = this.getMainSessionEvent({ eventId });
+    const record = this.getMainSessionEvent({
+      workspaceId: params.workspaceId,
+      eventId,
+    });
     if (!record) {
       throw new Error("main session event row not found after insert");
     }
@@ -2597,14 +2601,21 @@ export class RuntimeStateStore {
   }
 
   updateMainSessionEvent(params: {
+    workspaceId: string;
     eventId: string;
     fields: MainSessionEventQueueUpdateFields;
   }): MainSessionEventQueueRecord | null {
     const entries = Object.entries(params.fields);
     if (entries.length === 0) {
-      return this.getMainSessionEvent({ eventId: params.eventId });
+      return this.getMainSessionEvent({
+        workspaceId: params.workspaceId,
+        eventId: params.eventId,
+      });
     }
-    const existing = this.getMainSessionEvent({ eventId: params.eventId });
+    const existing = this.getMainSessionEvent({
+      workspaceId: params.workspaceId,
+      eventId: params.eventId,
+    });
     if (!existing) {
       return null;
     }
@@ -2679,23 +2690,27 @@ export class RuntimeStateStore {
     }
     assignments.push("updated_at = ?");
     values.push(utcNowIso(), params.eventId);
-    const result = this.db()
+    const result = this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`UPDATE main_session_event_queue SET ${assignments.join(", ")} WHERE event_id = ?`)
       .run(...values);
     if (result.changes <= 0) {
       return null;
     }
-    return this.getMainSessionEvent({ eventId: params.eventId });
+    return this.getMainSessionEvent({
+      workspaceId: params.workspaceId,
+      eventId: params.eventId,
+    });
   }
 
-  getMainSessionEvent(params: { eventId: string }): MainSessionEventQueueRecord | null {
-    const row = this.db()
+  getMainSessionEvent(params: { workspaceId: string; eventId: string }): MainSessionEventQueueRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM main_session_event_queue WHERE event_id = ? LIMIT 1")
       .get(params.eventId);
     return row ? this.rowToMainSessionEventQueue(row) : null;
   }
 
   listPendingMainSessionEvents(params: {
+    workspaceId: string;
     ownerMainSessionId: string;
     deliveryBucket?: string | null;
     before?: string | null;
@@ -2725,7 +2740,7 @@ export class RuntimeStateStore {
       query += " LIMIT ?";
       values.push(Math.floor(params.limit));
     }
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToMainSessionEventQueue(row));
   }
 
@@ -2754,11 +2769,12 @@ export class RuntimeStateStore {
       query += " LIMIT ?";
       values.push(Math.floor(params.limit));
     }
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToMainSessionEventQueue(row));
   }
 
   markMainSessionEventsMaterialized(params: {
+    workspaceId: string;
     eventIds: string[];
     materializedInputId: string;
   }): MainSessionEventQueueRecord[] {
@@ -2766,7 +2782,7 @@ export class RuntimeStateStore {
       return [];
     }
     const now = utcNowIso();
-    this.db()
+    this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`
         UPDATE main_session_event_queue
         SET status = 'materialized',
@@ -2775,10 +2791,11 @@ export class RuntimeStateStore {
         WHERE event_id IN (${params.eventIds.map(() => "?").join(", ")})
       `)
       .run(params.materializedInputId, now, ...params.eventIds);
-    return this.listMainSessionEventsByIds(params.eventIds);
+    return this.listMainSessionEventsByIds(params.workspaceId, params.eventIds);
   }
 
   markMainSessionEventsDelivered(params: {
+    workspaceId: string;
     eventIds: string[];
     deliveredAt?: string;
   }): MainSessionEventQueueRecord[] {
@@ -2786,7 +2803,7 @@ export class RuntimeStateStore {
       return [];
     }
     const deliveredAt = params.deliveredAt ?? utcNowIso();
-    this.db()
+    this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`
         UPDATE main_session_event_queue
         SET status = 'delivered',
@@ -2795,10 +2812,11 @@ export class RuntimeStateStore {
         WHERE event_id IN (${params.eventIds.map(() => "?").join(", ")})
       `)
       .run(deliveredAt, deliveredAt, ...params.eventIds);
-    return this.listMainSessionEventsByIds(params.eventIds);
+    return this.listMainSessionEventsByIds(params.workspaceId, params.eventIds);
   }
 
   markMainSessionEventsSuperseded(params: {
+    workspaceId: string;
     eventIds: string[];
     supersededByEventId?: string | null;
     supersededAt?: string;
@@ -2807,7 +2825,7 @@ export class RuntimeStateStore {
       return [];
     }
     const supersededAt = params.supersededAt ?? utcNowIso();
-    this.db()
+    this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`
         UPDATE main_session_event_queue
         SET status = 'superseded',
@@ -2817,14 +2835,15 @@ export class RuntimeStateStore {
         WHERE event_id IN (${params.eventIds.map(() => "?").join(", ")})
       `)
       .run(this.normalizedNullableText(params.supersededByEventId), supersededAt, supersededAt, ...params.eventIds);
-    return this.listMainSessionEventsByIds(params.eventIds);
+    return this.listMainSessionEventsByIds(params.workspaceId, params.eventIds);
   }
 
   transferQueuedMainSessionEvents(params: {
+    workspaceId: string;
     subagentId: string;
     ownerMainSessionId: string;
   }): MainSessionEventQueueRecord[] {
-    const existing = this.db()
+    const existing = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], { workspace_id: string }>(`
         SELECT workspace_id
         FROM main_session_event_queue
@@ -2842,7 +2861,7 @@ export class RuntimeStateStore {
       );
     }
     const now = utcNowIso();
-    this.db()
+    this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`
         UPDATE main_session_event_queue
         SET owner_main_session_id = ?,
@@ -2852,7 +2871,7 @@ export class RuntimeStateStore {
           AND superseded_at IS NULL
       `)
       .run(params.ownerMainSessionId, now, params.subagentId);
-    const rows = this.db()
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>(`
         SELECT *
         FROM main_session_event_queue
@@ -2869,7 +2888,8 @@ export class RuntimeStateStore {
     workspaceId: string;
     nowIso?: string;
   }): MainSessionEventQueueRecord[] {
-    const rows = this.db()
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
+    const rows = workspaceDb
       .prepare<[string], Record<string, unknown>>(
         `
           SELECT q.*
@@ -2890,7 +2910,7 @@ export class RuntimeStateStore {
       return [];
     }
     const now = params.nowIso ?? utcNowIso();
-    const resetEventStatement = this.db().prepare(`
+    const resetEventStatement = workspaceDb.prepare(`
       UPDATE main_session_event_queue
       SET status = 'pending',
           materialized_input_id = NULL,
@@ -2899,7 +2919,7 @@ export class RuntimeStateStore {
           updated_at = ?
       WHERE event_id = ?
     `);
-    const clearFailedInputIdempotencyStatement = this.db().prepare(`
+    const clearFailedInputIdempotencyStatement = workspaceDb.prepare(`
       UPDATE agent_session_inputs
       SET idempotency_key = NULL,
           updated_at = ?
@@ -2923,7 +2943,12 @@ export class RuntimeStateStore {
       }))
     );
     return events
-      .map((event) => this.getMainSessionEvent({ eventId: event.eventId }))
+      .map((event) =>
+        this.getMainSessionEvent({
+          workspaceId: params.workspaceId,
+          eventId: event.eventId,
+        })
+      )
       .filter((event): event is MainSessionEventQueueRecord => event !== null);
   }
 
@@ -3254,14 +3279,17 @@ export class RuntimeStateStore {
     idempotencyKey?: string | null;
   }): SessionInputRecord {
     if (params.idempotencyKey) {
-      const existing = this.getInputByIdempotencyKey(params.idempotencyKey);
+      const existing = this.getInputByIdempotencyKey({
+        workspaceId: params.workspaceId,
+        idempotencyKey: params.idempotencyKey,
+      });
       if (existing) {
         return existing;
       }
     }
     const inputId = randomUUID();
     const now = utcNowIso();
-    this.db()
+    this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`
         INSERT INTO agent_session_inputs (
             input_id, session_id, workspace_id, payload, status, priority, available_at,
@@ -3280,26 +3308,29 @@ export class RuntimeStateStore {
         now,
         now
       );
-    const record = this.getInput(inputId);
+    const record = this.getInput({
+      workspaceId: params.workspaceId,
+      inputId,
+    });
     if (!record) {
       throw new Error("failed to load queued input");
     }
     return record;
   }
 
-  getInput(inputId: string): SessionInputRecord | null {
-    const row = this.db()
+  getInput(params: { workspaceId: string; inputId: string }): SessionInputRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM agent_session_inputs WHERE input_id = ? LIMIT 1")
-      .get(inputId);
+      .get(params.inputId);
     return this.rowToInput(row);
   }
 
-  getInputByIdempotencyKey(idempotencyKey: string): SessionInputRecord | null {
-    const row = this.db()
+  getInputByIdempotencyKey(params: { workspaceId: string; idempotencyKey: string }): SessionInputRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>(
         "SELECT * FROM agent_session_inputs WHERE idempotency_key = ? LIMIT 1"
       )
-      .get(idempotencyKey);
+      .get(params.idempotencyKey);
     return this.rowToInput(row);
   }
 
@@ -3308,7 +3339,7 @@ export class RuntimeStateStore {
       typeof params.limit === "number" && Number.isFinite(params.limit) && params.limit > 0
         ? Math.floor(params.limit)
         : 200;
-    const rows = this.db()
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string, string, number], Record<string, unknown>>(
         `
           SELECT *
@@ -3354,10 +3385,17 @@ export class RuntimeStateStore {
     return configured ?? filtered[0] ?? null;
   }
 
-  updateInput(inputId: string, fields: InputUpdateFields): SessionInputRecord | null {
-    const entries = Object.entries(fields);
+  updateInput(params: {
+    workspaceId: string;
+    inputId: string;
+    fields: InputUpdateFields;
+  }): SessionInputRecord | null {
+    const entries = Object.entries(params.fields);
     if (entries.length === 0) {
-      return this.getInput(inputId);
+      return this.getInput({
+        workspaceId: params.workspaceId,
+        inputId: params.inputId,
+      });
     }
 
     const columnMap: Record<keyof InputUpdateFields, string> = {
@@ -3385,15 +3423,19 @@ export class RuntimeStateStore {
     }
     assignments.push("updated_at = ?");
     values.push(utcNowIso());
-    values.push(inputId);
+    values.push(params.inputId);
 
-    this.db()
+    this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`UPDATE agent_session_inputs SET ${assignments.join(", ")} WHERE input_id = ?`)
       .run(...values);
-    return this.getInput(inputId);
+    return this.getInput({
+      workspaceId: params.workspaceId,
+      inputId: params.inputId,
+    });
   }
 
   renewInputClaim(params: {
+    workspaceId: string;
     inputId: string;
     claimedBy: string;
     leaseSeconds: number;
@@ -3403,7 +3445,7 @@ export class RuntimeStateStore {
     const nowIso = params.nowIso ?? now.toISOString();
     const claimedUntilIso =
       params.leaseSeconds > 0 ? new Date(now.getTime() + params.leaseSeconds * 1000).toISOString() : nowIso;
-    const result = this.db()
+    const result = this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`
         UPDATE agent_session_inputs
         SET claimed_until = ?,
@@ -3416,7 +3458,10 @@ export class RuntimeStateStore {
     if (result.changes === 0) {
       return null;
     }
-    return this.getInput(params.inputId);
+    return this.getInput({
+      workspaceId: params.workspaceId,
+      inputId: params.inputId,
+    });
   }
 
   claimInputs(params: {
@@ -3431,102 +3476,138 @@ export class RuntimeStateStore {
     const claimedUntilIso =
       params.leaseSeconds > 0 ? new Date(now.getTime() + params.leaseSeconds * 1000).toISOString() : nowIso;
 
-    const rows = this.db()
-      .prepare<[string, string, string], { input_id: string; session_id: string }>(`
-        SELECT queued.input_id, queued.session_id
-        FROM agent_session_inputs AS queued
-        WHERE queued.status = 'QUEUED'
-          AND datetime(queued.available_at) <= datetime(?)
-          AND (queued.claimed_until IS NULL OR datetime(queued.claimed_until) <= datetime(?))
-          AND NOT EXISTS (
-            SELECT 1
-            FROM agent_session_inputs AS claimed
-            WHERE claimed.session_id = queued.session_id
-              AND claimed.input_id != queued.input_id
-              AND claimed.status = 'CLAIMED'
-              AND (claimed.claimed_until IS NULL OR datetime(claimed.claimed_until) > datetime(?))
-          )
-        ORDER BY priority DESC, datetime(created_at) ASC
-      `)
-      .all(nowIso, nowIso, nowIso);
+    const candidates = this.listReadableWorkspaceRuntimeDbs().flatMap(({ db, workspaceId }) => {
+      const rows = db
+        .prepare<[string, string, string], { input_id: string; session_id: string; priority: number; created_at: string }>(`
+          SELECT queued.input_id, queued.session_id, queued.priority, queued.created_at
+          FROM agent_session_inputs AS queued
+          WHERE queued.status = 'QUEUED'
+            AND datetime(queued.available_at) <= datetime(?)
+            AND (queued.claimed_until IS NULL OR datetime(queued.claimed_until) <= datetime(?))
+            AND NOT EXISTS (
+              SELECT 1
+              FROM agent_session_inputs AS claimed
+              WHERE claimed.session_id = queued.session_id
+                AND claimed.input_id != queued.input_id
+                AND claimed.status = 'CLAIMED'
+                AND (claimed.claimed_until IS NULL OR datetime(claimed.claimed_until) > datetime(?))
+            )
+          ORDER BY priority DESC, datetime(created_at) ASC
+        `)
+        .all(nowIso, nowIso, nowIso);
+      return rows.map((row) => ({
+        workspaceId,
+        inputId: row.input_id,
+        sessionId: row.session_id,
+        priority: row.priority,
+        createdAt: row.created_at,
+      }));
+    });
+    candidates.sort((left, right) => {
+      const priorityCompare = Number(right.priority) - Number(left.priority);
+      if (priorityCompare !== 0) {
+        return priorityCompare;
+      }
+      const createdCompare = String(left.createdAt).localeCompare(String(right.createdAt));
+      if (createdCompare !== 0) {
+        return createdCompare;
+      }
+      return left.inputId.localeCompare(right.inputId);
+    });
 
-    const selectedInputIds: string[] = [];
+    const selectedInputs: Array<{ workspaceId: string; inputId: string }> = [];
     const seenSessionIds = new Set<string>();
     const excludedSessionIds = new Set(
       (params.excludeSessionIds ?? []).map((sessionId) => sessionId.trim()).filter((sessionId) => sessionId.length > 0),
     );
-    for (const row of rows) {
-      if (excludedSessionIds.has(row.session_id)) {
+    for (const row of candidates) {
+      if (excludedSessionIds.has(row.sessionId)) {
         continue;
       }
-      if (params.distinctSessions && seenSessionIds.has(row.session_id)) {
+      if (params.distinctSessions && seenSessionIds.has(row.sessionId)) {
         continue;
       }
-      selectedInputIds.push(row.input_id);
+      selectedInputs.push({
+        workspaceId: row.workspaceId,
+        inputId: row.inputId,
+      });
       if (params.distinctSessions) {
-        seenSessionIds.add(row.session_id);
+        seenSessionIds.add(row.sessionId);
       }
-      if (selectedInputIds.length >= Math.max(1, params.limit)) {
+      if (selectedInputs.length >= Math.max(1, params.limit)) {
         break;
       }
     }
-
-    const update = this.db().prepare(`
-      UPDATE agent_session_inputs
-      SET status = 'CLAIMED',
-          claimed_by = ?,
-          claimed_until = ?,
-          updated_at = ?
-      WHERE input_id = ?
-    `);
-
     const records: SessionInputRecord[] = [];
-    const transaction = this.db().transaction((inputIds: string[]) => {
-      for (const inputId of inputIds) {
-        update.run(params.claimedBy, claimedUntilIso, nowIso, inputId);
-        const record = this.getInput(inputId);
-        if (record) {
-          records.push(record);
-        }
+    for (const selected of selectedInputs) {
+      const result = this.workspaceRuntimeDb(selected.workspaceId)
+        .prepare(`
+          UPDATE agent_session_inputs
+          SET status = 'CLAIMED',
+              claimed_by = ?,
+              claimed_until = ?,
+              updated_at = ?
+          WHERE input_id = ?
+            AND status = 'QUEUED'
+        `)
+        .run(params.claimedBy, claimedUntilIso, nowIso, selected.inputId);
+      if (result.changes <= 0) {
+        continue;
       }
-    });
-    transaction(selectedInputIds);
+      const record = this.getInput(selected);
+      if (record) {
+        records.push(record);
+      }
+    }
     return records;
   }
 
-  hasAvailableInputsForSession(params: { sessionId: string; workspaceId?: string }): boolean {
+  hasAvailableInputsForSession(params: { workspaceId: string; sessionId: string }): boolean {
     const nowIso = utcNowIso();
-    let query = `
+    const query = `
       SELECT input_id FROM agent_session_inputs
       WHERE session_id = ?
+        AND workspace_id = ?
         AND status = 'QUEUED'
         AND datetime(available_at) <= datetime(?)
+      LIMIT 1
     `;
-    const values: Array<string> = [params.sessionId, nowIso];
-    if (params.workspaceId) {
-      query += " AND workspace_id = ?";
-      values.push(params.workspaceId);
-    }
-    query += " LIMIT 1";
-
-    const row = this.db().prepare(query).get(...values);
+    const row = this.workspaceRuntimeDb(params.workspaceId).prepare(query).get(
+      params.sessionId,
+      params.workspaceId,
+      nowIso,
+    );
     return Boolean(row);
   }
 
   listExpiredClaimedInputs(nowIso = utcNowIso()): SessionInputRecord[] {
-    const rows = this.db()
-      .prepare<[string], Record<string, unknown>>(`
-        SELECT *
-        FROM agent_session_inputs
-        WHERE status = 'CLAIMED'
-          AND claimed_until IS NOT NULL
-          AND datetime(claimed_until) <= datetime(?)
-        ORDER BY datetime(claimed_until) ASC, datetime(updated_at) ASC
-      `)
-      .all(nowIso);
-    return rows
-      .map((row) => this.rowToInput(row))
-      .filter((row): row is SessionInputRecord => row !== null);
+    const records = this.listReadableWorkspaceRuntimeDbs().flatMap(({ db }) => {
+      const rows = db
+        .prepare<[string], Record<string, unknown>>(`
+          SELECT *
+          FROM agent_session_inputs
+          WHERE status = 'CLAIMED'
+            AND claimed_until IS NOT NULL
+            AND datetime(claimed_until) <= datetime(?)
+          ORDER BY datetime(claimed_until) ASC, datetime(updated_at) ASC
+        `)
+        .all(nowIso);
+      return rows
+        .map((row) => this.rowToInput(row))
+        .filter((row): row is SessionInputRecord => row !== null);
+    });
+    records.sort((left, right) => {
+      const claimedCompare = (left.claimedUntil ?? "").localeCompare(right.claimedUntil ?? "");
+      if (claimedCompare !== 0) {
+        return claimedCompare;
+      }
+      const updatedCompare = left.updatedAt.localeCompare(right.updatedAt);
+      if (updatedCompare !== 0) {
+        return updatedCompare;
+      }
+      return left.inputId.localeCompare(right.inputId);
+    });
+    return records;
   }
 
   static readonly #LIST_CLAIMED_INPUTS_SQL = `
@@ -3537,12 +3618,24 @@ export class RuntimeStateStore {
   `;
 
   listClaimedInputs(): SessionInputRecord[] {
-    const rows = this.#cachedPrepare(
-      RuntimeStateStore.#LIST_CLAIMED_INPUTS_SQL,
-    ).all() as Array<Record<string, unknown>>;
-    return rows
-      .map((row) => this.rowToInput(row))
-      .filter((row): row is SessionInputRecord => row !== null);
+    const records = this.listReadableWorkspaceRuntimeDbs().flatMap(({ db }) => {
+      const rows = db.prepare(RuntimeStateStore.#LIST_CLAIMED_INPUTS_SQL).all() as Array<Record<string, unknown>>;
+      return rows
+        .map((row) => this.rowToInput(row))
+        .filter((row): row is SessionInputRecord => row !== null);
+    });
+    records.sort((left, right) => {
+      const claimedCompare = (left.claimedUntil ?? "").localeCompare(right.claimedUntil ?? "");
+      if (claimedCompare !== 0) {
+        return claimedCompare;
+      }
+      const updatedCompare = left.updatedAt.localeCompare(right.updatedAt);
+      if (updatedCompare !== 0) {
+        return updatedCompare;
+      }
+      return left.inputId.localeCompare(right.inputId);
+    });
+    return records;
   }
 
   enqueuePostRunJob(params: {
@@ -3555,14 +3648,17 @@ export class RuntimeStateStore {
     idempotencyKey?: string | null;
   }): PostRunJobRecord {
     if (params.idempotencyKey) {
-      const existing = this.getPostRunJobByIdempotencyKey(params.idempotencyKey);
+      const existing = this.getPostRunJobByIdempotencyKey({
+        workspaceId: params.workspaceId,
+        idempotencyKey: params.idempotencyKey,
+      });
       if (existing) {
         return existing;
       }
     }
     const jobId = randomUUID();
     const now = utcNowIso();
-    this.db()
+    this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`
         INSERT INTO post_run_jobs (
             job_id, job_type, input_id, session_id, workspace_id, payload, status, priority, available_at,
@@ -3583,24 +3679,27 @@ export class RuntimeStateStore {
         now,
         now
       );
-    const record = this.getPostRunJob(jobId);
+    const record = this.getPostRunJob({
+      workspaceId: params.workspaceId,
+      jobId,
+    });
     if (!record) {
       throw new Error("failed to load queued post-run job");
     }
     return record;
   }
 
-  getPostRunJob(jobId: string): PostRunJobRecord | null {
-    const row = this.db()
+  getPostRunJob(params: { workspaceId: string; jobId: string }): PostRunJobRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM post_run_jobs WHERE job_id = ? LIMIT 1")
-      .get(jobId);
+      .get(params.jobId);
     return this.rowToPostRunJob(row);
   }
 
-  getPostRunJobByIdempotencyKey(idempotencyKey: string): PostRunJobRecord | null {
-    const row = this.db()
+  getPostRunJobByIdempotencyKey(params: { workspaceId: string; idempotencyKey: string }): PostRunJobRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string], Record<string, unknown>>("SELECT * FROM post_run_jobs WHERE idempotency_key = ? LIMIT 1")
-      .get(idempotencyKey);
+      .get(params.idempotencyKey);
     return this.rowToPostRunJob(row);
   }
 
@@ -3613,6 +3712,46 @@ export class RuntimeStateStore {
     limit?: number;
     offset?: number;
   }): PostRunJobRecord[] {
+    if (!params.workspaceId) {
+      const jobs = this.listReadableWorkspaceRuntimeDbs().flatMap(({ db }) => {
+        let query = "SELECT * FROM post_run_jobs WHERE 1 = 1";
+        const values: Array<string | number> = [];
+        if (params.sessionId) {
+          query += " AND session_id = ?";
+          values.push(params.sessionId);
+        }
+        if (params.inputId) {
+          query += " AND input_id = ?";
+          values.push(params.inputId);
+        }
+        if (params.jobType) {
+          query += " AND job_type = ?";
+          values.push(params.jobType);
+        }
+        if (params.statuses && params.statuses.length > 0) {
+          const placeholders = params.statuses.map(() => "?").join(", ");
+          query += ` AND status IN (${placeholders})`;
+          values.push(...params.statuses);
+        }
+        query += " ORDER BY priority DESC, datetime(created_at) ASC";
+        const rows = db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+        return rows
+          .map((row) => this.rowToPostRunJob(row))
+          .filter((row): row is PostRunJobRecord => row !== null);
+      });
+      jobs.sort((left, right) => {
+        const priorityCompare = right.priority - left.priority;
+        if (priorityCompare !== 0) {
+          return priorityCompare;
+        }
+        const createdCompare = left.createdAt.localeCompare(right.createdAt);
+        if (createdCompare !== 0) {
+          return createdCompare;
+        }
+        return left.jobId.localeCompare(right.jobId);
+      });
+      return jobs.slice(params.offset ?? 0, (params.offset ?? 0) + (params.limit ?? 100));
+    }
     let query = "SELECT * FROM post_run_jobs WHERE 1 = 1";
     const values: Array<string | number> = [];
     if (params.workspaceId) {
@@ -3638,16 +3777,23 @@ export class RuntimeStateStore {
     }
     query += " ORDER BY priority DESC, datetime(created_at) ASC LIMIT ? OFFSET ?";
     values.push(params.limit ?? 100, params.offset ?? 0);
-    const rows = this.db().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows
       .map((row) => this.rowToPostRunJob(row))
       .filter((row): row is PostRunJobRecord => row !== null);
   }
 
-  updatePostRunJob(jobId: string, fields: PostRunJobUpdateFields): PostRunJobRecord | null {
-    const entries = Object.entries(fields);
+  updatePostRunJob(params: {
+    workspaceId: string;
+    jobId: string;
+    fields: PostRunJobUpdateFields;
+  }): PostRunJobRecord | null {
+    const entries = Object.entries(params.fields);
     if (entries.length === 0) {
-      return this.getPostRunJob(jobId);
+      return this.getPostRunJob({
+        workspaceId: params.workspaceId,
+        jobId: params.jobId,
+      });
     }
 
     const columnMap: Record<keyof PostRunJobUpdateFields, string> = {
@@ -3684,12 +3830,15 @@ export class RuntimeStateStore {
     }
     assignments.push("updated_at = ?");
     values.push(utcNowIso());
-    values.push(jobId);
+    values.push(params.jobId);
 
-    this.db()
+    this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`UPDATE post_run_jobs SET ${assignments.join(", ")} WHERE job_id = ?`)
       .run(...values);
-    return this.getPostRunJob(jobId);
+    return this.getPostRunJob({
+      workspaceId: params.workspaceId,
+      jobId: params.jobId,
+    });
   }
 
   claimPostRunJobs(params: { limit: number; claimedBy: string; leaseSeconds: number; distinctSessions?: boolean }): PostRunJobRecord[] {
@@ -3698,52 +3847,75 @@ export class RuntimeStateStore {
     const claimedUntilIso =
       params.leaseSeconds > 0 ? new Date(now.getTime() + params.leaseSeconds * 1000).toISOString() : nowIso;
 
-    const rows = this.db()
-      .prepare<[string, string], { job_id: string; session_id: string }>(`
-        SELECT job_id, session_id
-        FROM post_run_jobs
-        WHERE status = 'QUEUED'
-          AND datetime(available_at) <= datetime(?)
-          AND (claimed_until IS NULL OR datetime(claimed_until) <= datetime(?))
-        ORDER BY priority DESC, datetime(created_at) ASC
-      `)
-      .all(nowIso, nowIso);
+    const candidates = this.listReadableWorkspaceRuntimeDbs().flatMap(({ db, workspaceId }) => {
+      const rows = db
+        .prepare<[string, string], { job_id: string; session_id: string; priority: number; created_at: string }>(`
+          SELECT job_id, session_id, priority, created_at
+          FROM post_run_jobs
+          WHERE status = 'QUEUED'
+            AND datetime(available_at) <= datetime(?)
+            AND (claimed_until IS NULL OR datetime(claimed_until) <= datetime(?))
+          ORDER BY priority DESC, datetime(created_at) ASC
+        `)
+        .all(nowIso, nowIso);
+      return rows.map((row) => ({
+        workspaceId,
+        jobId: row.job_id,
+        sessionId: row.session_id,
+        priority: row.priority,
+        createdAt: row.created_at,
+      }));
+    });
+    candidates.sort((left, right) => {
+      const priorityCompare = Number(right.priority) - Number(left.priority);
+      if (priorityCompare !== 0) {
+        return priorityCompare;
+      }
+      const createdCompare = String(left.createdAt).localeCompare(String(right.createdAt));
+      if (createdCompare !== 0) {
+        return createdCompare;
+      }
+      return left.jobId.localeCompare(right.jobId);
+    });
 
-    const selectedJobIds: string[] = [];
+    const selectedJobs: Array<{ workspaceId: string; jobId: string }> = [];
     const seenSessionIds = new Set<string>();
-    for (const row of rows) {
-      if (params.distinctSessions && seenSessionIds.has(row.session_id)) {
+    for (const row of candidates) {
+      if (params.distinctSessions && seenSessionIds.has(row.sessionId)) {
         continue;
       }
-      selectedJobIds.push(row.job_id);
+      selectedJobs.push({
+        workspaceId: row.workspaceId,
+        jobId: row.jobId,
+      });
       if (params.distinctSessions) {
-        seenSessionIds.add(row.session_id);
+        seenSessionIds.add(row.sessionId);
       }
-      if (selectedJobIds.length >= Math.max(1, params.limit)) {
+      if (selectedJobs.length >= Math.max(1, params.limit)) {
         break;
       }
     }
-
-    const update = this.db().prepare(`
-      UPDATE post_run_jobs
-      SET status = 'CLAIMED',
-          claimed_by = ?,
-          claimed_until = ?,
-          updated_at = ?
-      WHERE job_id = ?
-    `);
-
     const records: PostRunJobRecord[] = [];
-    const transaction = this.db().transaction((jobIds: string[]) => {
-      for (const jobId of jobIds) {
-        update.run(params.claimedBy, claimedUntilIso, nowIso, jobId);
-        const record = this.getPostRunJob(jobId);
-        if (record) {
-          records.push(record);
-        }
+    for (const selected of selectedJobs) {
+      const result = this.workspaceRuntimeDb(selected.workspaceId)
+        .prepare(`
+          UPDATE post_run_jobs
+          SET status = 'CLAIMED',
+              claimed_by = ?,
+              claimed_until = ?,
+              updated_at = ?
+          WHERE job_id = ?
+            AND status = 'QUEUED'
+        `)
+        .run(params.claimedBy, claimedUntilIso, nowIso, selected.jobId);
+      if (result.changes <= 0) {
+        continue;
       }
-    });
-    transaction(selectedJobIds);
+      const record = this.getPostRunJob(selected);
+      if (record) {
+        records.push(record);
+      }
+    }
     return records;
   }
 
@@ -3757,12 +3929,24 @@ export class RuntimeStateStore {
   `;
 
   listExpiredClaimedPostRunJobs(nowIso = utcNowIso()): PostRunJobRecord[] {
-    const rows = this.#cachedPrepare(
-      RuntimeStateStore.#LIST_EXPIRED_CLAIMED_POST_RUN_JOBS_SQL,
-    ).all(nowIso) as Array<Record<string, unknown>>;
-    return rows
-      .map((row) => this.rowToPostRunJob(row))
-      .filter((row): row is PostRunJobRecord => row !== null);
+    const records = this.listReadableWorkspaceRuntimeDbs().flatMap(({ db }) => {
+      const rows = db.prepare(RuntimeStateStore.#LIST_EXPIRED_CLAIMED_POST_RUN_JOBS_SQL).all(nowIso) as Array<Record<string, unknown>>;
+      return rows
+        .map((row) => this.rowToPostRunJob(row))
+        .filter((row): row is PostRunJobRecord => row !== null);
+    });
+    records.sort((left, right) => {
+      const claimedCompare = (left.claimedUntil ?? "").localeCompare(right.claimedUntil ?? "");
+      if (claimedCompare !== 0) {
+        return claimedCompare;
+      }
+      const updatedCompare = left.updatedAt.localeCompare(right.updatedAt);
+      if (updatedCompare !== 0) {
+        return updatedCompare;
+      }
+      return left.jobId.localeCompare(right.jobId);
+    });
+    return records;
   }
 
   ensureRuntimeState(params: {
@@ -6759,6 +6943,9 @@ export class RuntimeStateStore {
       "agent_sessions",
       "agent_runtime_sessions",
       "conversation_bindings",
+      "agent_session_inputs",
+      "post_run_jobs",
+      "main_session_event_queue",
       "session_runtime_state",
       "session_messages",
       "subagent_runs",
@@ -7029,6 +7216,86 @@ export class RuntimeStateStore {
 
       CREATE INDEX IF NOT EXISTS idx_conversation_bindings_channel_key_active
           ON conversation_bindings (channel, conversation_key, is_active);
+
+      CREATE TABLE IF NOT EXISTS agent_session_inputs (
+          input_id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          workspace_id TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          status TEXT NOT NULL,
+          priority INTEGER NOT NULL DEFAULT 0,
+          available_at TEXT NOT NULL,
+          attempt INTEGER NOT NULL DEFAULT 0,
+          idempotency_key TEXT,
+          claimed_by TEXT,
+          claimed_until TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_agent_session_inputs_workspace_created
+          ON agent_session_inputs (workspace_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_agent_session_inputs_session_status
+          ON agent_session_inputs (session_id, status, available_at);
+
+      CREATE TABLE IF NOT EXISTS post_run_jobs (
+          job_id TEXT PRIMARY KEY,
+          job_type TEXT NOT NULL,
+          input_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          workspace_id TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          status TEXT NOT NULL,
+          priority INTEGER NOT NULL DEFAULT 0,
+          available_at TEXT NOT NULL,
+          attempt INTEGER NOT NULL DEFAULT 0,
+          idempotency_key TEXT,
+          claimed_by TEXT,
+          claimed_until TEXT,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_post_run_jobs_workspace_created
+          ON post_run_jobs (workspace_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_post_run_jobs_session_status
+          ON post_run_jobs (session_id, status, available_at);
+
+      CREATE TABLE IF NOT EXISTS main_session_event_queue (
+          event_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          owner_main_session_id TEXT NOT NULL,
+          origin_main_session_id TEXT NOT NULL,
+          subagent_id TEXT,
+          event_type TEXT NOT NULL,
+          delivery_bucket TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          payload TEXT NOT NULL DEFAULT '{}',
+          coalesce_key TEXT,
+          earliest_deliver_at TEXT,
+          latest_deliver_at TEXT,
+          materialized_input_id TEXT,
+          superseded_by_event_id TEXT,
+          delivered_at TEXT,
+          superseded_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_main_session_event_queue_owner_status_earliest
+          ON main_session_event_queue (owner_main_session_id, status, earliest_deliver_at, created_at ASC);
+
+      CREATE INDEX IF NOT EXISTS idx_main_session_event_queue_workspace_status_created
+          ON main_session_event_queue (workspace_id, status, created_at ASC);
+
+      CREATE INDEX IF NOT EXISTS idx_main_session_event_queue_subagent_created
+          ON main_session_event_queue (subagent_id, created_at ASC);
+
+      CREATE INDEX IF NOT EXISTS idx_main_session_event_queue_materialized_input
+          ON main_session_event_queue (materialized_input_id);
 
       CREATE TABLE IF NOT EXISTS session_runtime_state (
           workspace_id TEXT NOT NULL,
@@ -9894,11 +10161,11 @@ export class RuntimeStateStore {
     });
   }
 
-  private listMainSessionEventsByIds(eventIds: string[]): MainSessionEventQueueRecord[] {
+  private listMainSessionEventsByIds(workspaceId: string, eventIds: string[]): MainSessionEventQueueRecord[] {
     if (eventIds.length === 0) {
       return [];
     }
-    const rows = this.db()
+    const rows = this.workspaceRuntimeDb(workspaceId)
       .prepare(`
         SELECT *
         FROM main_session_event_queue

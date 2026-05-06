@@ -342,7 +342,7 @@ test("session checkpoint merges snapshot compaction into a live session that onl
     assert.equal(latestEntry.summary, "Compacted older context.");
     assert.ok(branch.some((entry: FakeSessionEntry) => entry.id === baseLeafId));
 
-    const updatedJob = store.getPostRunJob(queued!.jobId);
+    const updatedJob = store.getPostRunJob({ workspaceId: workspace.id, jobId: queued!.jobId });
     assert.equal(
       (
         updatedJob?.payload.checkpoint_result as { outcome?: string } | undefined
@@ -507,7 +507,7 @@ test("session checkpoint re-resolves model client auth while preserving snapshot
       "X-Holaboss-Run-Id": `${workspace.id}:session-auth:input-auth`,
     });
 
-    const updatedJob = store.getPostRunJob(queued!.jobId);
+    const updatedJob = store.getPostRunJob({ workspaceId: workspace.id, jobId: queued!.jobId });
     assert.equal(
       (
         updatedJob?.payload.checkpoint_result as { outcome?: string } | undefined
@@ -604,7 +604,7 @@ test("session checkpoint records not_compacted when PI reports a compaction no-o
       }),
     });
 
-    const updatedJob = store.getPostRunJob(queued!.jobId);
+    const updatedJob = store.getPostRunJob({ workspaceId: workspace.id, jobId: queued!.jobId });
     assert.equal(
       (
         updatedJob?.payload.checkpoint_result as
@@ -740,7 +740,7 @@ test("session checkpoint treats provider 422 summarization failures as a soft no
     const branch = requireFakeSessionState(sessions, liveSessionFile).entries;
     assert.equal(branch.at(-1)?.type, "message");
 
-    const updatedJob = store.getPostRunJob(queued!.jobId);
+    const updatedJob = store.getPostRunJob({ workspaceId: workspace.id, jobId: queued!.jobId });
     assert.equal(
       (
         updatedJob?.payload.checkpoint_result as { outcome?: string } | undefined

@@ -852,8 +852,8 @@ test("transferring subagent ownership also moves pending queued main-session eve
   assert.ok(transferred);
   assert.equal(transferred?.ownerMainSessionId, "session-main-telegram");
   assert.equal(transferred?.ownerTransferredAt, "2026-04-24T12:21:00.000Z");
-  assert.equal(store.getMainSessionEvent({ eventId: pending.eventId })?.ownerMainSessionId, "session-main-telegram");
-  assert.equal(store.getMainSessionEvent({ eventId: delivered.eventId })?.ownerMainSessionId, "session-main-desktop");
+  assert.equal(store.getMainSessionEvent({ workspaceId: "workspace-1", eventId: pending.eventId })?.ownerMainSessionId, "session-main-telegram");
+  assert.equal(store.getMainSessionEvent({ workspaceId: "workspace-1", eventId: delivered.eventId })?.ownerMainSessionId, "session-main-desktop");
 
   store.close();
 });
@@ -882,16 +882,19 @@ test("main session event queue supports materialize deliver supersede lifecycle"
     payload: { question: "Create a new GCP project?" }
   });
 
-  const pending = store.listPendingMainSessionEvents({ ownerMainSessionId: "session-main" });
+  const pending = store.listPendingMainSessionEvents({ workspaceId: "workspace-1", ownerMainSessionId: "session-main" });
   const materialized = store.markMainSessionEventsMaterialized({
+    workspaceId: "workspace-1",
     eventIds: [first.eventId],
     materializedInputId: "main-input-1"
   });
   const delivered = store.markMainSessionEventsDelivered({
+    workspaceId: "workspace-1",
     eventIds: [first.eventId],
     deliveredAt: "2026-04-24T12:30:00.000Z"
   });
   const superseded = store.markMainSessionEventsSuperseded({
+    workspaceId: "workspace-1",
     eventIds: [second.eventId],
     supersededAt: "2026-04-24T12:31:00.000Z"
   });
@@ -903,7 +906,7 @@ test("main session event queue supports materialize deliver supersede lifecycle"
   assert.equal(delivered[0]?.deliveredAt, "2026-04-24T12:30:00.000Z");
   assert.equal(superseded[0]?.status, "superseded");
   assert.equal(superseded[0]?.supersededAt, "2026-04-24T12:31:00.000Z");
-  assert.equal(store.listPendingMainSessionEvents({ ownerMainSessionId: "session-main" }).length, 0);
+  assert.equal(store.listPendingMainSessionEvents({ workspaceId: "workspace-1", ownerMainSessionId: "session-main" }).length, 0);
 
   store.close();
 });
@@ -933,13 +936,14 @@ test("main session pending selectors exclude materialized events", () => {
   });
 
   store.markMainSessionEventsMaterialized({
+    workspaceId: "workspace-1",
     eventIds: [materialized.eventId],
     materializedInputId: "main-input-1"
   });
 
   assert.deepEqual(
     store
-      .listPendingMainSessionEvents({ ownerMainSessionId: "session-main" })
+      .listPendingMainSessionEvents({ workspaceId: "workspace-1", ownerMainSessionId: "session-main" })
       .map((event) => event.eventId),
     [pending.eventId]
   );
@@ -1489,10 +1493,14 @@ test("input queue supports idempotent enqueue, update, and claiming by priority"
   assert.equal(deduped.inputId, first.inputId);
   assert.equal(store.hasAvailableInputsForSession({ sessionId: "session-main", workspaceId: "workspace-1" }), true);
 
-  const updated = store.updateInput(first.inputId, {
-    status: "QUEUED",
-    claimedBy: "worker-old",
-    payload: { text: "hello-updated" }
+  const updated = store.updateInput({
+    workspaceId: "workspace-1",
+    inputId: first.inputId,
+    fields: {
+      status: "QUEUED",
+      claimedBy: "worker-old",
+      payload: { text: "hello-updated" }
+    }
   });
   assert.ok(updated);
   assert.deepEqual(updated.payload, { text: "hello-updated" });
@@ -1595,7 +1603,7 @@ test("claimInputs skips queued work for sessions that already have a live claime
     secondClaim.map((record) => record.inputId),
     [available.inputId]
   );
-  assert.equal(store.getInput(blocked.inputId)?.status, "QUEUED");
+  assert.equal(store.getInput({ workspaceId: "workspace-1", inputId: blocked.inputId })?.status, "QUEUED");
 
   store.close();
 });
@@ -1636,10 +1644,14 @@ test("post-run job queue supports idempotent enqueue, update, and claiming by pr
 
   assert.equal(deduped.jobId, first.jobId);
 
-  const updated = store.updatePostRunJob(first.jobId, {
-    status: "QUEUED",
-    claimedBy: "worker-old",
-    payload: { instruction: "hello-updated" }
+  const updated = store.updatePostRunJob({
+    workspaceId: "workspace-1",
+    jobId: first.jobId,
+    fields: {
+      status: "QUEUED",
+      claimedBy: "worker-old",
+      payload: { instruction: "hello-updated" }
+    }
   });
   assert.ok(updated);
   assert.deepEqual(updated.payload, { instruction: "hello-updated" });
@@ -1682,15 +1694,23 @@ test("state store lists expired claimed post-run jobs", () => {
     payload: {}
   });
 
-  store.updatePostRunJob(stale.jobId, {
-    status: "CLAIMED",
-    claimedBy: "worker-old",
-    claimedUntil: "2000-01-01T00:00:00.000Z"
+  store.updatePostRunJob({
+    workspaceId: "workspace-1",
+    jobId: stale.jobId,
+    fields: {
+      status: "CLAIMED",
+      claimedBy: "worker-old",
+      claimedUntil: "2000-01-01T00:00:00.000Z"
+    }
   });
-  store.updatePostRunJob(active.jobId, {
-    status: "CLAIMED",
-    claimedBy: "worker-new",
-    claimedUntil: "2999-01-01T00:00:00.000Z"
+  store.updatePostRunJob({
+    workspaceId: "workspace-1",
+    jobId: active.jobId,
+    fields: {
+      status: "CLAIMED",
+      claimedBy: "worker-new",
+      claimedUntil: "2999-01-01T00:00:00.000Z"
+    }
   });
 
   const expired = store.listExpiredClaimedPostRunJobs("2026-01-01T00:00:00.000Z");
@@ -1815,15 +1835,23 @@ test("state store lists expired claimed inputs", () => {
     payload: { text: "active" }
   });
 
-  store.updateInput(stale.inputId, {
-    status: "CLAIMED",
-    claimedBy: "worker-old",
-    claimedUntil: "2000-01-01T00:00:00.000Z"
+  store.updateInput({
+    workspaceId: "workspace-1",
+    inputId: stale.inputId,
+    fields: {
+      status: "CLAIMED",
+      claimedBy: "worker-old",
+      claimedUntil: "2000-01-01T00:00:00.000Z"
+    }
   });
-  store.updateInput(active.inputId, {
-    status: "CLAIMED",
-    claimedBy: "worker-new",
-    claimedUntil: "2999-01-01T00:00:00.000Z"
+  store.updateInput({
+    workspaceId: "workspace-1",
+    inputId: active.inputId,
+    fields: {
+      status: "CLAIMED",
+      claimedBy: "worker-new",
+      claimedUntil: "2999-01-01T00:00:00.000Z"
+    }
   });
 
   const expired = store.listExpiredClaimedInputs("2026-01-01T00:00:00.000Z");

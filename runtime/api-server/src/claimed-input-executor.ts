@@ -2459,6 +2459,7 @@ function supersedePendingSubagentEvents(params: {
 }): void {
   const pending = params.store
     .listPendingMainSessionEvents({
+      workspaceId: params.run.workspaceId,
       ownerMainSessionId: params.run.ownerMainSessionId,
       limit: 500,
     })
@@ -2467,6 +2468,7 @@ function supersedePendingSubagentEvents(params: {
     return;
   }
   params.store.markMainSessionEventsSuperseded({
+    workspaceId: params.run.workspaceId,
     eventIds: pending.map((event) => event.eventId),
   });
 }
@@ -2627,6 +2629,7 @@ function maybeFinalizeMainSessionEvents(params: {
     new Date().toISOString();
   if (params.turnResult.status !== "failed") {
     params.store.markMainSessionEventsDelivered({
+      workspaceId: params.record.workspaceId,
       eventIds,
       deliveredAt: now,
     });
@@ -2634,6 +2637,7 @@ function maybeFinalizeMainSessionEvents(params: {
   }
   for (const eventId of eventIds) {
     params.store.updateMainSessionEvent({
+      workspaceId: params.record.workspaceId,
       eventId,
       fields: {
         status: "pending",
@@ -2826,10 +2830,14 @@ export async function processClaimedInput(params: {
   }
   const workspace = store.getWorkspace(record.workspaceId);
   if (!workspace) {
-    store.updateInput(record.inputId, {
-      status: "FAILED",
-      claimedBy: null,
-      claimedUntil: null,
+    store.updateInput({
+      workspaceId: record.workspaceId,
+      inputId: record.inputId,
+      fields: {
+        status: "FAILED",
+        claimedBy: null,
+        claimedUntil: null,
+      },
     });
     store.updateRuntimeState({
       workspaceId: record.workspaceId,
@@ -2912,7 +2920,10 @@ export async function processClaimedInput(params: {
       if (!shouldTrackClaimOwnership) {
         return true;
       }
-      const currentRecord = store.getInput(record.inputId);
+      const currentRecord = store.getInput({
+        workspaceId: record.workspaceId,
+        inputId: record.inputId,
+      });
       return (
         currentRecord?.status === "CLAIMED" &&
         currentRecord.claimedBy === claimedBy
@@ -2951,7 +2962,11 @@ export async function processClaimedInput(params: {
         extras: {
           source,
           claimed_by: claimedBy,
-          claimed_until: store.getInput(record.inputId)?.claimedUntil ?? null,
+          claimed_until:
+            store.getInput({
+              workspaceId: record.workspaceId,
+              inputId: record.inputId,
+            })?.claimedUntil ?? null,
         },
       });
       return true;
@@ -2971,6 +2986,7 @@ export async function processClaimedInput(params: {
 
       if (shouldTrackClaimOwnership) {
         const renewedClaim = store.renewInputClaim({
+          workspaceId: record.workspaceId,
           inputId: record.inputId,
           claimedBy,
           leaseSeconds,
@@ -3287,6 +3303,7 @@ export async function processClaimedInput(params: {
 
       if (shouldTrackClaimOwnership) {
         const renewedClaim = store.renewInputClaim({
+          workspaceId: record.workspaceId,
           inputId: record.inputId,
           claimedBy,
           leaseSeconds,
@@ -3892,15 +3909,19 @@ export async function processClaimedInput(params: {
         deferredTerminalEvent = null;
       }
 
-      store.updateInput(record.inputId, {
-        status:
-          terminalStatus === "ERROR"
-            ? "FAILED"
-            : terminalStatus === "PAUSED"
-              ? "PAUSED"
-              : "DONE",
-        claimedBy: null,
-        claimedUntil: null,
+      store.updateInput({
+        workspaceId: record.workspaceId,
+        inputId: record.inputId,
+        fields: {
+          status:
+            terminalStatus === "ERROR"
+              ? "FAILED"
+              : terminalStatus === "PAUSED"
+                ? "PAUSED"
+                : "DONE",
+          claimedBy: null,
+          claimedUntil: null,
+        },
       });
       store.updateRuntimeState({
         workspaceId: record.workspaceId,
@@ -4095,10 +4116,14 @@ export async function processClaimedInput(params: {
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
-      store.updateInput(record.inputId, {
-        status: "FAILED",
-        claimedBy: null,
-        claimedUntil: null,
+      store.updateInput({
+        workspaceId: record.workspaceId,
+        inputId: record.inputId,
+        fields: {
+          status: "FAILED",
+          claimedBy: null,
+          claimedUntil: null,
+        },
       });
       store.appendOutputEvent({
         workspaceId: record.workspaceId,

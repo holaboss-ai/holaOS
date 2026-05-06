@@ -100,10 +100,10 @@ test("main-session event worker materializes waiting-user events into one queued
   });
 
   const processed = await worker.processAvailableEventsOnce();
-  const firstUpdated = store.getMainSessionEvent({ eventId: first.eventId });
-  const secondUpdated = store.getMainSessionEvent({ eventId: second.eventId });
+  const firstUpdated = store.getMainSessionEvent({ workspaceId: workspace.id, eventId: first.eventId });
+  const secondUpdated = store.getMainSessionEvent({ workspaceId: workspace.id, eventId: second.eventId });
   const batchInput = firstUpdated?.materializedInputId
-    ? store.getInput(firstUpdated.materializedInputId)
+    ? store.getInput({ workspaceId: workspace.id, inputId: firstUpdated.materializedInputId })
     : null;
 
   assert.equal(processed, 2);
@@ -158,7 +158,7 @@ test("main-session event worker does not materialize when the main session is bu
 
   assert.equal(processed, 0);
   assert.equal(
-    store.listPendingMainSessionEvents({ ownerMainSessionId: "session-main" })
+    store.listPendingMainSessionEvents({ workspaceId: workspace.id, ownerMainSessionId: "session-main" })
       .length,
     1,
   );
@@ -180,6 +180,7 @@ test("main-session event worker defers its first startup scan until after the in
     payload: { summary: "Done." },
   });
   const initialEvent = store.listPendingMainSessionEvents({
+    workspaceId: workspace.id,
     ownerMainSessionId: "session-main",
   })[0];
 
@@ -192,7 +193,7 @@ test("main-session event worker defers its first startup scan until after the in
     await worker.start();
 
     assert.equal(
-      store.listPendingMainSessionEvents({ ownerMainSessionId: "session-main" })
+      store.listPendingMainSessionEvents({ workspaceId: workspace.id, ownerMainSessionId: "session-main" })
         .length,
       1,
     );
@@ -207,7 +208,7 @@ test("main-session event worker defers its first startup scan until after the in
     await sleep(250);
 
     const updatedEvent = initialEvent
-      ? store.getMainSessionEvent({ eventId: initialEvent.eventId })
+      ? store.getMainSessionEvent({ workspaceId: workspace.id, eventId: initialEvent.eventId })
       : null;
     assert.equal(updatedEvent?.status, "materialized");
     assert.ok(updatedEvent?.materializedInputId);
@@ -237,10 +238,14 @@ test("main-session event worker inherits the owner main session model and thinki
       context: {},
     },
   });
-  store.updateInput(latestUserInput.inputId, {
-    status: "DONE",
-    claimedBy: null,
-    claimedUntil: null,
+  store.updateInput({
+    workspaceId: workspace.id,
+    inputId: latestUserInput.inputId,
+    fields: {
+      status: "DONE",
+      claimedBy: null,
+      claimedUntil: null,
+    },
   });
   const event = store.enqueueMainSessionEvent({
     workspaceId: workspace.id,
@@ -280,9 +285,9 @@ test("main-session event worker inherits the owner main session model and thinki
 
   const worker = new RuntimeMainSessionEventWorker({ store });
   const processed = await worker.processAvailableEventsOnce();
-  const updatedEvent = store.getMainSessionEvent({ eventId: event.eventId });
+  const updatedEvent = store.getMainSessionEvent({ workspaceId: workspace.id, eventId: event.eventId });
   const batchInput = updatedEvent?.materializedInputId
-    ? store.getInput(updatedEvent.materializedInputId)
+    ? store.getInput({ workspaceId: workspace.id, inputId: updatedEvent.materializedInputId })
     : null;
 
   assert.equal(processed, 1);
@@ -332,10 +337,14 @@ test("main-session event worker recovers failed materialized events and retries 
       context: {},
     },
   });
-  store.updateInput(latestUserInput.inputId, {
-    status: "DONE",
-    claimedBy: null,
-    claimedUntil: null,
+  store.updateInput({
+    workspaceId: workspace.id,
+    inputId: latestUserInput.inputId,
+    fields: {
+      status: "DONE",
+      claimedBy: null,
+      claimedUntil: null,
+    },
   });
   const event = store.enqueueMainSessionEvent({
     workspaceId: workspace.id,
@@ -361,21 +370,26 @@ test("main-session event worker recovers failed materialized events and retries 
     },
     idempotencyKey: `main-session-event-batch:${event.eventId}@${event.updatedAt}`,
   });
-  store.updateInput(failedBatchInput.inputId, {
-    status: "FAILED",
-    claimedBy: null,
-    claimedUntil: null,
+  store.updateInput({
+    workspaceId: workspace.id,
+    inputId: failedBatchInput.inputId,
+    fields: {
+      status: "FAILED",
+      claimedBy: null,
+      claimedUntil: null,
+    },
   });
   store.markMainSessionEventsMaterialized({
+    workspaceId: workspace.id,
     eventIds: [event.eventId],
     materializedInputId: failedBatchInput.inputId,
   });
 
   const worker = new RuntimeMainSessionEventWorker({ store });
   const processed = await worker.processAvailableEventsOnce();
-  const updatedEvent = store.getMainSessionEvent({ eventId: event.eventId });
+  const updatedEvent = store.getMainSessionEvent({ workspaceId: workspace.id, eventId: event.eventId });
   const retriedInput = updatedEvent?.materializedInputId
-    ? store.getInput(updatedEvent.materializedInputId)
+    ? store.getInput({ workspaceId: workspace.id, inputId: updatedEvent.materializedInputId })
     : null;
 
   assert.equal(processed, 1);
@@ -401,17 +415,18 @@ test("main-session event worker ignores already materialized events", async () =
     payload: { summary: "Done." },
   });
   store.markMainSessionEventsMaterialized({
+    workspaceId: workspace.id,
     eventIds: [event.eventId],
     materializedInputId: "main-input-1",
   });
 
   const worker = new RuntimeMainSessionEventWorker({ store });
   const processed = await worker.processAvailableEventsOnce();
-  const updatedEvent = store.getMainSessionEvent({ eventId: event.eventId });
+  const updatedEvent = store.getMainSessionEvent({ workspaceId: workspace.id, eventId: event.eventId });
 
   assert.equal(processed, 0);
   assert.equal(
-    store.listPendingMainSessionEvents({ ownerMainSessionId: "session-main" })
+    store.listPendingMainSessionEvents({ workspaceId: workspace.id, ownerMainSessionId: "session-main" })
       .length,
     0,
   );

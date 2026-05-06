@@ -939,7 +939,9 @@ test("runtime subagent capability routes create and cancel hidden background tas
   });
   assert.equal(childSession?.kind, "subagent");
 
-  const childInput = run?.currentChildInputId ? store.getInput(run.currentChildInputId) : null;
+  const childInput = run?.currentChildInputId
+    ? store.getInput({ workspaceId: workspace.id, inputId: run.currentChildInputId })
+    : null;
   assert.ok(childInput);
   assert.equal(
     childInput?.payload.text,
@@ -1031,7 +1033,9 @@ test("runtime subagent capability routes create and cancel hidden background tas
 
   const cancelledRun = store.getSubagentRun({ workspaceId: workspace.id, subagentId: task.subagent_id });
   assert.equal(cancelledRun?.status, "cancelled");
-  const cancelledInput = run?.currentChildInputId ? store.getInput(run.currentChildInputId) : null;
+  const cancelledInput = run?.currentChildInputId
+    ? store.getInput({ workspaceId: workspace.id, inputId: run.currentChildInputId })
+    : null;
   assert.equal(cancelledInput?.status, "DONE");
 
   const archived = await app.inject({
@@ -1106,7 +1110,7 @@ test("delegated subagents use the configured global subagent model instead of re
   const task = created.json().tasks[0];
   const run = store.getSubagentRun({ workspaceId: workspace.id, subagentId: task.subagent_id });
   const childInput = run?.currentChildInputId
-    ? store.getInput(run.currentChildInputId)
+    ? store.getInput({ workspaceId: workspace.id, inputId: run.currentChildInputId })
     : null;
 
   assert.equal(run?.requestedModel, "gemini_direct/gemini-2.5-pro");
@@ -6089,7 +6093,7 @@ test("queue route persists input and runtime state without writing session histo
   const sessionId = response.json().session_id;
   assert.ok(typeof sessionId === "string" && sessionId.trim().length > 0);
 
-  const queued = store.getInput(response.json().input_id);
+  const queued = store.getInput({ workspaceId: workspace.id, inputId: response.json().input_id });
   assert.ok(queued);
   assert.equal(queued.payload.text, "hello world");
   assert.equal("holaboss_user_id" in queued.payload, false);
@@ -6146,10 +6150,14 @@ test("queue route preserves the active claimed input while adding later queued w
     sessionId: "session-main",
     payload: { text: "currently running" },
   });
-  store.updateInput(active.inputId, {
-    status: "CLAIMED",
-    claimedBy: "worker-1",
-    claimedUntil: "2026-04-17T12:00:00.000Z",
+  store.updateInput({
+    workspaceId: workspace.id,
+    inputId: active.inputId,
+    fields: {
+      status: "CLAIMED",
+      claimedBy: "worker-1",
+      claimedUntil: "2026-04-17T12:00:00.000Z",
+    },
   });
   store.updateRuntimeState({
     workspaceId: workspace.id,
@@ -6274,8 +6282,8 @@ test("queue route folds pending background updates into the next main-session in
   });
 
   assert.equal(response.statusCode, 200);
-  const queued = store.getInput(response.json().input_id);
-  const updatedEvent = store.getMainSessionEvent({ eventId: event.eventId });
+  const queued = store.getInput({ workspaceId: workspace.id, inputId: response.json().input_id });
+  const updatedEvent = store.getMainSessionEvent({ workspaceId: workspace.id, eventId: event.eventId });
   const context = (queued?.payload.context ?? {}) as Record<string, unknown>;
 
   assert.ok(queued);
@@ -6380,7 +6388,7 @@ test("queued input edit route updates queued input text without writing session 
   assert.equal(response.json().status, "QUEUED");
   assert.equal(response.json().text, "draft this second");
 
-  const updated = store.getInput(queued.inputId);
+  const updated = store.getInput({ workspaceId: workspace.id, inputId: queued.inputId });
   assert.ok(updated);
   assert.equal(updated?.payload.text, "draft this second");
   const history = store.listSessionMessages({
@@ -6419,10 +6427,14 @@ test("queued input edit route rejects edits after the input is claimed", async (
       context: {},
     },
   });
-  store.updateInput(queued.inputId, {
-    status: "CLAIMED",
-    claimedBy: "worker-1",
-    claimedUntil: "2026-04-17T12:00:00.000Z",
+  store.updateInput({
+    workspaceId: workspace.id,
+    inputId: queued.inputId,
+    fields: {
+      status: "CLAIMED",
+      claimedBy: "worker-1",
+      claimedUntil: "2026-04-17T12:00:00.000Z",
+    },
   });
 
   const response = await app.inject({
@@ -6721,7 +6733,7 @@ test("accept task proposal creates a hidden subagent run with queued work", asyn
   assert.equal(childRuntimeState.status, "QUEUED");
   assert.equal(childRuntimeState.currentInputId, body.input.input_id);
 
-  const childInput = store.getInput(body.input.input_id);
+  const childInput = store.getInput({ workspaceId: workspace.id, inputId: body.input.input_id });
   assert.ok(childInput);
   assert.equal(childInput.sessionId, body.session.session_id);
   assert.equal(childInput.priority, 2);
@@ -6890,7 +6902,7 @@ test("accepting and dismissing evolve task proposals updates linked skill candid
   const acceptedBody = accepted.json();
   assert.equal(acceptedBody.proposal.proposal_source, "evolve");
   assert.equal(acceptedBody.session.kind, "subagent");
-  const acceptedInput = store.getInput(acceptedBody.input.input_id);
+  const acceptedInput = store.getInput({ workspaceId: workspace.id, inputId: acceptedBody.input.input_id });
   assert.ok(acceptedInput);
   const acceptedContext = acceptedInput.payload.context as Record<string, unknown>;
   assert.deepEqual(acceptedContext, {
@@ -7070,7 +7082,7 @@ test("queue route accepts staged file and folder attachments and history hydrate
   });
 
   assert.equal(response.statusCode, 200);
-  const queued = store.getInput(response.json().input_id);
+  const queued = store.getInput({ workspaceId: workspace.id, inputId: response.json().input_id });
   assert.ok(queued);
   assert.deepEqual(queued.payload.attachments, [
     {

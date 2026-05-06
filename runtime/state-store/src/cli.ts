@@ -352,28 +352,38 @@ export function handleRequest(operation: string, envelope: RequestEnvelope): Jso
           })
         );
       case "get-input": {
-        const record = store.getInput(String(envelope.input_id));
+        const record = store.getInput({
+          workspaceId: String(envelope.workspace_id),
+          inputId: String(envelope.input_id),
+        });
         return record ? toInputRecord(record) : null;
       }
       case "get-input-by-idempotency-key": {
-        const record = store.getInputByIdempotencyKey(String(envelope.idempotency_key));
+        const record = store.getInputByIdempotencyKey({
+          workspaceId: String(envelope.workspace_id),
+          idempotencyKey: String(envelope.idempotency_key),
+        });
         return record ? toInputRecord(record) : null;
       }
       case "update-input": {
         const fields = (envelope.fields as JsonObject | undefined) ?? {};
-        const record = store.updateInput(String(envelope.input_id), {
-          sessionId: typeof fields.session_id === "string" ? fields.session_id : undefined,
-          workspaceId: typeof fields.workspace_id === "string" ? fields.workspace_id : undefined,
-          payload: (fields.payload as JsonObject | undefined) ?? undefined,
-          status: typeof fields.status === "string" ? fields.status : undefined,
-          priority: typeof fields.priority === "number" ? fields.priority : undefined,
-          availableAt: typeof fields.available_at === "string" ? fields.available_at : undefined,
-          attempt: typeof fields.attempt === "number" ? fields.attempt : undefined,
-          idempotencyKey:
-            typeof fields.idempotency_key === "string" ? fields.idempotency_key : fields.idempotency_key === null ? null : undefined,
-          claimedBy: typeof fields.claimed_by === "string" ? fields.claimed_by : fields.claimed_by === null ? null : undefined,
-          claimedUntil:
-            typeof fields.claimed_until === "string" ? fields.claimed_until : fields.claimed_until === null ? null : undefined
+        const record = store.updateInput({
+          workspaceId: String(envelope.workspace_id),
+          inputId: String(envelope.input_id),
+          fields: {
+            sessionId: typeof fields.session_id === "string" ? fields.session_id : undefined,
+            workspaceId: typeof fields.workspace_id === "string" ? fields.workspace_id : undefined,
+            payload: (fields.payload as JsonObject | undefined) ?? undefined,
+            status: typeof fields.status === "string" ? fields.status : undefined,
+            priority: typeof fields.priority === "number" ? fields.priority : undefined,
+            availableAt: typeof fields.available_at === "string" ? fields.available_at : undefined,
+            attempt: typeof fields.attempt === "number" ? fields.attempt : undefined,
+            idempotencyKey:
+              typeof fields.idempotency_key === "string" ? fields.idempotency_key : fields.idempotency_key === null ? null : undefined,
+            claimedBy: typeof fields.claimed_by === "string" ? fields.claimed_by : fields.claimed_by === null ? null : undefined,
+            claimedUntil:
+              typeof fields.claimed_until === "string" ? fields.claimed_until : fields.claimed_until === null ? null : undefined,
+          },
         });
         return record ? toInputRecord(record) : null;
       }
@@ -389,7 +399,7 @@ export function handleRequest(operation: string, envelope: RequestEnvelope): Jso
       case "has-available-inputs-for-session":
         return store.hasAvailableInputsForSession({
           sessionId: String(envelope.session_id),
-          workspaceId: typeof envelope.workspace_id === "string" ? envelope.workspace_id : undefined
+          workspaceId: String(envelope.workspace_id),
         });
       case "ensure-runtime-state":
         return toRuntimeStateRecord(

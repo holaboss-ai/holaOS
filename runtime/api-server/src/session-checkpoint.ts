@@ -287,8 +287,12 @@ function recordSessionCheckpointResult(params: {
       compaction: params.compaction ?? null,
     } satisfies SessionCheckpointResultRecord,
   };
-  params.store.updatePostRunJob(params.record.jobId, {
-    payload: nextPayload,
+  params.store.updatePostRunJob({
+    workspaceId: params.record.workspaceId,
+    jobId: params.record.jobId,
+    fields: {
+      payload: nextPayload,
+    },
   });
 }
 
@@ -397,7 +401,10 @@ export function enqueueSessionCheckpointJob(params: {
     params.sessionOps ?? defaultSessionCheckpointSessionOps
   ).currentLeafCheckpointState(harnessSessionId);
   const idempotencyKey = `${SESSION_CHECKPOINT_JOB_TYPE}:${params.sessionId}:${harnessSessionId}:${checkpointState.leafId ?? "root"}`;
-  const existing = params.store.getPostRunJobByIdempotencyKey(idempotencyKey);
+  const existing = params.store.getPostRunJobByIdempotencyKey({
+    workspaceId: params.workspaceId,
+    idempotencyKey,
+  });
   if (existing) {
     params.wakeWorker?.();
     return existing;

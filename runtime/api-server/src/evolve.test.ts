@@ -767,7 +767,10 @@ test("sample completed turn queues durable memory work until the evolve worker r
 
   const immediateCapture = await memoryService.capture({ workspace_id: "workspace-1" });
   const immediateFiles = immediateCapture.files as Record<string, string>;
-  const queuedJob = store.getPostRunJobByIdempotencyKey(`${EVOLVE_JOB_TYPE}:${queued.inputId}`);
+  const queuedJob = store.getPostRunJobByIdempotencyKey({
+    workspaceId: "workspace-1",
+    idempotencyKey: `${EVOLVE_JOB_TYPE}:${queued.inputId}`,
+  });
 
   assert.ok(queuedJob);
   assert.equal(queuedJob.status, "QUEUED");
@@ -776,7 +779,10 @@ test("sample completed turn queues durable memory work until the evolve worker r
   assert.ok(!immediateFiles["workspace/workspace-1/knowledge/procedures/release-procedure.md"]);
 
   const processed = await worker.processAvailableJobsOnce();
-  const updatedJob = store.getPostRunJobByIdempotencyKey(`${EVOLVE_JOB_TYPE}:${queued.inputId}`);
+  const updatedJob = store.getPostRunJobByIdempotencyKey({
+    workspaceId: "workspace-1",
+    idempotencyKey: `${EVOLVE_JOB_TYPE}:${queued.inputId}`,
+  });
   const finalCapture = await memoryService.capture({ workspace_id: "workspace-1" });
   const finalFiles = finalCapture.files as Record<string, string>;
 
@@ -860,7 +866,7 @@ test("evolve memory worker marks claimed jobs done after successful execution", 
   });
 
   const processed = await worker.processAvailableJobsOnce();
-  const updated = store.getPostRunJob(queued.jobId);
+  const updated = store.getPostRunJob({ workspaceId: "workspace-1", jobId: queued.jobId });
 
   assert.equal(processed, 1);
   assert.deepEqual(seen, [queued.jobId]);
@@ -893,9 +899,9 @@ test("evolve memory worker retries once and then marks persistent failures faile
   });
 
   const firstProcessed = await worker.processAvailableJobsOnce();
-  const firstUpdated = store.getPostRunJob(queued.jobId);
+  const firstUpdated = store.getPostRunJob({ workspaceId: "workspace-1", jobId: queued.jobId });
   const secondProcessed = await worker.processAvailableJobsOnce();
-  const secondUpdated = store.getPostRunJob(queued.jobId);
+  const secondUpdated = store.getPostRunJob({ workspaceId: "workspace-1", jobId: queued.jobId });
 
   assert.equal(firstProcessed, 1);
   assert.ok(firstUpdated);
