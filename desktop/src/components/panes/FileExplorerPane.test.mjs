@@ -209,32 +209,27 @@ test("file explorer attaches folders through @ and drag payloads while preservin
   assert.match(source, /use @ or drag to attach in chat/);
 });
 
-test("file explorer groups protected workspace system entries into a dedicated root section", async () => {
+test("file explorer hides protected workspace system entries from the root tree", async () => {
   const source = await readFile(sourcePath, "utf8");
 
   assert.match(source, /type FileExplorerVisibleSection = \{/);
-  assert.match(source, /id: "protected" \| "workspace";/);
+  assert.match(source, /id: "workspace";/);
   assert.match(source, /rows: FileExplorerVisibleRow\[];/);
   assert.match(source, /function isWorkspaceRootExplorerView\(/);
   assert.match(
     source,
-    /if \(!isWorkspaceRootExplorerView\(currentPath, workspaceRootPath\)\) \{\s*return \[\s*\{\s*id: "workspace" as const,\s*rows: buildRows\(entries\),\s*\},\s*\];\s*\}/,
+    /const visibleRootEntries = isWorkspaceRootExplorerView\(\s*currentPath,\s*workspaceRootPath,\s*\)\s*\?\s*entries\.filter\(\s*\(entry\) =>\s*!isProtectedWorkspacePath\(workspaceRootPath, entry\.absolutePath\),\s*\)\s*:\s*entries;/,
   );
   assert.match(
     source,
-    /const protectedRootEntries = entries\.filter\(\(entry\) =>\s*isProtectedWorkspacePath\(workspaceRootPath, entry\.absolutePath\),\s*\);/,
-  );
-  assert.match(
-    source,
-    /sections\.push\(\{\s*id: "protected",\s*rows: protectedRows,\s*\}\);/,
+    /return \[\s*\{\s*id: "workspace" as const,\s*rows: buildRows\(visibleRootEntries\),\s*\},\s*\];/,
   );
   assert.match(
     source,
     /const visibleRows = useMemo\(\s*\(\) => filteredEntries\.flatMap\(\(section\) => section\.rows\),\s*\[filteredEntries\],\s*\);/,
   );
-  assert.doesNotMatch(source, /label: "System"/);
-  assert.doesNotMatch(source, /badgeLabel: "Protected"/);
-  assert.doesNotMatch(source, /No rename, move, or delete\./);
+  assert.doesNotMatch(source, /id: "protected"/);
+  assert.doesNotMatch(source, /Protected workspace files/);
 });
 
 test("file explorer keeps a minimal tree header without showing the workspace root row", async () => {
