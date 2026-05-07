@@ -56,9 +56,75 @@ const BROWSER_IMPORT_PROFILE_DIR_PATTERNS = [
   /^Profile [A-Za-z0-9_-]+$/,
   /^Guest Profile$/,
 ];
+const CHROME_HISTORY_REQUIRED_COLUMNS = [
+  "url",
+  "title",
+  "visit_count",
+  "last_visit_time",
+  "hidden",
+];
+type SqliteQueryableLike = Pick<Database.Database, "prepare">;
+
+interface SqliteTableInfoRow {
+  name?: unknown;
+}
 
 function utcNowIso() {
   return new Date().toISOString();
+}
+
+function quoteSqlIdentifier(identifier: string) {
+  return `"${identifier.replace(/"/g, "\"\"")}"`;
+}
+
+export function sqliteTableExists(
+  database: SqliteQueryableLike,
+  tableName: string,
+) {
+  const row = database
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+    )
+    .get(tableName);
+  return Boolean(row);
+}
+
+export function sqliteTableColumns(
+  database: SqliteQueryableLike,
+  tableName: string,
+): string[] {
+  return (
+    database
+      .prepare(`PRAGMA table_info(${quoteSqlIdentifier(tableName)})`)
+      .all() as SqliteTableInfoRow[]
+  )
+    .map((column) => (typeof column.name === "string" ? column.name : ""))
+    .filter(Boolean);
+}
+
+/**
+ * External Chromium profiles can contain a History file that is not backed by
+ * the expected history schema, so validate it before querying `urls`.
+ */
+export function chromeHistoryDatabaseHasExpectedSchema(
+  database: SqliteQueryableLike,
+) {
+  if (!sqliteTableExists(database, "urls")) {
+    return false;
+  }
+  const columnNames = new Set(sqliteTableColumns(database, "urls"));
+  return CHROME_HISTORY_REQUIRED_COLUMNS.every((column) =>
+    columnNames.has(column),
+  );
+}
+
+export function isSqliteError(error: unknown): error is Error & { code: string } {
+  const errorWithCode = error as (Error & { code?: unknown }) | null;
+  return (
+    error instanceof Error &&
+    typeof errorWithCode?.code === "string" &&
+    errorWithCode.code.startsWith("SQLITE_")
+  );
 }
 
 async function readJsonFile<T>(filePath: string, fallback: T): Promise<T> {
@@ -810,59 +876,73 @@ export async function readChromeHistory(
   );
 
   try {
-    const database = new Database(copiedPath, {
-      readonly: true,
-      fileMustExist: true,
-    });
     try {
-      const rows = database
-        .prepare(
-          `
-          SELECT
-            url,
-            title,
-            visit_count,
-            CAST(last_visit_time AS TEXT) AS last_visit_time
-          FROM urls
-          WHERE hidden = 0
-          ORDER BY last_visit_time DESC
-          LIMIT ?
-        `,
-        )
-        .all(
-          CHROME_HISTORY_IMPORT_LIMIT,
-        ) as Array<{
-          url: string;
-          title: string | null;
-          visit_count: number;
-          last_visit_time: string;
-        }>;
+      const database = new Database(copiedPath, {
+        readonly: true,
+        fileMustExist: true,
+      });
+      try {
+        if (!chromeHistoryDatabaseHasExpectedSchema(database)) {
+          return [];
+        }
 
-      return rows
-        .map((row) => {
-          const url = row.url.trim();
-          if (!shouldTrackHistoryUrlForImport(url)) {
-            return null;
-          }
-          const lastVisitedAt =
-            chromeTimestampMicrosToIso(row.last_visit_time) ?? utcNowIso();
-          return {
-            id: `history-import-${randomUUID()}`,
-            url,
-            title: row.title?.trim() || url,
-            visitCount:
-              Number.isFinite(row.visit_count) && row.visit_count > 0
-                ? row.visit_count
-                : 1,
-            createdAt: lastVisitedAt,
-            lastVisitedAt,
-          } satisfies BrowserHistoryEntryPayload;
-        })
-        .filter(
-          (entry): entry is BrowserHistoryEntryPayload => Boolean(entry),
+        const rows = database
+          .prepare(
+            `
+            SELECT
+              url,
+              title,
+              visit_count,
+              CAST(last_visit_time AS TEXT) AS last_visit_time
+            FROM urls
+            WHERE hidden = 0
+            ORDER BY last_visit_time DESC
+            LIMIT ?
+          `,
+          )
+          .all(
+            CHROME_HISTORY_IMPORT_LIMIT,
+          ) as Array<{
+            url: string;
+            title: string | null;
+            visit_count: number;
+            last_visit_time: string;
+          }>;
+
+        return rows
+          .map((row) => {
+            const url = row.url.trim();
+            if (!shouldTrackHistoryUrlForImport(url)) {
+              return null;
+            }
+            const lastVisitedAt =
+              chromeTimestampMicrosToIso(row.last_visit_time) ?? utcNowIso();
+            return {
+              id: `history-import-${randomUUID()}`,
+              url,
+              title: row.title?.trim() || url,
+              visitCount:
+                Number.isFinite(row.visit_count) && row.visit_count > 0
+                  ? row.visit_count
+                  : 1,
+              createdAt: lastVisitedAt,
+              lastVisitedAt,
+            } satisfies BrowserHistoryEntryPayload;
+          })
+          .filter(
+            (entry): entry is BrowserHistoryEntryPayload => Boolean(entry),
+          );
+      } finally {
+        database.close();
+      }
+    } catch (error) {
+      if (isSqliteError(error)) {
+        console.warn(
+          `[browser-import] Skipping Chromium history import from ${historyPath}: ${error.message}`,
         );
-    } finally {
-      database.close();
+        return [];
+      }
+      throw error;
     }
   } finally {
     await cleanup();
