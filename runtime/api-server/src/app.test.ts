@@ -5269,6 +5269,127 @@ test("ensure-running dedupes concurrent setup/start for the same app", async () 
   store.close();
 });
 
+test("auto-start on ready reuses a healthy untracked shell-managed app", async () => {
+  const root = makeTempDir("hb-runtime-api-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace Apps",
+    harness: "pi",
+    status: "active"
+  });
+  const workspaceDir = path.join(workspaceRoot, workspace.id);
+  const appDir = path.join(workspaceDir, "apps", "app-a");
+  fs.mkdirSync(appDir, { recursive: true });
+
+  const httpServer = await startStaticHttpServer((_request, response) => {
+    response.statusCode = 200;
+    response.end("ok");
+  });
+  const mcpServer = await startStaticHttpServer((_request, response) => {
+    response.statusCode = 200;
+    response.end("ok");
+  });
+  const httpPort = Number(new URL(httpServer.url).port);
+  const mcpPort = Number(new URL(mcpServer.url).port);
+
+  fs.writeFileSync(
+    path.join(appDir, "app.runtime.yaml"),
+    [
+      "app_id: app-a",
+      "name: App A",
+      "description: Test app",
+      "icon: https://example.com/icon.png",
+      "mcp:",
+      "  transport: http-sse",
+      `  port: ${mcpPort}`,
+      "  path: /mcp",
+      "mcp_tools: []",
+      "http:",
+      `  port: ${httpPort}`,
+      "healthchecks:",
+      "  http:",
+      "    path: /health",
+      "    timeout_s: 1",
+      "  mcp:",
+      "    path: /health",
+      "    timeout_s: 1",
+      "lifecycle:",
+      "  setup: ''",
+      "  start: npm run start"
+    ].join("\n"),
+    "utf8"
+  );
+  fs.writeFileSync(
+    path.join(workspaceDir, "workspace.yaml"),
+    [
+      "applications:",
+      "  - app_id: app-a",
+      "    config_path: apps/app-a/app.runtime.yaml"
+    ].join("\n"),
+    "utf8"
+  );
+
+  const lifecycleCalls: Array<Record<string, unknown>> = [];
+  const rememberedPorts: Array<Record<string, unknown>> = [];
+  const app = buildRuntimeApiServer({
+    store,
+    queueWorker: null,
+    durableMemoryWorker: null,
+    cronWorker: null,
+    bridgeWorker: null,
+    recallEmbeddingBackfillWorker: null,
+    enableAppHealthMonitor: false,
+    startAppsOnReady: true,
+    appLifecycleExecutor: {
+      async startApp(params) {
+        lifecycleCalls.push({ action: "start", ...params });
+        return {
+          app_id: params.appId,
+          status: "started",
+          detail: "app started with lifecycle manager",
+          ports: { http: params.httpPort ?? 18080, mcp: params.mcpPort ?? 13100 }
+        };
+      },
+      async stopApp() {
+        throw new Error("not used");
+      },
+      async shutdownAll() {
+        throw new Error("not used");
+      },
+      isTrackingApp() {
+        return false;
+      },
+      rememberAppPorts(params) {
+        rememberedPorts.push(params);
+      }
+    }
+  });
+
+  await app.ready();
+  await sleep(150);
+
+  assert.equal(lifecycleCalls.length, 0);
+  assert.deepEqual(rememberedPorts, [
+    {
+      workspaceId: workspace.id,
+      appId: "app-a",
+      httpPort,
+      mcpPort
+    }
+  ]);
+  assert.equal(store.getAppBuild({ workspaceId: workspace.id, appId: "app-a" })?.status, "running");
+
+  await httpServer.close();
+  await mcpServer.close();
+  await app.close();
+  store.close();
+});
+
 test("app setup timeout honors configured timeout", async () => {
   const root = makeTempDir("hb-runtime-api-");
   const workspaceRoot = path.join(root, "workspace");

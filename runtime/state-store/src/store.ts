@@ -6981,13 +6981,21 @@ export class RuntimeStateStore {
     }
 
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const dbFileExistedBeforeOpen = fs.existsSync(dbPath);
     const db = new Database(dbPath);
     db.pragma("journal_mode = WAL");
     db.pragma("busy_timeout = 5000");
     db.pragma("foreign_keys = ON");
     this.#vectorIndexSupported = this.tryLoadVectorExtension(db) || this.#vectorIndexSupported;
     this.ensureWorkspaceRuntimeDbSchema(db);
-    this.backfillWorkspaceRuntimeDbFromLegacyRuntimeDb(db, this.db(), workspaceId);
+    // Workspace-scoped data now lives in each workspace's runtime.db. The
+    // legacy host-state DB backfill only needs to run when this workspace DB
+    // is fresh/empty; re-running it on every startup forces full-table scans
+    // over the legacy DB plus millions of INSERT OR IGNORE checks against
+    // already-populated workspace DBs.
+    if (!dbFileExistedBeforeOpen || !this.workspaceRuntimeDbContainsData(db)) {
+      this.backfillWorkspaceRuntimeDbFromLegacyRuntimeDb(db, this.db(), workspaceId);
+    }
     this.#workspaceRuntimeDbs.set(workspaceId, { dbPath, db });
     return db;
   }
@@ -7316,6 +7324,34 @@ export class RuntimeStateStore {
       legacy,
       workspaceId,
     });
+  }
+
+  private workspaceRuntimeDbContainsData(db: Database.Database): boolean {
+    const probeTables = [
+      "session_output_events",
+      "turn_request_snapshots",
+      "turn_results",
+      "session_messages",
+      "outputs",
+      "app_ports",
+      "app_builds",
+      "cronjobs",
+      "runtime_notifications",
+    ] as const;
+
+    for (const tableName of probeTables) {
+      if (!this.tableExists(db, tableName)) {
+        continue;
+      }
+      const row = db
+        .prepare<[], { present: number }>(`SELECT 1 AS present FROM ${tableName} LIMIT 1`)
+        .get();
+      if (row?.present === 1) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private backfillControlPlaneMemoryTables(db: Database.Database, legacy: Database.Database): void {

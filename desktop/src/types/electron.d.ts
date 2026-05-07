@@ -268,6 +268,7 @@ declare global {
     harness: string | null;
     desktopBrowserReady: boolean;
     desktopBrowserUrl: string | null;
+    startupMessage: string | null;
     lastError: string;
   }
 

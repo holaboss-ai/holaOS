@@ -3076,6 +3076,109 @@ test("workspace-scoped runtime db backfills legacy cronjobs from runtime.db on f
   assert.equal(mirrored?.id, "job-legacy");
 });
 
+test("workspace runtime DB skips repeated legacy backfill once it already has data", () => {
+  const root = makeTempDir("hb-state-store-");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceRoot = path.join(root, "workspace");
+
+  const initialStore = new RuntimeStateStore({ dbPath, workspaceRoot });
+  initialStore.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Legacy",
+    harness: "pi",
+    status: "active"
+  });
+  initialStore.close();
+
+  const legacyDb = new Database(dbPath);
+  legacyDb.exec(`
+    CREATE TABLE cronjobs (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        initiated_by TEXT NOT NULL,
+        name TEXT NOT NULL DEFAULT '',
+        cron TEXT NOT NULL,
+        description TEXT NOT NULL,
+        instruction TEXT NOT NULL DEFAULT '',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        delivery TEXT NOT NULL,
+        metadata TEXT NOT NULL DEFAULT '{}',
+        last_run_at TEXT,
+        next_run_at TEXT,
+        run_count INTEGER NOT NULL DEFAULT 0,
+        last_status TEXT,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+  `);
+  legacyDb.prepare(`
+    INSERT INTO cronjobs (
+      id, workspace_id, initiated_by, name, cron, description, instruction, enabled, delivery, metadata,
+      last_run_at, next_run_at, run_count, last_status, last_error, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    "job-legacy",
+    "workspace-1",
+    "workspace_agent",
+    "Greeting",
+    "*/5 * * * *",
+    "Say hello every 5 minutes.",
+    "Say hello every 5 minutes.",
+    1,
+    JSON.stringify({ channel: "session_run" }),
+    "{}",
+    null,
+    null,
+    0,
+    null,
+    null,
+    "2026-01-01T00:00:00+00:00",
+    "2026-01-01T00:00:00+00:00"
+  );
+  legacyDb.close();
+
+  const firstOpen = new RuntimeStateStore({ dbPath, workspaceRoot });
+  let firstBackfillCalls = 0;
+  const firstOpenInternals = firstOpen as unknown as {
+    backfillWorkspaceRuntimeDbFromLegacyRuntimeDb: (
+      db: Database.Database,
+      legacy: Database.Database,
+      workspaceId: string,
+    ) => void;
+  };
+  const originalFirstBackfill = firstOpenInternals.backfillWorkspaceRuntimeDbFromLegacyRuntimeDb.bind(firstOpen);
+  firstOpenInternals.backfillWorkspaceRuntimeDbFromLegacyRuntimeDb = (db, legacy, workspaceId) => {
+    firstBackfillCalls += 1;
+    return originalFirstBackfill(db, legacy, workspaceId);
+  };
+  const firstListed = firstOpen.listCronjobs({ workspaceId: "workspace-1" });
+  firstOpen.close();
+
+  assert.equal(firstListed.length, 1);
+  assert.equal(firstBackfillCalls, 1);
+
+  const reopened = new RuntimeStateStore({ dbPath, workspaceRoot });
+  let repeatedBackfillCalls = 0;
+  const reopenedInternals = reopened as unknown as {
+    backfillWorkspaceRuntimeDbFromLegacyRuntimeDb: (
+      db: Database.Database,
+      legacy: Database.Database,
+      workspaceId: string,
+    ) => void;
+  };
+  const originalRepeatedBackfill = reopenedInternals.backfillWorkspaceRuntimeDbFromLegacyRuntimeDb.bind(reopened);
+  reopenedInternals.backfillWorkspaceRuntimeDbFromLegacyRuntimeDb = (db, legacy, workspaceId) => {
+    repeatedBackfillCalls += 1;
+    return originalRepeatedBackfill(db, legacy, workspaceId);
+  };
+  const secondListed = reopened.listCronjobs({ workspaceId: "workspace-1" });
+  reopened.close();
+
+  assert.equal(secondListed.length, 1);
+  assert.equal(repeatedBackfillCalls, 0);
+});
+
 test("runtime notifications round trip supports create, list, update, get, and dismiss", () => {
   const root = makeTempDir("hb-state-store-");
   const store = new RuntimeStateStore({

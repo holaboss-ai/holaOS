@@ -1198,7 +1198,11 @@ function EmptyWorkspacePane() {
   );
 }
 
-function WorkspaceBootstrapPane() {
+function WorkspaceBootstrapPane({
+  subtitle = "Preparing your desktop",
+}: {
+  subtitle?: string;
+}) {
   // Pin to the viewport so the bootstrap surface fills edge-to-edge
   // independent of the AppShell grid's outer padding/gutters. Otherwise
   // the body (which is translucent on macOS for vibrancy) would show as
@@ -1243,7 +1247,7 @@ function WorkspaceBootstrapPane() {
           holaOS
         </h1>
         <p className="mt-1.5 text-[12.5px] font-medium text-muted-foreground">
-          Preparing your desktop
+          {subtitle}
         </p>
         <div
           className="mt-5 flex items-center gap-1.5"
@@ -1296,6 +1300,16 @@ function runtimeStartupBlockedMessage(
     );
   }
   return "";
+}
+
+function workspaceBootstrapSubtitle(
+  runtimeStatus: RuntimeStatusPayload | null,
+): string {
+  const startupMessage =
+    runtimeStatus?.status === "starting"
+      ? runtimeStatus.startupMessage?.trim() || ""
+      : "";
+  return startupMessage || "Preparing your desktop";
 }
 
 function FocusPlaceholder({
@@ -5174,7 +5188,9 @@ function AppShellContent() {
           bootstrapErrorMessage ? (
             <WorkspaceStartupErrorPane message={bootstrapErrorMessage} />
           ) : (
-            <WorkspaceBootstrapPane />
+            <WorkspaceBootstrapPane
+              subtitle={workspaceBootstrapSubtitle(runtimeStatus)}
+            />
           )
         ) : hydratedRuntimeErrorMessage ? (
           <WorkspaceStartupErrorPane message={hydratedRuntimeErrorMessage} />
