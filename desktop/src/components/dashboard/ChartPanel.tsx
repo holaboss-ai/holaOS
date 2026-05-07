@@ -32,7 +32,7 @@ import type {
 } from "@/lib/dashboardSchema";
 
 import type { DataViewState } from "./DataViewPanel";
-import { EmptyState } from "./EmptyState";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorMessage } from "./ErrorMessage";
 import { formatValue } from "./format";
 
@@ -102,7 +102,7 @@ export function ChartPanel({ panel, state }: ChartPanelProps) {
         ) : state.rows.length === 0 ? (
           <EmptyState
             icon={CHART_ICON[panel.chart.kind] ?? BarChart3}
-            message={panel.empty_state ?? "Nothing here yet."}
+            title={panel.empty_state ?? "Nothing here yet."}
             minHeight={260}
           />
         ) : (

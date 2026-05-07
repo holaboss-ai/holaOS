@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { BoardViewSpec, ColorToken } from "@/lib/dashboardSchema";
 
-import { EmptyState } from "./EmptyState";
+import { EmptyState } from "@/components/ui/empty-state";
 import { colorClasses, formatSmartDate, hashToColor, looksLikeDateColumn } from "./format";
 import { RowDetailDialog } from "./RowDetailDialog";
 import { isStatusColumn, StatusBadge } from "./StatusBadge";
@@ -135,7 +135,7 @@ export function BoardView({
     return (
       <div className="pt-2">
         <div className="mb-2">{picker}</div>
-        <EmptyState icon={Columns3} message={emptyState ?? "Nothing here yet."} />
+        <EmptyState icon={Columns3} title={emptyState ?? "Nothing here yet."} />
       </div>
     );
   }

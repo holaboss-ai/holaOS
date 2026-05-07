@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { LayoutGrid, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { KitCard } from "./KitCard";
 import { FALLBACK_TEMPLATES } from "./fallbackTemplates";
 
@@ -111,11 +112,16 @@ export function MarketplaceGallery({
             ) : null}
           </div>
         ) : visibleTemplates.length === 0 ? (
-          <div className="mt-8 text-center text-xs text-muted-foreground">
-            {query.trim()
-              ? "No templates match your search."
-              : "No templates available yet."}
-          </div>
+          <EmptyState
+            icon={query.trim() ? Search : LayoutGrid}
+            size="md"
+            title={
+              query.trim()
+                ? "No templates match your search."
+                : "No templates available yet."
+            }
+            className="mt-8"
+          />
         ) : (
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {visibleTemplates.map((t: TemplateMetadataPayload) => (

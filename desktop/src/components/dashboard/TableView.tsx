@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ColorToken, TableColumnSpec, TableViewSpec } from "@/lib/dashboardSchema";
 
-import { EmptyState } from "./EmptyState";
+import { EmptyState } from "@/components/ui/empty-state";
 import { RowDetailDialog } from "./RowDetailDialog";
 import { isStatusColumn, StatusBadge } from "./StatusBadge";
 import {
@@ -172,10 +172,10 @@ export function TableView({
   }, [updateEdgeFade, totalWidth]);
 
   if (visible.length === 0) {
-    return <EmptyState icon={Table2} message="No columns to display." />;
+    return <EmptyState icon={Table2} title="No columns to display." />;
   }
   if (rows.length === 0) {
-    return <EmptyState icon={Table2} message={emptyState ?? "Nothing here yet."} />;
+    return <EmptyState icon={Table2} title={emptyState ?? "Nothing here yet."} />;
   }
 
   return (

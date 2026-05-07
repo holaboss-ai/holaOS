@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -418,7 +419,8 @@ export function AutomationsPane({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!activeWorkspaceId ? (
           <EmptyState
-            icon={<Clock3 className="size-5 text-muted-foreground" />}
+            icon={Clock3}
+            size="md"
             title="No workspace selected"
             description={emptyWorkspaceMessage}
           />
@@ -530,7 +532,8 @@ export function AutomationsPane({
           )
         ) : completedRuns.length === 0 ? (
           <EmptyState
-            icon={<Clock3 className="size-5 text-muted-foreground" />}
+            icon={Clock3}
+            size="md"
             title="No runs yet"
             description="Once a scheduled task fires, its history will show up here."
           />
@@ -590,55 +593,34 @@ export function AutomationsPane({
   );
 }
 
-function EmptyState({
-  icon,
-  title,
-  description,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center px-6 py-10 text-center">
-      <div className="grid size-10 place-items-center rounded-xl bg-muted">
-        {icon}
-      </div>
-      <div className="mt-3 text-sm font-medium text-foreground">{title}</div>
-      <p className="mt-1 max-w-xs text-xs leading-5 text-muted-foreground">
-        {description}
-      </p>
-    </div>
-  );
-}
-
 function EmptyScheduled({ onCreate }: { onCreate: () => void }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center px-6 py-10 text-center">
-      <div className="grid size-10 place-items-center rounded-xl bg-muted text-muted-foreground">
-        <Clock3 className="size-5" />
-      </div>
-      <div className="mt-3 text-sm font-medium text-foreground">
-        No schedules yet
-      </div>
-      <p className="mt-1 max-w-[260px] text-xs leading-5 text-muted-foreground">
-        Ask the agent to set one up — try{" "}
-        <span className="text-foreground/80">
-          &ldquo;post a LinkedIn update every Monday at 9am&rdquo;
-        </span>
-        .
-      </p>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={onCreate}
-        className="mt-4 gap-1.5"
-      >
-        <Sparkles className="size-3.5" />
-        Ask the agent
-      </Button>
-    </div>
+    <EmptyState
+      icon={Clock3}
+      size="md"
+      title="No schedules yet"
+      description={
+        <>
+          Ask the agent to set one up — try{" "}
+          <span className="text-foreground/80">
+            &ldquo;post a LinkedIn update every Monday at 9am&rdquo;
+          </span>
+          .
+        </>
+      }
+      action={
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onCreate}
+          className="gap-1.5"
+        >
+          <Sparkles className="size-3.5" />
+          Ask the agent
+        </Button>
+      }
+    />
   );
 }
 

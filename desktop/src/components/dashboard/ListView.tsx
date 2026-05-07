@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 
 import type { ListViewSpec } from "@/lib/dashboardSchema";
 
-import { EmptyState } from "./EmptyState";
+import { EmptyState } from "@/components/ui/empty-state";
 import { formatSmartDate, looksLikeDateColumn } from "./format";
 import { RowDetailDialog } from "./RowDetailDialog";
 
@@ -39,7 +39,7 @@ export function ListView({ view, columns, rows, emptyState }: ListViewProps) {
     );
   }
   if (rows.length === 0) {
-    return <EmptyState icon={Rows3} message={emptyState ?? "Nothing here yet."} />;
+    return <EmptyState icon={Rows3} title={emptyState ?? "Nothing here yet."} />;
   }
 
   const display = rows.slice(0, shownLimit);

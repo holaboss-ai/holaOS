@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { StatusDot } from "@/components/ui/status-dot";
 import {
   Select,
@@ -489,14 +490,11 @@ export function SpaceBrowserExplorerPane({
               );
             })
           ) : (
-            <div className="flex flex-col items-center justify-center gap-2 px-4 py-8 text-center">
-              <div className="grid size-8 place-items-center rounded-lg bg-muted text-muted-foreground">
-                <Globe className="size-3.5" />
-              </div>
-              <div className="text-xs leading-5 text-muted-foreground">
-                No open tabs in the {browserSpace} browser.
-              </div>
-            </div>
+            <EmptyState
+              icon={Globe}
+              size="md"
+              title={`No open tabs in the ${browserSpace} browser.`}
+            />
           )}
         </div>
       </div>

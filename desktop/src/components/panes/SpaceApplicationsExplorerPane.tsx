@@ -1,6 +1,7 @@
 import { AppWindow, Plus } from "lucide-react";
 import { AppIcon } from "@/components/marketplace/AppIcon";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { StatusDot } from "@/components/ui/status-dot";
 import type { WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
 import { resolveAppDisplay, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
@@ -121,14 +122,12 @@ export function SpaceApplicationsExplorerPane({
         </div>
 
         {isEmpty ? (
-          <div className="mt-6 flex flex-col items-center justify-center gap-2.5 px-4 py-8 text-center">
-            <div className="grid size-8 place-items-center rounded-lg bg-muted text-muted-foreground">
-              <AppWindow className="size-3.5" />
-            </div>
-            <div className="text-xs leading-5 text-muted-foreground">
-              No apps installed yet.
-            </div>
-          </div>
+          <EmptyState
+            icon={AppWindow}
+            size="md"
+            title="No apps installed yet."
+            className="mt-6"
+          />
         ) : null}
       </div>
     </div>

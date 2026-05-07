@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { AppIcon } from "@/components/marketplace/AppIcon";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
 import { SimpleMarkdown } from "@/components/marketplace/SimpleMarkdown";
 import { cn } from "@/lib/utils";
 import { resolveAppDisplay, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
@@ -502,9 +503,10 @@ function DocsMockup({ data }: { data: LivePreviewData }) {
                 <SimpleMarkdown>{cleanReadme}</SimpleMarkdown>
               </div>
             ) : (
-              <DocsEmptyState
-                hint="Renders on the marketplace listing page."
+              <EmptyState
+                size="md"
                 title="No README yet"
+                description="Renders on the marketplace listing page."
               />
             )}
           </div>
@@ -535,9 +537,10 @@ function DocsMockup({ data }: { data: LivePreviewData }) {
                 </details>
               </div>
             ) : (
-              <DocsEmptyState
-                hint="Runs in chat the first time someone opens this template."
+              <EmptyState
+                size="md"
                 title="No first-run script yet"
+                description="Runs in chat the first time someone opens this template."
               />
             )}
           </div>
@@ -584,11 +587,3 @@ function DocsTab({
   );
 }
 
-function DocsEmptyState({ title, hint }: { title: string; hint: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center px-2 py-8 text-center">
-      <p className="text-sm font-medium">{title}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
-    </div>
-  );
-}
