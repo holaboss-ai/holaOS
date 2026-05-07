@@ -1,19 +1,6 @@
 /* Visual effects — shadows, surfaces, OS vibrancy, browser glow,
    shimmer, spinner, mask. */
 
-/* ---- Tinted elevation — status-colored shadow for CTAs, toasts. ---- */
-
-.shadow-tinted-brand {
-  box-shadow:
-    0 0 0 1px rgb(from var(--primary) r g b / calc(var(--hairline-alpha) * 1.5)),
-    0 1px 2px -1px rgb(from var(--primary) r g b / var(--shadow-alpha)),
-    0 3px 5px -1px rgb(from var(--primary) r g b / var(--shadow-alpha));
-}
-/* Dark: drop blur, keep a saturated outline (no glow). */
-.dark .shadow-tinted-brand {
-  box-shadow: 0 0 0 1px oklch(from var(--primary) 0.55 c h / 0.55);
-}
-
 /* Tinted shadow — set --shadow-color (R,G,B) per element.
    Light: soft glow. Dark: solid 1px tinted ring (no glow). */
 .shadow-tinted {

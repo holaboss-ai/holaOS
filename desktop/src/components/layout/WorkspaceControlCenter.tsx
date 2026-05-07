@@ -1134,7 +1134,7 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
         isDragging && "cursor-grabbing opacity-70",
         isDragTarget && "ring-2 ring-primary ring-inset",
         hasUnreadCompletionHighlight
-          ? "shadow-tinted-brand"
+          ? "ring-1 ring-primary/40 ring-inset"
           : isSelected && "ring-1 ring-border ring-inset",
       )}
     >
