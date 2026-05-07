@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ExternalLink, FileUp, LoaderCircle } from "lucide-react";
+import { ExternalLink, FileUp, LoaderCircle, Search } from "lucide-react";
 import {
   getProviderForCatalogEntry,
   resolveAppDisplay,
@@ -12,6 +12,14 @@ import {
   CardFooter,
   CardHeader,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { AppCatalogCard } from "./AppCatalogCard";
 
 function AppCatalogCardSkeleton() {
@@ -61,6 +69,13 @@ export function AppsGallery() {
   const [installFromFileError, setInstallFromFileError] = useState<
     string | null
   >(null);
+  // Search + category filter — narrow the catalog to apps the user is
+  // looking for. Categories come from the Composio toolkit (preferred)
+  // with a fallback to the manifest's own `category`, so adding a new
+  // module to marketplace.json automatically populates the filter
+  // without any desktop-side allowlist.
+  const [query, setQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
 
   const handleInstallFromArchive = useCallback(async () => {
     if (!selectedWorkspace) return;
@@ -95,6 +110,67 @@ export function AppsGallery() {
   );
   const workspaceGated = !selectedWorkspace;
   const anyInstalling = Boolean(installingAppId);
+
+  // Per-entry categories: union of toolkit-published categories (when
+  // the app declares a provider_id and the toolkit was loaded) and the
+  // manifest's own category. Lowercased + de-duplicated for stable
+  // string matching.
+  const entryCategories = useCallback(
+    (entry: AppCatalogEntryPayload): string[] => {
+      const out = new Set<string>();
+      const slug = entry.provider_id?.trim().toLowerCase();
+      const toolkit = slug ? composioToolkitsByProvider[slug] : undefined;
+      for (const c of toolkit?.categories ?? []) {
+        const v = c.trim().toLowerCase();
+        if (v) out.add(v);
+      }
+      const manifest = entry.category?.trim().toLowerCase();
+      if (manifest) out.add(manifest);
+      return Array.from(out);
+    },
+    [composioToolkitsByProvider],
+  );
+
+  // Sorted, de-duplicated category list for the filter dropdown,
+  // derived from whatever the current catalog actually contains —
+  // never a hardcoded allowlist.
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const entry of appCatalog) {
+      for (const c of entryCategories(entry)) set.add(c);
+    }
+    return Array.from(set).sort();
+  }, [appCatalog, entryCategories]);
+
+  // Filter pipeline: search by app id / manifest name / Composio
+  // display name (whichever the user might be typing); then narrow to
+  // the selected category.
+  const filteredCatalog = useMemo(() => {
+    const trimmedQuery = query.trim().toLowerCase();
+    return appCatalog.filter((entry) => {
+      if (categoryFilter !== "all") {
+        if (!entryCategories(entry).includes(categoryFilter)) return false;
+      }
+      if (!trimmedQuery) return true;
+      const display = resolveAppDisplay(
+        entry.provider_id,
+        composioToolkitsByProvider,
+      );
+      const haystacks = [
+        entry.app_id,
+        entry.name,
+        display.name ?? "",
+        entry.description ?? "",
+      ];
+      return haystacks.some((h) => h.toLowerCase().includes(trimmedQuery));
+    });
+  }, [
+    appCatalog,
+    categoryFilter,
+    composioToolkitsByProvider,
+    entryCategories,
+    query,
+  ]);
 
   // Active integration connections, indexed by provider id, used to
   // surface the multi-account picker on cards that have ≥2 accounts for
@@ -154,7 +230,44 @@ export function AppsGallery() {
           Select a workspace to install apps.
         </p>
       ) : (
-        <div className="mb-1 flex items-center justify-end">
+        <div className="mb-1 flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search
+              size={13}
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search apps…"
+              className="h-8 pl-7 text-xs"
+              aria-label="Search apps"
+            />
+          </div>
+          <Select
+            value={categoryFilter}
+            onValueChange={(next) => {
+              if (next) setCategoryFilter(next);
+            }}
+          >
+            <SelectTrigger
+              size="sm"
+              aria-label="Filter by category"
+              className="h-8 w-[160px] shrink-0 text-xs"
+            >
+              <SelectValue placeholder="All categories" />
+            </SelectTrigger>
+            <SelectContent align="end" className="min-w-[160px]">
+              <SelectItem value="all" className="text-xs">
+                All categories
+              </SelectItem>
+              {categories.map((category) => (
+                <SelectItem key={category} value={category} className="text-xs">
+                  {category.charAt(0).toUpperCase() + category.slice(1)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button
             variant="ghost"
             size="sm"
@@ -255,9 +368,25 @@ export function AppsGallery() {
         <div className="mt-8 text-center text-xs text-muted-foreground">
           No apps available.
         </div>
+      ) : filteredCatalog.length === 0 ? (
+        <div className="mt-8 flex flex-col items-center gap-2 text-center text-xs text-muted-foreground">
+          <span>No apps match the current filter.</span>
+          {(query.trim() || categoryFilter !== "all") && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setQuery("");
+                setCategoryFilter("all");
+              }}
+            >
+              Clear filter
+            </Button>
+          )}
+        </div>
       ) : (
         <div className="mt-4 grid grid-cols-1 gap-2 pb-6 md:grid-cols-2 xl:grid-cols-3">
-          {appCatalog.map((entry) => {
+          {filteredCatalog.map((entry) => {
             const isInstalled = installedIds.has(entry.app_id);
             const isInstalling = installingAppId === entry.app_id;
             const state = isInstalled
