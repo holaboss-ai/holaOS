@@ -3382,31 +3382,32 @@ export function ChatPane({
     workspaceAppsReady,
     workspaceBlockingReason,
     refreshWorkspaceData,
-    workspaces,
+    installedApps,
   } = useWorkspaceDesktop();
+  // `@` references content WITHIN the current workspace — currently
+  // installed apps; future kinds (sessions, memories, skills) plug
+  // into the same array. Cross-workspace navigation is a different
+  // affordance (the workspace switcher in TopTabsBar).
   const composerMentionableItems = useMemo<ChatComposerMentionItem[]>(() => {
-    if (!Array.isArray(workspaces)) {
+    if (!Array.isArray(installedApps) || installedApps.length === 0) {
       return [];
     }
-    return workspaces.map((ws) => {
-      const trimmedName = ws.name.trim() || "Untitled workspace";
+    return installedApps.map((app) => {
+      const trimmedLabel = app.label.trim() || app.id;
       // Slug-style handle: lowercase, spaces → hyphens, strip anything
       // outside `[a-z0-9_.\-]` so the inserted token stays parseable
       // by `findActiveMentionRange` if the user moves the caret back
       // into it.
-      const handle = trimmedName
-        .toLowerCase()
-        .replace(/\s+/g, "-")
-        .replace(/[^a-z0-9_.\-]/g, "");
+      const handle = app.id.toLowerCase().replace(/[^a-z0-9_.\-]/g, "");
       return {
-        id: ws.id,
-        handle: handle || ws.id,
-        label: trimmedName,
-        description: ws.id,
-        keywords: [trimmedName, ws.id, handle].filter(Boolean),
+        id: app.id,
+        handle: handle || app.id,
+        label: trimmedLabel,
+        description: app.summary,
+        keywords: [trimmedLabel, app.id, handle].filter(Boolean),
       };
     });
-  }, [workspaces]);
+  }, [installedApps]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionOutputs, setSessionOutputs] = useState<
     WorkspaceOutputRecordPayload[]
