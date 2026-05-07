@@ -4359,7 +4359,10 @@ function AppShellContent() {
   );
   const shouldSuspendBrowserNativeView =
     workspaceSwitcherOpen ||
-    settingsDialogOpen ||
+    // `Rendered` (not `Open`) — keeps the webview detached until the
+    // exit animation finishes; otherwise the webview re-attaches behind
+    // the still-animating panel and the user sees a layout shudder.
+    settingsDialogRendered ||
     taskProposalDetailsDialogOpen ||
     chatImagePreviewOpen ||
     workspaceAppsDialogOpen ||
