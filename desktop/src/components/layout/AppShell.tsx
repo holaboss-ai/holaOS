@@ -1450,7 +1450,6 @@ function AppShellContent() {
     chatBrowserJumpRequestKeysBySessionId,
     setChatBrowserJumpRequestKeysBySessionId,
   ] = useState<Record<string, number>>({});
-  const [browserDisplayFlashNonce, setBrowserDisplayFlashNonce] = useState(0);
   const [
     chatComposerDraftTextByWorkspace,
     setChatComposerDraftTextByWorkspace,
@@ -2612,7 +2611,6 @@ function AppShellContent() {
         .setActiveWorkspace(selectedWorkspaceId, "agent", normalizedSessionId)
         .catch(() => undefined);
       consumeChatBrowserJumpRequest(normalizedSessionId, requestKey);
-      setBrowserDisplayFlashNonce((current) => current + 1);
     },
     [consumeChatBrowserJumpRequest, revealBrowserPane, selectedWorkspaceId],
   );
@@ -4708,7 +4706,6 @@ function AppShellContent() {
           browserSpace={spaceBrowserSpace}
           suspendNativeView={shouldSuspendBrowserNativeView}
           layoutSyncKey={spaceDisplayLayoutSyncKey}
-          jumpPulseKey={browserDisplayFlashNonce}
           embedded
         />
       );
@@ -4763,7 +4760,6 @@ function AppShellContent() {
   }, [
     activeApp,
     activeAppId,
-    browserDisplayFlashNonce,
     handleMissingInternalResource,
     handleOpenLinkInNewAppBrowserTab,
     hasSelectedWorkspace,

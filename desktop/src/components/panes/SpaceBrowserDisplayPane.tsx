@@ -64,7 +64,6 @@ interface SpaceBrowserDisplayPaneProps {
   suspendNativeView?: boolean;
   layoutSyncKey?: string;
   embedded?: boolean;
-  jumpPulseKey?: number;
 }
 
 export function SpaceBrowserDisplayPane({
@@ -72,7 +71,6 @@ export function SpaceBrowserDisplayPane({
   suspendNativeView = false,
   layoutSyncKey = "",
   embedded = false,
-  jumpPulseKey = 0,
 }: SpaceBrowserDisplayPaneProps) {
   const [browserProfileImportDialogOpen, setBrowserProfileImportDialogOpen] =
     useState(false);
@@ -122,21 +120,6 @@ export function SpaceBrowserDisplayPane({
   } = useBrowserCaptureActions();
   const effectiveSuspendNativeView =
     suspendNativeView || browserProfileImportDialogOpen;
-
-  const [jumpFlashActive, setJumpFlashActive] = useState(false);
-  useEffect(() => {
-    if (jumpPulseKey <= 0) {
-      return;
-    }
-    setJumpFlashActive(true);
-    const timeoutId = window.setTimeout(() => {
-      setJumpFlashActive(false);
-    }, 720);
-    return () => {
-      window.clearTimeout(timeoutId);
-      setJumpFlashActive(false);
-    };
-  }, [jumpPulseKey]);
 
   useEffect(() => {
     setInputValue(activeTab.url || "");
@@ -486,16 +469,10 @@ export function SpaceBrowserDisplayPane({
           ref={viewportRef}
           className={`relative h-full min-h-0 overflow-hidden rounded-xl border bg-card transition-colors ${
             showAgentActivityHighlight
-              ? "browser-active-glow border-border"
+              ? "border-primary/40"
               : "border-border"
-          } ${jumpFlashActive ? "browser-jump-flash" : ""}`}
+          }`}
         >
-          {showAgentActivityHighlight ? (
-            <div
-              aria-hidden="true"
-              className="browser-active-glow-frame pointer-events-none absolute inset-0 rounded-[inherit]"
-            />
-          ) : null}
 
           {!activeTab.initialized ? (
             <div className="absolute inset-0 grid place-items-center bg-card p-6 text-center">

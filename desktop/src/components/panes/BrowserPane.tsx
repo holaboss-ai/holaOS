@@ -1059,17 +1059,10 @@ export function BrowserPane({
             ref={viewportRef}
             className={`relative min-h-0 flex-1 overflow-hidden rounded-b-xl border bg-card transition-colors ${
               showAgentActivityHighlight
-                ? "browser-active-glow border-transparent"
+                ? "border-primary/40"
                 : "border-transparent"
             }`}
           >
-            {showAgentActivityHighlight ? (
-              <div
-                aria-hidden="true"
-                className="browser-active-glow-frame pointer-events-none absolute inset-0 rounded-[inherit]"
-              />
-            ) : null}
-
             {!activeTab.initialized ? (
               <div className="absolute inset-0 grid place-items-center bg-card p-6 text-center">
                 <div className="pointer-events-none w-full max-w-[320px] rounded-3xl border border-border bg-card px-5 py-5 shadow-xs backdrop-blur">
