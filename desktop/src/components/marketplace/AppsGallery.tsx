@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ExternalLink, FileUp, LoaderCircle } from "lucide-react";
-import { getProviderForCatalogEntry, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import {
+  getProviderForCatalogEntry,
+  resolveAppDisplay,
+  useWorkspaceDesktop,
+} from "@/lib/workspaceDesktop";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -34,15 +38,6 @@ function AppCatalogCardSkeleton() {
   );
 }
 
-interface ComposioToolkit {
-  slug: string;
-  name: string;
-  description: string;
-  logo: string | null;
-  auth_schemes: string[];
-  categories: string[];
-}
-
 export function AppsGallery() {
   const {
     appCatalog,
@@ -50,6 +45,7 @@ export function AppsGallery() {
     appCatalogError,
     appCatalogSource,
     refreshAppCatalog,
+    composioToolkitsByProvider,
     installingAppId,
     installAppFromCatalog,
     installedApps,
@@ -99,44 +95,6 @@ export function AppsGallery() {
   );
   const workspaceGated = !selectedWorkspace;
   const anyInstalling = Boolean(installingAppId);
-
-  // Composio toolkit metadata (name + logo) keyed by toolkit slug, used
-  // to enrich each card so display name + icon match what users see in
-  // Integrations and what Composio publishes — without us re-maintaining
-  // a local app→display table. Lookup is by `entry.provider_id` (the
-  // toolkit slug self-declared in app.runtime.yaml). Fetched once when
-  // the gallery first mounts; failures degrade silently to entry.name +
-  // CDN-by-app_id.
-  const [toolkitsByProvider, setToolkitsByProvider] = useState<
-    Record<string, ComposioToolkit>
-  >({});
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const { toolkits } =
-          await window.electronAPI.workspace.composioListToolkits();
-        if (cancelled) return;
-        const indexed: Record<string, ComposioToolkit> = {};
-        for (const toolkit of toolkits) {
-          const slug = toolkit.slug?.trim().toLowerCase();
-          if (slug) indexed[slug] = toolkit;
-        }
-        setToolkitsByProvider(indexed);
-      } catch {
-        // Non-fatal — cards fall back to manifest name + CDN-by-app_id.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  function lookupToolkit(entry: AppCatalogEntryPayload): ComposioToolkit | null {
-    const slug = entry.provider_id?.trim().toLowerCase();
-    if (!slug) return null;
-    return toolkitsByProvider[slug] ?? null;
-  }
 
   // Active integration connections, indexed by provider id, used to
   // surface the multi-account picker on cards that have ≥2 accounts for
@@ -245,12 +203,12 @@ export function AppsGallery() {
           >
             <p className="text-base font-semibold text-foreground">
               Connect{" "}
-              {toolkitsByProvider[pendingAppInstall.provider.toLowerCase()]
+              {composioToolkitsByProvider[pendingAppInstall.provider.toLowerCase()]
                 ?.name ?? pendingAppInstall.provider}
             </p>
             <p className="mt-1.5 text-xs text-muted-foreground">
               {pendingAppInstall.appId} requires a connected{" "}
-              {toolkitsByProvider[pendingAppInstall.provider.toLowerCase()]
+              {composioToolkitsByProvider[pendingAppInstall.provider.toLowerCase()]
                 ?.name ?? pendingAppInstall.provider}{" "}
               account to work. Connect it first, then the app will be installed
               automatically.
@@ -319,7 +277,10 @@ export function AppsGallery() {
             const selected =
               selectedAccountByApp[entry.app_id] ??
               sortedCandidates[0]?.connection_id;
-            const toolkit = lookupToolkit(entry);
+            const display = resolveAppDisplay(
+              entry.provider_id,
+              composioToolkitsByProvider,
+            );
             return (
               <AppCatalogCard
                 key={`${entry.source}:${entry.app_id}`}
@@ -330,8 +291,8 @@ export function AppsGallery() {
                   (anyInstalling && !isInstalling) ||
                   Boolean(pendingAppInstall)
                 }
-                displayName={toolkit?.name ?? null}
-                logoUrl={toolkit?.logo ?? null}
+                displayName={display.name}
+                logoUrl={display.logo}
                 availableAccounts={sortedCandidates}
                 selectedConnectionId={selected ?? null}
                 onSelectAccount={(connectionId) =>
