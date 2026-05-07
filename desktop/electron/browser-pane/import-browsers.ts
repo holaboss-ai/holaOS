@@ -80,6 +80,29 @@ function stripHtmlTags(value: string) {
   return value.replace(/<[^>]*>/g, " ");
 }
 
+function normalizeImportedBookmarkFolderPath(
+  folderPath: readonly unknown[] | undefined,
+) {
+  if (!Array.isArray(folderPath)) {
+    return [];
+  }
+  return folderPath
+    .map((segment) => (typeof segment === "string" ? segment.trim() : ""))
+    .filter(Boolean);
+}
+
+function sameBookmarkFolderPath(
+  left: readonly unknown[] | undefined,
+  right: readonly unknown[] | undefined,
+) {
+  const leftNormalized = normalizeImportedBookmarkFolderPath(left);
+  const rightNormalized = normalizeImportedBookmarkFolderPath(right);
+  if (leftNormalized.length !== rightNormalized.length) {
+    return false;
+  }
+  return leftNormalized.every((segment, index) => segment === rightNormalized[index]);
+}
+
 export function parseImportedVisitTimestamp(value: unknown): string | null {
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -126,24 +149,63 @@ export function parseSafariBookmarksFromHtml(
   html: string,
 ): BrowserBookmarkPayload[] {
   const bookmarks: BrowserBookmarkPayload[] = [];
-  const anchorPattern =
-    /<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-  for (const match of html.matchAll(anchorPattern)) {
-    const url = (match[1] || "").trim();
+  const folderPath: string[] = [];
+  const dlFolderOwnership: boolean[] = [];
+  let pendingFolderName = "";
+  const tokenPattern =
+    /<h3\b[^>]*>([\s\S]*?)<\/h3>|<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>|<\/?dl\b[^>]*>/gi;
+
+  for (const match of html.matchAll(tokenPattern)) {
+    const token = match[0] || "";
+    if (/^<h3\b/i.test(token)) {
+      pendingFolderName = decodeHtmlEntities(
+        stripHtmlTags(match[1] || "")
+          .replace(/\s+/g, " ")
+          .trim(),
+      );
+      continue;
+    }
+
+    if (/^<dl\b/i.test(token)) {
+      const ownsFolder = Boolean(pendingFolderName);
+      dlFolderOwnership.push(ownsFolder);
+      if (ownsFolder) {
+        folderPath.push(pendingFolderName);
+        pendingFolderName = "";
+      }
+      continue;
+    }
+
+    if (/^<\/dl\b/i.test(token)) {
+      const ownsFolder = dlFolderOwnership.pop();
+      if (ownsFolder) {
+        folderPath.pop();
+      }
+      pendingFolderName = "";
+      continue;
+    }
+
+    const url = (match[2] || "").trim();
     if (!shouldTrackHistoryUrlForImport(url)) {
+      pendingFolderName = "";
       continue;
     }
     const cleanedTitle = decodeHtmlEntities(
-      stripHtmlTags(match[2] || "")
+      stripHtmlTags(match[3] || "")
         .replace(/\s+/g, " ")
         .trim(),
     );
+    const normalizedFolderPath = normalizeImportedBookmarkFolderPath(folderPath);
     bookmarks.push({
       id: `bookmark-import-${randomUUID()}`,
       url,
       title: cleanedTitle || url,
+      ...(normalizedFolderPath.length > 0
+        ? { folderPath: normalizedFolderPath }
+        : {}),
       createdAt: utcNowIso(),
     });
+    pendingFolderName = "";
   }
   return bookmarks;
 }
@@ -388,11 +450,13 @@ export async function copyCookiesBetweenBrowserSessions(
 export function cloneBrowserBookmarkPayload(
   bookmark: BrowserBookmarkPayload,
 ): BrowserBookmarkPayload {
+  const folderPath = normalizeImportedBookmarkFolderPath(bookmark.folderPath);
   return {
     id: `bookmark-import-${randomUUID()}`,
     url: bookmark.url,
     title: bookmark.title,
     faviconUrl: bookmark.faviconUrl,
+    ...(folderPath.length > 0 ? { folderPath } : {}),
     createdAt: bookmark.createdAt,
   };
 }
@@ -447,10 +511,19 @@ export function mergeImportedBookmarksIntoWorkspace(
 
     const nextTitle = importedBookmark.title?.trim() || existing.title;
     const nextCreatedAt = existing.createdAt || importedBookmark.createdAt;
-    if (nextTitle !== existing.title || nextCreatedAt !== existing.createdAt) {
+    const nextFolderPath =
+      normalizeImportedBookmarkFolderPath(existing.folderPath).length > 0
+        ? normalizeImportedBookmarkFolderPath(existing.folderPath)
+        : normalizeImportedBookmarkFolderPath(importedBookmark.folderPath);
+    if (
+      nextTitle !== existing.title ||
+      nextCreatedAt !== existing.createdAt ||
+      !sameBookmarkFolderPath(existing.folderPath, nextFolderPath)
+    ) {
       bookmarkByUrl.set(importedBookmark.url, {
         ...existing,
         title: nextTitle,
+        ...(nextFolderPath.length > 0 ? { folderPath: nextFolderPath } : {}),
         createdAt: nextCreatedAt,
       });
       changedCount += 1;

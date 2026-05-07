@@ -203,6 +203,7 @@ declare global {
     url: string;
     title: string;
     faviconUrl?: string;
+    folderPath?: string[];
     createdAt: string;
   }
 

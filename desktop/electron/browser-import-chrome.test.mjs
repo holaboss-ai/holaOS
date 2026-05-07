@@ -73,6 +73,10 @@ test("desktop browser import flow discovers a Chrome profile and imports bookmar
     chromiumSource,
     /export async function readChromeBookmarks\(\s*profileDir: string,\s*\): Promise<BrowserBookmarkPayload\[]> \{/,
   );
+  assert.match(chromiumSource, /const CHROME_BOOKMARK_ROOT_LABELS: Record<string, string> = \{/);
+  assert.match(chromiumSource, /chromeBookmarkRootFolderPath\(/);
+  assert.match(chromiumSource, /collectChromeBookmarkEntries\(\s*child,\s*bookmarks,\s*rootFolderPath\s*\)/);
+  assert.match(chromiumSource, /folderPath: \[\.\.\.folderPath\]/);
   assert.match(
     chromiumSource,
     /export async function readChromeHistory\(\s*profileDir: string,\s*\): Promise<BrowserHistoryEntryPayload\[]> \{/,
@@ -188,6 +192,13 @@ test("desktop browser import flow discovers a Chrome profile and imports bookmar
     browsersSource,
     /cookieSummary\.importedCount === 0 &&\s*\(bookmarkCount > 0 \|\| historyCount > 0\)/,
   );
+  assert.match(browsersSource, /const tokenPattern =/);
+  assert.match(browsersSource, /<\\\/\?dl\\b\[\^>\]\*>\/gi/);
+  assert.match(browsersSource, /normalizeImportedBookmarkFolderPath\(/);
+  assert.match(browsersSource, /folderPath\.push\(pendingFolderName\);/);
+  assert.match(browsersSource, /export function cloneBrowserBookmarkPayload\(/);
+  assert.match(browsersSource, /nextFolderPath\.length > 0/);
+  assert.match(browsersSource, /folderPath: nextFolderPath/);
   assert.match(
     browsersSource,
     /Skipped \$\{expiredCount\} expired workspace cookies\./,

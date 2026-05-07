@@ -50,6 +50,12 @@ const CHROME_COOKIE_CBC_IV = Buffer.alloc(16, 0x20);
 const CHROME_WINDOWS_DPAPI_KEY_PREFIX = "DPAPI";
 const CHROME_WINDOWS_COOKIE_AEAD_PREFIXES = new Set(["v10", "v11"]);
 const CHROME_WINDOWS_APP_BOUND_COOKIE_PREFIX = "v20";
+const CHROME_BOOKMARK_ROOT_LABELS: Record<string, string> = {
+  bookmark_bar: "Bookmarks Bar",
+  other: "Other Bookmarks",
+  mobile: "Mobile Bookmarks",
+  synced: "Synced Bookmarks",
+};
 const BROWSER_IMPORT_PROFILE_DIR_PATTERNS = [
   /^Default$/,
   /^Profile \d+$/,
@@ -787,9 +793,28 @@ export function decodeChromeCookieValue(
   return valueBytes.toString("utf8");
 }
 
+function normalizeChromeBookmarkFolderName(value: unknown) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim();
+}
+
+function chromeBookmarkRootFolderPath(
+  rootKey: string,
+  root: ChromeBookmarkNodePayload,
+) {
+  const rootLabel =
+    normalizeChromeBookmarkFolderName(root.name) ||
+    CHROME_BOOKMARK_ROOT_LABELS[rootKey] ||
+    rootKey.replace(/[_-]+/g, " ").trim();
+  return rootLabel ? [rootLabel] : [];
+}
+
 function collectChromeBookmarkEntries(
   node: ChromeBookmarkNodePayload,
   bucket: BrowserBookmarkPayload[],
+  folderPath: string[],
 ) {
   if (node.type === "url" && typeof node.url === "string" && node.url.trim()) {
     bucket.push({
@@ -798,6 +823,7 @@ function collectChromeBookmarkEntries(
       title: typeof node.name === "string" && node.name.trim()
         ? node.name.trim()
         : node.url.trim(),
+      ...(folderPath.length > 0 ? { folderPath: [...folderPath] } : {}),
       createdAt: chromeTimestampMicrosToIso(node.date_added) ?? utcNowIso(),
     });
     return;
@@ -806,9 +832,13 @@ function collectChromeBookmarkEntries(
   if (!Array.isArray(node.children)) {
     return;
   }
+  const nextFolderPath =
+    node.type === "folder" && normalizeChromeBookmarkFolderName(node.name)
+      ? [...folderPath, normalizeChromeBookmarkFolderName(node.name)]
+      : folderPath;
   for (const child of node.children) {
     if (child && typeof child === "object") {
-      collectChromeBookmarkEntries(child, bucket);
+      collectChromeBookmarkEntries(child, bucket, nextFolderPath);
     }
   }
 }
@@ -827,9 +857,18 @@ export async function readChromeBookmarks(
       ? (parsed.roots as Record<string, ChromeBookmarkNodePayload>)
       : {};
   const bookmarks: BrowserBookmarkPayload[] = [];
-  for (const root of Object.values(roots)) {
+  for (const [rootKey, root] of Object.entries(roots)) {
     if (root && typeof root === "object") {
-      collectChromeBookmarkEntries(root, bookmarks);
+      const rootFolderPath = chromeBookmarkRootFolderPath(rootKey, root);
+      if (Array.isArray(root.children)) {
+        for (const child of root.children) {
+          if (child && typeof child === "object") {
+            collectChromeBookmarkEntries(child, bookmarks, rootFolderPath);
+          }
+        }
+        continue;
+      }
+      collectChromeBookmarkEntries(root, bookmarks, rootFolderPath);
     }
   }
   return bookmarks;
