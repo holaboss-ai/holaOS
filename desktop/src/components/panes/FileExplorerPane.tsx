@@ -4058,8 +4058,13 @@ export function FileExplorerPane({
                           <div className="w-full">{rowContent}</div>
                         ) : (
                           <div className="flex w-full min-w-0 items-center gap-1">
-                            <button
-                              type="button"
+                            {/* Row click target. Was a <button>, but rowContent
+                                contains the disclosure chevron <button>; nested
+                                buttons are invalid HTML and warn under React.
+                                Focus is managed by the parent role="treeitem"
+                                via the tree's roving tabindex, so a plain div
+                                with handlers is correct here. */}
+                            <div
                               draggable={!entryIsProtected}
                               onClick={() => {
                                 setSelectedPath(entry.absolutePath);
@@ -4123,10 +4128,9 @@ export function FileExplorerPane({
                                 dragPreviewRef.current = null;
                               }}
                               className="w-full min-w-0 cursor-pointer text-left"
-                              tabIndex={-1}
                             >
                               {rowContent}
-                            </button>
+                            </div>
                             <div className="flex shrink-0 items-center gap-0.5">
                               {onReferenceInChat ? (
                                 <Button
