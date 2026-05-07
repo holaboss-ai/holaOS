@@ -1428,7 +1428,7 @@ function AppShellContent() {
     setCreateWorkspacePanelAnchorWorkspaceId,
   ] = useState("");
   const [activeShellView, setActiveShellView] =
-    useState<ShellView>("control_center");
+    useState<ShellView>("space");
   const [agentView, setAgentView] = useState<AgentView>({ type: "chat" });
   const [chatFocusRequestKey, setChatFocusRequestKey] = useState(1);
   const [chatSessionJumpRequest, setChatSessionJumpRequest] = useState<{
@@ -1575,7 +1575,7 @@ function AppShellContent() {
   const knownTaskProposalIdsByWorkspaceRef = useRef<Record<string, string[]>>(
     {},
   );
-  const singleWorkspaceStartupEntryHandledRef = useRef(false);
+  const startupWorkspaceSelectionHandledRef = useRef(false);
   const lastRestorableSpaceFileDisplayViewByWorkspaceRef = useRef<
     Record<string, RestorableSpaceFileDisplayView>
   >({});
@@ -3641,23 +3641,33 @@ function AppShellContent() {
   );
 
   useEffect(() => {
-    if (singleWorkspaceStartupEntryHandledRef.current) {
+    if (startupWorkspaceSelectionHandledRef.current) {
       return;
     }
     if (!hasHydratedWorkspaceList) {
       return;
     }
-
-    singleWorkspaceStartupEntryHandledRef.current = true;
-    if (activeShellView !== "control_center" || workspaces.length !== 1) {
+    if (workspaces.length === 0) {
       return;
     }
 
-    handleEnterWorkspace(workspaces[0]?.id ?? "");
+    startupWorkspaceSelectionHandledRef.current = true;
+
+    const trimmedSelected = selectedWorkspaceId?.trim() || "";
+    const selectionIsValid =
+      trimmedSelected !== "" &&
+      workspaces.some((workspace) => workspace.id === trimmedSelected);
+
+    if (!selectionIsValid) {
+      const fallbackWorkspaceId = workspaces[0]?.id ?? "";
+      if (fallbackWorkspaceId) {
+        setSelectedWorkspaceId(fallbackWorkspaceId);
+      }
+    }
   }, [
-    activeShellView,
-    handleEnterWorkspace,
     hasHydratedWorkspaceList,
+    selectedWorkspaceId,
+    setSelectedWorkspaceId,
     workspaces,
   ]);
 
