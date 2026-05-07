@@ -35,6 +35,7 @@ import {
 } from "@/components/settings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 
 import type {
@@ -328,11 +329,20 @@ export function SettingsScreenRoot({
     for (const workspace of workspaces) {
       byId.set(workspace.id, workspace);
     }
-    return Array.from(byId.values()).map((workspace) => ({
-      value: workspace.id,
-      label: workspace.name.trim() || "Untitled workspace",
-      description: workspace.id,
-    }));
+    return Array.from(byId.values()).map((workspace) => {
+      const trimmedName = workspace.name.trim() || "Untitled workspace";
+      return {
+        value: workspace.id,
+        label: (
+          <span className="flex min-w-0 items-center gap-2">
+            <WorkspaceIcon workspace={workspace} size="sm" />
+            <span className="truncate">{trimmedName}</span>
+          </span>
+        ),
+        description: workspace.id,
+        keywords: [trimmedName, workspace.id],
+      };
+    });
   }, [selectedWorkspace, workspaces]);
 
   const diagnosticsSelectedWorkspace = useMemo(

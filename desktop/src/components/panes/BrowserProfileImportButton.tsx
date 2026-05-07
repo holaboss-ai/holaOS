@@ -2,6 +2,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Globe, Loader2, UploadCloud, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import { cn } from "@/lib/utils";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 
@@ -488,6 +489,11 @@ export function BrowserProfileImportButton({
                                     setCopySourceWorkspaceId(workspace.id)
                                   }
                                   type="radio"
+                                />
+                                <WorkspaceIcon
+                                  workspace={workspace}
+                                  size="md"
+                                  className="mt-0.5"
                                 />
                                 <span className="min-w-0">
                                   <span className="block font-medium text-foreground">
