@@ -27,6 +27,8 @@ export type AppCatalogEntry = {
   archive_path: string | null;
   target: string;
   cached_at: string;
+  provider_id: string | null;
+  credential_source: string | null;
 };
 
 export type AppCatalogListResponse = {

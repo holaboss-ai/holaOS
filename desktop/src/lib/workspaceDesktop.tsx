@@ -14,38 +14,16 @@ import { hydrateInstalledWorkspaceApps, type WorkspaceInstalledAppDefinition } f
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 
 /**
- * Maps an app id (e.g. `twitter`, `sheets`) to the integration provider id
- * the runtime expects in `integration_bindings.integration_key`. Apps with
- * no integration are absent from the table — callers should treat
- * `undefined` as "no provider needed".
- *
- * Exported so renderer-side components (AppsGallery, install cards) can
- * derive the same provider without each reimplementing the mapping.
+ * Each app self-declares its integration provider in `app.runtime.yaml`,
+ * which the marketplace catalog API surfaces as `provider_id`. Callers
+ * should look up the catalog entry for the app id and read
+ * `entry.provider_id` directly — `null` means "no integration needed".
  */
-export const APP_TO_PROVIDER_MAP: Record<string, string> = {
-  twitter: "twitter",
-  linkedin: "linkedin",
-  reddit: "reddit",
-  gmail: "gmail",
-  sheets: "googlesheets",
-  github: "github",
-  hubspot: "hubspot",
-  attio: "attio",
-  calcom: "calcom",
-  apollo: "apollo",
-  instantly: "instantly",
-  zoominfo: "zoominfo",
-  notion: "notion",
-  instagram: "instagram",
-  gcalendar: "googlecalendar",
-  gdrive: "googledrive",
-  slack: "slack",
-  youtube: "youtube",
-  mailchimp: "mailchimp",
-};
-
-export function getProviderForApp(appId: string): string | undefined {
-  return APP_TO_PROVIDER_MAP[appId.toLowerCase()];
+export function getProviderForCatalogEntry(
+  entry: AppCatalogEntryPayload | undefined,
+): string | undefined {
+  const value = entry?.provider_id?.trim();
+  return value ? value : undefined;
 }
 
 const ONBOARDING_ACTIVE_STATUSES = new Set(["pending", "awaiting_confirmation", "in_progress"]);
@@ -827,9 +805,10 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     }
   }
 
-  // (Same map exported above as APP_TO_PROVIDER_MAP for renderer-side reuse.)
-  // Local alias keeps the rest of the hook readable.
-  const APP_TO_PROVIDER = APP_TO_PROVIDER_MAP;
+  function providerForApp(appId: string): string | undefined {
+    const entry = appCatalog.find((e) => e.app_id === appId);
+    return getProviderForCatalogEntry(entry);
+  }
 
   async function installAppFromCatalog(
     appId: string,
@@ -845,7 +824,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     setAppCatalogError("");
 
     // Check if this app requires an integration that isn't connected yet
-    const provider = APP_TO_PROVIDER[appId.toLowerCase()];
+    const provider = providerForApp(appId);
     if (provider) {
       try {
         const { connections } = await window.electronAPI.workspace.listIntegrationConnections();
@@ -883,7 +862,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       //      connection on the expected provider. This is the silent
       //      single-account happy path; with the dedupe work in place
       //      "first match" is now stable.
-      const provider = APP_TO_PROVIDER[appId.toLowerCase()];
+      const provider = providerForApp(appId);
       if (provider && selectedWorkspaceId) {
         try {
           const { connections } = await window.electronAPI.workspace.listIntegrationConnections();

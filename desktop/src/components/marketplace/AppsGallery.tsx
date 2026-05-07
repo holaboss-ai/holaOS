@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ExternalLink, FileUp, LoaderCircle } from "lucide-react";
-import { getProviderForApp, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import { getProviderForCatalogEntry, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -275,7 +275,7 @@ export function AppsGallery() {
               : isInstalling
                 ? "installing"
                 : "available";
-            const provider = getProviderForApp(entry.app_id);
+            const provider = getProviderForCatalogEntry(entry);
             const candidates = provider
               ? accountsByProvider[provider.toLowerCase()] ?? []
               : [];

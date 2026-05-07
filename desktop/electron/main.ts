@@ -12944,6 +12944,8 @@ async function syncAppCatalog(params: {
         version: tmpl.version ?? null,
         archive_url: matching.url,
         archive_path: null,
+        provider_id: tmpl.provider_id ?? null,
+        credential_source: tmpl.credential_source ?? null,
       });
     }
     return runtimeClient.apps.syncCatalog({
@@ -12966,6 +12968,8 @@ async function syncAppCatalog(params: {
       version: null,
       archive_url: null,
       archive_path: row.filePath,
+      provider_id: null,
+      credential_source: null,
     };
   });
   return runtimeClient.apps.syncCatalog({
