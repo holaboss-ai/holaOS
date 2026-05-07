@@ -73,35 +73,7 @@ function uniqueStrings(values: string[]): string[] {
 }
 
 function providerIdForToolkit(slug: string): string {
-  const normalizedSlug = slug.trim().toLowerCase();
-  return (TOOLKIT_SLUG_TO_PROVIDER[normalizedSlug] || normalizedSlug)
-    .trim()
-    .toLowerCase();
-}
-
-function providerCategories(providerId: string): string[] {
-  return PROVIDER_CATEGORY_GROUPS[providerId] || ["other"];
-}
-
-function toolkitPreferenceRank(providerId: string, slug: string): number {
-  const normalizedSlug = slug.trim().toLowerCase();
-  const preferredSlugs = PROVIDER_TOOLKIT_PREFERENCE[providerId] || [];
-  const index = preferredSlugs.indexOf(normalizedSlug);
-  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
-}
-
-function preferredToolkitForProvider(
-  providerId: string,
-  current: ComposioToolkit | undefined,
-  candidate: ComposioToolkit,
-): ComposioToolkit {
-  if (!current) {
-    return candidate;
-  }
-  return toolkitPreferenceRank(providerId, candidate.slug) <
-    toolkitPreferenceRank(providerId, current.slug)
-    ? candidate
-    : current;
+  return slug.trim().toLowerCase();
 }
 
 // Composio publishes a stable logo CDN keyed by toolkit slug — usable as
@@ -124,14 +96,9 @@ function mergeIntegrationCards(
   const toolkitByProvider = new Map<string, ComposioToolkit>();
   for (const toolkit of toolkits) {
     const providerId = providerIdForToolkit(toolkit.slug);
-    toolkitByProvider.set(
-      providerId,
-      preferredToolkitForProvider(
-        providerId,
-        toolkitByProvider.get(providerId),
-        toolkit,
-      ),
-    );
+    if (!toolkitByProvider.has(providerId)) {
+      toolkitByProvider.set(providerId, toolkit);
+    }
   }
 
   const cards: IntegrationCard[] = [];
@@ -163,10 +130,7 @@ function mergeIntegrationCards(
         ...(toolkit?.auth_schemes || []),
         ...(provider.auth_modes || []),
       ]),
-      categories:
-        toolkitCategories.length > 0
-          ? toolkitCategories
-          : providerCategories(providerId),
+      categories: toolkitCategories.length > 0 ? toolkitCategories : ["other"],
       supportsManaged: provider.supports_managed !== false,
     });
   }
@@ -175,6 +139,7 @@ function mergeIntegrationCards(
     if (seenProviderIds.has(providerId)) {
       continue;
     }
+    const toolkitCategories = uniqueStrings(toolkit.categories || []);
     cards.push({
       slug: providerId,
       providerId,
@@ -182,10 +147,7 @@ function mergeIntegrationCards(
       description: normalizedText(toolkit.description) || providerId,
       logo: toolkit.logo,
       authSchemes: uniqueStrings(toolkit.auth_schemes || []),
-      categories:
-        uniqueStrings(toolkit.categories || []).length > 0
-          ? uniqueStrings(toolkit.categories || [])
-          : providerCategories(providerId),
+      categories: toolkitCategories.length > 0 ? toolkitCategories : ["other"],
       supportsManaged: true,
     });
   }
@@ -1409,37 +1371,3 @@ function ConnectedProviderCard({
   );
 }
 
-const PROVIDER_CATEGORY_GROUPS: Record<string, string[]> = {
-  google: ["productivity"],
-  github: ["developer"],
-  reddit: ["community"],
-  twitter: ["social"],
-  linkedin: ["social"],
-  hubspot: ["crm"],
-  attio: ["crm"],
-  cal: ["productivity"],
-  apollo: ["sales"],
-  instantly: ["sales"],
-  zoominfo: ["sales"],
-};
-
-const PROVIDER_TOOLKIT_PREFERENCE: Record<string, string[]> = {
-  google: ["gmail", "googledrive", "googlecalendar", "googlesheets"],
-  github: ["github"],
-  reddit: ["reddit"],
-  twitter: ["twitter"],
-  linkedin: ["linkedin"],
-  hubspot: ["hubspot"],
-  attio: ["attio"],
-  cal: ["cal"],
-  apollo: ["apollo"],
-  instantly: ["instantly"],
-  zoominfo: ["zoominfo"],
-};
-
-const TOOLKIT_SLUG_TO_PROVIDER: Record<string, string> = {
-  gmail: "google",
-  googlesheets: "google",
-  googlecalendar: "google",
-  googledrive: "google",
-};

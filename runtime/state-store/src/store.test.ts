@@ -95,7 +95,9 @@ test("control-plane metadata lives in control-plane.db while runtime.db keeps th
     archiveUrl: null,
     archivePath: null,
     target: "apps/calendar",
-    cachedAt: "2026-05-06T00:00:00.000Z"
+    cachedAt: "2026-05-06T00:00:00.000Z",
+    providerId: null,
+    credentialSource: null
   });
   store.close();
 
@@ -3553,6 +3555,8 @@ test("app_catalog upserts and lists entries for a given source", () => {
     archivePath: null,
     target: "darwin-arm64",
     cachedAt: "2026-04-09T00:00:00Z",
+    providerId: "twitter",
+    credentialSource: "platform",
   });
 
   const entries = store.listAppCatalogEntries({ source: "marketplace" });
@@ -3581,6 +3585,8 @@ test("app_catalog clearAppCatalogSource wipes only the given source", () => {
     version: null,
     target: "darwin-arm64",
     cachedAt: "2026-04-09T00:00:00Z",
+    providerId: null,
+    credentialSource: null,
   };
   store.upsertAppCatalogEntry({
     ...base, appId: "twitter", source: "marketplace",
@@ -3612,6 +3618,7 @@ test("app_catalog deleteAppCatalogEntry removes a single row", () => {
     description: null, icon: null, category: null, tags: [],
     version: "v0.1.0", archiveUrl: "https://a.test", archivePath: null,
     target: "darwin-arm64", cachedAt: "2026-04-09T00:00:00Z",
+    providerId: null, credentialSource: null,
   });
   const deleted = store.deleteAppCatalogEntry({ source: "marketplace", appId: "twitter" });
   assert.equal(deleted, true);
@@ -3637,6 +3644,8 @@ test("app_catalog composite PK allows same appId in both sources", () => {
     version: null,
     target: "darwin-arm64",
     cachedAt: "2026-04-09T00:00:00Z",
+    providerId: null,
+    credentialSource: null,
   };
   store.upsertAppCatalogEntry({
     ...base, source: "marketplace",
