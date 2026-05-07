@@ -4,6 +4,15 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import importChromiumModule from "./browser-pane/import-chromium.ts";
+
+const {
+  chromeHistoryDatabaseHasExpectedSchema,
+  isSqliteError,
+  sqliteTableColumns,
+  sqliteTableExists,
+} = importChromiumModule;
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const mainSourcePath = path.join(__dirname, "main.ts");
 const overflowPreloadPath = path.join(__dirname, "overflowPopupPreload.ts");
@@ -67,6 +76,18 @@ test("desktop browser import flow discovers a Chrome profile and imports bookmar
   assert.match(
     chromiumSource,
     /export async function readChromeHistory\(\s*profileDir: string,\s*\): Promise<BrowserHistoryEntryPayload\[]> \{/,
+  );
+  assert.match(
+    chromiumSource,
+    /export function chromeHistoryDatabaseHasExpectedSchema\(\s*database: SqliteQueryableLike,\s*\)/,
+  );
+  assert.match(
+    chromiumSource,
+    /if \(!chromeHistoryDatabaseHasExpectedSchema\(database\)\) \{\s*return \[\];\s*\}/,
+  );
+  assert.match(
+    chromiumSource,
+    /if \(isSqliteError\(error\)\) \{\s*console\.warn\(/,
   );
 
   // Cookie import (chromium family + chrome convenience wrapper).
@@ -218,4 +239,97 @@ test("overflow popup preload exposes the Chrome import action", async () => {
     source,
     /importChrome: \(\) =>\s*ipcRenderer\.invoke\("browser:overflowImportChrome"\) as Promise<void>,/,
   );
+});
+
+test("history schema helpers detect when a Chromium history database is incompatible", () => {
+  const prepareCalls = [];
+  const compatibleDatabase = {
+    prepare(source) {
+      prepareCalls.push(source);
+      if (source.includes("sqlite_master")) {
+        return {
+          get: (tableName) => (tableName === "urls" ? { name: "urls" } : undefined),
+          all: () => [],
+        };
+      }
+      if (source.includes("PRAGMA table_info")) {
+        return {
+          get: () => undefined,
+          all: () => [
+            { name: "url" },
+            { name: "title" },
+            { name: "visit_count" },
+            { name: "last_visit_time" },
+            { name: "hidden" },
+          ],
+        };
+      }
+      throw new Error(`Unexpected SQL: ${source}`);
+    },
+  };
+
+  assert.equal(sqliteTableExists(compatibleDatabase, "urls"), true);
+  assert.deepEqual(sqliteTableColumns(compatibleDatabase, "urls"), [
+    "url",
+    "title",
+    "visit_count",
+    "last_visit_time",
+    "hidden",
+  ]);
+  assert.equal(chromeHistoryDatabaseHasExpectedSchema(compatibleDatabase), true);
+  assert.ok(prepareCalls.some((sql) => sql.includes("sqlite_master")));
+  assert.ok(prepareCalls.some((sql) => sql.includes("PRAGMA table_info")));
+
+  const missingUrlsTableDatabase = {
+    prepare(source) {
+      if (source.includes("sqlite_master")) {
+        return {
+          get: () => undefined,
+          all: () => [],
+        };
+      }
+      throw new Error(`Unexpected SQL: ${source}`);
+    },
+  };
+  assert.equal(
+    chromeHistoryDatabaseHasExpectedSchema(missingUrlsTableDatabase),
+    false,
+  );
+
+  const missingHiddenColumnDatabase = {
+    prepare(source) {
+      if (source.includes("sqlite_master")) {
+        return {
+          get: () => ({ name: "urls" }),
+          all: () => [],
+        };
+      }
+      if (source.includes("PRAGMA table_info")) {
+        return {
+          get: () => undefined,
+          all: () => [
+            { name: "url" },
+            { name: "title" },
+            { name: "visit_count" },
+            { name: "last_visit_time" },
+          ],
+        };
+      }
+      throw new Error(`Unexpected SQL: ${source}`);
+    },
+  };
+  assert.equal(
+    chromeHistoryDatabaseHasExpectedSchema(missingHiddenColumnDatabase),
+    false,
+  );
+});
+
+test("sqlite error helper only swallows SQLite-backed import failures", () => {
+  const sqliteError = new Error("no such table: urls");
+  sqliteError.code = "SQLITE_ERROR";
+  assert.equal(isSqliteError(sqliteError), true);
+
+  const genericError = new Error("something else");
+  assert.equal(isSqliteError(genericError), false);
+  assert.equal(isSqliteError({ code: "SQLITE_ERROR" }), false);
 });
