@@ -8,6 +8,14 @@ interface AppIconProps {
   iconUrl?: string | null;
   /** Toolkit slug / app id used for CDN lookup and local SVG match. */
   appId: string;
+  /**
+   * Composio toolkit slug (e.g. `googlecalendar`, `googledrive`) when the
+   * app's `app_id` differs from it (e.g. `gcalendar`, `gdrive`). Preferred
+   * over `appId` for the CDN lookup since the Composio logo CDN is keyed
+   * by toolkit slug — using `appId` 404s for any app whose internal id
+   * isn't also a Composio slug.
+   */
+  providerId?: string | null;
   /** Human label, used to compute the letter-fallback character(s). */
   label: string;
   /**
@@ -37,6 +45,7 @@ interface AppIconProps {
 export function AppIcon({
   iconUrl,
   appId,
+  providerId,
   label,
   size = "card",
 }: AppIconProps) {
@@ -80,11 +89,11 @@ export function AppIcon({
   }
 
   if (stage === "cdn") {
-    const slug = appId.trim().toLowerCase();
+    const cdnSlug = (providerId?.trim() || appId.trim()).toLowerCase();
     return (
       <span className={containerClass}>
         <img
-          src={`https://logos.composio.dev/api/${slug}`}
+          src={`https://logos.composio.dev/api/${cdnSlug}`}
           alt=""
           className={imgClass}
           onError={() => setStage(localSvg ? "local" : "letter")}
