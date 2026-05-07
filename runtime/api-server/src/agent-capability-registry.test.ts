@@ -256,9 +256,9 @@ test("renderCapabilityToolRoutingPromptSection prefers surfaced MCP tools before
 
   const section = renderCapabilityToolRoutingPromptSection(manifest);
   assert.match(section, /MCP-first routing:/);
-  assert.match(section, /use those tools as the primary execution path before falling back to bash, file inspection, or browser exploration/i);
-  assert.match(section, /Do not spend the turn rediscovering an app integration from workspace files or config/i);
-  assert.match(section, /Use file, config, or browser inspection to debug or verify an MCP\/app route only after a relevant surfaced tool call is blocked, fails/i);
+  assert.match(section, /when surfaced MCP\/app tools match the target system or supplied URL, use them before opening the web app, web search, bash, or file inspection/i);
+  assert.match(section, /Do not open that system in the browser, run web search, or rediscover it from files or config when surfaced MCP\/app tools already cover it/i);
+  assert.match(section, /Use file, config, browser, or web inspection around an MCP\/app route only after a surfaced tool call is blocked, fails/i);
   assert.match(section, /In executor sessions, prefer proving capability by actually invoking the relevant surfaced MCP\/app tool/i);
 });
 

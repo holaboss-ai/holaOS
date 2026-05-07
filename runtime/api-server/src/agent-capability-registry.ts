@@ -1374,7 +1374,7 @@ export function renderCapabilityToolRoutingPromptSection(
   if (manifest.mcp_tools.length > 0) {
     ensureHeading();
     lines.push(
-      "MCP-first routing: when surfaced MCP tools already match the user's target app, integration, or data source, use those tools as the primary execution path before falling back to bash, file inspection, or browser exploration.",
+      "MCP-first routing: when surfaced MCP/app tools match the target system or supplied URL, use them before opening the web app, web search, bash, or file inspection.",
     );
     if (manifest.mcp_tool_aliases.length > 0) {
       lines.push(
@@ -1382,10 +1382,10 @@ export function renderCapabilityToolRoutingPromptSection(
       );
     }
     lines.push(
-      "Do not spend the turn rediscovering an app integration from workspace files or config when the current surfaced capability set already includes its MCP tools.",
+      "Do not open that system in the browser, run web search, or rediscover it from files or config when surfaced MCP/app tools already cover it.",
     );
     lines.push(
-      "Use file, config, or browser inspection to debug or verify an MCP/app route only after a relevant surfaced tool call is blocked, fails, or the user explicitly asked for environment inspection.",
+      "Use file, config, browser, or web inspection around an MCP/app route only after a surfaced tool call is blocked, fails, or the user explicitly asked for UI verification or environment inspection.",
     );
     if (
       normalizedSessionKind === "subagent" ||

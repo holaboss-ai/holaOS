@@ -118,6 +118,10 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
   );
   assert.match(
     prompt.systemPrompt,
+    /Use MCP tools directly, and prefer surfaced MCP\/app tools over browser work, web search, bash, or file inspection when they match the target system, including its URLs\./
+  );
+  assert.match(
+    prompt.systemPrompt,
     /Treat explicit user requirements and verification targets as completion criteria, not optional detail\./
   );
   assert.match(
@@ -222,7 +226,13 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
     extraTools: ["holaboss_delegate_task", "holaboss_get_subagent", "holaboss_list_background_tasks"],
     runtimeToolIds: ["holaboss_delegate_task", "holaboss_get_subagent", "holaboss_list_background_tasks"],
     workspaceSkillIds: [],
-    resolvedMcpToolRefs: [],
+    resolvedMcpToolRefs: [
+      {
+        tool_id: "workspace.lookup",
+        server_id: "workspace",
+        tool_name: "lookup",
+      },
+    ],
     toolServerIdMap: {},
   });
   const delegatedCapabilityManifest = buildAgentCapabilityManifest({
@@ -241,7 +251,13 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
     defaultTools: ["read", "edit"],
     extraTools: ["holaboss_delegate_task", "holaboss_get_subagent", "holaboss_list_background_tasks"],
     workspaceSkillIds: [],
-    resolvedMcpToolRefs: [],
+    resolvedMcpToolRefs: [
+      {
+        tool_id: "workspace.lookup",
+        server_id: "workspace",
+        tool_name: "lookup",
+      },
+    ],
     sessionKind: "workspace_session",
     sessionMode: "code",
     harnessId: "pi",
@@ -307,6 +323,7 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /missing web, browser, terminal, or other execution-heavy capabilities on the main session as a routing signal to delegate/i);
   assert.match(prompt.systemPrompt, /When the ideal direct tool or integration is missing, do not stop there/i);
   assert.match(prompt.systemPrompt, /try another viable route with available tools/i);
+  assert.match(prompt.systemPrompt, /Prefer surfaced MCP\/app tools over opening the web app, browser exploration, or web research when they can satisfy the request, including when the user supplies a URL for that system; use browser\/web around an MCP-backed system only for UI verification, requested independent confirmation, or after the MCP path is blocked\./);
   assert.match(prompt.systemPrompt, /Do not answer with a capability-apology or manual fallback first when `holaboss_delegate_task` is available/i);
   assert.match(prompt.systemPrompt, /trust the current run and retry the tool when appropriate/i);
   assert.match(prompt.systemPrompt, /Do not paste long document, HTML, markdown, or report bodies into chat\./);
@@ -388,7 +405,7 @@ test("composeAgentPrompt requires subagent outputs to stay self-contained", () =
   );
   assert.match(
     prompt.systemPrompt,
-    /When surfaced MCP or app tools already match the task, use them as the primary execution path instead of defaulting to bash, file inspection, or browser exploration\./,
+    /When surfaced MCP\/app tools match the task or a provided system URL, use them first instead of defaulting to bash, file inspection, or browser exploration\./,
   );
   assert.match(
     prompt.systemPrompt,

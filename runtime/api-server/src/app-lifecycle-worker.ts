@@ -74,6 +74,18 @@ export interface AppLifecycleExecutorLike {
    * missing implementation as "tracking is unknown" (i.e. trust health).
    */
   isTrackingApp?(params: { workspaceId?: string; appId: string }): boolean;
+  /**
+   * Registers the allocated ports for a healthy shell-managed app that
+   * the current runtime did not spawn itself (for example after a
+   * desktop runtime relaunch). This lets later stop/restart paths fall
+   * back to killing the known listeners by port.
+   */
+  rememberAppPorts?(params: {
+    workspaceId?: string;
+    appId: string;
+    httpPort: number;
+    mcpPort: number;
+  }): void;
 }
 
 /** Returns true if the in-memory shell-lifecycle map currently tracks a
@@ -91,6 +103,18 @@ export function isShellLifecycleAppTracked(workspaceId: string | undefined, appI
     return false;
   }
   return true;
+}
+
+export function rememberShellLifecycleAppPorts(params: {
+  workspaceId?: string;
+  appId: string;
+  httpPort: number;
+  mcpPort: number;
+}): void {
+  shellLifecyclePorts.set(lifecycleMapKey(params.workspaceId, params.appId), {
+    http: params.httpPort,
+    mcp: params.mcpPort,
+  });
 }
 
 export class AppLifecycleExecutorError extends Error {
@@ -1298,5 +1322,14 @@ export class RuntimeAppLifecycleExecutor implements AppLifecycleExecutorLike {
 
   isTrackingApp(params: { workspaceId?: string; appId: string }): boolean {
     return isShellLifecycleAppTracked(params.workspaceId, params.appId);
+  }
+
+  rememberAppPorts(params: {
+    workspaceId?: string;
+    appId: string;
+    httpPort: number;
+    mcpPort: number;
+  }): void {
+    rememberShellLifecycleAppPorts(params);
   }
 }

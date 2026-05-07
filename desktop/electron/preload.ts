@@ -266,6 +266,7 @@ interface RuntimeStatusPayload {
   url: string | null;
   pid: number | null;
   harness: string | null;
+  startupMessage: string | null;
   lastError: string;
 }
 

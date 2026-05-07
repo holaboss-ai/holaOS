@@ -1,0 +1,61 @@
+{
+  "name": "@holaboss/editor",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Tiptap-based block editor for holaOS. v0 ships a Markdown editor for .md files; future versions add Notion-style blocks and embedded databases.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@tiptap/core": "^3.0.0",
+    "@tiptap/extension-bubble-menu": "^3.22.5",
+    "@tiptap/extension-code-block-lowlight": "^3.22.5",
+    "@tiptap/extension-collaboration": "^3.22.5",
+    "@tiptap/extension-drag-handle": "^3.22.5",
+    "@tiptap/extension-drag-handle-react": "^3.22.5",
+    "@tiptap/extension-node-range": "^3.22.5",
+    "@tiptap/extension-placeholder": "^3.0.0",
+    "@tiptap/extension-task-item": "^3.0.0",
+    "@tiptap/extension-task-list": "^3.0.0",
+    "@tiptap/markdown": "^3.0.0",
+    "@tiptap/pm": "^3.0.0",
+    "@tiptap/react": "^3.0.0",
+    "@tiptap/starter-kit": "^3.0.0",
+    "@tiptap/suggestion": "^3.0.0",
+    "@tiptap/y-tiptap": "^3.0.0",
+    "lowlight": "^3.3.0",
+    "tippy.js": "^6.3.7",
+    "y-protocols": "^1.0.6",
+    "yjs": "^13.6.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0"
+  }
+}

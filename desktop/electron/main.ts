@@ -840,6 +840,7 @@ interface RuntimeStatusPayload {
   harness: string | null;
   desktopBrowserReady: boolean;
   desktopBrowserUrl: string | null;
+  startupMessage: string | null;
   lastError: string;
 }
 
@@ -1093,6 +1094,7 @@ let runtimeStatus: RuntimeStatusPayload = {
   harness: null,
   desktopBrowserReady: false,
   desktopBrowserUrl: null,
+  startupMessage: null,
   lastError: "",
 };
 let desktopBrowserServiceServer: HttpServer | null = null;
@@ -1339,8 +1341,11 @@ const RUNTIME_BUNDLE_DIR = runtimeBundleDirName(CURRENT_RUNTIME_PLATFORM);
 const DEV_RUNTIME_ROOT =
   process.env.HOLABOSS_DEV_RUNTIME_ROOT?.trim() ||
   path.join(os.tmpdir(), `holaboss-runtime-${CURRENT_RUNTIME_PLATFORM}-full`);
+const configuredDesktopUserDataDir =
+  process.env.HOLABOSS_DESKTOP_USER_DATA_DIR?.trim() || "";
 const DESKTOP_USER_DATA_DIR = (
-  process.env.HOLABOSS_DESKTOP_USER_DATA_DIR?.trim() || "holaboss-local"
+  configuredDesktopUserDataDir ||
+  (isDev ? "holaboss-local-dev" : "holaboss-local")
 ).replace(/[\\/]+/g, "_");
 const normalizeBaseUrl = (value: string): string =>
   value.trim().replace(/\/+$/, "");
@@ -3840,6 +3845,239 @@ function controlPlaneDatabasePath() {
 
 function runtimeWorkspaceRoot() {
   return path.join(runtimeSandboxRoot(), "workspace");
+}
+
+const WORKSPACE_RUNTIME_LEGACY_BACKFILL_MARKER_KEY =
+  "legacy_workspace_backfill_v1_complete";
+const WORKSPACE_RUNTIME_MIGRATION_PROBE_TABLES = [
+  "agent_sessions",
+  "agent_runtime_sessions",
+  "conversation_bindings",
+  "agent_session_inputs",
+  "post_run_jobs",
+  "main_session_event_queue",
+  "session_runtime_state",
+  "session_output_events",
+  "subagent_runs",
+  "terminal_sessions",
+  "terminal_session_events",
+  "turn_request_snapshots",
+  "turn_results",
+  "session_messages",
+  "task_proposals",
+  "evolve_skill_candidates",
+  "memory_update_proposals",
+  "memory_entries",
+  "memory_embedding_index",
+  "memory_recall_vec",
+  "output_folders",
+  "outputs",
+  "app_ports",
+  "app_builds",
+  "cronjobs",
+  "runtime_notifications",
+] as const;
+
+const RUNTIME_MIGRATION_STARTUP_MESSAGE = "Migrating database";
+const DEFAULT_RUNTIME_STARTUP_HEALTH_ATTEMPTS = 30;
+const MIGRATION_RUNTIME_STARTUP_HEALTH_ATTEMPTS = 900;
+const RUNTIME_STARTUP_HEALTH_DELAY_MS = 1000;
+
+function sqliteTableExists(
+  database: Database.Database,
+  tableName: string,
+): boolean {
+  const row = database
+    .prepare(
+      "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+    )
+    .get(tableName) as { present?: number } | undefined;
+  return row?.present === 1;
+}
+
+function openReadonlySqliteDatabase(
+  dbPath: string,
+): Database.Database | null {
+  if (!existsSync(dbPath)) {
+    return null;
+  }
+  try {
+    const database = new Database(dbPath, {
+      readonly: true,
+      fileMustExist: true,
+    });
+    database.pragma(`busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
+    return database;
+  } catch {
+    return null;
+  }
+}
+
+function workspaceRuntimeDbPathForStartupCheck(
+  workspaceId: string,
+  workspacePath: string | null | undefined,
+): string {
+  const trimmedPath = workspacePath?.trim() || "";
+  const rootPath = trimmedPath
+    ? path.resolve(trimmedPath)
+    : workspaceDirectoryPath(workspaceId);
+  return path.join(rootPath, ".holaboss", "state", "runtime.db");
+}
+
+function workspaceRuntimeLegacyBackfillComplete(dbPath: string): boolean {
+  const database = openReadonlySqliteDatabase(dbPath);
+  if (!database) {
+    return false;
+  }
+
+  try {
+    if (!sqliteTableExists(database, "workspace_runtime_metadata")) {
+      return false;
+    }
+    const row = database
+      .prepare<[string], { value?: string }>(
+        "SELECT value FROM workspace_runtime_metadata WHERE key = ? LIMIT 1",
+      )
+      .get(WORKSPACE_RUNTIME_LEGACY_BACKFILL_MARKER_KEY);
+    return row?.value === "complete";
+  } catch {
+    return false;
+  } finally {
+    try {
+      database.close();
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function legacyWorkspaceRowsPendingMigration(
+  database: Database.Database,
+  workspaceId: string,
+): boolean {
+  const normalizedWorkspaceId = workspaceId.trim();
+  if (!normalizedWorkspaceId) {
+    return false;
+  }
+
+  for (const tableName of WORKSPACE_RUNTIME_MIGRATION_PROBE_TABLES) {
+    if (!sqliteTableExists(database, tableName)) {
+      continue;
+    }
+    const row = database
+      .prepare<[string], { present: number }>(
+        `SELECT 1 AS present FROM ${tableName} WHERE workspace_id = ? LIMIT 1`,
+      )
+      .get(normalizedWorkspaceId);
+    if (row?.present === 1) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function hasPendingLegacyHostStateDatabaseFileMigration(): boolean {
+  const nextPath = hostStateDatabasePath();
+  const legacyPath = legacyRuntimeDatabasePath();
+  return (
+    nextPath !== legacyPath &&
+    !existsSync(nextPath) &&
+    existsSync(legacyPath)
+  );
+}
+
+function hasPendingLegacyWorkspaceRuntimeMigration(): boolean {
+  const sourceDbPath = existsSync(hostStateDatabasePath())
+    ? hostStateDatabasePath()
+    : existsSync(legacyRuntimeDatabasePath())
+      ? legacyRuntimeDatabasePath()
+      : null;
+  if (!sourceDbPath) {
+    return false;
+  }
+
+  const database = openReadonlySqliteDatabase(sourceDbPath);
+  if (!database) {
+    return false;
+  }
+
+  try {
+    if (!sqliteTableExists(database, "workspaces")) {
+      return false;
+    }
+    const workspaceColumns = new Set(
+      (
+        database.prepare("PRAGMA table_info(workspaces)").all() as Array<{
+          name: string;
+        }>
+      ).map((row) => row.name),
+    );
+    if (!workspaceColumns.has("id")) {
+      return false;
+    }
+
+    const selectColumns = ["id"];
+    if (workspaceColumns.has("workspace_path")) {
+      selectColumns.push("workspace_path");
+    }
+    const whereClause = workspaceColumns.has("deleted_at_utc")
+      ? " WHERE deleted_at_utc IS NULL"
+      : "";
+    const workspaceRows = database
+      .prepare(`SELECT ${selectColumns.join(", ")} FROM workspaces${whereClause}`)
+      .all() as Array<{
+      id: string;
+      workspace_path?: string | null;
+    }>;
+
+    for (const workspace of workspaceRows) {
+      const workspaceId = String(workspace.id ?? "").trim();
+      if (!workspaceId) {
+        continue;
+      }
+      if (!legacyWorkspaceRowsPendingMigration(database, workspaceId)) {
+        continue;
+      }
+      const workspaceDbPath = workspaceRuntimeDbPathForStartupCheck(
+        workspaceId,
+        workspace.workspace_path ?? null,
+      );
+      if (!workspaceRuntimeLegacyBackfillComplete(workspaceDbPath)) {
+        return true;
+      }
+    }
+
+    return false;
+  } catch {
+    return false;
+  } finally {
+    try {
+      database.close();
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function runtimeStartupMessage(): string | null {
+  if (
+    hasPendingLegacyHostStateDatabaseFileMigration() ||
+    hasPendingLegacyWorkspaceRuntimeMigration()
+  ) {
+    return RUNTIME_MIGRATION_STARTUP_MESSAGE;
+  }
+  return null;
+}
+
+function runtimeStartupHealthWaitOptions(startupMessage: string | null | undefined) {
+  return {
+    attempts:
+      startupMessage?.trim() === RUNTIME_MIGRATION_STARTUP_MESSAGE
+        ? MIGRATION_RUNTIME_STARTUP_HEALTH_ATTEMPTS
+        : DEFAULT_RUNTIME_STARTUP_HEALTH_ATTEMPTS,
+    delayMs: RUNTIME_STARTUP_HEALTH_DELAY_MS,
+  };
 }
 
 async function migrateLegacyHostStateDatabaseFiles() {
@@ -11943,7 +12181,14 @@ async function ensureRuntimeReady() {
 
     const runtimeUrl = status.url ?? runtimeBaseUrl();
     if (status.status === "starting" && runtimeUrl) {
-      const healthy = await waitForRuntimeHealth(runtimeUrl, 10, 300);
+      const healthWait = runtimeStartupHealthWaitOptions(
+        status.startupMessage,
+      );
+      const healthy = await waitForRuntimeHealth(
+        runtimeUrl,
+        healthWait.attempts,
+        healthWait.delayMs,
+      );
       if (healthy) {
         const refreshed = await refreshRuntimeStatus();
         if (refreshed.status === "running" && refreshed.url) {
@@ -15109,6 +15354,7 @@ function emitRuntimeState(force = false) {
     harness: runtimeStatus.harness,
     desktopBrowserReady: runtimeStatus.desktopBrowserReady,
     desktopBrowserUrl: runtimeStatus.desktopBrowserUrl,
+    startupMessage: runtimeStatus.startupMessage,
     lastError: runtimeStatus.lastError,
   });
   if (!force && nextSignature === lastRuntimeStateSignature) {
@@ -15291,15 +15537,24 @@ async function resolveRuntimeRoot() {
 
 async function waitForRuntimeHealth(
   url: string,
-  attempts = 30,
-  delayMs = 1000,
+  attempts = DEFAULT_RUNTIME_STARTUP_HEALTH_ATTEMPTS,
+  delayMs = RUNTIME_STARTUP_HEALTH_DELAY_MS,
+  options: {
+    abortWhen?: () => boolean;
+  } = {},
 ) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (await isRuntimeHealthy(url)) {
       return true;
     }
+    if (options.abortWhen?.()) {
+      return false;
+    }
 
     await new Promise((resolve) => setTimeout(resolve, delayMs));
+    if (options.abortWhen?.()) {
+      return false;
+    }
   }
 
   return false;
@@ -15563,6 +15818,7 @@ async function refreshRuntimeStatus() {
   const url = runtimeBaseUrl();
   const healthy = await isRuntimeHealthy(url);
   const hasBundle = Boolean(runtimeRoot && executablePath);
+  const unavailableStatus = runtimeUnavailableStatus(hasBundle);
 
   if (healthy) {
     persistRuntimeProcessState({
@@ -15580,6 +15836,7 @@ async function refreshRuntimeStatus() {
       url,
       pid: runtimeProcess?.pid ?? persistedPid,
       harness,
+      startupMessage: null,
       lastError: "",
     });
     emitRuntimeState();
@@ -15594,7 +15851,9 @@ async function refreshRuntimeStatus() {
     executablePath,
     url,
     harness,
-    status: runtimeUnavailableStatus(hasBundle),
+    status: unavailableStatus,
+    startupMessage:
+      unavailableStatus === "starting" ? runtimeStatus.startupMessage : null,
     lastError:
       hasBundle
         ? runtimeStartupInFlight
@@ -15627,6 +15886,7 @@ async function stopEmbeddedRuntime() {
           ...runtimeStatus,
           status: nextStatus,
           pid: null,
+          startupMessage: null,
           lastError: nextError,
         });
         if (!stopped) {
@@ -15648,6 +15908,7 @@ async function stopEmbeddedRuntime() {
           ...runtimeStatus,
           status: "stopped",
           pid: null,
+          startupMessage: null,
         });
         persistRuntimeProcessState({
           pid: null,
@@ -15773,6 +16034,7 @@ async function startEmbeddedRuntime() {
       await fs.mkdir(sandboxRoot, { recursive: true });
       await bootstrapRuntimeDatabase();
       bootstrapControlPlaneDatabase();
+      const startupMessage = runtimeStartupMessage();
 
       const preflightRuntimePort = await ensureRuntimePortAvailable({
         url,
@@ -15795,6 +16057,7 @@ async function startEmbeddedRuntime() {
           url,
           pid: null,
           harness,
+          startupMessage: null,
           lastError: portCleanupError,
         });
         persistRuntimeProcessState({
@@ -15816,6 +16079,7 @@ async function startEmbeddedRuntime() {
         url,
         pid: null,
         harness,
+        startupMessage: runtimeRoot && executablePath ? startupMessage : null,
         lastError:
           runtimeRoot && executablePath
             ? ""
@@ -15839,6 +16103,7 @@ async function startEmbeddedRuntime() {
           ...runtimeStatus,
           status: "error",
           pid: null,
+          startupMessage: null,
           lastError: startupConfigError,
         });
         persistRuntimeProcessState({
@@ -15872,6 +16137,7 @@ async function startEmbeddedRuntime() {
           ...runtimeStatus,
           status: "error",
           pid: null,
+          startupMessage: null,
           lastError: launchBlockedError,
         });
         persistRuntimeProcessState({
@@ -15899,6 +16165,7 @@ async function startEmbeddedRuntime() {
           ...runtimeStatus,
           status: "error",
           pid: null,
+          startupMessage: null,
           lastError: launchError,
         });
         persistRuntimeProcessState({
@@ -15970,6 +16237,7 @@ async function startEmbeddedRuntime() {
         ...runtimeStatus,
         status: "starting",
         pid: child.pid ?? null,
+        startupMessage,
       });
       emitRuntimeState();
 
@@ -16002,6 +16270,7 @@ async function startEmbeddedRuntime() {
             ...runtimeStatus,
             status: nextStatus,
             pid: null,
+            startupMessage: null,
             lastError: nextError,
           });
           persistRuntimeProcessState({
@@ -16020,7 +16289,16 @@ async function startEmbeddedRuntime() {
         })();
       });
 
-      const healthy = await waitForRuntimeHealth(url);
+      const healthWait = runtimeStartupHealthWaitOptions(startupMessage);
+      const healthy = await waitForRuntimeHealth(
+        url,
+        healthWait.attempts,
+        healthWait.delayMs,
+        {
+          abortWhen: () =>
+            runtimeProcess !== child || child.exitCode !== null,
+        },
+      );
       if (healthy) {
         runtimeStatus = await refreshRuntimeStatus();
       } else {
@@ -16028,6 +16306,7 @@ async function startEmbeddedRuntime() {
           ...runtimeStatus,
           status: "error",
           pid: child.pid ?? null,
+          startupMessage: null,
           lastError:
             "Runtime process started but did not pass health checks. Check runtime.log in the Electron userData directory.",
         });
@@ -16052,6 +16331,7 @@ async function startEmbeddedRuntime() {
         ...runtimeStatus,
         status: "error",
         pid: null,
+        startupMessage: null,
         lastError: startupError,
       });
       persistRuntimeProcessState({
@@ -22499,6 +22779,7 @@ app.whenReady().then(async () => {
     url: runtimeBaseUrl(),
     sandboxRoot: runtimeSandboxRoot(),
     harness: process.env.HOLABOSS_RUNTIME_HARNESS || "pi",
+    startupMessage: runtimeStartupMessage(),
     lastError: "",
   });
   emitRuntimeState();

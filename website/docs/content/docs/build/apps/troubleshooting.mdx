@@ -35,7 +35,7 @@ In desktop dev, the embedded runtime is supposed to come up on `127.0.0.1:5160`,
 - Check `curl http://127.0.0.1:5160/healthz`.
 - Inspect `runtime.log` under the Electron `userData` directory.
 - Inspect the embedded sandbox root under `sandbox-host/`, especially `sandbox-host/state/runtime-config.json`, `sandbox-host/state/host-state.db`, and `sandbox-host/state/control-plane.db`.
-- If you set a custom user-data path, make sure you are looking in `HOLABOSS_DESKTOP_USER_DATA_PATH`. Otherwise `desktop:dev` defaults to an Electron `userData` directory derived from `HOLABOSS_DESKTOP_USER_DATA_DIR=holaboss-local-dev`.
+- If you set a custom user-data path, make sure you are looking in `HOLABOSS_DESKTOP_USER_DATA_PATH`. Otherwise dev resolves `HOLABOSS_DESKTOP_USER_DATA_DIR` from the shell or `desktop/.env`, and if that is unset it falls back to `holaboss-local-dev`.
 - The desktop code pins `5160` because Node's fetch stack blocks `5060` as a bad port.
 
 ## The runtime bundle is stale

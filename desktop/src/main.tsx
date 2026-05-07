@@ -2,6 +2,7 @@ import * as Sentry from "@sentry/electron/renderer";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import "@holaboss/editor/styles.css";
 import {
   enrichRendererSentryEvent,
   pushRendererSentryActivity,
