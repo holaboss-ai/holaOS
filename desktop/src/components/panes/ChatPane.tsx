@@ -3382,7 +3382,31 @@ export function ChatPane({
     workspaceAppsReady,
     workspaceBlockingReason,
     refreshWorkspaceData,
+    workspaces,
   } = useWorkspaceDesktop();
+  const composerMentionableItems = useMemo<ChatComposerMentionItem[]>(() => {
+    if (!Array.isArray(workspaces)) {
+      return [];
+    }
+    return workspaces.map((ws) => {
+      const trimmedName = ws.name.trim() || "Untitled workspace";
+      // Slug-style handle: lowercase, spaces → hyphens, strip anything
+      // outside `[a-z0-9_.\-]` so the inserted token stays parseable
+      // by `findActiveMentionRange` if the user moves the caret back
+      // into it.
+      const handle = trimmedName
+        .toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9_.\-]/g, "");
+      return {
+        id: ws.id,
+        handle: handle || ws.id,
+        label: trimmedName,
+        description: ws.id,
+        keywords: [trimmedName, ws.id, handle].filter(Boolean),
+      };
+    });
+  }, [workspaces]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionOutputs, setSessionOutputs] = useState<
     WorkspaceOutputRecordPayload[]
@@ -8088,6 +8112,7 @@ export function ChatPane({
                               addQuotedSkill(command.skillId);
                             }
                           }}
+                          mentionableItems={composerMentionableItems}
                           onRemoveQuotedSkill={removeQuotedSkill}
                           onRemoveAttachment={removePendingAttachment}
                           onPreviewAttachment={openImageAttachmentPreview}
@@ -8189,6 +8214,7 @@ export function ChatPane({
                           addQuotedSkill(command.skillId);
                         }
                       }}
+                      mentionableItems={composerMentionableItems}
                       onRemoveQuotedSkill={removeQuotedSkill}
                       onRemoveAttachment={removePendingAttachment}
                       onPreviewAttachment={openImageAttachmentPreview}
@@ -8387,9 +8413,25 @@ interface ComposerProps {
   onAddDroppedFiles: (files: File[]) => void;
   onAddExplorerAttachments: (files: ExplorerAttachmentDragPayload[]) => void;
   onSelectSlashCommand: (command: ChatComposerSlashCommandOption) => void;
+  /** Items the `@` picker offers — currently workspaces, future:
+   *  apps / sessions / memories. Pre-shaped so the picker is just a
+   *  presenter; the parent decides what's mentionable. */
+  mentionableItems?: ChatComposerMentionItem[];
   onRemoveQuotedSkill: (skillId: string) => void;
   onRemoveAttachment: (attachmentId: string) => void;
   onPreviewAttachment: (attachment: AttachmentListItem) => void;
+}
+
+export interface ChatComposerMentionItem {
+  id: string;
+  /** What gets inserted into the text — without the leading `@`. */
+  handle: string;
+  /** Visible label in the picker. */
+  label: ReactNode;
+  /** Optional secondary line. */
+  description?: ReactNode;
+  /** Plain-text aliases for fuzzy match (cmdk filter). */
+  keywords?: string[];
 }
 
 export const UserTurn = memo(UserTurnComponent, (prev, next) =>
@@ -10808,6 +10850,7 @@ function Composer({
   onAddDroppedFiles,
   onAddExplorerAttachments,
   onSelectSlashCommand,
+  mentionableItems,
   onRemoveQuotedSkill,
   onRemoveAttachment,
   onPreviewAttachment,
@@ -10821,6 +10864,8 @@ function Composer({
   const [caretIndex, setCaretIndex] = useState(0);
   const [dismissedSlashCommandKey, setDismissedSlashCommandKey] = useState("");
   const [highlightedSlashIndex, setHighlightedSlashIndex] = useState(0);
+  const [dismissedMentionKey, setDismissedMentionKey] = useState("");
+  const [highlightedMentionIndex, setHighlightedMentionIndex] = useState(0);
   const composerFooterRef = useRef<HTMLDivElement | null>(null);
   const composerActionsRef = useRef<HTMLDivElement | null>(null);
   const composerFooterLayoutSyncFrameRef = useRef<number | null>(null);
@@ -10845,6 +10890,37 @@ function Composer({
     !inputDisabled &&
     activeSlashRange !== null &&
     activeSlashCommandKey !== dismissedSlashCommandKey;
+  const activeMentionRange = useMemo(
+    // Slash takes precedence — both pickers can't be live at once.
+    () =>
+      activeSlashRange ? null : findActiveMentionRange(input, caretIndex),
+    [activeSlashRange, caretIndex, input],
+  );
+  const activeMentionKey = activeMentionRange
+    ? `${activeMentionRange.start}:${activeMentionRange.end}:${activeMentionRange.query}`
+    : "";
+  const mentionItemsList = mentionableItems ?? [];
+  const filteredMentionItems = useMemo(() => {
+    if (inputDisabled || !activeMentionRange || mentionItemsList.length === 0) {
+      return [];
+    }
+    const query = activeMentionRange.query.trim().toLowerCase();
+    if (!query) {
+      return mentionItemsList;
+    }
+    return mentionItemsList.filter((item) => {
+      const haystack = [item.handle, ...(item.keywords ?? [])]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [activeMentionRange, inputDisabled, mentionItemsList]);
+  const showMentionMenu =
+    !inputDisabled &&
+    activeMentionRange !== null &&
+    mentionItemsList.length > 0 &&
+    filteredMentionItems.length > 0 &&
+    activeMentionKey !== dismissedMentionKey;
   const filteredSlashCommands = useMemo(() => {
     if (inputDisabled || !activeSlashRange) {
       return [];
@@ -10954,6 +11030,21 @@ function Composer({
   useEffect(() => {
     setHighlightedSlashIndex(0);
   }, [activeSlashRange?.query, filteredSlashCommands.length]);
+  useEffect(() => {
+    setHighlightedMentionIndex(0);
+  }, [activeMentionRange?.query, filteredMentionItems.length]);
+  useEffect(() => {
+    if (!dismissedMentionKey) {
+      return;
+    }
+    if (!activeMentionKey) {
+      setDismissedMentionKey("");
+      return;
+    }
+    if (dismissedMentionKey !== activeMentionKey) {
+      setDismissedMentionKey("");
+    }
+  }, [activeMentionKey, dismissedMentionKey]);
   useEffect(() => {
     if (!dismissedSlashCommandKey) {
       return;
@@ -11081,7 +11172,64 @@ function Composer({
     });
   };
 
+  const applyMentionItem = (item: ChatComposerMentionItem) => {
+    if (!activeMentionRange) {
+      return;
+    }
+    const nextInput = replaceMentionText(
+      input,
+      activeMentionRange,
+      `@${item.handle}`,
+    );
+    onChange(nextInput.value);
+    setCaretIndex(nextInput.caretIndex);
+    setDismissedMentionKey("");
+    window.requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) {
+        return;
+      }
+      textarea.focus();
+      textarea.setSelectionRange(nextInput.caretIndex, nextInput.caretIndex);
+    });
+  };
+
   const handleTextareaKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (showMentionMenu) {
+      if (event.key === "ArrowDown" && filteredMentionItems.length > 0) {
+        event.preventDefault();
+        setHighlightedMentionIndex(
+          (current) => (current + 1) % filteredMentionItems.length,
+        );
+        return;
+      }
+      if (event.key === "ArrowUp" && filteredMentionItems.length > 0) {
+        event.preventDefault();
+        setHighlightedMentionIndex(
+          (current) =>
+            (current - 1 + filteredMentionItems.length) %
+            filteredMentionItems.length,
+        );
+        return;
+      }
+      if (
+        (event.key === "Enter" || event.key === "Tab") &&
+        filteredMentionItems.length > 0
+      ) {
+        event.preventDefault();
+        applyMentionItem(
+          filteredMentionItems[
+            Math.min(highlightedMentionIndex, filteredMentionItems.length - 1)
+          ]!,
+        );
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDismissedMentionKey(activeMentionKey);
+        return;
+      }
+    }
     if (showSlashCommandMenu) {
       if (event.key === "ArrowDown" && filteredSlashCommands.length > 0) {
         event.preventDefault();
@@ -11291,6 +11439,37 @@ function Composer({
                   : "No skills match."}
               </div>
             )}
+          </div>
+        </div>
+      ) : null}
+      {showMentionMenu ? (
+        <div className="pointer-events-none absolute left-3 right-3 top-4 z-20 -translate-y-[calc(100%+2px)]">
+          <div className="pointer-events-auto overflow-hidden rounded-xl border border-border bg-popover shadow-md">
+            <div className="max-h-[280px] overflow-y-auto p-1">
+              {filteredMentionItems.map((item, index) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => applyMentionItem(item)}
+                  className={`flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
+                    index === highlightedMentionIndex
+                      ? "bg-fg-8 text-foreground"
+                      : "hover:bg-fg-4"
+                  }`}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">
+                      {item.label}
+                    </span>
+                    {item.description ? (
+                      <span className="block truncate text-muted-foreground">
+                        {item.description}
+                      </span>
+                    ) : null}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       ) : null}
