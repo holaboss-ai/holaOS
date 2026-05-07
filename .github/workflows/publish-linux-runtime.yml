@@ -142,7 +142,9 @@ jobs:
           }
           EOF
 
-          tar -tzf "out/${RUNTIME_ASSET_NAME}" | grep -Eq '^(\./)?bin/sandbox-runtime$'
+          archive_listing_path="${RUNNER_TEMP}/linux-runtime-archive-listing.txt"
+          tar -tzf "out/${RUNTIME_ASSET_NAME}" > "${archive_listing_path}"
+          grep -Eq '^(\./)?bin/sandbox-runtime$' "${archive_listing_path}"
           test -f "out/${RUNTIME_MANIFEST_NAME}"
           test -f "out/${RUNTIME_CHECKSUM_ASSET_NAME}"
 

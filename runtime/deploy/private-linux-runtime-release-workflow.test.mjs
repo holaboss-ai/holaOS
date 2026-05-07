@@ -30,8 +30,9 @@ test("private Linux runtime workflow publishes backend-compatible release assets
   assert.match(source, /"arch": "x64"/);
   assert.match(source, /"asset_name": "\$\{RUNTIME_ASSET_NAME\}"/);
   assert.match(source, /"sha256_asset_name": "\$\{RUNTIME_CHECKSUM_ASSET_NAME\}"/);
-  assert.match(source, /tar -tzf "out\/\$\{RUNTIME_ASSET_NAME\}"/);
-  assert.match(source, /bin\/sandbox-runtime/);
+  assert.match(source, /archive_listing_path="\$\{RUNNER_TEMP\}\/linux-runtime-archive-listing\.txt"/);
+  assert.match(source, /tar -tzf "out\/\$\{RUNTIME_ASSET_NAME\}" > "\$\{archive_listing_path\}"/);
+  assert.match(source, /grep -Eq '\^\(\\\.\/\)\?bin\/sandbox-runtime\$' "\$\{archive_listing_path\}"/);
   assert.match(source, /gh release create "\$\{\{ steps\.release_meta\.outputs\.release_tag \}\}"/);
   assert.match(source, /--repo "\$\{RUNTIME_RELEASE_REPO\}"/);
   assert.match(source, /gh release upload "\$\{\{ steps\.release_meta\.outputs\.release_tag \}\}"/);
