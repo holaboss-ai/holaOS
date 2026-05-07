@@ -30,8 +30,10 @@ test("app list rows stay single-line with tooltip descriptions", async () => {
   // Row no longer renders a two-line name + truncated summary stack.
   assert.doesNotMatch(source, /line-clamp-1/);
   assert.doesNotMatch(source, />\{app\.summary\}</);
-  // Hover tooltip surfaces summary instead.
-  assert.match(source, /title=\{app\.summary \|\| app\.label\}/);
+  // Hover tooltip surfaces summary instead. `label` is the resolved
+  // display name (Composio toolkit when available, falling back to the
+  // manifest's app.label) — summary still wins when set.
+  assert.match(source, /title=\{app\.summary \|\| label\}/);
 });
 
 test("status dot is suppressed for ready apps, visible for non-ready", async () => {

@@ -5,6 +5,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -24,6 +25,39 @@ export function getProviderForCatalogEntry(
 ): string | undefined {
   const value = entry?.provider_id?.trim();
   return value ? value : undefined;
+}
+
+/**
+ * Subset of the Composio toolkit shape we need across the desktop shell —
+ * display name + logo + categories. The full payload comes from
+ * `composioListToolkits()`; we keep the locally-typed alias narrow on
+ * purpose so app surfaces don't accidentally couple to fields we may
+ * later choose not to expose globally.
+ */
+export interface ComposioToolkitMetadata {
+  slug: string;
+  name: string;
+  description: string;
+  logo: string | null;
+  categories: string[];
+}
+
+/**
+ * Resolves the display name + logo for an app by combining the catalog
+ * entry's `provider_id` (self-declared in app.runtime.yaml) with the
+ * shared Composio toolkit map. Returns `null` fields when no toolkit
+ * data is available, so callers can fall back to their own defaults.
+ */
+export function resolveAppDisplay(
+  providerId: string | null | undefined,
+  toolkitsByProvider: Record<string, ComposioToolkitMetadata>,
+): { name: string | null; logo: string | null } {
+  const slug = providerId?.trim().toLowerCase();
+  const toolkit = slug ? toolkitsByProvider[slug] : undefined;
+  return {
+    name: toolkit?.name?.trim() || null,
+    logo: toolkit?.logo ?? null,
+  };
 }
 
 const ONBOARDING_ACTIVE_STATUSES = new Set(["pending", "awaiting_confirmation", "in_progress"]);
@@ -82,6 +116,7 @@ interface WorkspaceDesktopContextValue {
   appCatalogSource: "marketplace" | "local";
   setAppCatalogSource: (source: "marketplace" | "local") => void;
   refreshAppCatalog: () => Promise<void>;
+  composioToolkitsByProvider: Record<string, ComposioToolkitMetadata>;
   installingAppId: string | null;
   installAppFromCatalog: (
     appId: string,
@@ -284,6 +319,15 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
   const [isResolvingIntegrations, setIsResolvingIntegrations] = useState(false);
   const [pendingAppInstall, setPendingAppInstall] = useState<{ appId: string; provider: string } | null>(null);
   const [isConnectingAppIntegration, setIsConnectingAppIntegration] = useState(false);
+  // Composio toolkit metadata (name + logo + categories) keyed by toolkit
+  // slug. Single source of truth for app display name + icon across the
+  // shell — both the marketplace gallery and the workspace sidebar look
+  // up by `provider_id` (declared in app.runtime.yaml). Fetched once when
+  // the provider mounts; failures degrade silently to manifest names +
+  // CDN-by-app_id.
+  const [composioToolkitsByProvider, setComposioToolkitsByProvider] = useState<
+    Record<string, ComposioToolkitMetadata>
+  >({});
 
   const signedInUserId = sessionUserId(session);
   const isSignedIn = Boolean(signedInUserId);
@@ -314,6 +358,59 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
   useEffect(() => {
     setBrowserImportProfileDirState("");
   }, [browserImportSource]);
+
+  // Auto-load the marketplace app catalog once the runtime is running,
+  // even if the user hasn't opened the marketplace pane yet. The
+  // workspace sidebar uses `appCatalog[].provider_id` to map an installed
+  // app id (e.g. "gcalendar") to its Composio toolkit slug
+  // ("googlecalendar") for display name + logo lookup; without this
+  // eager load the sidebar would render the bare slug for any app
+  // surface entered before marketplace is visited.
+  const appCatalogAutoLoadAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (runtimeStatus?.status !== "running") return;
+    if (appCatalogAutoLoadAttemptedRef.current) return;
+    appCatalogAutoLoadAttemptedRef.current = true;
+    void refreshAppCatalog();
+    // refreshAppCatalog is stable enough for this one-shot use; we
+    // intentionally don't list it as a dep to avoid re-firing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runtimeStatus?.status]);
+
+  // One-shot fetch of the Composio toolkit catalog. The shape lives in the
+  // shared context so app surfaces (marketplace gallery + workspace
+  // sidebar + onboarding) all derive display name + logo from the same
+  // source of truth and we never need a local app→display table.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { toolkits } =
+          await window.electronAPI.workspace.composioListToolkits();
+        if (cancelled) return;
+        const indexed: Record<string, ComposioToolkitMetadata> = {};
+        for (const toolkit of toolkits) {
+          const slug = toolkit.slug?.trim().toLowerCase();
+          if (!slug) continue;
+          indexed[slug] = {
+            slug,
+            name: toolkit.name ?? "",
+            description: toolkit.description ?? "",
+            logo: toolkit.logo ?? null,
+            categories: Array.isArray(toolkit.categories)
+              ? toolkit.categories
+              : [],
+          };
+        }
+        setComposioToolkitsByProvider(indexed);
+      } catch {
+        // Non-fatal — surfaces fall back to manifest names + CDN-by-app_id.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const onboardingModeActive = useMemo(() => isOnboardingMode(selectedWorkspace), [selectedWorkspace]);
   const sessionModeLabel = onboardingModeActive ? "onboarding" : "session";
@@ -1466,6 +1563,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       appCatalogSource,
       setAppCatalogSource,
       refreshAppCatalog,
+      composioToolkitsByProvider,
       installingAppId,
       installAppFromCatalog,
       pendingAppInstall,
@@ -1545,6 +1643,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       appCatalogSource,
       setAppCatalogSource,
       refreshAppCatalog,
+      composioToolkitsByProvider,
       installingAppId,
       installAppFromCatalog,
       pendingAppInstall,

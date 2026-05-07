@@ -11,6 +11,7 @@ import { AppIcon } from "@/components/marketplace/AppIcon";
 import { Badge } from "@/components/ui/badge";
 import { SimpleMarkdown } from "@/components/marketplace/SimpleMarkdown";
 import { cn } from "@/lib/utils";
+import { resolveAppDisplay, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 
 const CATEGORY_LABELS: Record<string, string> = {
   marketing: "Marketing",
@@ -223,6 +224,7 @@ function BundleIllustration({
   forceExcludePaths: string[];
 }) {
   const [bundle, setBundle] = useState<BundleSummary | null>(null);
+  const { appCatalog, composioToolkitsByProvider } = useWorkspaceDesktop();
 
   useEffect(() => {
     let cancelled = false;
@@ -320,21 +322,34 @@ function BundleIllustration({
               Apps
             </p>
             <ul>
-              {data.apps.map((app) => (
-                <li
-                  className="flex items-center gap-2.5 rounded-md px-2 py-1.5"
-                  key={app.id}
-                >
-                  <AppIcon
-                    appId={app.id}
-                    label={app.label || app.id}
-                    size="row"
-                  />
-                  <span className="min-w-0 flex-1 truncate text-sm">
-                    {app.label || app.id}
-                  </span>
-                </li>
-              ))}
+              {data.apps.map((app) => {
+                const catalogEntry = appCatalog.find(
+                  (e) => e.app_id === app.id,
+                );
+                const providerId = catalogEntry?.provider_id ?? null;
+                const display = resolveAppDisplay(
+                  providerId,
+                  composioToolkitsByProvider,
+                );
+                const resolvedLabel = display.name ?? app.label ?? app.id;
+                return (
+                  <li
+                    className="flex items-center gap-2.5 rounded-md px-2 py-1.5"
+                    key={app.id}
+                  >
+                    <AppIcon
+                      iconUrl={display.logo}
+                      appId={app.id}
+                      providerId={providerId}
+                      label={resolvedLabel}
+                      size="row"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {resolvedLabel}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}

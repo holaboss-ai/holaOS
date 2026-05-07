@@ -35,7 +35,7 @@ import {
   accountDisplayLabel,
   useEnrichedConnections,
 } from "@/lib/integrationDisplay";
-import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import { resolveAppDisplay, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import {
   getWorkspaceAppDefinition,
@@ -96,7 +96,12 @@ export function AppSurfacePane({
   resourceId,
   view,
 }: AppSurfacePaneProps) {
-  const { refreshInstalledApps, removeInstalledApp } = useWorkspaceDesktop();
+  const {
+    refreshInstalledApps,
+    removeInstalledApp,
+    appCatalog,
+    composioToolkitsByProvider,
+  } = useWorkspaceDesktop();
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const app = providedApp || getWorkspaceAppDefinition(appId);
   const [isRemoving, setIsRemoving] = useState(false);
@@ -127,7 +132,10 @@ export function AppSurfacePane({
     return () => observer.disconnect();
   }, []);
 
-  const label = app?.label ?? appId;
+  const catalogEntry = appCatalog.find((entry) => entry.app_id === appId);
+  const providerId = catalogEntry?.provider_id ?? null;
+  const display = resolveAppDisplay(providerId, composioToolkitsByProvider);
+  const label = display.name ?? app?.label ?? appId;
   const ready = app && "ready" in app ? app.ready : false;
   const error =
     app && "error" in app && typeof app.error === "string" ? app.error : null;
@@ -381,7 +389,13 @@ export function AppSurfacePane({
           destructive overflow trigger. */}
       <div className="shrink-0 border-b border-border px-3 py-2">
         <div className="flex items-center gap-2.5">
-          <AppIcon appId={appId} label={label} size="toolbar" />
+          <AppIcon
+            iconUrl={display.logo}
+            appId={appId}
+            providerId={providerId}
+            label={label}
+            size="toolbar"
+          />
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <span className="truncate text-xs font-semibold tracking-wide text-foreground">
               {label}

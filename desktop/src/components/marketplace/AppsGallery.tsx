@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ExternalLink, FileUp, LoaderCircle } from "lucide-react";
-import { getProviderForCatalogEntry, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import {
+  getProviderForCatalogEntry,
+  resolveAppDisplay,
+  useWorkspaceDesktop,
+} from "@/lib/workspaceDesktop";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -34,21 +38,6 @@ function AppCatalogCardSkeleton() {
   );
 }
 
-const PROVIDER_DISPLAY: Record<string, string> = {
-  twitter: "Twitter / X",
-  linkedin: "LinkedIn",
-  reddit: "Reddit",
-  gmail: "Google (Gmail)",
-  googlesheets: "Google (Sheets)",
-  github: "GitHub",
-  hubspot: "HubSpot",
-  attio: "Attio",
-  calcom: "Cal.com",
-  apollo: "Apollo.io",
-  instantly: "Instantly",
-  zoominfo: "ZoomInfo",
-};
-
 export function AppsGallery() {
   const {
     appCatalog,
@@ -56,6 +45,7 @@ export function AppsGallery() {
     appCatalogError,
     appCatalogSource,
     refreshAppCatalog,
+    composioToolkitsByProvider,
     installingAppId,
     installAppFromCatalog,
     installedApps,
@@ -213,13 +203,13 @@ export function AppsGallery() {
           >
             <p className="text-base font-semibold text-foreground">
               Connect{" "}
-              {PROVIDER_DISPLAY[pendingAppInstall.provider] ??
-                pendingAppInstall.provider}
+              {composioToolkitsByProvider[pendingAppInstall.provider.toLowerCase()]
+                ?.name ?? pendingAppInstall.provider}
             </p>
             <p className="mt-1.5 text-xs text-muted-foreground">
               {pendingAppInstall.appId} requires a connected{" "}
-              {PROVIDER_DISPLAY[pendingAppInstall.provider] ??
-                pendingAppInstall.provider}{" "}
+              {composioToolkitsByProvider[pendingAppInstall.provider.toLowerCase()]
+                ?.name ?? pendingAppInstall.provider}{" "}
               account to work. Connect it first, then the app will be installed
               automatically.
             </p>
@@ -287,6 +277,10 @@ export function AppsGallery() {
             const selected =
               selectedAccountByApp[entry.app_id] ??
               sortedCandidates[0]?.connection_id;
+            const display = resolveAppDisplay(
+              entry.provider_id,
+              composioToolkitsByProvider,
+            );
             return (
               <AppCatalogCard
                 key={`${entry.source}:${entry.app_id}`}
@@ -297,6 +291,8 @@ export function AppsGallery() {
                   (anyInstalling && !isInstalling) ||
                   Boolean(pendingAppInstall)
                 }
+                displayName={display.name}
+                logoUrl={display.logo}
                 availableAccounts={sortedCandidates}
                 selectedConnectionId={selected ?? null}
                 onSelectAccount={(connectionId) =>
