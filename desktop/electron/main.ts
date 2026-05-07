@@ -18947,6 +18947,7 @@ async function listDirectory(
     if (dirEntry.name.startsWith(".")) {
       continue;
     }
+    const absolutePath = path.join(resolvedPath, dirEntry.name);
     if (
       hideWorkspaceManagedRootEntries &&
       dirEntry.isDirectory() &&
@@ -18954,7 +18955,12 @@ async function listDirectory(
     ) {
       continue;
     }
-    const absolutePath = path.join(resolvedPath, dirEntry.name);
+    if (
+      hideWorkspaceManagedRootEntries &&
+      describeProtectedWorkspaceExplorerPath(workspaceRoot, absolutePath)
+    ) {
+      continue;
+    }
     try {
       const meta = await fs.stat(absolutePath);
       entries.push({
