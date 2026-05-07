@@ -13,6 +13,13 @@ import {
   CardHeader,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { AppCatalogCard } from "./AppCatalogCard";
 
 function AppCatalogCardSkeleton() {
@@ -237,19 +244,30 @@ export function AppsGallery() {
               aria-label="Search apps"
             />
           </div>
-          <select
+          <Select
             value={categoryFilter}
-            onChange={(event) => setCategoryFilter(event.target.value)}
-            className="h-8 shrink-0 rounded-md border border-input bg-transparent px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            aria-label="Filter by category"
+            onValueChange={(next) => {
+              if (next) setCategoryFilter(next);
+            }}
           >
-            <option value="all">All categories</option>
-            {categories.map((category) => (
-              <option key={category} value={category}>
-                {category.charAt(0).toUpperCase() + category.slice(1)}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger
+              size="sm"
+              aria-label="Filter by category"
+              className="h-8 w-[160px] shrink-0 text-xs"
+            >
+              <SelectValue placeholder="All categories" />
+            </SelectTrigger>
+            <SelectContent align="end" className="min-w-[160px]">
+              <SelectItem value="all" className="text-xs">
+                All categories
+              </SelectItem>
+              {categories.map((category) => (
+                <SelectItem key={category} value={category} className="text-xs">
+                  {category.charAt(0).toUpperCase() + category.slice(1)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button
             variant="ghost"
             size="sm"
