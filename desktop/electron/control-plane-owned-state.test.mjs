@@ -25,6 +25,16 @@ test("control-plane-owned state module owns local workspace registry and runtime
   assert.match(source, /export function createLocalRuntimeUserProfileStore\(/);
   assert.match(source, /controlPlaneDatabasePath: \(\) => string/);
   assert.match(source, /SELECT \* FROM runtime_user_profiles WHERE profile_id = \? LIMIT 1/);
+  assert.match(source, /CREATE TABLE IF NOT EXISTS integration_connections/);
+  assert.match(source, /CREATE TABLE IF NOT EXISTS integration_bindings/);
+  assert.match(source, /CREATE TABLE IF NOT EXISTS oauth_app_configs/);
+  assert.match(source, /CREATE TABLE IF NOT EXISTS app_catalog/);
+  assert.match(source, /export interface LocalIntegrationMetadataStore \{/);
+  assert.match(source, /export function createLocalIntegrationMetadataStore\(/);
+  assert.match(source, /export interface LocalAppCatalogStore \{/);
+  assert.match(source, /export function createLocalAppCatalogStore\(/);
+  assert.match(source, /DELETE FROM integration_bindings WHERE binding_id = \?/);
+  assert.match(source, /DELETE FROM app_catalog WHERE source = \?/);
 });
 
 test("electron main delegates control-plane-owned metadata through the local state module", async () => {
@@ -32,11 +42,19 @@ test("electron main delegates control-plane-owned metadata through the local sta
 
   assert.match(
     source,
-    /import \{\s*bootstrapLocalControlPlaneDatabase,\s*createLocalRuntimeUserProfileStore,\s*createLocalWorkspaceRegistry,\s*\} from "\.\/control-plane-owned-state\.js"/,
+    /import \{\s*bootstrapLocalControlPlaneDatabase,\s*createLocalAppCatalogStore,\s*createLocalIntegrationMetadataStore,\s*createLocalRuntimeUserProfileStore,\s*createLocalWorkspaceRegistry,\s*\} from "\.\/control-plane-owned-state\.js"/,
   );
   assert.match(
     source,
     /const localRuntimeUserProfileStore = createLocalRuntimeUserProfileStore\(\{\s*controlPlaneDatabasePath: controlPlaneDatabasePath,\s*\}\);/,
+  );
+  assert.match(
+    source,
+    /const localIntegrationMetadataStore = createLocalIntegrationMetadataStore\(\{\s*controlPlaneDatabasePath: controlPlaneDatabasePath,\s*\}\);/,
+  );
+  assert.match(
+    source,
+    /const localAppCatalogStore = createLocalAppCatalogStore\(\{\s*controlPlaneDatabasePath: controlPlaneDatabasePath,\s*\}\);/,
   );
   assert.match(
     source,
@@ -50,4 +68,37 @@ test("electron main delegates control-plane-owned metadata through the local sta
   assert.match(source, /return localRuntimeUserProfileStore\.applyAuthFallback\(name, profileId\);/);
   assert.match(source, /return localWorkspaceRegistry\.getWorkspaceRecord\(workspaceId\);/);
   assert.match(source, /return localWorkspaceRegistry\.listCachedWorkspaces\(\);/);
+  assert.match(source, /return localIntegrationMetadataStore\.listConnections\(params\);/);
+  assert.match(source, /return localIntegrationMetadataStore\.createConnection\(payload\);/);
+  assert.match(source, /return localIntegrationMetadataStore\.updateConnection\(connectionId, payload\);/);
+  assert.match(source, /return localIntegrationMetadataStore\.deleteConnection\(connectionId\);/);
+  assert.match(
+    source,
+    /return localIntegrationMetadataStore\.mergeConnections\(\s*keepConnectionId,\s*removeConnectionIds,\s*\);/,
+  );
+  assert.match(source, /return localIntegrationMetadataStore\.listOAuthConfigs\(\);/);
+  assert.match(source, /return localIntegrationMetadataStore\.upsertOAuthConfig\(providerId, payload\);/);
+  assert.match(source, /return localIntegrationMetadataStore\.deleteOAuthConfig\(providerId\);/);
+  assert.match(source, /return localAppCatalogStore\.listCatalog\(\{ source: params\.source \}\);/);
+  assert.match(
+    source,
+    /return localAppCatalogStore\.syncCatalog\(\{\s*source: "marketplace",\s*target,\s*entries,\s*\}\);/,
+  );
+  assert.match(
+    source,
+    /return localAppCatalogStore\.syncCatalog\(\{\s*source: "local",\s*target,\s*entries,\s*\}\);/,
+  );
+});
+
+test("electron main no longer reads control-plane-owned connection and catalog records through the singleton runtime client", async () => {
+  const source = await readFile(MAIN_PATH, "utf8");
+
+  assert.doesNotMatch(
+    source,
+    /runtimeClient\.integrations\.(listConnections|createConnection|updateConnection|deleteConnection|mergeConnections|listOAuthConfigs|upsertOAuthConfig|deleteOAuthConfig)\(/,
+  );
+  assert.doesNotMatch(
+    source,
+    /runtimeClient\.apps\.(listCatalog|syncCatalog)\(/,
+  );
 });

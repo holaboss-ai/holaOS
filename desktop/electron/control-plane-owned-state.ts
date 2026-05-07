@@ -1,4 +1,5 @@
 import Database from "better-sqlite3"
+import { randomUUID } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 
@@ -76,6 +77,171 @@ export interface LocalRuntimeUserProfileStoreOptions {
   controlPlaneDatabasePath: () => string
 }
 
+export type AppCatalogSource = "marketplace" | "local"
+
+export interface LocalIntegrationConnectionRecord {
+  connection_id: string
+  provider_id: string
+  owner_user_id: string
+  account_label: string
+  account_external_id: string | null
+  account_handle: string | null
+  account_email: string | null
+  auth_mode: string
+  granted_scopes: string[]
+  status: string
+  secret_ref: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface LocalIntegrationConnectionListResponse {
+  connections: LocalIntegrationConnectionRecord[]
+}
+
+export interface LocalIntegrationConnectionCreatePayload {
+  provider_id: string
+  owner_user_id: string
+  account_label: string
+  auth_mode: string
+  granted_scopes: string[]
+  secret_ref?: string
+  account_external_id?: string | null
+  account_handle?: string | null
+  account_email?: string | null
+  status?: string
+}
+
+export interface LocalIntegrationConnectionUpdatePayload {
+  status?: string
+  secret_ref?: string | null
+  account_label?: string
+  granted_scopes?: string[]
+  account_handle?: string | null
+  account_email?: string | null
+}
+
+export interface LocalIntegrationMergeConnectionsResult {
+  kept_connection_id: string
+  removed_count: number
+  repointed_bindings: number
+}
+
+export interface LocalOAuthAppConfigRecord {
+  provider_id: string
+  client_id: string
+  client_secret: string
+  authorize_url: string
+  token_url: string
+  scopes: string[]
+  redirect_port: number
+  created_at: string
+  updated_at: string
+}
+
+export interface LocalOAuthAppConfigListResponse {
+  configs: LocalOAuthAppConfigRecord[]
+}
+
+export interface LocalOAuthAppConfigUpsertPayload {
+  client_id: string
+  client_secret: string
+  authorize_url: string
+  token_url: string
+  scopes: string[]
+  redirect_port?: number
+}
+
+export interface LocalIntegrationMetadataStore {
+  listConnections(params?: {
+    providerId?: string
+    ownerUserId?: string
+  }): Promise<LocalIntegrationConnectionListResponse>
+  createConnection(
+    payload: LocalIntegrationConnectionCreatePayload,
+  ): Promise<LocalIntegrationConnectionRecord>
+  updateConnection(
+    connectionId: string,
+    payload: LocalIntegrationConnectionUpdatePayload,
+  ): Promise<LocalIntegrationConnectionRecord>
+  deleteConnection(connectionId: string): Promise<{ deleted: boolean }>
+  mergeConnections(
+    keepConnectionId: string,
+    removeConnectionIds: string[],
+  ): Promise<LocalIntegrationMergeConnectionsResult>
+  listOAuthConfigs(): Promise<LocalOAuthAppConfigListResponse>
+  upsertOAuthConfig(
+    providerId: string,
+    payload: LocalOAuthAppConfigUpsertPayload,
+  ): Promise<LocalOAuthAppConfigRecord>
+  deleteOAuthConfig(providerId: string): Promise<{ deleted: boolean }>
+}
+
+export interface LocalIntegrationMetadataStoreOptions {
+  controlPlaneDatabasePath: () => string
+}
+
+export interface LocalAppCatalogEntryRecord {
+  app_id: string
+  source: AppCatalogSource
+  name: string
+  description: string | null
+  icon: string | null
+  category: string | null
+  tags: string[]
+  version: string | null
+  archive_url: string | null
+  archive_path: string | null
+  target: string
+  cached_at: string
+}
+
+export interface LocalAppCatalogListResponse {
+  entries: LocalAppCatalogEntryRecord[]
+  count: number
+}
+
+export interface LocalAppCatalogSyncEntryInput {
+  [key: string]: unknown
+}
+
+export interface LocalAppCatalogSyncPayload {
+  source: AppCatalogSource
+  target: string
+  entries: LocalAppCatalogSyncEntryInput[]
+}
+
+export interface LocalAppCatalogSyncResponse {
+  synced: number
+  source: AppCatalogSource
+  target: string
+}
+
+export interface LocalAppCatalogStore {
+  listCatalog(params?: {
+    source?: AppCatalogSource
+  }): Promise<LocalAppCatalogListResponse>
+  syncCatalog(
+    payload: LocalAppCatalogSyncPayload,
+  ): Promise<LocalAppCatalogSyncResponse>
+}
+
+export interface LocalAppCatalogStoreOptions {
+  controlPlaneDatabasePath: () => string
+}
+
+interface LocalIntegrationBindingRecord {
+  binding_id: string
+  workspace_id: string
+  target_type: string
+  target_id: string
+  integration_key: string
+  connection_id: string
+  is_default: boolean
+  created_at: string
+  updated_at: string
+}
+
 function utcNowIso(): string {
   return new Date().toISOString()
 }
@@ -116,6 +282,73 @@ function ensureControlPlaneDatabaseSchema(database: Database.Database): void {
       profile_id TEXT PRIMARY KEY,
       name TEXT,
       name_source TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS integration_connections (
+      connection_id TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL,
+      owner_user_id TEXT NOT NULL,
+      account_label TEXT NOT NULL,
+      account_external_id TEXT,
+      account_handle TEXT,
+      account_email TEXT,
+      auth_mode TEXT NOT NULL,
+      granted_scopes TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL,
+      secret_ref TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_integration_connections_provider_owner_updated
+      ON integration_connections (provider_id, owner_user_id, updated_at DESC, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS integration_bindings (
+      binding_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      integration_key TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, target_type, target_id, integration_key),
+      FOREIGN KEY (connection_id) REFERENCES integration_connections(connection_id) ON DELETE RESTRICT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_integration_bindings_workspace_updated
+      ON integration_bindings (workspace_id, is_default DESC, updated_at DESC, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS app_catalog (
+      app_id TEXT NOT NULL,
+      source TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      icon TEXT,
+      category TEXT,
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      version TEXT,
+      archive_url TEXT,
+      archive_path TEXT,
+      target TEXT NOT NULL,
+      cached_at TEXT NOT NULL,
+      PRIMARY KEY (source, app_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_app_catalog_source
+      ON app_catalog (source);
+
+    CREATE TABLE IF NOT EXISTS oauth_app_configs (
+      provider_id TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL,
+      client_secret TEXT NOT NULL,
+      authorize_url TEXT NOT NULL,
+      token_url TEXT NOT NULL,
+      scopes TEXT NOT NULL DEFAULT '[]',
+      redirect_port INTEGER NOT NULL DEFAULT 38765,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -207,6 +440,60 @@ function runtimeUserProfileNameSourceToStored(
   return value
 }
 
+function requiredString(value: unknown, fieldName: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${fieldName} is required`)
+  }
+  return value.trim()
+}
+
+function normalizeOptionalString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null
+  }
+  const normalized = value.trim()
+  return normalized || null
+}
+
+function normalizeIdentityValue(value: unknown): string | null {
+  return normalizeOptionalString(value)
+}
+
+function parseStoredStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is string => typeof entry === "string")
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    return []
+  }
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === "string")
+      : []
+  } catch {
+    return []
+  }
+}
+
+function normalizeAppCatalogSource(value: unknown): AppCatalogSource {
+  if (value === "marketplace" || value === "local") {
+    return value
+  }
+  throw new Error("source must be 'marketplace' or 'local'")
+}
+
+function sanitizeAppCatalogId(value: unknown): string {
+  const appId = requiredString(value, "app_id")
+  if (appId.includes("/") || appId.includes("\\")) {
+    throw new Error("app_id must not contain path separators")
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(appId)) {
+    throw new Error("app_id is invalid")
+  }
+  return appId
+}
+
 function mapRuntimeUserProfileRow(
   row: Record<string, unknown> | undefined,
   profileId = "default",
@@ -227,6 +514,97 @@ function mapRuntimeUserProfileRow(
       typeof row?.updated_at === "string" && row.updated_at.trim()
         ? row.updated_at
         : null,
+  }
+}
+
+function mapIntegrationConnectionRow(
+  row: Record<string, unknown> | undefined,
+): LocalIntegrationConnectionRecord | null {
+  if (!row) {
+    return null
+  }
+  return {
+    connection_id: String(row.connection_id ?? ""),
+    provider_id: String(row.provider_id ?? ""),
+    owner_user_id: String(row.owner_user_id ?? ""),
+    account_label: String(row.account_label ?? ""),
+    account_external_id:
+      row.account_external_id == null ? null : String(row.account_external_id),
+    account_handle:
+      row.account_handle == null ? null : String(row.account_handle),
+    account_email: row.account_email == null ? null : String(row.account_email),
+    auth_mode: String(row.auth_mode ?? ""),
+    granted_scopes: parseStoredStringArray(row.granted_scopes),
+    status: String(row.status ?? ""),
+    secret_ref: row.secret_ref == null ? null : String(row.secret_ref),
+    created_at: String(row.created_at ?? ""),
+    updated_at: String(row.updated_at ?? ""),
+  }
+}
+
+function mapIntegrationBindingRow(
+  row: Record<string, unknown> | undefined,
+): LocalIntegrationBindingRecord | null {
+  if (!row) {
+    return null
+  }
+  return {
+    binding_id: String(row.binding_id ?? ""),
+    workspace_id: String(row.workspace_id ?? ""),
+    target_type: String(row.target_type ?? ""),
+    target_id: String(row.target_id ?? ""),
+    integration_key: String(row.integration_key ?? ""),
+    connection_id: String(row.connection_id ?? ""),
+    is_default:
+      row.is_default === true ||
+      row.is_default === 1 ||
+      row.is_default === "1",
+    created_at: String(row.created_at ?? ""),
+    updated_at: String(row.updated_at ?? ""),
+  }
+}
+
+function mapOAuthAppConfigRow(
+  row: Record<string, unknown> | undefined,
+): LocalOAuthAppConfigRecord | null {
+  if (!row) {
+    return null
+  }
+  return {
+    provider_id: String(row.provider_id ?? ""),
+    client_id: String(row.client_id ?? ""),
+    client_secret: String(row.client_secret ?? ""),
+    authorize_url: String(row.authorize_url ?? ""),
+    token_url: String(row.token_url ?? ""),
+    scopes: parseStoredStringArray(row.scopes),
+    redirect_port:
+      typeof row.redirect_port === "number"
+        ? row.redirect_port
+        : Number(row.redirect_port ?? 38765),
+    created_at: String(row.created_at ?? ""),
+    updated_at: String(row.updated_at ?? ""),
+  }
+}
+
+function mapAppCatalogRow(
+  row: Record<string, unknown> | undefined,
+): LocalAppCatalogEntryRecord | null {
+  if (!row) {
+    return null
+  }
+  return {
+    app_id: String(row.app_id ?? ""),
+    source: normalizeAppCatalogSource(row.source),
+    name: String(row.name ?? ""),
+    description: row.description == null ? null : String(row.description),
+    icon: row.icon == null ? null : String(row.icon),
+    category: row.category == null ? null : String(row.category),
+    tags: parseStoredStringArray(row.tags_json),
+    version: row.version == null ? null : String(row.version),
+    archive_url: row.archive_url == null ? null : String(row.archive_url),
+    archive_path: row.archive_path == null ? null : String(row.archive_path),
+    target: String(row.target ?? ""),
+    cached_at: String(row.cached_at ?? ""),
   }
 }
 
@@ -331,12 +709,338 @@ export function bootstrapLocalControlPlaneDatabase(
           )
         }
       }
+
+      if (tableExists(legacy, "integration_connections")) {
+        const rows = legacy
+          .prepare("SELECT * FROM integration_connections")
+          .all() as Array<Record<string, unknown>>
+        const insert = database.prepare(`
+          INSERT OR IGNORE INTO integration_connections (
+            connection_id,
+            provider_id,
+            owner_user_id,
+            account_label,
+            account_external_id,
+            account_handle,
+            account_email,
+            auth_mode,
+            granted_scopes,
+            status,
+            secret_ref,
+            created_at,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        for (const row of rows) {
+          insert.run(
+            row.connection_id,
+            row.provider_id,
+            row.owner_user_id,
+            row.account_label,
+            row.account_external_id ?? null,
+            row.account_handle ?? null,
+            row.account_email ?? null,
+            row.auth_mode,
+            row.granted_scopes ?? "[]",
+            row.status,
+            row.secret_ref ?? null,
+            row.created_at,
+            row.updated_at,
+          )
+        }
+      }
+
+      if (tableExists(legacy, "integration_bindings")) {
+        const rows = legacy
+          .prepare("SELECT * FROM integration_bindings")
+          .all() as Array<Record<string, unknown>>
+        const insert = database.prepare(`
+          INSERT OR IGNORE INTO integration_bindings (
+            binding_id,
+            workspace_id,
+            target_type,
+            target_id,
+            integration_key,
+            connection_id,
+            is_default,
+            created_at,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        for (const row of rows) {
+          insert.run(
+            row.binding_id,
+            row.workspace_id,
+            row.target_type,
+            row.target_id,
+            row.integration_key,
+            row.connection_id,
+            row.is_default,
+            row.created_at,
+            row.updated_at,
+          )
+        }
+      }
+
+      if (tableExists(legacy, "oauth_app_configs")) {
+        const rows = legacy
+          .prepare("SELECT * FROM oauth_app_configs")
+          .all() as Array<Record<string, unknown>>
+        const insert = database.prepare(`
+          INSERT OR IGNORE INTO oauth_app_configs (
+            provider_id,
+            client_id,
+            client_secret,
+            authorize_url,
+            token_url,
+            scopes,
+            redirect_port,
+            created_at,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        for (const row of rows) {
+          insert.run(
+            row.provider_id,
+            row.client_id,
+            row.client_secret,
+            row.authorize_url,
+            row.token_url,
+            row.scopes ?? "[]",
+            row.redirect_port ?? 38765,
+            row.created_at,
+            row.updated_at,
+          )
+        }
+      }
+
+      if (tableExists(legacy, "app_catalog")) {
+        const rows = legacy
+          .prepare("SELECT * FROM app_catalog")
+          .all() as Array<Record<string, unknown>>
+        const insert = database.prepare(`
+          INSERT OR IGNORE INTO app_catalog (
+            app_id,
+            source,
+            name,
+            description,
+            icon,
+            category,
+            tags_json,
+            version,
+            archive_url,
+            archive_path,
+            target,
+            cached_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        for (const row of rows) {
+          insert.run(
+            row.app_id,
+            row.source,
+            row.name,
+            row.description ?? null,
+            row.icon ?? null,
+            row.category ?? null,
+            row.tags_json ?? "[]",
+            row.version ?? null,
+            row.archive_url ?? null,
+            row.archive_path ?? null,
+            row.target,
+            row.cached_at,
+          )
+        }
+      }
     } finally {
       legacy.close()
     }
   } finally {
     database.close()
   }
+}
+
+function getIntegrationConnectionRecord(
+  database: Database.Database,
+  connectionId: string,
+): LocalIntegrationConnectionRecord | null {
+  const row = database
+    .prepare("SELECT * FROM integration_connections WHERE connection_id = ? LIMIT 1")
+    .get(connectionId) as Record<string, unknown> | undefined
+  return mapIntegrationConnectionRow(row)
+}
+
+function getIntegrationBindingByTarget(
+  database: Database.Database,
+  params: {
+    workspaceId: string
+    targetType: string
+    targetId: string
+    integrationKey: string
+  },
+): LocalIntegrationBindingRecord | null {
+  const row = database
+    .prepare(
+      `
+        SELECT * FROM integration_bindings
+        WHERE workspace_id = ? AND target_type = ? AND target_id = ? AND integration_key = ?
+        LIMIT 1
+      `,
+    )
+    .get(
+      params.workspaceId,
+      params.targetType,
+      params.targetId,
+      params.integrationKey,
+    ) as Record<string, unknown> | undefined
+  return mapIntegrationBindingRow(row)
+}
+
+function listIntegrationBindingsForConnection(
+  database: Database.Database,
+  connectionId: string,
+): LocalIntegrationBindingRecord[] {
+  const rows = database
+    .prepare(
+      `
+        SELECT * FROM integration_bindings
+        WHERE connection_id = ?
+        ORDER BY is_default DESC, datetime(created_at) ASC, binding_id ASC
+      `,
+    )
+    .all(connectionId) as Array<Record<string, unknown>>
+  return rows
+    .map((row) => mapIntegrationBindingRow(row))
+    .filter((row): row is LocalIntegrationBindingRecord => Boolean(row))
+}
+
+function upsertIntegrationConnectionRecord(
+  database: Database.Database,
+  params: {
+    connectionId: string
+    providerId: string
+    ownerUserId: string
+    accountLabel: string
+    accountExternalId?: string | null
+    accountHandle?: string | null
+    accountEmail?: string | null
+    authMode: string
+    grantedScopes: string[]
+    status: string
+    secretRef?: string | null
+  },
+): LocalIntegrationConnectionRecord {
+  const now = utcNowIso()
+  database
+    .prepare(`
+      INSERT INTO integration_connections (
+        connection_id,
+        provider_id,
+        owner_user_id,
+        account_label,
+        account_external_id,
+        account_handle,
+        account_email,
+        auth_mode,
+        granted_scopes,
+        status,
+        secret_ref,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(connection_id) DO UPDATE SET
+        provider_id = excluded.provider_id,
+        owner_user_id = excluded.owner_user_id,
+        account_label = excluded.account_label,
+        account_external_id = excluded.account_external_id,
+        account_handle = excluded.account_handle,
+        account_email = excluded.account_email,
+        auth_mode = excluded.auth_mode,
+        granted_scopes = excluded.granted_scopes,
+        status = excluded.status,
+        secret_ref = excluded.secret_ref,
+        updated_at = excluded.updated_at
+    `)
+    .run(
+      params.connectionId,
+      params.providerId,
+      params.ownerUserId,
+      params.accountLabel,
+      params.accountExternalId ?? null,
+      normalizeIdentityValue(params.accountHandle),
+      normalizeIdentityValue(params.accountEmail),
+      params.authMode,
+      JSON.stringify(params.grantedScopes ?? []),
+      params.status,
+      params.secretRef ?? null,
+      now,
+      now,
+    )
+  const record = getIntegrationConnectionRecord(database, params.connectionId)
+  if (!record) {
+    throw new Error("failed to load integration connection")
+  }
+  return record
+}
+
+function upsertAppCatalogEntry(
+  database: Database.Database,
+  params: {
+    appId: string
+    source: AppCatalogSource
+    name: string
+    description: string | null
+    icon: string | null
+    category: string | null
+    tags: string[]
+    version: string | null
+    archiveUrl: string | null
+    archivePath: string | null
+    target: string
+    cachedAt: string
+  },
+): void {
+  database
+    .prepare(`
+      INSERT INTO app_catalog (
+        app_id,
+        source,
+        name,
+        description,
+        icon,
+        category,
+        tags_json,
+        version,
+        archive_url,
+        archive_path,
+        target,
+        cached_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(source, app_id) DO UPDATE SET
+        name = excluded.name,
+        description = excluded.description,
+        icon = excluded.icon,
+        category = excluded.category,
+        tags_json = excluded.tags_json,
+        version = excluded.version,
+        archive_url = excluded.archive_url,
+        archive_path = excluded.archive_path,
+        target = excluded.target,
+        cached_at = excluded.cached_at
+    `)
+    .run(
+      params.appId,
+      params.source,
+      params.name,
+      params.description,
+      params.icon,
+      params.category,
+      JSON.stringify(params.tags ?? []),
+      params.version,
+      params.archiveUrl,
+      params.archivePath,
+      params.target,
+      params.cachedAt,
+    )
 }
 
 export function createLocalWorkspaceRegistry(
@@ -515,6 +1219,437 @@ export function createLocalRuntimeUserProfileStore(
         profileId,
         name: normalizedName,
         nameSource: "authFallback",
+      })
+    },
+  }
+}
+
+export function createLocalIntegrationMetadataStore(
+  options: LocalIntegrationMetadataStoreOptions,
+): LocalIntegrationMetadataStore {
+  function withDatabase<T>(callback: (database: Database.Database) => T): T {
+    const database = openControlPlaneDatabase(options.controlPlaneDatabasePath())
+    try {
+      return callback(database)
+    } finally {
+      database.close()
+    }
+  }
+
+  return {
+    async listConnections(params = {}): Promise<LocalIntegrationConnectionListResponse> {
+      return withDatabase((database) => {
+        let query = "SELECT * FROM integration_connections"
+        const filters: string[] = []
+        const values: string[] = []
+        if (params.providerId) {
+          filters.push("provider_id = ?")
+          values.push(params.providerId)
+        }
+        if (params.ownerUserId) {
+          filters.push("owner_user_id = ?")
+          values.push(params.ownerUserId)
+        }
+        if (filters.length > 0) {
+          query += ` WHERE ${filters.join(" AND ")}`
+        }
+        query += " ORDER BY datetime(created_at) ASC, connection_id ASC"
+        const rows = database.prepare(query).all(...values) as Array<
+          Record<string, unknown>
+        >
+        return {
+          connections: rows
+            .map((row) => mapIntegrationConnectionRow(row))
+            .filter(
+              (row): row is LocalIntegrationConnectionRecord => Boolean(row),
+            ),
+        }
+      })
+    },
+
+    async createConnection(
+      payload: LocalIntegrationConnectionCreatePayload,
+    ): Promise<LocalIntegrationConnectionRecord> {
+      return withDatabase((database) => {
+        const providerId = requiredString(payload.provider_id, "provider_id")
+        const ownerUserId = requiredString(payload.owner_user_id, "owner_user_id")
+        const authMode = requiredString(payload.auth_mode, "auth_mode")
+        const accountLabel =
+          normalizeOptionalString(payload.account_label) ??
+          `${providerId} connection`
+        return upsertIntegrationConnectionRecord(database, {
+          connectionId: randomUUID(),
+          providerId,
+          ownerUserId,
+          accountLabel,
+          accountExternalId: normalizeOptionalString(payload.account_external_id),
+          accountHandle: payload.account_handle ?? null,
+          accountEmail: payload.account_email ?? null,
+          authMode,
+          grantedScopes: Array.isArray(payload.granted_scopes)
+            ? payload.granted_scopes.filter(
+                (entry): entry is string => typeof entry === "string",
+              )
+            : [],
+          status: normalizeOptionalString(payload.status) ?? "active",
+          secretRef:
+            payload.secret_ref === undefined
+              ? null
+              : normalizeOptionalString(payload.secret_ref),
+        })
+      })
+    },
+
+    async updateConnection(
+      connectionId: string,
+      payload: LocalIntegrationConnectionUpdatePayload,
+    ): Promise<LocalIntegrationConnectionRecord> {
+      return withDatabase((database) => {
+        const existing = getIntegrationConnectionRecord(
+          database,
+          requiredString(connectionId, "connection_id"),
+        )
+        if (!existing) {
+          throw new Error("connection not found")
+        }
+        return upsertIntegrationConnectionRecord(database, {
+          connectionId: existing.connection_id,
+          providerId: existing.provider_id,
+          ownerUserId: existing.owner_user_id,
+          accountLabel:
+            normalizeOptionalString(payload.account_label) ??
+            existing.account_label,
+          accountExternalId: existing.account_external_id,
+          accountHandle:
+            payload.account_handle !== undefined
+              ? payload.account_handle
+              : existing.account_handle,
+          accountEmail:
+            payload.account_email !== undefined
+              ? payload.account_email
+              : existing.account_email,
+          authMode: existing.auth_mode,
+          grantedScopes: Array.isArray(payload.granted_scopes)
+            ? payload.granted_scopes.filter(
+                (entry): entry is string => typeof entry === "string",
+              )
+            : existing.granted_scopes,
+          status:
+            normalizeOptionalString(payload.status) ?? existing.status,
+          secretRef:
+            payload.secret_ref !== undefined
+              ? normalizeOptionalString(payload.secret_ref)
+              : existing.secret_ref,
+        })
+      })
+    },
+
+    async deleteConnection(connectionId: string): Promise<{ deleted: boolean }> {
+      return withDatabase((database) => {
+        const normalizedId = requiredString(connectionId, "connection_id")
+        const existing = getIntegrationConnectionRecord(database, normalizedId)
+        if (!existing) {
+          throw new Error("connection not found")
+        }
+        const transaction = database.transaction(() => {
+          const bindings = listIntegrationBindingsForConnection(
+            database,
+            normalizedId,
+          )
+          for (const binding of bindings) {
+            database
+              .prepare("DELETE FROM integration_bindings WHERE binding_id = ?")
+              .run(binding.binding_id)
+          }
+          database
+            .prepare("DELETE FROM integration_connections WHERE connection_id = ?")
+            .run(normalizedId)
+        })
+        transaction()
+        return { deleted: true }
+      })
+    },
+
+    async mergeConnections(
+      keepConnectionId: string,
+      removeConnectionIds: string[],
+    ): Promise<LocalIntegrationMergeConnectionsResult> {
+      return withDatabase((database) => {
+        const keepId = requiredString(keepConnectionId, "keep_connection_id")
+        const keep = getIntegrationConnectionRecord(database, keepId)
+        if (!keep) {
+          throw new Error("keep connection not found")
+        }
+        const uniqueRemoveIds = Array.from(
+          new Set(
+            (removeConnectionIds ?? [])
+              .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+              .filter((entry) => entry.length > 0 && entry !== keepId),
+          ),
+        )
+        const removeRows = uniqueRemoveIds
+          .map((id) => ({
+            id,
+            row: getIntegrationConnectionRecord(database, id),
+          }))
+          .filter(
+            (
+              entry,
+            ): entry is {
+              id: string
+              row: LocalIntegrationConnectionRecord
+            } => Boolean(entry.row),
+          )
+
+        for (const entry of removeRows) {
+          if (
+            entry.row.provider_id !== keep.provider_id ||
+            entry.row.owner_user_id !== keep.owner_user_id
+          ) {
+            throw new Error(
+              `cannot merge: connection ${entry.id} provider/owner does not match the keep connection`,
+            )
+          }
+        }
+
+        if (removeRows.length === 0) {
+          return {
+            kept_connection_id: keepId,
+            removed_count: 0,
+            repointed_bindings: 0,
+          }
+        }
+
+        let repointedBindings = 0
+        const transaction = database.transaction(() => {
+          for (const entry of removeRows) {
+            const bindings = listIntegrationBindingsForConnection(
+              database,
+              entry.id,
+            )
+            for (const binding of bindings) {
+              const collision = getIntegrationBindingByTarget(database, {
+                workspaceId: binding.workspace_id,
+                targetType: binding.target_type,
+                targetId: binding.target_id,
+                integrationKey: binding.integration_key,
+              })
+              const existingOnTarget =
+                collision && collision.binding_id !== binding.binding_id
+                  ? collision
+                  : null
+              if (existingOnTarget?.connection_id === keepId) {
+                database
+                  .prepare("DELETE FROM integration_bindings WHERE binding_id = ?")
+                  .run(binding.binding_id)
+              } else if (existingOnTarget) {
+                database
+                  .prepare(`
+                    UPDATE integration_bindings
+                    SET connection_id = ?, is_default = ?, updated_at = ?
+                    WHERE binding_id = ?
+                  `)
+                  .run(
+                    keepId,
+                    existingOnTarget.is_default || binding.is_default ? 1 : 0,
+                    utcNowIso(),
+                    existingOnTarget.binding_id,
+                  )
+                database
+                  .prepare("DELETE FROM integration_bindings WHERE binding_id = ?")
+                  .run(binding.binding_id)
+              } else {
+                database
+                  .prepare(`
+                    UPDATE integration_bindings
+                    SET connection_id = ?, updated_at = ?
+                    WHERE binding_id = ?
+                  `)
+                  .run(keepId, utcNowIso(), binding.binding_id)
+              }
+              repointedBindings += 1
+            }
+            database
+              .prepare("DELETE FROM integration_connections WHERE connection_id = ?")
+              .run(entry.id)
+          }
+        })
+        transaction()
+
+        return {
+          kept_connection_id: keepId,
+          removed_count: removeRows.length,
+          repointed_bindings: repointedBindings,
+        }
+      })
+    },
+
+    async listOAuthConfigs(): Promise<LocalOAuthAppConfigListResponse> {
+      return withDatabase((database) => {
+        const rows = database
+          .prepare("SELECT * FROM oauth_app_configs ORDER BY provider_id")
+          .all() as Array<Record<string, unknown>>
+        return {
+          configs: rows
+            .map((row) => mapOAuthAppConfigRow(row))
+            .filter((row): row is LocalOAuthAppConfigRecord => Boolean(row)),
+        }
+      })
+    },
+
+    async upsertOAuthConfig(
+      providerId: string,
+      payload: LocalOAuthAppConfigUpsertPayload,
+    ): Promise<LocalOAuthAppConfigRecord> {
+      return withDatabase((database) => {
+        const now = utcNowIso()
+        const normalizedProviderId = requiredString(providerId, "provider_id")
+        database
+          .prepare(`
+            INSERT INTO oauth_app_configs (
+              provider_id,
+              client_id,
+              client_secret,
+              authorize_url,
+              token_url,
+              scopes,
+              redirect_port,
+              created_at,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(provider_id) DO UPDATE SET
+              client_id = excluded.client_id,
+              client_secret = CASE
+                WHEN excluded.client_secret = '' THEN oauth_app_configs.client_secret
+                ELSE excluded.client_secret
+              END,
+              authorize_url = excluded.authorize_url,
+              token_url = excluded.token_url,
+              scopes = excluded.scopes,
+              redirect_port = excluded.redirect_port,
+              updated_at = excluded.updated_at
+          `)
+          .run(
+            normalizedProviderId,
+            requiredString(payload.client_id, "client_id"),
+            typeof payload.client_secret === "string"
+              ? payload.client_secret
+              : "",
+            requiredString(payload.authorize_url, "authorize_url"),
+            requiredString(payload.token_url, "token_url"),
+            JSON.stringify(
+              Array.isArray(payload.scopes)
+                ? payload.scopes.filter(
+                    (entry): entry is string => typeof entry === "string",
+                  )
+                : [],
+            ),
+            payload.redirect_port ?? 38765,
+            now,
+            now,
+          )
+        const record = mapOAuthAppConfigRow(
+          database
+            .prepare("SELECT * FROM oauth_app_configs WHERE provider_id = ?")
+            .get(normalizedProviderId) as Record<string, unknown> | undefined,
+        )
+        if (!record) {
+          throw new Error("failed to load OAuth app config")
+        }
+        return record
+      })
+    },
+
+    async deleteOAuthConfig(providerId: string): Promise<{ deleted: boolean }> {
+      return withDatabase((database) => {
+        const result = database
+          .prepare("DELETE FROM oauth_app_configs WHERE provider_id = ?")
+          .run(requiredString(providerId, "provider_id"))
+        return { deleted: result.changes > 0 }
+      })
+    },
+  }
+}
+
+export function createLocalAppCatalogStore(
+  options: LocalAppCatalogStoreOptions,
+): LocalAppCatalogStore {
+  function withDatabase<T>(callback: (database: Database.Database) => T): T {
+    const database = openControlPlaneDatabase(options.controlPlaneDatabasePath())
+    try {
+      return callback(database)
+    } finally {
+      database.close()
+    }
+  }
+
+  return {
+    async listCatalog(
+      params = {},
+    ): Promise<LocalAppCatalogListResponse> {
+      return withDatabase((database) => {
+        const rows = params.source
+          ? (database
+              .prepare("SELECT * FROM app_catalog WHERE source = ? ORDER BY app_id")
+              .all(params.source) as Array<Record<string, unknown>>)
+          : (database
+              .prepare("SELECT * FROM app_catalog ORDER BY source, app_id")
+              .all() as Array<Record<string, unknown>>)
+        const entries = rows
+          .map((row) => mapAppCatalogRow(row))
+          .filter((row): row is LocalAppCatalogEntryRecord => Boolean(row))
+        return {
+          entries,
+          count: entries.length,
+        }
+      })
+    },
+
+    async syncCatalog(
+      payload: LocalAppCatalogSyncPayload,
+    ): Promise<LocalAppCatalogSyncResponse> {
+      return withDatabase((database) => {
+        const source = normalizeAppCatalogSource(payload.source)
+        const target = requiredString(payload.target, "target")
+        const now = utcNowIso()
+        let synced = 0
+        const transaction = database.transaction(() => {
+          database.prepare("DELETE FROM app_catalog WHERE source = ?").run(source)
+          for (const entry of payload.entries ?? []) {
+            if (!entry || typeof entry !== "object") {
+              continue
+            }
+            try {
+              upsertAppCatalogEntry(database, {
+                appId: sanitizeAppCatalogId(entry.app_id),
+                source,
+                name: requiredString(entry.name, "name"),
+                description: normalizeOptionalString(entry.description),
+                icon: normalizeOptionalString(entry.icon),
+                category: normalizeOptionalString(entry.category),
+                tags: Array.isArray(entry.tags)
+                  ? entry.tags.filter(
+                      (tag): tag is string => typeof tag === "string",
+                    )
+                  : [],
+                version: normalizeOptionalString(entry.version),
+                archiveUrl: normalizeOptionalString(entry.archive_url),
+                archivePath: normalizeOptionalString(entry.archive_path),
+                target,
+                cachedAt: now,
+              })
+              synced += 1
+            } catch {
+              continue
+            }
+          }
+        })
+        transaction()
+        return {
+          synced,
+          source,
+          target,
+        }
       })
     },
   }

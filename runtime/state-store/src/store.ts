@@ -21,6 +21,7 @@ const WORKSPACE_STATE_DIRNAME = "state";
 const WORKSPACE_RUNTIME_DB_FILENAME = "runtime.db";
 const WORKSPACE_IDENTITY_FILENAME = "workspace_id";
 const LEGACY_WORKSPACE_METADATA_FILENAME = "workspace.json";
+const DELETED_WORKSPACE_PATH_TOMBSTONE_PREFIX = "__deleted__";
 
 export interface WorkspaceRecord {
   id: string;
@@ -936,6 +937,29 @@ function ensureWorkspaceIdentityMigrated(workspacePath: string): string {
   return currentPath;
 }
 
+function deletedWorkspacePathTombstone(workspaceId: string, workspacePath: string): string {
+  const encodedPath = Buffer.from(path.resolve(workspacePath), "utf8").toString("base64url");
+  return `${DELETED_WORKSPACE_PATH_TOMBSTONE_PREFIX}/${sanitizeWorkspaceId(workspaceId)}/${Date.now()}:${encodedPath}`;
+}
+
+function decodeDeletedWorkspacePathTombstone(
+  storedPath: string,
+  workspaceId: string,
+): string | null {
+  const match = storedPath.match(
+    /^__deleted__\/([^/]+)\/\d+(?::([A-Za-z0-9_-]+))?$/,
+  );
+  if (!match || match[1] !== sanitizeWorkspaceId(workspaceId) || !match[2]) {
+    return null;
+  }
+  try {
+    const decoded = Buffer.from(match[2], "base64url").toString("utf8").trim();
+    return decoded ? path.resolve(decoded) : null;
+  } catch {
+    return null;
+  }
+}
+
 export class RuntimeStateStore {
   readonly dbPath: string;
   readonly legacyDbPath: string;
@@ -1411,6 +1435,7 @@ export class RuntimeStateStore {
   }
 
   deleteWorkspace(workspaceId: string): WorkspaceRecord {
+    const preservedWorkspacePath = this.workspaceDir(workspaceId);
     const result = this.updateWorkspace(workspaceId, {
       status: "deleted",
       deletedAtUtc: utcNowIso(),
@@ -1422,7 +1447,10 @@ export class RuntimeStateStore {
     // workspace ("remove from Holaboss but keep my files" must be
     // reversible). Stamp a tombstone that is unique per workspace id and
     // identifiable in diagnostics.
-    const tombstone = `__deleted__/${workspaceId}/${Date.now()}`;
+    const tombstone = deletedWorkspacePathTombstone(
+      workspaceId,
+      preservedWorkspacePath,
+    );
     this.controlPlaneDb().prepare("UPDATE workspaces SET workspace_path = ? WHERE id = ?").run(tombstone, workspaceId);
     if (this.controlPlaneDbPath !== this.dbPath) {
       this.db().prepare("UPDATE workspaces SET workspace_path = ? WHERE id = ?").run(tombstone, workspaceId);
@@ -5918,7 +5946,8 @@ export class RuntimeStateStore {
   }
 
   listAllAppPorts(): AppPortRecord[] {
-    return this.listReadableWorkspaceRuntimeDbs().flatMap(({ db }) => {
+    const readableWorkspaceRuntimeDbs = this.listReadableWorkspaceRuntimeDbs();
+    const ports = readableWorkspaceRuntimeDbs.flatMap(({ db }) => {
       const rows = db
         .prepare<[], Record<string, unknown>>(
           "SELECT * FROM app_ports"
@@ -5926,6 +5955,37 @@ export class RuntimeStateStore {
         .all();
       return rows.map((row) => this.rowToAppPort(row));
     });
+    const scannedWorkspaceIds = new Set(
+      readableWorkspaceRuntimeDbs.map(({ workspaceId }) => workspaceId),
+    );
+    for (const workspace of this.listWorkspaces({ includeDeleted: true })) {
+      if (!workspace.deletedAtUtc || scannedWorkspaceIds.has(workspace.id)) {
+        continue;
+      }
+      const preservedWorkspacePath = this.resolveDeletedWorkspacePreservedPath(
+        workspace.id,
+      );
+      if (!preservedWorkspacePath) {
+        continue;
+      }
+      const dbPath = workspaceRuntimeDbPathForWorkspacePath(preservedWorkspacePath);
+      if (!fs.existsSync(dbPath)) {
+        continue;
+      }
+      const deletedWorkspaceDb = new Database(dbPath, { readonly: true });
+      try {
+        const rows = deletedWorkspaceDb
+          .prepare<[], Record<string, unknown>>("SELECT * FROM app_ports")
+          .all();
+        ports.push(...rows.map((row) => this.rowToAppPort(row)));
+        scannedWorkspaceIds.add(workspace.id);
+      } catch {
+        // Skip unreadable preserved bundles during aggregate scans.
+      } finally {
+        deletedWorkspaceDb.close();
+      }
+    }
+    return ports;
   }
 
   deleteAppPort(params: { workspaceId: string; appId: string }): boolean {
@@ -6942,6 +7002,26 @@ export class RuntimeStateStore {
       workspaceId,
       db,
     }));
+  }
+
+  private resolveDeletedWorkspacePreservedPath(workspaceId: string): string | null {
+    const discovered = this.workspacePathMatchesIdentity(
+      this.discoverWorkspacePath(workspaceId),
+      workspaceId,
+    );
+    if (discovered) {
+      return discovered;
+    }
+    const storedPath = this.workspacePathFromRegistry(workspaceId);
+    if (!storedPath) {
+      return null;
+    }
+    const candidatePath = storedPath.startsWith(
+      `${DELETED_WORKSPACE_PATH_TOMBSTONE_PREFIX}/`,
+    )
+      ? decodeDeletedWorkspacePathTombstone(storedPath, workspaceId)
+      : storedPath;
+    return this.workspacePathMatchesIdentity(candidatePath, workspaceId);
   }
 
   private memoryDbForWorkspace(workspaceId?: string | null): Database.Database {
@@ -9010,6 +9090,23 @@ export class RuntimeStateStore {
       const rows = db.prepare<[], WorkspaceRow>("SELECT * FROM workspaces").all();
       for (const row of rows) {
         const workspacePath = row.workspace_path.trim();
+        if (row.deleted_at_utc != null) {
+          const preservedPath = this.workspacePathMatchesIdentity(
+            this.discoverWorkspacePath(row.id),
+            row.id,
+          ) ?? this.workspacePathMatchesIdentity(
+            decodeDeletedWorkspacePathTombstone(workspacePath, row.id)
+              ?? workspacePath,
+            row.id,
+          );
+          const nextPath = preservedPath
+            ? deletedWorkspacePathTombstone(row.id, preservedPath)
+            : workspacePath;
+          if (nextPath) {
+            db.prepare("UPDATE workspaces SET workspace_path = ? WHERE id = ?").run(nextPath, row.id);
+          }
+          continue;
+        }
         const resolvedPath =
           workspacePath && fs.existsSync(workspacePath) && fs.statSync(workspacePath).isDirectory()
             ? workspacePath
@@ -9190,6 +9287,29 @@ export class RuntimeStateStore {
     }
 
     return null;
+  }
+
+  private workspacePathMatchesIdentity(
+    workspacePath: string | null | undefined,
+    workspaceId: string,
+  ): string | null {
+    if (!workspacePath) {
+      return null;
+    }
+    try {
+      const resolvedPath = path.resolve(workspacePath);
+      if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isDirectory()) {
+        return null;
+      }
+      const identityPath = ensureWorkspaceIdentityMigrated(resolvedPath);
+      if (!fs.existsSync(identityPath) || !fs.statSync(identityPath).isFile()) {
+        return null;
+      }
+      const rawIdentity = fs.readFileSync(identityPath, "utf-8").trim();
+      return rawIdentity === workspaceId ? resolvedPath : null;
+    } catch {
+      return null;
+    }
   }
 
   private updateWorkspacePath(workspaceId: string, workspacePath: string): void {

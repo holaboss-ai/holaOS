@@ -3533,6 +3533,57 @@ test("deleteAppPort removes port and frees it for reuse", () => {
   store.close();
 });
 
+test("listAllAppPorts keeps preserved deleted workspace ports visible after restart", () => {
+  const root = makeTempDir("hb-store-ports-deleted-");
+  const customRoot = makeTempDir("hb-store-ports-deleted-custom-");
+  const customPath = path.join(customRoot, "kept-workspace");
+  const dbPath = path.join(root, "test.db");
+  const workspaceRoot = path.join(root, "workspace");
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  store.createWorkspace({
+    workspaceId: "ws-deleted",
+    name: "Deleted",
+    harness: "pi",
+    workspacePath: customPath,
+  });
+  const deletedPort = store.allocateAppPort({
+    workspaceId: "ws-deleted",
+    appId: "gmail",
+  });
+  store.deleteWorkspace("ws-deleted");
+  store.close();
+
+  const reopened = new RuntimeStateStore({ dbPath, workspaceRoot });
+  const preservedPorts = reopened.listAllAppPorts();
+  assert.deepEqual(
+    preservedPorts.map((record) => ({
+      workspaceId: record.workspaceId,
+      appId: record.appId,
+      port: record.port,
+    })),
+    [
+      {
+        workspaceId: "ws-deleted",
+        appId: "gmail",
+        port: deletedPort.port,
+      },
+    ],
+  );
+
+  reopened.createWorkspace({
+    workspaceId: "ws-new",
+    name: "New",
+    harness: "pi",
+  });
+  const nextPort = reopened.allocateAppPort({
+    workspaceId: "ws-new",
+    appId: "twitter",
+  });
+  assert.equal(nextPort.port, deletedPort.port + 1);
+  reopened.close();
+});
+
 test("app_catalog upserts and lists entries for a given source", () => {
   const root = makeTempDir("hb-store-catalog-upsert-");
   const store = new RuntimeStateStore({

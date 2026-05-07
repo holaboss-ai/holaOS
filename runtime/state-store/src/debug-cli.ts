@@ -246,7 +246,7 @@ const commands: Record<string, (ctx: CommandContext) => Promise<number> | number
     const postRunCounts = new Map<string, number>();
     const cronCounts = new Map<string, number>();
     const evolveCounts = new Map<string, number>();
-    let usedWorkspaceRuntimeDb = false;
+    const workspaceIdsWithRuntimeDb = new Set<string>();
     const workspaceRows = safeAll(
       db(),
       `SELECT id, workspace_path FROM workspaces WHERE deleted_at_utc IS NULL`,
@@ -264,7 +264,7 @@ const commands: Record<string, (ctx: CommandContext) => Promise<number> | number
         if (!existsSync(workspaceRuntimeDbPath)) {
           continue;
         }
-        usedWorkspaceRuntimeDb = true;
+        workspaceIdsWithRuntimeDb.add(String(workspaceRow.id));
         const workspaceDb = openDb(workspaceRuntimeDbPath);
         try {
           const workspaceQueueRows = safeAll(
@@ -312,18 +312,49 @@ const commands: Record<string, (ctx: CommandContext) => Promise<number> | number
         }
       }
     }
-    const queueRows = usedWorkspaceRuntimeDb
-      ? Array.from(queueCounts.entries()).map(([status, count]) => ({ status, count }))
-      : safeAll(
-          db(),
-          `SELECT status, COUNT(*) AS count FROM agent_session_inputs GROUP BY status`,
-        );
-    const postRunRows = usedWorkspaceRuntimeDb
-      ? Array.from(postRunCounts.entries()).map(([status, count]) => ({ status, count }))
-      : safeAll(
-          db(),
-          `SELECT status, COUNT(*) AS count FROM post_run_jobs GROUP BY status`,
-        );
+    const legacyWorkspaceIds = Array.from(workspaceIdsWithRuntimeDb);
+    const legacyWorkspaceFilter = legacyWorkspaceIds.length > 0
+      ? ` WHERE workspace_id NOT IN (${legacyWorkspaceIds.map(() => "?").join(", ")})`
+      : "";
+    const safeScopedLegacyAll = <T>(sql: string): T[] => {
+      try {
+        return db().prepare(sql).all(...legacyWorkspaceIds) as T[];
+      } catch {
+        return [];
+      }
+    };
+    for (const row of safeScopedLegacyAll<Array<{ status?: string; count?: number }>[number]>(
+      `SELECT status, COUNT(*) AS count FROM agent_session_inputs${legacyWorkspaceFilter} GROUP BY status`,
+    )) {
+      const key = typeof row.status === "string" ? row.status : "";
+      queueCounts.set(key, (queueCounts.get(key) ?? 0) + Number(row.count ?? 0));
+    }
+    for (const row of safeScopedLegacyAll<Array<{ status?: string; count?: number }>[number]>(
+      `SELECT status, COUNT(*) AS count FROM post_run_jobs${legacyWorkspaceFilter} GROUP BY status`,
+    )) {
+      const key = typeof row.status === "string" ? row.status : "";
+      postRunCounts.set(key, (postRunCounts.get(key) ?? 0) + Number(row.count ?? 0));
+    }
+    for (const row of safeScopedLegacyAll<Array<{ enabled?: number; count?: number }>[number]>(
+      `SELECT enabled, COUNT(*) AS count FROM cronjobs${legacyWorkspaceFilter} GROUP BY enabled`,
+    )) {
+      const key = String(row.enabled ?? 0);
+      cronCounts.set(key, (cronCounts.get(key) ?? 0) + Number(row.count ?? 0));
+    }
+    for (const row of safeScopedLegacyAll<Array<{ state?: string; count?: number }>[number]>(
+      `SELECT status AS state, COUNT(*) AS count FROM evolve_skill_candidates${legacyWorkspaceFilter} GROUP BY status`,
+    )) {
+      const key = typeof row.state === "string" ? row.state : "";
+      evolveCounts.set(key, (evolveCounts.get(key) ?? 0) + Number(row.count ?? 0));
+    }
+    const queueRows = Array.from(queueCounts.entries()).map(([status, count]) => ({
+      status,
+      count,
+    }));
+    const postRunRows = Array.from(postRunCounts.entries()).map(([status, count]) => ({
+      status,
+      count,
+    }));
     const cronRows = Array.from(cronCounts.entries()).map(([enabled, count]) => ({
       enabled: Number(enabled),
       count,

@@ -112,6 +112,8 @@ import * as modelCatalog from "../shared/model-catalog.js";
 import { buildAppSdkClient } from "./appSdkClient.js";
 import {
   bootstrapLocalControlPlaneDatabase,
+  createLocalAppCatalogStore,
+  createLocalIntegrationMetadataStore,
   createLocalRuntimeUserProfileStore,
   createLocalWorkspaceRegistry,
 } from "./control-plane-owned-state.js";
@@ -7787,6 +7789,14 @@ const localRuntimeUserProfileStore = createLocalRuntimeUserProfileStore({
   controlPlaneDatabasePath: controlPlaneDatabasePath,
 });
 
+const localIntegrationMetadataStore = createLocalIntegrationMetadataStore({
+  controlPlaneDatabasePath: controlPlaneDatabasePath,
+});
+
+const localAppCatalogStore = createLocalAppCatalogStore({
+  controlPlaneDatabasePath: controlPlaneDatabasePath,
+});
+
 async function getRuntimeUserProfile(): Promise<RuntimeUserProfilePayload> {
   return localRuntimeUserProfileStore.getProfile();
 }
@@ -9154,14 +9164,17 @@ async function ingestWorkspaceHeartbeat(params: {
 
   try {
     const bundledContext =
-      await runtimeClient.request<ProactiveContextCaptureResponsePayload>({
-        method: "POST",
-        path: "/api/v1/proactive/context/capture",
-        payload: {
-          workspace_id: workspaceId,
+      await requestWorkspaceRuntimeJson<ProactiveContextCaptureResponsePayload>(
+        workspaceId,
+        {
+          method: "POST",
+          path: "/api/v1/proactive/context/capture",
+          payload: {
+            workspace_id: workspaceId,
+          },
+          retryTransientErrors: true,
         },
-        retryTransientErrors: true,
-      });
+      );
     const results = await requestControlPlaneJson<
       ProactiveIngestItemResultPayload[]
     >({
@@ -9418,7 +9431,16 @@ async function listTaskProposals(
   if (!workspaceId.trim()) {
     return { proposals: [], count: 0 };
   }
-  return runtimeClient.taskProposals.listUnreviewed(workspaceId);
+  return requestWorkspaceRuntimeJson<TaskProposalListResponsePayload>(
+    workspaceId,
+    {
+      method: "GET",
+      path: "/api/v1/task-proposals/unreviewed",
+      params: {
+        workspace_id: workspaceId,
+      },
+    },
+  );
 }
 
 async function listBackgroundTasks(
@@ -9427,19 +9449,22 @@ async function listBackgroundTasks(
   if (!payload.workspaceId.trim()) {
     return { tasks: [], count: 0 };
   }
-  return requestRuntimeJson<BackgroundTaskListResponsePayload>({
-    method: "GET",
-    path: "/api/v1/background-tasks",
-    params: {
-      workspace_id: payload.workspaceId,
-      owner_main_session_id: payload.ownerMainSessionId ?? undefined,
-      statuses:
-        payload.statuses && payload.statuses.length > 0
-          ? payload.statuses.join(",")
-          : undefined,
-      limit: payload.limit ?? 200,
+  return requestWorkspaceRuntimeJson<BackgroundTaskListResponsePayload>(
+    payload.workspaceId,
+    {
+      method: "GET",
+      path: "/api/v1/background-tasks",
+      params: {
+        workspace_id: payload.workspaceId,
+        owner_main_session_id: payload.ownerMainSessionId ?? undefined,
+        statuses:
+          payload.statuses && payload.statuses.length > 0
+            ? payload.statuses.join(",")
+            : undefined,
+        limit: payload.limit ?? 200,
+      },
     },
-  });
+  );
 }
 
 async function archiveBackgroundTask(
@@ -9451,14 +9476,17 @@ async function archiveBackgroundTask(
   if (!payload.subagentId.trim()) {
     throw new Error("subagentId is required");
   }
-  return requestRuntimeJson<ArchiveBackgroundTaskResponsePayload>({
-    method: "POST",
-    path: `/api/v1/background-tasks/${encodeURIComponent(payload.subagentId)}/archive`,
-    payload: {
-      workspace_id: payload.workspaceId,
-      owner_main_session_id: payload.ownerMainSessionId ?? undefined,
+  return requestWorkspaceRuntimeJson<ArchiveBackgroundTaskResponsePayload>(
+    payload.workspaceId,
+    {
+      method: "POST",
+      path: `/api/v1/background-tasks/${encodeURIComponent(payload.subagentId)}/archive`,
+      payload: {
+        workspace_id: payload.workspaceId,
+        owner_main_session_id: payload.ownerMainSessionId ?? undefined,
+      },
     },
-  });
+  );
 }
 
 async function listMemoryUpdateProposals(
@@ -9467,7 +9495,21 @@ async function listMemoryUpdateProposals(
   if (!payload.workspaceId.trim()) {
     return { proposals: [], count: 0 };
   }
-  return runtimeClient.memory.listUpdateProposals(payload);
+  return requestWorkspaceRuntimeJson<MemoryUpdateProposalListResponsePayload>(
+    payload.workspaceId,
+    {
+      method: "GET",
+      path: "/api/v1/memory-update-proposals",
+      params: {
+        workspace_id: payload.workspaceId,
+        session_id: payload.sessionId ?? undefined,
+        input_id: payload.inputId ?? undefined,
+        state: payload.state ?? undefined,
+        limit: payload.limit ?? 200,
+        offset: payload.offset ?? 0,
+      },
+    },
+  );
 }
 
 function secondsSinceIso(value: string | null): number | null {
@@ -9485,22 +9527,55 @@ function secondsSinceIso(value: string | null): number | null {
 async function acceptTaskProposal(
   payload: TaskProposalAcceptPayload,
 ): Promise<TaskProposalAcceptResponsePayload> {
-  return runtimeClient.taskProposals.accept(
-    payload,
-  ) as unknown as Promise<TaskProposalAcceptResponsePayload>;
+  return requestWorkspaceRuntimeJson<TaskProposalAcceptResponsePayload>(
+    payload.workspace_id,
+    {
+      method: "POST",
+      path: `/api/v1/task-proposals/${encodeURIComponent(payload.proposal_id)}/accept`,
+      payload: {
+        workspace_id: payload.workspace_id,
+        task_name: payload.task_name,
+        task_prompt: payload.task_prompt,
+        session_id: payload.session_id,
+        parent_session_id: payload.parent_session_id,
+        created_by: payload.created_by,
+        priority: payload.priority ?? 0,
+        model: payload.model ?? null,
+      },
+    },
+  );
 }
 
 async function acceptMemoryUpdateProposal(
   payload: MemoryUpdateProposalAcceptPayload,
 ): Promise<MemoryUpdateProposalAcceptResponsePayload> {
-  return runtimeClient.memory.acceptUpdateProposal(payload);
+  return requestWorkspaceRuntimeJson<MemoryUpdateProposalAcceptResponsePayload>(
+    payload.workspaceId,
+    {
+      method: "POST",
+      path: `/api/v1/memory-update-proposals/${encodeURIComponent(payload.proposalId)}/accept`,
+      payload: {
+        workspace_id: payload.workspaceId,
+        summary: payload.summary ?? undefined,
+      },
+    },
+  );
 }
 
 async function dismissMemoryUpdateProposal(
   workspaceId: string,
   proposalId: string,
 ): Promise<MemoryUpdateProposalDismissResponsePayload> {
-  return runtimeClient.memory.dismissUpdateProposal(workspaceId, proposalId);
+  return requestWorkspaceRuntimeJson<MemoryUpdateProposalDismissResponsePayload>(
+    workspaceId,
+    {
+      method: "POST",
+      path: `/api/v1/memory-update-proposals/${encodeURIComponent(proposalId)}/dismiss`,
+      payload: {
+        workspace_id: workspaceId,
+      },
+    },
+  );
 }
 
 async function getProactiveStatus(
@@ -9702,20 +9777,37 @@ async function listCronjobs(
   workspaceId: string,
   enabledOnly = false,
 ): Promise<CronjobListResponsePayload> {
-  return runtimeClient.cronjobs.list(workspaceId, enabledOnly);
+  return requestWorkspaceRuntimeJson<CronjobListResponsePayload>(workspaceId, {
+    method: "GET",
+    path: "/api/v1/cronjobs",
+    params: {
+      workspace_id: workspaceId,
+      enabled_only: enabledOnly,
+    },
+  });
 }
 
 async function runCronjobNow(
   workspaceId: string,
   jobId: string,
 ): Promise<CronjobRunResponsePayload> {
-  return runtimeClient.cronjobs.runNow(workspaceId, jobId);
+  return requestWorkspaceRuntimeJson<CronjobRunResponsePayload>(workspaceId, {
+    method: "POST",
+    path: `/api/v1/cronjobs/${encodeURIComponent(jobId)}/run`,
+    params: {
+      workspace_id: workspaceId,
+    },
+  });
 }
 
 async function createCronjob(
   payload: CronjobCreatePayload,
 ): Promise<CronjobRecordPayload> {
-  return runtimeClient.cronjobs.create(payload);
+  return requestWorkspaceRuntimeJson<CronjobRecordPayload>(payload.workspace_id, {
+    method: "POST",
+    path: "/api/v1/cronjobs",
+    payload,
+  });
 }
 
 async function updateCronjob(
@@ -9723,14 +9815,27 @@ async function updateCronjob(
   jobId: string,
   payload: CronjobUpdatePayload,
 ): Promise<CronjobRecordPayload> {
-  return runtimeClient.cronjobs.update(workspaceId, jobId, payload);
+  return requestWorkspaceRuntimeJson<CronjobRecordPayload>(workspaceId, {
+    method: "PATCH",
+    path: `/api/v1/cronjobs/${encodeURIComponent(jobId)}`,
+    payload: {
+      workspace_id: workspaceId,
+      ...payload,
+    },
+  });
 }
 
 async function deleteCronjob(
   workspaceId: string,
   jobId: string,
 ): Promise<{ success: boolean }> {
-  return runtimeClient.cronjobs.delete(workspaceId, jobId);
+  return requestWorkspaceRuntimeJson<{ success: boolean }>(workspaceId, {
+    method: "DELETE",
+    path: `/api/v1/cronjobs/${encodeURIComponent(jobId)}`,
+    params: {
+      workspace_id: workspaceId,
+    },
+  });
 }
 
 const runtimeNotificationListCache = new Map<
@@ -9775,8 +9880,23 @@ async function listNotifications(
     options,
   );
   try {
-    const response =
-      await requestRuntimeJson<RuntimeNotificationListResponsePayload>({
+    const response = workspaceId?.trim()
+      ? await requestWorkspaceRuntimeJson<RuntimeNotificationListResponsePayload>(
+          workspaceId,
+          {
+            method: "GET",
+            path: "/api/v1/notifications",
+            params: {
+              workspace_id: workspaceId,
+              include_dismissed: includeDismissed,
+              include_cronjob_source:
+                options?.includeCronjobSource === true ? true : undefined,
+              source_type: options?.sourceType ?? undefined,
+              limit: 50,
+            },
+          },
+        )
+      : await requestRuntimeJson<RuntimeNotificationListResponsePayload>({
         method: "GET",
         path: "/api/v1/notifications",
         params: {
@@ -9806,10 +9926,16 @@ async function updateNotification(
   notificationId: string,
   payload: RuntimeNotificationUpdatePayload,
 ): Promise<RuntimeNotificationRecordPayload> {
-  const response = await runtimeClient.notifications.update(
+  const response = await requestWorkspaceRuntimeJson<RuntimeNotificationRecordPayload>(
     workspaceId,
-    notificationId,
-    payload,
+    {
+      method: "PATCH",
+      path: `/api/v1/notifications/${encodeURIComponent(notificationId)}`,
+      payload: {
+        workspace_id: workspaceId,
+        ...payload,
+      },
+    },
   );
   runtimeNotificationListCache.clear();
   return response;
@@ -9823,13 +9949,22 @@ async function listIntegrationConnections(params?: {
   providerId?: string;
   ownerUserId?: string;
 }): Promise<IntegrationConnectionListResponsePayload> {
-  return runtimeClient.integrations.listConnections(params);
+  return localIntegrationMetadataStore.listConnections(params);
 }
 
 async function listIntegrationBindings(
   workspaceId: string,
 ): Promise<IntegrationBindingListResponsePayload> {
-  return runtimeClient.integrations.listBindings(workspaceId);
+  return requestWorkspaceRuntimeJson<IntegrationBindingListResponsePayload>(
+    workspaceId,
+    {
+      method: "GET",
+      path: "/api/v1/integrations/bindings",
+      params: {
+        workspace_id: workspaceId,
+      },
+    },
+  );
 }
 
 async function upsertIntegrationBinding(
@@ -9839,12 +9974,13 @@ async function upsertIntegrationBinding(
   integrationKey: string,
   payload: IntegrationUpsertBindingPayload,
 ): Promise<IntegrationBindingPayload> {
-  return runtimeClient.integrations.upsertBinding(
+  return requestWorkspaceRuntimeJson<IntegrationBindingPayload>(
     workspaceId,
-    targetType,
-    targetId,
-    integrationKey,
-    payload,
+    {
+      method: "PUT",
+      path: `/api/v1/integrations/bindings/${encodeURIComponent(workspaceId)}/${encodeURIComponent(targetType)}/${encodeURIComponent(targetId)}/${encodeURIComponent(integrationKey)}`,
+      payload,
+    },
   );
 }
 
@@ -9852,53 +9988,59 @@ async function deleteIntegrationBinding(
   bindingId: string,
   workspaceId: string,
 ): Promise<{ deleted: boolean }> {
-  return runtimeClient.integrations.deleteBinding(bindingId, workspaceId);
+  return requestWorkspaceRuntimeJson<{ deleted: boolean }>(workspaceId, {
+    method: "DELETE",
+    path: `/api/v1/integrations/bindings/${encodeURIComponent(bindingId)}`,
+    params: {
+      workspace_id: workspaceId,
+    },
+  });
 }
 
 async function createIntegrationConnection(
   payload: IntegrationCreateConnectionPayload,
 ): Promise<IntegrationConnectionPayload> {
-  return runtimeClient.integrations.createConnection(payload);
+  return localIntegrationMetadataStore.createConnection(payload);
 }
 
 async function updateIntegrationConnection(
   connectionId: string,
   payload: IntegrationUpdateConnectionPayload,
 ): Promise<IntegrationConnectionPayload> {
-  return runtimeClient.integrations.updateConnection(connectionId, payload);
+  return localIntegrationMetadataStore.updateConnection(connectionId, payload);
 }
 
 async function deleteIntegrationConnection(
   connectionId: string,
 ): Promise<{ deleted: boolean }> {
-  return runtimeClient.integrations.deleteConnection(connectionId);
+  return localIntegrationMetadataStore.deleteConnection(connectionId);
 }
 
 async function mergeIntegrationConnections(
   keepConnectionId: string,
   removeConnectionIds: string[],
 ): Promise<IntegrationMergeConnectionsResult> {
-  return runtimeClient.integrations.mergeConnections(
+  return localIntegrationMetadataStore.mergeConnections(
     keepConnectionId,
     removeConnectionIds,
   );
 }
 
 async function listOAuthConfigs(): Promise<OAuthAppConfigListResponsePayload> {
-  return runtimeClient.integrations.listOAuthConfigs();
+  return localIntegrationMetadataStore.listOAuthConfigs();
 }
 
 async function upsertOAuthConfig(
   providerId: string,
   payload: OAuthAppConfigUpsertPayload,
 ): Promise<OAuthAppConfigPayload> {
-  return runtimeClient.integrations.upsertOAuthConfig(providerId, payload);
+  return localIntegrationMetadataStore.upsertOAuthConfig(providerId, payload);
 }
 
 async function deleteOAuthConfig(
   providerId: string,
 ): Promise<{ deleted: boolean }> {
-  return runtimeClient.integrations.deleteOAuthConfig(providerId);
+  return localIntegrationMetadataStore.deleteOAuthConfig(providerId);
 }
 
 async function startOAuthFlow(
@@ -11053,7 +11195,17 @@ async function updateTaskProposalState(
   proposalId: string,
   state: string,
 ): Promise<TaskProposalStateUpdatePayload> {
-  return runtimeClient.taskProposals.updateState(workspaceId, proposalId, state);
+  return requestWorkspaceRuntimeJson<TaskProposalStateUpdatePayload>(
+    workspaceId,
+    {
+      method: "PATCH",
+      path: `/api/v1/task-proposals/${encodeURIComponent(proposalId)}`,
+      payload: {
+        workspace_id: workspaceId,
+        state,
+      },
+    },
+  );
 }
 
 const LOCAL_TEMPLATE_IGNORE_NAMES = new Set([
@@ -12091,13 +12243,32 @@ function withWorkspaceLifecycleLocation(
   };
 }
 
+function resolveLocalWorkspaceRootPath(rawWorkspaceRoot: string): string {
+  const normalizedPath = path.resolve(rawWorkspaceRoot);
+  if (!path.isAbsolute(normalizedPath)) {
+    throw new Error("Local workspace root must be an absolute path.");
+  }
+  return normalizedPath;
+}
+
+function localWorkspaceRootFromSession(
+  session: WorkspaceRuntimeSessionPayload,
+): string {
+  if (session.location !== "local") {
+    throw new Error(
+      `Workspace ${session.workspace_id} is not available on the local filesystem.`,
+    );
+  }
+  return resolveLocalWorkspaceRootPath(session.workspace_root);
+}
+
 function cacheWorkspaceRuntimeSession(
   session: WorkspaceRuntimeSessionPayload,
 ): WorkspaceRuntimeSessionPayload {
   const normalized: WorkspaceRuntimeSessionPayload = {
     ...session,
     workspace_id: assertSafeWorkspaceId(session.workspace_id),
-    workspace_root: path.resolve(session.workspace_root),
+    workspace_root: localWorkspaceRootFromSession(session),
   };
   workspaceRuntimeSessionCache.set(normalized.workspace_id, normalized);
   return normalized;
@@ -12128,7 +12299,9 @@ async function buildWorkspaceRuntimeSession(
     location: localWorkspaceLocation(),
     runtime_base_url: status.url ?? runtimeBaseUrl(),
     runtime_auth_token: null,
-    workspace_root: path.resolve(await resolveWorkspaceDir(safeWorkspaceId)),
+    workspace_root: resolveLocalWorkspaceRootPath(
+      await resolveWorkspaceDir(safeWorkspaceId),
+    ),
   };
 }
 
@@ -12146,6 +12319,14 @@ async function resolveWorkspaceRuntimeSession(
   return cacheWorkspaceRuntimeSession(
     await buildWorkspaceRuntimeSession(safeWorkspaceId),
   );
+}
+
+async function resolveLocalWorkspaceRoot(
+  workspaceId: string,
+  options: { refresh?: boolean } = {},
+): Promise<string> {
+  const session = await resolveWorkspaceRuntimeSession(workspaceId, options);
+  return localWorkspaceRootFromSession(session);
 }
 
 async function requestWorkspaceRuntimeJson<T>(
@@ -12915,7 +13096,7 @@ function staticCatalogMeta(appId: string) {
 async function listAppCatalog(params: {
   source?: "marketplace" | "local";
 }): Promise<AppCatalogListResponse> {
-  return runtimeClient.apps.listCatalog({ source: params.source });
+  return localAppCatalogStore.listCatalog({ source: params.source });
 }
 
 async function syncAppCatalog(params: {
@@ -12946,7 +13127,7 @@ async function syncAppCatalog(params: {
         archive_path: null,
       });
     }
-    return runtimeClient.apps.syncCatalog({
+    return localAppCatalogStore.syncCatalog({
       source: "marketplace",
       target,
       entries,
@@ -12968,7 +13149,7 @@ async function syncAppCatalog(params: {
       archive_path: row.filePath,
     };
   });
-  return runtimeClient.apps.syncCatalog({
+  return localAppCatalogStore.syncCatalog({
     source: "local",
     target,
     entries,
@@ -13026,11 +13207,19 @@ async function installAppFromCatalog(params: {
   });
 
   try {
-    const resp = await runtimeClient.apps.installArchive({
-      workspace_id: params.workspaceId,
-      app_id: params.appId,
-      archive_path: archivePath,
-    });
+    const resp = await requestWorkspaceRuntimeJson<InstallAppFromCatalogResponse>(
+      params.workspaceId,
+      {
+        method: "POST",
+        path: "/api/v1/apps/install-archive",
+        payload: {
+          workspace_id: params.workspaceId,
+          app_id: params.appId,
+          archive_path: archivePath,
+        },
+        timeoutMs: 300_000,
+      },
+    );
     return resp;
   } finally {
     if (cleanupTempFile) {
@@ -13179,11 +13368,19 @@ async function installAppFromArchiveFile(params: {
   try {
     // SDK's installArchive defaults timeoutMs to 300_000 — equivalent to the
     // upstream change in main. Keeping the typed-method form.
-    return await runtimeClient.apps.installArchive({
-      workspace_id: workspaceId,
-      app_id: appId,
-      archive_path: stagedPath,
-    });
+    return await requestWorkspaceRuntimeJson<InstallAppFromCatalogResponse>(
+      workspaceId,
+      {
+        method: "POST",
+        path: "/api/v1/apps/install-archive",
+        payload: {
+          workspace_id: workspaceId,
+          app_id: appId,
+          archive_path: stagedPath,
+        },
+        timeoutMs: 300_000,
+      },
+    );
   } finally {
     await cleanup();
   }
@@ -13492,17 +13689,24 @@ async function listOutputs(
 ): Promise<WorkspaceOutputListResponsePayload> {
   const requestPayload =
     typeof payload === "string" ? { workspaceId: payload } : payload;
-  return runtimeClient.outputs.list({
-    workspaceId: requestPayload.workspaceId,
-    outputType: requestPayload.outputType,
-    status: requestPayload.status,
-    platform: requestPayload.platform,
-    folderId: requestPayload.folderId,
-    sessionId: requestPayload.sessionId,
-    inputId: requestPayload.inputId,
-    limit: requestPayload.limit,
-    offset: requestPayload.offset,
-  });
+  return requestWorkspaceRuntimeJson<WorkspaceOutputListResponsePayload>(
+    requestPayload.workspaceId,
+    {
+      method: "GET",
+      path: "/api/v1/outputs",
+      params: {
+        workspace_id: requestPayload.workspaceId,
+        output_type: requestPayload.outputType ?? undefined,
+        status: requestPayload.status ?? undefined,
+        platform: requestPayload.platform ?? undefined,
+        folder_id: requestPayload.folderId ?? undefined,
+        session_id: requestPayload.sessionId ?? undefined,
+        input_id: requestPayload.inputId ?? undefined,
+        limit: requestPayload.limit ?? 50,
+        offset: requestPayload.offset ?? 0,
+      },
+    },
+  );
 }
 
 function normalizeWorkspaceSkillId(value: unknown): string | null {
@@ -14051,12 +14255,19 @@ async function createWorkspace(
 
     if (onboardingSessionId) {
       try {
-        await runtimeClient.sessions.queueInput({
-          workspace_id: workspaceId,
-          session_id: onboardingSessionId,
-          text: "Start workspace onboarding now. Use ONBOARD.md as the guide and ask the first onboarding question only.",
-          priority: 0,
-        });
+        await requestWorkspaceRuntimeJson<EnqueueSessionInputResponsePayload>(
+          workspaceId,
+          {
+            method: "POST",
+            path: "/api/v1/agent-sessions/queue",
+            payload: {
+              workspace_id: workspaceId,
+              session_id: onboardingSessionId,
+              text: "Start workspace onboarding now. Use ONBOARD.md as the guide and ask the first onboarding question only.",
+              priority: 0,
+            },
+          },
+        );
       } catch (error) {
         updated = await runtimeClient.workspaces
           .update(workspaceId, {
@@ -14223,11 +14434,18 @@ async function listRuntimeStates(
   workspaceId: string,
 ): Promise<SessionRuntimeStateListResponsePayload> {
   try {
-    const response = await runtimeClient.sessions.listRuntimeStates({
-      workspaceId,
-      limit: 100,
-      offset: 0,
-    });
+    const response =
+      await requestWorkspaceRuntimeJson<SessionRuntimeStateListResponsePayload>(
+        workspaceId,
+        {
+          method: "GET",
+          path: `/api/v1/agent-sessions/by-workspace/${encodeURIComponent(workspaceId)}/runtime-states`,
+          params: {
+            limit: 100,
+            offset: 0,
+          },
+        },
+      );
     const items = cacheRuntimeStateRecords(workspaceId, response.items ?? []);
     return {
       ...response,
@@ -14283,12 +14501,19 @@ async function listAgentSessions(
     return { items: [], count: 0 };
   }
   try {
-    const response = await runtimeClient.sessions.list({
-      workspaceId: requestPayload.workspaceId,
-      includeArchived: requestPayload.includeArchived,
-      limit: requestPayload.limit,
-      offset: requestPayload.offset,
-    });
+    const response = await requestWorkspaceRuntimeJson<AgentSessionListResponsePayload>(
+      requestPayload.workspaceId,
+      {
+        method: "GET",
+        path: "/api/v1/agent-sessions",
+        params: {
+          workspace_id: requestPayload.workspaceId,
+          include_archived: requestPayload.includeArchived,
+          limit: requestPayload.limit,
+          offset: requestPayload.offset,
+        },
+      },
+    );
     const items = cacheAgentSessionRecords(
       requestPayload.workspaceId,
       response.items ?? [],
@@ -14316,10 +14541,14 @@ async function listAgentSessions(
 async function ensureWorkspaceMainSession(
   workspaceId: string,
 ): Promise<EnsureWorkspaceMainSessionResponsePayload> {
-  const response = await requestRuntimeJson<EnsureWorkspaceMainSessionResponsePayload>({
-    method: "POST",
-    path: `/api/v1/workspaces/${workspaceId}/ensure-main-session`,
-  });
+  const response =
+    await requestWorkspaceRuntimeJson<EnsureWorkspaceMainSessionResponsePayload>(
+      workspaceId,
+      {
+        method: "POST",
+        path: `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/ensure-main-session`,
+      },
+    );
   if (response.session) {
     upsertCachedAgentSessionRecord(response.session);
   }
@@ -14329,14 +14558,22 @@ async function ensureWorkspaceMainSession(
 async function createAgentSession(
   payload: CreateAgentSessionPayload,
 ): Promise<CreateAgentSessionResponsePayload> {
-  const response = await runtimeClient.sessions.create({
-    workspace_id: payload.workspace_id,
-    session_id: payload.session_id ?? undefined,
-    kind: payload.kind ?? undefined,
-    title: payload.title ?? undefined,
-    parent_session_id: payload.parent_session_id ?? undefined,
-    created_by: payload.created_by ?? undefined,
-  });
+  const response =
+    await requestWorkspaceRuntimeJson<CreateAgentSessionResponsePayload>(
+      payload.workspace_id,
+      {
+        method: "POST",
+        path: "/api/v1/agent-sessions",
+        payload: {
+          workspace_id: payload.workspace_id,
+          session_id: payload.session_id ?? undefined,
+          kind: payload.kind ?? undefined,
+          title: payload.title ?? undefined,
+          parent_session_id: payload.parent_session_id ?? undefined,
+          created_by: payload.created_by ?? undefined,
+        },
+      },
+    );
   if (response.session) {
     upsertCachedAgentSessionRecord(response.session);
   }
@@ -14381,13 +14618,19 @@ async function getSessionHistory(
   payload: SessionHistoryRequestPayload,
 ): Promise<SessionHistoryResponsePayload> {
   try {
-    return await runtimeClient.sessions.getHistory({
-      sessionId: payload.sessionId,
-      workspaceId: payload.workspaceId,
-      limit: payload.limit,
-      offset: payload.offset,
-      order: payload.order,
-    });
+    return await requestWorkspaceRuntimeJson<SessionHistoryResponsePayload>(
+      payload.workspaceId,
+      {
+        method: "GET",
+        path: `/api/v1/agent-sessions/${encodeURIComponent(payload.sessionId)}/history`,
+        params: {
+          workspace_id: payload.workspaceId,
+          limit: payload.limit ?? 200,
+          offset: payload.offset ?? 0,
+          order: payload.order ?? "asc",
+        },
+      },
+    );
   } catch (error) {
     if (
       isMissingSessionBindingError(error) ||
@@ -14406,11 +14649,20 @@ async function getSessionHistory(
 async function getSessionOutputEvents(
   payload: SessionOutputEventListRequestPayload,
 ): Promise<SessionOutputEventListResponsePayload> {
-  return runtimeClient.sessions.getOutputEvents({
-    workspaceId: payload.workspaceId,
-    sessionId: payload.sessionId,
-    inputId: payload.inputId,
-  });
+  return requestWorkspaceRuntimeJson<SessionOutputEventListResponsePayload>(
+    payload.workspaceId,
+    {
+      method: "GET",
+      path: `/api/v1/agent-sessions/${encodeURIComponent(payload.sessionId)}/outputs/events`,
+      params: {
+        workspace_id: payload.workspaceId,
+        input_id: payload.inputId ?? undefined,
+        include_history: true,
+        after_event_id: 0,
+        include_native: false,
+      },
+    },
+  );
 }
 
 function normalizeErrorMessage(error: unknown) {
@@ -14431,19 +14683,24 @@ async function queueSessionInput(
   }
   const idempotencyKey =
     payload.idempotency_key?.trim() || `desktop-session-input:${randomUUID()}`;
-  const response = await runtimeClient.sessions.queueInput(
+  const response = await requestWorkspaceRuntimeJson<EnqueueSessionInputResponsePayload>(
+    payload.workspace_id,
     {
-      workspace_id: payload.workspace_id,
-      text: payload.text,
-      image_urls: payload.image_urls,
-      attachments: payload.attachments ?? null,
-      session_id: payload.session_id,
-      idempotency_key: idempotencyKey,
-      priority: payload.priority ?? 0,
-      model: payload.model,
-      thinking_value: payload.thinking_value ?? null,
+      method: "POST",
+      path: "/api/v1/agent-sessions/queue",
+      payload: {
+        workspace_id: payload.workspace_id,
+        text: payload.text,
+        image_urls: payload.image_urls,
+        attachments: payload.attachments ?? null,
+        session_id: payload.session_id,
+        idempotency_key: idempotencyKey,
+        priority: payload.priority ?? 0,
+        model: payload.model,
+        thinking_value: payload.thinking_value ?? null,
+      },
+      retryTransientErrors: true,
     },
-    { retryTransientErrors: true },
   );
   const runtimeStatus = response.runtime_status?.trim() || response.status || "QUEUED";
   const effectiveState =
@@ -14472,9 +14729,16 @@ async function queueSessionInput(
 async function pauseSessionRun(
   payload: HolabossPauseSessionRunPayload,
 ): Promise<PauseSessionRunResponsePayload> {
-  const response = await runtimeClient.sessions.pause(payload.session_id, {
-    workspace_id: payload.workspace_id,
-  });
+  const response = await requestWorkspaceRuntimeJson<PauseSessionRunResponsePayload>(
+    payload.workspace_id,
+    {
+      method: "POST",
+      path: `/api/v1/agent-sessions/${encodeURIComponent(payload.session_id)}/pause`,
+      payload: {
+        workspace_id: payload.workspace_id,
+      },
+    },
+  );
   upsertCachedRuntimeStateRecord({
     workspace_id: payload.workspace_id,
     session_id: response.session_id || payload.session_id,
@@ -14499,12 +14763,15 @@ async function pauseSessionRun(
 async function updateQueuedSessionInput(
   payload: HolabossUpdateQueuedSessionInputPayload,
 ): Promise<UpdateQueuedSessionInputResponsePayload> {
-  return runtimeClient.sessions.updateQueuedInput(
-    payload.session_id,
-    payload.input_id,
+  return requestWorkspaceRuntimeJson<UpdateQueuedSessionInputResponsePayload>(
+    payload.workspace_id,
     {
-      workspace_id: payload.workspace_id,
-      text: payload.text,
+      method: "PATCH",
+      path: `/api/v1/agent-sessions/${encodeURIComponent(payload.session_id)}/inputs/${encodeURIComponent(payload.input_id)}`,
+      payload: {
+        workspace_id: payload.workspace_id,
+        text: payload.text,
+      },
     },
   );
 }
@@ -18331,10 +18598,7 @@ async function resolveWorkspaceScopedExplorerPath(
     };
   }
 
-  const workspaceSession = await resolveWorkspaceRuntimeSession(
-    normalizedWorkspaceId,
-  );
-  const workspaceRoot = path.resolve(workspaceSession.workspace_root);
+  const workspaceRoot = await resolveLocalWorkspaceRoot(normalizedWorkspaceId);
   const resolvedTargetPath = trimmedTargetPath
     ? path.resolve(
         path.isAbsolute(trimmedTargetPath)
@@ -21510,7 +21774,7 @@ app.whenReady().then(async () => {
     "workspace:getWorkspaceRoot",
     ["main"],
     async (_event, workspaceId: string) =>
-      (await resolveWorkspaceRuntimeSession(workspaceId)).workspace_root,
+      resolveLocalWorkspaceRoot(workspaceId),
   );
   handleTrustedIpc(
     "workspace:setOperatorSurfaceContext",
