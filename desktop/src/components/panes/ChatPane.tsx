@@ -11209,19 +11209,19 @@ function Composer({
         <div className="pointer-events-none absolute left-3 right-3 top-4 z-20 -translate-y-[calc(100%+2px)]">
           <div
             ref={slashCommandMenuRef}
-            className="pointer-events-auto overflow-hidden rounded-3xl border border-border bg-popover shadow-2xl ring-1 ring-border"
+            className="pointer-events-auto overflow-hidden rounded-xl border border-border bg-popover shadow-md"
           >
             {filteredSlashCommands.length > 0 ? (
-              <div className="max-h-[280px] overflow-y-auto py-1.5">
+              <div className="max-h-[280px] overflow-y-auto p-1">
                 {filteredSlashCommands.map((command, index) => (
                   <button
                     key={command.key}
                     type="button"
                     onClick={() => applySlashCommand(command)}
-                    className={`flex w-full items-start gap-3 px-4 py-2.5 text-left text-xs transition-colors ${
+                    className={`flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
                       index === highlightedSlashIndex
-                        ? "bg-accent text-accent-foreground"
-                        : "hover:bg-accent/50"
+                        ? "bg-fg-8 text-foreground"
+                        : "hover:bg-fg-4"
                     }`}
                   >
                     <Sparkles className="size-3.5 mt-0.5 shrink-0 text-primary" />
@@ -11234,8 +11234,10 @@ function Composer({
                 ))}
               </div>
             ) : (
-              <div className="px-4 py-4 text-xs text-muted-foreground">
-                No slash commands match.
+              <div className="px-3 py-3 text-xs text-muted-foreground">
+                {slashCommands.length === 0
+                  ? "No skills in this workspace yet — add one to create slash commands."
+                  : "No skills match."}
               </div>
             )}
           </div>
