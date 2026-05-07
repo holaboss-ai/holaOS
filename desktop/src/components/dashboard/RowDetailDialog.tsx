@@ -48,7 +48,7 @@ export function RowDetailDialog({
             "outline-none",
           )}
         >
-          <header className="flex items-start gap-3 border-b border-border/70 px-5 py-4">
+          <header className="flex items-start gap-3 border-b border-border px-5 py-4">
             <div className="min-w-0 flex-1">
               <DialogPrimitive.Title className="truncate text-sm font-semibold text-foreground">
                 {title || "Details"}
@@ -124,7 +124,7 @@ function DetailValue({
       <img
         src={value}
         alt=""
-        className="size-16 rounded-md border border-border/60 object-cover"
+        className="size-16 rounded-md border border-border object-cover"
       />
     );
   }

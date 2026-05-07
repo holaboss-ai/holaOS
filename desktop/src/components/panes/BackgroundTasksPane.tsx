@@ -430,8 +430,8 @@ export function BackgroundTasksPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-border/60 px-4 py-3 sm:px-5">
-        <div className="rounded-xl border border-border/60 bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
+      <div className="shrink-0 border-b border-border px-4 py-3 sm:px-5">
+        <div className="rounded-xl border border-border bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
           Read-only view for workspace background work. Use the main session to
           cancel, retry, or answer blockers.
         </div>
@@ -445,7 +445,7 @@ export function BackgroundTasksPane({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
         {tasks.length === 0 ? (
-          <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-border/70 bg-muted/20 px-6 text-center text-sm text-muted-foreground">
+          <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-border bg-muted/20 px-6 text-center text-sm text-muted-foreground">
             No background tasks yet.
           </div>
         ) : (
@@ -473,7 +473,7 @@ export function BackgroundTasksPane({
               return (
                 <div
                   key={task.subagent_id}
-                  className="flex items-center gap-2 rounded-2xl border border-border/70 bg-card/95 px-4 py-3 shadow-subtle-xs"
+                  className="flex items-center gap-2 rounded-2xl border border-border bg-card/95 px-4 py-3 shadow-subtle-xs"
                 >
                   {canOpenTaskSession ? (
                     <button

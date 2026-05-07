@@ -7,13 +7,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { StatusDot } from "@/components/ui/status-dot";
 
 interface RuntimeStatusIndicatorProps {
   status: RuntimeStatusPayload | null;
 }
 
 interface StatusVisual {
-  dotClass: string;
+  /** StatusDot variant + pulse — driven by runtime state. */
+  dotVariant: "success" | "destructive" | "warning" | "muted";
+  dotPulse: boolean;
   label: string;
   /** One-line plain-English description shown in the popover body. */
   description: string;
@@ -25,28 +28,32 @@ function runtimeStatusVisual(status: RuntimeStatus | undefined): StatusVisual {
   switch (status) {
     case "running":
       return {
-        dotClass: "bg-success",
+        dotVariant: "success",
+        dotPulse: false,
         label: "Runtime running",
         description: "Everything's running smoothly.",
         recoverable: false,
       };
     case "starting":
       return {
-        dotClass: "animate-pulse bg-warning",
+        dotVariant: "warning",
+        dotPulse: true,
         label: "Runtime starting",
         description: "Just a moment — the local runtime is coming online.",
         recoverable: false,
       };
     case "error":
       return {
-        dotClass: "bg-destructive",
+        dotVariant: "destructive",
+        dotPulse: false,
         label: "Runtime error",
         description: "Holaboss couldn't reach the local runtime.",
         recoverable: true,
       };
     case "missing":
       return {
-        dotClass: "bg-destructive",
+        dotVariant: "destructive",
+        dotPulse: false,
         label: "Runtime missing",
         description:
           "Some files Holaboss needs aren't in place. Try restarting; reinstall if it keeps failing.",
@@ -54,21 +61,24 @@ function runtimeStatusVisual(status: RuntimeStatus | undefined): StatusVisual {
       };
     case "stopped":
       return {
-        dotClass: "bg-muted-foreground",
+        dotVariant: "muted",
+        dotPulse: false,
         label: "Runtime stopped",
         description: "The local runtime isn't running right now.",
         recoverable: true,
       };
     case "disabled":
       return {
-        dotClass: "bg-muted-foreground",
+        dotVariant: "muted",
+        dotPulse: false,
         label: "Runtime disabled",
         description: "Local runtime is turned off in your settings.",
         recoverable: false,
       };
     default:
       return {
-        dotClass: "bg-muted-foreground",
+        dotVariant: "muted",
+        dotPulse: false,
         label: "Runtime unknown",
         description: "Runtime state isn't reporting yet.",
         recoverable: false,
@@ -119,15 +129,16 @@ export function RuntimeStatusIndicator({
         render={
           <Button
             aria-label={visual.label}
-            className="relative inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border/55 bg-foreground/6 px-2 text-xs tracking-tight transition"
+            className="relative inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border bg-fg-6 px-2 text-xs tracking-tight transition"
             size="icon-sm"
             type="button"
             variant="outline"
           >
             <Server className="size-3.5" strokeWidth={1.8} />
-            <span
-              aria-hidden="true"
-              className={`absolute -right-0.5 -top-0.5 size-1.5 rounded-full ring-2 ring-background ${visual.dotClass}`}
+            <StatusDot
+              variant={visual.dotVariant}
+              pulse={visual.dotPulse}
+              className="absolute -right-0.5 -top-0.5 ring-2 ring-background"
             />
           </Button>
         }
@@ -140,9 +151,10 @@ export function RuntimeStatusIndicator({
       >
         <div className="space-y-2 px-3.5 pt-3.5 pb-3">
           <div className="flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className={`size-2 shrink-0 rounded-full ${visual.dotClass}`}
+            <StatusDot
+              variant={visual.dotVariant}
+              pulse={visual.dotPulse}
+              size="md"
             />
             <span className="text-sm font-medium text-foreground">
               {visual.label}
@@ -174,7 +186,7 @@ export function RuntimeStatusIndicator({
 
         {detail || techRows.length > 0 ? (
           <details
-            className="group border-t border-border/40 px-3.5 py-2.5"
+            className="group border-t border-border px-3.5 py-2.5"
             open={detailsDefaultOpen}
           >
             <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground [&::-webkit-details-marker]:hidden">

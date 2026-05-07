@@ -457,7 +457,7 @@ function PanelDispatch({
     return <ChartPanel panel={panel} state={state.state} />;
   }
   return (
-    <div className="rounded-md border border-dashed border-border/70 bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
+    <div className="rounded-md border border-dashed border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
       Unsupported panel state.
     </div>
   );

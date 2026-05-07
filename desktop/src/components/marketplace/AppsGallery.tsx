@@ -312,7 +312,7 @@ export function AppsGallery() {
             role="dialog"
             aria-modal="true"
             aria-label="Connect account"
-            className="relative z-10 w-[min(440px,calc(100vw-32px))] rounded-2xl border border-border/55 bg-background p-5 shadow-2xl"
+            className="relative z-10 w-[min(440px,calc(100vw-32px))] rounded-2xl border border-border bg-background p-5 shadow-2xl"
           >
             <p className="text-base font-semibold text-foreground">
               Connect{" "}

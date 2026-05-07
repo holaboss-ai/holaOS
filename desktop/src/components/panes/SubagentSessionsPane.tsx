@@ -288,7 +288,7 @@ export function SubagentSessionsPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-border/60 px-4 py-3 sm:px-5">
+      <div className="shrink-0 border-b border-border px-4 py-3 sm:px-5">
         <div className="flex flex-wrap items-center gap-2">
           {(
             [
@@ -317,7 +317,7 @@ export function SubagentSessionsPane({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
         {filteredSessions.length === 0 ? (
-          <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-border/70 bg-muted/20 px-6 text-center text-sm text-muted-foreground">
+          <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-border bg-muted/20 px-6 text-center text-sm text-muted-foreground">
             No matching sessions yet.
           </div>
         ) : (
@@ -332,7 +332,7 @@ export function SubagentSessionsPane({
                 key={session.session_id}
                 type="button"
                 onClick={() => onOpenSession?.(session)}
-                className="flex w-full min-w-0 items-start gap-2 rounded-2xl border border-border/70 bg-card/95 px-4 py-3 text-left shadow-subtle-xs transition hover:border-primary/40 hover:text-primary"
+                className="flex w-full min-w-0 items-start gap-2 rounded-2xl border border-border bg-card/95 px-4 py-3 text-left shadow-subtle-xs transition hover:border-primary/40 hover:text-primary"
               >
                 <span className="mt-0.5 grid size-4 shrink-0 place-items-center text-muted-foreground">
                   {inspectableRunSessionCategory(session) === "task_proposal" ? (

@@ -1220,7 +1220,7 @@ function WorkspaceBootstrapPane() {
         <div className="relative flex h-16 w-16 items-center justify-center">
           <div
             aria-hidden="true"
-            className="absolute inset-0 rounded-[22px] blur-2xl"
+            className="absolute inset-0 rounded-2xl blur-2xl"
             style={{
               background:
                 "radial-gradient(circle, color-mix(in srgb, var(--primary) 55%, transparent), transparent 70%)",

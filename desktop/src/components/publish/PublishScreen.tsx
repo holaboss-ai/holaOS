@@ -20,6 +20,7 @@ import { AppIcon } from "@/components/marketplace/AppIcon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatusDot } from "@/components/ui/status-dot";
 import {
   Select,
   SelectContent,
@@ -468,7 +469,7 @@ export function PublishScreen({
           <span>{selectedWorkspace?.name ?? "Workspace"}</span>
           {savedAt !== null && (
             <span className="ml-1 inline-flex items-center gap-1 rounded-md bg-fg-4 px-1.5 py-0.5 text-xs">
-              <span className="size-1.5 rounded-full bg-success" />
+              <StatusDot variant="success" />
               Saved {formatRelative(Date.now() - savedAt)}
             </span>
           )}

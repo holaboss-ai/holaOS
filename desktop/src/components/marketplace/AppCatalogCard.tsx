@@ -138,7 +138,7 @@ export function AppCatalogCard({
             }}
           >
             <SelectTrigger
-              className="mr-auto h-7 min-w-[140px] gap-1.5 border-border/55 bg-transparent px-2 text-xs [&>svg]:size-3 [&>svg]:shrink-0"
+              className="mr-auto h-7 min-w-[140px] gap-1.5 border-border bg-transparent px-2 text-xs [&>svg]:size-3 [&>svg]:shrink-0"
               size="sm"
               aria-label="Choose account"
               title={activeLabel}

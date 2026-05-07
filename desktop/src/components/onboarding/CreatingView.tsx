@@ -1,5 +1,6 @@
 import { Check, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { StatusDot } from "@/components/ui/status-dot";
 import { cn } from "@/lib/utils";
 
 interface CreatingViewProps {
@@ -148,7 +149,7 @@ export function CreatingView({
                     ) : isActive ? (
                       <Loader2 className="size-3.5 animate-spin" />
                     ) : (
-                      <span className="size-1.5 rounded-full bg-fg-24" />
+                      <StatusDot variant="neutral" />
                     )}
                   </div>
                   <div className="min-w-0 flex-1">

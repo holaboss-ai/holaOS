@@ -694,7 +694,7 @@ export function SettingsDialog({
                             <span className="flex items-center gap-2">
                               <span
                                 aria-hidden="true"
-                                className="size-3 shrink-0 rounded-[4px] border border-border"
+                                className="size-3 shrink-0 rounded-sm border border-border"
                                 style={{ background: swatch }}
                               />
                               {THEME_VARIANT_LABELS[variant]}

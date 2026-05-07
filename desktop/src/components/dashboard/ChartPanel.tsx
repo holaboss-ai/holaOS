@@ -84,7 +84,7 @@ function useSeriesPalette(): string[] {
 export function ChartPanel({ panel, state }: ChartPanelProps) {
   return (
     <section className="overflow-hidden rounded-xl bg-card shadow-md smooth-corners">
-      <header className="border-b border-border/70 bg-fg-2 px-4 py-3">
+      <header className="border-b border-border bg-fg-2 px-4 py-3">
         <h3 className="truncate text-sm font-semibold tracking-tight text-foreground">
           {panel.title}
         </h3>

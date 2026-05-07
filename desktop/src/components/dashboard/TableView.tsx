@@ -210,7 +210,7 @@ export function TableView({
                 return (
                   <th
                     key={c.name}
-                    className={`group/th relative border-b border-border/70 px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground first:pl-1 last:pr-1 ${alignClass(c.align)}`}
+                    className={`group/th relative border-b border-border px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground first:pl-1 last:pr-1 ${alignClass(c.align)}`}
                   >
                     <button
                       type="button"
@@ -265,7 +265,7 @@ export function TableView({
                   }
                   setSelectedRow(rowObj);
                 }}
-                className="cursor-pointer border-b border-border/40 transition-colors hover:bg-fg-4 last:border-b-0"
+                className="cursor-pointer border-b border-border transition-colors hover:bg-fg-4 last:border-b-0"
               >
                 {visible.map((c) => (
                   <Cell key={c.name} column={c} value={row[c.index]} row={rowObj} />
@@ -458,7 +458,7 @@ function Cell({
         <img
           src={value}
           alt=""
-          className="h-8 w-8 shrink-0 rounded-md border border-border/60 object-cover"
+          className="h-8 w-8 shrink-0 rounded-md border border-border object-cover"
         />
       </td>
     );

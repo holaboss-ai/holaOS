@@ -1072,7 +1072,7 @@ export function BrowserPane({
 
             {!activeTab.initialized ? (
               <div className="absolute inset-0 grid place-items-center bg-card p-6 text-center">
-                <div className="pointer-events-none w-full max-w-[320px] rounded-[24px] border border-border bg-card px-5 py-5 shadow-subtle-sm backdrop-blur">
+                <div className="pointer-events-none w-full max-w-[320px] rounded-3xl border border-border bg-card px-5 py-5 shadow-subtle-sm backdrop-blur">
                   <div className="mt-4 text-base font-medium text-foreground">
                     Starting{" "}
                     {visibleBrowserSpace === "agent" ? "agent" : "user"} browser

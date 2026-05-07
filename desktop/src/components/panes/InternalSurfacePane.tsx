@@ -550,7 +550,7 @@ export function InternalSurfacePane({
               title="Output preview"
               sandbox=""
               srcDoc={htmlContent}
-              className="min-h-[60vh] w-full rounded-[18px] border border-border bg-white"
+              className="min-h-[60vh] w-full rounded-2xl border border-border bg-white"
             />
           </div>
         );
@@ -953,7 +953,7 @@ function EmptyState({
 }) {
   return (
     <div
-      className={`flex h-full items-center justify-center rounded-[20px] border px-6 py-8 text-center ${
+      className={`flex h-full items-center justify-center rounded-2xl border px-6 py-8 text-center ${
         tone === "error"
           ? "border-warning/24 bg-warning/8"
           : "border-border bg-black/10"

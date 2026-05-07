@@ -83,7 +83,7 @@ export function UpdateReminder({
   const shouldShowBackgroundAction = !status.downloaded && !hasError;
 
   return (
-    <div className="pointer-events-auto overflow-hidden rounded-[24px] border border-border bg-popover/95 shadow-2xl ring-1 ring-border backdrop-blur-xl animate-in fade-in-0 slide-in-from-top-2">
+    <div className="pointer-events-auto overflow-hidden rounded-3xl border border-border bg-popover/95 shadow-2xl ring-1 ring-border backdrop-blur-xl animate-in fade-in-0 slide-in-from-top-2">
       <div className="flex items-start gap-3 px-3.5 py-3">
         <div
           className={cn(

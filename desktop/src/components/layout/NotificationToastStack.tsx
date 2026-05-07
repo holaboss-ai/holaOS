@@ -140,7 +140,7 @@ export function NotificationToastStack({
               <div
                 key={notification.id}
                 className={cn(
-                  "overflow-hidden rounded-[24px] border border-border bg-popover/95 ring-1 ring-border backdrop-blur-xl animate-in fade-in-0 slide-in-from-top-2 transition-[margin,transform,opacity,max-height] duration-200 ease-out",
+                  "overflow-hidden rounded-3xl border border-border bg-popover/95 ring-1 ring-border backdrop-blur-xl animate-in fade-in-0 slide-in-from-top-2 transition-[margin,transform,opacity,max-height] duration-200 ease-out",
                   isCollapsedBackgroundToast
                     ? "pointer-events-none shadow-lg"
                     : "shadow-2xl",

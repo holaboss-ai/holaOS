@@ -373,7 +373,7 @@ export function BrowserProfileImportButton({
       <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
         <DialogPrimitive.Portal>
           <DialogPrimitive.Backdrop className="fixed inset-0 z-[120] bg-scrim backdrop-blur-sm data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 duration-200" />
-          <DialogPrimitive.Popup className="fixed top-1/2 left-1/2 z-[121] flex max-h-[min(780px,calc(100vh-32px))] w-[min(720px,calc(100vw-32px))] min-w-0 -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[28px] border border-border bg-background shadow-subtle-sm outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.97] data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[0.98] duration-200 ease-out">
+          <DialogPrimitive.Popup className="fixed top-1/2 left-1/2 z-[121] flex max-h-[min(780px,calc(100vh-32px))] w-[min(720px,calc(100vw-32px))] min-w-0 -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-3xl border border-border bg-background shadow-subtle-sm outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.97] data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[0.98] duration-200 ease-out">
             <header className="flex items-start justify-between gap-4 border-b border-border px-6 py-5">
               <div className="min-w-0">
                 <DialogPrimitive.Title className="text-[20px] font-semibold text-foreground">
@@ -615,7 +615,7 @@ export function BrowserProfileImportButton({
                       ? "border-destructive/25 bg-destructive/5 text-destructive"
                       : statusTone === "success"
                         ? "border-emerald-500/20 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
-                        : "border-border/60 bg-muted/30 text-foreground",
+                        : "border-border bg-muted/30 text-foreground",
                   )}
                 >
                   <p>{statusMessage}</p>

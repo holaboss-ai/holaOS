@@ -1,6 +1,7 @@
 import { AppWindow, Plus } from "lucide-react";
 import { AppIcon } from "@/components/marketplace/AppIcon";
 import { Button } from "@/components/ui/button";
+import { StatusDot } from "@/components/ui/status-dot";
 import type { WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
 import { resolveAppDisplay, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 
@@ -23,11 +24,8 @@ function appStatusTone(app: WorkspaceInstalledAppDefinition): AppStatusTone {
   return "loading";
 }
 
-function statusPipClass(tone: AppStatusTone): string {
-  if (tone === "error") {
-    return "bg-destructive";
-  }
-  return "bg-info animate-pulse";
+function statusPipVariant(tone: AppStatusTone): "destructive" | "info" {
+  return tone === "error" ? "destructive" : "info";
 }
 
 function statusPipLabel(tone: AppStatusTone): string {
@@ -110,10 +108,10 @@ export function SpaceApplicationsExplorerPane({
                     {label}
                   </span>
                   {showStatus ? (
-                    <span
-                      aria-hidden="true"
+                    <StatusDot
+                      variant={statusPipVariant(tone)}
+                      pulse={tone !== "error"}
                       title={statusPipLabel(tone)}
-                      className={`size-1.5 shrink-0 rounded-full ${statusPipClass(tone)}`}
                     />
                   ) : null}
                 </Button>
@@ -124,7 +122,7 @@ export function SpaceApplicationsExplorerPane({
 
         {isEmpty ? (
           <div className="mt-6 flex flex-col items-center justify-center gap-2.5 px-4 py-8 text-center">
-            <div className="grid size-8 place-items-center rounded-[10px] bg-muted text-muted-foreground">
+            <div className="grid size-8 place-items-center rounded-lg bg-muted text-muted-foreground">
               <AppWindow className="size-3.5" />
             </div>
             <div className="text-xs leading-5 text-muted-foreground">

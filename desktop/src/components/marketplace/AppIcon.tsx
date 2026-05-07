@@ -61,13 +61,13 @@ export function AppIcon({
       ? "grid size-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted/40"
       : size === "toolbar"
         ? "grid size-7 shrink-0 place-items-center overflow-hidden rounded-md border border-border bg-muted"
-        : "grid size-4 shrink-0 place-items-center overflow-hidden rounded-[4px]";
+        : "grid size-4 shrink-0 place-items-center overflow-hidden rounded-sm";
   const letterClass =
     size === "card"
       ? "grid size-9 shrink-0 place-items-center rounded-lg bg-muted/40 text-sm font-semibold uppercase text-muted-foreground"
       : size === "toolbar"
         ? "grid size-7 shrink-0 place-items-center rounded-md border border-border bg-muted text-[10px] font-semibold uppercase text-muted-foreground"
-        : "grid size-4 shrink-0 place-items-center rounded-[4px] bg-muted text-[9px] font-semibold uppercase text-muted-foreground";
+        : "grid size-4 shrink-0 place-items-center rounded-sm bg-muted text-[9px] font-semibold uppercase text-muted-foreground";
   const imgClass =
     size === "card"
       ? "size-6 object-contain"

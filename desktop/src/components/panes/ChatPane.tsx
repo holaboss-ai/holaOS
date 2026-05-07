@@ -67,6 +67,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { StatusDot } from "@/components/ui/status-dot";
 import { PaneCard } from "@/components/ui/PaneCard";
 import { BackgroundTasksPane } from "@/components/panes/BackgroundTasksPane";
 import {
@@ -8247,7 +8248,11 @@ function ChatHeader({
             >
               <Inbox className="size-4" />
               {inboxUnreadCount > 0 ? (
-                <span className="absolute right-1.5 top-1.5 size-2 rounded-full border border-card bg-destructive" />
+                <StatusDot
+                  variant="destructive"
+                  size="md"
+                  className="absolute right-1.5 top-1.5 border border-card"
+                />
               ) : null}
             </TooltipTrigger>
             <TooltipContent side="bottom" className="py-1">
@@ -8476,7 +8481,7 @@ function UserTurnComponent({
                 onClick={() => {
                   void handleCopy();
                 }}
-                className="size-6 rounded-lg text-muted-foreground hover:bg-foreground/6 hover:text-foreground"
+                className="size-6 rounded-lg text-muted-foreground hover:bg-fg-6 hover:text-foreground"
               >
                 {copyFeedbackVisible ? (
                   <Check className="size-3.5" strokeWidth={1.9} />
@@ -8620,7 +8625,7 @@ function QueuedSessionInputRail({
                               onClick={() => {
                                 void saveEditingItem(item);
                               }}
-                              className="size-7 rounded-full text-muted-foreground hover:bg-foreground/6 hover:text-foreground"
+                              className="size-7 rounded-full text-muted-foreground hover:bg-fg-6 hover:text-foreground"
                               aria-label="Save queued message edit"
                             >
                               {isSaving ? (
@@ -8635,7 +8640,7 @@ function QueuedSessionInputRail({
                               size="icon-xs"
                               disabled={isSaving}
                               onClick={cancelEditing}
-                              className="size-7 rounded-full text-muted-foreground hover:bg-foreground/6 hover:text-foreground"
+                              className="size-7 rounded-full text-muted-foreground hover:bg-fg-6 hover:text-foreground"
                               aria-label="Cancel queued message edit"
                             >
                               <X className="size-3.5" />
@@ -8663,7 +8668,7 @@ function QueuedSessionInputRail({
                                 setEditingDraft(previewText);
                                 setEditingError("");
                               }}
-                              className="size-7 rounded-full text-muted-foreground hover:bg-foreground/6 hover:text-foreground"
+                              className="size-7 rounded-full text-muted-foreground hover:bg-fg-6 hover:text-foreground"
                               aria-label="Edit queued message"
                             >
                               <PencilLine className="size-3.5" />
@@ -8753,7 +8758,7 @@ function AssistantTurnActionsMenu({
         render={
           <Button
             aria-label="Turn actions"
-            className="size-6 rounded-lg text-muted-foreground hover:bg-foreground/6 hover:text-foreground"
+            className="size-6 rounded-lg text-muted-foreground hover:bg-fg-6 hover:text-foreground"
             size="icon-xs"
             type="button"
             variant="ghost"
@@ -9705,7 +9710,7 @@ export function ArtifactBrowserModal({
       : "absolute inset-0 z-30 flex items-center justify-center bg-black/40 px-6 py-8 backdrop-blur-[2px]";
   const panelClassName =
     layout === "card"
-      ? "flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-border bg-background shadow-xl"
+      ? "flex h-full w-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
       : "flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl";
 
   return (
