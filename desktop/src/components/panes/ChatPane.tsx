@@ -718,6 +718,57 @@ function removeSlashCommandText(
   };
 }
 
+/** Mirrors `findActiveSlashCommandRange` for the `@`-mention trigger.
+ *  Treated as a separate path so the two pickers can fire at different
+ *  carets and against different item lists without one swallowing the
+ *  other. The matched character set is wider than slash (allows `.`)
+ *  so handles like `agent.work` resolve. */
+function findActiveMentionRange(
+  value: string,
+  caretIndex: number,
+): { start: number; end: number; query: string } | null {
+  if (caretIndex < 0 || caretIndex > value.length) {
+    return null;
+  }
+  const prefix = value.slice(0, caretIndex);
+  const whitespaceBoundary = Math.max(
+    prefix.lastIndexOf(" "),
+    prefix.lastIndexOf("\n"),
+    prefix.lastIndexOf("\t"),
+  );
+  const start = whitespaceBoundary + 1;
+  const rawToken = prefix.slice(start);
+  if (!rawToken.startsWith("@") || rawToken.length === 0) {
+    return null;
+  }
+  if (!/^@[A-Za-z0-9_.\-]*$/.test(rawToken)) {
+    return null;
+  }
+  return {
+    start,
+    end: caretIndex,
+    query: rawToken.slice(1).toLowerCase(),
+  };
+}
+
+function replaceMentionText(
+  value: string,
+  range: { start: number; end: number },
+  insertion: string,
+): { value: string; caretIndex: number } {
+  const before = value.slice(0, range.start);
+  const after = value.slice(range.end);
+  // Trailing space follows the inserted handle so the user can keep
+  // typing without manually adding one. Mirrors what most chat apps
+  // do after a successful mention selection.
+  const trailing = after.startsWith(" ") || after.length === 0 ? "" : " ";
+  const nextValue = `${before}${insertion}${trailing}${after}`;
+  return {
+    value: nextValue,
+    caretIndex: before.length + insertion.length + trailing.length,
+  };
+}
+
 function displayModelLabel(model: string) {
   const trimmed = model.trim();
   if (!trimmed) {
