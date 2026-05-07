@@ -1521,6 +1521,8 @@ const DESKTOP_RUNTIME_BINDING_EXCHANGE_PATH =
   "/api/v1/desktop-runtime/bindings/exchange";
 const DESKTOP_RUNTIME_MODEL_CATALOG_PATH =
   "/api/v1/desktop-runtime/model-catalog";
+const DESKTOP_RUNTIME_WORKSPACES_PATH =
+  "/api/v1/desktop-runtime/workspaces";
 const LOCAL_RUNTIME_SCHEMA_VERSION = 1;
 const RUNTIME_BINDING_REFRESH_INTERVAL_MS = 3 * 60 * 1000;
 const RUNTIME_BINDING_REFRESH_FAILURE_BACKOFF_MS = 60 * 1000;
@@ -3370,6 +3372,7 @@ interface WorkspaceSkillListResponsePayload {
 
 interface HolabossCreateWorkspacePayload {
   holaboss_user_id: string;
+  location?: WorkspaceLocationPayload | null;
   harness?: string | null;
   name: string;
   template_mode?: "template" | "empty" | "empty_onboarding" | null;
@@ -3946,7 +3949,7 @@ function resolveDiagnosticsWorkspace(
     ) ?? null;
   if (!workspace) {
     try {
-      workspace = getWorkspaceRecord(normalizedWorkspaceId);
+      workspace = getLocalWorkspaceRecord(normalizedWorkspaceId);
     } catch {
       workspace = null;
     }
@@ -9137,6 +9140,59 @@ async function requestControlPlaneJson<T>({
   }
 }
 
+async function requestDesktopControlPlaneJson<T>({
+  method,
+  path: requestPath,
+  payload,
+  params,
+}: {
+  method: "GET" | "POST";
+  path: string;
+  payload?: unknown;
+  params?: Record<string, string | number | boolean | null | undefined>;
+}): Promise<T> {
+  const url = new URL(`${requireControlPlaneBaseUrl()}${requestPath}`);
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+    url.searchParams.set(key, String(value));
+  }
+
+  const executeRequest = async () => {
+    return fetchWithNetworkRetry(url.toString(), {
+      method,
+      headers: await controlPlaneHeaders("projects"),
+      body: payload === undefined ? undefined : JSON.stringify(payload),
+    });
+  };
+
+  let response = await executeRequest();
+  if (response.status === 401) {
+    response = await retryAfterSessionAuth(response, executeRequest);
+  }
+  if (!response.ok) {
+    throw new Error(await readControlPlaneError(response));
+  }
+  if (response.status === 204) {
+    return null as T;
+  }
+
+  const text = await response.text();
+  if (!text.trim()) {
+    throw new Error(
+      `Empty response from desktop control plane ${method} ${requestPath} (status ${response.status})`,
+    );
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(
+      `Invalid JSON from desktop control plane ${method} ${requestPath} (status ${response.status}): ${text.slice(0, 200)}`,
+    );
+  }
+}
+
 async function ingestWorkspaceHeartbeat(params: {
   workspaceId: string;
   actorId: string;
@@ -9606,7 +9662,7 @@ async function getProactiveStatus(
 
   let proposalCount = 0;
   let heartbeat = fallbackHeartbeat;
-  const workspacePath = getWorkspaceRecord(normalizedWorkspaceId)?.workspace_path?.trim() || "";
+  const workspacePath = getLocalWorkspaceRecord(normalizedWorkspaceId)?.workspace_path?.trim() || "";
   const workspaceRuntimeDbPath = workspacePath
     ? path.join(workspacePath, ".holaboss", "state", "runtime.db")
     : "";
@@ -12189,9 +12245,14 @@ const workspaceRuntimeSessionCache = new Map<
   string,
   WorkspaceRuntimeSessionPayload
 >();
+const cloudWorkspaceRecordCache = new Map<string, WorkspaceRecordPayload>();
 
 function localWorkspaceLocation(): WorkspaceLocationPayload {
   return "local";
+}
+
+function cloudWorkspaceLocation(): WorkspaceLocationPayload {
+  return "cloud";
 }
 
 function withWorkspaceLocation(
@@ -12207,6 +12268,22 @@ function withWorkspaceLocation(
   return {
     ...workspace,
     location: localWorkspaceLocation(),
+  };
+}
+
+function withCloudWorkspaceLocation(
+  workspace:
+    | Omit<WorkspaceRecordPayload, "location">
+    | WorkspaceRecordPayload
+    | null
+    | undefined,
+): WorkspaceRecordPayload | null {
+  if (!workspace) {
+    return null;
+  }
+  return {
+    ...workspace,
+    location: cloudWorkspaceLocation(),
   };
 }
 
@@ -12243,6 +12320,41 @@ function withWorkspaceLifecycleLocation(
   };
 }
 
+function withCloudWorkspaceResponseLocation(
+  response: Omit<WorkspaceResponsePayload, "workspace"> & {
+    workspace: Omit<WorkspaceRecordPayload, "location"> | WorkspaceRecordPayload;
+  },
+): WorkspaceResponsePayload {
+  return {
+    ...response,
+    workspace: withCloudWorkspaceLocation(response.workspace)!,
+  };
+}
+
+function withCloudWorkspaceListLocation(
+  response: Omit<WorkspaceListResponsePayload, "items"> & {
+    items: Array<Omit<WorkspaceRecordPayload, "location"> | WorkspaceRecordPayload>;
+  },
+): WorkspaceListResponsePayload {
+  return {
+    ...response,
+    items: response.items
+      .map((item) => withCloudWorkspaceLocation(item))
+      .filter((item): item is WorkspaceRecordPayload => item !== null),
+  };
+}
+
+function withCloudWorkspaceLifecycleLocation(
+  lifecycle: Omit<WorkspaceLifecyclePayload, "workspace"> & {
+    workspace: Omit<WorkspaceRecordPayload, "location"> | WorkspaceRecordPayload;
+  },
+): WorkspaceLifecyclePayload {
+  return {
+    ...lifecycle,
+    workspace: withCloudWorkspaceLocation(lifecycle.workspace)!,
+  };
+}
+
 function resolveLocalWorkspaceRootPath(rawWorkspaceRoot: string): string {
   const normalizedPath = path.resolve(rawWorkspaceRoot);
   if (!path.isAbsolute(normalizedPath)) {
@@ -12261,14 +12373,30 @@ function localWorkspaceRootFromSession(
   }
   return resolveLocalWorkspaceRootPath(session.workspace_root);
 }
+
+function normalizeWorkspaceRuntimeSession(
+  session: WorkspaceRuntimeSessionPayload,
+): WorkspaceRuntimeSessionPayload {
+  const location = session.location === "cloud"
+    ? cloudWorkspaceLocation()
+    : localWorkspaceLocation();
+  const workspaceRoot = location === "local"
+    ? localWorkspaceRootFromSession(session)
+    : (session.workspace_root || "").trim() || "/workspace";
+  return {
+    ...session,
+    location,
+    workspace_id: assertSafeWorkspaceId(session.workspace_id),
+    runtime_base_url: trimTrailingSlash(session.runtime_base_url.trim()),
+    runtime_auth_token: (session.runtime_auth_token ?? "").trim() || null,
+    workspace_root: workspaceRoot,
+  };
+}
+
 function cacheWorkspaceRuntimeSession(
   session: WorkspaceRuntimeSessionPayload,
 ): WorkspaceRuntimeSessionPayload {
-  const normalized: WorkspaceRuntimeSessionPayload = {
-    ...session,
-    workspace_id: assertSafeWorkspaceId(session.workspace_id),
-    workspace_root: localWorkspaceRootFromSession(session),
-  };
+  const normalized = normalizeWorkspaceRuntimeSession(session);
   workspaceRuntimeSessionCache.set(normalized.workspace_id, normalized);
   return normalized;
 }
@@ -12292,6 +12420,17 @@ async function buildWorkspaceRuntimeSession(
   workspaceId: string,
 ): Promise<WorkspaceRuntimeSessionPayload> {
   const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
+  const location = await resolveWorkspaceLocation(safeWorkspaceId);
+  if (location === "cloud") {
+    const session = await fetchCloudWorkspaceOpenSession(safeWorkspaceId);
+    return {
+      workspace_id: session.workspace_id,
+      location: session.location,
+      runtime_base_url: session.runtime_base_url,
+      runtime_auth_token: session.runtime_auth_token,
+      workspace_root: session.workspace_root,
+    };
+  }
   const status = await ensureRuntimeReady();
   return {
     workspace_id: safeWorkspaceId,
@@ -12984,15 +13123,183 @@ const localWorkspaceRegistry = createLocalWorkspaceRegistry({
   location: localWorkspaceLocation(),
 });
 
-function getWorkspaceRecord(
+function getLocalWorkspaceRecord(
   workspaceId: string,
 ): WorkspaceRecordPayload | null {
   return localWorkspaceRegistry.getWorkspaceRecord(workspaceId);
 }
 
+function emptyWorkspaceListResponse(
+  limit = 100,
+): WorkspaceListResponsePayload {
+  return {
+    items: [],
+    total: 0,
+    limit,
+    offset: 0,
+  };
+}
+
+function workspaceSortTimestamp(
+  workspace: Pick<WorkspaceRecordPayload, "updated_at" | "created_at">,
+): number {
+  const updatedAt = Date.parse(workspace.updated_at ?? "");
+  if (Number.isFinite(updatedAt)) {
+    return updatedAt;
+  }
+  const createdAt = Date.parse(workspace.created_at ?? "");
+  return Number.isFinite(createdAt) ? createdAt : 0;
+}
+
+function sortWorkspaces(
+  left: WorkspaceRecordPayload,
+  right: WorkspaceRecordPayload,
+): number {
+  const timestampDelta =
+    workspaceSortTimestamp(right) - workspaceSortTimestamp(left);
+  if (timestampDelta !== 0) {
+    return timestampDelta;
+  }
+  return left.name.localeCompare(right.name, undefined, {
+    sensitivity: "base",
+  });
+}
+
+function mergeWorkspaceListResponses(
+  ...responses: WorkspaceListResponsePayload[]
+): WorkspaceListResponsePayload {
+  const itemsById = new Map<string, WorkspaceRecordPayload>();
+  for (const response of responses) {
+    for (const item of response.items) {
+      itemsById.set(item.id, item);
+    }
+  }
+  const items = [...itemsById.values()].sort(sortWorkspaces);
+  return {
+    items,
+    total: items.length,
+    limit: items.length > 0
+      ? Math.max(...responses.map((response) => response.limit), items.length)
+      : Math.max(100, ...responses.map((response) => response.limit)),
+    offset: 0,
+  };
+}
+
+function rememberCloudWorkspaceRecord(
+  workspace: WorkspaceRecordPayload,
+): WorkspaceRecordPayload {
+  const normalized = withCloudWorkspaceLocation(workspace)!;
+  cloudWorkspaceRecordCache.set(normalized.id, normalized);
+  return normalized;
+}
+
+function replaceCachedCloudWorkspaceRecords(
+  items: WorkspaceRecordPayload[],
+): WorkspaceListResponsePayload {
+  cloudWorkspaceRecordCache.clear();
+  for (const item of items) {
+    rememberCloudWorkspaceRecord(item);
+  }
+  const cachedItems = [...cloudWorkspaceRecordCache.values()].sort(sortWorkspaces);
+  return {
+    items: cachedItems,
+    total: cachedItems.length,
+    limit: 100,
+    offset: 0,
+  };
+}
+
+function cachedCloudWorkspaceRecord(
+  workspaceId: string,
+): WorkspaceRecordPayload | null {
+  return cloudWorkspaceRecordCache.get(workspaceId) ?? null;
+}
+
+function cachedCloudWorkspaceList(): WorkspaceListResponsePayload {
+  const items = [...cloudWorkspaceRecordCache.values()].sort(sortWorkspaces);
+  return {
+    items,
+    total: items.length,
+    limit: 100,
+    offset: 0,
+  };
+}
+
+function canUseCachedCloudWorkspaceList(): boolean {
+  return Boolean(DESKTOP_CONTROL_PLANE_BASE_URL)
+    && Boolean(AUTH_BASE_URL)
+    && Boolean(authCookieHeader());
+}
+
+async function canUseCloudWorkspaceControlPlane(): Promise<boolean> {
+  if (!DESKTOP_CONTROL_PLANE_BASE_URL || !AUTH_BASE_URL) {
+    return false;
+  }
+  if (!authCookieHeader()) {
+    return false;
+  }
+  const user = await getAuthenticatedUser().catch(() => null);
+  return Boolean(authUserId(user));
+}
+
+async function listCloudWorkspaces(): Promise<WorkspaceListResponsePayload> {
+  if (!(await canUseCloudWorkspaceControlPlane())) {
+    return emptyWorkspaceListResponse();
+  }
+  const response = await requestDesktopControlPlaneJson<WorkspaceListResponsePayload>({
+    method: "GET",
+    path: DESKTOP_RUNTIME_WORKSPACES_PATH,
+  });
+  const withLocation = withCloudWorkspaceListLocation(response);
+  return replaceCachedCloudWorkspaceRecords(withLocation.items);
+}
+
+async function listCachedCloudWorkspaces(): Promise<WorkspaceListResponsePayload> {
+  if (!canUseCachedCloudWorkspaceList()) {
+    return emptyWorkspaceListResponse();
+  }
+  return cachedCloudWorkspaceList();
+}
+
+async function resolveWorkspaceLocation(
+  workspaceId: string,
+): Promise<WorkspaceLocationPayload> {
+  const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
+  const cachedSession = workspaceRuntimeSessionCache.get(safeWorkspaceId);
+  if (cachedSession) {
+    return cachedSession.location;
+  }
+  if (getLocalWorkspaceRecord(safeWorkspaceId)) {
+    return localWorkspaceLocation();
+  }
+  if (cachedCloudWorkspaceRecord(safeWorkspaceId)) {
+    return cloudWorkspaceLocation();
+  }
+  if (await canUseCloudWorkspaceControlPlane()) {
+    try {
+      await fetchCloudWorkspaceLifecycle(safeWorkspaceId);
+      return cloudWorkspaceLocation();
+    } catch {
+      // Fall through to local.
+    }
+  }
+  return localWorkspaceLocation();
+}
+
 async function listWorkspaces(): Promise<WorkspaceListResponsePayload> {
-  // Desktop always uses local runtime for workspace CRUD.
-  return listWorkspacesViaRuntime();
+  const [localResponse, cloudResponse] = await Promise.all([
+    listLocalWorkspaces().catch(() => listWorkspacesFromLocalDb()),
+    listCloudWorkspaces().catch(() => emptyWorkspaceListResponse()),
+  ]);
+  return mergeWorkspaceListResponses(localResponse, cloudResponse);
+}
+
+async function listCachedWorkspaces(): Promise<WorkspaceListResponsePayload> {
+  const [localResponse, cloudResponse] = await Promise.all([
+    Promise.resolve(listWorkspacesFromLocalDb()),
+    listCachedCloudWorkspaces(),
+  ]);
+  return mergeWorkspaceListResponses(localResponse, cloudResponse);
 }
 
 /**
@@ -13008,6 +13315,10 @@ async function listWorkspaces(): Promise<WorkspaceListResponsePayload> {
  */
 function listWorkspacesFromLocalDb(): WorkspaceListResponsePayload {
   return localWorkspaceRegistry.listCachedWorkspaces();
+}
+
+async function listLocalWorkspaces(): Promise<WorkspaceListResponsePayload> {
+  return listWorkspacesViaRuntime();
 }
 
 async function listWorkspacesViaRuntime(): Promise<WorkspaceListResponsePayload> {
@@ -13624,20 +13935,13 @@ function workspaceLifecyclePhaseFromState(
   };
 }
 
-async function getWorkspaceLifecycle(
+async function getLocalWorkspaceLifecycle(
   workspaceId: string,
 ): Promise<WorkspaceLifecyclePayload> {
-  // Desktop always uses local runtime for workspace lifecycle.
   return getWorkspaceLifecycleViaRuntime(assertSafeWorkspaceId(workspaceId));
 }
 
-async function activateWorkspace(
-  workspaceId: string,
-): Promise<WorkspaceLifecyclePayload> {
-  return (await openWorkspace(workspaceId)).lifecycle;
-}
-
-async function openWorkspace(
+async function openLocalWorkspace(
   workspaceId: string,
 ): Promise<WorkspaceOpenSessionPayload> {
   const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
@@ -13657,11 +13961,100 @@ async function openWorkspace(
   };
 }
 
+async function fetchCloudWorkspaceLifecycle(
+  workspaceId: string,
+): Promise<WorkspaceLifecyclePayload> {
+  const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
+  const lifecycle = await requestDesktopControlPlaneJson<WorkspaceLifecyclePayload>(
+    {
+      method: "GET",
+      path: `${DESKTOP_RUNTIME_WORKSPACES_PATH}/${encodeURIComponent(safeWorkspaceId)}/lifecycle`,
+    },
+  );
+  const withLocation = withCloudWorkspaceLifecycleLocation(lifecycle);
+  rememberCloudWorkspaceRecord(withLocation.workspace);
+  return withLocation;
+}
+
+async function activateCloudWorkspaceRecord(
+  workspaceId: string,
+): Promise<WorkspaceResponsePayload> {
+  const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
+  const lifecycle = await requestDesktopControlPlaneJson<WorkspaceLifecyclePayload>(
+    {
+      method: "POST",
+      path: `${DESKTOP_RUNTIME_WORKSPACES_PATH}/${encodeURIComponent(safeWorkspaceId)}/activate`,
+    },
+  );
+  const withLocation = withCloudWorkspaceLifecycleLocation(lifecycle);
+  rememberCloudWorkspaceRecord(withLocation.workspace);
+  return { workspace: withLocation.workspace };
+}
+
+async function fetchCloudWorkspaceOpenSession(
+  workspaceId: string,
+): Promise<WorkspaceOpenSessionPayload> {
+  const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
+  const session = await requestDesktopControlPlaneJson<WorkspaceOpenSessionPayload>(
+    {
+      method: "POST",
+      path: `${DESKTOP_RUNTIME_WORKSPACES_PATH}/${encodeURIComponent(safeWorkspaceId)}/open`,
+    },
+  );
+  const lifecycle = withCloudWorkspaceLifecycleLocation(session.lifecycle);
+  rememberCloudWorkspaceRecord(lifecycle.workspace);
+  return {
+    ...session,
+    location: cloudWorkspaceLocation(),
+    lifecycle,
+  };
+}
+
+async function openCloudWorkspace(
+  workspaceId: string,
+): Promise<WorkspaceOpenSessionPayload> {
+  const session = await fetchCloudWorkspaceOpenSession(workspaceId);
+  cacheWorkspaceRuntimeSession({
+    workspace_id: session.workspace_id,
+    location: session.location,
+    runtime_base_url: session.runtime_base_url,
+    runtime_auth_token: session.runtime_auth_token,
+    workspace_root: session.workspace_root,
+  });
+  return session;
+}
+
+async function getWorkspaceLifecycle(
+  workspaceId: string,
+): Promise<WorkspaceLifecyclePayload> {
+  const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
+  const location = await resolveWorkspaceLocation(safeWorkspaceId);
+  return location === "cloud"
+    ? fetchCloudWorkspaceLifecycle(safeWorkspaceId)
+    : getLocalWorkspaceLifecycle(safeWorkspaceId);
+}
+
+async function activateWorkspace(
+  workspaceId: string,
+): Promise<WorkspaceLifecyclePayload> {
+  return (await openWorkspace(workspaceId)).lifecycle;
+}
+
+async function openWorkspace(
+  workspaceId: string,
+): Promise<WorkspaceOpenSessionPayload> {
+  const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
+  const location = await resolveWorkspaceLocation(safeWorkspaceId);
+  return location === "cloud"
+    ? openCloudWorkspace(safeWorkspaceId)
+    : openLocalWorkspace(safeWorkspaceId);
+}
+
 async function getWorkspaceLifecycleViaRuntime(
   workspaceId: string,
 ): Promise<WorkspaceLifecyclePayload> {
   const workspace =
-    getWorkspaceRecord(workspaceId) ??
+    getLocalWorkspaceRecord(workspaceId) ??
     (await listWorkspacesViaRuntime()).items.find(
       (item) => item.id === workspaceId,
     ) ??
@@ -13943,7 +14336,7 @@ function renderEmptyOnboardingGuide() {
   ].join("\n");
 }
 
-async function createWorkspace(
+async function createLocalWorkspace(
   payload: HolabossCreateWorkspacePayload,
 ): Promise<WorkspaceResponsePayload> {
   // Structured stage logs for workspace create/install debugging. These
@@ -14121,7 +14514,7 @@ async function createWorkspace(
         workspaceYamlExists = false;
       }
       if (!workspaceYamlExists) {
-        const current = getWorkspaceRecord(workspaceId);
+        const current = getLocalWorkspaceRecord(workspaceId);
         if (current) {
           await fs.writeFile(
             workspaceYamlPath,
@@ -14331,7 +14724,7 @@ async function createWorkspace(
   }
 }
 
-async function deleteWorkspace(
+async function deleteLocalWorkspace(
   workspaceId: string,
   keepFiles?: boolean,
 ): Promise<WorkspaceResponsePayload> {
@@ -14350,6 +14743,11 @@ async function relocateWorkspace(
   newPath: string,
 ): Promise<WorkspaceResponsePayload> {
   const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
+  if ((await resolveWorkspaceLocation(safeWorkspaceId)) !== "local") {
+    throw new Error(
+      "Remote workspaces do not have a host-local folder to relocate.",
+    );
+  }
   const response = await runtimeClient.workspaces.update(safeWorkspaceId, {
     workspace_path: newPath,
   });
@@ -14359,7 +14757,7 @@ async function relocateWorkspace(
   return withWorkspaceResponseLocation(response);
 }
 
-async function activateWorkspaceRecord(
+async function activateLocalWorkspaceRecord(
   workspaceId: string,
 ): Promise<WorkspaceResponsePayload> {
   const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
@@ -14368,20 +14766,100 @@ async function activateWorkspaceRecord(
   );
 }
 
-const localWorkspaceControlPlane = createLocalWorkspaceControlPlane({
+async function createCloudWorkspace(
+  payload: HolabossCreateWorkspacePayload,
+): Promise<WorkspaceResponsePayload> {
+  const templateName = payload.template_name?.trim() || "";
+  if (!templateName) {
+    throw new Error(
+      "Remote workspace creation currently requires a marketplace template.",
+    );
+  }
+  if ((payload.template_mode || "").trim().toLowerCase() === "empty") {
+    throw new Error("Remote empty-workspace creation is not supported yet.");
+  }
+  if (payload.template_root_path?.trim()) {
+    throw new Error("Remote workspaces cannot be created from a local template path.");
+  }
+  if (payload.workspace_path?.trim()) {
+    throw new Error("Remote workspaces cannot be pinned to a local filesystem path.");
+  }
+
+  const response = await requestDesktopControlPlaneJson<WorkspaceResponsePayload>(
+    {
+      method: "POST",
+      path: DESKTOP_RUNTIME_WORKSPACES_PATH,
+      payload: {
+        name: payload.name,
+        template_name: templateName,
+        template_ref: payload.template_ref?.trim() || undefined,
+        template_commit: payload.template_commit?.trim() || undefined,
+        selected_apps:
+          (payload.template_apps ?? []).filter(
+            (item) => typeof item === "string" && item.trim(),
+          ),
+      },
+    },
+  );
+  const withLocation = withCloudWorkspaceResponseLocation(response);
+  rememberCloudWorkspaceRecord(withLocation.workspace);
+  forgetWorkspaceRuntimeSession(withLocation.workspace.id);
+  return withLocation;
+}
+
+async function createWorkspace(
+  payload: HolabossCreateWorkspacePayload,
+): Promise<WorkspaceResponsePayload> {
+  return payload.location === "cloud"
+    ? createCloudWorkspace(payload)
+    : createLocalWorkspace(payload);
+}
+
+async function deleteWorkspace(
+  workspaceId: string,
+  keepFiles?: boolean,
+): Promise<WorkspaceResponsePayload> {
+  const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
+  const location = await resolveWorkspaceLocation(safeWorkspaceId);
+  if (location === "cloud") {
+    throw new Error("Remote workspace deletion is not supported yet.");
+  }
+  return deleteLocalWorkspace(safeWorkspaceId, keepFiles);
+}
+
+async function activateWorkspaceRecord(
+  workspaceId: string,
+): Promise<WorkspaceResponsePayload> {
+  const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
+  const location = await resolveWorkspaceLocation(safeWorkspaceId);
+  return location === "cloud"
+    ? activateCloudWorkspaceRecord(safeWorkspaceId)
+    : activateLocalWorkspaceRecord(safeWorkspaceId);
+}
+
+const workspaceRegistry = {
+  listCachedWorkspaces,
+};
+
+const desktopWorkspaceControlPlane = createLocalWorkspaceControlPlane({
   listWorkspaces,
-  workspaceRegistry: localWorkspaceRegistry,
+  workspaceRegistry,
   createWorkspace,
   deleteWorkspace,
   activateWorkspaceRecord,
   getWorkspaceLifecycle,
   openWorkspace,
-})
+});
 
 async function pickWorkspaceRelocationFolder(
   workspaceId: string,
 ): Promise<WorkspaceRuntimeFolderSelectionPayload> {
   const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
+  if ((await resolveWorkspaceLocation(safeWorkspaceId)) !== "local") {
+    throw new Error(
+      "Remote workspaces do not have a host-local folder to relocate.",
+    );
+  }
   const ownerWindow = mainWindow ?? BrowserWindow.getFocusedWindow() ?? null;
   const options: OpenDialogOptions = {
     properties: ["openDirectory", "createDirectory"],
@@ -21642,7 +22120,7 @@ app.whenReady().then(async () => {
     "workspace:activate",
     ["main"],
     async (_event, workspaceId: string) =>
-      localWorkspaceControlPlane.activateWorkspaceRecord(workspaceId),
+      desktopWorkspaceControlPlane.activateWorkspaceRecord(workspaceId),
   );
   handleTrustedIpc(
     "workspace:listImportBrowserProfiles",
@@ -21665,7 +22143,7 @@ app.whenReady().then(async () => {
   handleTrustedIpc(
     "workspace:listWorkspaces",
     ["main", "auth-popup"],
-    async () => localWorkspaceControlPlane.listWorkspaces(),
+    async () => desktopWorkspaceControlPlane.listWorkspaces(),
   );
   // Cached read straight from control-plane.db without going through the
   // sidecar — used by the splash to hydrate before the sidecar
@@ -21674,25 +22152,25 @@ app.whenReady().then(async () => {
   handleTrustedIpc(
     "workspace:listWorkspacesCached",
     ["main"],
-    async () => localWorkspaceControlPlane.listWorkspacesCached(),
+    async () => desktopWorkspaceControlPlane.listWorkspacesCached(),
   );
   handleTrustedIpc(
     "workspace:getWorkspaceLifecycle",
     ["main"],
     async (_event, workspaceId: string) =>
-      localWorkspaceControlPlane.getWorkspaceLifecycle(workspaceId),
+      desktopWorkspaceControlPlane.getWorkspaceLifecycle(workspaceId),
   );
   handleTrustedIpc(
     "workspace:activateWorkspace",
     ["main"],
     async (_event, workspaceId: string) =>
-      localWorkspaceControlPlane.activateWorkspace(workspaceId),
+      desktopWorkspaceControlPlane.activateWorkspace(workspaceId),
   );
   handleTrustedIpc(
     "workspace:openWorkspace",
     ["main"],
     async (_event, workspaceId: string) =>
-      localWorkspaceControlPlane.openWorkspace(workspaceId),
+      desktopWorkspaceControlPlane.openWorkspace(workspaceId),
   );
   handleTrustedIpc(
     "workspace:listInstalledApps",
@@ -21807,13 +22285,13 @@ app.whenReady().then(async () => {
     "workspace:createWorkspace",
     ["main"],
     async (_event, payload: HolabossCreateWorkspacePayload) =>
-      localWorkspaceControlPlane.createWorkspace(payload),
+      desktopWorkspaceControlPlane.createWorkspace(payload),
   );
   handleTrustedIpc(
     "workspace:deleteWorkspace",
     ["main"],
     async (_event, workspaceId: string, keepFiles?: boolean) =>
-      localWorkspaceControlPlane.deleteWorkspace(workspaceId, keepFiles),
+      desktopWorkspaceControlPlane.deleteWorkspace(workspaceId, keepFiles),
   );
   handleTrustedIpc(
     "workspace:listCronjobs",

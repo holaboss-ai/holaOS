@@ -61,7 +61,15 @@ test("workspace desktop hydrates workspace summaries from cached or live sources
   assert.match(source, /type WorkspaceListLoadSource = "auto" \| "live" \| "cached";/);
   assert.match(
     source,
-    /const workspaceListSource =\s*source === "auto"\s*\?\s*runtimeReadyForWorkspaceData\s*\?\s*"live"\s*:\s*"cached"\s*:\s*source;/,
+    /const canLoadLiveWorkspaceList = runtimeReadyForWorkspaceData \|\| isSignedIn;/,
+  );
+  assert.match(
+    source,
+    /const selectedWorkspaceNeedsLocalRuntime = selectedWorkspace\?\.location !== "cloud";/,
+  );
+  assert.match(
+    source,
+    /const workspaceListSource =\s*source === "auto"\s*\?\s*canLoadLiveWorkspaceList\s*\?\s*"live"\s*:\s*"cached"\s*:\s*source;/,
   );
   assert.match(
     source,
@@ -77,7 +85,7 @@ test("workspace desktop hydrates workspace summaries from cached or live sources
   );
   assert.match(
     source,
-    /const workspaceListSource =\s*runtimeReadyForWorkspaceData \? "live" : "cached";/,
+    /const workspaceListSource =\s*nextRuntimeStatus\.status === "running" \|\| isSignedIn \? "live" : "cached";/,
   );
   assert.match(
     source,
@@ -88,6 +96,10 @@ test("workspace desktop hydrates workspace summaries from cached or live sources
     /setHasHydratedWorkspaceList\(\s*\(current\) =>\s*current \|\| result\.source === "live" \|\| result\.resolvedCount > 0,\s*\);/,
   );
   assert.match(source, /await window\.electronAPI\.workspace\.listWorkspacesCached\(\);/);
+  assert.match(
+    source,
+    /if \(\s*!selectedWorkspaceId \|\|\s*!selectedWorkspaceExists \|\|\s*\(selectedWorkspaceNeedsLocalRuntime && !runtimeReadyForWorkspaceData\)\s*\) \{/,
+  );
 });
 
 test("workspace creation can copy an existing workspace browser profile or import from a browser", async () => {

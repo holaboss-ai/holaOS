@@ -1,0 +1,197 @@
+name: Publish Private Linux Runtime
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to release
+        required: true
+        default: main
+        type: string
+      release_tag:
+        description: GitHub release tag to create or update
+        required: true
+        type: string
+      release_title:
+        description: Optional GitHub release title (defaults to holaOS <version> Linux runtime)
+        required: false
+        type: string
+      prerelease:
+        description: Mark the GitHub release as a prerelease when first created
+        required: true
+        default: false
+        type: boolean
+      release_channel:
+        description: Runtime release channel consumed by sandbox-runtime
+        required: true
+        default: latest
+        type: choice
+        options:
+          - latest
+          - beta
+
+permissions:
+  contents: write
+
+env:
+  RUNTIME_RELEASE_REPO: ${{ github.repository }}
+  RUNTIME_ASSET_NAME: holaboss-runtime-linux-x64.tar.gz
+  RUNTIME_MANIFEST_NAME: holaboss-runtime-linux-x64.json
+  RUNTIME_CHECKSUM_ASSET_NAME: holaboss-runtime-linux-x64.tar.gz.sha256
+
+jobs:
+  publish-linux-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref }}
+
+      - name: Validate release metadata
+        id: release_meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_tag="${{ inputs.release_tag }}"
+          if ! printf '%s' "${release_tag}" | grep -Eq '^holaOS-[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "release_tag must match holaOS-YYYY.MDD.R; got ${release_tag}" >&2
+            exit 1
+          fi
+
+          release_version="${release_tag#holaOS-}"
+          release_title="${{ inputs.release_title }}"
+          if [ -z "${release_title}" ]; then
+            release_title="holaOS ${release_version} Linux runtime"
+          fi
+
+          release_channel="${{ inputs.release_channel }}"
+          if [ "${release_channel}" != "latest" ] && [ "${release_channel}" != "beta" ]; then
+            echo "release_channel must be one of: latest, beta; got ${release_channel}" >&2
+            exit 1
+          fi
+          if [ "${release_channel}" = "beta" ] && [ "${{ inputs.prerelease }}" != "true" ]; then
+            echo "beta channel releases must be marked as prerelease" >&2
+            exit 1
+          fi
+          if [ "${release_channel}" = "latest" ] && [ "${{ inputs.prerelease }}" = "true" ]; then
+            echo "latest channel releases must not be marked as prerelease" >&2
+            exit 1
+          fi
+
+          {
+            echo "release_sha=$(git rev-parse HEAD)"
+            echo "release_tag=${release_tag}"
+            echo "release_title=${release_title}"
+            echo "release_channel=${release_channel}"
+            echo "prerelease=${{ inputs.prerelease }}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            runtime/api-server/package-lock.json
+            runtime/harness-host/package-lock.json
+            runtime/harnesses/package-lock.json
+            runtime/state-store/package-lock.json
+
+      - name: Require Linux x64 runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$(uname -s)" != "Linux" ]; then
+            echo "publish-linux-runtime must run on Linux" >&2
+            exit 1
+          fi
+          if [ "$(uname -m)" != "x86_64" ]; then
+            echo "publish-linux-runtime requires an x64 runner; got $(uname -m)" >&2
+            exit 1
+          fi
+
+      - name: Build Linux runtime bundle
+        shell: bash
+        env:
+          HOLABOSS_RUNTIME_VERSION: ${{ steps.release_meta.outputs.release_tag }}
+          HOLABOSS_RUNTIME_BUILD_ID: gha-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          bash runtime/deploy/package_linux_runtime.sh out/runtime-linux
+          tar -C out/runtime-linux -czf "out/${RUNTIME_ASSET_NAME}" .
+
+      - name: Generate runtime release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256="$(sha256sum "out/${RUNTIME_ASSET_NAME}" | awk '{print $1}')"
+          printf '%s  %s\n' "${sha256}" "${RUNTIME_ASSET_NAME}" > "out/${RUNTIME_CHECKSUM_ASSET_NAME}"
+          cat > "out/${RUNTIME_MANIFEST_NAME}" <<EOF
+          {
+            "release_tag": "${{ steps.release_meta.outputs.release_tag }}",
+            "release_channel": "${{ steps.release_meta.outputs.release_channel }}",
+            "platform": "linux",
+            "arch": "x64",
+            "asset_name": "${RUNTIME_ASSET_NAME}",
+            "sha256_asset_name": "${RUNTIME_CHECKSUM_ASSET_NAME}",
+            "sha256": "${sha256}",
+            "git_sha": "${{ steps.release_meta.outputs.release_sha }}"
+          }
+          EOF
+
+          tar -tzf "out/${RUNTIME_ASSET_NAME}" | grep -Eq '^(\./)?bin/sandbox-runtime$'
+          test -f "out/${RUNTIME_MANIFEST_NAME}"
+          test -f "out/${RUNTIME_CHECKSUM_ASSET_NAME}"
+
+      - name: Prepare release notes
+        id: release_notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes_path="${RUNNER_TEMP}/linux-runtime-release-notes.md"
+          cat > "${notes_path}" <<EOF
+          Linux x64 runtime bundle for `${{ steps.release_meta.outputs.release_tag }}`.
+
+          - channel: `${{ steps.release_meta.outputs.release_channel }}`
+          - commit: `${{ steps.release_meta.outputs.release_sha }}`
+          - assets: `${RUNTIME_ASSET_NAME}`, `${RUNTIME_CHECKSUM_ASSET_NAME}`, `${RUNTIME_MANIFEST_NAME}`
+          EOF
+          echo "notes_path=${notes_path}" >> "${GITHUB_OUTPUT}"
+
+      - name: Ensure GitHub release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view --repo "${RUNTIME_RELEASE_REPO}" "${{ steps.release_meta.outputs.release_tag }}" >/dev/null 2>&1; then
+            exit 0
+          fi
+
+          prerelease_flag=()
+          if [ "${{ steps.release_meta.outputs.prerelease }}" = "true" ]; then
+            prerelease_flag+=(--prerelease)
+          fi
+
+          gh release create "${{ steps.release_meta.outputs.release_tag }}" \
+            --repo "${RUNTIME_RELEASE_REPO}" \
+            --target "${{ steps.release_meta.outputs.release_sha }}" \
+            --title "${{ steps.release_meta.outputs.release_title }}" \
+            --notes-file "${{ steps.release_notes.outputs.notes_path }}" \
+            "${prerelease_flag[@]}"
+
+      - name: Upload Linux runtime assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "${{ steps.release_meta.outputs.release_tag }}" \
+            --repo "${RUNTIME_RELEASE_REPO}" \
+            "out/${RUNTIME_ASSET_NAME}" \
+            "out/${RUNTIME_CHECKSUM_ASSET_NAME}" \
+            "out/${RUNTIME_MANIFEST_NAME}" \
+            --clobber

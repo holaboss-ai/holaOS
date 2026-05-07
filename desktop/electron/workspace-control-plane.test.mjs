@@ -41,35 +41,43 @@ test("workspace IPC handlers delegate through the local workspace control plane"
   assert.match(source, /async function requestWorkspaceRuntimeJson<T>\(/);
   assert.match(
     source,
-    /const localWorkspaceControlPlane = createLocalWorkspaceControlPlane\(\{\s*listWorkspaces,\s*workspaceRegistry: localWorkspaceRegistry,\s*createWorkspace,\s*deleteWorkspace,\s*activateWorkspaceRecord,\s*getWorkspaceLifecycle,\s*openWorkspace,\s*\}\)/,
+    /const workspaceRegistry = \{\s*listCachedWorkspaces,\s*\};[\s\S]*const desktopWorkspaceControlPlane = createLocalWorkspaceControlPlane\(\{\s*listWorkspaces,\s*workspaceRegistry,\s*createWorkspace,\s*deleteWorkspace,\s*activateWorkspaceRecord,\s*getWorkspaceLifecycle,\s*openWorkspace,\s*\}\);/,
   );
   assert.match(
     source,
-    /async function openWorkspace\(\s*workspaceId: string,\s*\): Promise<WorkspaceOpenSessionPayload> \{[\s\S]*const session = await resolveWorkspaceRuntimeSession\(safeWorkspaceId, \{\s*refresh: true,\s*\}\);[\s\S]*await requestWorkspaceRuntimeJson<Record<string, unknown>>\(safeWorkspaceId, \{\s*method: "POST",\s*path: "\/api\/v1\/apps\/ensure-running"/,
+    /async function openWorkspace\(\s*workspaceId: string,\s*\): Promise<WorkspaceOpenSessionPayload> \{[\s\S]*const location = await resolveWorkspaceLocation\(safeWorkspaceId\);[\s\S]*\? openCloudWorkspace\(safeWorkspaceId\)[\s\S]*: openLocalWorkspace\(safeWorkspaceId\);/,
   );
   assert.match(
     source,
-    /"workspace:activate"[\s\S]*localWorkspaceControlPlane\.activateWorkspaceRecord\(workspaceId\)/,
+    /async function openLocalWorkspace\(\s*workspaceId: string,\s*\): Promise<WorkspaceOpenSessionPayload> \{[\s\S]*const session = await resolveWorkspaceRuntimeSession\(safeWorkspaceId, \{\s*refresh: true,\s*\}\);[\s\S]*await requestWorkspaceRuntimeJson<Record<string, unknown>>\(safeWorkspaceId, \{\s*method: "POST",\s*path: "\/api\/v1\/apps\/ensure-running"/,
   );
   assert.match(
     source,
-    /"workspace:listWorkspaces"[\s\S]*localWorkspaceControlPlane\.listWorkspaces\(\)/,
+    /async function fetchCloudWorkspaceOpenSession\(\s*workspaceId: string,\s*\): Promise<WorkspaceOpenSessionPayload> \{[\s\S]*requestDesktopControlPlaneJson<WorkspaceOpenSessionPayload>\([\s\S]*path: `\$\{DESKTOP_RUNTIME_WORKSPACES_PATH\}\/\$\{encodeURIComponent\(safeWorkspaceId\)\}\/open`/,
   );
   assert.match(
     source,
-    /"workspace:listWorkspacesCached"[\s\S]*localWorkspaceControlPlane\.listWorkspacesCached\(\)/,
+    /"workspace:activate"[\s\S]*desktopWorkspaceControlPlane\.activateWorkspaceRecord\(workspaceId\)/,
   );
   assert.match(
     source,
-    /"workspace:getWorkspaceLifecycle"[\s\S]*localWorkspaceControlPlane\.getWorkspaceLifecycle\(workspaceId\)/,
+    /"workspace:listWorkspaces"[\s\S]*desktopWorkspaceControlPlane\.listWorkspaces\(\)/,
   );
   assert.match(
     source,
-    /"workspace:activateWorkspace"[\s\S]*localWorkspaceControlPlane\.activateWorkspace\(workspaceId\)/,
+    /"workspace:listWorkspacesCached"[\s\S]*desktopWorkspaceControlPlane\.listWorkspacesCached\(\)/,
   );
   assert.match(
     source,
-    /"workspace:openWorkspace"[\s\S]*localWorkspaceControlPlane\.openWorkspace\(workspaceId\)/,
+    /"workspace:getWorkspaceLifecycle"[\s\S]*desktopWorkspaceControlPlane\.getWorkspaceLifecycle\(workspaceId\)/,
+  );
+  assert.match(
+    source,
+    /"workspace:activateWorkspace"[\s\S]*desktopWorkspaceControlPlane\.activateWorkspace\(workspaceId\)/,
+  );
+  assert.match(
+    source,
+    /"workspace:openWorkspace"[\s\S]*desktopWorkspaceControlPlane\.openWorkspace\(workspaceId\)/,
   );
   assert.match(
     source,
@@ -77,11 +85,11 @@ test("workspace IPC handlers delegate through the local workspace control plane"
   );
   assert.match(
     source,
-    /"workspace:createWorkspace"[\s\S]*localWorkspaceControlPlane\.createWorkspace\(payload\)/,
+    /"workspace:createWorkspace"[\s\S]*desktopWorkspaceControlPlane\.createWorkspace\(payload\)/,
   );
   assert.match(
     source,
-    /"workspace:deleteWorkspace"[\s\S]*localWorkspaceControlPlane\.deleteWorkspace\(workspaceId, keepFiles\)/,
+    /"workspace:deleteWorkspace"[\s\S]*desktopWorkspaceControlPlane\.deleteWorkspace\(workspaceId, keepFiles\)/,
   );
 });
 
