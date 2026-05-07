@@ -3847,11 +3847,30 @@ function runtimeWorkspaceRoot() {
   return path.join(runtimeSandboxRoot(), "workspace");
 }
 
+const WORKSPACE_RUNTIME_LEGACY_BACKFILL_MARKER_KEY =
+  "legacy_workspace_backfill_v1_complete";
 const WORKSPACE_RUNTIME_MIGRATION_PROBE_TABLES = [
+  "agent_sessions",
+  "agent_runtime_sessions",
+  "conversation_bindings",
+  "agent_session_inputs",
+  "post_run_jobs",
+  "main_session_event_queue",
+  "session_runtime_state",
   "session_output_events",
+  "subagent_runs",
+  "terminal_sessions",
+  "terminal_session_events",
   "turn_request_snapshots",
   "turn_results",
   "session_messages",
+  "task_proposals",
+  "evolve_skill_candidates",
+  "memory_update_proposals",
+  "memory_entries",
+  "memory_embedding_index",
+  "memory_recall_vec",
+  "output_folders",
   "outputs",
   "app_ports",
   "app_builds",
@@ -3905,27 +3924,22 @@ function workspaceRuntimeDbPathForStartupCheck(
   return path.join(rootPath, ".holaboss", "state", "runtime.db");
 }
 
-function workspaceRuntimeDbContainsMigratedData(dbPath: string): boolean {
+function workspaceRuntimeLegacyBackfillComplete(dbPath: string): boolean {
   const database = openReadonlySqliteDatabase(dbPath);
   if (!database) {
     return false;
   }
 
   try {
-    for (const tableName of WORKSPACE_RUNTIME_MIGRATION_PROBE_TABLES) {
-      if (!sqliteTableExists(database, tableName)) {
-        continue;
-      }
-      const row = database
-        .prepare<[], { present: number }>(
-          `SELECT 1 AS present FROM ${tableName} LIMIT 1`,
-        )
-        .get();
-      if (row?.present === 1) {
-        return true;
-      }
+    if (!sqliteTableExists(database, "workspace_runtime_metadata")) {
+      return false;
     }
-    return false;
+    const row = database
+      .prepare<[string], { value?: string }>(
+        "SELECT value FROM workspace_runtime_metadata WHERE key = ? LIMIT 1",
+      )
+      .get(WORKSPACE_RUNTIME_LEGACY_BACKFILL_MARKER_KEY);
+    return row?.value === "complete";
   } catch {
     return false;
   } finally {
@@ -4029,7 +4043,7 @@ function hasPendingLegacyWorkspaceRuntimeMigration(): boolean {
         workspaceId,
         workspace.workspace_path ?? null,
       );
-      if (!workspaceRuntimeDbContainsMigratedData(workspaceDbPath)) {
+      if (!workspaceRuntimeLegacyBackfillComplete(workspaceDbPath)) {
         return true;
       }
     }
@@ -15525,13 +15539,22 @@ async function waitForRuntimeHealth(
   url: string,
   attempts = DEFAULT_RUNTIME_STARTUP_HEALTH_ATTEMPTS,
   delayMs = RUNTIME_STARTUP_HEALTH_DELAY_MS,
+  options: {
+    abortWhen?: () => boolean;
+  } = {},
 ) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (await isRuntimeHealthy(url)) {
       return true;
     }
+    if (options.abortWhen?.()) {
+      return false;
+    }
 
     await new Promise((resolve) => setTimeout(resolve, delayMs));
+    if (options.abortWhen?.()) {
+      return false;
+    }
   }
 
   return false;
@@ -16271,6 +16294,10 @@ async function startEmbeddedRuntime() {
         url,
         healthWait.attempts,
         healthWait.delayMs,
+        {
+          abortWhen: () =>
+            runtimeProcess !== child || child.exitCode !== null,
+        },
       );
       if (healthy) {
         runtimeStatus = await refreshRuntimeStatus();

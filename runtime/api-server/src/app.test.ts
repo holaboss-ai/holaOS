@@ -16,7 +16,12 @@ import * as tar from "tar";
 
 import { buildRuntimeApiServer, type BuildRuntimeApiServerOptions } from "./app.js";
 import { appLocalNpmCacheDir, buildAppSetupEnv } from "./app-setup-env.js";
-import { parseInstalledAppRuntime, writeWorkspaceMcpRegistryEntry, removeWorkspaceMcpRegistryEntry } from "./workspace-apps.js";
+import {
+  parseInstalledAppRuntime,
+  removeWorkspaceMcpRegistryEntry,
+  resolveWorkspaceAppRuntime,
+  writeWorkspaceMcpRegistryEntry,
+} from "./workspace-apps.js";
 import type { AppLifecycleExecutorLike } from "./app-lifecycle-worker.js";
 import { FilesystemMemoryService, type MemoryServiceLike } from "./memory.js";
 import type { RuntimeConfigServiceLike } from "./runtime-config.js";
@@ -25,6 +30,7 @@ import type { RunnerExecutorLike } from "./runner-worker.js";
 const tempDirs: string[] = [];
 const ORIGINAL_ENV = {
   HB_SANDBOX_ROOT: process.env.HB_SANDBOX_ROOT,
+  HOLABOSS_EMBEDDED_RUNTIME: process.env.HOLABOSS_EMBEDDED_RUNTIME,
   HOLABOSS_RUNTIME_CONFIG_PATH: process.env.HOLABOSS_RUNTIME_CONFIG_PATH,
 };
 
@@ -42,6 +48,12 @@ afterEach(() => {
     delete process.env.HB_SANDBOX_ROOT;
   } else {
     process.env.HB_SANDBOX_ROOT = ORIGINAL_ENV.HB_SANDBOX_ROOT;
+  }
+  if (ORIGINAL_ENV.HOLABOSS_EMBEDDED_RUNTIME === undefined) {
+    delete process.env.HOLABOSS_EMBEDDED_RUNTIME;
+  } else {
+    process.env.HOLABOSS_EMBEDDED_RUNTIME =
+      ORIGINAL_ENV.HOLABOSS_EMBEDDED_RUNTIME;
   }
   if (ORIGINAL_ENV.HOLABOSS_RUNTIME_CONFIG_PATH === undefined) {
     delete process.env.HOLABOSS_RUNTIME_CONFIG_PATH;
@@ -129,10 +141,13 @@ function rewriteZipEntryName(archive: Buffer, fromPath: string, toPath: string):
 }
 
 async function startStaticHttpServer(
-  handler: (request: IncomingMessage, response: ServerResponse) => void
+  handler: (request: IncomingMessage, response: ServerResponse) => void,
+  options: {
+    port?: number;
+  } = {},
 ): Promise<{ url: string; close: () => Promise<void> }> {
   const server = http.createServer(handler);
-  server.listen(0, "127.0.0.1");
+  server.listen(options.port ?? 0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();
   assert.ok(address && typeof address === "object");
@@ -5270,6 +5285,7 @@ test("ensure-running dedupes concurrent setup/start for the same app", async () 
 });
 
 test("auto-start on ready reuses a healthy untracked shell-managed app", async () => {
+  process.env.HOLABOSS_EMBEDDED_RUNTIME = "1";
   const root = makeTempDir("hb-runtime-api-");
   const workspaceRoot = path.join(root, "workspace");
   const store = new RuntimeStateStore({
@@ -5286,17 +5302,6 @@ test("auto-start on ready reuses a healthy untracked shell-managed app", async (
   const appDir = path.join(workspaceDir, "apps", "app-a");
   fs.mkdirSync(appDir, { recursive: true });
 
-  const httpServer = await startStaticHttpServer((_request, response) => {
-    response.statusCode = 200;
-    response.end("ok");
-  });
-  const mcpServer = await startStaticHttpServer((_request, response) => {
-    response.statusCode = 200;
-    response.end("ok");
-  });
-  const httpPort = Number(new URL(httpServer.url).port);
-  const mcpPort = Number(new URL(mcpServer.url).port);
-
   fs.writeFileSync(
     path.join(appDir, "app.runtime.yaml"),
     [
@@ -5306,11 +5311,11 @@ test("auto-start on ready reuses a healthy untracked shell-managed app", async (
       "icon: https://example.com/icon.png",
       "mcp:",
       "  transport: http-sse",
-      `  port: ${mcpPort}`,
+      "  port: 13100",
       "  path: /mcp",
       "mcp_tools: []",
       "http:",
-      `  port: ${httpPort}`,
+      "  port: 18080",
       "healthchecks:",
       "  http:",
       "    path: /health",
@@ -5332,6 +5337,27 @@ test("auto-start on ready reuses a healthy untracked shell-managed app", async (
       "    config_path: apps/app-a/app.runtime.yaml"
     ].join("\n"),
     "utf8"
+  );
+  const resolved = resolveWorkspaceAppRuntime(workspaceDir, "app-a", {
+    store,
+    workspaceId: workspace.id,
+    allocatePorts: true,
+  });
+  const httpPort = resolved.ports.http;
+  const mcpPort = resolved.ports.mcp;
+  const httpServer = await startStaticHttpServer(
+    (_request, response) => {
+      response.statusCode = 200;
+      response.end("ok");
+    },
+    { port: httpPort },
+  );
+  const mcpServer = await startStaticHttpServer(
+    (_request, response) => {
+      response.statusCode = 200;
+      response.end("ok");
+    },
+    { port: mcpPort },
   );
 
   const lifecycleCalls: Array<Record<string, unknown>> = [];

@@ -3179,6 +3179,127 @@ test("workspace runtime DB skips repeated legacy backfill once it already has da
   assert.equal(repeatedBackfillCalls, 0);
 });
 
+test("workspace runtime DB reruns legacy backfill for populated pre-marker databases", () => {
+  const root = makeTempDir("hb-state-store-");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceRoot = path.join(root, "workspace");
+
+  const initialStore = new RuntimeStateStore({ dbPath, workspaceRoot });
+  initialStore.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Legacy",
+    harness: "pi",
+    status: "active"
+  });
+  initialStore.insertSessionMessage({
+    workspaceId: "workspace-1",
+    sessionId: "session-1",
+    role: "user",
+    text: "hello",
+    createdAt: "2026-01-01T00:00:00+00:00"
+  });
+  initialStore.close();
+
+  const workspaceDbPath = workspaceRuntimeDbFile(workspaceRoot, "workspace-1");
+  const workspaceDb = new Database(workspaceDbPath);
+  workspaceDb
+    .prepare("DELETE FROM workspace_runtime_metadata WHERE key = ?")
+    .run("legacy_workspace_backfill_v1_complete");
+  workspaceDb.close();
+
+  const legacyDb = new Database(dbPath);
+  legacyDb.exec(`
+    CREATE TABLE task_proposals (
+        proposal_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        task_name TEXT NOT NULL,
+        task_prompt TEXT NOT NULL,
+        task_generation_rationale TEXT NOT NULL,
+        proposal_source TEXT NOT NULL DEFAULT 'proactive',
+        source_event_ids TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'not_reviewed',
+        accepted_session_id TEXT,
+        accepted_input_id TEXT,
+        accepted_at TEXT
+    );
+  `);
+  legacyDb.prepare(`
+    INSERT INTO task_proposals (
+      proposal_id,
+      workspace_id,
+      task_name,
+      task_prompt,
+      task_generation_rationale,
+      proposal_source,
+      source_event_ids,
+      created_at,
+      state,
+      accepted_session_id,
+      accepted_input_id,
+      accepted_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    "proposal-legacy",
+    "workspace-1",
+    "Legacy follow-up",
+    "Continue the pending task.",
+    "Recovered from the legacy runtime database.",
+    "proactive",
+    "[]",
+    "2026-01-01T00:00:00+00:00",
+    "not_reviewed",
+    null,
+    null,
+    null
+  );
+  legacyDb.close();
+
+  const reopened = new RuntimeStateStore({ dbPath, workspaceRoot });
+  let backfillCalls = 0;
+  const reopenedInternals = reopened as unknown as {
+    backfillWorkspaceRuntimeDbFromLegacyRuntimeDb: (
+      db: Database.Database,
+      legacy: Database.Database,
+      workspaceId: string,
+    ) => void;
+  };
+  const originalBackfill =
+    reopenedInternals.backfillWorkspaceRuntimeDbFromLegacyRuntimeDb.bind(
+      reopened,
+    );
+  reopenedInternals.backfillWorkspaceRuntimeDbFromLegacyRuntimeDb = (
+    db,
+    legacy,
+    workspaceId,
+  ) => {
+    backfillCalls += 1;
+    return originalBackfill(db, legacy, workspaceId);
+  };
+  const proposals = reopened.listTaskProposals({ workspaceId: "workspace-1" });
+  reopened.close();
+
+  assert.equal(backfillCalls, 1);
+  assert.equal(proposals.length, 1);
+  assert.equal(proposals[0]?.proposalId, "proposal-legacy");
+
+  const verifiedWorkspaceDb = new Database(workspaceDbPath, { readonly: true });
+  const marker = verifiedWorkspaceDb
+    .prepare<[string], { value?: string }>(
+      "SELECT value FROM workspace_runtime_metadata WHERE key = ? LIMIT 1",
+    )
+    .get("legacy_workspace_backfill_v1_complete");
+  const mirroredProposal = verifiedWorkspaceDb
+    .prepare<[string], { proposal_id?: string }>(
+      "SELECT proposal_id FROM task_proposals WHERE proposal_id = ? LIMIT 1",
+    )
+    .get("proposal-legacy");
+  verifiedWorkspaceDb.close();
+
+  assert.equal(marker?.value, "complete");
+  assert.equal(mirroredProposal?.proposal_id, "proposal-legacy");
+});
+
 test("runtime notifications round trip supports create, list, update, get, and dismiss", () => {
   const root = makeTempDir("hb-state-store-");
   const store = new RuntimeStateStore({

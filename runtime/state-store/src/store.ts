@@ -22,6 +22,35 @@ const WORKSPACE_RUNTIME_DB_FILENAME = "runtime.db";
 const WORKSPACE_IDENTITY_FILENAME = "workspace_id";
 const LEGACY_WORKSPACE_METADATA_FILENAME = "workspace.json";
 const DELETED_WORKSPACE_PATH_TOMBSTONE_PREFIX = "__deleted__";
+const WORKSPACE_RUNTIME_LEGACY_BACKFILL_MARKER_KEY =
+  "legacy_workspace_backfill_v1_complete";
+const WORKSPACE_SCOPED_LEGACY_BACKFILL_TABLES = [
+  "agent_sessions",
+  "agent_runtime_sessions",
+  "conversation_bindings",
+  "agent_session_inputs",
+  "post_run_jobs",
+  "main_session_event_queue",
+  "session_runtime_state",
+  "session_messages",
+  "subagent_runs",
+  "session_output_events",
+  "terminal_sessions",
+  "terminal_session_events",
+  "turn_results",
+  "turn_request_snapshots",
+  "task_proposals",
+  "evolve_skill_candidates",
+  "memory_update_proposals",
+  "memory_entries",
+  "memory_embedding_index",
+  "output_folders",
+  "outputs",
+  "app_builds",
+  "app_ports",
+  "cronjobs",
+  "runtime_notifications",
+] as const;
 
 export interface WorkspaceRecord {
   id: string;
@@ -6981,21 +7010,13 @@ export class RuntimeStateStore {
     }
 
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    const dbFileExistedBeforeOpen = fs.existsSync(dbPath);
     const db = new Database(dbPath);
     db.pragma("journal_mode = WAL");
     db.pragma("busy_timeout = 5000");
     db.pragma("foreign_keys = ON");
     this.#vectorIndexSupported = this.tryLoadVectorExtension(db) || this.#vectorIndexSupported;
     this.ensureWorkspaceRuntimeDbSchema(db);
-    // Workspace-scoped data now lives in each workspace's runtime.db. The
-    // legacy host-state DB backfill only needs to run when this workspace DB
-    // is fresh/empty; re-running it on every startup forces full-table scans
-    // over the legacy DB plus millions of INSERT OR IGNORE checks against
-    // already-populated workspace DBs.
-    if (!dbFileExistedBeforeOpen || !this.workspaceRuntimeDbContainsData(db)) {
-      this.backfillWorkspaceRuntimeDbFromLegacyRuntimeDb(db, this.db(), workspaceId);
-    }
+    this.ensureWorkspaceRuntimeLegacyBackfill(db, workspaceId);
     this.#workspaceRuntimeDbs.set(workspaceId, { dbPath, db });
     return db;
   }
@@ -7284,34 +7305,7 @@ export class RuntimeStateStore {
     legacy: Database.Database,
     workspaceId: string,
   ): void {
-    const workspaceScopedTables = [
-      "agent_sessions",
-      "agent_runtime_sessions",
-      "conversation_bindings",
-      "agent_session_inputs",
-      "post_run_jobs",
-      "main_session_event_queue",
-      "session_runtime_state",
-      "session_messages",
-      "subagent_runs",
-      "session_output_events",
-      "terminal_sessions",
-      "terminal_session_events",
-      "turn_results",
-      "turn_request_snapshots",
-      "task_proposals",
-      "evolve_skill_candidates",
-      "memory_update_proposals",
-      "memory_entries",
-      "memory_embedding_index",
-      "output_folders",
-      "outputs",
-      "app_builds",
-      "app_ports",
-      "cronjobs",
-      "runtime_notifications",
-    ] as const;
-    for (const tableName of workspaceScopedTables) {
+    for (const tableName of WORKSPACE_SCOPED_LEGACY_BACKFILL_TABLES) {
       this.backfillWorkspaceScopedTableRows({
         db,
         legacy,
@@ -7326,32 +7320,52 @@ export class RuntimeStateStore {
     });
   }
 
-  private workspaceRuntimeDbContainsData(db: Database.Database): boolean {
-    const probeTables = [
-      "session_output_events",
-      "turn_request_snapshots",
-      "turn_results",
-      "session_messages",
-      "outputs",
-      "app_ports",
-      "app_builds",
-      "cronjobs",
-      "runtime_notifications",
-    ] as const;
-
-    for (const tableName of probeTables) {
-      if (!this.tableExists(db, tableName)) {
-        continue;
-      }
-      const row = db
-        .prepare<[], { present: number }>(`SELECT 1 AS present FROM ${tableName} LIMIT 1`)
-        .get();
-      if (row?.present === 1) {
-        return true;
-      }
+  private ensureWorkspaceRuntimeLegacyBackfill(
+    db: Database.Database,
+    workspaceId: string,
+  ): void {
+    if (this.workspaceRuntimeLegacyBackfillComplete(db)) {
+      return;
     }
+    const legacy = this.db();
+    const runBackfill = db.transaction(() => {
+      this.backfillWorkspaceRuntimeDbFromLegacyRuntimeDb(
+        db,
+        legacy,
+        workspaceId,
+      );
+      this.markWorkspaceRuntimeLegacyBackfillComplete(db);
+    });
+    runBackfill();
+  }
 
-    return false;
+  private workspaceRuntimeLegacyBackfillComplete(
+    db: Database.Database,
+  ): boolean {
+    if (!this.tableExists(db, "workspace_runtime_metadata")) {
+      return false;
+    }
+    const row = db
+      .prepare<[string], { value?: string }>(
+        "SELECT value FROM workspace_runtime_metadata WHERE key = ? LIMIT 1",
+      )
+      .get(WORKSPACE_RUNTIME_LEGACY_BACKFILL_MARKER_KEY);
+    return row?.value === "complete";
+  }
+
+  private markWorkspaceRuntimeLegacyBackfillComplete(
+    db: Database.Database,
+  ): void {
+    db.prepare(`
+      INSERT INTO workspace_runtime_metadata (key, value, updated_at)
+      VALUES (?, 'complete', ?)
+      ON CONFLICT(key) DO UPDATE SET
+        value = excluded.value,
+        updated_at = excluded.updated_at
+    `).run(
+      WORKSPACE_RUNTIME_LEGACY_BACKFILL_MARKER_KEY,
+      utcNowIso(),
+    );
   }
 
   private backfillControlPlaneMemoryTables(db: Database.Database, legacy: Database.Database): void {
@@ -7769,6 +7783,12 @@ export class RuntimeStateStore {
 
   private ensureWorkspaceRuntimeDbSchema(db: Database.Database): void {
     db.exec(`
+      CREATE TABLE IF NOT EXISTS workspace_runtime_metadata (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS agent_sessions (
           workspace_id TEXT NOT NULL,
           session_id TEXT NOT NULL,
