@@ -39,6 +39,34 @@ test("browser pane exposes screenshot copy without browser comments", async () =
   assert.doesNotMatch(source, /px-1\.5 pb-1 text-\[11px\] text-muted-foreground/);
 });
 
+test("browser pane groups imported bookmark folders into a popover instead of the inline strip", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  assert.match(
+    source,
+    /import \{\s*Popover,\s*PopoverContent,\s*PopoverTrigger,\s*\} from "@\/components\/ui\/popover";/,
+  );
+  assert.match(
+    source,
+    /import \{ buildBrowserBookmarkTree \} from "@\/lib\/browserBookmarks";/,
+  );
+  assert.match(source, /const bookmarkTree = useMemo\(\s*\(\) => buildBrowserBookmarkTree\(bookmarks\),/);
+  assert.match(
+    source,
+    /const showBookmarkStrip =\s*\(\s*bookmarkTree\.rootBookmarks\.length > 0 \|\| bookmarkTree\.folders\.length > 0\s*\) &&\s*!isCompactPane;/,
+  );
+  assert.match(source, /Imported folders/);
+  assert.match(source, /bookmarkTree\.rootBookmarks\.slice\(0, 12\)/);
+  assert.match(source, /<ListTree className="size-3 shrink-0" \/>/);
+  assert.match(
+    source,
+    /const \[collapsedBookmarkFolderKeys, setCollapsedBookmarkFolderKeys\] =\s*useState<Set<string>>\(\(\) => new Set\(\)\);/,
+  );
+  assert.match(source, /aria-expanded=\{isExpanded\}/);
+  assert.match(source, /Collapse" : "Expand"} bookmark folder/);
+  assert.match(source, /<ChevronRight[\s\S]*rotate-90/);
+});
+
 test("browser pane exposes a single inline browser-space switcher", async () => {
   const source = await readFile(sourcePath, "utf8");
 

@@ -1974,6 +1974,8 @@ function appCatalogEntryToWire(record: AppCatalogEntryRecord): Record<string, un
     archive_path: record.archivePath,
     target: record.target,
     cached_at: record.cachedAt,
+    provider_id: record.providerId,
+    credential_source: record.credentialSource,
   };
 }
 
@@ -6373,6 +6375,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         archivePath: typeof raw.archive_path === "string" ? raw.archive_path : null,
         target,
         cachedAt: now,
+        providerId: typeof raw.provider_id === "string" && raw.provider_id.trim().length > 0
+          ? raw.provider_id.trim()
+          : null,
+        credentialSource: typeof raw.credential_source === "string" && raw.credential_source.trim().length > 0
+          ? raw.credential_source.trim()
+          : null,
       });
       synced += 1;
     }

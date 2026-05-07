@@ -4,7 +4,16 @@ import {
   useMemo,
   useState,
 } from "react";
-import { Bot, Globe, Plus, Star, User, X } from "lucide-react";
+import {
+  Bot,
+  ChevronRight,
+  FolderOpen,
+  Globe,
+  Plus,
+  Star,
+  User,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -20,6 +29,8 @@ import {
   compareBrowserSessionOptions,
 } from "@/components/panes/browserSessionUi";
 import { useWorkspaceBrowser } from "@/components/panes/useWorkspaceBrowser";
+import { buildBrowserBookmarkTree } from "@/lib/browserBookmarks";
+import { cn } from "@/lib/utils";
 
 interface SpaceBrowserExplorerPaneProps {
   browserSpace: BrowserSpaceId;
@@ -137,6 +148,12 @@ export function SpaceBrowserExplorerPane({
       ),
     [agentSessions, runtimeStatesBySessionId],
   );
+  const bookmarkTree = useMemo(
+    () => buildBrowserBookmarkTree(bookmarks),
+    [bookmarks],
+  );
+  const [collapsedBookmarkFolderKeys, setCollapsedBookmarkFolderKeys] =
+    useState<Set<string>>(() => new Set());
   const hasAgentSessionBrowsers = sortedAgentSessions.length > 0;
 
   const sessionBrowserStatus = useMemo(
@@ -190,7 +207,8 @@ export function SpaceBrowserExplorerPane({
     );
   };
 
-  const hasBookmarks = bookmarks.length > 0;
+  const hasBookmarks =
+    bookmarkTree.rootBookmarks.length > 0 || bookmarkTree.folders.length > 0;
   const hasTabs = browserState.tabs.length > 0;
 
   // Slide direction mirrors the switcher button position — scopes slide in
@@ -199,6 +217,88 @@ export function SpaceBrowserExplorerPane({
     browserSpace === "user"
       ? "slide-in-from-left-3"
       : "slide-in-from-right-3";
+
+  const renderBookmarkButton = (
+    bookmark: BrowserBookmarkPayload,
+    depth = 0,
+  ) => (
+    <Button
+      key={bookmark.id}
+      variant="ghost"
+      size="sm"
+      onClick={() => openBookmark(bookmark)}
+      className="h-auto w-full justify-start gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-accent"
+      style={depth > 0 ? { paddingLeft: `${10 + depth * 14}px` } : undefined}
+    >
+      <Favicon
+        url={bookmark.faviconUrl}
+        className="size-4 shrink-0 rounded-sm"
+        fallback={
+          <div className="grid size-4 shrink-0 place-items-center rounded-sm bg-muted text-muted-foreground">
+            <Star className="size-2.5" />
+          </div>
+        }
+      />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm text-foreground">
+          {bookmark.title}
+        </div>
+      </div>
+    </Button>
+  );
+
+  const renderBookmarkFolder = (
+    folder: ReturnType<typeof buildBrowserBookmarkTree>["folders"][number],
+    depth = 0,
+  ): ReactNode => {
+    const isExpanded = !collapsedBookmarkFolderKeys.has(folder.key);
+    return (
+      <div key={folder.key} className="space-y-0.5">
+        <button
+          type="button"
+          aria-expanded={isExpanded}
+          aria-label={`${isExpanded ? "Collapse" : "Expand"} bookmark folder ${folder.name}`}
+          onClick={() => {
+            setCollapsedBookmarkFolderKeys((current) => {
+              const next = new Set(current);
+              if (next.has(folder.key)) {
+                next.delete(folder.key);
+              } else {
+                next.add(folder.key);
+              }
+              return next;
+            });
+          }}
+          className={cn(
+            "flex w-full items-center gap-2 rounded-md px-2.5 py-1 text-left text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+            depth === 0
+              ? "text-[10px] font-medium uppercase tracking-[0.08em]"
+              : "text-xs",
+          )}
+          style={depth > 0 ? { paddingLeft: `${10 + depth * 14}px` } : undefined}
+        >
+          <ChevronRight
+            className={cn(
+              "size-3 shrink-0 transition-transform duration-150",
+              isExpanded ? "rotate-90" : "",
+            )}
+          />
+          <FolderOpen className="size-3.5 shrink-0" />
+          <span className="truncate">{folder.name}</span>
+        </button>
+        {isExpanded ? (
+          <>
+            {folder.bookmarks.map((bookmark) =>
+              renderBookmarkButton(bookmark, depth + 1),
+            )}
+            {folder.folders.map((childFolder) =>
+              renderBookmarkFolder(childFolder, depth + 1),
+            )}
+          </>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-transparent">
@@ -302,30 +402,23 @@ export function SpaceBrowserExplorerPane({
             <div className="px-2.5 pb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
               Bookmarks
             </div>
-            {bookmarks.map((bookmark) => (
-              <Button
-                key={bookmark.id}
-                variant="ghost"
-                size="sm"
-                onClick={() => openBookmark(bookmark)}
-                className="h-auto w-full justify-start gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-accent"
-              >
-                <Favicon
-                  url={bookmark.faviconUrl}
-                  className="size-4 shrink-0 rounded-sm"
-                  fallback={
-                    <div className="grid size-4 shrink-0 place-items-center rounded-sm bg-muted text-muted-foreground">
-                      <Star className="size-2.5" />
-                    </div>
-                  }
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm text-foreground">
-                    {bookmark.title}
+            {bookmarkTree.folders.map((folder) => renderBookmarkFolder(folder))}
+            {bookmarkTree.rootBookmarks.length > 0 ? (
+              bookmarkTree.folders.length > 0 ? (
+                <div className="pt-1">
+                  <div className="px-2.5 pb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                    Saved
                   </div>
+                  {bookmarkTree.rootBookmarks.map((bookmark) =>
+                    renderBookmarkButton(bookmark),
+                  )}
                 </div>
-              </Button>
-            ))}
+              ) : (
+                bookmarkTree.rootBookmarks.map((bookmark) =>
+                  renderBookmarkButton(bookmark),
+                )
+              )
+            ) : null}
           </div>
         ) : null}
 

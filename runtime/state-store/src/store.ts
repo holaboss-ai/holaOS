@@ -21,6 +21,7 @@ const WORKSPACE_STATE_DIRNAME = "state";
 const WORKSPACE_RUNTIME_DB_FILENAME = "runtime.db";
 const WORKSPACE_IDENTITY_FILENAME = "workspace_id";
 const LEGACY_WORKSPACE_METADATA_FILENAME = "workspace.json";
+const DELETED_WORKSPACE_PATH_TOMBSTONE_PREFIX = "__deleted__";
 
 export interface WorkspaceRecord {
   id: string;
@@ -471,6 +472,8 @@ export interface AppCatalogEntryRecord {
   archivePath: string | null;
   target: string;
   cachedAt: string;
+  providerId: string | null;
+  credentialSource: string | null;
 }
 
 export interface CronjobRecord {
@@ -934,6 +937,29 @@ function ensureWorkspaceIdentityMigrated(workspacePath: string): string {
     return currentPath;
   }
   return currentPath;
+}
+
+function deletedWorkspacePathTombstone(workspaceId: string, workspacePath: string): string {
+  const encodedPath = Buffer.from(path.resolve(workspacePath), "utf8").toString("base64url");
+  return `${DELETED_WORKSPACE_PATH_TOMBSTONE_PREFIX}/${sanitizeWorkspaceId(workspaceId)}/${Date.now()}:${encodedPath}`;
+}
+
+function decodeDeletedWorkspacePathTombstone(
+  storedPath: string,
+  workspaceId: string,
+): string | null {
+  const match = storedPath.match(
+    /^__deleted__\/([^/]+)\/\d+(?::([A-Za-z0-9_-]+))?$/,
+  );
+  if (!match || match[1] !== sanitizeWorkspaceId(workspaceId) || !match[2]) {
+    return null;
+  }
+  try {
+    const decoded = Buffer.from(match[2], "base64url").toString("utf8").trim();
+    return decoded ? path.resolve(decoded) : null;
+  } catch {
+    return null;
+  }
 }
 
 export class RuntimeStateStore {
@@ -1411,6 +1437,7 @@ export class RuntimeStateStore {
   }
 
   deleteWorkspace(workspaceId: string): WorkspaceRecord {
+    const preservedWorkspacePath = this.workspaceDir(workspaceId);
     const result = this.updateWorkspace(workspaceId, {
       status: "deleted",
       deletedAtUtc: utcNowIso(),
@@ -1422,7 +1449,10 @@ export class RuntimeStateStore {
     // workspace ("remove from Holaboss but keep my files" must be
     // reversible). Stamp a tombstone that is unique per workspace id and
     // identifiable in diagnostics.
-    const tombstone = `__deleted__/${workspaceId}/${Date.now()}`;
+    const tombstone = deletedWorkspacePathTombstone(
+      workspaceId,
+      preservedWorkspacePath,
+    );
     this.controlPlaneDb().prepare("UPDATE workspaces SET workspace_path = ? WHERE id = ?").run(tombstone, workspaceId);
     if (this.controlPlaneDbPath !== this.dbPath) {
       this.db().prepare("UPDATE workspaces SET workspace_path = ? WHERE id = ?").run(tombstone, workspaceId);
@@ -5918,7 +5948,8 @@ export class RuntimeStateStore {
   }
 
   listAllAppPorts(): AppPortRecord[] {
-    return this.listReadableWorkspaceRuntimeDbs().flatMap(({ db }) => {
+    const readableWorkspaceRuntimeDbs = this.listReadableWorkspaceRuntimeDbs();
+    const ports = readableWorkspaceRuntimeDbs.flatMap(({ db }) => {
       const rows = db
         .prepare<[], Record<string, unknown>>(
           "SELECT * FROM app_ports"
@@ -5926,6 +5957,37 @@ export class RuntimeStateStore {
         .all();
       return rows.map((row) => this.rowToAppPort(row));
     });
+    const scannedWorkspaceIds = new Set(
+      readableWorkspaceRuntimeDbs.map(({ workspaceId }) => workspaceId),
+    );
+    for (const workspace of this.listWorkspaces({ includeDeleted: true })) {
+      if (!workspace.deletedAtUtc || scannedWorkspaceIds.has(workspace.id)) {
+        continue;
+      }
+      const preservedWorkspacePath = this.resolveDeletedWorkspacePreservedPath(
+        workspace.id,
+      );
+      if (!preservedWorkspacePath) {
+        continue;
+      }
+      const dbPath = workspaceRuntimeDbPathForWorkspacePath(preservedWorkspacePath);
+      if (!fs.existsSync(dbPath)) {
+        continue;
+      }
+      const deletedWorkspaceDb = new Database(dbPath, { readonly: true });
+      try {
+        const rows = deletedWorkspaceDb
+          .prepare<[], Record<string, unknown>>("SELECT * FROM app_ports")
+          .all();
+        ports.push(...rows.map((row) => this.rowToAppPort(row)));
+        scannedWorkspaceIds.add(workspace.id);
+      } catch {
+        // Skip unreadable preserved bundles during aggregate scans.
+      } finally {
+        deletedWorkspaceDb.close();
+      }
+    }
+    return ports;
   }
 
   deleteAppPort(params: { workspaceId: string; appId: string }): boolean {
@@ -5950,13 +6012,16 @@ export class RuntimeStateStore {
     archivePath: string | null;
     target: string;
     cachedAt: string;
+    providerId: string | null;
+    credentialSource: string | null;
   }): AppCatalogEntryRecord {
     const tagsJson = JSON.stringify(params.tags ?? []);
     this.controlPlaneDb().prepare(`
       INSERT INTO app_catalog (
         app_id, source, name, description, icon, category,
-        tags_json, version, archive_url, archive_path, target, cached_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        tags_json, version, archive_url, archive_path, target, cached_at,
+        provider_id, credential_source
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(source, app_id) DO UPDATE SET
         name = excluded.name,
         description = excluded.description,
@@ -5967,7 +6032,9 @@ export class RuntimeStateStore {
         archive_url = excluded.archive_url,
         archive_path = excluded.archive_path,
         target = excluded.target,
-        cached_at = excluded.cached_at
+        cached_at = excluded.cached_at,
+        provider_id = excluded.provider_id,
+        credential_source = excluded.credential_source
     `).run(
       params.appId,
       params.source,
@@ -5981,6 +6048,8 @@ export class RuntimeStateStore {
       params.archivePath,
       params.target,
       params.cachedAt,
+      params.providerId,
+      params.credentialSource,
     );
     return {
       appId: params.appId,
@@ -5995,6 +6064,8 @@ export class RuntimeStateStore {
       archivePath: params.archivePath,
       target: params.target,
       cachedAt: params.cachedAt,
+      providerId: params.providerId,
+      credentialSource: params.credentialSource,
     };
   }
 
@@ -6058,6 +6129,9 @@ export class RuntimeStateStore {
       archivePath: row.archive_path == null ? null : String(row.archive_path),
       target: String(row.target ?? ""),
       cachedAt: String(row.cached_at ?? ""),
+      providerId: row.provider_id == null ? null : String(row.provider_id),
+      credentialSource:
+        row.credential_source == null ? null : String(row.credential_source),
     };
   }
 
@@ -6944,6 +7018,25 @@ export class RuntimeStateStore {
     }));
   }
 
+  private resolveDeletedWorkspacePreservedPath(workspaceId: string): string | null {
+    const discovered = this.workspacePathMatchesIdentity(
+      this.discoverWorkspacePath(workspaceId),
+      workspaceId,
+    );
+    if (discovered) {
+      return discovered;
+    }
+    const storedPath = this.workspacePathFromRegistry(workspaceId);
+    if (!storedPath) {
+      return null;
+    }
+    const candidatePath = storedPath.startsWith(
+      `${DELETED_WORKSPACE_PATH_TOMBSTONE_PREFIX}/`,
+    )
+      ? decodeDeletedWorkspacePathTombstone(storedPath, workspaceId)
+      : storedPath;
+    return this.workspacePathMatchesIdentity(candidatePath, workspaceId);
+  }
   private memoryDbForWorkspace(workspaceId?: string | null): Database.Database {
     if (typeof workspaceId === "string" && workspaceId.trim().length > 0) {
       return this.workspaceRuntimeDb(workspaceId);
@@ -7151,8 +7244,10 @@ export class RuntimeStateStore {
           archive_url,
           archive_path,
           target,
-          cached_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          cached_at,
+          provider_id,
+          credential_source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const row of rows) {
         statement.run(
@@ -7167,7 +7262,9 @@ export class RuntimeStateStore {
           row.archive_url ?? null,
           row.archive_path ?? null,
           row.target,
-          row.cached_at
+          row.cached_at,
+          row.provider_id ?? null,
+          row.credential_source ?? null
         );
       }
     }
@@ -7588,6 +7685,8 @@ export class RuntimeStateStore {
           archive_path TEXT,
           target TEXT NOT NULL,
           cached_at TEXT NOT NULL,
+          provider_id TEXT,
+          credential_source TEXT,
           PRIMARY KEY (source, app_id)
       );
 
@@ -7609,6 +7708,27 @@ export class RuntimeStateStore {
     this.ensureMemoryEntriesTableSchema(db);
     this.ensureMemoryEmbeddingIndexSchema(db);
     this.migrateIntegrationConnectionIdentityColumns(db);
+    this.migrateAppCatalogProviderColumns(db);
+  }
+
+  private migrateAppCatalogProviderColumns(db: Database.Database): void {
+    const tableNames = new Set<string>(
+      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
+        (row) => row.name,
+      ),
+    );
+    if (!tableNames.has("app_catalog")) {
+      return;
+    }
+    const columns = new Set<string>(
+      (db.prepare("PRAGMA table_info(app_catalog)").all() as Array<{ name: string }>).map((row) => row.name),
+    );
+    if (!columns.has("provider_id")) {
+      db.exec("ALTER TABLE app_catalog ADD COLUMN provider_id TEXT;");
+    }
+    if (!columns.has("credential_source")) {
+      db.exec("ALTER TABLE app_catalog ADD COLUMN credential_source TEXT;");
+    }
   }
 
   private ensureWorkspaceRuntimeDbSchema(db: Database.Database): void {
@@ -9010,6 +9130,23 @@ export class RuntimeStateStore {
       const rows = db.prepare<[], WorkspaceRow>("SELECT * FROM workspaces").all();
       for (const row of rows) {
         const workspacePath = row.workspace_path.trim();
+        if (row.deleted_at_utc != null) {
+          const preservedPath = this.workspacePathMatchesIdentity(
+            this.discoverWorkspacePath(row.id),
+            row.id,
+          ) ?? this.workspacePathMatchesIdentity(
+            decodeDeletedWorkspacePathTombstone(workspacePath, row.id)
+              ?? workspacePath,
+            row.id,
+          );
+          const nextPath = preservedPath
+            ? deletedWorkspacePathTombstone(row.id, preservedPath)
+            : workspacePath;
+          if (nextPath) {
+            db.prepare("UPDATE workspaces SET workspace_path = ? WHERE id = ?").run(nextPath, row.id);
+          }
+          continue;
+        }
         const resolvedPath =
           workspacePath && fs.existsSync(workspacePath) && fs.statSync(workspacePath).isDirectory()
             ? workspacePath
@@ -9190,6 +9327,29 @@ export class RuntimeStateStore {
     }
 
     return null;
+  }
+
+  private workspacePathMatchesIdentity(
+    workspacePath: string | null | undefined,
+    workspaceId: string,
+  ): string | null {
+    if (!workspacePath) {
+      return null;
+    }
+    try {
+      const resolvedPath = path.resolve(workspacePath);
+      if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isDirectory()) {
+        return null;
+      }
+      const identityPath = ensureWorkspaceIdentityMigrated(resolvedPath);
+      if (!fs.existsSync(identityPath) || !fs.statSync(identityPath).isFile()) {
+        return null;
+      }
+      const rawIdentity = fs.readFileSync(identityPath, "utf-8").trim();
+      return rawIdentity === workspaceId ? resolvedPath : null;
+    } catch {
+      return null;
+    }
   }
 
   private updateWorkspacePath(workspaceId: string, workspacePath: string): void {

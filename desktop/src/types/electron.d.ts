@@ -203,6 +203,7 @@ declare global {
     url: string;
     title: string;
     faviconUrl?: string;
+    folderPath?: string[];
     createdAt: string;
   }
 
@@ -1108,6 +1109,8 @@ interface RuntimeNotificationListOptionsPayload {
     archive_path: string | null;
     target: string;
     cached_at: string;
+    provider_id: string | null;
+    credential_source: string | null;
   }
 
   interface AppCatalogListResponse {
@@ -1161,6 +1164,8 @@ interface RuntimeNotificationListOptionsPayload {
     tags: string[];
     version?: string | null;
     archives?: AppTemplateArchivePayload[];
+    provider_id?: string | null;
+    credential_source?: string | null;
   }
 
   interface WorkspaceLifecycleBlockingAppPayload {

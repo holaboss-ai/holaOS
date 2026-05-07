@@ -220,7 +220,7 @@ type FileExplorerVisibleRow =
     };
 
 type FileExplorerVisibleSection = {
-  id: "protected" | "workspace";
+  id: "workspace";
   rows: FileExplorerVisibleRow[];
 };
 
@@ -1672,40 +1672,22 @@ export function FileExplorerPane({
         normalizedQuery,
       );
 
-    if (!isWorkspaceRootExplorerView(currentPath, workspaceRootPath)) {
-      return [
-        {
-          id: "workspace" as const,
-          rows: buildRows(entries),
-        },
-      ];
-    }
+    const visibleRootEntries = isWorkspaceRootExplorerView(
+      currentPath,
+      workspaceRootPath,
+    )
+      ? entries.filter(
+          (entry) =>
+            !isProtectedWorkspacePath(workspaceRootPath, entry.absolutePath),
+        )
+      : entries;
 
-    const protectedRootEntries = entries.filter((entry) =>
-      isProtectedWorkspacePath(workspaceRootPath, entry.absolutePath),
-    );
-    const workspaceEntries = entries.filter(
-      (entry) =>
-        !isProtectedWorkspacePath(workspaceRootPath, entry.absolutePath),
-    );
-    const protectedRows = buildRows(protectedRootEntries);
-    const workspaceRows = buildRows(workspaceEntries);
-    const sections: FileExplorerVisibleSection[] = [];
-
-    if (protectedRows.length > 0) {
-      sections.push({
-        id: "protected",
-        rows: protectedRows,
-      });
-    }
-    if (workspaceRows.length > 0) {
-      sections.push({
-        id: "workspace",
-        rows: workspaceRows,
-      });
-    }
-
-    return sections;
+    return [
+      {
+        id: "workspace" as const,
+        rows: buildRows(visibleRootEntries),
+      },
+    ];
   }, [
     currentPath,
     directoryEntriesByPath,
@@ -3864,16 +3846,11 @@ export function FileExplorerPane({
           ) : null}
 
           {!loading && !error
-            ? filteredEntries.map((section, sectionIndex) => (
+            ? filteredEntries.map((section) => (
                 <div
                   key={section.id}
                   role="group"
-                  aria-label={
-                    section.id === "protected"
-                      ? "Protected workspace files"
-                      : "Workspace files"
-                  }
-                  className={sectionIndex > 0 ? "mt-1.5 pt-1.5" : ""}
+                  aria-label="Workspace files"
                 >
                   {section.rows.map((row) => {
                     if (row.type === "feedback") {

@@ -12,7 +12,9 @@ import {
   Camera,
   ChevronLeft,
   ChevronRight,
+  FolderOpen,
   Globe,
+  ListTree,
   Loader2,
   MoreHorizontal,
   Plus,
@@ -29,6 +31,12 @@ import {
   BrowserCaptureStatusToast,
   useBrowserCaptureActions,
 } from "@/components/panes/useBrowserCaptureActions";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { buildBrowserBookmarkTree } from "@/lib/browserBookmarks";
 import { useBrowserGlowPreview } from "@/components/panes/useBrowserGlowPreview";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 
@@ -145,10 +153,18 @@ export function BrowserPane({
       EMPTY_BROWSER_STATE,
     [browserState],
   );
+  const bookmarkTree = useMemo(
+    () => buildBrowserBookmarkTree(bookmarks),
+    [bookmarks],
+  );
+  const [collapsedBookmarkFolderKeys, setCollapsedBookmarkFolderKeys] =
+    useState<Set<string>>(() => new Set());
   const isCompactPane = paneWidth > 0 && paneWidth <= 320;
   const isNarrowPane = paneWidth > 0 && paneWidth <= 240;
   const isActiveTabBusy = activeTab.loading || !activeTab.initialized;
-  const showBookmarkStrip = bookmarks.length > 0 && !isCompactPane;
+  const showBookmarkStrip =
+    (bookmarkTree.rootBookmarks.length > 0 || bookmarkTree.folders.length > 0) &&
+    !isCompactPane;
   const visibleBrowserSpace = browserState.space || DEFAULT_BROWSER_SPACE;
   const alternateBrowserSpace =
     visibleBrowserSpace === "user" ? "agent" : "user";
@@ -454,6 +470,80 @@ export function BrowserPane({
     () => bookmarks.find((bookmark) => bookmark.url === activeTab.url) ?? null,
     [activeTab.url, bookmarks],
   );
+  const renderBookmarkFolder = (
+    folder: ReturnType<typeof buildBrowserBookmarkTree>["folders"][number],
+    depth = 0,
+  ) => {
+    const isExpanded = !collapsedBookmarkFolderKeys.has(folder.key);
+    return (
+      <div key={folder.key} className="space-y-0.5">
+        <button
+          type="button"
+          aria-expanded={isExpanded}
+          aria-label={`${isExpanded ? "Collapse" : "Expand"} bookmark folder ${folder.name}`}
+          onClick={() => {
+            setCollapsedBookmarkFolderKeys((current) => {
+              const next = new Set(current);
+              if (next.has(folder.key)) {
+                next.delete(folder.key);
+              } else {
+                next.add(folder.key);
+              }
+              return next;
+            });
+          }}
+          className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1 text-left text-muted-foreground transition-colors hover:bg-accent hover:text-foreground ${
+            depth === 0
+              ? "text-[10px] font-medium uppercase tracking-[0.08em]"
+              : "text-xs"
+          }`}
+          style={depth > 0 ? { paddingLeft: `${10 + depth * 14}px` } : undefined}
+        >
+          <ChevronRight
+            className={`size-3 shrink-0 transition-transform duration-150 ${
+              isExpanded ? "rotate-90" : ""
+            }`}
+          />
+          <FolderOpen className="size-3.5 shrink-0" />
+          <span className="truncate">{folder.name}</span>
+        </button>
+        {isExpanded ? (
+          <>
+            {folder.bookmarks.map((bookmark) => (
+              <Button
+                variant="ghost"
+                size="sm"
+                key={bookmark.id}
+                onClick={() => navigateTo(bookmark.url)}
+                className="h-auto w-full justify-start gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-accent"
+                style={{ paddingLeft: `${10 + (depth + 1) * 14}px` }}
+              >
+                <span className="flex min-w-0 items-center gap-2.5">
+                  {bookmark.faviconUrl ? (
+                    <img
+                      src={bookmark.faviconUrl}
+                      alt=""
+                      className="size-4 shrink-0 rounded-sm"
+                    />
+                  ) : (
+                    <span className="grid size-4 shrink-0 place-items-center rounded-sm bg-muted text-[8px] text-muted-foreground">
+                      •
+                    </span>
+                  )}
+                  <span className="block max-w-[220px] truncate text-sm text-foreground">
+                    {bookmark.title}
+                  </span>
+                </span>
+              </Button>
+            ))}
+            {folder.folders.map((childFolder) =>
+              renderBookmarkFolder(childFolder, depth + 1),
+            )}
+          </>
+        ) : null}
+      </div>
+    );
+  };
 
   const activeDownloadCount = useMemo(
     () =>
@@ -905,7 +995,36 @@ export function BrowserPane({
           <BrowserCaptureStatusToast message={actionStatus} />
           {showBookmarkStrip ? (
             <div className="flex min-h-6 items-center gap-0.5 overflow-x-auto px-1.5 py-0.5">
-              {bookmarks.slice(0, 12).map((bookmark) => (
+              {bookmarkTree.folders.length > 0 ? (
+                <Popover>
+                  <PopoverTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        className="shrink-0 px-1.5 py-0.5 text-xs font-medium text-muted-foreground"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <ListTree className="size-3 shrink-0" />
+                          <span>Folders</span>
+                        </span>
+                      </Button>
+                    }
+                  />
+                  <PopoverContent
+                    align="start"
+                    side="bottom"
+                    sideOffset={6}
+                    className="max-h-80 w-80 gap-0 overflow-y-auto p-1"
+                  >
+                    <div className="px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                      Imported folders
+                    </div>
+                    {bookmarkTree.folders.map((folder) => renderBookmarkFolder(folder))}
+                  </PopoverContent>
+                </Popover>
+              ) : null}
+              {bookmarkTree.rootBookmarks.slice(0, 12).map((bookmark) => (
                 <Button
                   variant="ghost"
                   size="xs"

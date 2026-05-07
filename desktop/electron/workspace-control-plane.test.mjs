@@ -73,7 +73,7 @@ test("workspace IPC handlers delegate through the local workspace control plane"
   );
   assert.match(
     source,
-    /"workspace:getWorkspaceRoot"[\s\S]*resolveWorkspaceRuntimeSession\(workspaceId\)\)\.workspace_root/,
+    /"workspace:getWorkspaceRoot"[\s\S]*resolveLocalWorkspaceRoot\(workspaceId\)/,
   );
   assert.match(
     source,

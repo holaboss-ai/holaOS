@@ -165,6 +165,11 @@ test("desktop file explorer enforces the selected workspace root as a filesystem
     source,
     /if \(\s*hideWorkspaceManagedRootEntries &&\s*dirEntry\.isDirectory\(\) &&\s*dirEntry\.name === "apps"\s*\) \{\s*continue;\s*\}/,
   );
+  assert.match(source, /const absolutePath = path\.join\(resolvedPath, dirEntry\.name\);/);
+  assert.match(
+    source,
+    /if \(\s*hideWorkspaceManagedRootEntries &&\s*describeProtectedWorkspaceExplorerPath\(workspaceRoot, absolutePath\)\s*\) \{\s*continue;\s*\}/,
+  );
   assert.doesNotMatch(
     source,
     /!dirEntry\.isDirectory\(\) && dirEntry\.name === "workspace\.yaml"/,
