@@ -39,6 +39,9 @@ export const APP_TO_PROVIDER_MAP: Record<string, string> = {
   instagram: "instagram",
   gcalendar: "googlecalendar",
   gdrive: "googledrive",
+  slack: "slack",
+  youtube: "youtube",
+  mailchimp: "mailchimp",
 };
 
 export function getProviderForApp(appId: string): string | undefined {
