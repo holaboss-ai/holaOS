@@ -1416,6 +1416,14 @@ function AppShellContent() {
   const [devAppUpdatePreviewMode, setDevAppUpdatePreviewMode] =
     useState<DevAppUpdatePreviewMode>(loadDevAppUpdatePreviewMode);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  // Decoupled from `settingsDialogOpen` so the panel stays mounted long
+  // enough for the exit animation to finish before unmount.
+  const [settingsDialogRendered, setSettingsDialogRendered] = useState(false);
+  useEffect(() => {
+    if (settingsDialogOpen) {
+      setSettingsDialogRendered(true);
+    }
+  }, [settingsDialogOpen]);
   const [settingsDialogSection, setSettingsDialogSection] =
     useState<UiSettingsPaneSection>("settings");
   const [publishOpen, setPublishOpen] = useState(false);
@@ -5428,8 +5436,19 @@ function AppShellContent() {
           mount used to sit here. SettingsScreenRoot owns its own scroll
           + nav rail; this wrapper just covers the surface so the
           background shell isn't visible behind it. */}
-      {settingsDialogOpen ? (
-        <div className="absolute inset-0 z-40 overflow-hidden bg-background">
+      {settingsDialogRendered ? (
+        <div
+          data-state={settingsDialogOpen ? "open" : "closed"}
+          onAnimationEnd={(event) => {
+            if (
+              event.target === event.currentTarget &&
+              !settingsDialogOpen
+            ) {
+              setSettingsDialogRendered(false);
+            }
+          }}
+          className="absolute inset-0 z-40 overflow-hidden bg-background duration-200 ease-out data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:slide-out-to-bottom-2 data-[state=open]:slide-in-from-bottom-2"
+        >
           <SettingsScreenRoot
             activeSection={settingsDialogSection}
             appVersion={effectiveAppUpdateStatus?.currentVersion || ""}
