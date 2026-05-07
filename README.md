@@ -5,7 +5,7 @@
 <p align="center"><strong>An Open Agent Computer for ANY digital work.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/holaboss-ai/holaOS-priv/actions/workflows/ci.yml"><img src="https://github.com/holaboss-ai/holaOS-priv/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/holaboss-ai/holaOS/actions/workflows/ci.yml"><img src="https://github.com/holaboss-ai/holaOS/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <img src="https://img.shields.io/badge/node-24.14.1-43853d" alt="Node 24.14.1" />
   <img src="https://img.shields.io/badge/platform-macOS%20supported,%20Windows%20%26%20Linux%20in%20progress-f28c28" alt="macOS supported, Windows and Linux in progress" />
   <img src="https://img.shields.io/badge/desktop-Electron-47848f" alt="Electron desktop" />
@@ -58,7 +58,7 @@ holaOS is an open agent computer for any digital work. It reimagines the compute
 For a fresh-machine bootstrap on macOS, Linux, or WSL, use the repository installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/holaboss-ai/holaOS-priv/main/scripts/install.sh | bash -s -- --launch
+curl -fsSL https://raw.githubusercontent.com/holaboss-ai/holaOS/refs/heads/main/scripts/install.sh | bash -s -- --launch
 ```
 
 You can also follow the manual path if you want to control each setup step.
@@ -108,7 +108,7 @@ npm --version
 If you use Codex, Claude Code, Cursor, Windsurf, or another coding agent, you can hand it the setup instructions in one sentence:
 
 ```text
-Run the holaOS install script from https://raw.githubusercontent.com/holaboss-ai/holaOS-priv/main/scripts/install.sh. It should install git and Node.js 24.14.1/npm if they are missing, clone or update the repo into ~/holaboss-ai unless I specify another --dir, run desktop:install, create desktop/.env from desktop/.env.example if needed, run desktop:prepare-runtime:local and desktop:typecheck, and only run desktop:dev if I ask for --launch. If Electron cannot open, stop after verification and tell me the next manual step.
+Run the holaOS install script from https://raw.githubusercontent.com/holaboss-ai/holaOS/refs/heads/main/scripts/install.sh. It should install git and Node.js 24.14.1/npm if they are missing, clone or update the repo into ~/holaboss-ai unless I specify another --dir, run desktop:install, create desktop/.env from desktop/.env.example if needed, run desktop:prepare-runtime:local and desktop:typecheck, and only run desktop:dev if I ask for --launch. If Electron cannot open, stop after verification and tell me the next manual step.
 ```
 
 That handoff keeps the installation flow self-contained while leaving the detailed bootstrap steps in the repo-local [INSTALL.md](INSTALL.md) runbook.
