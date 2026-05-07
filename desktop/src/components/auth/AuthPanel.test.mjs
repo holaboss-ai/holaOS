@@ -25,7 +25,7 @@ test("billing summary card exposes web-only billing actions", async () => {
   assert.match(source, /Billing managed on web/);
   assert.match(source, />\s*Manage\s*</);
   assert.match(source, /openExternalUrl/);
-  assert.match(source, /shadow-md/);
+  assert.doesNotMatch(source, /shadow-md/);
   assert.doesNotMatch(source, /Available hosted credits/);
   assert.doesNotMatch(source, /Recent usage/);
   assert.doesNotMatch(source, /text-\[[0-9]+px\]/);
@@ -159,7 +159,9 @@ test("runtime auth panel keeps model provider settings compact", async () => {
   );
   assert.match(
     runtimeProviderSettingsBlock,
-    /<div className="flex flex-col items-center justify-center gap-2 rounded-xl bg-card shadow-md px-6 py-8 text-center">/,
+    // Card chrome migrated from `shadow-md` to bordered (matches the
+    // full-screen settings reference's quieter look).
+    /<div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card px-6 py-8 text-center">/,
   );
 });
 
@@ -352,7 +354,10 @@ test("account view uses an inline profile header and theme-colored sign-in actio
   assert.match(source, /if \(view === "account"\) \{/);
   assert.match(
     source,
-    /if \(showsSetupLoadingState\) \{\s*return \(\s*<section className="theme-shell w-full max-w-none overflow-hidden rounded-\[24px\] border border-border text-sm text-foreground shadow-card">\s*<div className="px-4 py-5">\s*\{setupLoadingPanel\}\s*<\/div>/,
+    // Card chrome migrated: `rounded-[24px]` → `rounded-3xl` (token
+    // scale) and `shadow-card` dropped (settings adopt border-only
+    // chrome — see SettingsCard).
+    /if \(showsSetupLoadingState\) \{\s*return \(\s*<section className="theme-shell w-full max-w-none overflow-hidden rounded-3xl border border-border text-sm text-foreground">\s*<div className="px-4 py-5">\s*\{setupLoadingPanel\}\s*<\/div>/,
   );
   assert.match(source, /className="flex items-start justify-between gap-3"/);
   assert.match(source, /className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-primary bg-primary\/10 text-lg font-semibold text-primary"/);

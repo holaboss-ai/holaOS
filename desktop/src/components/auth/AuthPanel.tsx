@@ -3564,7 +3564,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
         description="Connect the providers you want the agent to be able to use."
       >
         {connectedProviderIds.length > 0 ? (
-          <div className="overflow-hidden rounded-xl bg-card shadow-md">
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
             {connectedProviderIds.map((providerId, index) =>
               renderProviderRow(
                 providerId,
@@ -3576,7 +3576,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
           // Empty state: card-shaped CTA. Cleaner than a full provider list
           // that's mostly disconnected; mirrors craft-agents-oss's connections
           // empty state.
-          <div className="flex flex-col items-center justify-center gap-2 rounded-xl bg-card shadow-md px-6 py-8 text-center">
+          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card px-6 py-8 text-center">
             <div className="text-sm font-medium text-foreground">
               No providers connected
             </div>
@@ -3597,7 +3597,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
               render={
                 <button
                   type="button"
-                  className="group flex w-full items-center justify-between gap-3 rounded-xl bg-card px-3 py-2 shadow-md transition-colors hover:bg-accent"
+                  className="group flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2 transition-colors hover:bg-accent"
                 >
                   <span className="flex items-center gap-2 text-sm font-medium text-foreground">
                     <Plus className="size-4 text-muted-foreground" />
@@ -4305,7 +4305,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
 
   if (showsSetupLoadingState) {
     return (
-      <section className="theme-shell w-full max-w-none overflow-hidden rounded-3xl border border-border text-sm text-foreground shadow-card">
+      <section className="theme-shell w-full max-w-none overflow-hidden rounded-3xl border border-border text-sm text-foreground">
         <div className="px-4 py-5">{setupLoadingPanel}</div>
       </section>
     );

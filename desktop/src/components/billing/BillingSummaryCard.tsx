@@ -130,7 +130,7 @@ export function BillingSummaryCard({
   const timelineLabel = billingTimelineLabel(overview);
 
   return (
-    <section className="overflow-hidden rounded-xl bg-card shadow-md [&>*+*]:border-t [&>*+*]:border-border">
+    <section className="overflow-hidden rounded-xl border border-border bg-card [&>*+*]:border-t [&>*+*]:border-border">
       {/* Header row */}
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
