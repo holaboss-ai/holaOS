@@ -27,6 +27,7 @@ import { createPortal } from "react-dom";
 import { CreditsPill } from "@/components/billing/CreditsPill";
 import { RuntimeStatusIndicator } from "@/components/layout/RuntimeStatusIndicator";
 import { Button } from "@/components/ui/button";
+import { StatusDot } from "@/components/ui/status-dot";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import {
   DropdownMenu,
@@ -536,11 +537,8 @@ export function TopTabsBar({
                             }}
                             className="flex min-w-0 flex-1 items-center gap-2 px-1 text-left text-sm font-medium disabled:cursor-not-allowed"
                           >
-                            <span
-                              aria-hidden="true"
-                              className={`inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full ${
-                                folderMissing ? "bg-warning" : "bg-success"
-                              }`}
+                            <StatusDot
+                              variant={folderMissing ? "warning" : "success"}
                               title={
                                 folderMissing
                                   ? `Folder missing at ${workspace.workspace_path ?? "unknown"}`
