@@ -10,7 +10,7 @@ interface WorkbenchPanelProps {
 
 export function WorkbenchPanel({ onClose, children }: WorkbenchPanelProps) {
   return (
-    <section className="theme-shell soft-vignette neon-border relative flex h-[360px] min-h-0 min-w-0 flex-col overflow-hidden rounded-xl shadow-xs">
+    <section className="relative flex h-[360px] min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card">
       <header className="theme-header-surface flex shrink-0 items-center justify-between gap-3 border-b border-primary px-4 py-3">
         <div className="inline-flex h-10 items-center gap-2 rounded-2xl border border-primary bg-primary/10 px-3 text-[12px] text-primary">
           <Globe size={14} />

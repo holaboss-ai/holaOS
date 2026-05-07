@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Check, Download, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -15,6 +14,7 @@ import {
   accountDisplayLabel,
   useEnrichedConnections,
 } from "@/lib/integrationDisplay";
+import { cn } from "@/lib/utils";
 
 type AppCardState = "available" | "installing" | "installed";
 
@@ -102,34 +102,41 @@ export function AppCatalogCard({
     });
   }
   return (
-    <Card size="sm">
-      <CardHeader>
-        <div className="flex items-center gap-3">
-          <AppIcon
-            iconUrl={logoUrl ?? entry.icon}
-            appId={entry.app_id}
-            providerId={entry.provider_id}
-            label={label}
-            size="card"
-          />
-          <div className="min-w-0 flex-1">
-            <CardTitle className="truncate text-sm">{label}</CardTitle>
-            {entry.version ? (
-              <Badge variant="secondary" className="mt-1 text-xs">
-                {entry.version}
-              </Badge>
-            ) : null}
-          </div>
-        </div>
-      </CardHeader>
-      {description ? (
-        <CardContent className="flex-1">
-          <p className="line-clamp-3 text-xs leading-5 text-muted-foreground">{description}</p>
-        </CardContent>
-      ) : (
-        <div className="flex-1" />
+    <div
+      data-slot="app-catalog-row"
+      className={cn(
+        "group flex items-center gap-3 px-3 py-2.5 transition-colors",
+        "hover:bg-fg-2",
       )}
-      <CardFooter className="flex-wrap items-center justify-end gap-2">
+    >
+      <AppIcon
+        iconUrl={logoUrl ?? entry.icon}
+        appId={entry.app_id}
+        providerId={entry.provider_id}
+        label={label}
+        size="card"
+      />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm font-medium text-foreground">
+            {label}
+          </span>
+          {entry.version ? (
+            <Badge
+              variant="secondary"
+              className="shrink-0 px-1.5 py-0 text-[10px] font-normal"
+            >
+              {entry.version}
+            </Badge>
+          ) : null}
+        </div>
+        {description ? (
+          <p className="truncate text-xs text-muted-foreground">
+            {description}
+          </p>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
         {showAccountPicker ? (
           <Select
             value={activeConnectionId}
@@ -138,7 +145,7 @@ export function AppCatalogCard({
             }}
           >
             <SelectTrigger
-              className="mr-auto h-7 min-w-[140px] gap-1.5 border-border bg-transparent px-2 text-xs [&>svg]:size-3 [&>svg]:shrink-0"
+              className="h-7 min-w-[140px] gap-1.5 border-border bg-transparent px-2 text-xs [&>svg]:size-3 [&>svg]:shrink-0"
               size="sm"
               aria-label="Choose account"
               title={activeLabel}
@@ -206,23 +213,40 @@ export function AppCatalogCard({
           </Select>
         ) : null}
         {state === "installed" ? (
-          <Button variant="outline" size="sm" disabled>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled
+            className="text-muted-foreground"
+          >
             <Check size={13} />
             Installed
           </Button>
         ) : state === "installing" ? (
-          <Button variant="outline" size="sm" disabled>
+          <Button variant="ghost" size="sm" disabled>
             <LoaderCircle size={13} className="animate-spin" />
             Installing…
           </Button>
         ) : (
-          <Button size="sm" disabled={disabled} onClick={onInstall}>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={disabled}
+            onClick={onInstall}
+            className={cn(
+              // Reveal-on-hover so a long list reads as a quiet roster of
+              // names; the install action surfaces only when the user is
+              // pointing at a row. Focus-visible keeps it keyboard-reachable.
+              "opacity-0 transition-opacity",
+              "group-hover:opacity-100 focus-visible:opacity-100",
+            )}
+          >
             <Download size={13} />
             Install
           </Button>
         )}
-      </CardFooter>
-    </Card>
+      </div>
+    </div>
   );
 }
 

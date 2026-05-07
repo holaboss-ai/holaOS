@@ -39,10 +39,6 @@
   background: color-mix(in oklch, var(--card) 80%, transparent);
 }
 
-.neon-border {
-  border: 1px solid var(--border);
-}
-
 .focus-shell {
   transition:
     border-color 160ms ease,
@@ -52,19 +48,6 @@
 .focus-shell:focus-within {
   border-color: var(--ring);
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 20%, transparent);
-}
-
-.soft-vignette {
-  position: relative;
-}
-
-.soft-vignette::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border-radius: inherit;
-  box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.1);
 }
 
 /* ---- OS vibrancy ----

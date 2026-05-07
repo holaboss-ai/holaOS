@@ -1308,7 +1308,7 @@ function FocusPlaceholder({
   description: string;
 }) {
   return (
-    <section className="theme-shell soft-vignette neon-border relative flex h-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-xl shadow-xs">
+    <section className="relative flex h-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-card">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(87,255,173,0.08),transparent_45%)]" />
       <div className="relative max-w-[520px] px-8 text-center">
         <div className="text-[10px] uppercase text-primary">{eyebrow}</div>

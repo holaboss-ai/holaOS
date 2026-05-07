@@ -6,12 +6,6 @@ import {
   useWorkspaceDesktop,
 } from "@/lib/workspaceDesktop";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-} from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import {
@@ -25,25 +19,14 @@ import { AppCatalogCard } from "./AppCatalogCard";
 
 function AppCatalogCardSkeleton() {
   return (
-    <Card size="sm" className="animate-pulse">
-      <CardHeader>
-        <div className="flex items-center gap-3">
-          <div className="size-9 shrink-0 rounded-lg bg-muted-foreground/15" />
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <div className="h-3.5 w-24 rounded bg-muted-foreground/15" />
-            <div className="h-2.5 w-10 rounded bg-muted-foreground/10" />
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="flex-1 space-y-1.5">
-        <div className="h-2 w-full rounded bg-muted-foreground/15" />
-        <div className="h-2 w-[92%] rounded bg-muted-foreground/15" />
-        <div className="h-2 w-[70%] rounded bg-muted-foreground/15" />
-      </CardContent>
-      <CardFooter className="justify-end">
-        <div className="h-7 w-20 rounded-md bg-muted-foreground/15" />
-      </CardFooter>
-    </Card>
+    <div className="flex animate-pulse items-center gap-3 px-3 py-2.5">
+      <div className="size-9 shrink-0 rounded-lg bg-muted-foreground/15" />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="h-3.5 w-32 rounded bg-muted-foreground/15" />
+        <div className="h-3 w-[80%] rounded bg-muted-foreground/10" />
+      </div>
+      <div className="h-7 w-20 shrink-0 rounded-md bg-muted-foreground/15" />
+    </div>
   );
 }
 
@@ -359,7 +342,7 @@ export function AppsGallery() {
       ) : null}
 
       {isLoadingAppCatalog && appCatalog.length === 0 ? (
-        <div className="mt-4 grid grid-cols-1 gap-2 pb-6 md:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-3 divide-y divide-border border-y border-border pb-6">
           {Array.from({ length: 6 }).map((_, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton count
             <AppCatalogCardSkeleton key={i} />
@@ -394,7 +377,7 @@ export function AppsGallery() {
           }
         />
       ) : (
-        <div className="mt-4 grid grid-cols-1 gap-2 pb-6 md:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-3 divide-y divide-border border-y border-border pb-6">
           {filteredCatalog.map((entry) => {
             const isInstalled = installedIds.has(entry.app_id);
             const isInstalling = installingAppId === entry.app_id;
