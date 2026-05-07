@@ -255,6 +255,54 @@
   inherits: true;
   initial-value: oklch(0.55 0.24 18);
 }
+/* Surface palette — registered so theme switches interpolate the
+   whole canvas instead of hard-cutting on most surfaces. Initial
+   values mirror the warm-gray amber-minimal-light defaults. */
+@property --card {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.98 0.003 85);
+}
+@property --popover {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(1 0 0);
+}
+@property --muted {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.94 0.004 85);
+}
+@property --muted-foreground {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.55 0.005 75);
+}
+@property --accent {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.96 0.003 85);
+}
+@property --secondary {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.97 0.003 85);
+}
+@property --border {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.88 0.004 85);
+}
+@property --ring {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.624 0.229 32);
+}
+@property --sidebar {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.965 0.003 85);
+}
 
 /* Token fallbacks — tweakcn themes override these. Anything declared here
    keeps the app renderable during the brief frame before [data-theme] is
