@@ -87,7 +87,7 @@ Use the package-specific test commands when you are only touching one slice. Use
 - A packaged standalone runtime usually binds to `8080` unless you override `SANDBOX_AGENT_BIND_PORT`.
 - Running `runtime/api-server/dist/index.mjs` directly defaults to `3060` unless `SANDBOX_RUNTIME_API_PORT`, `SANDBOX_AGENT_BIND_PORT`, or `PORT` is set.
 - The staged runtime bundle should exist under `desktop/out/runtime-<platform>` and include `package-metadata.json`, `runtime/metadata.json`, and `runtime/api-server/dist/index.mjs`.
-- The Electron user-data directory controls the embedded sandbox root and `runtime.log`. In dev, `desktop:dev` sets `HOLABOSS_DESKTOP_USER_DATA_DIR=holaboss-local-dev` unless `HOLABOSS_DESKTOP_USER_DATA_PATH` overrides it.
+- The Electron user-data directory controls the embedded sandbox root and `runtime.log`. In dev, Electron resolves `HOLABOSS_DESKTOP_USER_DATA_PATH` first, then `HOLABOSS_DESKTOP_USER_DATA_DIR` from the shell or `desktop/.env`, and otherwise falls back to `holaboss-local-dev`.
 
 ```bash
 curl http://127.0.0.1:5160/healthz

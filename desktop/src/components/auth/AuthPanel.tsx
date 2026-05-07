@@ -789,6 +789,24 @@ function runtimeProviderStorageId(providerId: KnownProviderId): string {
   return providerId === "holaboss" ? "holaboss_model_proxy" : providerId;
 }
 
+function runtimeConfigProviderHasModelToken(
+  runtimeConfig: RuntimeConfigPayload | null,
+  providerId: string,
+  token: string,
+): boolean {
+  const normalizedToken = token.trim();
+  if (!normalizedToken) {
+    return false;
+  }
+  return (
+    runtimeConfig?.providerModelGroups.some(
+      (group) =>
+        group.providerId.trim() === providerId &&
+        group.models.some((model) => model.token.trim() === normalizedToken),
+    ) ?? false
+  );
+}
+
 function canonicalDraftProviderStorageId(providerId: string): string {
   const normalized = providerId.trim();
   if (!normalized) {
@@ -3434,7 +3452,15 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
   // in this panel every day. It belongs ABOVE the provider list (you
   // care which model you're talking to before you care which provider
   // serves it), so we surface it as its own section.
-  const defaultChatModelOptions = buildDefaultChatModelOptions(runtimeConfig);
+  const defaultChatModelOptions = buildDefaultChatModelOptions(runtimeConfig).filter(
+    (option) =>
+      isSignedIn ||
+      !runtimeConfigProviderHasModelToken(
+        runtimeConfig,
+        "holaboss_model_proxy",
+        option.value,
+      ),
+  );
   const defaultChatModelToken = (runtimeConfig?.defaultModel ?? "").trim();
   const defaultChatModelMatched = defaultChatModelOptions.some(
     (option) => option.value === defaultChatModelToken,
@@ -3500,6 +3526,40 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
     }
   };
 
+  useEffect(() => {
+    if (!window.electronAPI) return;
+    if (isSignedIn || isProviderDraftDirty) {
+      return;
+    }
+    const staleDefaultModel = runtimeConfigProviderHasModelToken(
+      runtimeConfig,
+      "holaboss_model_proxy",
+      defaultChatModelToken,
+    );
+    const staleSubagentModel = runtimeConfigProviderHasModelToken(
+      runtimeConfig,
+      "holaboss_model_proxy",
+      subagentModelToken,
+    );
+    if (!staleDefaultModel && !staleSubagentModel) {
+      return;
+    }
+    void window.electronAPI.runtime
+      .setConfig({
+        ...(staleDefaultModel ? { defaultModel: "" } : {}),
+        ...(staleSubagentModel ? { subagentModel: "" } : {}),
+      })
+      .catch(() => {
+        // Non-fatal — the signed-out picker already hides managed models.
+      });
+  }, [
+    defaultChatModelToken,
+    isProviderDraftDirty,
+    isSignedIn,
+    runtimeConfig,
+    subagentModelToken,
+  ]);
+
   const runtimeProviderSettings = (
     <div className="grid gap-6">
       {advancedSettingsWarnings.length > 0 ? (
@@ -3527,7 +3587,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
             <>
               <SettingsMenuSelectRow
                 label="Default chat model"
-                description="Used for new sessions unless a workspace overrides it."
+                description="Used for new sessions and whenever the composer stays on Auto."
                 value={defaultChatModelMatched ? defaultChatModelToken : ""}
                 onValueChange={handleDefaultChatModelChange}
                 options={defaultChatModelOptions}

@@ -2812,13 +2812,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
 
       // Already healthy — sync DB and return.
       //
-      // For shell-style lifecycles (lifecycle.start or startCommand) we
-      // ALSO require that the executor is currently tracking a child
-      // process. Otherwise the port could be responding because of an
-      // orphan process from a previous runtime (e.g. crashed without
-      // cleanup) or a port collision. Trusting such a process means we
-      // can never cleanly stop or restart the app, so we fall through
-      // to the start path which will re-spawn under our control.
+      // For shell-style lifecycles (lifecycle.start or startCommand),
+      // the runtime may be probing an app process it did not spawn in
+      // this process lifetime, such as after the desktop runtime
+      // relaunches. In that case, adopt the known ports so later stop
+      // and restart flows can still clean up by listener even though we
+      // do not have an in-memory child handle.
       //
       // Compose-managed apps are owned by docker, not by us, so the
       // tracking check doesn't apply there — trust isAppHealthy.
@@ -2845,17 +2844,25 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         return;
       }
       if (healthy && isShellManaged) {
-        app.log.warn(
-          { event: "app.ensure_running.orphan_detected", workspaceId, appId, http: resolved.ports.http, mcp: resolved.ports.mcp },
-          "ensureAppRunning: port reports healthy but no tracked process; treating as orphan and restarting",
+        appLifecycleExecutor.rememberAppPorts?.({
+          workspaceId,
+          appId,
+          httpPort: resolved.ports.http,
+          mcpPort: resolved.ports.mcp,
+        });
+        app.log.info(
+          {
+            event: "app.ensure_running.healthy_untracked_reused",
+            workspaceId,
+            appId,
+            http: resolved.ports.http,
+            mcp: resolved.ports.mcp,
+          },
+          "ensureAppRunning: healthy app has no tracked process; reusing existing listener",
         );
-        // Best-effort kill of any process on these ports before we
-        // start a fresh one so we don't dual-bind.
-        try {
-          await killPortListeners([resolved.ports.http, resolved.ports.mcp]);
-        } catch {
-          // best-effort
-        }
+        store.upsertAppBuild({ workspaceId, appId, status: "running" });
+        reconcileAppMcpRegistry(workspaceDir, appId, resolved);
+        return;
       }
 
       // Setup needed?
@@ -3362,15 +3369,27 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
 
     if (options.startAppsOnReady !== false) {
-      // Auto-start all enabled apps for active workspaces.
-      const workspaces = store.listWorkspaces({ includeDeleted: false });
-      for (const ws of workspaces) {
-        if (ws.status === "active") {
-          void ensureAllAppsRunning(ws.id).catch((err) => {
-            app.log.error({ workspaceId: ws.id, err: err instanceof Error ? err.message : String(err) }, "auto-start apps on ready failed");
-          });
+      // Kick app auto-start into the background so the runtime can
+      // begin serving /healthz before any workspace app setup/startup
+      // work runs. Running this inline inside onReady can delay
+      // app.listen() long enough for the desktop bootstrap health check
+      // to time out and kill an otherwise healthy runtime.
+      setImmediate(() => {
+        const workspaces = store.listWorkspaces({ includeDeleted: false });
+        for (const ws of workspaces) {
+          if (ws.status === "active") {
+            void ensureAllAppsRunning(ws.id).catch((err) => {
+              app.log.error(
+                {
+                  workspaceId: ws.id,
+                  err: err instanceof Error ? err.message : String(err),
+                },
+                "auto-start apps on ready failed",
+              );
+            });
+          }
         }
-      }
+      });
     }
   });
 

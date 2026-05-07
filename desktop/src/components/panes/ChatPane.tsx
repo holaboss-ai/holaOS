@@ -7231,9 +7231,14 @@ export function ChatPane({
     !hasConfiguredProviderCatalog && !holabossProxyModelsAvailable;
   const runtimeDefaultModelAvailable =
     !requiresModelProviderSetup &&
-    !hasConfiguredProviderCatalog &&
-    (holabossProxyModelsAvailable ||
-      !isHolabossProxyModel(runtimeDefaultModel));
+    (hasConfiguredProviderCatalog
+      ? visibleConfiguredProviderModelGroups.some((providerGroup) =>
+          providerGroup.models.some(
+            (model) => model.token.trim() === runtimeDefaultModel,
+          ),
+        )
+      : holabossProxyModelsAvailable ||
+        !isHolabossProxyModel(runtimeDefaultModel));
   const availableChatModelOptionGroups: ChatModelOptionGroup[] =
     hasConfiguredProviderCatalog
       ? visibleConfiguredProviderModelGroups.map((providerGroup) => ({
@@ -7284,10 +7289,12 @@ export function ChatPane({
           }));
   const normalizedModelPreference = chatModelPreference.trim();
   const modelPreferenceAvailable = hasConfiguredProviderCatalog
-    ? normalizedModelPreference.length > 0 &&
-      availableChatModelOptions.some(
-        (option) => option.value === normalizedModelPreference,
-      )
+    ? normalizedModelPreference === CHAT_MODEL_USE_RUNTIME_DEFAULT
+      ? runtimeDefaultModelAvailable
+      : normalizedModelPreference.length > 0 &&
+        availableChatModelOptions.some(
+          (option) => option.value === normalizedModelPreference,
+        )
     : chatModelPreference === CHAT_MODEL_USE_RUNTIME_DEFAULT
       ? runtimeDefaultModelAvailable
       : availableChatModelOptions.some(
@@ -7303,7 +7310,11 @@ export function ChatPane({
         ? CHAT_MODEL_USE_RUNTIME_DEFAULT
         : availableChatModelOptions[0]?.value || CHAT_MODEL_USE_RUNTIME_DEFAULT;
   const resolvedChatModel = hasConfiguredProviderCatalog
-    ? effectiveChatModelPreference
+    ? effectiveChatModelPreference === CHAT_MODEL_USE_RUNTIME_DEFAULT
+      ? runtimeDefaultModelAvailable
+        ? runtimeDefaultModel
+        : availableChatModelOptions[0]?.value || ""
+      : effectiveChatModelPreference
     : effectiveChatModelPreference === CHAT_MODEL_USE_RUNTIME_DEFAULT
       ? runtimeDefaultModelAvailable
         ? runtimeDefaultModel

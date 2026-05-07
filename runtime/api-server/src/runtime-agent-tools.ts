@@ -1942,6 +1942,16 @@ export class RuntimeAgentToolsService {
       subagentId: params.subagentId,
       ownerMainSessionId: controllerSession.sessionId,
     });
+    const parentInput = normalizedString(params.inputId)
+      ? this.store.getInput({
+          workspaceId: params.workspaceId,
+          inputId: normalizedString(params.inputId),
+        })
+      : null;
+    const controllerLatestInput = this.latestControllerInput(
+      params.workspaceId,
+      controllerSession.sessionId,
+    );
     if (state.run.status !== "waiting_on_user") {
       throw new RuntimeAgentToolsServiceError(
         409,
@@ -1957,8 +1967,15 @@ export class RuntimeAgentToolsService {
       : null;
     const effectiveProfile = resolveSubagentExecutionProfile({
       selectedModel:
-        params.selectedModel ?? params.model ?? inputModelValue(previousChildInput),
-      selectedThinkingValue: inputThinkingValue(previousChildInput),
+        params.selectedModel ??
+        params.model ??
+        inputModelValue(parentInput) ??
+        inputModelValue(controllerLatestInput) ??
+        inputModelValue(previousChildInput),
+      selectedThinkingValue:
+        inputThinkingValue(parentInput) ??
+        inputThinkingValue(controllerLatestInput) ??
+        inputThinkingValue(previousChildInput),
     });
     const effectiveModel = effectiveProfile.model;
     const useUserBrowserSurface = inputUsesUserBrowserSurface(previousChildInput);
@@ -2059,6 +2076,10 @@ export class RuntimeAgentToolsService {
           inputId: normalizedString(params.inputId),
         })
       : null;
+    const controllerLatestInput = this.latestControllerInput(
+      params.workspaceId,
+      controllerSession.sessionId,
+    );
     const previousChildInput = normalizedString(state.run.latestChildInputId)
       ? this.store.getInput({
           workspaceId: params.workspaceId,
@@ -2070,9 +2091,12 @@ export class RuntimeAgentToolsService {
         params.selectedModel ??
         params.model ??
         inputModelValue(parentInput) ??
+        inputModelValue(controllerLatestInput) ??
         inputModelValue(previousChildInput),
       selectedThinkingValue:
-        inputThinkingValue(parentInput) ?? inputThinkingValue(previousChildInput),
+        inputThinkingValue(parentInput) ??
+        inputThinkingValue(controllerLatestInput) ??
+        inputThinkingValue(previousChildInput),
     });
     const effectiveModel = effectiveProfile.model;
     const forwardedAttachments = attachmentsFromInputPayload(parentInput?.payload.attachments);
@@ -2982,6 +3006,29 @@ export class RuntimeAgentToolsService {
         }) ?? run;
     }
     return this.syncSubagentRunState(run);
+  }
+
+  private latestControllerInput(
+    workspaceId: string,
+    sessionId: string,
+  ): SessionInputRecord | null {
+    const runtimeState = this.store.getRuntimeState({
+      workspaceId,
+      sessionId,
+    });
+    const currentInputId = normalizedString(runtimeState?.currentInputId);
+    if (currentInputId) {
+      return this.store.getInput({
+        workspaceId,
+        inputId: currentInputId,
+      });
+    }
+    return this.store.getLatestInputForSession({
+      workspaceId,
+      sessionId,
+      excludeContextSources: ["main_session_event_batch"],
+      preferConfiguredModel: true,
+    });
   }
 
   private syncSubagentRunState(run: SubagentRunRecord): SyncedSubagentRunState {

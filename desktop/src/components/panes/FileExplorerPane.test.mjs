@@ -423,6 +423,10 @@ test("file explorer exposes right-click rename and delete actions for entries", 
     source,
     /const \[contextMenu, setContextMenu\]\s*=\s*useState<FileExplorerContextMenuState \| null>\(null\);/,
   );
+  assert.match(
+    source,
+    /const renameSelectionInitializedPathRef = useRef<string \| null>\(null\);/,
+  );
   assert.match(source, /const \[renamingPath, setRenamingPath\] = useState<string \| null>\(null\);/);
   assert.match(source, /const \[renameDraft, setRenameDraft\] = useState\(""\);/);
   assert.match(source, /const openEntryContextMenu = useCallback\(/);
@@ -459,6 +463,18 @@ test("file explorer exposes right-click rename and delete actions for entries", 
     /createPortal\([\s\S]*Open file[\s\S]*New file/,
   );
   assert.match(source, /ref=\{renameInputRef\}/);
+  assert.match(
+    source,
+    /if \(!renamingPath \|\| !renamingEntry \|\| !renameInputRef\.current\) \{\s*renameSelectionInitializedPathRef\.current = null;\s*return;\s*\}/,
+  );
+  assert.match(
+    source,
+    /if \(renameSelectionInitializedPathRef\.current === renamingPath\) \{\s*return;\s*\}/,
+  );
+  assert.match(
+    source,
+    /renameSelectionInitializedPathRef\.current = renamingPath;[\s\S]*input\.setSelectionRange\(0, selectionEnd\);[\s\S]*\}, \[renamingEntry, renamingPath\]\);/,
+  );
   assert.match(source, /onBlur=\{\(\) => \{\s*void submitRenameEntry\(\);\s*\}\}/);
   assert.match(source, /if \(event\.key === "Enter"\) \{\s*event\.preventDefault\(\);\s*void submitRenameEntry\(\);/);
   assert.match(source, /if \(event\.key === "Escape"\) \{\s*event\.preventDefault\(\);\s*cancelRenameEntry\(\);/);
@@ -497,6 +513,7 @@ test("file explorer exposes right-click rename and delete actions for entries", 
     source,
     /if \(shouldRetargetExternalFile\) \{\s*onFileOpen\?\.\(nextAbsolutePath\);\s*\}/,
   );
+  assert.match(source, /const stopRenamingEntry = useCallback\(\(\) => \{\s*renameSelectionInitializedPathRef\.current = null;/);
   assert.match(
     source,
     /window\.electronAPI\.fs\.deletePath\(\s*entry\.absolutePath,\s*selectedWorkspaceId \?\? null,\s*\)/,

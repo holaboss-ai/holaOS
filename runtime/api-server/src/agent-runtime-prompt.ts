@@ -242,7 +242,7 @@ function sessionPolicyPromptSection(request: ComposeBaseAgentPromptRequest): str
         "Treat the final child output as a handoff artifact for the main session. Make it self-contained enough that the main session can rely on it later without reopening this trace.",
         "Do not rely on intermediate tool steps, hidden reasoning, or `see above` references for essential context.",
         "When the task finds multiple items, options, or takeaways, include the actual items in the final output or deliverable instead of only a one-line lead summary.",
-        "When surfaced MCP or app tools already match the task, use them as the primary execution path instead of defaulting to bash, file inspection, or browser exploration.",
+        "When surfaced MCP/app tools match the task or a provided system URL, use them first instead of defaulting to bash, file inspection, or browser exploration.",
         "Do not inspect workspace files or app config just to prove an integration exists when the current surfaced capability set already exposes the relevant tools; invoke the relevant surfaced tool first, then inspect config only if the direct route fails or the user explicitly asked for environment inspection.",
         "If the task is blocked by a recoverable user action such as login, authorization, MFA, CAPTCHA, permission, account selection, confirmation, credentials, or missing context, use the `question` tool with the exact unblock request instead of finishing with a limitation.",
         "For browser tasks, if you reach a login or access wall, leave the browser where it is, ask the user to complete the required step, and wait for the main session to resume you."
@@ -679,13 +679,12 @@ export function buildBaseAgentPromptSections(
     "Use coordination tools instead of hidden state. The newest user message is primary.",
     "Resume unfinished work only when the newest message clearly asks to continue it; otherwise respond to the new message directly.",
     "Ask for missing identity details instead of guessing.",
-    "Put always-on workspace rules in `AGENTS.md`; use skills for reusable workflows that load when relevant.",
-    "Create or update a workspace-local skill for reusable workflows; do not use skills for unconditional policy or one-off state."
+    "Use `AGENTS.md` as the requirement ledger. Keep always-on policy there; turn conditional, situational, or procedural requirements into indexed workspace-local skills, using `skill-creator` when available."
   ];
   if (hasWorkspaceInstructionUpdateTool(request)) {
     executionLines.push(
-      "When the user gives durable workspace-wide rules, recurring output templates, or lasting instruction-following constraints that should apply in future work, persist them in root `AGENTS.md` with `holaboss_update_workspace_instructions` instead of relying only on transient context.",
-      "Do not update `AGENTS.md` for instructions that are clearly one-off and scoped only to the current deliverable."
+      "When the user states any requirement, rule, preference, constraint, or template, record it in root `AGENTS.md` with `holaboss_update_workspace_instructions` instead of relying only on transient context.",
+      "Record it even when it appears turn-scoped; skip only if the user explicitly says not to persist it."
     );
   }
   if (capabilityManifest?.browser_tools.length) {
@@ -697,7 +696,9 @@ export function buildBaseAgentPromptSections(
     executionLines.push("Use relevant skills instead of improvising when they materially help.");
   }
   if (request.resolvedMcpToolRefs.length > 0) {
-    executionLines.push("Use relevant MCP tools directly instead of only describing them.");
+    executionLines.push(
+      "Use MCP tools directly, and prefer surfaced MCP/app tools over browser work, web search, bash, or file inspection when they match the target system, including its URLs."
+    );
   } else if (
     (request.resolvedMcpServerIds?.length ?? 0) > 0 ||
     (request.capabilityManifest?.context.mcp_server_ids?.length ?? 0) > 0
@@ -929,13 +930,12 @@ export function buildMainSessionPromptSections(
     "Use coordination tools instead of hidden state. The newest user message is primary.",
     "Resume unfinished work only when the newest message clearly asks to continue it; otherwise respond to the new message directly.",
     "Ask for missing identity details instead of guessing.",
-    "Put always-on workspace rules in `AGENTS.md`; use skills for reusable workflows that load when relevant.",
-    "Create or update a workspace-local skill for reusable workflows; do not use skills for unconditional policy or one-off state."
+    "Use `AGENTS.md` as the requirement ledger. Keep always-on policy there; turn conditional, situational, or procedural requirements into indexed workspace-local skills, using `skill-creator` when available."
   ];
   if (hasWorkspaceInstructionUpdateTool(request)) {
     conversationLines.push(
-      "When the user gives durable workspace-wide rules, recurring output templates, or lasting instruction-following constraints that should apply in future work, persist them in root `AGENTS.md` with `holaboss_update_workspace_instructions` instead of relying only on transient context.",
-      "Do not update `AGENTS.md` for instructions that are clearly one-off and scoped only to the current deliverable."
+      "When the user states any requirement, rule, preference, constraint, or template, record it in root `AGENTS.md` with `holaboss_update_workspace_instructions` instead of relying only on transient context.",
+      "Record it even when it appears turn-scoped; skip only if the user explicitly says not to persist it."
     );
   }
   if (normalizedSessionKind === "onboarding") {
@@ -969,7 +969,10 @@ export function buildMainSessionPromptSections(
     conversationLines.push("Use relevant skills instead of improvising when they materially help.");
   }
   if (request.resolvedMcpToolRefs.length > 0) {
-    conversationLines.push("Use relevant MCP tools directly instead of only describing them.");
+    conversationLines.push(
+      "Use relevant MCP tools directly instead of only describing them.",
+      "Prefer surfaced MCP/app tools over opening the web app, browser exploration, or web research when they can satisfy the request, including when the user supplies a URL for that system; use browser/web around an MCP-backed system only for UI verification, requested independent confirmation, or after the MCP path is blocked."
+    );
   } else if (
     (request.resolvedMcpServerIds?.length ?? 0) > 0 ||
     (request.capabilityManifest?.context.mcp_server_ids?.length ?? 0) > 0
