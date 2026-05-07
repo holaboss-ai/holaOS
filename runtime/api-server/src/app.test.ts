@@ -7266,6 +7266,8 @@ test("GET /api/v1/apps/catalog returns entries filtered by source", async () => 
     archivePath: null,
     target: "darwin-arm64",
     cachedAt: "2026-04-09T00:00:00Z",
+    providerId: "twitter",
+    credentialSource: "platform",
   });
   store.upsertAppCatalogEntry({
     appId: "linkedin",
@@ -7280,6 +7282,8 @@ test("GET /api/v1/apps/catalog returns entries filtered by source", async () => 
     archivePath: "/tmp/linkedin-module-darwin-arm64.tar.gz",
     target: "darwin-arm64",
     cachedAt: "2026-04-09T00:00:00Z",
+    providerId: "linkedin",
+    credentialSource: "platform",
   });
 
   const res = await app.inject({ method: "GET", url: "/api/v1/apps/catalog?source=marketplace" });
@@ -7315,6 +7319,8 @@ test("POST /api/v1/apps/catalog/sync replaces all entries for a source", async (
     archivePath: null,
     target: "darwin-arm64",
     cachedAt: "2026-04-08T00:00:00Z",
+    providerId: null,
+    credentialSource: null,
   });
 
   const res = await app.inject({

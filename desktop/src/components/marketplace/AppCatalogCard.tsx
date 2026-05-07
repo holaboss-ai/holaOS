@@ -24,6 +24,15 @@ interface AppCatalogCardProps {
   disabled: boolean;
   onInstall: () => void;
   /**
+   * Display name override sourced from the Composio toolkit by
+   * `entry.provider_id`. Used when the marketplace manifest's `name` is
+   * just the slug (e.g. "gcalendar") and Composio knows the proper name
+   * ("Google Calendar"). Falls back to `entry.name` when null.
+   */
+  displayName?: string | null;
+  /** Logo URL from the Composio toolkit; takes precedence over `entry.icon`. */
+  logoUrl?: string | null;
+  /**
    * Active connections matching the app's expected provider. When the
    * caller has computed this list, the install footer renders an inline
    * account picker so the user binds at install time instead of
@@ -45,11 +54,14 @@ export function AppCatalogCard({
   state,
   disabled,
   onInstall,
+  displayName,
+  logoUrl,
   availableAccounts,
   selectedConnectionId,
   onSelectAccount,
 }: AppCatalogCardProps) {
-  const label = entry.name || entry.app_id;
+  const label =
+    displayName?.trim() || entry.name?.trim() || entry.app_id;
   const description = entry.description ?? "";
   const showAccountPicker =
     state === "available" &&
@@ -94,8 +106,9 @@ export function AppCatalogCard({
       <CardHeader>
         <div className="flex items-center gap-3">
           <AppIcon
-            iconUrl={entry.icon}
+            iconUrl={logoUrl ?? entry.icon}
             appId={entry.app_id}
+            providerId={entry.provider_id}
             label={label}
             size="card"
           />

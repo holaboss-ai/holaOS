@@ -5,6 +5,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -14,31 +15,49 @@ import { hydrateInstalledWorkspaceApps, type WorkspaceInstalledAppDefinition } f
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 
 /**
- * Maps an app id (e.g. `twitter`, `sheets`) to the integration provider id
- * the runtime expects in `integration_bindings.integration_key`. Apps with
- * no integration are absent from the table — callers should treat
- * `undefined` as "no provider needed".
- *
- * Exported so renderer-side components (AppsGallery, install cards) can
- * derive the same provider without each reimplementing the mapping.
+ * Each app self-declares its integration provider in `app.runtime.yaml`,
+ * which the marketplace catalog API surfaces as `provider_id`. Callers
+ * should look up the catalog entry for the app id and read
+ * `entry.provider_id` directly — `null` means "no integration needed".
  */
-export const APP_TO_PROVIDER_MAP: Record<string, string> = {
-  twitter: "twitter",
-  linkedin: "linkedin",
-  reddit: "reddit",
-  gmail: "gmail",
-  sheets: "googlesheets",
-  github: "github",
-  hubspot: "hubspot",
-  attio: "attio",
-  calcom: "calcom",
-  apollo: "apollo",
-  instantly: "instantly",
-  zoominfo: "zoominfo",
-};
+export function getProviderForCatalogEntry(
+  entry: AppCatalogEntryPayload | undefined,
+): string | undefined {
+  const value = entry?.provider_id?.trim();
+  return value ? value : undefined;
+}
 
-export function getProviderForApp(appId: string): string | undefined {
-  return APP_TO_PROVIDER_MAP[appId.toLowerCase()];
+/**
+ * Subset of the Composio toolkit shape we need across the desktop shell —
+ * display name + logo + categories. The full payload comes from
+ * `composioListToolkits()`; we keep the locally-typed alias narrow on
+ * purpose so app surfaces don't accidentally couple to fields we may
+ * later choose not to expose globally.
+ */
+export interface ComposioToolkitMetadata {
+  slug: string;
+  name: string;
+  description: string;
+  logo: string | null;
+  categories: string[];
+}
+
+/**
+ * Resolves the display name + logo for an app by combining the catalog
+ * entry's `provider_id` (self-declared in app.runtime.yaml) with the
+ * shared Composio toolkit map. Returns `null` fields when no toolkit
+ * data is available, so callers can fall back to their own defaults.
+ */
+export function resolveAppDisplay(
+  providerId: string | null | undefined,
+  toolkitsByProvider: Record<string, ComposioToolkitMetadata>,
+): { name: string | null; logo: string | null } {
+  const slug = providerId?.trim().toLowerCase();
+  const toolkit = slug ? toolkitsByProvider[slug] : undefined;
+  return {
+    name: toolkit?.name?.trim() || null,
+    logo: toolkit?.logo ?? null,
+  };
 }
 
 const ONBOARDING_ACTIVE_STATUSES = new Set(["pending", "awaiting_confirmation", "in_progress"]);
@@ -97,6 +116,7 @@ interface WorkspaceDesktopContextValue {
   appCatalogSource: "marketplace" | "local";
   setAppCatalogSource: (source: "marketplace" | "local") => void;
   refreshAppCatalog: () => Promise<void>;
+  composioToolkitsByProvider: Record<string, ComposioToolkitMetadata>;
   installingAppId: string | null;
   installAppFromCatalog: (
     appId: string,
@@ -299,6 +319,15 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
   const [isResolvingIntegrations, setIsResolvingIntegrations] = useState(false);
   const [pendingAppInstall, setPendingAppInstall] = useState<{ appId: string; provider: string } | null>(null);
   const [isConnectingAppIntegration, setIsConnectingAppIntegration] = useState(false);
+  // Composio toolkit metadata (name + logo + categories) keyed by toolkit
+  // slug. Single source of truth for app display name + icon across the
+  // shell — both the marketplace gallery and the workspace sidebar look
+  // up by `provider_id` (declared in app.runtime.yaml). Fetched once when
+  // the provider mounts; failures degrade silently to manifest names +
+  // CDN-by-app_id.
+  const [composioToolkitsByProvider, setComposioToolkitsByProvider] = useState<
+    Record<string, ComposioToolkitMetadata>
+  >({});
 
   const signedInUserId = sessionUserId(session);
   const isSignedIn = Boolean(signedInUserId);
@@ -329,6 +358,59 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
   useEffect(() => {
     setBrowserImportProfileDirState("");
   }, [browserImportSource]);
+
+  // Auto-load the marketplace app catalog once the runtime is running,
+  // even if the user hasn't opened the marketplace pane yet. The
+  // workspace sidebar uses `appCatalog[].provider_id` to map an installed
+  // app id (e.g. "gcalendar") to its Composio toolkit slug
+  // ("googlecalendar") for display name + logo lookup; without this
+  // eager load the sidebar would render the bare slug for any app
+  // surface entered before marketplace is visited.
+  const appCatalogAutoLoadAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (runtimeStatus?.status !== "running") return;
+    if (appCatalogAutoLoadAttemptedRef.current) return;
+    appCatalogAutoLoadAttemptedRef.current = true;
+    void refreshAppCatalog();
+    // refreshAppCatalog is stable enough for this one-shot use; we
+    // intentionally don't list it as a dep to avoid re-firing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runtimeStatus?.status]);
+
+  // One-shot fetch of the Composio toolkit catalog. The shape lives in the
+  // shared context so app surfaces (marketplace gallery + workspace
+  // sidebar + onboarding) all derive display name + logo from the same
+  // source of truth and we never need a local app→display table.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { toolkits } =
+          await window.electronAPI.workspace.composioListToolkits();
+        if (cancelled) return;
+        const indexed: Record<string, ComposioToolkitMetadata> = {};
+        for (const toolkit of toolkits) {
+          const slug = toolkit.slug?.trim().toLowerCase();
+          if (!slug) continue;
+          indexed[slug] = {
+            slug,
+            name: toolkit.name ?? "",
+            description: toolkit.description ?? "",
+            logo: toolkit.logo ?? null,
+            categories: Array.isArray(toolkit.categories)
+              ? toolkit.categories
+              : [],
+          };
+        }
+        setComposioToolkitsByProvider(indexed);
+      } catch {
+        // Non-fatal — surfaces fall back to manifest names + CDN-by-app_id.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const onboardingModeActive = useMemo(() => isOnboardingMode(selectedWorkspace), [selectedWorkspace]);
   const sessionModeLabel = onboardingModeActive ? "onboarding" : "session";
@@ -820,9 +902,10 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     }
   }
 
-  // (Same map exported above as APP_TO_PROVIDER_MAP for renderer-side reuse.)
-  // Local alias keeps the rest of the hook readable.
-  const APP_TO_PROVIDER = APP_TO_PROVIDER_MAP;
+  function providerForApp(appId: string): string | undefined {
+    const entry = appCatalog.find((e) => e.app_id === appId);
+    return getProviderForCatalogEntry(entry);
+  }
 
   async function installAppFromCatalog(
     appId: string,
@@ -838,7 +921,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     setAppCatalogError("");
 
     // Check if this app requires an integration that isn't connected yet
-    const provider = APP_TO_PROVIDER[appId.toLowerCase()];
+    const provider = providerForApp(appId);
     if (provider) {
       try {
         const { connections } = await window.electronAPI.workspace.listIntegrationConnections();
@@ -876,7 +959,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       //      connection on the expected provider. This is the silent
       //      single-account happy path; with the dedupe work in place
       //      "first match" is now stable.
-      const provider = APP_TO_PROVIDER[appId.toLowerCase()];
+      const provider = providerForApp(appId);
       if (provider && selectedWorkspaceId) {
         try {
           const { connections } = await window.electronAPI.workspace.listIntegrationConnections();
@@ -1480,6 +1563,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       appCatalogSource,
       setAppCatalogSource,
       refreshAppCatalog,
+      composioToolkitsByProvider,
       installingAppId,
       installAppFromCatalog,
       pendingAppInstall,
@@ -1559,6 +1643,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       appCatalogSource,
       setAppCatalogSource,
       refreshAppCatalog,
+      composioToolkitsByProvider,
       installingAppId,
       installAppFromCatalog,
       pendingAppInstall,

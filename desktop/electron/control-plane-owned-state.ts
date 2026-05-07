@@ -194,6 +194,8 @@ export interface LocalAppCatalogEntryRecord {
   archive_path: string | null
   target: string
   cached_at: string
+  provider_id: string | null
+  credential_source: string | null
 }
 
 export interface LocalAppCatalogListResponse {
@@ -335,6 +337,8 @@ function ensureControlPlaneDatabaseSchema(database: Database.Database): void {
       archive_path TEXT,
       target TEXT NOT NULL,
       cached_at TEXT NOT NULL,
+      provider_id TEXT,
+      credential_source TEXT,
       PRIMARY KEY (source, app_id)
     );
 
@@ -355,6 +359,21 @@ function ensureControlPlaneDatabaseSchema(database: Database.Database): void {
   `)
 }
 
+function ensureAppCatalogProviderColumns(database: Database.Database): void {
+  const columns = new Set(
+    (database
+      .prepare("PRAGMA table_info(app_catalog)")
+      .all() as Array<{ name: string }>)
+      .map((row) => row.name),
+  )
+  if (!columns.has("provider_id")) {
+    database.exec("ALTER TABLE app_catalog ADD COLUMN provider_id TEXT")
+  }
+  if (!columns.has("credential_source")) {
+    database.exec("ALTER TABLE app_catalog ADD COLUMN credential_source TEXT")
+  }
+}
+
 function openControlPlaneDatabase(controlPlaneDatabasePath: string): Database.Database {
   fs.mkdirSync(path.dirname(controlPlaneDatabasePath), { recursive: true })
   const database = new Database(controlPlaneDatabasePath)
@@ -362,6 +381,7 @@ function openControlPlaneDatabase(controlPlaneDatabasePath: string): Database.Da
   database.pragma("busy_timeout = 5000")
   database.pragma("foreign_keys = ON")
   ensureControlPlaneDatabaseSchema(database)
+  ensureAppCatalogProviderColumns(database)
   return database
 }
 
@@ -605,6 +625,9 @@ function mapAppCatalogRow(
     archive_path: row.archive_path == null ? null : String(row.archive_path),
     target: String(row.target ?? ""),
     cached_at: String(row.cached_at ?? ""),
+    provider_id: row.provider_id == null ? null : String(row.provider_id),
+    credential_source:
+      row.credential_source == null ? null : String(row.credential_source),
   }
 }
 
@@ -997,6 +1020,8 @@ function upsertAppCatalogEntry(
     archivePath: string | null
     target: string
     cachedAt: string
+    providerId: string | null
+    credentialSource: string | null
   },
 ): void {
   database
@@ -1013,8 +1038,10 @@ function upsertAppCatalogEntry(
         archive_url,
         archive_path,
         target,
-        cached_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        cached_at,
+        provider_id,
+        credential_source
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(source, app_id) DO UPDATE SET
         name = excluded.name,
         description = excluded.description,
@@ -1025,7 +1052,9 @@ function upsertAppCatalogEntry(
         archive_url = excluded.archive_url,
         archive_path = excluded.archive_path,
         target = excluded.target,
-        cached_at = excluded.cached_at
+        cached_at = excluded.cached_at,
+        provider_id = excluded.provider_id,
+        credential_source = excluded.credential_source
     `)
     .run(
       params.appId,
@@ -1040,6 +1069,8 @@ function upsertAppCatalogEntry(
       params.archivePath,
       params.target,
       params.cachedAt,
+      params.providerId,
+      params.credentialSource,
     )
 }
 
@@ -1637,6 +1668,10 @@ export function createLocalAppCatalogStore(
                 archivePath: normalizeOptionalString(entry.archive_path),
                 target,
                 cachedAt: now,
+                providerId: normalizeOptionalString(entry.provider_id),
+                credentialSource: normalizeOptionalString(
+                  entry.credential_source,
+                ),
               })
               synced += 1
             } catch {

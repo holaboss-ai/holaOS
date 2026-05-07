@@ -736,6 +736,7 @@ interface BrowserBookmarkPayload {
   url: string;
   title: string;
   faviconUrl?: string;
+  folderPath?: string[];
   createdAt: string;
 }
 
@@ -7796,7 +7797,6 @@ const localIntegrationMetadataStore = createLocalIntegrationMetadataStore({
 const localAppCatalogStore = createLocalAppCatalogStore({
   controlPlaneDatabasePath: controlPlaneDatabasePath,
 });
-
 async function getRuntimeUserProfile(): Promise<RuntimeUserProfilePayload> {
   return localRuntimeUserProfileStore.getProfile();
 }
@@ -12261,7 +12261,6 @@ function localWorkspaceRootFromSession(
   }
   return resolveLocalWorkspaceRootPath(session.workspace_root);
 }
-
 function cacheWorkspaceRuntimeSession(
   session: WorkspaceRuntimeSessionPayload,
 ): WorkspaceRuntimeSessionPayload {
@@ -12328,7 +12327,6 @@ async function resolveLocalWorkspaceRoot(
   const session = await resolveWorkspaceRuntimeSession(workspaceId, options);
   return localWorkspaceRootFromSession(session);
 }
-
 async function requestWorkspaceRuntimeJson<T>(
   workspaceId: string,
   {
@@ -13125,6 +13123,8 @@ async function syncAppCatalog(params: {
         version: tmpl.version ?? null,
         archive_url: matching.url,
         archive_path: null,
+        provider_id: tmpl.provider_id ?? null,
+        credential_source: tmpl.credential_source ?? null,
       });
     }
     return localAppCatalogStore.syncCatalog({
@@ -13147,6 +13147,8 @@ async function syncAppCatalog(params: {
       version: null,
       archive_url: null,
       archive_path: row.filePath,
+      provider_id: null,
+      credential_source: null,
     };
   });
   return localAppCatalogStore.syncCatalog({
@@ -19207,6 +19209,7 @@ async function listDirectory(
     if (dirEntry.name.startsWith(".")) {
       continue;
     }
+    const absolutePath = path.join(resolvedPath, dirEntry.name);
     if (
       hideWorkspaceManagedRootEntries &&
       dirEntry.isDirectory() &&
@@ -19214,7 +19217,12 @@ async function listDirectory(
     ) {
       continue;
     }
-    const absolutePath = path.join(resolvedPath, dirEntry.name);
+    if (
+      hideWorkspaceManagedRootEntries &&
+      describeProtectedWorkspaceExplorerPath(workspaceRoot, absolutePath)
+    ) {
+      continue;
+    }
     try {
       const meta = await fs.stat(absolutePath);
       entries.push({

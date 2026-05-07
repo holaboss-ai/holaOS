@@ -34,7 +34,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { cn } from "@/lib/utils";
-import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import { resolveAppDisplay, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 
 import { BundleFileTree } from "./BundleFileTree";
 import { LivePreviewPanel } from "./LivePreviewPanel";
@@ -902,6 +902,7 @@ function BundleForm({
   selectedApps,
   onSelectedAppsChange,
 }: BundleFormProps) {
+  const { appCatalog, composioToolkitsByProvider } = useWorkspaceDesktop();
   const allSelected = apps.length > 0 && selectedApps.length === apps.length;
   return (
     <div className="space-y-5">
@@ -969,21 +970,39 @@ function BundleForm({
                       >
                         {checked && <Check className="size-3" />}
                       </span>
-                      <AppIcon
-                        appId={app.id}
-                        label={app.label || app.id}
-                        size="row"
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">
-                          {app.label || app.id}
-                        </span>
-                        {app.summary && (
-                          <span className="mt-0.5 line-clamp-1 block text-xs text-muted-foreground">
-                            {app.summary}
-                          </span>
-                        )}
-                      </span>
+                      {(() => {
+                        const catalogEntry = appCatalog.find(
+                          (e) => e.app_id === app.id,
+                        );
+                        const providerId = catalogEntry?.provider_id ?? null;
+                        const display = resolveAppDisplay(
+                          providerId,
+                          composioToolkitsByProvider,
+                        );
+                        const resolvedLabel =
+                          display.name ?? app.label ?? app.id;
+                        return (
+                          <>
+                            <AppIcon
+                              iconUrl={display.logo}
+                              appId={app.id}
+                              providerId={providerId}
+                              label={resolvedLabel}
+                              size="row"
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium">
+                                {resolvedLabel}
+                              </span>
+                              {app.summary && (
+                                <span className="mt-0.5 line-clamp-1 block text-xs text-muted-foreground">
+                                  {app.summary}
+                                </span>
+                              )}
+                            </span>
+                          </>
+                        );
+                      })()}
                     </button>
                   </li>
                 );

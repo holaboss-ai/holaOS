@@ -472,6 +472,8 @@ export interface AppCatalogEntryRecord {
   archivePath: string | null;
   target: string;
   cachedAt: string;
+  providerId: string | null;
+  credentialSource: string | null;
 }
 
 export interface CronjobRecord {
@@ -6010,13 +6012,16 @@ export class RuntimeStateStore {
     archivePath: string | null;
     target: string;
     cachedAt: string;
+    providerId: string | null;
+    credentialSource: string | null;
   }): AppCatalogEntryRecord {
     const tagsJson = JSON.stringify(params.tags ?? []);
     this.controlPlaneDb().prepare(`
       INSERT INTO app_catalog (
         app_id, source, name, description, icon, category,
-        tags_json, version, archive_url, archive_path, target, cached_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        tags_json, version, archive_url, archive_path, target, cached_at,
+        provider_id, credential_source
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(source, app_id) DO UPDATE SET
         name = excluded.name,
         description = excluded.description,
@@ -6027,7 +6032,9 @@ export class RuntimeStateStore {
         archive_url = excluded.archive_url,
         archive_path = excluded.archive_path,
         target = excluded.target,
-        cached_at = excluded.cached_at
+        cached_at = excluded.cached_at,
+        provider_id = excluded.provider_id,
+        credential_source = excluded.credential_source
     `).run(
       params.appId,
       params.source,
@@ -6041,6 +6048,8 @@ export class RuntimeStateStore {
       params.archivePath,
       params.target,
       params.cachedAt,
+      params.providerId,
+      params.credentialSource,
     );
     return {
       appId: params.appId,
@@ -6055,6 +6064,8 @@ export class RuntimeStateStore {
       archivePath: params.archivePath,
       target: params.target,
       cachedAt: params.cachedAt,
+      providerId: params.providerId,
+      credentialSource: params.credentialSource,
     };
   }
 
@@ -6118,6 +6129,9 @@ export class RuntimeStateStore {
       archivePath: row.archive_path == null ? null : String(row.archive_path),
       target: String(row.target ?? ""),
       cachedAt: String(row.cached_at ?? ""),
+      providerId: row.provider_id == null ? null : String(row.provider_id),
+      credentialSource:
+        row.credential_source == null ? null : String(row.credential_source),
     };
   }
 
@@ -7023,7 +7037,6 @@ export class RuntimeStateStore {
       : storedPath;
     return this.workspacePathMatchesIdentity(candidatePath, workspaceId);
   }
-
   private memoryDbForWorkspace(workspaceId?: string | null): Database.Database {
     if (typeof workspaceId === "string" && workspaceId.trim().length > 0) {
       return this.workspaceRuntimeDb(workspaceId);
@@ -7231,8 +7244,10 @@ export class RuntimeStateStore {
           archive_url,
           archive_path,
           target,
-          cached_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          cached_at,
+          provider_id,
+          credential_source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const row of rows) {
         statement.run(
@@ -7247,7 +7262,9 @@ export class RuntimeStateStore {
           row.archive_url ?? null,
           row.archive_path ?? null,
           row.target,
-          row.cached_at
+          row.cached_at,
+          row.provider_id ?? null,
+          row.credential_source ?? null
         );
       }
     }
@@ -7668,6 +7685,8 @@ export class RuntimeStateStore {
           archive_path TEXT,
           target TEXT NOT NULL,
           cached_at TEXT NOT NULL,
+          provider_id TEXT,
+          credential_source TEXT,
           PRIMARY KEY (source, app_id)
       );
 
@@ -7689,6 +7708,27 @@ export class RuntimeStateStore {
     this.ensureMemoryEntriesTableSchema(db);
     this.ensureMemoryEmbeddingIndexSchema(db);
     this.migrateIntegrationConnectionIdentityColumns(db);
+    this.migrateAppCatalogProviderColumns(db);
+  }
+
+  private migrateAppCatalogProviderColumns(db: Database.Database): void {
+    const tableNames = new Set<string>(
+      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
+        (row) => row.name,
+      ),
+    );
+    if (!tableNames.has("app_catalog")) {
+      return;
+    }
+    const columns = new Set<string>(
+      (db.prepare("PRAGMA table_info(app_catalog)").all() as Array<{ name: string }>).map((row) => row.name),
+    );
+    if (!columns.has("provider_id")) {
+      db.exec("ALTER TABLE app_catalog ADD COLUMN provider_id TEXT;");
+    }
+    if (!columns.has("credential_source")) {
+      db.exec("ALTER TABLE app_catalog ADD COLUMN credential_source TEXT;");
+    }
   }
 
   private ensureWorkspaceRuntimeDbSchema(db: Database.Database): void {

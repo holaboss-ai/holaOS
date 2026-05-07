@@ -2,6 +2,7 @@ import { AppWindow, Plus } from "lucide-react";
 import { AppIcon } from "@/components/marketplace/AppIcon";
 import { Button } from "@/components/ui/button";
 import type { WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
+import { resolveAppDisplay, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 
 interface SpaceApplicationsExplorerPaneProps {
   installedApps: WorkspaceInstalledAppDefinition[];
@@ -45,7 +46,13 @@ export function SpaceApplicationsExplorerPane({
   onSelectApp,
   onAddApp,
 }: SpaceApplicationsExplorerPaneProps) {
+  const { appCatalog, composioToolkitsByProvider } = useWorkspaceDesktop();
   const isEmpty = installedApps.length === 0;
+
+  function lookupProviderId(appId: string): string | null {
+    const entry = appCatalog.find((candidate) => candidate.app_id === appId);
+    return entry?.provider_id ?? null;
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-transparent">
@@ -70,6 +77,12 @@ export function SpaceApplicationsExplorerPane({
               const isActive = activeAppId === app.id;
               const tone = appStatusTone(app);
               const showStatus = tone !== "ready";
+              const providerId = lookupProviderId(app.id);
+              const display = resolveAppDisplay(
+                providerId,
+                composioToolkitsByProvider,
+              );
+              const label = display.name ?? app.label;
               return (
                 <Button
                   key={app.id}
@@ -78,17 +91,23 @@ export function SpaceApplicationsExplorerPane({
                   size="sm"
                   onClick={() => onSelectApp(app.id)}
                   aria-current={isActive ? "page" : undefined}
-                  aria-label={`${app.label} — ${statusPipLabel(tone)}`}
-                  title={app.summary || app.label}
+                  aria-label={`${label} — ${statusPipLabel(tone)}`}
+                  title={app.summary || label}
                   className={`h-auto w-full justify-start gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
                     isActive
                       ? "bg-accent text-foreground"
                       : "text-foreground hover:bg-accent"
                   }`}
                 >
-                  <AppIcon appId={app.id} label={app.label} size="row" />
+                  <AppIcon
+                    iconUrl={display.logo}
+                    appId={app.id}
+                    providerId={providerId}
+                    label={label}
+                    size="row"
+                  />
                   <span className="min-w-0 flex-1 truncate text-sm">
-                    {app.label}
+                    {label}
                   </span>
                   {showStatus ? (
                     <span

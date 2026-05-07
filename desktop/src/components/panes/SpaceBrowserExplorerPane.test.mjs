@@ -129,3 +129,27 @@ test("space browser explorer hides the bookmarks section when empty", async () =
   // Bookmarks block is conditional on hasBookmarks.
   assert.match(source, /\{hasBookmarks \? \(/);
 });
+
+test("space browser explorer preserves imported bookmark folders", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  assert.match(
+    source,
+    /import \{ buildBrowserBookmarkTree \} from "@\/lib\/browserBookmarks";/,
+  );
+  assert.match(source, /const bookmarkTree = useMemo\(\s*\(\) => buildBrowserBookmarkTree\(bookmarks\),/);
+  assert.match(
+    source,
+    /const hasBookmarks =\s*bookmarkTree\.rootBookmarks\.length > 0 \|\| bookmarkTree\.folders\.length > 0;/,
+  );
+  assert.match(source, /<FolderOpen className="size-3\.5 shrink-0" \/>/);
+  assert.match(
+    source,
+    /const \[collapsedBookmarkFolderKeys, setCollapsedBookmarkFolderKeys\] =\s*useState<Set<string>>\(\(\) => new Set\(\)\);/,
+  );
+  assert.match(source, /aria-expanded=\{isExpanded\}/);
+  assert.match(source, /Collapse" : "Expand"} bookmark folder/);
+  assert.match(source, /<ChevronRight[\s\S]*rotate-90/);
+  assert.match(source, /bookmarkTree\.folders\.map\(\(folder\) => renderBookmarkFolder\(folder\)\)/);
+  assert.match(source, /Saved/);
+});
