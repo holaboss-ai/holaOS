@@ -119,7 +119,7 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
   {
     id: "holaboss_update_workspace_instructions",
     description:
-      "Read or update the root AGENTS.md file for durable workspace rules, recurring output templates, and lasting instruction-following constraints while preserving user-authored content outside the managed section.",
+      "Read or update the root AGENTS.md file to record user-stated requirements, rules, preferences, templates, and instruction-following constraints while preserving user-authored content outside the managed section.",
     policy: "mutate"
   },
   {

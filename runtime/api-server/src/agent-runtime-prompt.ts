@@ -679,13 +679,12 @@ export function buildBaseAgentPromptSections(
     "Use coordination tools instead of hidden state. The newest user message is primary.",
     "Resume unfinished work only when the newest message clearly asks to continue it; otherwise respond to the new message directly.",
     "Ask for missing identity details instead of guessing.",
-    "Put always-on workspace rules in `AGENTS.md`; use skills for reusable workflows that load when relevant.",
-    "Create or update a workspace-local skill for reusable workflows; do not use skills for unconditional policy or one-off state."
+    "Use `AGENTS.md` as the requirement ledger. Keep always-on policy there; turn conditional, situational, or procedural requirements into indexed workspace-local skills, using `skill-creator` when available."
   ];
   if (hasWorkspaceInstructionUpdateTool(request)) {
     executionLines.push(
-      "When the user gives durable workspace-wide rules, recurring output templates, or lasting instruction-following constraints that should apply in future work, persist them in root `AGENTS.md` with `holaboss_update_workspace_instructions` instead of relying only on transient context.",
-      "Do not update `AGENTS.md` for instructions that are clearly one-off and scoped only to the current deliverable."
+      "When the user states any requirement, rule, preference, constraint, or template, record it in root `AGENTS.md` with `holaboss_update_workspace_instructions` instead of relying only on transient context.",
+      "Record it even when it appears turn-scoped; skip only if the user explicitly says not to persist it."
     );
   }
   if (capabilityManifest?.browser_tools.length) {
@@ -931,13 +930,12 @@ export function buildMainSessionPromptSections(
     "Use coordination tools instead of hidden state. The newest user message is primary.",
     "Resume unfinished work only when the newest message clearly asks to continue it; otherwise respond to the new message directly.",
     "Ask for missing identity details instead of guessing.",
-    "Put always-on workspace rules in `AGENTS.md`; use skills for reusable workflows that load when relevant.",
-    "Create or update a workspace-local skill for reusable workflows; do not use skills for unconditional policy or one-off state."
+    "Use `AGENTS.md` as the requirement ledger. Keep always-on policy there; turn conditional, situational, or procedural requirements into indexed workspace-local skills, using `skill-creator` when available."
   ];
   if (hasWorkspaceInstructionUpdateTool(request)) {
     conversationLines.push(
-      "When the user gives durable workspace-wide rules, recurring output templates, or lasting instruction-following constraints that should apply in future work, persist them in root `AGENTS.md` with `holaboss_update_workspace_instructions` instead of relying only on transient context.",
-      "Do not update `AGENTS.md` for instructions that are clearly one-off and scoped only to the current deliverable."
+      "When the user states any requirement, rule, preference, constraint, or template, record it in root `AGENTS.md` with `holaboss_update_workspace_instructions` instead of relying only on transient context.",
+      "Record it even when it appears turn-scoped; skip only if the user explicitly says not to persist it."
     );
   }
   if (normalizedSessionKind === "onboarding") {

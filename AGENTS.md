@@ -1,5 +1,15 @@
 # Repository Guidelines
 
+## Workspace Instruction Persistence
+Any requirement or rule mentioned by the user must be recorded in `AGENTS.md`, even when it appears scoped to a single turn or deliverable, unless the user explicitly says not to persist it.
+
+When the user changes, retracts, or supersedes a prior requirement, update `AGENTS.md` to reflect the latest instruction state instead of leaving stale rules behind.
+
+Use `AGENTS.md` as the canonical ledger of all user-stated requirements. After recording a requirement, classify it: always-on policy remains in `AGENTS.md`, while conditional, situational, or procedural requirements should also create or update a workspace-local skill.
+
+## Workspace Skills Index
+Keep a short index here for every workspace-local skill created from recorded requirements, including the skill id and when to use it. No workspace-local skills are currently installed.
+
 ## Commit & Pull Request Guidelines
 Commit history follows Conventional Commits (`feat:`, `fix:`, `migrate:`, `chore:`, etc.) and must use a detailed, structured message format.
 

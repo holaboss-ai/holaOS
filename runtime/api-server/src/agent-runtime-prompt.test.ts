@@ -162,19 +162,7 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
   );
   assert.match(
     prompt.systemPrompt,
-    /Create or update a workspace-local skill for reusable workflows/
-  );
-  assert.match(
-    prompt.systemPrompt,
-    /do not use skills for unconditional policy or one-off state\./i
-  );
-  assert.match(
-    prompt.systemPrompt,
-    /Put always-on workspace rules in `AGENTS\.md`/i
-  );
-  assert.match(
-    prompt.systemPrompt,
-    /use skills for reusable workflows that load when relevant/i
+    /Use `AGENTS\.md` as the requirement ledger\. Keep always-on policy there; turn conditional, situational, or procedural requirements into indexed workspace-local skills, using `skill-creator` when available\./i
   );
   assert.match(prompt.systemPrompt, /Session policy:/);
   assert.match(prompt.systemPrompt, /front-of-house workspace session/i);
@@ -485,7 +473,7 @@ test("composeAgentPrompt can inject a run-specific routing recovery override for
   assert.match(prompt.systemPrompt, /produce the report artifact/i);
 });
 
-test("composeAgentPrompt instructs main sessions to persist durable workspace rules into AGENTS.md when the tool is available", () => {
+test("composeAgentPrompt instructs main sessions to record all user requirements into AGENTS.md when the tool is available", () => {
   const capabilityManifest = buildAgentCapabilityManifest({
     defaultTools: ["read"],
     extraTools: ["holaboss_update_workspace_instructions"],
@@ -508,11 +496,50 @@ test("composeAgentPrompt instructs main sessions to persist durable workspace ru
 
   assert.match(
     prompt.systemPrompt,
-    /persist them in root `AGENTS\.md` with `holaboss_update_workspace_instructions`/i,
+    /When the user states any requirement, rule, preference, constraint, or template, record it in root `AGENTS\.md` with `holaboss_update_workspace_instructions`/i,
   );
   assert.match(
     prompt.systemPrompt,
-    /Do not update `AGENTS\.md` for instructions that are clearly one-off/i,
+    /Record it even when it appears turn-scoped; skip only if the user explicitly says not to persist it\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /conditional, situational, or procedural requirements into indexed workspace-local skills, using `skill-creator` when available\./i,
+  );
+});
+
+test("composeBaseAgentPrompt instructs direct sessions to record all user requirements into AGENTS.md when the tool is available", () => {
+  const capabilityManifest = buildAgentCapabilityManifest({
+    defaultTools: ["read"],
+    extraTools: ["holaboss_update_workspace_instructions"],
+    runtimeToolIds: ["holaboss_update_workspace_instructions"],
+    workspaceSkillIds: [],
+    resolvedMcpToolRefs: [],
+    toolServerIdMap: {},
+  });
+
+  const prompt = composeBaseAgentPrompt("You are concise.", {
+    defaultTools: ["read"],
+    extraTools: ["holaboss_update_workspace_instructions"],
+    workspaceSkillIds: [],
+    resolvedMcpToolRefs: [],
+    sessionKind: "workspace_session",
+    sessionMode: "code",
+    harnessId: "pi",
+    capabilityManifest,
+  });
+
+  assert.match(
+    prompt.systemPrompt,
+    /When the user states any requirement, rule, preference, constraint, or template, record it in root `AGENTS\.md` with `holaboss_update_workspace_instructions`/i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Record it even when it appears turn-scoped; skip only if the user explicitly says not to persist it\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /conditional, situational, or procedural requirements into indexed workspace-local skills, using `skill-creator` when available\./i,
   );
 });
 
