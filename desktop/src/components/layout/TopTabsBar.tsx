@@ -291,10 +291,9 @@ export function TopTabsBar({
     : undefined;
 
   const windowControlButtonClassName =
-    "window-no-drag flex h-6 w-6 items-center justify-center rounded-[7px] border border-transparent text-muted-foreground transition-colors duration-150 hover:bg-foreground/6 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50";
+    "window-no-drag flex h-6 w-6 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors duration-150 hover:bg-fg-6 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50";
   const workspaceSwitcherContainerClassName = `${integratedTitleBar ? "window-no-drag " : ""}relative w-40 shrink-0`;
-  const workspaceSwitcherButtonClassName =
-    "h-7 w-full shrink-0 justify-start gap-1.5 rounded-md border border-border/55 bg-foreground/6 px-2 text-xs";
+  const workspaceSwitcherButtonClassName = "w-full justify-start";
 
   return (
     <header
@@ -333,7 +332,7 @@ export function TopTabsBar({
             >
               <Button
                 ref={workspaceSwitcherButtonRef}
-                variant="outline"
+                variant="bordered"
                 size="sm"
                 aria-expanded={workspaceSwitcherOpen}
                 onClick={() => {
@@ -351,12 +350,12 @@ export function TopTabsBar({
                 }}
                 className={workspaceSwitcherButtonClassName}
               >
-                <FolderKanban className="size-3.5 shrink-0 text-primary" />
-                <span className="min-w-0 truncate text-left font-medium">
+                <FolderKanban />
+                <span className="min-w-0 truncate text-left">
                   {selectedWorkspace?.name || "Select workspace"}
                 </span>
                 <ChevronDown
-                  className={`ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform ${workspaceSwitcherOpen ? "rotate-180" : ""}`}
+                  className={`ml-auto transition-transform ${workspaceSwitcherOpen ? "rotate-180" : ""}`}
                 />
               </Button>
             </div>
@@ -370,7 +369,7 @@ export function TopTabsBar({
                   variant="outline"
                   size="icon-sm"
                   aria-label="Open account menu"
-                  className="size-7 shrink-0 overflow-hidden rounded-full border border-border/55 bg-foreground/6 p-0"
+                  className="size-7 shrink-0 overflow-hidden rounded-full border border-border bg-fg-6 p-0"
                 />
               }
             >
@@ -453,7 +452,7 @@ export function TopTabsBar({
 
       {workspaceErrorMessage ? (
         <div
-          className={`${integratedTitleBar ? "window-no-drag " : ""}theme-chat-system-bubble mt-2 rounded-[14px] border px-3 py-2 text-xs leading-6`}
+          className={`${integratedTitleBar ? "window-no-drag " : ""}theme-chat-system-bubble mt-2 rounded-2xl border px-3 py-2 text-xs leading-6`}
         >
           {workspaceErrorMessage}
         </div>
