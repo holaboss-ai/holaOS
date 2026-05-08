@@ -35,13 +35,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { StatusDot } from "@/components/ui/status-dot";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
@@ -82,8 +75,6 @@ const KNOWN_PROVIDER_ORDER = [
 ] as const;
 const SUBAGENT_MODEL_FOLLOW_COMPOSER = "__subagent_follow_composer__";
 type KnownProviderId = (typeof KNOWN_PROVIDER_ORDER)[number];
-const AUTH_PANEL_SELECT_TRIGGER_CLASS_NAME =
-  "auth-settings-control relative isolate h-9 w-full overflow-hidden rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground shadow-none transition-colors hover:border-border focus-visible:border-border focus-visible:ring-0 focus-visible:ring-transparent aria-invalid:border-border aria-invalid:ring-0";
 const LEGACY_DIRECT_PROVIDER_MODEL_ALIASES: Record<
   string,
   Record<string, string>
@@ -3809,8 +3800,8 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
         }}
       >
         <DialogPrimitive.Portal>
-          <DialogPrimitive.Backdrop className="fixed inset-0 z-[600] bg-background/60 backdrop-blur-md data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 duration-200" />
-          <DialogPrimitive.Popup className="fixed top-1/2 left-1/2 z-[600] flex w-[min(680px,calc(100vw-32px))] max-h-[min(720px,calc(100vh-32px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl bg-background/85 backdrop-blur-2xl backdrop-saturate-150 shadow-xl outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.97] data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[0.98] duration-200 ease-out">
+          <DialogPrimitive.Backdrop className="fixed inset-0 z-[600] bg-background/60 backdrop-blur-sm data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 duration-200" />
+          <DialogPrimitive.Popup className="fixed top-1/2 left-1/2 z-[600] flex w-[min(680px,calc(100vw-32px))] max-h-[min(720px,calc(100vh-32px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.97] data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[0.98] duration-200 ease-out">
             <header className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
               <div className="min-w-0">
                 <DialogPrimitive.Title className="text-base font-medium text-foreground">
@@ -3829,313 +3820,250 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
                 }
               />
             </header>
-            <div className="flex-1 overflow-y-auto p-5">
-              <div className="grid gap-4">
-                  <div className="rounded-xl bg-card ring-1 ring-border p-3">
-                    <div className="text-sm font-medium text-foreground">
-                      Background tasks
-                    </div>
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      Used for memory recall and evolve tasks.
-                    </div>
-                    <div className="mt-3 grid gap-2">
-                      <label className="grid gap-1">
-                        <span className="text-xs uppercase text-muted-foreground">
-                          Provider
-                        </span>
-                        <Select
-                          value={backgroundTasksDraft.providerId}
-                          onValueChange={(value) =>
-                            applyBackgroundTaskProviderSelection(
-                              backgroundTaskProviderDraftId(value ?? ""),
-                            )
-                          }
-                          disabled={backgroundProviderOptions.length === 0}
-                        >
-                          <SelectTrigger
-                            className={AUTH_PANEL_SELECT_TRIGGER_CLASS_NAME}
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {backgroundProviderOptions.map((providerId) => {
-                              const isConnected =
-                                connectedProviderIds.includes(providerId);
-                              const label = isConnected
-                                ? backgroundTaskProviderLabel(providerId)
-                                : `${backgroundTaskProviderLabel(providerId)} (not connected)`;
-                              return (
-                                <SelectItem key={providerId} value={providerId}>
-                                  {label}
-                                </SelectItem>
-                              );
-                            })}
-                          </SelectContent>
-                        </Select>
-                      </label>
+            <div className="flex-1 overflow-y-auto px-5 py-5">
+              <div className="grid gap-6">
+                <SettingsSection
+                  title="Background tasks"
+                  description="Used for memory recall and evolve tasks."
+                >
+                  <SettingsCard>
+                    <SettingsMenuSelectRow
+                      label="Provider"
+                      value={backgroundTasksDraft.providerId}
+                      onValueChange={(value) =>
+                        applyBackgroundTaskProviderSelection(
+                          backgroundTaskProviderDraftId(value),
+                        )
+                      }
+                      options={backgroundProviderOptions.map((providerId) => {
+                        const label = backgroundTaskProviderLabel(providerId);
+                        const isConnected =
+                          connectedProviderIds.includes(providerId);
+                        return {
+                          value: providerId,
+                          label: (
+                            <span className="flex items-center gap-2">
+                              <ProviderBrandIcon
+                                providerId={providerId}
+                                className="size-4 shrink-0"
+                              />
+                              <span className="truncate">{label}</span>
+                              {!isConnected ? (
+                                <span className="text-xs text-muted-foreground">
+                                  · not connected
+                                </span>
+                              ) : null}
+                            </span>
+                          ),
+                          keywords: [label, providerId],
+                        };
+                      })}
+                      disabled={backgroundProviderOptions.length === 0}
+                      placeholder="Pick a provider"
+                    />
+                    <SettingsMenuSelectRow
+                      label="Model"
+                      value={backgroundTasksDraft.model}
+                      onValueChange={(value) =>
+                        updateBackgroundTasksDraft({ model: value })
+                      }
+                      options={backgroundTaskModelOptions.map((modelId) => ({
+                        value: modelId,
+                        label: modelId,
+                        keywords: [modelId],
+                      }))}
+                      disabled={
+                        !backgroundTasksDraft.providerId ||
+                        backgroundTaskModelOptions.length === 0
+                      }
+                      placeholder={backgroundTaskModelPlaceholder(
+                        backgroundTasksDraft.providerId,
+                        effectiveRuntimeConfig,
+                      )}
+                    />
+                  </SettingsCard>
+                  {backgroundTasksDraft.providerId &&
+                  !backgroundProviderConnected ? (
+                    <p className="px-1 text-xs leading-5 text-muted-foreground">
+                      Selected provider is not connected. Background tasks
+                      stay disabled until you reconnect it or choose another
+                      provider.
+                    </p>
+                  ) : null}
+                  {backgroundTasksDraft.providerId &&
+                  !backgroundTasksDraft.model.trim() ? (
+                    <p className="px-1 text-xs leading-5 text-muted-foreground">
+                      Select a model to enable background tasks.
+                    </p>
+                  ) : null}
+                </SettingsSection>
 
-                      <label className="grid gap-1">
-                        <span className="text-xs uppercase text-muted-foreground">
-                          Model
-                        </span>
-                        <Select
-                          value={backgroundTasksDraft.model || undefined}
-                          onValueChange={(value) =>
-                            updateBackgroundTasksDraft({ model: value ?? "" })
-                          }
-                          disabled={
-                            !backgroundTasksDraft.providerId ||
-                            backgroundTaskModelOptions.length === 0
-                          }
-                        >
-                          <SelectTrigger
-                            className={AUTH_PANEL_SELECT_TRIGGER_CLASS_NAME}
-                          >
-                            <SelectValue
-                              placeholder={backgroundTaskModelPlaceholder(
-                                backgroundTasksDraft.providerId,
-                                effectiveRuntimeConfig,
-                              )}
-                            />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {backgroundTaskModelOptions.map((modelId) => (
-                              <SelectItem key={modelId} value={modelId}>
-                                {modelId}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </label>
+                <SettingsSection
+                  title="Recall embeddings"
+                  description="Used to preselect memory candidates for recall."
+                >
+                  <SettingsCard>
+                    <SettingsMenuSelectRow
+                      label="Provider"
+                      value={recallEmbeddingsDraft.providerId}
+                      onValueChange={(value) =>
+                        applyRecallEmbeddingsProviderSelection(
+                          recallEmbeddingsProviderDraftId(value),
+                        )
+                      }
+                      options={recallEmbeddingsProviderOptions.map(
+                        (providerId) => {
+                          const label =
+                            recallEmbeddingsProviderLabel(providerId);
+                          const isConnected =
+                            connectedRecallEmbeddingProviderIds.includes(
+                              providerId,
+                            );
+                          return {
+                            value: providerId,
+                            label: (
+                              <span className="flex items-center gap-2">
+                                <ProviderBrandIcon
+                                  providerId={providerId}
+                                  className="size-4 shrink-0"
+                                />
+                                <span className="truncate">{label}</span>
+                                {!isConnected ? (
+                                  <span className="text-xs text-muted-foreground">
+                                    · not connected
+                                  </span>
+                                ) : null}
+                              </span>
+                            ),
+                            keywords: [label, providerId],
+                          };
+                        },
+                      )}
+                      disabled={recallEmbeddingsProviderOptions.length === 0}
+                      placeholder="Pick a provider"
+                    />
+                    <SettingsMenuSelectRow
+                      label="Model"
+                      value={recallEmbeddingsDraft.model}
+                      onValueChange={(value) =>
+                        updateRecallEmbeddingsDraft({ model: value })
+                      }
+                      options={recallEmbeddingsModelOptions.map((modelId) => ({
+                        value: modelId,
+                        label: modelId,
+                        keywords: [modelId],
+                      }))}
+                      disabled={
+                        !recallEmbeddingsDraft.providerId ||
+                        recallEmbeddingsModelOptions.length === 0
+                      }
+                      placeholder={recallEmbeddingsModelPlaceholder(
+                        recallEmbeddingsDraft.providerId,
+                        effectiveRuntimeConfig,
+                      )}
+                    />
+                  </SettingsCard>
+                  <p className="px-1 text-xs leading-5 text-muted-foreground">
+                    Embedding indexing stays off the user input path. Until
+                    embeddings have been indexed separately, recall continues
+                    to use the staged path.
+                  </p>
+                  {recallEmbeddingsDraft.providerId &&
+                  !recallEmbeddingsProviderConnected ? (
+                    <p className="px-1 text-xs leading-5 text-muted-foreground">
+                      Selected provider is not connected. Vector recall stays
+                      disabled until you reconnect it or choose another
+                      provider.
+                    </p>
+                  ) : null}
+                  {recallEmbeddingsDraft.providerId &&
+                  !recallEmbeddingsDraft.model.trim() ? (
+                    <p className="px-1 text-xs leading-5 text-muted-foreground">
+                      Select a model to enable vector recall.
+                    </p>
+                  ) : null}
+                </SettingsSection>
 
-                      {backgroundTasksDraft.providerId &&
-                      !backgroundProviderConnected ? (
-                        <div className="rounded-xl bg-card ring-1 ring-border px-3 py-2 text-sm text-muted-foreground">
-                          Selected provider is not connected. Background tasks
-                          stay disabled until you reconnect it or choose another
-                          provider.
-                        </div>
-                      ) : null}
-                      {backgroundTasksDraft.providerId &&
-                      !backgroundTasksDraft.model.trim() ? (
-                        <div className="rounded-xl bg-card ring-1 ring-border px-3 py-2 text-sm text-muted-foreground">
-                          Select a model to enable background tasks.
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl bg-card ring-1 ring-border p-3">
-                    <div className="text-sm font-medium text-foreground">
-                      Recall embeddings
-                    </div>
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      Used to preselect memory candidates for recall.
-                    </div>
-                    <div className="mt-2 rounded-xl bg-card ring-1 ring-border px-3 py-2 text-sm text-muted-foreground">
-                      Embedding indexing stays off the user input path. Until
-                      embeddings have been indexed separately, recall continues
-                      to use the staged path.
-                    </div>
-                    <div className="mt-3 grid gap-2">
-                      <label className="grid gap-1">
-                        <span className="text-xs uppercase text-muted-foreground">
-                          Provider
-                        </span>
-                        <Select
-                          value={recallEmbeddingsDraft.providerId}
-                          onValueChange={(value) =>
-                            applyRecallEmbeddingsProviderSelection(
-                              recallEmbeddingsProviderDraftId(value ?? ""),
-                            )
-                          }
-                          disabled={
-                            recallEmbeddingsProviderOptions.length === 0
-                          }
-                        >
-                          <SelectTrigger
-                            className={AUTH_PANEL_SELECT_TRIGGER_CLASS_NAME}
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {recallEmbeddingsProviderOptions.map(
-                              (providerId) => {
-                                const isConnected =
-                                  connectedRecallEmbeddingProviderIds.includes(
-                                    providerId,
-                                  );
-                                const label = isConnected
-                                  ? recallEmbeddingsProviderLabel(providerId)
-                                  : `${recallEmbeddingsProviderLabel(providerId)} (not connected)`;
-                                return (
-                                  <SelectItem
-                                    key={providerId}
-                                    value={providerId}
-                                  >
-                                    {label}
-                                  </SelectItem>
-                                );
-                              },
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </label>
-
-                      <label className="grid gap-1">
-                        <span className="text-xs uppercase text-muted-foreground">
-                          Model
-                        </span>
-                        <Select
-                          value={recallEmbeddingsDraft.model || undefined}
-                          onValueChange={(value) =>
-                            updateRecallEmbeddingsDraft({ model: value ?? "" })
-                          }
-                          disabled={
-                            !recallEmbeddingsDraft.providerId ||
-                            recallEmbeddingsModelOptions.length === 0
-                          }
-                        >
-                          <SelectTrigger
-                            className={AUTH_PANEL_SELECT_TRIGGER_CLASS_NAME}
-                          >
-                            <SelectValue
-                              placeholder={recallEmbeddingsModelPlaceholder(
-                                recallEmbeddingsDraft.providerId,
-                                effectiveRuntimeConfig,
-                              )}
-                            />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {recallEmbeddingsModelOptions.map((modelId) => (
-                              <SelectItem key={modelId} value={modelId}>
-                                {modelId}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </label>
-
-                      {recallEmbeddingsDraft.providerId &&
-                      !recallEmbeddingsProviderConnected ? (
-                        <div className="rounded-xl bg-card ring-1 ring-border px-3 py-2 text-sm text-muted-foreground">
-                          Selected provider is not connected. Vector recall
-                          stays disabled until you reconnect it or choose
-                          another provider.
-                        </div>
-                      ) : null}
-                      {recallEmbeddingsDraft.providerId &&
-                      !recallEmbeddingsDraft.model.trim() ? (
-                        <div className="rounded-xl bg-card ring-1 ring-border px-3 py-2 text-sm text-muted-foreground">
-                          Select a model to enable vector recall.
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl bg-card ring-1 ring-border p-3">
-                    <div className="text-sm font-medium text-foreground">
-                      Image generation
-                    </div>
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      Used when the agent generates new images into the
-                      workspace.
-                    </div>
-                    <div className="mt-3 grid gap-2">
-                      <label className="grid gap-1">
-                        <span className="text-xs uppercase text-muted-foreground">
-                          Provider
-                        </span>
-                        <Select
-                          value={imageGenerationDraft.providerId}
-                          onValueChange={(value) =>
-                            applyImageGenerationProviderSelection(
-                              imageGenerationProviderDraftId(value ?? ""),
-                            )
-                          }
-                          disabled={imageGenerationProviderOptions.length === 0}
-                        >
-                          <SelectTrigger
-                            className={AUTH_PANEL_SELECT_TRIGGER_CLASS_NAME}
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {imageGenerationProviderOptions.map(
-                              (providerId) => {
-                                const isConnected =
-                                  connectedImageProviderIds.includes(
-                                    providerId,
-                                  );
-                                const label = isConnected
-                                  ? imageGenerationProviderLabel(providerId)
-                                  : `${imageGenerationProviderLabel(providerId)} (not connected)`;
-                                return (
-                                  <SelectItem
-                                    key={providerId}
-                                    value={providerId}
-                                  >
-                                    {label}
-                                  </SelectItem>
-                                );
-                              },
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </label>
-
-                      <label className="grid gap-1">
-                        <span className="text-xs uppercase text-muted-foreground">
-                          Model
-                        </span>
-                        <Select
-                          value={imageGenerationDraft.model || undefined}
-                          onValueChange={(value) =>
-                            updateImageGenerationDraft({ model: value ?? "" })
-                          }
-                          disabled={
-                            !imageGenerationDraft.providerId ||
-                            imageGenerationModelOptions.length === 0
-                          }
-                        >
-                          <SelectTrigger
-                            className={AUTH_PANEL_SELECT_TRIGGER_CLASS_NAME}
-                          >
-                            <SelectValue
-                              placeholder={imageGenerationModelPlaceholder(
-                                imageGenerationDraft.providerId,
-                                effectiveRuntimeConfig,
-                              )}
-                            />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {imageGenerationModelOptions.map((modelId) => (
-                              <SelectItem key={modelId} value={modelId}>
-                                {modelId}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </label>
-
-                      {imageGenerationDraft.providerId &&
-                      !imageGenerationProviderConnected ? (
-                        <div className="rounded-xl bg-card ring-1 ring-border px-3 py-2 text-sm text-muted-foreground">
-                          Selected provider is not connected. Image generation
-                          stays disabled until you reconnect it or choose
-                          another provider.
-                        </div>
-                      ) : null}
-                      {imageGenerationDraft.providerId &&
-                      !imageGenerationDraft.model.trim() ? (
-                        <div className="rounded-xl bg-card ring-1 ring-border px-3 py-2 text-sm text-muted-foreground">
-                          Select a model to enable image generation.
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
+                <SettingsSection
+                  title="Image generation"
+                  description="Used when the agent generates new images into the workspace."
+                >
+                  <SettingsCard>
+                    <SettingsMenuSelectRow
+                      label="Provider"
+                      value={imageGenerationDraft.providerId}
+                      onValueChange={(value) =>
+                        applyImageGenerationProviderSelection(
+                          imageGenerationProviderDraftId(value),
+                        )
+                      }
+                      options={imageGenerationProviderOptions.map(
+                        (providerId) => {
+                          const label =
+                            imageGenerationProviderLabel(providerId);
+                          const isConnected =
+                            connectedImageProviderIds.includes(providerId);
+                          return {
+                            value: providerId,
+                            label: (
+                              <span className="flex items-center gap-2">
+                                <ProviderBrandIcon
+                                  providerId={providerId}
+                                  className="size-4 shrink-0"
+                                />
+                                <span className="truncate">{label}</span>
+                                {!isConnected ? (
+                                  <span className="text-xs text-muted-foreground">
+                                    · not connected
+                                  </span>
+                                ) : null}
+                              </span>
+                            ),
+                            keywords: [label, providerId],
+                          };
+                        },
+                      )}
+                      disabled={imageGenerationProviderOptions.length === 0}
+                      placeholder="Pick a provider"
+                    />
+                    <SettingsMenuSelectRow
+                      label="Model"
+                      value={imageGenerationDraft.model}
+                      onValueChange={(value) =>
+                        updateImageGenerationDraft({ model: value })
+                      }
+                      options={imageGenerationModelOptions.map((modelId) => ({
+                        value: modelId,
+                        label: modelId,
+                        keywords: [modelId],
+                      }))}
+                      disabled={
+                        !imageGenerationDraft.providerId ||
+                        imageGenerationModelOptions.length === 0
+                      }
+                      placeholder={imageGenerationModelPlaceholder(
+                        imageGenerationDraft.providerId,
+                        effectiveRuntimeConfig,
+                      )}
+                    />
+                  </SettingsCard>
+                  {imageGenerationDraft.providerId &&
+                  !imageGenerationProviderConnected ? (
+                    <p className="px-1 text-xs leading-5 text-muted-foreground">
+                      Selected provider is not connected. Image generation
+                      stays disabled until you reconnect it or choose another
+                      provider.
+                    </p>
+                  ) : null}
+                  {imageGenerationDraft.providerId &&
+                  !imageGenerationDraft.model.trim() ? (
+                    <p className="px-1 text-xs leading-5 text-muted-foreground">
+                      Select a model to enable image generation.
+                    </p>
+                  ) : null}
+                </SettingsSection>
               </div>
+            </div>
           </DialogPrimitive.Popup>
         </DialogPrimitive.Portal>
       </DialogPrimitive.Root>
