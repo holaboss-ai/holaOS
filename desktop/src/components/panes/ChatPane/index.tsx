@@ -4153,6 +4153,21 @@ export function ChatPane({
       setQuotedSkillIds(parsedPrefill.skillIds);
       setPendingAttachments([]);
     }
+    // Snap to the bottom on prefill — when something just routed the
+    // user back into chat (e.g. clicking Edit on a schedule), the
+    // existing autoscroll effect doesn't re-run because `messages`
+    // didn't change. Restore the ref + jump directly so the last
+    // turn sits above the composer with the fresh prefilled draft.
+    shouldAutoScrollRef.current = true;
+    requestAnimationFrame(() => {
+      const container = messagesRef.current;
+      if (container && !hasActiveChatSelection(container)) {
+        container.scrollTo({
+          top: container.scrollHeight,
+          behavior: "auto",
+        });
+      }
+    });
     onComposerPrefillConsumed?.(requestKey);
   }, [
     composerPrefillRequest?.mode,
