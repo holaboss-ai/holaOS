@@ -80,7 +80,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { SimpleMarkdown } from "@/components/marketplace/SimpleMarkdown";
+import { EntityMention } from "@/components/ui/entity-mention";
+import {
+  MENTION_URL_SCHEME,
+  SimpleMarkdown,
+} from "@/components/marketplace/SimpleMarkdown";
 import {
   EXPLORER_ATTACHMENT_DRAG_TYPE,
   type ExplorerAttachmentDragPayload,
@@ -774,6 +778,26 @@ function replaceMentionText(
     value: nextValue,
     caretIndex: before.length + insertion.length + trailing.length,
   };
+}
+
+/** Token shape for `@`-mentions inside body text. Mirrors the rules
+ *  in `findActiveMentionRange`: handle is `[A-Za-z0-9_.\-/]+`,
+ *  preceded by start-of-string or whitespace. Backtick fences and
+ *  inline-code spans are not yet skipped — a `@token` inside a
+ *  ``` ``` ``` fence will still get rewritten. Acceptable for v1
+ *  since user-submitted code is rare in chat. */
+const MENTION_TOKEN_PATTERN = /(^|[\s])@([A-Za-z0-9_.\-/]+)/g;
+
+/** Pre-process raw chat text so that `@<handle>` tokens become
+ *  markdown links pointing at the `holaboss-mention://` scheme.
+ *  SimpleMarkdown's link renderer (with `renderMention` configured)
+ *  swaps each one for an inline `EntityMention` chip. Keeps markdown
+ *  rendering otherwise untouched. */
+function injectMentionLinks(text: string): string {
+  if (!text.includes("@")) return text;
+  return text.replace(MENTION_TOKEN_PATTERN, (_match, leading, handle) => {
+    return `${leading}[@${handle}](holaboss-mention://${handle})`;
+  });
 }
 
 function displayModelLabel(model: string) {
@@ -8597,8 +8621,11 @@ function UserTurnComponent({
                 className="chat-markdown chat-user-markdown max-w-full"
                 onLinkClick={onLinkClick}
                 onLocalLinkClick={onLocalLinkClick}
+                renderMention={(handle) => (
+                  <EntityMention label={handle} />
+                )}
               >
-                {userBubbleText}
+                {injectMentionLinks(userBubbleText)}
               </SimpleMarkdown>
               {showExpandButton && !isExpanded ? (
                 <div

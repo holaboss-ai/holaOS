@@ -3,11 +3,19 @@
  * Uses react-markdown with GFM support while preserving the existing md-* CSS hooks.
  */
 
-import { memo, useMemo } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock, codeBlockFromPreNode } from "./CodeBlock";
 import { normalizeWrappedMarkdownFence } from "./markdownFenceNormalization.mjs";
+
+/** Hand-shake URL scheme for `@`-mentions injected into markdown
+ *  before render. The host pre-processes its source text to turn each
+ *  `@<handle>` into `[@<handle>](holaboss-mention://<handle>)`; this
+ *  module's link renderer recognises the scheme and delegates to
+ *  `renderMention(handle)`. Keeping the contract here so callers don't
+ *  guess the prefix. */
+export const MENTION_URL_SCHEME = "holaboss-mention://";
 
 function appendClassName(current: string | undefined, next: string): string {
   return current ? `${current} ${next}` : next;
@@ -39,10 +47,17 @@ type MdProps = any;
 function createMarkdownComponents(
   onLinkClick?: ((url: string) => void) | undefined,
   onLocalLinkClick?: ((href: string) => void) | undefined,
+  renderMention?: ((handle: string) => ReactNode) | undefined,
 ): Components {
   return {
   a({ className, ...props }: MdProps) {
     const rawHref = typeof props.href === "string" ? props.href.trim() : "";
+    if (renderMention && rawHref.startsWith(MENTION_URL_SCHEME)) {
+      const handle = rawHref.slice(MENTION_URL_SCHEME.length);
+      // Render the chip directly. The wrapping <a> is dropped — the
+      // mention is a structural reference, not a navigable link.
+      return <>{renderMention(handle)}</>;
+    }
     const normalizedHttpHref = normalizeHttpUrl(rawHref);
     const isHttpHref = normalizedHttpHref !== null;
     const isAnchor = rawHref.startsWith("#");
@@ -135,6 +150,11 @@ interface SimpleMarkdownProps {
   className?: string;
   onLinkClick?: (url: string) => void;
   onLocalLinkClick?: (href: string) => void;
+  /** Optional renderer for `holaboss-mention://<handle>` links —
+   *  callers pre-process their source to inject this scheme and pass
+   *  a chip-style component (e.g. `EntityMention`). Without this
+   *  prop, mention links fall through to the regular link renderer. */
+  renderMention?: (handle: string) => ReactNode;
 }
 
 function SimpleMarkdownComponent({
@@ -142,14 +162,15 @@ function SimpleMarkdownComponent({
   className = "",
   onLinkClick,
   onLocalLinkClick,
+  renderMention,
 }: SimpleMarkdownProps) {
   const normalizedChildren = useMemo(
     () => normalizeWrappedMarkdownFence(children),
     [children],
   );
   const components = useMemo(
-    () => createMarkdownComponents(onLinkClick, onLocalLinkClick),
-    [onLinkClick, onLocalLinkClick],
+    () => createMarkdownComponents(onLinkClick, onLocalLinkClick, renderMention),
+    [onLinkClick, onLocalLinkClick, renderMention],
   );
 
   return (
@@ -158,7 +179,15 @@ function SimpleMarkdownComponent({
         components={components}
         remarkPlugins={[remarkGfm]}
         skipHtml
-        urlTransform={defaultUrlTransform}
+        urlTransform={(url) => {
+          // Allow our internal mention scheme through unchanged so the
+          // link renderer can detect it; everything else falls back to
+          // react-markdown's default safety filter.
+          if (url.startsWith(MENTION_URL_SCHEME)) {
+            return url;
+          }
+          return defaultUrlTransform(url);
+        }}
       >
         {normalizedChildren}
       </ReactMarkdown>
