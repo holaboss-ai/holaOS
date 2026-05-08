@@ -2169,6 +2169,7 @@ function AppShellContent() {
           setSpaceExplorerMode("browser");
           setSpaceBrowserSpace(targetBrowserSpace);
           setSpaceDisplayView({ type: "browser" });
+          setSpaceWorkspacePanelCollapsed(false);
           setSpaceVisibility((previous) => ({
             ...previous,
             browser: true,
