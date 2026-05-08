@@ -9163,7 +9163,7 @@ function AssistantTurnComponent({
 
   return (
     <div
-      className="group/assistant-turn relative flex min-w-0 justify-start"
+      className="group/assistant-turn relative flex min-w-0 flex-col items-start"
     >
       <article
         className={
@@ -9258,7 +9258,7 @@ function AssistantTurnComponent({
       </article>
 
       {showActionsMenu ? (
-        <div className="pointer-events-none absolute top-1.5 right-1.5 opacity-0 transition-opacity duration-150 group-hover/assistant-turn:pointer-events-auto group-hover/assistant-turn:opacity-100 group-focus-within/assistant-turn:pointer-events-auto group-focus-within/assistant-turn:opacity-100">
+        <div className="pointer-events-none flex h-7 items-center pl-2 pt-0.5 opacity-0 transition-opacity duration-150 group-hover/assistant-turn:pointer-events-auto group-hover/assistant-turn:opacity-100 group-focus-within/assistant-turn:pointer-events-auto group-focus-within/assistant-turn:opacity-100">
           <AssistantTurnActionsMenu
             copyText={copyText}
             hasFileEdits={hasFileEdits}
