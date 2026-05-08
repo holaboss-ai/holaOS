@@ -3310,20 +3310,14 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
     );
   }
 
-  function renderProviderRow(providerId: KnownProviderId, isLast: boolean) {
+  function renderProviderRow(providerId: KnownProviderId) {
     const template = KNOWN_PROVIDER_TEMPLATES[providerId];
     const isHolabossProvider = providerId === "holaboss";
-    const isCodexProvider = providerId === "openai_codex";
     const isConnected = providerConnected(providerId);
     const draftEnabled = providerDraftEnabled(providerId);
     const isConnecting = connectingProviderId === providerId;
     const isDisconnecting = disconnectingProviderId === providerId;
     const hasPendingConnection = !isConnected && draftEnabled;
-    const isExpandable =
-      isHolabossProvider || isCodexProvider
-        ? isConnected
-        : draftEnabled || isConnected;
-    const isExpanded = isExpandable && expandedProviderId === providerId;
 
     // Status badge derivation. Live validation state takes priority —
     // when the user has just clicked Validate, we want them to see the
@@ -3338,15 +3332,18 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
     };
     let statusTone: SettingsStatusTone | null = null;
     let statusLabel = "";
+    let statusTooltip: string | null = null;
     if (validation.state === "validating") {
       statusTone = "warning";
       statusLabel = "Validating…";
     } else if (validation.state === "valid") {
       statusTone = "success";
-      statusLabel = `Valid · ${validation.latencyMs}ms`;
+      statusLabel = "Valid";
+      statusTooltip = `Probe responded in ${validation.latencyMs}ms`;
     } else if (validation.state === "invalid") {
       statusTone = "destructive";
-      statusLabel = `Invalid · ${validation.latencyMs}ms`;
+      statusLabel = "Invalid";
+      statusTooltip = `Probe failed after ${validation.latencyMs}ms`;
     } else if (isConnected) {
       statusTone = "success";
       statusLabel = "Connected";
@@ -3364,90 +3361,86 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
           ? "border-destructive/30 bg-destructive/10 text-destructive"
           : statusTone === "warning"
             ? "border-warning/40 bg-warning/10 text-warning"
-            : "border-border bg-muted/40 text-muted-foreground";
+            : "border-border bg-fg-2 text-muted-foreground";
+
+    const statusBadge = statusTone ? (
+      <Badge variant="outline" className={`${badgeClass} text-xs`}>
+        {statusLabel}
+      </Badge>
+    ) : null;
 
     return (
-      <div key={providerId} className={isLast ? "" : "border-b border-border"}>
-        <div className="flex items-center gap-3 px-3 py-2">
+      <SettingsRow
+        key={providerId}
+        leading={
           <ProviderBrandIcon
             providerId={providerId}
             className="size-5 shrink-0"
           />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <div className="text-sm font-medium text-foreground">
-                {template.label}
-              </div>
-              {statusTone ? (
-                <Badge
-                  variant="outline"
-                  className={`${badgeClass} text-xs`}
-                >
-                  {statusLabel}
-                </Badge>
-              ) : null}
-            </div>
-          </div>
-
-          {/* Connected providers get a single kebab trigger that opens
-              all per-provider actions in a dropdown. Three side-by-side
-              buttons (Edit / Validate / Disconnect) made the row read like
-              a toolbar instead of a list item; this matches craft-agents-
-              oss and feels native to the surrounding settings.
-              Non-connected branches are unreachable here — the parent
-              renders only `connectedProviderIds`. */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`${template.label} actions`}
-                  disabled={isSavingRuntimeConfigDocument}
-                >
-                  <MoreHorizontal className="size-4 text-muted-foreground" />
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="end" className="min-w-[180px]">
-              <DropdownMenuItem
-                onClick={() => setExpandedProviderId(providerId)}
+        }
+        label={
+          <span className="flex items-center gap-2">
+            <span>{template.label}</span>
+            {statusBadge && statusTooltip ? (
+              <Tooltip>
+                <TooltipTrigger render={statusBadge} />
+                <TooltipContent>{statusTooltip}</TooltipContent>
+              </Tooltip>
+            ) : (
+              statusBadge
+            )}
+          </span>
+        }
+      >
+        {/* Single kebab trigger for per-provider actions. Three side-by-side
+            buttons (Edit / Validate / Disconnect) made the row read like a
+            toolbar instead of a list item. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`${template.label} actions`}
+                disabled={isSavingRuntimeConfigDocument}
               >
-                <Pencil className="size-3.5" />
-                {isHolabossProvider ? "Configure" : "Edit"}
+                <MoreHorizontal className="size-4 text-muted-foreground" />
+              </Button>
+            }
+          />
+          <DropdownMenuContent align="end" className="min-w-[180px]">
+            <DropdownMenuItem
+              onClick={() => setExpandedProviderId(providerId)}
+            >
+              <Pencil className="size-3.5" />
+              {isHolabossProvider ? "Configure" : "Edit"}
+            </DropdownMenuItem>
+            {!isHolabossProvider ? (
+              <DropdownMenuItem
+                onClick={() => void handleValidateProvider(providerId)}
+                disabled={validation.state === "validating"}
+              >
+                <Plug className="size-3.5" />
+                {validation.state === "validating"
+                  ? "Validating…"
+                  : "Validate connection"}
               </DropdownMenuItem>
-              {!isHolabossProvider ? (
-                <DropdownMenuItem
-                  onClick={() => void handleValidateProvider(providerId)}
-                  disabled={validation.state === "validating"}
-                >
-                  <Plug className="size-3.5" />
-                  {validation.state === "validating"
-                    ? "Validating…"
-                    : "Validate connection"}
-                </DropdownMenuItem>
-              ) : null}
-              {!isHolabossProvider ? (
-                <DropdownMenuItem
-                  variant="destructive"
-                  onClick={() =>
-                    void handleDisconnectRuntimeProvider(providerId)
-                  }
-                  disabled={isSavingRuntimeConfigDocument || isConnecting}
-                >
-                  <Unplug className="size-3.5" />
-                  {isDisconnecting ? "Disconnecting…" : "Disconnect"}
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-
-        {/* Provider drawer used to render inline here. It now opens in a
-            modal Dialog (see ProviderEditDialog at the bottom of
-            runtimeProviderSettings) so the row stays compact and the
-            edit flow gets focused vertical space. */}
-      </div>
+            ) : null}
+            {!isHolabossProvider ? (
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() =>
+                  void handleDisconnectRuntimeProvider(providerId)
+                }
+                disabled={isSavingRuntimeConfigDocument || isConnecting}
+              >
+                <Unplug className="size-3.5" />
+                {isDisconnecting ? "Disconnecting…" : "Disconnect"}
+              </DropdownMenuItem>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SettingsRow>
     );
   }
 
@@ -3587,60 +3580,71 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
         description="Connect the providers you want the agent to be able to use."
       >
         {connectedProviderIds.length > 0 ? (
-          <div className="overflow-hidden rounded-xl border border-border bg-card">
-            {connectedProviderIds.map((providerId, index) =>
-              renderProviderRow(
-                providerId,
-                index === connectedProviderIds.length - 1,
-              ),
+          <SettingsCard>
+            {connectedProviderIds.map((providerId) =>
+              renderProviderRow(providerId),
             )}
-          </div>
+          </SettingsCard>
         ) : (
-          // Empty state: card-shaped CTA. Cleaner than a full provider list
-          // that's mostly disconnected; mirrors craft-agents-oss's connections
-          // empty state.
-          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card px-6 py-8 text-center">
-            <div className="text-sm font-medium text-foreground">
-              No providers connected
+          <SettingsCard>
+            <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+              <div className="text-sm font-medium text-foreground">
+                No providers connected
+              </div>
+              <div className="max-w-sm text-xs leading-5 text-muted-foreground">
+                Pick one to give the agent access to a model. You can add more
+                later.
+              </div>
+              {availableProviderIds.length > 0 ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button size="sm">
+                        <Plus className="size-3.5" />
+                        Add provider
+                      </Button>
+                    }
+                  />
+                  <DropdownMenuContent
+                    align="center"
+                    className="min-w-[220px]"
+                  >
+                    {availableProviderIds.map((providerId) => {
+                      const template = KNOWN_PROVIDER_TEMPLATES[providerId];
+                      return (
+                        <DropdownMenuItem
+                          key={providerId}
+                          onClick={() => handleAddProvider(providerId)}
+                        >
+                          <span className="grid size-5 shrink-0 place-items-center rounded-md border border-border bg-background">
+                            <ProviderBrandIcon providerId={providerId} />
+                          </span>
+                          <span>{template.label}</span>
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
             </div>
-            <div className="max-w-sm text-xs leading-5 text-muted-foreground">
-              Pick one to give the agent access to a model. You can add more
-              later.
-            </div>
-          </div>
+          </SettingsCard>
         )}
 
-        {/* Add-provider row — sits below the list and previews available
-            providers as a stacked-logo group. The whole row is one click
-            target that opens the picker dropdown. Hidden when every
-            provider is already connected. */}
-        {availableProviderIds.length > 0 ? (
+        {/* Slim Add-provider row, only when at least one provider is
+            already connected (otherwise the empty-state card hosts the
+            CTA). Styled to match the SettingsCard surface above so it
+            reads as a continuation of the list. */}
+        {connectedProviderIds.length > 0 && availableProviderIds.length > 0 ? (
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
                 <button
                   type="button"
-                  className="group flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2 transition-colors hover:bg-accent"
+                  className="flex w-full items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-left text-sm font-medium text-foreground transition-colors hover:bg-accent"
                 >
-                  <span className="flex items-center gap-2 text-sm font-medium text-foreground">
-                    <Plus className="size-4 text-muted-foreground" />
-                    Add provider
-                  </span>
-                  <span className="flex items-center -space-x-1.5">
-                    {availableProviderIds.slice(0, 4).map((providerId) => (
-                      <span
-                        key={providerId}
-                        className="grid size-6 shrink-0 place-items-center rounded-full bg-background ring-2 ring-card"
-                      >
-                        <ProviderBrandIcon providerId={providerId} />
-                      </span>
-                    ))}
-                    {availableProviderIds.length > 4 ? (
-                      <span className="grid size-6 shrink-0 place-items-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground ring-2 ring-card">
-                        +{availableProviderIds.length - 4}
-                      </span>
-                    ) : null}
-                  </span>
+                  <Plus className="size-4 text-muted-foreground" />
+                  <span className="flex-1">Add provider</span>
+                  <ChevronDown className="size-4 text-muted-foreground" />
                 </button>
               }
             />
