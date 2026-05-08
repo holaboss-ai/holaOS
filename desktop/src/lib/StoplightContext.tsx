@@ -34,7 +34,7 @@ import { createContext, useContext, type ReactNode } from "react"
  * than the craft-agents value to stay tight against the right-most
  * stoplight glyph without crowding it.
  */
-export const STOPLIGHT_PAD_PX = 78
+export const STOPLIGHT_PAD_PX = 60
 
 const StoplightContext = createContext<boolean>(false)
 

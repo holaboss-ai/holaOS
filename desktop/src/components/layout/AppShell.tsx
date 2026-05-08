@@ -7,6 +7,8 @@ import {
   LayoutGrid,
   Loader2,
   MessageCircle,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 import {
   type PointerEvent as ReactPointerEvent,
@@ -851,7 +853,7 @@ function loadSpaceWorkspacePanelCollapsed(): boolean {
     // ignore invalid persisted layout state
   }
 
-  return false;
+  return true;
 }
 
 function loadControlCenterCardsPerRow(): ControlCenterCardsPerRow {
@@ -1614,7 +1616,7 @@ function AppShellContent() {
   filesPaneWidthRef.current = filesPaneWidth;
   browserPaneWidthRef.current = browserPaneWidth;
   spaceVisibilityRef.current = spaceVisibility;
-  const effectiveSpaceWorkspacePanelCollapsed = false;
+  const effectiveSpaceWorkspacePanelCollapsed = spaceWorkspacePanelCollapsed;
 
   const proactiveHeartbeatWorkspaceSyncKey = useMemo(
     () =>
@@ -2780,13 +2782,6 @@ function AppShellContent() {
       SPACE_WORKSPACE_PANEL_COLLAPSED_STORAGE_KEY,
       spaceWorkspacePanelCollapsed ? "1" : "0",
     );
-  }, [spaceWorkspacePanelCollapsed]);
-
-  useEffect(() => {
-    if (!spaceWorkspacePanelCollapsed) {
-      return;
-    }
-    setSpaceWorkspacePanelCollapsed(false);
   }, [spaceWorkspacePanelCollapsed]);
 
   useEffect(() => {
@@ -4378,7 +4373,8 @@ function AppShellContent() {
     chatImagePreviewOpen ||
     workspaceAppsDialogOpen ||
     createWorkspacePanelOpen ||
-    publishOpen;
+    publishOpen ||
+    effectiveSpaceWorkspacePanelCollapsed;
   const runtimeStartupBlockedDetail = runtimeStartupBlockedMessage(
     runtimeStatus,
     workspaceBlockingReason || workspaceErrorMessage,
@@ -5235,7 +5231,11 @@ function AppShellContent() {
                   >
                     <section
                       id="space-workspace-panel"
-                      className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-card shadow-md backdrop-blur-sm"
+                      className={`flex min-h-0 min-w-0 ${
+                        effectiveSpaceWorkspacePanelCollapsed
+                          ? "mr-1.5 shrink-0"
+                          : "flex-1"
+                      } overflow-hidden rounded-xl border border-border bg-card shadow-md backdrop-blur-sm transition-all duration-200 ease-out`}
                     >
                       <div
                         className="shrink-0 overflow-hidden border-r border-border bg-card"
@@ -5311,6 +5311,43 @@ function AppShellContent() {
                               </Tooltip>
                             );
                           })}
+                          <div className="flex-1" />
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() =>
+                                    setSpaceWorkspacePanelCollapsed(
+                                      (prev) => !prev,
+                                    )
+                                  }
+                                  aria-label={
+                                    effectiveSpaceWorkspacePanelCollapsed
+                                      ? "Show preview"
+                                      : "Hide preview"
+                                  }
+                                  className="text-muted-foreground hover:bg-accent hover:text-foreground"
+                                >
+                                  {effectiveSpaceWorkspacePanelCollapsed ? (
+                                    <PanelRightOpen />
+                                  ) : (
+                                    <PanelRightClose />
+                                  )}
+                                </Button>
+                              }
+                            />
+                            <TooltipContent
+                              side="right"
+                              align="center"
+                              className="py-1"
+                            >
+                              {effectiveSpaceWorkspacePanelCollapsed
+                                ? "Show preview"
+                                : "Hide preview"}
+                            </TooltipContent>
+                          </Tooltip>
                         </nav>
                       </div>
 
@@ -5329,7 +5366,11 @@ function AppShellContent() {
                         </div>
                         <div
                           id="space-explorer-panel"
-                          className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-r border-border bg-card"
+                          className={`relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-card ${
+                            effectiveSpaceWorkspacePanelCollapsed
+                              ? ""
+                              : "border-r border-border"
+                          }`}
                         >
                           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                             <div
@@ -5364,6 +5405,7 @@ function AppShellContent() {
                                       surface: "file",
                                       resourceId: path,
                                     });
+                                    setSpaceWorkspacePanelCollapsed(false);
                                   }}
                                 />
                               ) : spaceExplorerMode === "applications" ? (
@@ -5387,10 +5429,12 @@ function AppShellContent() {
                                     setSpaceDisplayView({
                                       type: "browser",
                                     });
+                                    setSpaceWorkspacePanelCollapsed(false);
                                   }}
-                                  onActivateDisplay={() =>
-                                    setSpaceDisplayView({ type: "browser" })
-                                  }
+                                  onActivateDisplay={() => {
+                                    setSpaceDisplayView({ type: "browser" });
+                                    setSpaceWorkspacePanelCollapsed(false);
+                                  }}
                                   hasPendingAgentJump={hasPendingAgentJump}
                                 />
                               ) : null}
@@ -5400,29 +5444,47 @@ function AppShellContent() {
                       </div>
 
                       <div
-                        className="min-h-0 min-w-0 flex-1 overflow-hidden"
-                        style={{ minWidth: `${SPACE_DISPLAY_MIN_WIDTH}px` }}
+                        className={`min-h-0 min-w-0 overflow-hidden transition-all duration-200 ease-out ${
+                          effectiveSpaceWorkspacePanelCollapsed
+                            ? "w-0 flex-none"
+                            : "flex-1"
+                        }`}
+                        style={
+                          effectiveSpaceWorkspacePanelCollapsed
+                            ? { minWidth: 0 }
+                            : { minWidth: `${SPACE_DISPLAY_MIN_WIDTH}px` }
+                        }
                       >
                         {spaceDisplayContent}
                       </div>
                     </section>
 
-                    <div
-                      role="separator"
-                      aria-label="Resize display pane"
-                      aria-orientation="vertical"
-                      onPointerDown={startSpaceDisplayResize}
-                      className="group relative z-10 flex w-2 shrink-0 cursor-col-resize touch-none items-center justify-center"
-                    >
-                      <div className="pointer-events-none absolute left-1/2 top-1/2 h-14 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/8 opacity-0 transition duration-150 group-hover:opacity-100" />
-                    </div>
+                    {!effectiveSpaceWorkspacePanelCollapsed ? (
+                      <div
+                        role="separator"
+                        aria-label="Resize display pane"
+                        aria-orientation="vertical"
+                        onPointerDown={startSpaceDisplayResize}
+                        className="group relative z-10 flex w-2 shrink-0 cursor-col-resize touch-none items-center justify-center"
+                      >
+                        <div className="pointer-events-none absolute left-1/2 top-1/2 h-14 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/8 opacity-0 transition duration-150 group-hover:opacity-100" />
+                      </div>
+                    ) : null}
 
                     <div
-                      className="min-h-0 shrink-0 rounded-xl"
-                      style={{
-                        width: `${spaceAgentPaneWidth}px`,
-                        minWidth: `${MIN_AGENT_CONTENT_WIDTH}px`,
-                      }}
+                      className={`min-h-0 rounded-xl transition-all duration-200 ease-out ${
+                        effectiveSpaceWorkspacePanelCollapsed
+                          ? "flex-1"
+                          : "shrink-0"
+                      }`}
+                      style={
+                        effectiveSpaceWorkspacePanelCollapsed
+                          ? { minWidth: `${MIN_AGENT_CONTENT_WIDTH}px` }
+                          : {
+                              width: `${spaceAgentPaneWidth}px`,
+                              minWidth: `${MIN_AGENT_CONTENT_WIDTH}px`,
+                            }
+                      }
                     >
                       {agentContent}
                     </div>
