@@ -29,8 +29,8 @@ export function SettingsPage({
   className,
 }: SettingsPageProps) {
   return (
-    <div className={cn("mx-auto w-full max-w-3xl px-10 py-12", className)}>
-      <header className="mb-10">
+    <div className={cn("mx-auto w-full max-w-3xl px-8 py-10", className)}>
+      <header className="mb-8">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
           {title}
         </h1>
@@ -40,7 +40,7 @@ export function SettingsPage({
           </p>
         ) : null}
       </header>
-      <div className="grid gap-10">{children}</div>
+      <div className="grid gap-8">{children}</div>
     </div>
   );
 }

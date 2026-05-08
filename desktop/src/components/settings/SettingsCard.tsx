@@ -24,7 +24,7 @@ export function SettingsCard({ children, className }: SettingsCardProps) {
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-xl border border-border bg-card [&>*+*]:border-t [&>*+*]:border-border",
+        "overflow-hidden rounded-lg border border-border bg-card [&>*+*]:border-t [&>*+*]:border-border",
         className,
       )}
     >

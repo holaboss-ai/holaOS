@@ -9,7 +9,6 @@ import {
   Globe,
   Info,
   Loader2,
-  Package,
   Plug,
   RotateCcw,
   Send,
@@ -552,7 +551,7 @@ export function SettingsScreenRoot({
                     a progress bar + dynamic install button that doesn't fit
                     the simple SettingsRow shape. Padding/spacing match the
                     surrounding rows. */}
-                <div aria-live="polite" className="px-4 py-3.5">
+                <div aria-live="polite" className="px-4 py-3">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -730,9 +729,6 @@ export function SettingsScreenRoot({
                         ? "No workspace is available to export."
                         : "Loading workspaces."
                   }
-                  leading={
-                    <FolderOpen className="size-4 text-muted-foreground" />
-                  }
                   value={diagnosticsWorkspaceId}
                   onValueChange={setDiagnosticsWorkspaceId}
                   options={diagnosticsWorkspaceOptions}
@@ -747,7 +743,6 @@ export function SettingsScreenRoot({
                 <SettingsRow
                   label="Diagnostics bundle"
                   description="Logs, a workspace-scoped database snapshot, and a redacted config. Stays on your device."
-                  leading={<Package className="size-4 text-muted-foreground" />}
                 >
                   <Button
                     type="button"
