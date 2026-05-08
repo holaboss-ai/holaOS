@@ -11,13 +11,13 @@ import { cn } from "@/lib/utils";
 const HOLA_AVATAR_URL = "https://assets.holaboss.ai/images/hola.webp";
 
 const agentAvatarVariants = cva(
-  "inline-flex shrink-0 select-none items-center justify-center overflow-hidden rounded-full bg-fg-6 ring-1 ring-border",
+  "inline-flex shrink-0 select-none items-center justify-center overflow-hidden bg-fg-6",
   {
     variants: {
       size: {
-        sm: "size-5",
-        md: "size-6",
-        lg: "size-7",
+        sm: "size-5 rounded",
+        md: "size-6 rounded-md",
+        lg: "size-7 rounded-md",
       },
     },
     defaultVariants: { size: "md" },
