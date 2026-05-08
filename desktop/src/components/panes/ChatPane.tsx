@@ -8358,10 +8358,6 @@ function ChatHeader({
   inboxUnreadCount,
   onOpenAutomations,
 }: ChatHeaderProps) {
-  const hasOverflow =
-    Boolean(onOpenInbox) ||
-    Boolean(onOpenAutomations) ||
-    Boolean(onReturnToMainSession);
   const seed = workspace?.id ?? agentName ?? "default";
 
   return (
@@ -8385,17 +8381,36 @@ function ChatHeader({
           <Button
             type="button"
             variant="ghost"
-            size="sm"
+            size="icon-sm"
             onClick={() => onOpenSessions()}
             aria-label="Sessions"
             className="text-muted-foreground hover:text-foreground"
           >
-            <Bot className="size-3.5" />
-            Sessions
+            <Bot className="size-4" />
           </Button>
         ) : null}
 
-        {hasOverflow ? (
+        {onOpenInbox ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onOpenInbox()}
+            aria-label="Inbox"
+            className="relative text-muted-foreground hover:text-foreground"
+          >
+            <Inbox className="size-4" />
+            {inboxUnreadCount > 0 ? (
+              <StatusDot
+                variant="destructive"
+                size="sm"
+                className="absolute right-1 top-1 border border-card"
+              />
+            ) : null}
+          </Button>
+        ) : null}
+
+        {onOpenAutomations || onReturnToMainSession ? (
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -8404,31 +8419,13 @@ function ChatHeader({
                   variant="ghost"
                   size="icon-sm"
                   aria-label="More chat actions"
-                  className="relative text-muted-foreground hover:text-foreground"
+                  className="text-muted-foreground hover:text-foreground"
                 >
                   <MoreHorizontal className="size-4" />
-                  {inboxUnreadCount > 0 && onOpenInbox ? (
-                    <StatusDot
-                      variant="destructive"
-                      size="sm"
-                      className="absolute right-1 top-1 border border-card"
-                    />
-                  ) : null}
                 </Button>
               }
             />
             <DropdownMenuContent align="end" className="w-44" sideOffset={4}>
-              {onOpenInbox ? (
-                <DropdownMenuItem onClick={() => onOpenInbox()}>
-                  <Inbox />
-                  Inbox
-                  {inboxUnreadCount > 0 ? (
-                    <span className="ml-auto rounded-full bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
-                      {inboxUnreadCount}
-                    </span>
-                  ) : null}
-                </DropdownMenuItem>
-              ) : null}
               {onOpenAutomations ? (
                 <DropdownMenuItem onClick={() => onOpenAutomations()}>
                   <Clock3 />
@@ -8437,7 +8434,7 @@ function ChatHeader({
               ) : null}
               {onReturnToMainSession ? (
                 <>
-                  <DropdownMenuSeparator />
+                  {onOpenAutomations ? <DropdownMenuSeparator /> : null}
                   <DropdownMenuItem onClick={() => onReturnToMainSession()}>
                     <ArrowLeft />
                     Return to main
