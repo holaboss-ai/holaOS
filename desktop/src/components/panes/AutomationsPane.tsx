@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CalendarClock,
@@ -10,10 +10,10 @@ import {
   Play,
   Plus,
   Trash2,
-  type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -418,8 +418,10 @@ export function AutomationsPane({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!activeWorkspaceId ? (
-          <AutomationsEmpty
+          <EmptyState
             icon={CalendarClock}
+            size="md"
+            decorated
             title="No workspace selected"
             description={emptyWorkspaceMessage}
           />
@@ -429,8 +431,10 @@ export function AutomationsPane({
           <SkeletonList />
         ) : activeTab === "scheduled" ? (
           scheduledJobs.length === 0 ? (
-            <AutomationsEmpty
+            <EmptyState
               icon={CalendarClock}
+              size="md"
+              decorated
               title="Nothing scheduled"
               description="Schedules run automatically at the time you set."
               action={
@@ -546,8 +550,10 @@ export function AutomationsPane({
             </ul>
           )
         ) : completedRuns.length === 0 ? (
-          <AutomationsEmpty
+          <EmptyState
             icon={Inbox}
+            size="md"
+            decorated
             title="No runs yet"
             description="Completed runs appear here."
           />
@@ -592,57 +598,6 @@ export function AutomationsPane({
             })}
           </ul>
         )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Dot-grid decorated empty state — Attio-style. The dots concentrate
- * at the edges and fade out near the centre via a radial mask, so the
- * title + CTA sit on a clean canvas while the surrounding pane reads
- * as "this is a list view that's currently empty" without needing
- * literal ghost rows.
- */
-function AutomationsEmpty({
-  icon: Icon,
-  title,
-  description,
-  action,
-}: {
-  icon: LucideIcon;
-  title: string;
-  description?: ReactNode;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="relative flex min-h-[280px] w-full flex-1 items-center justify-center overflow-hidden">
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle, var(--color-fg-12) 1px, transparent 1px)",
-          backgroundSize: "14px 14px",
-          maskImage:
-            "radial-gradient(ellipse 60% 55% at center, transparent 0%, transparent 35%, black 100%)",
-          WebkitMaskImage:
-            "radial-gradient(ellipse 60% 55% at center, transparent 0%, transparent 35%, black 100%)",
-        }}
-      />
-      <div className="relative z-10 flex max-w-xs flex-col items-center gap-3 px-6 text-center">
-        <div className="grid size-10 place-items-center rounded-xl border border-border bg-card text-muted-foreground shadow-xs">
-          <Icon className="size-4" strokeWidth={1.6} />
-        </div>
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-foreground">{title}</p>
-          {description ? (
-            <p className="text-xs leading-5 text-muted-foreground">
-              {description}
-            </p>
-          ) : null}
-        </div>
-        {action ? <div className="mt-1">{action}</div> : null}
       </div>
     </div>
   );
