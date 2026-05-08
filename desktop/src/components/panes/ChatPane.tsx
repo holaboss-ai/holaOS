@@ -45,7 +45,7 @@ import {
   Link2,
   Loader2,
   ListTree,
-  MessagesSquare,
+  MessageCircle,
   MoreHorizontal,
   Paperclip,
   PencilLine,
@@ -8412,7 +8412,7 @@ function ChatHeader({
             aria-label="Sessions"
             className="text-muted-foreground hover:text-foreground"
           >
-            <MessagesSquare className="size-4" />
+            <MessageCircle className="size-4" />
           </Button>
         ) : null}
 

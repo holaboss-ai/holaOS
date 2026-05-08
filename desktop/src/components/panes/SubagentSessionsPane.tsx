@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Archive, Bot, ChevronDown, Clock3, Loader2, WandSparkles } from "lucide-react";
+import {
+  Archive,
+  Bot,
+  ChevronDown,
+  Clock3,
+  Loader2,
+  MessageCircle,
+  WandSparkles,
+} from "lucide-react";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -211,7 +219,7 @@ export function SubagentSessionsPane({
               {isLoading && sessions.length === 0 ? (
                 <Loader2 size={14} className="animate-spin" />
               ) : (
-                <Bot size={14} />
+                <MessageCircle size={14} />
               )}
             </span>
             <div className="min-w-0 flex-1">
@@ -293,7 +301,7 @@ export function SubagentSessionsPane({
         <div className="flex flex-wrap items-center gap-1">
           {(
             [
-              ["all", "All", Bot],
+              ["all", "All", MessageCircle],
               ["subagent", "Subagents", Bot],
               ["cronjob", "Cronjobs", Clock3],
               ["task_proposal", "Task proposals", WandSparkles],
