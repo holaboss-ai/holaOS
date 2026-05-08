@@ -114,318 +114,98 @@ import {
 } from "@/lib/workspaceFiles";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import * as modelCatalog from "../../../shared/model-catalog.js";
+import {
+  type ChatAttachment,
+  type ChatPaneVariant,
+  type ChatAssistantSegment,
+  type ChatMessage,
+  type QueuedSessionInputStatus,
+  type QueuedSessionInput,
+  type QueuedSessionInputPreviewDescriptor,
+  type ComposerInputRecallSnapshot,
+  type PendingOptimisticUserMessage,
+  type ChatSerializedQuotedSkillBlock,
+  type ChatTraceStepStatus,
+  type ChatTraceStep,
+  type ChatExecutionTimelineItem,
+  type PendingLocalAttachmentFile,
+  type PendingExplorerAttachmentFile,
+  type PendingAttachment,
+  type AttachmentListItem,
+  type ImageAttachmentPreviewState,
+  type ChatModelOption,
+  type ChatModelOptionGroup,
+  type ChatComposerSlashCommandOption,
+  type ChatComposerQuotedSkillItem,
+  type ChatComposerMentionItem,
+  type StreamTelemetryEntry,
+  type ArtifactBrowserFilter,
+} from "./ChatPane/types";
+import {
+  MAIN_SESSION_EVENT_BATCH_HEADER,
+  BACKGROUND_DELIVERY_RETRY_STATUS_MESSAGE,
+  EMPTY_ATTACHMENTS,
+  EMPTY_SEGMENTS,
+  EMPTY_EXECUTION_ITEMS,
+  EMPTY_OUTPUTS,
+  EMPTY_MEMORY_PROPOSALS,
+  STREAM_ATTACH_PENDING,
+  STREAM_TELEMETRY_LIMIT,
+  TOOL_TRACE_TERMINAL_PHASES,
+  CHAT_AUTO_SCROLL_THRESHOLD_PX,
+  CHAT_HISTORY_PAGE_SIZE,
+  CHAT_HISTORY_TOP_LOAD_THRESHOLD_PX,
+  COMPOSER_FOOTER_GAP_PX,
+  COMPOSER_FULL_MODEL_CONTROL_WIDTH_PX,
+  COMPOSER_FULL_THINKING_CONTROL_WIDTH_PX,
+  COMPOSER_FULL_PROVIDER_SETUP_WIDTH_PX,
+  COMPOSER_COMPACT_MODEL_CONTROL_MAX_WIDTH_PX,
+  COMPOSER_COMPACT_THINKING_CONTROL_MIN_WIDTH_PX,
+  COMPOSER_COMPACT_THINKING_CONTROL_MAX_WIDTH_PX,
+  CHAT_MODEL_STORAGE_KEY,
+  CHAT_THINKING_STORAGE_KEY,
+  CHAT_MODEL_USE_RUNTIME_DEFAULT,
+  CHAT_SERIALIZED_SKILL_COMMAND_PATTERN,
+  QUEUED_MESSAGES_PREVIEW_EVENT,
+  LEGACY_UNAVAILABLE_CHAT_MODELS,
+  DEPRECATED_CHAT_MODELS,
+  CHAT_MODEL_PRESETS,
+  RUNTIME_MODEL_CAPABILITY_ALIASES,
+  MENTION_TOKEN_PATTERN,
+} from "./ChatPane/constants";
+import {
+  initialBrowserState,
+  attachmentLooksLikeImage,
+  pendingAttachmentIsImage,
+  supportsImageInput,
+  imageInputUnsupportedMessage,
+  parseSerializedQuotedSkillPrompt,
+  appendComposerPrefillText,
+  buildComposerSlashCommandOptions,
+  findActiveSlashCommandRange,
+  removeSlashCommandText,
+  findActiveMentionRange,
+  replaceMentionText,
+  injectMentionLinks,
+  displayModelLabel,
+  compactComposerModelLabel,
+  chatMessageTimeLabel,
+  inputIdFromMessageId,
+  inputIdFromHistoryMessage,
+  historyMessagesInDisplayOrder,
+  turnInputIdsFromHistoryMessages,
+} from "./ChatPane/helpers";
 
-type ChatAttachment = SessionInputAttachmentPayload;
-type ChatPaneVariant = "default" | "onboarding";
-const MAIN_SESSION_EVENT_BATCH_HEADER =
-  "[Holaboss Main Session Event Batch v1]";
-const BACKGROUND_DELIVERY_RETRY_STATUS_MESSAGE =
-  "Background update delayed. Retrying automatically.";
-
-export type ChatAssistantSegment =
-  | {
-      kind: "execution";
-      items: ChatExecutionTimelineItem[];
-    }
-  | {
-      kind: "output";
-      text: string;
-      tone?: "default" | "error";
-    };
-
-const EMPTY_ATTACHMENTS: ChatAttachment[] = [];
-const EMPTY_SEGMENTS: ChatAssistantSegment[] = [];
-const EMPTY_EXECUTION_ITEMS: ChatExecutionTimelineItem[] = [];
-const EMPTY_OUTPUTS: WorkspaceOutputRecordPayload[] = [];
-const EMPTY_MEMORY_PROPOSALS: MemoryUpdateProposalRecordPayload[] = [];
-
-export interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-  tone?: "default" | "error";
-  createdAt?: string;
-  attachments?: ChatAttachment[];
-  segments?: ChatAssistantSegment[];
-  executionItems?: ChatExecutionTimelineItem[];
-  outputs?: WorkspaceOutputRecordPayload[];
-  memoryProposals?: MemoryUpdateProposalRecordPayload[];
-}
-
-type QueuedSessionInputStatus = "queued" | "sending";
-
-interface QueuedSessionInput {
-  inputId: string;
-  sessionId: string;
-  workspaceId: string;
-  text: string;
-  createdAt: string;
-  attachments: ChatAttachment[];
-  status: QueuedSessionInputStatus;
-}
-
-interface QueuedSessionInputPreviewDescriptor {
-  text: string;
-  createdAt?: string;
-  attachments?: ChatAttachment[];
-  status: QueuedSessionInputStatus;
-}
-
-interface ComposerInputRecallSnapshot {
-  workspaceId: string;
-  text: string;
-  at: number;
-}
-
-interface PendingOptimisticUserMessage {
-  localMessageId: string;
-  inputId?: string | null;
-  sessionId: string;
-  workspaceId: string;
-  message: ChatMessage;
-}
-
-declare global {
-  interface Window {
-    __holabossQueuedMessagesPreviewState?: QueuedSessionInputPreviewDescriptor[];
-    __holabossDevQueuedMessagesPreview?: {
-      single: (text?: string) => void;
-      multiple: () => void;
-      clear: () => void;
-      set: (
-        entries:
-          | string
-          | Array<string | Partial<QueuedSessionInputPreviewDescriptor>>,
-      ) => void;
-      get: () => QueuedSessionInputPreviewDescriptor[];
-    };
-  }
-}
-
-interface ChatSerializedQuotedSkillBlock {
-  skillIds: string[];
-  body: string;
-}
-
-function initialBrowserState(space: BrowserSpaceId): BrowserTabListPayload {
-  return {
-    space,
-    activeTabId: "",
-    tabs: [],
-    tabCounts: {
-      user: 0,
-      agent: 0,
-    },
-    sessionId: null,
-    lifecycleState: null,
-    controlMode: "none",
-    controlSessionId: null,
-  };
-}
-
-type ChatTraceStepStatus = "running" | "completed" | "error" | "waiting";
-
-interface ChatTraceStep {
-  id: string;
-  kind: "phase" | "tool";
-  title: string;
-  status: ChatTraceStepStatus;
-  details: string[];
-  order: number;
-}
-
-type ChatExecutionTimelineItem =
-  | {
-      id: string;
-      kind: "thinking";
-      text: string;
-      order: number;
-    }
-  | {
-      id: string;
-      kind: "trace_step";
-      step: ChatTraceStep;
-      order: number;
-    };
-
-interface PendingLocalAttachmentFile {
-  id: string;
-  source: "local-file";
-  file: File;
-}
-
-interface PendingExplorerAttachmentFile {
-  id: string;
-  source: "explorer-path";
-  absolutePath: string;
-  name: string;
-  mime_type?: string | null;
-  size_bytes: number;
-  kind: "image" | "file" | "folder";
-}
-
-type PendingAttachment =
-  | PendingLocalAttachmentFile
-  | PendingExplorerAttachmentFile;
-
-interface AttachmentListItem {
-  id: string;
-  kind: "image" | "file" | "folder";
-  name: string;
-  size_bytes: number;
-  workspace_path?: string;
-  file?: File;
-}
-
-interface ImageAttachmentPreviewState {
-  attachment: AttachmentListItem;
-  browserSnapshot: BrowserVisibleSnapshotPayload | null;
-  dataUrl: string;
-  isLoading: boolean;
-  errorMessage: string;
-}
-
-function attachmentLooksLikeImage(
-  name: string,
-  mimeType?: string | null,
-): boolean {
-  const normalizedMimeType = (mimeType ?? "").trim().toLowerCase();
-  if (normalizedMimeType.startsWith("image/")) {
-    return true;
-  }
-  return /\.(avif|bmp|gif|heic|heif|ico|jpe?g|png|svg|webp)$/i.test(
-    name.trim(),
-  );
-}
-
-function pendingAttachmentIsImage(attachment: PendingAttachment): boolean {
-  if (attachment.source === "local-file") {
-    return attachmentLooksLikeImage(attachment.file.name, attachment.file.type);
-  }
-  return (
-    attachment.kind === "image" ||
-    attachmentLooksLikeImage(attachment.name, attachment.mime_type)
-  );
-}
-
-function supportsImageInput(
-  inputModalities?: readonly string[] | null,
-): boolean {
-  if (!Array.isArray(inputModalities) || inputModalities.length === 0) {
-    return true;
-  }
-  return inputModalities.includes("image");
-}
-
-function imageInputUnsupportedMessage(modelLabel: string): string {
-  const normalizedModelLabel = modelLabel.trim();
-  if (!normalizedModelLabel) {
-    return "The selected model doesn't support image inputs.";
-  }
-  return `${normalizedModelLabel} doesn't support image inputs.`;
-}
-
-interface ChatModelOption {
-  value: string;
-  label: string;
-  selectedLabel?: string;
-  searchText?: string;
-  disabled?: boolean;
-  statusLabel?: string;
-}
-
-interface ChatModelOptionGroup {
-  label: string;
-  options: ChatModelOption[];
-}
-
-interface ChatComposerSlashCommandOption {
-  key: string;
-  kind: "skill";
-  command: string;
-  label: string;
-  description: string;
-  searchText: string;
-  skillId: string;
-}
-
-interface ChatComposerQuotedSkillItem {
-  skillId: string;
-  title: string;
-}
-
-interface StreamTelemetryEntry {
-  id: string;
-  at: string;
-  streamId: string;
-  transportType: string;
-  eventName: string;
-  eventType: string;
-  inputId: string;
-  sessionId: string;
-  action: string;
-  detail: string;
-}
-
-export type ArtifactBrowserFilter =
-  | "all"
-  | "documents"
-  | "images"
-  | "code"
-  | "links"
-  | "apps";
-
-const STREAM_ATTACH_PENDING = "__stream_attach_pending__";
-const STREAM_TELEMETRY_LIMIT = 240;
-const TOOL_TRACE_TERMINAL_PHASES = new Set(["completed", "failed", "error"]);
-const CHAT_AUTO_SCROLL_THRESHOLD_PX = 72;
-// Drives both the initial session-open fetch and each "load earlier" pull.
-// Was 10 originally — small enough that scroll-restoration after a prepend
-// often left the user still inside the 96px top threshold, immediately
-// triggering the next load. The runtime caps `limit` at 1000 (default 200);
-// 50 keeps the per-call work bounded while making any single load earn
-// enough vertical content (~25 turns) to push the user well past the
-// re-trigger threshold.
-const CHAT_HISTORY_PAGE_SIZE = 50;
-const CHAT_HISTORY_TOP_LOAD_THRESHOLD_PX = 96;
-const COMPOSER_FOOTER_GAP_PX = 8;
-const COMPOSER_FULL_MODEL_CONTROL_WIDTH_PX = 240;
-const COMPOSER_FULL_THINKING_CONTROL_WIDTH_PX = 88;
-const COMPOSER_FULL_PROVIDER_SETUP_WIDTH_PX = 320;
-const COMPOSER_COMPACT_MODEL_CONTROL_MAX_WIDTH_PX = 168;
-const COMPOSER_COMPACT_THINKING_CONTROL_MIN_WIDTH_PX = 56;
-const COMPOSER_COMPACT_THINKING_CONTROL_MAX_WIDTH_PX = 124;
-const CHAT_MODEL_STORAGE_KEY = "holaboss-chat-model-v1";
-const CHAT_THINKING_STORAGE_KEY = "holaboss-chat-thinking-v1";
-const CHAT_MODEL_USE_RUNTIME_DEFAULT = "__runtime_default__";
-const CHAT_SERIALIZED_SKILL_COMMAND_PATTERN = /^\/([A-Za-z0-9_-]+)$/;
-const QUEUED_MESSAGES_PREVIEW_EVENT = "holaboss:queued-messages-preview-change";
-const LEGACY_UNAVAILABLE_CHAT_MODELS = new Set(["openai/gpt-5.2-mini"]);
-const DEPRECATED_CHAT_MODELS = new Set([
-  "openai/gpt-5.1",
-  "openai/gpt-5.1-codex",
-  "openai/gpt-5.1-codex-mini",
-  "openai/gpt-5.1-codex-max",
-  "gpt-5.1",
-  "gpt-5.1-codex",
-  "gpt-5.1-codex-mini",
-  "gpt-5.1-codex-max",
-]);
-const CHAT_MODEL_PRESETS = [
-  "openai/gpt-5.1",
-  "openai/gpt-5",
-  "openai/gpt-5.2",
-] as const;
-const RUNTIME_MODEL_CAPABILITY_ALIASES: Record<string, string> = {
-  chat: "chat",
-  text: "chat",
-  completion: "chat",
-  completions: "chat",
-  responses: "chat",
-  image: "image_generation",
-  images: "image_generation",
-  image_generation: "image_generation",
-  image_gen: "image_generation",
+export type {
+  ChatAssistantSegment,
+  ChatMessage,
+  ChatComposerMentionItem,
+  ArtifactBrowserFilter,
+};
+export {
+  inputIdFromMessageId,
+  historyMessagesInDisplayOrder,
+  turnInputIdsFromHistoryMessages,
 };
 
 function sessionUserId(
@@ -606,254 +386,6 @@ function serializeQuotedSkillPrompt(
     return lines.join("\n");
   }
   return [...lines, "", normalizedBody].join("\n");
-}
-
-function parseSerializedQuotedSkillPrompt(
-  value: string,
-): ChatSerializedQuotedSkillBlock {
-  const normalized = value.replace(/\r\n/g, "\n");
-  const lines = normalized.split("\n");
-  const skillIds: string[] = [];
-  let index = 0;
-
-  while (index < lines.length) {
-    const line = lines[index]?.trim() ?? "";
-    if (!line) {
-      break;
-    }
-    const match = CHAT_SERIALIZED_SKILL_COMMAND_PATTERN.exec(line);
-    if (!match) {
-      return {
-        skillIds: [],
-        body: normalized.trim(),
-      };
-    }
-    skillIds.push(match[1] ?? "");
-    index += 1;
-  }
-
-  if (skillIds.length === 0) {
-    return {
-      skillIds: [],
-      body: normalized.trim(),
-    };
-  }
-
-  if (index < lines.length && (lines[index]?.trim() ?? "") !== "") {
-    return {
-      skillIds: [],
-      body: normalized.trim(),
-    };
-  }
-
-  while (index < lines.length && (lines[index]?.trim() ?? "") === "") {
-    index += 1;
-  }
-
-  return {
-    skillIds: [...new Set(skillIds)],
-    body: lines.slice(index).join("\n").trim(),
-  };
-}
-
-function appendComposerPrefillText(currentInput: string, text: string) {
-  const normalizedText = text.trim();
-  if (!normalizedText) {
-    return currentInput;
-  }
-  if (!currentInput.trim()) {
-    return normalizedText;
-  }
-  return /[\s(]$/.test(currentInput)
-    ? `${currentInput}${normalizedText}`
-    : `${currentInput} ${normalizedText}`;
-}
-
-function buildComposerSlashCommandOptions(
-  skills: WorkspaceSkillRecordPayload[],
-): ChatComposerSlashCommandOption[] {
-  return skills
-    .map((skill) => ({
-      key: `skill:${skill.skill_id}`,
-      kind: "skill" as const,
-      command: `/${skill.skill_id}`,
-      label: skill.title,
-      description: skill.summary,
-      searchText:
-        `${skill.skill_id} ${skill.title} ${skill.summary}`.toLowerCase(),
-      skillId: skill.skill_id,
-    }))
-    .sort((left, right) => left.command.localeCompare(right.command));
-}
-
-function findActiveSlashCommandRange(
-  value: string,
-  caretIndex: number,
-): { start: number; end: number; query: string } | null {
-  if (caretIndex < 0 || caretIndex > value.length) {
-    return null;
-  }
-  const prefix = value.slice(0, caretIndex);
-  const whitespaceBoundary = Math.max(
-    prefix.lastIndexOf(" "),
-    prefix.lastIndexOf("\n"),
-    prefix.lastIndexOf("\t"),
-  );
-  const start = whitespaceBoundary + 1;
-  const rawToken = prefix.slice(start);
-  if (!rawToken.startsWith("/") || rawToken.length === 0) {
-    return null;
-  }
-  if (!/^\/[A-Za-z0-9_-]*$/.test(rawToken)) {
-    return null;
-  }
-  return {
-    start,
-    end: caretIndex,
-    query: rawToken.slice(1).toLowerCase(),
-  };
-}
-
-function removeSlashCommandText(
-  value: string,
-  range: { start: number; end: number },
-): { value: string; caretIndex: number } {
-  const before = value.slice(0, range.start);
-  const after = value.slice(range.end);
-  const nextValue =
-    before.endsWith(" ") && after.startsWith(" ")
-      ? `${before}${after.slice(1)}`
-      : `${before}${after}`;
-  return {
-    value: nextValue,
-    caretIndex: before.length,
-  };
-}
-
-/** Mirrors `findActiveSlashCommandRange` for the `@`-mention trigger.
- *  Treated as a separate path so the two pickers can fire at different
- *  carets and against different item lists without one swallowing the
- *  other. The matched character set is wider than slash (allows `.`)
- *  so handles like `agent.work` resolve. */
-function findActiveMentionRange(
-  value: string,
-  caretIndex: number,
-): { start: number; end: number; query: string } | null {
-  if (caretIndex < 0 || caretIndex > value.length) {
-    return null;
-  }
-  const prefix = value.slice(0, caretIndex);
-  const whitespaceBoundary = Math.max(
-    prefix.lastIndexOf(" "),
-    prefix.lastIndexOf("\n"),
-    prefix.lastIndexOf("\t"),
-  );
-  const start = whitespaceBoundary + 1;
-  const rawToken = prefix.slice(start);
-  if (!rawToken.startsWith("@") || rawToken.length === 0) {
-    return null;
-  }
-  // Allow `/` in handles so nested file paths (`@apps/twitter/post.md`)
-  // round-trip — the parser still recognises the token if the user
-  // moves the caret back into it.
-  if (!/^@[A-Za-z0-9_.\-/]*$/.test(rawToken)) {
-    return null;
-  }
-  return {
-    start,
-    end: caretIndex,
-    query: rawToken.slice(1).toLowerCase(),
-  };
-}
-
-function replaceMentionText(
-  value: string,
-  range: { start: number; end: number },
-  insertion: string,
-): { value: string; caretIndex: number } {
-  const before = value.slice(0, range.start);
-  const after = value.slice(range.end);
-  // Trailing space follows the inserted handle so the user can keep
-  // typing without manually adding one. Mirrors what most chat apps
-  // do after a successful mention selection.
-  const trailing = after.startsWith(" ") || after.length === 0 ? "" : " ";
-  const nextValue = `${before}${insertion}${trailing}${after}`;
-  return {
-    value: nextValue,
-    caretIndex: before.length + insertion.length + trailing.length,
-  };
-}
-
-/** Token shape for `@`-mentions inside body text. Mirrors the rules
- *  in `findActiveMentionRange`: handle is `[A-Za-z0-9_.\-/]+`,
- *  preceded by start-of-string or whitespace. Backtick fences and
- *  inline-code spans are not yet skipped — a `@token` inside a
- *  ``` ``` ``` fence will still get rewritten. Acceptable for v1
- *  since user-submitted code is rare in chat. */
-const MENTION_TOKEN_PATTERN = /(^|[\s])@([A-Za-z0-9_.\-/]+)/g;
-
-/** Pre-process raw chat text so that `@<handle>` tokens become
- *  markdown links pointing at the `holaboss-mention://` scheme.
- *  SimpleMarkdown's link renderer (with `renderMention` configured)
- *  swaps each one for an inline `EntityMention` chip. Keeps markdown
- *  rendering otherwise untouched. */
-function injectMentionLinks(text: string): string {
-  if (!text.includes("@")) return text;
-  return text.replace(MENTION_TOKEN_PATTERN, (_match, leading, handle) => {
-    return `${leading}[@${handle}](holaboss-mention://${handle})`;
-  });
-}
-
-function displayModelLabel(model: string) {
-  const trimmed = model.trim();
-  if (!trimmed) {
-    return "Unknown model";
-  }
-
-  const withoutProvider = trimmed.replace(/^(openai|anthropic)\//i, "");
-  const sonnetModelMatch = withoutProvider.match(
-    /^claude-sonnet-(\d+)-(\d+)$/i,
-  );
-  if (sonnetModelMatch) {
-    return `Claude Sonnet ${sonnetModelMatch[1]}.${sonnetModelMatch[2]}`;
-  }
-
-  if (/^gpt-/i.test(withoutProvider)) {
-    return withoutProvider
-      .replace(/^gpt-/i, "GPT-")
-      .replace(/-mini\b/gi, " Mini")
-      .replace(/-codex\b/gi, " Codex")
-      .replace(/-max\b/gi, " Max")
-      .replace(/-spark\b/gi, " Spark");
-  }
-
-  return withoutProvider
-    .split(/[-_]/)
-    .filter(Boolean)
-    .map((part) =>
-      /^\d+(\.\d+)?$/.test(part)
-        ? part
-        : `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`,
-    )
-    .join(" ");
-}
-
-function compactComposerModelLabel(label: string) {
-  const normalizedLabel = label.trim();
-  if (!normalizedLabel) {
-    return "Model";
-  }
-
-  const autoMatch = normalizedLabel.match(/^Auto \((.+)\)$/i);
-  if (autoMatch?.[1]) {
-    return autoMatch[1].trim();
-  }
-
-  const segments = normalizedLabel
-    .split("·")
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-  return segments[segments.length - 1] ?? normalizedLabel;
 }
 
 function displayThinkingValueLabel(value: string) {
@@ -1925,46 +1457,6 @@ function toolTraceStepId(payload: Record<string, unknown>) {
   return callId || toolId || toolName
     ? `tool:${callId || toolId || toolName}`
     : "";
-}
-
-export function inputIdFromMessageId(
-  messageId: string,
-  role: "user" | "assistant",
-) {
-  const prefix = `${role}-`;
-  return messageId.startsWith(prefix) ? messageId.slice(prefix.length) : "";
-}
-
-export function inputIdFromHistoryMessage(
-  message: SessionHistoryMessagePayload,
-) {
-  if (message.role === "user" || message.role === "assistant") {
-    return inputIdFromMessageId(message.id, message.role);
-  }
-  return "";
-}
-
-export function historyMessagesInDisplayOrder(
-  messages: SessionHistoryMessagePayload[],
-  order: "asc" | "desc",
-) {
-  return order === "desc" ? [...messages].reverse() : messages;
-}
-
-export function turnInputIdsFromHistoryMessages(
-  messages: SessionHistoryMessagePayload[],
-) {
-  const seen = new Set<string>();
-  const inputIds: string[] = [];
-  for (const message of messages) {
-    const inputId = inputIdFromHistoryMessage(message);
-    if (!inputId || seen.has(inputId)) {
-      continue;
-    }
-    seen.add(inputId);
-    inputIds.push(inputId);
-  }
-  return inputIds;
 }
 
 function assistantInputIdsFromChatMessages(messages: ChatMessage[]) {
@@ -3243,17 +2735,6 @@ function latestVisibleChatMessageId(messages: ChatMessage[]): string {
     }
   }
   return "";
-}
-
-function chatMessageTimeLabel(value: string | null | undefined): string {
-  const timestamp = Date.parse(value || "");
-  if (Number.isNaN(timestamp)) {
-    return "";
-  }
-  return new Date(timestamp).toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
 
 async function copyTextToClipboard(value: string) {
@@ -8499,20 +7980,6 @@ interface ComposerProps {
   onRemoveQuotedSkill: (skillId: string) => void;
   onRemoveAttachment: (attachmentId: string) => void;
   onPreviewAttachment: (attachment: AttachmentListItem) => void;
-}
-
-export interface ChatComposerMentionItem {
-  id: string;
-  /** What gets inserted into the text — without the leading `@`. */
-  handle: string;
-  /** Visible label in the picker. Single-line; descriptions are
-   *  intentionally not part of this shape — quick pickers stay tight. */
-  label: ReactNode;
-  /** Tiny kind glyph (e.g. file/app icon) shown left of the label
-   *  so mixed-kind menus stay readable. */
-  kindIcon?: ReactNode;
-  /** Plain-text aliases for fuzzy match. */
-  keywords?: string[];
 }
 
 export const UserTurn = memo(UserTurnComponent, (prev, next) =>
