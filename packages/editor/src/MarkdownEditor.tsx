@@ -12,6 +12,10 @@ import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
+import { Table } from "@tiptap/extension-table";
+import { TableRow } from "@tiptap/extension-table-row";
+import { TableHeader } from "@tiptap/extension-table-header";
+import { TableCell } from "@tiptap/extension-table-cell";
 import { Markdown } from "@tiptap/markdown";
 import { DragHandle } from "@tiptap/extension-drag-handle-react";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
@@ -111,6 +115,13 @@ export const MarkdownEditor = forwardRef<
       }),
       TaskList,
       TaskItem.configure({ nested: true }),
+      // GFM tables — Tiptap StarterKit doesn't ship these, so without them
+      // @tiptap/markdown silently drops `| ... |` table rows when parsing
+      // the markdown source (no schema target = no nodes created).
+      Table.configure({ resizable: true, allowTableNodeSelection: true }),
+      TableRow,
+      TableHeader,
+      TableCell,
       Markdown,
       SlashCommand,
     ],
