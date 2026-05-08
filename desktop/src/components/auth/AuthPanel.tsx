@@ -4209,7 +4209,9 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
                 <div className="flex min-w-0 flex-1 flex-col">
                   <div className="truncate text-sm font-medium text-foreground">
                     {isSignedIn
-                      ? sessionDisplayName(session) || "Your account"
+                      ? sessionDisplayName(session) ||
+                        sessionEmail(session).split("@")[0] ||
+                        "Your account"
                       : "Your account"}
                   </div>
                   {isSignedIn && sessionEmail(session) ? (
@@ -4383,7 +4385,9 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
                 <div className="min-w-0">
                   <div className="text-base font-medium text-foreground">
                     {isSignedIn
-                      ? sessionDisplayName(session) || "Your account"
+                      ? sessionDisplayName(session) ||
+                        sessionEmail(session).split("@")[0] ||
+                        "Your account"
                       : "Your account"}
                   </div>
                   <div className="mt-0.5 truncate text-sm text-muted-foreground">
