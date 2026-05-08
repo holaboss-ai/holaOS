@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   CalendarClock,
@@ -10,10 +10,10 @@ import {
   Play,
   Plus,
   Trash2,
+  type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -171,7 +171,7 @@ function isFailedStatus(status: string): boolean {
 export function AutomationsPane({
   workspaceId,
   composerModel,
-  emptyWorkspaceMessage = "Choose a workspace from the top bar to view and manage automations.",
+  emptyWorkspaceMessage = "Switch from the top bar to view its automations.",
   onOpenRunSession,
   onRunNow,
   onCreateSchedule,
