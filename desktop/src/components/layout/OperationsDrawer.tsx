@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import {
   Check,
   Clock,
-  CircleHelp,
   FolderOpen,
   Inbox as InboxIcon,
   Loader2,
@@ -14,14 +13,8 @@ import {
 } from "lucide-react";
 import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { StatusDot } from "@/components/ui/status-dot";
 import { ProactiveLifecyclePanel } from "@/components/layout/ProactiveStatusCard";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 export type OperationsDrawerTab = "inbox" | "running";
 
@@ -820,104 +813,69 @@ function InboxPanel({
               }
             />
           ) : (
-            <div className="grid gap-2">
+            <div className="divide-y divide-border border-y border-border">
               {proposals.map((proposal) => {
                 const isActing =
                   proposalAction?.proposalId === proposal.proposal_id;
                 return (
-                  <Card
+                  <div
                     key={proposal.proposal_id}
-                    size="sm"
-                    className="gap-2 py-3 ring-border"
+                    className="group flex items-start gap-2.5 px-3 py-2.5"
                   >
-                    <div className="flex items-start justify-between gap-2 px-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs uppercase text-muted-foreground">
-                          {proposalSourceLabel(proposal.proposal_source)}
-                        </div>
-                        <div className="text-sm font-medium text-foreground">
-                          {proposal.task_name}
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-0.5">
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <Button
-                                type="button"
-                                size="icon-xs"
-                                variant="ghost"
-                                aria-label={`View proposal details for ${proposal.task_name}`}
-                                onClick={() =>
-                                  setExpandedProposalId(proposal.proposal_id)
-                                }
-                                className="text-muted-foreground hover:text-foreground"
-                              />
-                            }
-                          >
-                            <CircleHelp size={12} />
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom">
-                            View details
-                          </TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <Button
-                                type="button"
-                                size="icon-xs"
-                                variant="ghost"
-                                aria-label="Accept proposal"
-                                onClick={() => onAcceptProposal(proposal)}
-                                disabled={isActing}
-                                className="text-muted-foreground hover:text-primary"
-                              />
-                            }
-                          >
-                            {isActing && proposalAction?.action === "accept" ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <Check size={12} />
-                            )}
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom">Accept</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <Button
-                                type="button"
-                                size="icon-xs"
-                                variant="ghost"
-                                aria-label="Dismiss proposal"
-                                onClick={() => onDismissProposal(proposal)}
-                                disabled={isActing}
-                                className="text-muted-foreground hover:text-foreground"
-                              />
-                            }
-                          >
-                            {isActing &&
-                            proposalAction?.action === "dismiss" ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <X size={12} />
-                            )}
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom">Dismiss</TooltipContent>
-                        </Tooltip>
-                      </div>
+                    <StatusDot
+                      variant="warning"
+                      size="sm"
+                      className="mt-1.5 shrink-0"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedProposalId(proposal.proposal_id)
+                      }
+                      className="-mx-1 flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-md px-1 text-left transition-colors hover:bg-fg-2"
+                    >
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {proposal.task_name}
+                      </span>
+                      <span className="line-clamp-1 text-xs text-muted-foreground">
+                        {proposalSourceLabel(proposal.proposal_source)} ·{" "}
+                        {relativeTime(proposal.created_at)}
+                      </span>
+                    </button>
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <Button
+                        type="button"
+                        size="icon-xs"
+                        variant="ghost"
+                        aria-label="Accept proposal"
+                        onClick={() => onAcceptProposal(proposal)}
+                        disabled={isActing}
+                        className="text-muted-foreground hover:text-primary"
+                      >
+                        {isActing && proposalAction?.action === "accept" ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Check size={12} />
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon-xs"
+                        variant="ghost"
+                        aria-label="Dismiss proposal"
+                        onClick={() => onDismissProposal(proposal)}
+                        disabled={isActing}
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        {isActing &&
+                        proposalAction?.action === "dismiss" ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <X size={12} />
+                        )}
+                      </Button>
                     </div>
-                    <div className="line-clamp-2 px-3 text-xs leading-relaxed text-muted-foreground">
-                      {proposal.task_prompt}
-                    </div>
-                    <div className="line-clamp-2 px-3 text-xs leading-relaxed text-muted-foreground">
-                      Why: {proposal.task_generation_rationale}
-                    </div>
-                    <div className="px-3 text-xs text-muted-foreground">
-                      {relativeTime(proposal.created_at)}
-                    </div>
-                  </Card>
+                  </div>
                 );
               })}
             </div>
