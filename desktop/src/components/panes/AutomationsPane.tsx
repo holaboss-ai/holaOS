@@ -385,7 +385,7 @@ export function AutomationsPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-border px-4 py-2 sm:px-5">
+      <div className="shrink-0 px-4 py-2 sm:px-5">
         <div className="flex items-center justify-between gap-2">
           <Tabs
             value={activeTab}
