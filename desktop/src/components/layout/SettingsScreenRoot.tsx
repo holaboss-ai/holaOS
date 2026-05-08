@@ -17,7 +17,7 @@ import {
   User2,
   Waypoints,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 import { AuthPanel } from "@/components/auth/AuthPanel";
 import { BillingSettingsPanel } from "@/components/billing/BillingSettingsPanel";
@@ -95,7 +95,6 @@ const SETTINGS_NAV: ReadonlyArray<SettingsScreenNavEntry<UiSettingsPaneSection>>
   { id: "providers", label: "AI", icon: Waypoints },
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "submissions", label: "Submissions", icon: Send },
-  { id: "about", label: "About", icon: Info },
 ];
 
 const ABOUT_LINKS = [
@@ -131,8 +130,6 @@ function pageTitle(section: UiSettingsPaneSection): string {
       return "Integrations";
     case "submissions":
       return "Submissions";
-    case "about":
-      return "About";
     default:
       return "General";
   }
@@ -152,8 +149,6 @@ function pageDescription(section: UiSettingsPaneSection): string | undefined {
       return "Manage connections to third-party services your apps depend on.";
     case "submissions":
       return "Review templates and apps you've submitted for marketplace listing.";
-    case "about":
-      return undefined;
     default:
       return undefined;
   }
@@ -499,6 +494,28 @@ export function SettingsScreenRoot({
       activeSection={activeSection}
       onSectionChange={onSectionChange}
       onBackToApp={onBackToApp}
+      railFooter={
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+          {ABOUT_LINKS.map((link, index) => (
+            <Fragment key={link.id}>
+              {index > 0 ? (
+                <span aria-hidden="true">·</span>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => onOpenExternalUrl(link.href)}
+                className="transition-colors hover:text-foreground"
+              >
+                {link.label}
+              </button>
+            </Fragment>
+          ))}
+          <span aria-hidden="true">·</span>
+          <span className="font-mono tabular-nums">
+            v{displayAppVersion}
+          </span>
+        </div>
+      }
     >
       <SettingsPage
         title={pageTitle(activeSection)}
@@ -699,26 +716,6 @@ export function SettingsScreenRoot({
                     },
                   ]}
                 />
-              </SettingsCard>
-            </SettingsSection>
-          </>
-        ) : null}
-
-        {activeSection === "about" ? (
-          <>
-            <SettingsSection title="Links">
-              <SettingsCard>
-                {ABOUT_LINKS.map(({ id, label, icon: Icon, href }) => (
-                  <SettingsRow
-                    key={id}
-                    label={label}
-                    leading={<Icon className="size-4 text-muted-foreground" />}
-                    interactive
-                    onClick={() => onOpenExternalUrl(href)}
-                  >
-                    <ExternalLink className="size-4 text-muted-foreground" />
-                  </SettingsRow>
-                ))}
               </SettingsCard>
             </SettingsSection>
 

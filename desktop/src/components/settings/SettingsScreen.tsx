@@ -11,15 +11,14 @@ export interface SettingsScreenNavEntry<TSection extends string> {
 }
 
 export interface SettingsScreenProps<TSection extends string> {
-  /** Sections shown in the left rail in order. */
   sections: ReadonlyArray<SettingsScreenNavEntry<TSection>>;
-  /** Currently active section id. */
   activeSection: TSection;
-  /** Callback when the user picks a different section. */
   onSectionChange: (section: TSection) => void;
-  /** "← Back to app" — returns the user to the previous shell view. */
   onBackToApp: () => void;
-  /** The active page body (use SettingsPage). */
+  /** Optional small bar pinned to the bottom of the left rail —
+   *  hosts app-meta links (docs, help, version) without bloating
+   *  the section list. */
+  railFooter?: ReactNode;
   children: ReactNode;
 }
 
@@ -41,6 +40,7 @@ export function SettingsScreen<TSection extends string>({
   activeSection,
   onSectionChange,
   onBackToApp,
+  railFooter,
   children,
 }: SettingsScreenProps<TSection>) {
   const compensateForStoplight = useStoplightCompensation();
@@ -87,6 +87,9 @@ export function SettingsScreen<TSection extends string>({
             })}
           </ul>
         </nav>
+        {railFooter ? (
+          <div className="shrink-0 px-4 pb-3 pt-1">{railFooter}</div>
+        ) : null}
       </aside>
 
       <main className="min-h-0 overflow-y-auto [scrollbar-gutter:stable]">
