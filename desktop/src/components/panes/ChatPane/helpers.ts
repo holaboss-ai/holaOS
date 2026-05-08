@@ -214,7 +214,7 @@ export function findActiveMentionRange(
   // Allow `/` in handles so nested file paths (`@apps/twitter/post.md`)
   // round-trip — the parser still recognises the token if the user
   // moves the caret back into it.
-  if (!/^@[A-Za-z0-9_.\-/]*$/.test(rawToken)) {
+  if (!/^@[\p{L}\p{N}_.\-/]*$/u.test(rawToken)) {
     return null;
   }
   return {

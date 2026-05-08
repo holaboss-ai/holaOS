@@ -2556,14 +2556,16 @@ export function ChatPane({
     // Files first — typically the more frequent reference target.
     for (const entry of workspaceFiles) {
       // Slugify each path segment so the inserted token round-trips
-      // through findActiveMentionRange (which now allows `/`).
+      // through findActiveMentionRange. Unicode letters / digits are
+      // preserved so CJK-named files (e.g. `产品方案.md`) survive
+      // round-trip; only true non-letter characters get stripped.
       const handle = entry.relativePath
         .split("/")
         .map((segment) =>
           segment
             .toLowerCase()
             .replace(/\s+/g, "-")
-            .replace(/[^a-z0-9_.\-]/g, ""),
+            .replace(/[^\p{L}\p{N}_.\-]/gu, ""),
         )
         .filter(Boolean)
         .join("/");
