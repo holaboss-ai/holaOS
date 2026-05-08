@@ -1,18 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
+  CalendarClock,
   ChevronRight,
   Clock3,
+  Inbox,
   MoreHorizontal,
   Pencil,
   Play,
   Plus,
-  Sparkles,
   Trash2,
+  type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -168,7 +169,7 @@ function isFailedStatus(status: string): boolean {
 
 export function AutomationsPane({
   workspaceId,
-  emptyWorkspaceMessage = "Choose a workspace from the top bar to view and manage automations.",
+  emptyWorkspaceMessage = "Switch from the top bar to view its automations.",
   onOpenRunSession,
   onRunNow,
   onCreateSchedule,
@@ -397,13 +398,12 @@ export function AutomationsPane({
           </Tabs>
           <Button
             type="button"
-            variant="ghost"
-            size="icon-sm"
+            variant="outline"
+            size="sm"
             onClick={handleNewSchedule}
-            aria-label="New schedule"
-            className="rounded-lg text-muted-foreground hover:text-foreground"
           >
-            <Plus className="size-4" />
+            <Plus className="size-3.5" />
+            New schedule
           </Button>
         </div>
       </div>
@@ -418,9 +418,8 @@ export function AutomationsPane({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!activeWorkspaceId ? (
-          <EmptyState
-            icon={Clock3}
-            size="md"
+          <AutomationsEmpty
+            icon={CalendarClock}
             title="No workspace selected"
             description={emptyWorkspaceMessage}
           />
@@ -430,7 +429,22 @@ export function AutomationsPane({
           <SkeletonList />
         ) : activeTab === "scheduled" ? (
           scheduledJobs.length === 0 ? (
-            <EmptyScheduled onCreate={handleNewSchedule} />
+            <AutomationsEmpty
+              icon={CalendarClock}
+              title="Nothing scheduled"
+              description="Schedules run automatically at the time you set."
+              action={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleNewSchedule}
+                >
+                  <Plus className="size-3.5" />
+                  New schedule
+                </Button>
+              }
+            />
           ) : (
             <ul className="divide-y divide-border">
               {scheduledJobs.map((job) => {
@@ -458,12 +472,15 @@ export function AutomationsPane({
                           </Badge>
                         ) : null}
                       </div>
-                      <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                        {scheduleAtLabel(job)}
+                      <div className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                        <span className="truncate">{scheduleAtLabel(job)}</span>
                         {!job.enabled ? (
-                          <span className="ml-1.5 text-muted-foreground/70">
-                            · paused
-                          </span>
+                          <Badge
+                            variant="outline"
+                            className="border-border bg-fg-2 px-1.5 py-0 text-[10px] font-medium leading-4 text-muted-foreground"
+                          >
+                            Paused
+                          </Badge>
                         ) : null}
                       </div>
                       {job.last_error ? (
@@ -511,7 +528,7 @@ export function AutomationsPane({
                           disabled={isBusy}
                         >
                           <Pencil size={14} />
-                          Edit in chat
+                          Edit
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => void handleDelete(job)}
@@ -529,11 +546,10 @@ export function AutomationsPane({
             </ul>
           )
         ) : completedRuns.length === 0 ? (
-          <EmptyState
-            icon={Clock3}
-            size="md"
+          <AutomationsEmpty
+            icon={Inbox}
             title="No runs yet"
-            description="Once a scheduled task fires, its history will show up here."
+            description="Completed runs appear here."
           />
         ) : (
           <ul className="divide-y divide-border">
@@ -581,34 +597,54 @@ export function AutomationsPane({
   );
 }
 
-function EmptyScheduled({ onCreate }: { onCreate: () => void }) {
+/**
+ * Dot-grid decorated empty state — Attio-style. The dots concentrate
+ * at the edges and fade out near the centre via a radial mask, so the
+ * title + CTA sit on a clean canvas while the surrounding pane reads
+ * as "this is a list view that's currently empty" without needing
+ * literal ghost rows.
+ */
+function AutomationsEmpty({
+  icon: Icon,
+  title,
+  description,
+  action,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description?: ReactNode;
+  action?: ReactNode;
+}) {
   return (
-    <EmptyState
-      icon={Clock3}
-      size="md"
-      title="No schedules yet"
-      description={
-        <>
-          Ask the agent to set one up — try{" "}
-          <span className="text-foreground/80">
-            &ldquo;post a LinkedIn update every Monday at 9am&rdquo;
-          </span>
-          .
-        </>
-      }
-      action={
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={onCreate}
-          className="gap-1.5"
-        >
-          <Sparkles className="size-3.5" />
-          Ask the agent
-        </Button>
-      }
-    />
+    <div className="relative flex min-h-[280px] w-full flex-1 items-center justify-center overflow-hidden">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle, var(--color-fg-12) 1px, transparent 1px)",
+          backgroundSize: "14px 14px",
+          maskImage:
+            "radial-gradient(ellipse 60% 55% at center, transparent 0%, transparent 35%, black 100%)",
+          WebkitMaskImage:
+            "radial-gradient(ellipse 60% 55% at center, transparent 0%, transparent 35%, black 100%)",
+        }}
+      />
+      <div className="relative z-10 flex max-w-xs flex-col items-center gap-3 px-6 text-center">
+        <div className="grid size-10 place-items-center rounded-xl border border-border bg-card text-muted-foreground shadow-xs">
+          <Icon className="size-4" strokeWidth={1.6} />
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-foreground">{title}</p>
+          {description ? (
+            <p className="text-xs leading-5 text-muted-foreground">
+              {description}
+            </p>
+          ) : null}
+        </div>
+        {action ? <div className="mt-1">{action}</div> : null}
+      </div>
+    </div>
   );
 }
 
