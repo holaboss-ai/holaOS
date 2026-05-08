@@ -276,7 +276,7 @@
 @property --muted-foreground {
   syntax: "<color>";
   inherits: true;
-  initial-value: oklch(0.5 0.005 250);
+  initial-value: oklch(0.56 0.005 250);
 }
 @property --accent {
   syntax: "<color>";
@@ -323,7 +323,7 @@
   --secondary: oklch(0.97 0.002 250);
   --secondary-foreground: oklch(0.21 0.003 250);
   --muted: oklch(0.97 0.002 250);
-  --muted-foreground: oklch(0.5 0.005 250);
+  --muted-foreground: oklch(0.56 0.005 250);
   --accent: oklch(0.95 0.002 250);
   --accent-foreground: oklch(0.18 0.003 250);
   --border: oklch(0.92 0.003 250);
