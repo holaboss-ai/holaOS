@@ -51,6 +51,7 @@ import { UpdateReminder } from "@/components/ui/UpdateReminder";
 import { StoplightProvider } from "@/lib/StoplightContext";
 import { holabossLogoUrl } from "@/lib/assetPaths";
 import { type ExplorerAttachmentDragPayload } from "@/lib/attachmentDrag";
+import { CHAT_LAYOUT } from "@/lib/chatLayout";
 import { DesktopBillingProvider } from "@/lib/billing/useDesktopBilling";
 import {
   pushRendererSentryActivity,
@@ -4414,7 +4415,9 @@ function AppShellContent() {
     if (agentView.type === "automations") {
       return (
         <section className="flex h-full min-h-0 min-w-0 animate-in fade-in-0 slide-in-from-right-3 flex-col overflow-hidden rounded-xl bg-card shadow-md backdrop-blur-sm duration-200 ease-out">
-          <div className="shrink-0 border-b border-border px-4 py-2.5 sm:px-5">
+          <div
+            className={`mx-auto w-full ${CHAT_LAYOUT.contentMaxWidth} shrink-0 border-b border-border px-4 py-2.5 sm:px-5`}
+          >
             <div className="flex items-center justify-between gap-3">
               <div className="inline-flex min-w-0 items-center gap-2 text-base font-semibold text-foreground">
                 <Clock3 size={14} className="shrink-0 text-muted-foreground" />
@@ -4430,7 +4433,9 @@ function AppShellContent() {
               </Button>
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <div
+            className={`mx-auto w-full ${CHAT_LAYOUT.contentMaxWidth} min-h-0 flex-1 overflow-hidden`}
+          >
             <AutomationsPane
               workspaceId={selectedWorkspaceId}
               emptyWorkspaceMessage="Choose a workspace from the top bar to view and manage automations."
@@ -4453,7 +4458,9 @@ function AppShellContent() {
     if (agentView.type === "inbox") {
       return (
         <section className="flex h-full min-h-0 min-w-0 animate-in fade-in-0 slide-in-from-right-3 flex-col overflow-hidden rounded-xl bg-card shadow-md backdrop-blur-sm duration-200 ease-out">
-          <div className="shrink-0 border-b border-border px-4 py-2.5 sm:px-5">
+          <div
+            className={`mx-auto w-full ${CHAT_LAYOUT.contentMaxWidth} shrink-0 border-b border-border px-4 py-2.5 sm:px-5`}
+          >
             <div className="flex items-center justify-between gap-3">
               <div className="inline-flex min-w-0 items-center gap-2 text-base font-semibold text-foreground">
                 <Inbox size={14} className="shrink-0 text-muted-foreground" />
@@ -4469,7 +4476,9 @@ function AppShellContent() {
               </Button>
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <div
+            className={`mx-auto w-full ${CHAT_LAYOUT.contentMaxWidth} min-h-0 flex-1 overflow-hidden`}
+          >
             <OperationsInboxPane
               proposals={taskProposals}
               proactiveStatus={proactiveStatus}
@@ -4519,7 +4528,9 @@ function AppShellContent() {
     if (agentView.type === "sessions") {
       return (
         <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl bg-card shadow-md backdrop-blur-sm">
-          <div className="shrink-0 border-b border-border px-4 py-2.5 sm:px-5">
+          <div
+            className={`mx-auto w-full ${CHAT_LAYOUT.contentMaxWidth} shrink-0 border-b border-border px-4 py-2.5 sm:px-5`}
+          >
             <div className="flex items-center justify-between gap-3">
               <div className="inline-flex min-w-0 items-center gap-2 text-base font-semibold text-foreground">
                 <MessageCircle size={14} className="shrink-0 text-muted-foreground" />
@@ -4535,7 +4546,9 @@ function AppShellContent() {
               </Button>
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <div
+            className={`mx-auto w-full ${CHAT_LAYOUT.contentMaxWidth} min-h-0 flex-1 overflow-hidden`}
+          >
             <SubagentSessionsPane
               workspaceId={selectedWorkspaceId}
               variant="full"
