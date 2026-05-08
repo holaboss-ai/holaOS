@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const sourcePath = path.join(__dirname, "ChatPane.tsx");
+const sourcePath = path.join(__dirname, "ChatPane", "index.tsx");
 
 test("chat model picker hides holaboss models while signed out and only marks them pending after sign-in", async () => {
   const source = await readFile(sourcePath, "utf8");
