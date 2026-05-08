@@ -151,7 +151,7 @@ export function BillingSummaryCard({
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 px-4 py-3">
         <div>
-          <div className="text-lg font-semibold tabular-nums text-foreground">
+          <div className="text-lg font-semibold tabular-nums tracking-tight text-foreground">
             {creditsValue}
           </div>
           <div className="flex items-center gap-1 text-sm text-muted-foreground">
@@ -183,7 +183,7 @@ export function BillingSummaryCard({
           </div>
         </div>
         <div className="text-right">
-          <div className="text-lg font-semibold tabular-nums text-foreground">
+          <div className="text-lg font-semibold tabular-nums tracking-tight text-foreground">
             {overview?.monthlyCreditsIncluded?.toLocaleString() ?? "—"}
           </div>
           <div className="text-sm text-muted-foreground">Monthly</div>
@@ -193,20 +193,20 @@ export function BillingSummaryCard({
       <div className="grid gap-1.5 px-4 py-3 text-sm text-muted-foreground">
         <div className="flex items-center justify-between">
           <span>Total allocated</span>
-          <span className="tabular-nums text-foreground">
+          <span className="tabular-nums tracking-tight text-foreground">
             {overview?.totalAllocated?.toLocaleString() ?? "—"}
           </span>
         </div>
         <div className="flex items-center justify-between">
           <span>Total used</span>
-          <span className="tabular-nums text-foreground">
+          <span className="tabular-nums tracking-tight text-foreground">
             {overview?.totalUsed?.toLocaleString() ?? "—"}
           </span>
         </div>
         {overview?.dailyRefreshCredits ? (
           <div className="flex items-center justify-between">
             <span>Daily refresh</span>
-            <span className="tabular-nums text-foreground">
+            <span className="tabular-nums tracking-tight text-foreground">
               {overview.dailyRefreshCredits.toLocaleString()}
             </span>
           </div>
