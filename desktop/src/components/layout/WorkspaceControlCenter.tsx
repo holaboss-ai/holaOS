@@ -1213,6 +1213,7 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
                 assistantMode="control_center_preview"
                 showExecutionInternals={false}
                 assistantFitToContent
+                workspaceId={workspaceId}
                 onOpenOutput={(output) => onOpenOutput(workspaceId, output)}
                 onOpenAllArtifacts={handleOpenArtifacts}
                 collapsedTraceByStepId={{}}

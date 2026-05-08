@@ -80,6 +80,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { EntityMention } from "@/components/ui/entity-mention";
 import {
   MENTION_URL_SCHEME,
@@ -8045,6 +8046,7 @@ export function ChatPane({
                     assistantLabel={assistantLabel}
                     assistantMode={assistantMode}
                     showExecutionInternals={showSessionExecutionInternals}
+                    workspaceId={selectedWorkspace?.id ?? null}
                     onPreviewAttachment={openImageAttachmentPreview}
                     onOpenOutput={onOpenOutput}
                     onOpenAllArtifacts={(outputs) => {
@@ -9041,6 +9043,9 @@ function AssistantTurnComponent({
   onToggleTraceStep,
   onLinkClick,
   onLocalLinkClick,
+  showAvatar = false,
+  workspaceId = null,
+  createdAt,
   status = "",
   live = false,
   statusAccessory = null,
@@ -9074,6 +9079,9 @@ function AssistantTurnComponent({
   onToggleTraceStep: (stepId: string) => void;
   onLinkClick?: (url: string) => void;
   onLocalLinkClick?: (href: string) => void;
+  showAvatar?: boolean;
+  workspaceId?: string | null;
+  createdAt?: string;
   status?: string;
   live?: boolean;
   statusAccessory?: ReactNode;
@@ -9161,10 +9169,18 @@ function AssistantTurnComponent({
     );
   };
 
+  const timeLabel = chatMessageTimeLabel(createdAt);
+
   return (
     <div
-      className="group/assistant-turn relative flex min-w-0 flex-col items-start"
+      className="group/assistant-turn relative flex min-w-0 items-start gap-2 animate-in fade-in-0 slide-in-from-bottom-1 duration-200"
     >
+      <div className="w-6 shrink-0 pt-1">
+        {showAvatar && workspaceId ? (
+          <AgentAvatar seed={workspaceId} size="md" />
+        ) : null}
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col items-start">
       <article
         className={
           fitToContent
@@ -9257,24 +9273,34 @@ function AssistantTurnComponent({
         ) : null}
       </article>
 
-      {showActionsMenu ? (
-        <div className="pointer-events-none flex h-6 items-center pl-2 opacity-0 transition-opacity duration-150 group-hover/assistant-turn:pointer-events-auto group-hover/assistant-turn:opacity-100 group-focus-within/assistant-turn:pointer-events-auto group-focus-within/assistant-turn:opacity-100">
-          <AssistantTurnActionsMenu
-            copyText={copyText}
-            hasFileEdits={hasFileEdits}
-            onViewFileChanges={
-              hasFileEdits
-                ? () => setForceExpandToken((token) => token + 1)
-                : undefined
-            }
-            onViewTurnDetails={
-              executionItems.length > 0
-                ? () => setForceExpandToken((token) => token + 1)
-                : undefined
-            }
-          />
+      {showActionsMenu || (showAvatar && timeLabel) ? (
+        <div className="flex h-6 items-center gap-2 pl-2">
+          {showAvatar && timeLabel ? (
+            <span className="select-none text-xs text-muted-foreground tabular-nums">
+              {timeLabel}
+            </span>
+          ) : null}
+          {showActionsMenu ? (
+            <div className="pointer-events-none opacity-0 transition-opacity duration-150 group-hover/assistant-turn:pointer-events-auto group-hover/assistant-turn:opacity-100 group-focus-within/assistant-turn:pointer-events-auto group-focus-within/assistant-turn:opacity-100">
+              <AssistantTurnActionsMenu
+                copyText={copyText}
+                hasFileEdits={hasFileEdits}
+                onViewFileChanges={
+                  hasFileEdits
+                    ? () => setForceExpandToken((token) => token + 1)
+                    : undefined
+                }
+                onViewTurnDetails={
+                  executionItems.length > 0
+                    ? () => setForceExpandToken((token) => token + 1)
+                    : undefined
+                }
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
+      </div>
     </div>
   );
 }
@@ -9717,6 +9743,9 @@ export function ConversationTurns<Message extends ChatMessage>({
   assistantMode,
   showExecutionInternals,
   assistantFitToContent = false,
+  /** Drives the agent avatar's seed so each workspace has its own
+   *  persistent face. */
+  workspaceId,
   onPreviewAttachment,
   onOpenOutput,
   onOpenAllArtifacts,
@@ -9741,6 +9770,7 @@ export function ConversationTurns<Message extends ChatMessage>({
   assistantMode: string;
   showExecutionInternals: boolean;
   assistantFitToContent?: boolean;
+  workspaceId?: string | null;
   onPreviewAttachment?: (attachment: AttachmentListItem) => void;
   onOpenOutput?: (output: WorkspaceOutputRecordPayload) => void;
   onOpenAllArtifacts: (outputs: WorkspaceOutputRecordPayload[]) => void;
@@ -9777,6 +9807,11 @@ export function ConversationTurns<Message extends ChatMessage>({
     <>
       {messages.map((message, index) => {
         const wrapperClassName = getMessageWrapperClassName?.(message)?.trim();
+        const next = messages[index + 1];
+        const isLastInAssistantGroup =
+          message.role === "assistant" &&
+          (!next || next.role === "user") &&
+          !liveAssistantTurn;
         const turn =
           message.role === "user" ? (
             <UserTurn
@@ -9814,6 +9849,9 @@ export function ConversationTurns<Message extends ChatMessage>({
               onToggleTraceStep={onToggleTraceStep}
               onLinkClick={onLinkClick}
               onLocalLinkClick={onLocalLinkClick}
+              showAvatar={isLastInAssistantGroup}
+              workspaceId={workspaceId ?? null}
+              createdAt={message.createdAt}
               footerAccessory={
                 message.id === assistantFooterAccessoryMessageId
                   ? assistantFooterAccessory
@@ -9857,6 +9895,8 @@ export function ConversationTurns<Message extends ChatMessage>({
           onToggleTraceStep={onToggleTraceStep}
           onLinkClick={onLinkClick}
           onLocalLinkClick={onLocalLinkClick}
+          showAvatar
+          workspaceId={workspaceId ?? null}
           live
           statusAccessory={liveAssistantTurn.statusAccessory ?? null}
           status={liveAssistantTurn.status ?? ""}
