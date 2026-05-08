@@ -7168,7 +7168,7 @@ export function ChatPane({
               {hasMessages ? (
                 <div
                   ref={messagesContentRef}
-                  className={`flex min-w-0 w-full flex-col gap-2 pl-4 pr-7 pb-3 pt-5 ${
+                  className={`mx-auto flex min-w-0 w-full ${CHAT_LAYOUT.contentMaxWidth} flex-col gap-2 pl-4 pr-7 pb-3 pt-5 ${
                     showHistoryRestoreScreen ? "invisible" : ""
                   }`}
                 >
