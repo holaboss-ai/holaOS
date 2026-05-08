@@ -61,7 +61,7 @@ function AssistantTurnComponent({
   label,
   mode,
   showExecutionInternals = true,
-  fitToContent = false,
+  fitToContent = true,
   text,
   tone = "default",
   segments,

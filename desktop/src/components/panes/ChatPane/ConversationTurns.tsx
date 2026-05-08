@@ -13,7 +13,7 @@ export function ConversationTurns<Message extends ChatMessage>({
   assistantLabel,
   assistantMode,
   showExecutionInternals,
-  assistantFitToContent = false,
+  assistantFitToContent = true,
   /** Drives the agent avatar's seed so each workspace has its own
    *  persistent face. */
   workspaceId,
