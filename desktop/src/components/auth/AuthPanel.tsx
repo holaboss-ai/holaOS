@@ -7,8 +7,6 @@ import {
   ChevronRight,
   Loader2,
   LogOut,
-  MoreHorizontal,
-  Pencil,
   Plug,
   Plus,
   RefreshCw,
@@ -3172,6 +3170,10 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
 
     const template = KNOWN_PROVIDER_TEMPLATES[providerId];
     const draft = providerDrafts[providerId];
+    const isConnecting = connectingProviderId === providerId;
+    const isDisconnecting = disconnectingProviderId === providerId;
+    const drawerValidation: ValidationState =
+      validationByProvider[providerId] ?? { state: "idle" };
     if (providerId === "holaboss") {
       const supportedModels = holabossSupportedModels(effectiveRuntimeConfig);
       return (
@@ -3228,7 +3230,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
             </div>
           </div>
           {renderProviderModelSelection(providerId, draft)}
-          <div className="flex flex-wrap gap-2 pt-1">
+          <div className="flex flex-wrap items-center gap-2 pt-1">
             <Button
               variant="outline"
               size="sm"
@@ -3245,6 +3247,31 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
             >
               Cancel
             </Button>
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void handleValidateProvider(providerId)}
+                disabled={drawerValidation.state === "validating"}
+              >
+                <Plug className="size-3.5" />
+                {drawerValidation.state === "validating"
+                  ? "Validating…"
+                  : "Validate"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={() =>
+                  void handleDisconnectRuntimeProvider(providerId)
+                }
+                disabled={isSavingRuntimeConfigDocument || isConnecting}
+              >
+                <Unplug className="size-3.5" />
+                {isDisconnecting ? "Disconnecting…" : "Disconnect"}
+              </Button>
+            </div>
           </div>
         </div>
       );
@@ -3279,7 +3306,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
           />
         </label>
         {renderProviderModelSelection(providerId, draft)}
-        <div className="flex flex-wrap gap-2 pt-1">
+        <div className="flex flex-wrap items-center gap-2 pt-1">
           <Button
             variant="outline"
             size="sm"
@@ -3296,6 +3323,31 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
           >
             Cancel
           </Button>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void handleValidateProvider(providerId)}
+              disabled={drawerValidation.state === "validating"}
+            >
+              <Plug className="size-3.5" />
+              {drawerValidation.state === "validating"
+                ? "Validating…"
+                : "Validate"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={() =>
+                void handleDisconnectRuntimeProvider(providerId)
+              }
+              disabled={isSavingRuntimeConfigDocument || isConnecting}
+            >
+              <Unplug className="size-3.5" />
+              {isDisconnecting ? "Disconnecting…" : "Disconnect"}
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -3303,21 +3355,15 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
 
   function renderProviderRow(providerId: KnownProviderId) {
     const template = KNOWN_PROVIDER_TEMPLATES[providerId];
-    const isHolabossProvider = providerId === "holaboss";
     const isConnected = providerConnected(providerId);
     const draftEnabled = providerDraftEnabled(providerId);
-    const isConnecting = connectingProviderId === providerId;
-    const isDisconnecting = disconnectingProviderId === providerId;
     const hasPendingConnection = !isConnected && draftEnabled;
 
-    // Status badge derivation. Live validation state takes priority —
-    // when the user has just clicked Validate, we want them to see the
-    // probe outcome, not the static "Connected" tag. Fall through to
-    // the connection-derived status otherwise.
-    //
-    // We don't badge "Default" anymore: the user already picks the
-    // default chat model in the Defaults section above, so re-stating
-    // it on the provider row is just visual noise.
+    // Live validation state takes priority — when the user has just
+    // clicked Validate we want them to see the probe outcome.
+    // We don't badge a static "Connected" anymore: the row's presence
+    // in the connected list already conveys that. Only states that add
+    // signal beyond "yes, it's listed here" earn a chip.
     const validation: ValidationState = validationByProvider[providerId] ?? {
       state: "idle",
     };
@@ -3335,16 +3381,10 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
       statusTone = "destructive";
       statusLabel = "Invalid";
       statusTooltip = `Probe failed after ${validation.latencyMs}ms`;
-    } else if (isConnected) {
-      statusTone = "success";
-      statusLabel = "Connected";
     } else if (hasPendingConnection) {
       statusTone = "warning";
       statusLabel = "Configuring";
     }
-    // Badge styling — use shadcn Badge with tone-specific className.
-    // Stays consistent with every other Badge in the dialog (account
-    // status, runtime status) and avoids a parallel custom component.
     const badgeClass =
       statusTone === "success"
         ? "border-success/40 bg-success/10 text-success"
@@ -3363,6 +3403,8 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
     return (
       <SettingsRow
         key={providerId}
+        interactive
+        onClick={() => setExpandedProviderId(providerId)}
         leading={
           <ProviderBrandIcon
             providerId={providerId}
@@ -3383,54 +3425,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
           </span>
         }
       >
-        {/* Single kebab trigger for per-provider actions. Three side-by-side
-            buttons (Edit / Validate / Disconnect) made the row read like a
-            toolbar instead of a list item. */}
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`${template.label} actions`}
-                disabled={isSavingRuntimeConfigDocument}
-              >
-                <MoreHorizontal className="size-4 text-muted-foreground" />
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="end" className="min-w-[180px]">
-            <DropdownMenuItem
-              onClick={() => setExpandedProviderId(providerId)}
-            >
-              <Pencil className="size-3.5" />
-              {isHolabossProvider ? "Configure" : "Edit"}
-            </DropdownMenuItem>
-            {!isHolabossProvider ? (
-              <DropdownMenuItem
-                onClick={() => void handleValidateProvider(providerId)}
-                disabled={validation.state === "validating"}
-              >
-                <Plug className="size-3.5" />
-                {validation.state === "validating"
-                  ? "Validating…"
-                  : "Validate connection"}
-              </DropdownMenuItem>
-            ) : null}
-            {!isHolabossProvider ? (
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() =>
-                  void handleDisconnectRuntimeProvider(providerId)
-                }
-                disabled={isSavingRuntimeConfigDocument || isConnecting}
-              >
-                <Unplug className="size-3.5" />
-                {isDisconnecting ? "Disconnecting…" : "Disconnect"}
-              </DropdownMenuItem>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <ChevronRight className="size-4 text-muted-foreground" />
       </SettingsRow>
     );
   }
