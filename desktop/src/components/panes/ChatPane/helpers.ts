@@ -341,6 +341,10 @@ export function historyMessagesInDisplayOrder(
   return order === "desc" ? [...messages].reverse() : messages;
 }
 
+export function normalizeErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Request failed.";
+}
+
 export function turnInputIdsFromHistoryMessages(
   messages: SessionHistoryMessagePayload[],
 ) {
