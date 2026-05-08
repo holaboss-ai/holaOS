@@ -89,7 +89,7 @@ export function Combobox({
         data-slot="combobox-trigger"
         data-state={open ? "open" : "closed"}
         className={cn(
-          "inline-flex h-8 w-fit items-center justify-between gap-1.5 rounded-lg bg-muted/50 py-1 pr-2 pl-2.5 text-sm text-foreground whitespace-nowrap select-none transition-colors outline-none hover:bg-muted/70 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 data-[state=open]:bg-muted/70 [&>svg]:pointer-events-none [&>svg]:shrink-0",
+          "inline-flex h-8 w-fit items-center justify-between gap-1.5 rounded-md border border-border bg-card py-1 pr-2 pl-2.5 text-sm font-medium text-foreground whitespace-nowrap select-none shadow-xs transition-colors outline-none hover:bg-fg-2 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 data-[state=open]:bg-fg-4 [&>svg]:pointer-events-none [&>svg]:shrink-0",
           triggerClassName,
         )}
       >
@@ -103,10 +103,7 @@ export function Combobox({
       <PopoverContent
         align={align}
         sideOffset={sideOffset}
-        className={cn(
-          "overflow-hidden border-foreground/10 p-0 shadow-lg",
-          contentClassName,
-        )}
+        className={cn("overflow-hidden p-0 shadow-lg", contentClassName)}
         style={{ width: menuWidth }}
       >
         <Command>
@@ -138,7 +135,7 @@ export function Combobox({
                     </div>
                     <CheckIcon
                       className={cn(
-                        "ml-2 size-4 shrink-0 text-foreground/80 transition-opacity",
+                        "ml-2 size-4 shrink-0 text-muted-foreground transition-opacity",
                         isSelected ? "opacity-100" : "opacity-0",
                       )}
                     />

@@ -26,7 +26,7 @@ function CommandInput({
   return (
     <div
       data-slot="command-input-wrapper"
-      className="flex items-center gap-2 border-b border-foreground/10 px-3"
+      className="flex items-center gap-2 border-b border-border px-3"
       cmdk-input-wrapper=""
     >
       <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" />
@@ -98,7 +98,7 @@ function CommandSeparator({
   return (
     <CommandPrimitive.Separator
       data-slot="command-separator"
-      className={cn("mx-1 my-1 h-px bg-foreground/5", className)}
+      className={cn("mx-1 my-1 h-px bg-border", className)}
       {...props}
     />
   );
@@ -113,7 +113,7 @@ function CommandItem({
       data-slot="command-item"
       className={cn(
         "relative flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors",
-        "data-[selected=true]:bg-foreground/10 data-[selected=true]:text-accent-foreground",
+        "data-[selected=true]:bg-fg-6 data-[selected=true]:text-foreground",
         "data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className,
