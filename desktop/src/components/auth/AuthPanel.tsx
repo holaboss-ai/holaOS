@@ -12,7 +12,6 @@ import {
   Plug,
   Plus,
   RefreshCw,
-  ShieldCheck,
   Terminal,
   Unplug,
   X,
@@ -44,6 +43,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useDesktopAuthSession, type AuthSession } from "@/lib/auth/authClient";
 import { holabossLogoUrl } from "@/lib/assetPaths";
 import { useDesktopBilling } from "@/lib/billing/useDesktopBilling";
@@ -4197,11 +4201,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
       <section className="grid w-full gap-6">
         <SettingsSection title="Session">
           <SettingsCard>
-            {/* Header row stays a custom layout — avatar + multi-line label
-                + multi-button trailing actions doesn't compress into the
-                generic SettingsRow shape. Padding (px-4 py-3) matches the
-                primitive so it lines up with the rows below. */}
-            <div className="flex items-center justify-between gap-4 px-4 py-3">
+            <div className="flex items-center justify-between gap-3 px-4 py-3">
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <div className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-muted text-muted-foreground ring-1 ring-border">
                   <UserAvatar user={sessionAvatarUser(session)} />
@@ -4227,6 +4227,51 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
               <div className="flex shrink-0 items-center gap-1">
                 {isSignedIn ? (
                   <>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Badge
+                            variant="outline"
+                            className={`gap-1 text-[11px] ${badgeClassName}`}
+                          >
+                            <StatusDot
+                              variant={
+                                statusTone === "error"
+                                  ? "destructive"
+                                  : statusTone === "ready"
+                                    ? "success"
+                                    : statusTone === "syncing"
+                                      ? "warning"
+                                      : "muted"
+                              }
+                            />
+                            <span>{statusBadgeLabel}</span>
+                          </Badge>
+                        }
+                      />
+                      <TooltipContent>
+                        <div className="grid gap-0.5 text-xs">
+                          <div>
+                            <span className="text-muted-foreground">
+                              Account ·{" "}
+                            </span>
+                            {sessionState.isPending
+                              ? "Checking…"
+                              : authError
+                                ? "Error"
+                                : "Signed in"}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Runtime ·{" "}
+                            </span>
+                            {runtimeBindingReady
+                              ? "Ready on this desktop"
+                              : "Setup in progress"}
+                          </div>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
                     <Button
                       variant="ghost"
                       size="icon-sm"
@@ -4245,7 +4290,6 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
                       size="icon-sm"
                       aria-label="Sign out"
                       onClick={() => void handleSignOut()}
-                      disabled={!isSignedIn}
                     >
                       <LogOut size={14} />
                     </Button>
@@ -4261,48 +4305,6 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
                 )}
               </div>
             </div>
-
-            <SettingsRow label="Status">
-              <Badge
-                variant="outline"
-                className={
-                  statusTone === "error"
-                    ? "border-destructive/40 bg-destructive/10 text-[11px] text-destructive"
-                    : statusTone === "ready"
-                      ? "border-success/40 bg-success/10 text-[11px] text-success"
-                      : statusTone === "syncing"
-                        ? "border-warning/40 bg-warning/10 text-[11px] text-warning"
-                        : "border-border bg-background/60 text-[11px] text-muted-foreground"
-                }
-              >
-                <ShieldCheck size={12} />
-                <span>{statusBadgeLabel}</span>
-              </Badge>
-            </SettingsRow>
-
-            <SettingsRow label="Runtime">
-              <Badge
-                variant="outline"
-                className="border-border bg-background/60 text-[11px] text-muted-foreground"
-              >
-                <StatusDot
-                  variant={
-                    runtimeBindingReady
-                      ? "success"
-                      : isSignedIn
-                        ? "warning"
-                        : "muted"
-                  }
-                />
-                <span>
-                  {runtimeBindingReady
-                    ? "Ready on this desktop"
-                    : isSignedIn
-                      ? "Setup in progress"
-                      : "Unavailable"}
-                </span>
-              </Badge>
-            </SettingsRow>
 
             {(authMessage || authError) && (
               <div className="flex items-start gap-2 px-4 py-3 text-xs leading-5">
