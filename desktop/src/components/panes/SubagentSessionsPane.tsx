@@ -336,17 +336,6 @@ export function SubagentSessionsPane({
                   onClick={() => onOpenSession?.(session)}
                   className="group flex w-full min-w-0 items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-fg-2"
                 >
-                  <span className="grid size-4 shrink-0 place-items-center text-muted-foreground">
-                    {inspectableRunSessionCategory(session) === "task_proposal" ? (
-                      <WandSparkles size={14} />
-                    ) : inspectableRunSessionCategory(session) === "cronjob" ? (
-                      <Clock3 size={14} />
-                    ) : archived ? (
-                      <Archive size={14} />
-                    ) : (
-                      <Bot size={14} />
-                    )}
-                  </span>
                   <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                     {title}
                   </span>

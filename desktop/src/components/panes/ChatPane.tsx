@@ -45,6 +45,7 @@ import {
   Link2,
   Loader2,
   ListTree,
+  MessagesSquare,
   MoreHorizontal,
   Paperclip,
   PencilLine,
@@ -7876,6 +7877,31 @@ export function ChatPane({
           </div>
         ) : null}
 
+        {!isOnboardingVariant && isReadOnlyInspectionSession ? (
+          <div className="shrink-0 px-4 pt-2 sm:px-5">
+            <div className="flex items-center justify-between gap-2 rounded-md bg-fg-4 px-3 py-1.5 text-xs">
+              <span className="min-w-0 truncate text-muted-foreground">
+                Inspecting{" "}
+                <span className="font-medium text-foreground">
+                  {activeSessionTitle}
+                </span>
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() => {
+                  void openMainSession();
+                }}
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                <ArrowLeft className="size-3" />
+                Main session
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
         {showLowBalanceWarning || showOutOfCreditsWarning ? (
           <div className="shrink-0 px-4 pt-3 sm:px-5">
             <div className="bg-muted flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5">
@@ -8386,7 +8412,7 @@ function ChatHeader({
             aria-label="Sessions"
             className="text-muted-foreground hover:text-foreground"
           >
-            <Bot className="size-4" />
+            <MessagesSquare className="size-4" />
           </Button>
         ) : null}
 
@@ -8410,39 +8436,17 @@ function ChatHeader({
           </Button>
         ) : null}
 
-        {onOpenAutomations || onReturnToMainSession ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="More chat actions"
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  <MoreHorizontal className="size-4" />
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="end" className="w-44" sideOffset={4}>
-              {onOpenAutomations ? (
-                <DropdownMenuItem onClick={() => onOpenAutomations()}>
-                  <Clock3 />
-                  Automations
-                </DropdownMenuItem>
-              ) : null}
-              {onReturnToMainSession ? (
-                <>
-                  {onOpenAutomations ? <DropdownMenuSeparator /> : null}
-                  <DropdownMenuItem onClick={() => onReturnToMainSession()}>
-                    <ArrowLeft />
-                    Return to main
-                  </DropdownMenuItem>
-                </>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+        {onOpenAutomations ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onOpenAutomations()}
+            aria-label="Automations"
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <Clock3 className="size-4" />
+          </Button>
         ) : null}
       </div>
     </div>
