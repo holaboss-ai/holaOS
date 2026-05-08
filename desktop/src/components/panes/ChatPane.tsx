@@ -11541,7 +11541,7 @@ function Composer({
         <div className="pointer-events-none absolute left-3 right-3 top-4 z-20 -translate-y-[calc(100%+2px)]">
           <div
             ref={slashCommandMenuRef}
-            className="pointer-events-auto overflow-hidden rounded-xl bg-popover shadow-md"
+            className="pointer-events-auto overflow-hidden rounded-lg bg-popover shadow-md"
           >
             {filteredSlashCommands.length > 0 ? (
               <div className="max-h-[280px] overflow-y-auto p-1">
@@ -11575,7 +11575,7 @@ function Composer({
       ) : null}
       {showMentionMenu ? (
         <div className="pointer-events-none absolute left-3 right-3 top-4 z-20 -translate-y-[calc(100%+2px)]">
-          <div className="pointer-events-auto overflow-hidden rounded-xl bg-popover shadow-md">
+          <div className="pointer-events-auto overflow-hidden rounded-lg bg-popover shadow-md">
             <div className="max-h-[280px] overflow-y-auto p-1">
               {filteredMentionItems.map((item, index) => (
                 <button
