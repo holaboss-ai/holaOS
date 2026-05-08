@@ -3585,7 +3585,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     render={
-                      <Button size="sm">
+                      <Button size="sm" className="w-xs">
                         <Plus className="size-3.5" />
                         Add provider
                       </Button>
@@ -3593,7 +3593,6 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
                   />
                   <DropdownMenuContent
                     align="center"
-                    className="min-w-[220px]"
                   >
                     {availableProviderIds.map((providerId) => {
                       const template = KNOWN_PROVIDER_TEMPLATES[providerId];
