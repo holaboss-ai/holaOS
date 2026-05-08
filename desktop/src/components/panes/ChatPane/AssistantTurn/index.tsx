@@ -222,8 +222,8 @@ function AssistantTurnComponent({
       <article
         className={
           fitToContent
-            ? "min-w-0 inline-flex w-fit max-w-full flex-col rounded-lg bg-fg-6 dark:bg-fg-12 px-3 py-2"
-            : "min-w-0 w-full max-w-4xl rounded-lg bg-fg-6 dark:bg-fg-12 px-3 py-2"
+            ? "min-w-0 inline-flex w-fit max-w-full flex-col rounded-lg bg-fg-6 dark:bg-card px-3 py-2"
+            : "min-w-0 w-full max-w-4xl rounded-lg bg-fg-6 dark:bg-card px-3 py-2"
         }
       >
         {showStatusPlaceholder ? renderStatusLine(normalizedStatus) : null}
