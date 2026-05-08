@@ -5,7 +5,7 @@ export function HistoryRestoreSkeleton() {
     <div
       role="status"
       aria-label="Loading conversation"
-      className="absolute inset-0 z-30 overflow-hidden px-6 pb-5 pt-5"
+      className="absolute inset-0 z-30 overflow-hidden bg-card px-6 pb-5 pt-5"
     >
       <div className="flex h-full flex-col">
         <div className="animate-pulse space-y-6">
