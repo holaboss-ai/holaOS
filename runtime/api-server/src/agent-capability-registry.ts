@@ -1283,6 +1283,20 @@ function delegatedMcpServerNames(manifest: AgentCapabilityManifest): string[] {
   return [...names].sort((left, right) => left.localeCompare(right));
 }
 
+function pushMcpToolAliasLines(
+  lines: string[],
+  manifest: AgentCapabilityManifest,
+  heading: string,
+): void {
+  if (manifest.mcp_tool_aliases.length === 0) {
+    return;
+  }
+  lines.push(heading);
+  for (const alias of manifest.mcp_tool_aliases) {
+    lines.push(`- \`${alias.tool_id}\` -> call \`${alias.callable_name}\``);
+  }
+}
+
 function sortDelegatedOnlyCapabilities(
   capabilities: AgentCapabilityRecord[],
 ): AgentCapabilityRecord[] {
@@ -1419,12 +1433,7 @@ export function renderCapabilityAvailabilityContextPromptSection(
   if (manifest.mcp_tools.length > 0 || (manifest.context.mcp_server_ids?.length ?? 0) > 0) {
     lines.push("Connected MCP access: available.");
     lines.push("Use surfaced MCP tools when relevant; tool names may be resolved dynamically by the runtime.");
-    if (manifest.mcp_tool_aliases.length > 0) {
-      lines.push("MCP callable tool aliases for this run:");
-      for (const alias of manifest.mcp_tool_aliases) {
-        lines.push(`- \`${alias.tool_id}\` -> call \`${alias.callable_name}\``);
-      }
-    }
+    pushMcpToolAliasLines(lines, manifest, "MCP callable tool aliases for this run:");
   } else {
     lines.push("Connected MCP access: none.");
   }
@@ -1472,8 +1481,8 @@ export function renderDelegatedCapabilityAvailabilityContextPromptSection(
     );
   }
   if (
-    directManifest.mcp_tools.length === 0 &&
-    delegatedManifest.mcp_tools.length > 0
+    delegatedManifest.mcp_tools.length > 0 ||
+    (delegatedManifest.context.mcp_server_ids?.length ?? 0) > 0
   ) {
     const delegatedServers = delegatedMcpServerNames(delegatedManifest);
     if (delegatedServers.length > 0) {
@@ -1483,6 +1492,11 @@ export function renderDelegatedCapabilityAvailabilityContextPromptSection(
           .join(", ")}.`,
       );
     }
+    pushMcpToolAliasLines(
+      lines,
+      delegatedManifest,
+      "Delegated MCP callable tool aliases for routing only:",
+    );
   }
 
   const delegatedOnly = sortDelegatedOnlyCapabilities(

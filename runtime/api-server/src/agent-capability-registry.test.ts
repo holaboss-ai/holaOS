@@ -301,10 +301,54 @@ test("renderDelegatedCapabilityAvailabilityContextPromptSection exposes backstag
   assert.match(section, /Delegated connected MCP\/app access: available\./);
   assert.match(section, /Delegated browser execution is available even though this front session has no direct browser tools\./);
   assert.match(section, /Delegated app integrations available via: `twitter`\./);
+  assert.match(section, /Delegated MCP callable tool aliases for routing only:/);
+  assert.match(section, /`twitter\.twitter_create_post` -> call `mcp__twitter__twitter_create_post`/);
   assert.match(section, /Notable delegated-only tools for this run:/);
   assert.match(section, /Create Dashboard \(`create_dashboard`\)/);
   assert.match(section, /List Data Tables \(`list_data_tables`\)/);
   assert.match(section, /Twitter Create Post \(`mcp__twitter__twitter_create_post`\)/);
+});
+
+test("renderDelegatedCapabilityAvailabilityContextPromptSection keeps delegated MCP detail even when front session has direct MCP", () => {
+  const directManifest = buildAgentCapabilityManifest({
+    harnessId: "pi",
+    sessionKind: "workspace_session",
+    defaultTools: ["read", "question"],
+    extraTools: ["holaboss_delegate_task"],
+    runtimeToolIds: ["holaboss_delegate_task"],
+    workspaceSkillIds: [],
+    resolvedMcpToolRefs: [
+      {
+        tool_id: "workspace.lookup",
+        server_id: "workspace",
+        tool_name: "lookup",
+      },
+    ],
+  });
+  const delegatedManifest = buildAgentCapabilityManifest({
+    harnessId: "pi",
+    sessionKind: "subagent",
+    defaultTools: ["read", "edit", "bash"],
+    extraTools: [],
+    workspaceSkillIds: [],
+    resolvedMcpToolRefs: [
+      {
+        tool_id: "notion.notion_get_page",
+        server_id: "notion",
+        tool_name: "notion_get_page",
+      },
+    ],
+  });
+
+  const section = renderDelegatedCapabilityAvailabilityContextPromptSection(
+    directManifest,
+    delegatedManifest,
+  );
+
+  assert.match(section, /Delegated connected MCP\/app access: available\./);
+  assert.match(section, /Delegated app integrations available via: `notion`\./);
+  assert.match(section, /Delegated MCP callable tool aliases for routing only:/);
+  assert.match(section, /`notion\.notion_get_page` -> call `mcp__notion__notion_get_page`/);
 });
 
 test("buildAgentCapabilityManifest marks connected MCP servers as available without pre-enumerated tool refs", () => {

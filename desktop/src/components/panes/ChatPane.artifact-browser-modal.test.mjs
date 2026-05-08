@@ -5,12 +5,28 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const sourcePath = path.join(__dirname, "ChatPane.tsx");
+const modalSourcePath = path.join(
+  __dirname,
+  "ChatPane",
+  "ArtifactBrowserModal.tsx",
+);
+const outputsSourcePath = path.join(
+  __dirname,
+  "ChatPane",
+  "AssistantTurn",
+  "Outputs.tsx",
+);
 
 test("artifact browser modal keeps header, filters, and results inside one modal shell", async () => {
-  const source = await readFile(sourcePath, "utf8");
+  const source = await readFile(modalSourcePath, "utf8");
 
   assert.match(source, /export function ArtifactBrowserModal\(/);
+  assert.match(source, /function shouldHideOutputFromArtifactDisplay\(/);
+  assert.match(
+    source,
+    /return fileName === "agents\.md" \|\| segments\.includes\("skills"\);/,
+  );
+  assert.match(source, /const allDisplayOutputs = dedupeOutputsForDisplay\(outputs\);/);
   assert.match(source, /layout = "page",/);
   assert.match(
     source,
@@ -18,7 +34,7 @@ test("artifact browser modal keeps header, filters, and results inside one modal
   );
   assert.match(
     source,
-    /const panelClassName =\s*layout === "card"\s*\?\s*"flex h-full w-full min-h-0 flex-col overflow-hidden rounded-\[22px\] border border-border bg-background shadow-xl"\s*:\s*"flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl";/,
+    /const panelClassName =\s*layout === "card"\s*\?\s*"flex h-full w-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-xl"\s*:\s*"flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl";/,
   );
   assert.match(
     source,
@@ -31,5 +47,15 @@ test("artifact browser modal keeps header, filters, and results inside one modal
   assert.match(
     source,
     /<div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">[\s\S]*\{filteredOutputs\.length === 0 \?/,
+  );
+});
+
+test("inline artifact rows reuse the filtered display output list", async () => {
+  const source = await readFile(outputsSourcePath, "utf8");
+
+  assert.match(source, /const displayOutputs = dedupeOutputsForDisplay\(outputs\);/);
+  assert.match(
+    source,
+    /if \(displayOutputs\.length === 0\) \{\s*return null;\s*\}/,
   );
 });

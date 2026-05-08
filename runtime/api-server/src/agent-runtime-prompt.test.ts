@@ -230,7 +230,13 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
     browserToolIds: ["browser_get_state"],
     runtimeToolIds: ["list_data_tables", "create_dashboard"],
     workspaceSkillIds: [],
-    resolvedMcpToolRefs: [],
+    resolvedMcpToolRefs: [
+      {
+        tool_id: "twitter.twitter_create_post",
+        server_id: "twitter",
+        tool_name: "twitter_create_post",
+      },
+    ],
     toolServerIdMap: {},
     sessionKind: "subagent",
   });
@@ -290,6 +296,15 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /When the user answers a background-work blocker such as logging in, authorizing, confirming, or providing missing context, resume the waiting child session instead of starting a new task\./);
   assert.match(prompt.systemPrompt, /Treat chat like the user is messaging their assistant in an IM, not like the final deliverable surface\./);
   assert.match(prompt.systemPrompt, /Keep accepted, in-progress, waiting, and completed work clearly separate in how you speak\./);
+  assert.match(prompt.systemPrompt, /Treat the main session as a coordination surface by default\./);
+  assert.match(prompt.systemPrompt, /Kickoff, delegation, and status replies should usually be at most one to two short sentences unless reasoning itself is the user's requested deliverable\./);
+  assert.match(prompt.systemPrompt, /For kickoff and delegation replies, acknowledge the request and state the next action without turning the reply into a mini-analysis, rewrite theory, or speculative plan\./);
+  assert.match(prompt.systemPrompt, /Do not speculate before inspection\./);
+  assert.match(prompt.systemPrompt, /Only surface specific claims that are grounded in the user's message, your direct inspection, tool results, subagent results, or immediate procedural facts about the current run\./);
+  assert.match(prompt.systemPrompt, /Longer prose is allowed when the user explicitly asks for analysis, diagnosis, comparison, strategy, or recommendation in chat, or when you are synthesizing evidence you already gathered\./);
+  assert.match(prompt.systemPrompt, /If the user asked for execution rather than analysis, keep the visible reply brief even when the hidden task brief needs more detail\./);
+  assert.match(prompt.systemPrompt, /Do not expand a narrow request into a broader theory unless the user explicitly asked for that reasoning or you already verified it\./);
+  assert.match(prompt.systemPrompt, /Do not use visible chat to preload hidden assumptions into delegated work\./);
   assert.match(prompt.systemPrompt, /When routing work through `holaboss_delegate_task`, call the tool first and then write at most one user-facing update based on the returned task state\./);
   assert.match(prompt.systemPrompt, /Reserve completion language such as `done`, `finished`, `created`, `sent`, `navigated`, `verified`, or `it's there now`/i);
   assert.match(prompt.systemPrompt, /If delegated work immediately comes back waiting on user input, say it is blocked on that step and ask only for what is needed to continue\./);
@@ -333,6 +348,16 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.ok(
     prompt.contextMessages.some((message) =>
       /List Data Tables \(`list_data_tables`\)/.test(message),
+    ),
+  );
+  assert.ok(
+    prompt.contextMessages.some((message) =>
+      /Delegated MCP callable tool aliases for routing only:/.test(message),
+    ),
+  );
+  assert.ok(
+    prompt.contextMessages.some((message) =>
+      /`twitter\.twitter_create_post` -> call `mcp__twitter__twitter_create_post`/.test(message),
     ),
   );
   assert.doesNotMatch(prompt.systemPrompt, /small direct edits inline/);

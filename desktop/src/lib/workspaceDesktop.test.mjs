@@ -90,6 +90,15 @@ test("workspace desktop hydrates workspace summaries from cached or live sources
   assert.match(source, /await window\.electronAPI\.workspace\.listWorkspacesCached\(\);/);
 });
 
+test("workspace activation reset clears the activating flag before wiping readiness state", async () => {
+  const source = await readFile(WORKSPACE_DESKTOP_PATH, "utf8");
+
+  assert.match(
+    source,
+    /if \(!selectedWorkspaceId \|\| !selectedWorkspaceExists \|\| !runtimeReadyForWorkspaceData\) \{\s*setInstalledApps\(\[\]\);\s*setIsLoadingInstalledApps\(false\);\s*setIsActivatingWorkspace\(false\);\s*setWorkspaceLifecycleWorkspaceId\(""\);\s*setWorkspaceAppsReadyState\(false\);\s*setWorkspaceBlockingReasonState\(""\);\s*return;\s*\}/,
+  );
+});
+
 test("workspace creation can copy an existing workspace browser profile or import from a browser", async () => {
   const source = await readFile(WORKSPACE_DESKTOP_PATH, "utf8");
 

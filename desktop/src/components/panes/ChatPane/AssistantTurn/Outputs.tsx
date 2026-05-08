@@ -14,8 +14,10 @@ export function AssistantTurnOutputs({
   onOpenOutput?: (output: WorkspaceOutputRecordPayload) => void;
   onOpenAllArtifacts: (outputs: WorkspaceOutputRecordPayload[]) => void;
 }) {
-  const displayOutputs =
-    outputs.length > 1 ? dedupeOutputsForDisplay(outputs) : outputs;
+  const displayOutputs = dedupeOutputsForDisplay(outputs);
+  if (displayOutputs.length === 0) {
+    return null;
+  }
   return (
     <div className="mt-3 flex flex-col gap-2">
       {displayOutputs.map((output) => (

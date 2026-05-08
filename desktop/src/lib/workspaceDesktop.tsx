@@ -1330,6 +1330,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     if (!selectedWorkspaceId || !selectedWorkspaceExists || !runtimeReadyForWorkspaceData) {
       setInstalledApps([]);
       setIsLoadingInstalledApps(false);
+      setIsActivatingWorkspace(false);
       setWorkspaceLifecycleWorkspaceId("");
       setWorkspaceAppsReadyState(false);
       setWorkspaceBlockingReasonState("");

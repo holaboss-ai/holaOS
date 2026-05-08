@@ -14049,29 +14049,80 @@ async function getWorkspaceLifecycleViaRuntime(
   });
 }
 
+function outputDisplayPathForArtifactFiltering(
+  output: WorkspaceOutputRecordPayload,
+) {
+  const metadataPath =
+    typeof output.metadata?.file_path === "string"
+      ? output.metadata.file_path.trim()
+      : "";
+  if (metadataPath) {
+    return metadataPath;
+  }
+  const filePath =
+    typeof output.file_path === "string" ? output.file_path.trim() : "";
+  if (filePath) {
+    return filePath;
+  }
+  const title = typeof output.title === "string" ? output.title.trim() : "";
+  if (/[\\/]/.test(title) || /\.[A-Za-z0-9]+$/.test(title)) {
+    return title;
+  }
+  return "";
+}
+
+function outputDisplayPathSegmentsForArtifactFiltering(
+  output: WorkspaceOutputRecordPayload,
+) {
+  const normalizedPath = outputDisplayPathForArtifactFiltering(output)
+    .replace(/[\\/]+/g, "/")
+    .replace(/^\.\//, "")
+    .replace(/^\/+|\/+$/g, "")
+    .toLowerCase();
+  return normalizedPath ? normalizedPath.split("/").filter(Boolean) : [];
+}
+
+function shouldHideWorkspaceManagedArtifactOutput(
+  output: WorkspaceOutputRecordPayload,
+) {
+  const segments = outputDisplayPathSegmentsForArtifactFiltering(output);
+  if (segments.length === 0) {
+    return false;
+  }
+  const fileName = segments[segments.length - 1];
+  return fileName === "agents.md" || segments.includes("skills");
+}
+
 async function listOutputs(
   payload: string | HolabossListOutputsPayload,
 ): Promise<WorkspaceOutputListResponsePayload> {
   const requestPayload =
     typeof payload === "string" ? { workspaceId: payload } : payload;
-  return requestWorkspaceRuntimeJson<WorkspaceOutputListResponsePayload>(
-    requestPayload.workspaceId,
-    {
-      method: "GET",
-      path: "/api/v1/outputs",
-      params: {
-        workspace_id: requestPayload.workspaceId,
-        output_type: requestPayload.outputType ?? undefined,
-        status: requestPayload.status ?? undefined,
-        platform: requestPayload.platform ?? undefined,
-        folder_id: requestPayload.folderId ?? undefined,
-        session_id: requestPayload.sessionId ?? undefined,
-        input_id: requestPayload.inputId ?? undefined,
-        limit: requestPayload.limit ?? 50,
-        offset: requestPayload.offset ?? 0,
+  const response =
+    await requestWorkspaceRuntimeJson<WorkspaceOutputListResponsePayload>(
+      requestPayload.workspaceId,
+      {
+        method: "GET",
+        path: "/api/v1/outputs",
+        params: {
+          workspace_id: requestPayload.workspaceId,
+          output_type: requestPayload.outputType ?? undefined,
+          status: requestPayload.status ?? undefined,
+          platform: requestPayload.platform ?? undefined,
+          folder_id: requestPayload.folderId ?? undefined,
+          session_id: requestPayload.sessionId ?? undefined,
+          input_id: requestPayload.inputId ?? undefined,
+          limit: requestPayload.limit ?? 50,
+          offset: requestPayload.offset ?? 0,
+        },
       },
-    },
-  );
+    );
+  return {
+    ...response,
+    items: response.items.filter(
+      (item) => !shouldHideWorkspaceManagedArtifactOutput(item),
+    ),
+  };
 }
 
 function normalizeWorkspaceSkillId(value: unknown): string | null {

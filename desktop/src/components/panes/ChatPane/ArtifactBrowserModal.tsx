@@ -95,6 +95,42 @@ export function outputMetadataNumber(
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function outputDisplayPath(output: WorkspaceOutputRecordPayload) {
+  const metadataPath = outputMetadataString(output, "file_path");
+  if (metadataPath) {
+    return metadataPath;
+  }
+  const filePath = output.file_path?.trim() ?? "";
+  if (filePath) {
+    return filePath;
+  }
+  const title = output.title?.trim() ?? "";
+  if (/[\\/]/.test(title) || /\.[A-Za-z0-9]+$/.test(title)) {
+    return title;
+  }
+  return "";
+}
+
+function outputDisplayPathSegments(output: WorkspaceOutputRecordPayload) {
+  const normalizedPath = outputDisplayPath(output)
+    .replace(/[\\/]+/g, "/")
+    .replace(/^\.\//, "")
+    .replace(/^\/+|\/+$/g, "")
+    .toLowerCase();
+  return normalizedPath ? normalizedPath.split("/").filter(Boolean) : [];
+}
+
+function shouldHideOutputFromArtifactDisplay(
+  output: WorkspaceOutputRecordPayload,
+) {
+  const segments = outputDisplayPathSegments(output);
+  if (segments.length === 0) {
+    return false;
+  }
+  const fileName = segments[segments.length - 1];
+  return fileName === "agents.md" || segments.includes("skills");
+}
+
 export function outputBrowserFilterForOutput(
   output: WorkspaceOutputRecordPayload,
 ): ArtifactBrowserFilter {
@@ -164,7 +200,7 @@ export function outputFileExtensionFromTitle(
   if (dotIndex > 0 && dotIndex < fromTitle.length - 1) {
     return fromTitle.slice(dotIndex + 1).toLowerCase();
   }
-  const path = outputMetadataString(output, "file_path") ?? output.file_path ?? "";
+  const path = outputDisplayPath(output);
   const pathDot = path.lastIndexOf(".");
   if (pathDot > 0 && pathDot < path.length - 1) {
     return path.slice(pathDot + 1).toLowerCase();
@@ -221,7 +257,7 @@ export function sortOutputsLatestFirst(outputs: WorkspaceOutputRecordPayload[]) 
 }
 
 function outputDisplayDedupeKey(output: WorkspaceOutputRecordPayload) {
-  const filePath = output.file_path?.trim() ?? "";
+  const filePath = outputDisplayPath(output);
   if (filePath) {
     return `path:${filePath}`;
   }
@@ -278,6 +314,9 @@ export function dedupeOutputsForDisplay(
 ) {
   const preferredByKey = new Map<string, WorkspaceOutputRecordPayload>();
   for (const output of outputs) {
+    if (shouldHideOutputFromArtifactDisplay(output)) {
+      continue;
+    }
     const key = outputDisplayDedupeKey(output);
     const current = preferredByKey.get(key);
     if (!current || shouldPreferOutputForDisplay(output, current)) {
@@ -460,8 +499,7 @@ export function ArtifactBrowserModal({
     { id: "links", label: "Links" },
     { id: "apps", label: "Apps" },
   ];
-  const allDisplayOutputs =
-    outputs.length > 1 ? dedupeOutputsForDisplay(outputs) : outputs;
+  const allDisplayOutputs = dedupeOutputsForDisplay(outputs);
   const filteredOutputs = sortOutputsLatestFirst(
     filter === "all"
       ? allDisplayOutputs
