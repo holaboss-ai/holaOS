@@ -3384,30 +3384,85 @@ export function ChatPane({
     refreshWorkspaceData,
     installedApps,
   } = useWorkspaceDesktop();
-  // `@` references content WITHIN the current workspace — currently
-  // installed apps; future kinds (sessions, memories, skills) plug
-  // into the same array. Cross-workspace navigation is a different
-  // affordance (the workspace switcher in TopTabsBar).
-  const composerMentionableItems = useMemo<ChatComposerMentionItem[]>(() => {
-    if (!Array.isArray(installedApps) || installedApps.length === 0) {
-      return [];
+
+  // Top-level workspace files for the `@` picker. Only the root tier
+  // for this first cut — recursive walk + path display is a follow-up.
+  const [workspaceRootFiles, setWorkspaceRootFiles] = useState<
+    LocalFileEntry[]
+  >([]);
+  useEffect(() => {
+    let cancelled = false;
+    const workspaceId = selectedWorkspace?.id;
+    if (!workspaceId) {
+      setWorkspaceRootFiles([]);
+      return;
     }
-    return installedApps.map((app) => {
-      const trimmedLabel = app.label.trim() || app.id;
-      // Slug-style handle: lowercase, spaces → hyphens, strip anything
-      // outside `[a-z0-9_.\-]` so the inserted token stays parseable
-      // by `findActiveMentionRange` if the user moves the caret back
-      // into it.
-      const handle = app.id.toLowerCase().replace(/[^a-z0-9_.\-]/g, "");
-      return {
-        id: app.id,
-        handle: handle || app.id,
-        label: trimmedLabel,
-        description: app.summary,
-        keywords: [trimmedLabel, app.id, handle].filter(Boolean),
-      };
-    });
-  }, [installedApps]);
+    void window.electronAPI.fs
+      .listDirectory(null, workspaceId)
+      .then((response) => {
+        if (cancelled) return;
+        // Skip dotfiles + dotfolders; surface plain files first, then
+        // directories. The agent can resolve either kind by name.
+        const entries = response.entries
+          .filter((entry) => !entry.name.startsWith("."))
+          .sort((a, b) => {
+            if (a.isDirectory !== b.isDirectory) {
+              return a.isDirectory ? 1 : -1;
+            }
+            return a.name.localeCompare(b.name);
+          });
+        setWorkspaceRootFiles(entries);
+      })
+      .catch(() => {
+        if (!cancelled) setWorkspaceRootFiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWorkspace?.id]);
+
+  // `@` references content WITHIN the current workspace — apps and
+  // top-level files for now. Future kinds (sessions, memories,
+  // skills) plug into the same array. Cross-workspace navigation is
+  // a different affordance (the workspace switcher in TopTabsBar).
+  const composerMentionableItems = useMemo<ChatComposerMentionItem[]>(() => {
+    const items: ChatComposerMentionItem[] = [];
+
+    // Files first — typically the more frequent reference target.
+    for (const entry of workspaceRootFiles) {
+      // Slugify so the inserted token round-trips through
+      // findActiveMentionRange's character class. Filenames with
+      // spaces or other chars become e.g. `My Doc.md` → `my-doc.md`.
+      const handle = entry.name
+        .toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9_.\-]/g, "");
+      if (!handle) continue;
+      items.push({
+        id: `file:${entry.absolutePath}`,
+        handle,
+        label: entry.name,
+        kindIcon: <FileIcon className="size-3.5" />,
+        keywords: [entry.name, handle],
+      });
+    }
+
+    // Apps next.
+    if (Array.isArray(installedApps)) {
+      for (const app of installedApps) {
+        const trimmedLabel = app.label.trim() || app.id;
+        const handle = app.id.toLowerCase().replace(/[^a-z0-9_.\-]/g, "");
+        items.push({
+          id: `app:${app.id}`,
+          handle: handle || app.id,
+          label: trimmedLabel,
+          keywords: [trimmedLabel, app.id, handle].filter(Boolean),
+        });
+      }
+    }
+
+    return items;
+  }, [installedApps, workspaceRootFiles]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionOutputs, setSessionOutputs] = useState<
     WorkspaceOutputRecordPayload[]
@@ -8427,11 +8482,13 @@ export interface ChatComposerMentionItem {
   id: string;
   /** What gets inserted into the text — without the leading `@`. */
   handle: string;
-  /** Visible label in the picker. */
+  /** Visible label in the picker. Single-line; descriptions are
+   *  intentionally not part of this shape — quick pickers stay tight. */
   label: ReactNode;
-  /** Optional secondary line. */
-  description?: ReactNode;
-  /** Plain-text aliases for fuzzy match (cmdk filter). */
+  /** Tiny kind glyph (e.g. file/app icon) shown left of the label
+   *  so mixed-kind menus stay readable. */
+  kindIcon?: ReactNode;
+  /** Plain-text aliases for fuzzy match. */
   keywords?: string[];
 }
 
@@ -11452,21 +11509,22 @@ function Composer({
                   key={item.id}
                   type="button"
                   onClick={() => applyMentionItem(item)}
-                  className={`flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
+                  className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
                     index === highlightedMentionIndex
                       ? "bg-fg-8 text-foreground"
                       : "hover:bg-fg-4"
                   }`}
                 >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">
-                      {item.label}
+                  {item.kindIcon ? (
+                    <span
+                      aria-hidden="true"
+                      className="shrink-0 text-muted-foreground"
+                    >
+                      {item.kindIcon}
                     </span>
-                    {item.description ? (
-                      <span className="block truncate text-muted-foreground">
-                        {item.description}
-                      </span>
-                    ) : null}
+                  ) : null}
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {item.label}
                   </span>
                 </button>
               ))}
