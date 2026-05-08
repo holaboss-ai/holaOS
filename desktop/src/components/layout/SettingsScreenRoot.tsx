@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Check,
+  ChevronDown,
   CircleHelp,
   Copy,
   CreditCard,
@@ -34,6 +35,19 @@ import {
 } from "@/components/settings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -313,8 +327,8 @@ export function SettingsScreenRoot({
     sizeBytes: 0,
     workspaceName: "",
   });
-  const [diagnosticsWorkspaceId, setDiagnosticsWorkspaceId] = useState("");
   const [diagnosticsPathCopied, setDiagnosticsPathCopied] = useState(false);
+  const [diagnosticsMenuOpen, setDiagnosticsMenuOpen] = useState(false);
   const [appUpdateStatus, setAppUpdateStatus] =
     useState<AppUpdateStatusPayload | null>(null);
   const [appUpdateChannelPending, setAppUpdateChannelPending] = useState(false);
@@ -343,31 +357,6 @@ export function SettingsScreenRoot({
       };
     });
   }, [selectedWorkspace, workspaces]);
-
-  const diagnosticsSelectedWorkspace = useMemo(
-    () =>
-      workspaces.find((workspace) => workspace.id === diagnosticsWorkspaceId) ??
-      (selectedWorkspace?.id === diagnosticsWorkspaceId
-        ? selectedWorkspace
-        : null),
-    [diagnosticsWorkspaceId, selectedWorkspace, workspaces],
-  );
-
-  // Reset diagnostics workspace selection when the active workspace
-  // changes or when the rail is first mounted.
-  useEffect(() => {
-    const selectedId = selectedWorkspace?.id ?? "";
-    const fallbackId = selectedId || diagnosticsWorkspaceOptions[0]?.value || "";
-    setDiagnosticsWorkspaceId((current) => {
-      if (
-        current &&
-        diagnosticsWorkspaceOptions.some((option) => option.value === current)
-      ) {
-        return current;
-      }
-      return fallbackId;
-    });
-  }, [diagnosticsWorkspaceOptions, selectedWorkspace?.id]);
 
   // Subscribe to in-app update status while the settings screen is mounted.
   useEffect(() => {
@@ -399,16 +388,14 @@ export function SettingsScreenRoot({
     }
   }, [appUpdateStatus?.downloaded]);
 
-  async function handleExportDiagnosticsBundle() {
-    const workspaceId = diagnosticsWorkspaceId.trim();
-    if (!workspaceId) {
-      setDiagnosticsExportState((prev) => ({
-        ...prev,
-        status: "error",
-        message: "Choose a workspace before exporting diagnostics.",
-      }));
+  async function handleExportDiagnosticsBundle(workspaceId: string) {
+    const trimmed = workspaceId.trim();
+    if (!trimmed) {
       return;
     }
+    const workspace =
+      workspaces.find((w) => w.id === trimmed) ??
+      (selectedWorkspace?.id === trimmed ? selectedWorkspace : null);
 
     setDiagnosticsPathCopied(false);
     setDiagnosticsExportState((prev) => ({
@@ -418,15 +405,14 @@ export function SettingsScreenRoot({
     }));
     try {
       const result = await window.electronAPI.diagnostics.exportBundle({
-        workspaceId,
+        workspaceId: trimmed,
       });
       setDiagnosticsExportState({
         status: "success",
         message: "",
         bundlePath: result.bundlePath,
         sizeBytes: result.archiveSizeBytes,
-        workspaceName:
-          result.workspaceName ?? diagnosticsSelectedWorkspace?.name ?? "",
+        workspaceName: result.workspaceName ?? workspace?.name ?? "",
       });
     } catch (error) {
       setDiagnosticsExportState((prev) => ({
@@ -732,51 +718,75 @@ export function SettingsScreenRoot({
 
             <SettingsSection title="Diagnostics">
               <SettingsCard>
-                <SettingsMenuSelectRow
-                  label="Workspace"
-                  description={
-                    diagnosticsWorkspaceOptions.length > 0
-                      ? "Choose the workspace to include in the diagnostics bundle."
-                      : hasHydratedWorkspaceList
-                        ? "No workspace is available to export."
-                        : "Loading workspaces."
-                  }
-                  value={diagnosticsWorkspaceId}
-                  onValueChange={setDiagnosticsWorkspaceId}
-                  options={diagnosticsWorkspaceOptions}
-                  disabled={
-                    diagnosticsExportState.status === "exporting" ||
-                    diagnosticsWorkspaceOptions.length === 0
-                  }
-                  placeholder={
-                    hasHydratedWorkspaceList ? "No workspace" : "Loading"
-                  }
-                />
                 <SettingsRow
                   label="Diagnostics bundle"
                   description="Logs, a workspace-scoped database snapshot, and a redacted config. Stays on your device."
                 >
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void handleExportDiagnosticsBundle()}
-                    disabled={
-                      diagnosticsExportState.status === "exporting" ||
-                      !diagnosticsWorkspaceId
-                    }
+                  <Popover
+                    open={diagnosticsMenuOpen}
+                    onOpenChange={setDiagnosticsMenuOpen}
                   >
-                    {diagnosticsExportState.status === "exporting" ? (
-                      <>
-                        <Loader2 className="size-3.5 animate-spin" />
-                        Exporting…
-                      </>
-                    ) : diagnosticsExportState.status === "success" ? (
-                      "Re-export"
-                    ) : (
-                      "Export"
-                    )}
-                  </Button>
+                    <PopoverTrigger
+                      disabled={
+                        diagnosticsExportState.status === "exporting" ||
+                        diagnosticsWorkspaceOptions.length === 0
+                      }
+                      render={
+                        <Button type="button" variant="outline" size="sm">
+                          {diagnosticsExportState.status === "exporting" ? (
+                            <>
+                              <Loader2 className="size-3.5 animate-spin" />
+                              Exporting…
+                            </>
+                          ) : (
+                            <>
+                              {diagnosticsExportState.status === "success"
+                                ? "Re-export"
+                                : "Export"}
+                              <ChevronDown className="size-3.5 text-muted-foreground" />
+                            </>
+                          )}
+                        </Button>
+                      }
+                    />
+                    <PopoverContent
+                      align="end"
+                      className="w-72 p-0"
+                    >
+                      <Command>
+                        {diagnosticsWorkspaceOptions.length > 8 ? (
+                          <CommandInput placeholder="Search workspaces…" />
+                        ) : null}
+                        <CommandList>
+                          <CommandEmpty>
+                            {hasHydratedWorkspaceList
+                              ? "No workspaces available."
+                              : "Loading workspaces…"}
+                          </CommandEmpty>
+                          <CommandGroup
+                            className="p-1"
+                            heading="Export bundle for"
+                          >
+                            {diagnosticsWorkspaceOptions.map((option) => (
+                              <CommandItem
+                                key={option.value}
+                                value={option.value}
+                                keywords={option.keywords}
+                                onSelect={(workspaceId) => {
+                                  setDiagnosticsMenuOpen(false);
+                                  void handleExportDiagnosticsBundle(
+                                    workspaceId,
+                                  );
+                                }}
+                              >
+                                {option.label}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </SettingsRow>
                 {diagnosticsExportState.status === "success" &&
                 diagnosticsExportState.bundlePath ? (
