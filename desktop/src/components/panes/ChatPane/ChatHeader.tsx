@@ -1,4 +1,4 @@
-import { Clock3, Inbox, MessageCircle } from "lucide-react";
+import { Clock3, FileStack, Inbox, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -12,6 +12,7 @@ interface ChatHeaderProps {
   onOpenInbox?: () => void;
   inboxUnreadCount: number;
   onOpenAutomations?: () => void;
+  onViewAllArtifacts?: () => void;
 }
 
 export function ChatHeader({
@@ -23,6 +24,7 @@ export function ChatHeader({
   onOpenInbox,
   inboxUnreadCount,
   onOpenAutomations,
+  onViewAllArtifacts,
 }: ChatHeaderProps) {
   const seed = workspace?.id ?? agentName ?? "default";
 
@@ -86,6 +88,19 @@ export function ChatHeader({
             className="text-muted-foreground hover:text-foreground"
           >
             <Clock3 className="size-4" />
+          </Button>
+        ) : null}
+
+        {onViewAllArtifacts ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onViewAllArtifacts()}
+            aria-label="View all artifacts"
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <FileStack className="size-4" />
           </Button>
         ) : null}
       </div>

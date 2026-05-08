@@ -6976,6 +6976,12 @@ export function ChatPane({
               inboxUnreadCount={inboxUnreadCount}
               onOpenSessions={onOpenSessions}
               onOpenAutomations={onOpenAutomations}
+              onViewAllArtifacts={() => {
+                setArtifactBrowserFilter("all");
+                setArtifactBrowserScopedOutputs(null);
+                setArtifactBrowserScope("session");
+                setArtifactBrowserOpen(true);
+              }}
             />
           </div>
         ) : null}
