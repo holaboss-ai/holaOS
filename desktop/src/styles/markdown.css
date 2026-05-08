@@ -227,11 +227,11 @@
 
 .chat-assistant-markdown {
   font-size: var(--text-base);
-  line-height: 1.72;
+  line-height: 1.6;
 }
 
 .chat-assistant-markdown .md-p {
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .chat-assistant-markdown .md-ul,
