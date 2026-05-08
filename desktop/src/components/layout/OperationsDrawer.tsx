@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { StatusDot } from "@/components/ui/status-dot";
 import { ProactiveLifecyclePanel } from "@/components/layout/ProactiveStatusCard";
 
@@ -789,29 +790,34 @@ function InboxPanel({
             )
           ) : null}
           {!hasWorkspace ? (
-            <EmptyNotice
-              icon={<FolderOpen size={24} strokeWidth={1.5} />}
-              message="Select a workspace to review proposals."
+            <EmptyState
+              size="md"
+              decorated
+              icon={FolderOpen}
+              title="No workspace selected"
+              description="Switch from the top bar to review proposals."
             />
           ) : proposals.length === 0 ? (
-            <EmptyNotice
-              icon={
-                isLoadingProposals ? (
+            isLoadingProposals ? (
+              <EmptyNotice
+                icon={
                   <Loader2
                     size={24}
                     strokeWidth={1.5}
                     className="animate-spin"
                   />
-                ) : (
-                  <InboxIcon size={24} strokeWidth={1.5} />
-                )
-              }
-              message={
-                isLoadingProposals
-                  ? "Loading proposals..."
-                  : "No proposals yet."
-              }
-            />
+                }
+                message="Loading proposals..."
+              />
+            ) : (
+              <EmptyState
+                size="md"
+                decorated
+                icon={InboxIcon}
+                title="Nothing waiting"
+                description="Proposed tasks from the agent appear here."
+              />
+            )
           ) : (
             <div className="divide-y divide-border border-y border-border">
               {proposals.map((proposal) => {
