@@ -832,12 +832,12 @@ function InboxPanel({
                       onClick={() =>
                         setExpandedProposalId(proposal.proposal_id)
                       }
-                      className="-mx-1 flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-md px-1 text-left transition-colors hover:bg-fg-2"
+                      className="-mx-1 flex min-w-0 flex-1 flex-col gap-0.5 rounded-md px-1 text-left transition-colors hover:bg-fg-2"
                     >
-                      <span className="truncate text-sm font-medium text-foreground">
+                      <span className="block w-full truncate text-sm font-medium text-foreground">
                         {proposal.task_name}
                       </span>
-                      <span className="line-clamp-1 text-xs text-muted-foreground">
+                      <span className="block w-full truncate text-xs text-muted-foreground">
                         {proposalSourceLabel(proposal.proposal_source)} ·{" "}
                         {relativeTime(proposal.created_at)}
                       </span>

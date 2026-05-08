@@ -1,12 +1,12 @@
 import {
   ArrowLeft,
-  Bot,
   Clock3,
   Folder,
   Globe,
   Inbox,
   LayoutGrid,
   Loader2,
+  MessageCircle,
 } from "lucide-react";
 import {
   type PointerEvent as ReactPointerEvent,
@@ -4527,7 +4527,7 @@ function AppShellContent() {
           <div className="shrink-0 border-b border-border px-4 py-2.5 sm:px-5">
             <div className="flex items-center justify-between gap-3">
               <div className="inline-flex min-w-0 items-center gap-2 text-base font-semibold text-foreground">
-                <Bot size={14} className="shrink-0 text-muted-foreground" />
+                <MessageCircle size={14} className="shrink-0 text-muted-foreground" />
                 <span className="truncate">Sessions</span>
               </div>
               <Button
