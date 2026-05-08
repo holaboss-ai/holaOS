@@ -12671,6 +12671,23 @@ async function resolveLocalWorkspaceRoot(
   const session = await resolveWorkspaceRuntimeSession(workspaceId, options);
   return localWorkspaceRootFromSession(session);
 }
+
+async function ensureLocalWorkspaceRuntimeSessionReady(
+  session: WorkspaceRuntimeSessionPayload,
+): Promise<WorkspaceRuntimeSessionPayload> {
+  if (session.location !== "local") {
+    return session;
+  }
+  if (runtimeStatus.status === "running" && session.runtime_base_url.trim()) {
+    return session;
+  }
+  const status = await ensureRuntimeReady();
+  return cacheWorkspaceRuntimeSession({
+    ...session,
+    runtime_base_url: status.url ?? runtimeBaseUrl(),
+  });
+}
+
 async function requestWorkspaceRuntimeJson<T>(
   workspaceId: string,
   {
@@ -12693,9 +12710,11 @@ async function requestWorkspaceRuntimeJson<T>(
   const attempts = method === "GET" || retryTransientErrors ? 3 : 1;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      const session = await resolveWorkspaceRuntimeSession(safeWorkspaceId, {
-        refresh: attempt > 1,
-      });
+      const session = await ensureLocalWorkspaceRuntimeSessionReady(
+        await resolveWorkspaceRuntimeSession(safeWorkspaceId, {
+          refresh: attempt > 1,
+        }),
+      );
       const url = new URL(`${session.runtime_base_url}${requestPath}`);
       if (params) {
         for (const [key, value] of Object.entries(params)) {
@@ -15885,15 +15904,7 @@ function runtimeUnavailableStatus(hasBundle: boolean): RuntimeStatus {
     return "starting";
   }
   if (runtimeProcess) {
-    const currentStatus = runtimeStatus.status;
-    if (
-      currentStatus === "error" ||
-      currentStatus === "missing" ||
-      currentStatus === "stopped"
-    ) {
-      return "starting";
-    }
-    return currentStatus;
+    return "starting";
   }
   return hasBundle ? "stopped" : "missing";
 }

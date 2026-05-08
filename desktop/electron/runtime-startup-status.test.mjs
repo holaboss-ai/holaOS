@@ -21,7 +21,15 @@ test("desktop runtime status stays in starting while launch is in flight", async
   );
   assert.match(
     source,
+    /if \(runtimeProcess\) \{\s*return "starting";\s*\}/,
+  );
+  assert.match(
+    source,
     /return hasBundle \? "stopped" : "missing";/,
+  );
+  assert.doesNotMatch(
+    source,
+    /if \(runtimeProcess\) \{[\s\S]*return currentStatus;/,
   );
   assert.match(
     source,
