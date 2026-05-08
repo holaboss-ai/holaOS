@@ -1,0 +1,36 @@
+/* Chat surfaces — bubble backgrounds, thinking surface, composer glow.
+   Markdown rendering for chat messages lives in markdown.css. */
+
+.theme-chat-user-bubble {
+  background: color-mix(in oklch, var(--muted) 85%, var(--foreground) 4%);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.theme-chat-assistant-bubble {
+  background: var(--card);
+  box-shadow: var(--shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1));
+}
+
+.theme-chat-system-bubble {
+  background: color-mix(in oklch, var(--destructive) 10%, transparent);
+  border-color: color-mix(in oklch, var(--destructive) 24%, transparent);
+  color: var(--destructive);
+}
+
+.theme-chat-thinking-surface {
+  background: var(--card);
+}
+
+.theme-chat-thinking-inner {
+  background: color-mix(in oklch, var(--primary) 5%, transparent);
+}
+
+.theme-chat-composer-glow {
+  background: radial-gradient(
+    circle,
+    color-mix(in oklch, var(--primary) 5%, transparent) 0%,
+    color-mix(in oklch, var(--primary) 1%, transparent) 52%,
+    transparent 76%
+  );
+}

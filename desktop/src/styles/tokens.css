@@ -1,0 +1,402 @@
+/* Design tokens — single source of truth for color, type, radius, motion,
+   shadow, z-index. Theme files (./themes/*.css) override --background,
+   --foreground, --primary etc. by [data-theme="*"] attribute. */
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: "Inter Variable", sans-serif;
+  --font-mono:
+    "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /* Foreground-mix utilities — opaque tint of foreground into bg.
+     Use bg-fg-3 etc. (Distinct from bg-foreground/N alpha.) */
+  --color-fg-2: var(--fg-2);
+  --color-fg-4: var(--fg-4);
+  --color-fg-6: var(--fg-6);
+  --color-fg-8: var(--fg-8);
+  --color-fg-12: var(--fg-12);
+  --color-fg-16: var(--fg-16);
+  --color-fg-24: var(--fg-24);
+  --color-fg-32: var(--fg-32);
+  --color-fg-48: var(--fg-48);
+  --color-fg-64: var(--fg-64);
+  --color-fg-80: var(--fg-80);
+  --color-fg-92: var(--fg-92);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-scrim: var(--scrim);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  /* Radius scale — integer px steps off base 8px. */
+  --radius-sm: calc(var(--radius) * 0.5); /* 4px */
+  --radius-md: calc(var(--radius) * 0.75); /* 6px — button/menu-item */
+  --radius-lg: var(--radius); /* 8px — card/input */
+  --radius-xl: calc(var(--radius) * 1.25); /* 10px — popover/dropdown */
+  --radius-2xl: calc(var(--radius) * 1.5); /* 12px — panel inner */
+  --radius-3xl: calc(var(--radius) * 2); /* 16px */
+  --radius-4xl: calc(var(--radius) * 2.5); /* 20px */
+
+  /* Font weights — each step ~50 lighter than Tailwind default. */
+  --font-weight-thin: 300;
+  --font-weight-extralight: 325;
+  --font-weight-light: 350;
+  --font-weight-normal: 350;
+  --font-weight-medium: 400;
+  --font-weight-semibold: 450;
+  --font-weight-bold: 500;
+  --font-weight-extrabold: 550;
+  --font-weight-black: 600;
+
+  /* Tight type scale — ~10-20% denser than Tailwind default. */
+  --text-xs: 0.725rem;
+  --text-xs--line-height: 1.2rem;
+  --text-xs--letter-spacing: 0.01em;
+  --text-sm: 0.775rem;
+  --text-sm--line-height: 1.3rem;
+  --text-sm--letter-spacing: 0.008em;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 0.975rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.175rem;
+  --text-xl--line-height: 1.95rem;
+  --text-2xl: 1.275rem;
+  --text-2xl--line-height: 2.25rem;
+  --text-3xl: 1.375rem;
+  --text-3xl--line-height: 2.5rem;
+  --text-4xl: 1.475rem;
+  --text-4xl--line-height: 2.75rem;
+  --text-5xl: 3.052rem;
+
+  /* Entrance animations */
+  --animate-reveal-pop: reveal-pop 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  --animate-fade-in-once: fade-in-once 0.6s ease-out forwards;
+
+  /* Brand alias — tracks whichever theme is active.
+     Use bg-brand / text-brand in new code. */
+  --color-brand: var(--primary);
+  --color-brand-foreground: var(--primary-foreground);
+
+  /* Layered shadow scale. 2xs/xs are hairline-ring + tiny drops for
+     surfaces that should read as "barely lifted" (cards, sticky toolbars).
+     sm steps up to a Linear/Stripe-style 8-layer stack for buttons +
+     popovers. md/lg/xl/2xl keep the hairline + blur scale. Dark mode
+     re-derives from --hairline-alpha / --shadow-alpha. */
+  --shadow-2xs:
+    rgba(0, 0, 0, 0.025) 0 1px 1px -0.5px, rgba(0, 0, 0, 0.05) 0 2px 2px -1px,
+    rgba(0, 0, 0, 0.05) 0 0 0 1px;
+  --shadow-xs:
+    rgba(0, 0, 0, 0.02) 0 1px 1px -0.5px, rgba(0, 0, 0, 0.04) 0 1px 1px -0.5px,
+    rgba(0, 0, 0, 0.04) 0 2px 2px -1px, rgba(0, 0, 0, 0.03) 0 0 0 0.5px;
+  --shadow-sm:
+    0 1px 1px 0.5px rgba(51, 51, 51, 0.03),
+    0 3px 3px -1.5px rgba(51, 51, 51, 0.015),
+    0 6px 6px -3px rgba(51, 51, 51, 0.03),
+    0 12px 12px -6px rgba(51, 51, 51, 0.03),
+    0 24px 24px -12px rgba(51, 51, 51, 0.03),
+    0 48px 48px -24px rgba(51, 51, 51, 0.03),
+    0 0 0 1px rgba(51, 51, 51, 0.08),
+    inset 0 -1px 1px -0.5px rgba(51, 51, 51, 0.05);
+  --shadow-md:
+    0 0 0 1px oklch(from var(--foreground) l c h / var(--hairline-alpha)),
+    0 1px 2px -1px rgba(0, 0, 0, var(--shadow-alpha)),
+    0 3px 5px -1px rgba(0, 0, 0, var(--shadow-alpha));
+  --shadow-lg:
+    0 0 0 1px oklch(from var(--foreground) l c h / var(--hairline-alpha)),
+    0 1px 2px -1px rgba(0, 0, 0, var(--shadow-alpha)),
+    0 3px 5px -1px rgba(0, 0, 0, var(--shadow-alpha)),
+    0 6px 10px -2px rgba(0, 0, 0, var(--shadow-alpha));
+  --shadow-xl:
+    0 0 0 1px oklch(from var(--foreground) l c h / var(--hairline-alpha)),
+    0 1px 2px -1px rgba(0, 0, 0, var(--shadow-alpha)),
+    0 3px 5px -1px rgba(0, 0, 0, var(--shadow-alpha)),
+    0 6px 10px -2px rgba(0, 0, 0, var(--shadow-alpha)),
+    0 14px 22px -6px rgba(0, 0, 0, calc(var(--shadow-alpha) * 0.7));
+  --shadow-2xl:
+    0 0 0 1px oklch(from var(--foreground) l c h / var(--hairline-alpha)),
+    0 1px 2px -1px rgba(0, 0, 0, var(--shadow-alpha)),
+    0 3px 5px -1px rgba(0, 0, 0, var(--shadow-alpha)),
+    0 6px 10px -2px rgba(0, 0, 0, var(--shadow-alpha)),
+    0 14px 22px -6px rgba(0, 0, 0, calc(var(--shadow-alpha) * 0.7)),
+    0 24px 36px -8px rgba(0, 0, 0, calc(var(--shadow-alpha) * 0.5));
+
+  /* Z-index — semantic app-chrome layers (Tailwind z-0..z-50 still
+     used for in-component layering). 100-step rhythm. */
+  --z-index-sticky: 100;
+  --z-index-chrome: 200;
+  --z-index-panel: 300;
+  --z-index-popover: 500;
+  --z-index-tooltip: 600;
+  --z-index-modal: 700;
+  --z-index-overlay: 800;
+  --z-index-toast: 900;
+  --z-index-splash: 1000;
+
+  /* Motion — 180ms default + custom curve. */
+  --default-transition-duration: 180ms;
+  --default-transition-timing-function: cubic-bezier(0.32, 0.08, 0.24, 1);
+  --ease-standard: cubic-bezier(0.32, 0.08, 0.24, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 120ms;
+  --duration-base: 220ms;
+  --duration-slow: 360ms;
+}
+
+@keyframes reveal-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.96) translateY(10px);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.01) translateY(-2px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes fade-in-once {
+  0% {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes holaboss-splash-halo {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes holaboss-splash-dot {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-1.5px);
+  }
+}
+
+/* @property — register theme colors as animatable so theme switches
+   interpolate smoothly. */
+@property --background {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.985 0.002 60);
+}
+@property --foreground {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.18 0.015 55);
+}
+@property --primary {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.68 0.21 37);
+}
+@property --info {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.62 0.17 240);
+}
+@property --success {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.58 0.16 148);
+}
+@property --destructive {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.55 0.24 18);
+}
+/* Surface palette — registered so theme switches interpolate the
+   whole canvas instead of hard-cutting on most surfaces. Initial
+   values mirror the amber-minimal-light defaults. */
+@property --card {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.985 0.002 250);
+}
+@property --popover {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(1 0 0);
+}
+@property --muted {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.97 0.002 250);
+}
+@property --muted-foreground {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.5 0.005 250);
+}
+@property --accent {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.95 0.002 250);
+}
+@property --secondary {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.97 0.002 250);
+}
+@property --border {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.92 0.003 250);
+}
+@property --ring {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.624 0.229 32);
+}
+@property --sidebar {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.97 0.002 250);
+}
+
+/* Token fallbacks — tweakcn themes override these. Anything declared here
+   keeps the app renderable during the brief frame before [data-theme] is
+   set on <html>, and during theme switches. Themes shadow these. */
+:root {
+  --radius: 0.5rem;
+
+  /* Surface + content. Quiet near-neutral grays with a subtle cool
+     undertone; mirrors amber-minimal-light. */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.18 0.003 250);
+  --card: oklch(0.985 0.002 250);
+  --card-foreground: oklch(0.18 0.003 250);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.003 250);
+  --primary: oklch(0.624 0.229 32);
+  --primary-foreground: oklch(0.98 0.01 32);
+  --secondary: oklch(0.97 0.002 250);
+  --secondary-foreground: oklch(0.21 0.003 250);
+  --muted: oklch(0.97 0.002 250);
+  --muted-foreground: oklch(0.5 0.005 250);
+  --accent: oklch(0.95 0.002 250);
+  --accent-foreground: oklch(0.18 0.003 250);
+  --border: oklch(0.92 0.003 250);
+  --input: oklch(0.92 0.003 250);
+  --ring: oklch(0.624 0.229 32);
+  --sidebar: oklch(0.97 0.002 250);
+  --sidebar-foreground: oklch(0.18 0.003 250);
+  --sidebar-primary: oklch(0.624 0.229 32);
+  --sidebar-primary-foreground: oklch(0.98 0.01 32);
+  --sidebar-accent: oklch(0.94 0.002 250);
+  --sidebar-accent-foreground: oklch(0.21 0.003 250);
+  --sidebar-border: oklch(0.92 0.003 250);
+  --sidebar-ring: oklch(0.624 0.229 32);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+
+  --success: oklch(0.58 0.16 148);
+  --warning: oklch(0.82 0.17 83);
+  --info: oklch(0.62 0.17 240);
+  --scrim: oklch(0.15 0.01 240 / 0.46);
+  --destructive: oklch(0.55 0.24 18);
+
+  --hairline-alpha: 0.05;
+  --shadow-alpha: 0.07;
+
+  /* Elevated bg for unfocused panels. */
+  --background-elevated: color-mix(
+    in srgb,
+    var(--foreground) 2%,
+    var(--background)
+  );
+
+  /* Foreground-on-background opaque blends. Use --fg-N for tinted
+     surfaces; Tailwind's bg-foreground/N for transparent overlays. */
+  --fg-2: color-mix(in srgb, var(--foreground) 2%, var(--background));
+  --fg-4: color-mix(in srgb, var(--foreground) 4%, var(--background));
+  --fg-6: color-mix(in srgb, var(--foreground) 6%, var(--background));
+  --fg-8: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --fg-12: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  --fg-16: color-mix(in srgb, var(--foreground) 16%, var(--background));
+  --fg-24: color-mix(in srgb, var(--foreground) 24%, var(--background));
+  --fg-32: color-mix(in srgb, var(--foreground) 32%, var(--background));
+  --fg-48: color-mix(in srgb, var(--foreground) 48%, var(--background));
+  --fg-64: color-mix(in srgb, var(--foreground) 64%, var(--background));
+  --fg-80: color-mix(in srgb, var(--foreground) 80%, var(--background));
+  --fg-92: color-mix(in srgb, var(--foreground) 92%, var(--background));
+
+  /* Status text — tinted toward foreground for labels on neutral bg. */
+  --success-text: color-mix(in oklab, var(--success) 45%, var(--foreground));
+  --destructive-text: color-mix(
+    in oklab,
+    var(--destructive) 45%,
+    var(--foreground)
+  );
+  --info-text: color-mix(in oklab, var(--info) 45%, var(--foreground));
+}
+
+.dark {
+  --hairline-alpha: 0.14;
+  --shadow-alpha: 0.13;
+
+  /* Black drops + white hairline ring + white top inset
+     (lit-from-above). Mirrors light stack with inverted polarity. */
+  --shadow-sm:
+    0 1px 1px 0.5px rgba(0, 0, 0, 0.32),
+    0 3px 3px -1.5px rgba(0, 0, 0, 0.16),
+    0 6px 6px -3px rgba(0, 0, 0, 0.32),
+    0 12px 12px -6px rgba(0, 0, 0, 0.32),
+    0 24px 24px -12px rgba(0, 0, 0, 0.32),
+    0 48px 48px -24px rgba(0, 0, 0, 0.32),
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+}

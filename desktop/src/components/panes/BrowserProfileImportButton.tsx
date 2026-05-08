@@ -2,6 +2,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Globe, Loader2, UploadCloud, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import { cn } from "@/lib/utils";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 
@@ -373,7 +374,7 @@ export function BrowserProfileImportButton({
       <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
         <DialogPrimitive.Portal>
           <DialogPrimitive.Backdrop className="fixed inset-0 z-[120] bg-scrim backdrop-blur-sm data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 duration-200" />
-          <DialogPrimitive.Popup className="fixed top-1/2 left-1/2 z-[121] flex max-h-[min(780px,calc(100vh-32px))] w-[min(720px,calc(100vw-32px))] min-w-0 -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[28px] border border-border bg-background shadow-subtle-sm outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.97] data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[0.98] duration-200 ease-out">
+          <DialogPrimitive.Popup className="fixed top-1/2 left-1/2 z-[121] flex max-h-[min(780px,calc(100vh-32px))] w-[min(720px,calc(100vw-32px))] min-w-0 -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-3xl border border-border bg-background shadow-xs outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.97] data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[0.98] duration-200 ease-out">
             <header className="flex items-start justify-between gap-4 border-b border-border px-6 py-5">
               <div className="min-w-0">
                 <DialogPrimitive.Title className="text-[20px] font-semibold text-foreground">
@@ -403,7 +404,7 @@ export function BrowserProfileImportButton({
 
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 [scrollbar-gutter:stable]">
               <div className="space-y-5">
-                <div className="rounded-xl bg-fg-2 px-4 py-3 text-sm leading-relaxed text-muted-foreground shadow-subtle-xs">
+                <div className="rounded-xl bg-fg-2 px-4 py-3 text-sm leading-relaxed text-muted-foreground shadow-2xs">
                   Current workspace cookies are replaced before import so stale
                   login state does not linger. Sites that rely on app-bound
                   encryption or non-cookie storage may still ask you to sign in
@@ -420,14 +421,14 @@ export function BrowserProfileImportButton({
                         type="button"
                         aria-pressed={active}
                         className={cn(
-                          "flex items-start gap-3 rounded-lg px-3.5 py-3 text-left transition-colors shadow-subtle-xs focus-visible:[box-shadow:none!important]",
+                          "flex items-start gap-3 rounded-lg px-3.5 py-3 text-left transition-colors shadow-2xs focus-visible:[box-shadow:none!important]",
                           active
                             ? "bg-primary/[0.06] ring-1 ring-primary/30"
                             : "bg-fg-2 hover:bg-fg-4",
                         )}
                         onClick={() => setProfileSetupMode(option.value)}
                       >
-                        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-background shadow-subtle-xs">
+                        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-background shadow-2xs">
                           <OptionIcon className="size-4 text-muted-foreground" />
                         </div>
                         <div className="min-w-0 flex-1">
@@ -457,7 +458,7 @@ export function BrowserProfileImportButton({
                     <label className="text-sm font-medium text-foreground">
                       Source workspace
                     </label>
-                    <div className="overflow-hidden rounded-lg bg-fg-2 shadow-subtle-xs">
+                    <div className="overflow-hidden rounded-lg bg-fg-2 shadow-2xs">
                       {copySourceWorkspacesLoading ? (
                         <p className="px-3 py-2.5 text-sm text-muted-foreground">
                           Loading workspaces…
@@ -489,6 +490,11 @@ export function BrowserProfileImportButton({
                                   }
                                   type="radio"
                                 />
+                                <WorkspaceIcon
+                                  workspace={workspace}
+                                  size="md"
+                                  className="mt-0.5"
+                                />
                                 <span className="min-w-0">
                                   <span className="block font-medium text-foreground">
                                     {workspace.name || workspace.id}
@@ -510,7 +516,7 @@ export function BrowserProfileImportButton({
                       <span className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-foreground">
                         Source
                       </span>
-                      <div className="rounded-lg bg-fg-2 shadow-subtle-xs transition-colors focus-within:bg-background focus-within:shadow-subtle-sm">
+                      <div className="rounded-lg bg-fg-2 shadow-2xs transition-colors focus-within:bg-background focus-within:shadow-xs">
                         <select
                           className="h-10 w-full rounded-lg border-0 bg-transparent px-3 text-sm text-foreground outline-none focus-visible:ring-0"
                           onChange={(event) =>
@@ -530,7 +536,7 @@ export function BrowserProfileImportButton({
                     </label>
 
                     {browserImportSource === "safari" ? (
-                      <p className="rounded-lg bg-fg-2 px-3 py-2.5 text-sm text-muted-foreground shadow-subtle-xs">
+                      <p className="rounded-lg bg-fg-2 px-3 py-2.5 text-sm text-muted-foreground shadow-2xs">
                         Safari import opens a file picker for a Safari export
                         zip and only brings in bookmarks and history.
                       </p>
@@ -545,7 +551,7 @@ export function BrowserProfileImportButton({
                             {importProfilesError}
                           </p>
                         ) : null}
-                        <div className="overflow-hidden rounded-lg bg-fg-2 shadow-subtle-xs">
+                        <div className="overflow-hidden rounded-lg bg-fg-2 shadow-2xs">
                           {importProfilesLoading ? (
                             <p className="px-3 py-2.5 text-sm text-muted-foreground">
                               Loading profiles…
@@ -615,7 +621,7 @@ export function BrowserProfileImportButton({
                       ? "border-destructive/25 bg-destructive/5 text-destructive"
                       : statusTone === "success"
                         ? "border-emerald-500/20 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
-                        : "border-border/60 bg-muted/30 text-foreground",
+                        : "border-border bg-muted/30 text-foreground",
                   )}
                 >
                   <p>{statusMessage}</p>

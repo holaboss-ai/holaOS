@@ -101,7 +101,7 @@ export function BrowserProfileStep({
               <button
                 aria-pressed={active}
                 className={cn(
-                  "flex items-start gap-3 rounded-lg px-3.5 py-3 text-left transition-colors shadow-subtle-xs focus-visible:[box-shadow:none!important]",
+                  "flex items-start gap-3 rounded-lg px-3.5 py-3 text-left transition-colors shadow-2xs focus-visible:[box-shadow:none!important]",
                   active
                     ? "bg-primary/[0.06] ring-1 ring-primary/30"
                     : "bg-fg-2 hover:bg-fg-4",
@@ -110,7 +110,7 @@ export function BrowserProfileStep({
                 onClick={() => setBrowserBootstrapMode(option.id)}
                 type="button"
               >
-                <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-background shadow-subtle-xs">
+                <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-background shadow-2xs">
                   {option.icon}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -137,7 +137,7 @@ export function BrowserProfileStep({
 
         {browserBootstrapMode === "copy_workspace" ? (
           <WizardField htmlFor="copy-workspace-source" label="Source workspace">
-            <div className="rounded-lg bg-fg-2 shadow-subtle-xs transition-colors focus-within:bg-background focus-within:shadow-subtle-sm">
+            <div className="rounded-lg bg-fg-2 shadow-2xs transition-colors focus-within:bg-background focus-within:shadow-xs">
               <select
                 className="h-10 w-full rounded-lg border-0 bg-transparent px-3 text-sm text-foreground outline-none focus-visible:ring-0"
                 id="copy-workspace-source"
@@ -162,7 +162,7 @@ export function BrowserProfileStep({
         {browserBootstrapMode === "import_browser" ? (
           <div className="space-y-4">
             <WizardField htmlFor="import-browser-source" label="Import source">
-              <div className="rounded-lg bg-fg-2 shadow-subtle-xs transition-colors focus-within:bg-background focus-within:shadow-subtle-sm">
+              <div className="rounded-lg bg-fg-2 shadow-2xs transition-colors focus-within:bg-background focus-within:shadow-xs">
                 <select
                   className="h-10 w-full rounded-lg border-0 bg-transparent px-3 text-sm text-foreground outline-none focus-visible:ring-0"
                   id="import-browser-source"
@@ -182,7 +182,7 @@ export function BrowserProfileStep({
             </WizardField>
 
             {browserImportSource === "safari" ? (
-              <p className="rounded-lg bg-fg-2 px-3 py-2.5 text-sm text-muted-foreground shadow-subtle-xs">
+              <p className="rounded-lg bg-fg-2 px-3 py-2.5 text-sm text-muted-foreground shadow-2xs">
                 Safari import opens a file picker after you click{" "}
                 <span className="font-medium text-foreground">
                   Create workspace
@@ -200,7 +200,7 @@ export function BrowserProfileStep({
                 }
                 label="Profile"
               >
-                <div className="overflow-hidden rounded-lg bg-fg-2 shadow-subtle-xs">
+                <div className="overflow-hidden rounded-lg bg-fg-2 shadow-2xs">
                   {importProfilesLoading ? (
                     <p className="px-3 py-2.5 text-sm text-muted-foreground">
                       Loading profiles…

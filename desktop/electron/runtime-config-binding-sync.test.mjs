@@ -69,11 +69,19 @@ test("desktop runtime config writes Holaboss binding fields back into canonical 
   );
   assert.match(
     writeRuntimeConfigSection,
+    /assignOrDelete\(runtimePayload, "default_provider", next\.default_provider\);/,
+  );
+  assert.match(
+    writeRuntimeConfigSection,
     /const currentSubagents = runtimeConfigObject\(\s*runtimePayload\.subagents \?\? runtimePayload\.subAgents,\s*\);/,
   );
   assert.match(
     writeRuntimeConfigSection,
     /assignOrDelete\(currentSubagents, "model", next\.subagent_model\);/,
+  );
+  assert.match(
+    writeRuntimeConfigSection,
+    /\["defaultProvider", "default_provider"\],/,
   );
   assert.match(
     writeRuntimeConfigSection,

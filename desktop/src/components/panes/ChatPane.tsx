@@ -67,6 +67,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { StatusDot } from "@/components/ui/status-dot";
 import { PaneCard } from "@/components/ui/PaneCard";
 import { BackgroundTasksPane } from "@/components/panes/BackgroundTasksPane";
 import {
@@ -7234,9 +7235,14 @@ export function ChatPane({
     !hasConfiguredProviderCatalog && !holabossProxyModelsAvailable;
   const runtimeDefaultModelAvailable =
     !requiresModelProviderSetup &&
-    !hasConfiguredProviderCatalog &&
-    (holabossProxyModelsAvailable ||
-      !isHolabossProxyModel(runtimeDefaultModel));
+    (hasConfiguredProviderCatalog
+      ? visibleConfiguredProviderModelGroups.some((providerGroup) =>
+          providerGroup.models.some(
+            (model) => model.token.trim() === runtimeDefaultModel,
+          ),
+        )
+      : holabossProxyModelsAvailable ||
+        !isHolabossProxyModel(runtimeDefaultModel));
   const availableChatModelOptionGroups: ChatModelOptionGroup[] =
     hasConfiguredProviderCatalog
       ? visibleConfiguredProviderModelGroups.map((providerGroup) => ({
@@ -7287,10 +7293,12 @@ export function ChatPane({
           }));
   const normalizedModelPreference = chatModelPreference.trim();
   const modelPreferenceAvailable = hasConfiguredProviderCatalog
-    ? normalizedModelPreference.length > 0 &&
-      availableChatModelOptions.some(
-        (option) => option.value === normalizedModelPreference,
-      )
+    ? normalizedModelPreference === CHAT_MODEL_USE_RUNTIME_DEFAULT
+      ? runtimeDefaultModelAvailable
+      : normalizedModelPreference.length > 0 &&
+        availableChatModelOptions.some(
+          (option) => option.value === normalizedModelPreference,
+        )
     : chatModelPreference === CHAT_MODEL_USE_RUNTIME_DEFAULT
       ? runtimeDefaultModelAvailable
       : availableChatModelOptions.some(
@@ -7306,7 +7314,11 @@ export function ChatPane({
         ? CHAT_MODEL_USE_RUNTIME_DEFAULT
         : availableChatModelOptions[0]?.value || CHAT_MODEL_USE_RUNTIME_DEFAULT;
   const resolvedChatModel = hasConfiguredProviderCatalog
-    ? effectiveChatModelPreference
+    ? effectiveChatModelPreference === CHAT_MODEL_USE_RUNTIME_DEFAULT
+      ? runtimeDefaultModelAvailable
+        ? runtimeDefaultModel
+        : availableChatModelOptions[0]?.value || ""
+      : effectiveChatModelPreference
     : effectiveChatModelPreference === CHAT_MODEL_USE_RUNTIME_DEFAULT
       ? runtimeDefaultModelAvailable
         ? runtimeDefaultModel
@@ -7665,7 +7677,7 @@ export function ChatPane({
 
         {isOnboardingVariant && selectedWorkspace ? (
           <div className="shrink-0 px-4 pt-4 sm:px-5">
-            <div className="bg-muted overflow-hidden rounded-2xl border border-primary/20 shadow-subtle-xs">
+            <div className="bg-muted overflow-hidden rounded-2xl border border-primary/20 shadow-2xs">
               <div className="bg-[radial-gradient(circle_at_top_left,rgba(247,90,84,0.12),transparent_42%),radial-gradient(circle_at_92%_12%,rgba(247,170,126,0.12),transparent_36%)] px-4 py-4 sm:px-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -8045,7 +8057,7 @@ export function ChatPane({
             {hasMessages && isAwayFromChatBottom ? (
               <button
                 aria-label="Jump to latest message"
-                className="absolute bottom-3 left-1/2 z-30 grid size-8 -translate-x-1/2 place-items-center rounded-full border border-border bg-background text-foreground shadow-subtle-sm transition-colors hover:bg-muted animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
+                className="absolute bottom-3 left-1/2 z-30 grid size-8 -translate-x-1/2 place-items-center rounded-full border border-border bg-background text-foreground shadow-xs transition-colors hover:bg-muted animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
                 onClick={() => {
                   const container = messagesRef.current;
                   if (!container) return;
@@ -8253,7 +8265,11 @@ function ChatHeader({
             >
               <Inbox className="size-4" />
               {inboxUnreadCount > 0 ? (
-                <span className="absolute right-1.5 top-1.5 size-2 rounded-full border border-card bg-destructive" />
+                <StatusDot
+                  variant="destructive"
+                  size="md"
+                  className="absolute right-1.5 top-1.5 border border-card"
+                />
               ) : null}
             </TooltipTrigger>
             <TooltipContent side="bottom" className="py-1">
@@ -8482,7 +8498,7 @@ function UserTurnComponent({
                 onClick={() => {
                   void handleCopy();
                 }}
-                className="size-6 rounded-lg text-muted-foreground hover:bg-foreground/6 hover:text-foreground"
+                className="size-6 rounded-lg text-muted-foreground hover:bg-fg-6 hover:text-foreground"
               >
                 {copyFeedbackVisible ? (
                   <Check className="size-3.5" strokeWidth={1.9} />
@@ -8626,7 +8642,7 @@ function QueuedSessionInputRail({
                               onClick={() => {
                                 void saveEditingItem(item);
                               }}
-                              className="size-7 rounded-full text-muted-foreground hover:bg-foreground/6 hover:text-foreground"
+                              className="size-7 rounded-full text-muted-foreground hover:bg-fg-6 hover:text-foreground"
                               aria-label="Save queued message edit"
                             >
                               {isSaving ? (
@@ -8641,7 +8657,7 @@ function QueuedSessionInputRail({
                               size="icon-xs"
                               disabled={isSaving}
                               onClick={cancelEditing}
-                              className="size-7 rounded-full text-muted-foreground hover:bg-foreground/6 hover:text-foreground"
+                              className="size-7 rounded-full text-muted-foreground hover:bg-fg-6 hover:text-foreground"
                               aria-label="Cancel queued message edit"
                             >
                               <X className="size-3.5" />
@@ -8669,7 +8685,7 @@ function QueuedSessionInputRail({
                                 setEditingDraft(previewText);
                                 setEditingError("");
                               }}
-                              className="size-7 rounded-full text-muted-foreground hover:bg-foreground/6 hover:text-foreground"
+                              className="size-7 rounded-full text-muted-foreground hover:bg-fg-6 hover:text-foreground"
                               aria-label="Edit queued message"
                             >
                               <PencilLine className="size-3.5" />
@@ -8759,7 +8775,7 @@ function AssistantTurnActionsMenu({
         render={
           <Button
             aria-label="Turn actions"
-            className="size-6 rounded-lg text-muted-foreground hover:bg-foreground/6 hover:text-foreground"
+            className="size-6 rounded-lg text-muted-foreground hover:bg-fg-6 hover:text-foreground"
             size="icon-xs"
             type="button"
             variant="ghost"
@@ -9711,7 +9727,7 @@ export function ArtifactBrowserModal({
       : "absolute inset-0 z-30 flex items-center justify-center bg-black/40 px-6 py-8 backdrop-blur-[2px]";
   const panelClassName =
     layout === "card"
-      ? "flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-border bg-background shadow-xl"
+      ? "flex h-full w-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
       : "flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl";
 
   return (
@@ -10699,7 +10715,7 @@ function ThinkingValueSelect({
         align="start"
         side="top"
         sideOffset={8}
-        className="max-w-40 gap-0 rounded-lg p-1 shadow-subtle-sm ring-0"
+        className="max-w-40 gap-0 rounded-lg p-1 shadow-xs ring-0"
       >
         <div className="px-2.5 pb-1 pt-1 text-[10px] font-medium uppercase text-muted-foreground">
           Reasoning effort
@@ -11425,7 +11441,7 @@ function Composer({
                 align="end"
                 side="top"
                 sideOffset={8}
-                className={`gap-0 rounded-xl border border-border bg-popover p-0 shadow-subtle-sm ring-0 ${
+                className={`gap-0 rounded-xl border border-border bg-popover p-0 shadow-xs ring-0 ${
                   composerActionsView === "skills" ? "w-[320px]" : "w-[224px]"
                 }`}
               >

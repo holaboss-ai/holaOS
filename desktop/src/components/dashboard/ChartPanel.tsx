@@ -32,7 +32,7 @@ import type {
 } from "@/lib/dashboardSchema";
 
 import type { DataViewState } from "./DataViewPanel";
-import { EmptyState } from "./EmptyState";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorMessage } from "./ErrorMessage";
 import { formatValue } from "./format";
 
@@ -84,7 +84,7 @@ function useSeriesPalette(): string[] {
 export function ChartPanel({ panel, state }: ChartPanelProps) {
   return (
     <section className="overflow-hidden rounded-xl bg-card shadow-md smooth-corners">
-      <header className="border-b border-border/70 bg-fg-2 px-4 py-3">
+      <header className="border-b border-border bg-fg-2 px-4 py-3">
         <h3 className="truncate text-sm font-semibold tracking-tight text-foreground">
           {panel.title}
         </h3>
@@ -102,7 +102,7 @@ export function ChartPanel({ panel, state }: ChartPanelProps) {
         ) : state.rows.length === 0 ? (
           <EmptyState
             icon={CHART_ICON[panel.chart.kind] ?? BarChart3}
-            message={panel.empty_state ?? "Nothing here yet."}
+            title={panel.empty_state ?? "Nothing here yet."}
             minHeight={260}
           />
         ) : (

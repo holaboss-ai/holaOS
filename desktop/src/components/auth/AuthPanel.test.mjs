@@ -25,7 +25,7 @@ test("billing summary card exposes web-only billing actions", async () => {
   assert.match(source, /Billing managed on web/);
   assert.match(source, />\s*Manage\s*</);
   assert.match(source, /openExternalUrl/);
-  assert.match(source, /shadow-md/);
+  assert.doesNotMatch(source, /shadow-md/);
   assert.doesNotMatch(source, /Available hosted credits/);
   assert.doesNotMatch(source, /Recent usage/);
   assert.doesNotMatch(source, /text-\[[0-9]+px\]/);
@@ -62,8 +62,10 @@ test("runtime auth panel keeps model provider settings compact", async () => {
   assert.match(source, /Select a model to enable background tasks\./);
   assert.match(source, /Select a model to enable vector recall\./);
   assert.match(source, /Follow composer/);
+  assert.match(source, /Used for new sessions and whenever the composer stays on Auto\./);
   assert.match(source, /Use the current composer model whenever hidden subagent work starts or continues\./);
   assert.match(source, /Optional override for hidden subagent runs\. Leave it on Follow composer to use the current composer model\./);
+  assert.match(source, /function runtimeConfigProviderHasModelToken\(/);
   assert.match(source, /title="Model providers"/);
   assert.match(source, /No providers connected/);
   assert.match(
@@ -92,6 +94,7 @@ test("runtime auth panel keeps model provider settings compact", async () => {
   assert.match(source, /const recallEmbeddingsModelOptions = uniqueValues\(\[/);
   assert.match(source, /const imageGenerationModelOptions = uniqueValues\(\[/);
   assert.match(source, /const subagentModelToken = \(runtimeConfig\?\.subagentModel \?\? ""\)\.trim\(\);/);
+  assert.match(source, /const defaultChatModelOptions = buildDefaultChatModelOptions\(runtimeConfig\)\.filter\(/);
   assert.match(source, /const subagentModelOptions: SettingsMenuOption\[] = \[/);
   assert.match(source, /SUBAGENT_MODEL_FOLLOW_COMPOSER/);
   assert.match(source, /subagentModel:\s*token === SUBAGENT_MODEL_FOLLOW_COMPOSER \? "" : token/);
@@ -102,6 +105,10 @@ test("runtime auth panel keeps model provider settings compact", async () => {
   assert.match(source, /if \(backgroundTasksDraft\.providerId === "holaboss"\) \{\s*setBackgroundTasksDraft\(\{ providerId: "", model: "" \}\);\s*\}/);
   assert.match(source, /if \(recallEmbeddingsDraft\.providerId === "holaboss"\) \{\s*setRecallEmbeddingsDraft\(\{ providerId: "", model: "" \}\);\s*\}/);
   assert.match(source, /if \(imageGenerationDraft\.providerId === "holaboss"\) \{\s*setImageGenerationDraft\(\{ providerId: "", model: "" \}\);\s*\}/);
+  assert.match(source, /!runtimeConfigProviderHasModelToken\(\s*runtimeConfig,\s*"holaboss_model_proxy",\s*option\.value,\s*\)/);
+  assert.match(source, /const staleDefaultModel = runtimeConfigProviderHasModelToken\(\s*runtimeConfig,\s*"holaboss_model_proxy",\s*defaultChatModelToken,\s*\);/);
+  assert.match(source, /const staleSubagentModel = runtimeConfigProviderHasModelToken\(\s*runtimeConfig,\s*"holaboss_model_proxy",\s*subagentModelToken,\s*\);/);
+  assert.match(source, /setConfig\(\{\s*\.\.\.\(staleDefaultModel \? \{ defaultModel: "" \} : \{\}\),\s*\.\.\.\(staleSubagentModel \? \{ subagentModel: "" \} : \{\}\),\s*\}\)/);
   assert.match(source, /backgroundTaskModelOptions\.map\(\(modelId\) => \(/);
   assert.match(source, /recallEmbeddingsModelOptions\.map\(\(modelId\) => \(/);
   assert.match(source, /imageGenerationModelOptions\.map\(\(modelId\) => \(/);
@@ -159,7 +166,9 @@ test("runtime auth panel keeps model provider settings compact", async () => {
   );
   assert.match(
     runtimeProviderSettingsBlock,
-    /<div className="flex flex-col items-center justify-center gap-2 rounded-xl bg-card shadow-md px-6 py-8 text-center">/,
+    // Card chrome migrated from `shadow-md` to bordered (matches the
+    // full-screen settings reference's quieter look).
+    /<div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card px-6 py-8 text-center">/,
   );
 });
 
@@ -352,7 +361,10 @@ test("account view uses an inline profile header and theme-colored sign-in actio
   assert.match(source, /if \(view === "account"\) \{/);
   assert.match(
     source,
-    /if \(showsSetupLoadingState\) \{\s*return \(\s*<section className="theme-shell w-full max-w-none overflow-hidden rounded-\[24px\] border border-border text-sm text-foreground shadow-card">\s*<div className="px-4 py-5">\s*\{setupLoadingPanel\}\s*<\/div>/,
+    // Card chrome migrated: `rounded-[24px]` → `rounded-3xl` (token
+    // scale) and `shadow-card` dropped (settings adopt border-only
+    // chrome — see SettingsCard).
+    /if \(showsSetupLoadingState\) \{\s*return \(\s*<section className="theme-shell w-full max-w-none overflow-hidden rounded-3xl border border-border text-sm text-foreground">\s*<div className="px-4 py-5">\s*\{setupLoadingPanel\}\s*<\/div>/,
   );
   assert.match(source, /className="flex items-start justify-between gap-3"/);
   assert.match(source, /className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-primary bg-primary\/10 text-lg font-semibold text-primary"/);

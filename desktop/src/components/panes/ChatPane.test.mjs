@@ -119,6 +119,19 @@ test("chat pane falls back to provider setup instead of holaboss pending state w
   );
 });
 
+test("chat pane preserves the Auto model preference when configured providers are available", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  assert.match(
+    source,
+    /const modelPreferenceAvailable = hasConfiguredProviderCatalog[\s\S]*normalizedModelPreference === CHAT_MODEL_USE_RUNTIME_DEFAULT[\s\S]*runtimeDefaultModelAvailable/,
+  );
+  assert.match(
+    source,
+    /const resolvedChatModel = hasConfiguredProviderCatalog[\s\S]*effectiveChatModelPreference === CHAT_MODEL_USE_RUNTIME_DEFAULT[\s\S]*runtimeDefaultModelAvailable[\s\S]*runtimeDefaultModel/,
+  );
+});
+
 test("chat pane previews image attachments from both staged paths and local files", async () => {
   const source = await readFile(sourcePath, "utf8");
 
@@ -377,7 +390,7 @@ test("chat composer switches model and thinking selectors into icon-led compact 
   );
   assert.match(
     source,
-    /<PopoverContent[\s\S]*align="start"[\s\S]*side="top"[\s\S]*sideOffset=\{8\}[\s\S]*className="max-w-40 gap-0 rounded-lg p-1 shadow-subtle-sm ring-0"[\s\S]*Reasoning effort[\s\S]*thinkingValues\.map\(\(value\) => renderOption\(value\)\)/,
+    /<PopoverContent[\s\S]*align="start"[\s\S]*side="top"[\s\S]*sideOffset=\{8\}[\s\S]*className="max-w-40 gap-0 rounded-lg p-1 shadow-xs ring-0"[\s\S]*Reasoning effort[\s\S]*thinkingValues\.map\(\(value\) => renderOption\(value\)\)/,
   );
 });
 
@@ -748,7 +761,7 @@ test("chat pane does not suppress claude options for the holaboss proxy fallback
   assert.match(source, /normalized\.startsWith\("gemini-"\)/);
   assert.match(
     source,
-    /const runtimeDefaultModelAvailable =[\s\S]*\(holabossProxyModelsAvailable \|\|[\s\S]*!isHolabossProxyModel\(runtimeDefaultModel\)\);/,
+    /const runtimeDefaultModelAvailable =[\s\S]*hasConfiguredProviderCatalog[\s\S]*visibleConfiguredProviderModelGroups\.some\([\s\S]*model\.token\.trim\(\) === runtimeDefaultModel[\s\S]*\)[\s\S]*: holabossProxyModelsAvailable \|\|[\s\S]*!isHolabossProxyModel\(runtimeDefaultModel\)\);/,
   );
   assert.match(
     source,

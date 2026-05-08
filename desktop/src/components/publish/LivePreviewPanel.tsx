@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { AppIcon } from "@/components/marketplace/AppIcon";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
 import { SimpleMarkdown } from "@/components/marketplace/SimpleMarkdown";
 import { cn } from "@/lib/utils";
 import { resolveAppDisplay, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
@@ -97,7 +98,7 @@ function ListingMockup({ data }: { data: LivePreviewData }) {
     "Your description appears here. Keep it tight — installers skim.";
   return (
     <div className="w-full max-w-[440px]">
-      <div className="overflow-hidden rounded-2xl bg-background shadow-subtle-sm ring-1 ring-border/35">
+      <div className="overflow-hidden rounded-2xl bg-background shadow-xs ring-1 ring-border/35">
         {/* Cover hero */}
         {data.coverImage ? (
           <img
@@ -299,9 +300,9 @@ function BundleIllustration({
 
   return (
     <div className="w-full min-w-md">
-      <div className="overflow-hidden rounded-xl bg-background shadow-subtle-sm ring-1 ring-border/35">
+      <div className="overflow-hidden rounded-xl bg-background shadow-xs ring-1 ring-border/35">
         {/* Title strip */}
-        <div className="flex items-center justify-between border-b border-border/35 px-4 py-2.5">
+        <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
           <div className="flex items-center gap-2">
             <Package className="size-3.5 text-muted-foreground" />
             <p className="text-xs font-medium">Archive contents</p>
@@ -357,7 +358,7 @@ function BundleIllustration({
         {/* Files (top-level non-app entries). Hidden when the only files are
             inside apps/, otherwise shows up to 5 entries with a + N more chip. */}
         {visibleEntries.length > 0 && (
-          <div className="border-t border-border/35 px-2 py-1.5">
+          <div className="border-t border-border px-2 py-1.5">
             <p className="px-2 pt-1 pb-1.5 text-xs font-medium text-muted-foreground">
               Files
             </p>
@@ -394,7 +395,7 @@ function BundleIllustration({
         )}
 
         {/* Privacy line + file count footer */}
-        <div className="flex items-center justify-between border-t border-border/35 px-4 py-2.5">
+        <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
           <div className="flex items-center gap-1.5">
             <ShieldCheck className="size-3.5 text-success" />
             <p className="text-xs text-muted-foreground">
@@ -477,9 +478,9 @@ function DocsMockup({ data }: { data: LivePreviewData }) {
     // first-run content. Was `w-full max-w-[560px]` which collapsed to the
     // empty-state's natural width when both tabs had no content.
     <div className="w-[560px] max-w-full">
-      <div className="overflow-hidden rounded-2xl bg-background shadow-subtle-sm ring-1 ring-border/35">
+      <div className="overflow-hidden rounded-2xl bg-background shadow-xs ring-1 ring-border/35">
         {/* Tab strip */}
-        <div className="flex items-center border-b border-border/35 px-3">
+        <div className="flex items-center border-b border-border px-3">
           <DocsTab active={tab === "readme"} hasContent={hasReadme} onClick={() => setTab("readme")}>
             <FileText className="size-3.5" />
             README
@@ -502,9 +503,10 @@ function DocsMockup({ data }: { data: LivePreviewData }) {
                 <SimpleMarkdown>{cleanReadme}</SimpleMarkdown>
               </div>
             ) : (
-              <DocsEmptyState
-                hint="Renders on the marketplace listing page."
+              <EmptyState
+                size="md"
                 title="No README yet"
+                description="Renders on the marketplace listing page."
               />
             )}
           </div>
@@ -524,20 +526,21 @@ function DocsMockup({ data }: { data: LivePreviewData }) {
                   </div>
                 </div>
                 {/* Collapsed full-script preview, monospace-but-readable */}
-                <details className="group rounded-lg border border-border/40">
+                <details className="group rounded-lg border border-border">
                   <summary className="flex cursor-pointer items-center justify-between px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-fg-2 [&::-webkit-details-marker]:hidden">
                     <span>View full script</span>
                     <span className="font-mono group-open:rotate-90 transition-transform">›</span>
                   </summary>
-                  <div className="border-t border-border/40 px-3 py-2.5 text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
+                  <div className="border-t border-border px-3 py-2.5 text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
                     {cleanOnboarding}
                   </div>
                 </details>
               </div>
             ) : (
-              <DocsEmptyState
-                hint="Runs in chat the first time someone opens this template."
+              <EmptyState
+                size="md"
                 title="No first-run script yet"
+                description="Runs in chat the first time someone opens this template."
               />
             )}
           </div>
@@ -584,11 +587,3 @@ function DocsTab({
   );
 }
 
-function DocsEmptyState({ title, hint }: { title: string; hint: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center px-2 py-8 text-center">
-      <p className="text-sm font-medium">{title}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
-    </div>
-  );
-}

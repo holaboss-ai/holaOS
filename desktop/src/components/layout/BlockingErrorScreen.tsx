@@ -89,7 +89,7 @@ export function BlockingErrorScreen({
   return (
     <section className="flex h-full min-h-0 min-w-0 items-center justify-center overflow-y-auto bg-fg-2 px-6 py-12">
       <div className="w-full max-w-md">
-        <div className="rounded-2xl bg-background p-8 shadow-subtle-sm ring-1 ring-border/40 sm:p-10">
+        <div className="rounded-2xl bg-background p-8 shadow-xs ring-1 ring-border/40 sm:p-10">
           <div
             className={cn(
               "flex size-9 items-center justify-center rounded-full ring-1",

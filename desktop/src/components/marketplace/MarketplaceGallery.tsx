@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { LayoutGrid, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { KitCard } from "./KitCard";
 import { FALLBACK_TEMPLATES } from "./fallbackTemplates";
 
@@ -78,20 +79,15 @@ export function MarketplaceGallery({
 
       <div className="mt-4 min-h-0 flex-1 overflow-auto">
         {showLoading ? (
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="divide-y divide-border border-y border-border">
             {Array.from({ length: 4 }).map((_, i) => (
-              <div
-                key={i}
-                className="animate-pulse rounded-lg border border-border p-4"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="size-7 rounded-md bg-muted" />
-                  <div className="min-w-0 flex-1">
-                    <div className="h-3.5 w-20 rounded bg-muted" />
-                    <div className="mt-2 h-3 w-full rounded bg-muted" />
-                    <div className="mt-1 h-3 w-2/3 rounded bg-muted" />
-                  </div>
+              <div key={i} className="flex animate-pulse items-center gap-3 px-3 py-2.5">
+                <div className="size-9 shrink-0 rounded-lg bg-muted" />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <div className="h-3.5 w-32 rounded bg-muted" />
+                  <div className="h-3 w-[80%] rounded bg-muted" />
                 </div>
+                <div className="h-3 w-16 shrink-0 rounded bg-muted" />
               </div>
             ))}
           </div>
@@ -111,13 +107,18 @@ export function MarketplaceGallery({
             ) : null}
           </div>
         ) : visibleTemplates.length === 0 ? (
-          <div className="mt-8 text-center text-xs text-muted-foreground">
-            {query.trim()
-              ? "No templates match your search."
-              : "No templates available yet."}
-          </div>
+          <EmptyState
+            icon={query.trim() ? Search : LayoutGrid}
+            size="md"
+            title={
+              query.trim()
+                ? "No templates match your search."
+                : "No templates available yet."
+            }
+            className="mt-8"
+          />
         ) : (
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="divide-y divide-border border-y border-border">
             {visibleTemplates.map((t: TemplateMetadataPayload) => (
               <KitCard key={t.name} template={t} onClick={onSelectKit} />
             ))}

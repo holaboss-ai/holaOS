@@ -760,7 +760,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
           <h2 className="text-xs font-medium uppercase text-muted-foreground">
             {category.charAt(0).toUpperCase() + category.slice(1)}
           </h2>
-          <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="mt-3 divide-y divide-border border-y border-border">
             {items.map((integration) => (
               <IntegrationRow
                 key={integration.slug}
@@ -865,7 +865,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
             <SelectContent
               align="end"
               alignItemWithTrigger={false}
-              className="min-w-[140px] gap-0 rounded-lg p-1 shadow-subtle-sm ring-0"
+              className="min-w-[140px] gap-0 rounded-lg p-1 shadow-xs ring-0"
             >
               <SelectItem
                 value="all"
@@ -933,7 +933,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
             key={category}
             title={category.charAt(0).toUpperCase() + category.slice(1)}
           >
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="divide-y divide-border">
               {items.map((integration) => (
                 <IntegrationEmbeddedCard
                   key={integration.slug}
@@ -1013,8 +1013,8 @@ function IntegrationRow({
   const muted = actionMode === "disabled";
   return (
     <div
-      className={`flex items-center gap-3 rounded-xl border border-border px-3 py-3 transition-colors ${
-        muted ? "opacity-50" : "hover:bg-muted"
+      className={`group flex items-center gap-3 px-3 py-2.5 transition-colors ${
+        muted ? "opacity-50" : "hover:bg-fg-2"
       }`}
     >
       <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background">
@@ -1111,7 +1111,7 @@ function IntegrationEmbeddedCard({
   const muted = actionMode === "disabled";
   return (
     <div
-      className={`flex min-w-0 gap-3 rounded-xl bg-card p-3 ring-1 ring-border ${muted ? "opacity-60" : ""}`}
+      className={`group flex min-w-0 gap-3 px-3 py-2.5 transition-colors ${muted ? "opacity-60" : "hover:bg-fg-2"}`}
     >
       <div
         className={

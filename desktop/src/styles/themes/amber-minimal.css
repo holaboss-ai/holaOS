@@ -1,28 +1,29 @@
-/* Default Theme - Warm neutral gray scale with holaboss brand orange.
-   Grays carry a faint yellow-brown undertone (hue 75-85, chroma 0.003-0.005)
-   — imperceptible token-by-token, but collectively gives surfaces a
-   paper-like warmth rather than clinical cool gray. */
+/* Default theme — quiet, near-neutral grays with a subtle cool undertone
+   and the holaboss orange reserved for brand/CTA. Tuned so hairline
+   borders read as page rhythm, not as cell walls; surfaces (card, muted,
+   accent) sit close enough to background that elevation comes from
+   structure rather than from the surface tint itself. */
 
 /* Light mode */
 [data-theme="amber-minimal-light"] {
   --background: oklch(1 0 0);
-  --foreground: oklch(0.14 0.005 75);
-  --card: oklch(0.98 0.003 85);
-  --card-foreground: oklch(0.14 0.005 75);
+  --foreground: oklch(0.18 0.003 250);
+  --card: oklch(0.985 0.002 250);
+  --card-foreground: oklch(0.18 0.003 250);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.14 0.005 75);
+  --popover-foreground: oklch(0.18 0.003 250);
   --primary: oklch(0.624 0.229 32);
   --primary-foreground: oklch(0.98 0.01 32);
-  --secondary: oklch(0.97 0.003 85);
-  --secondary-foreground: oklch(0.21 0.005 75);
-  --muted: oklch(0.94 0.004 85);
-  --muted-foreground: oklch(0.55 0.005 75);
-  --accent: oklch(0.96 0.003 85);
-  --accent-foreground: oklch(0.21 0.005 75);
+  --secondary: oklch(0.97 0.002 250);
+  --secondary-foreground: oklch(0.21 0.003 250);
+  --muted: oklch(0.97 0.002 250);
+  --muted-foreground: oklch(0.5 0.005 250);
+  --accent: oklch(0.95 0.002 250);
+  --accent-foreground: oklch(0.18 0.003 250);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.88 0.004 85);
-  --input: oklch(0.88 0.004 85);
+  --border: oklch(0.92 0.003 250);
+  --input: oklch(0.92 0.003 250);
   --ring: oklch(0.624 0.229 32);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
@@ -30,13 +31,13 @@
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
   --radius: 0.675rem;
-  --sidebar: oklch(0.965 0.003 85);
-  --sidebar-foreground: oklch(0.14 0.005 75);
+  --sidebar: oklch(0.97 0.002 250);
+  --sidebar-foreground: oklch(0.18 0.003 250);
   --sidebar-primary: oklch(0.624 0.229 32);
   --sidebar-primary-foreground: oklch(0.98 0.01 32);
-  --sidebar-accent: oklch(0.93 0.003 85);
-  --sidebar-accent-foreground: oklch(0.21 0.005 75);
-  --sidebar-border: oklch(0.88 0.004 85);
+  --sidebar-accent: oklch(0.94 0.002 250);
+  --sidebar-accent-foreground: oklch(0.21 0.003 250);
+  --sidebar-border: oklch(0.92 0.003 250);
   --sidebar-ring: oklch(0.624 0.229 32);
   --font-sans: 'Inter Variable', sans-serif;
   --font-serif: Source Serif 4, serif;
@@ -61,46 +62,41 @@
 
 /* Dark mode */
 [data-theme="amber-minimal-dark"] {
-  --background: oklch(0.15 0.003 75);
-  --foreground: oklch(0.985 0.002 75);
-  --card: oklch(0.215 0.004 75);
-  --card-foreground: oklch(0.985 0.002 75);
-  --popover: oklch(0.215 0.004 75);
-  --popover-foreground: oklch(0.985 0.002 75);
+  --background: oklch(0.16 0.003 250);
+  --foreground: oklch(0.985 0.002 250);
+  --card: oklch(0.20 0.003 250);
+  --card-foreground: oklch(0.985 0.002 250);
+  --popover: oklch(0.20 0.003 250);
+  --popover-foreground: oklch(0.985 0.002 250);
   --primary: oklch(0.624 0.229 32);
   --primary-foreground: oklch(0.98 0.01 32);
-  --secondary: oklch(0.225 0.004 75);
-  --secondary-foreground: oklch(0.985 0.002 75);
-  /* Muted sits BELOW background (0.15) so surfaces using bg-muted —
-     tab list rails, code blocks, disabled fields — read as a subtle
-     recess rather than a raised pad. Required for the active tab's
-     bg-input/30 fill to lift cleanly from the rail; the previous
-     0.22 muted sat ABOVE 0.15 background so the rail itself was
-     already a "raised" pad with no headroom for active to lift
-     further. Stays close to bg (only ~0.02 darker) so muted surfaces
-     don't read as black holes. */
-  --muted: oklch(0.13 0.004 75);
-  --muted-foreground: oklch(0.70 0.004 75);
-  --accent: oklch(0.27 0.004 75);
-  --accent-foreground: oklch(0.985 0.002 75);
+  --secondary: oklch(0.22 0.003 250);
+  --secondary-foreground: oklch(0.985 0.002 250);
+  /* Muted sits BELOW background so surfaces using bg-muted — tab list
+     rails, code blocks, disabled fields — read as a subtle recess
+     rather than a raised pad. */
+  --muted: oklch(0.14 0.003 250);
+  --muted-foreground: oklch(0.65 0.005 250);
+  --accent: oklch(0.24 0.003 250);
+  --accent-foreground: oklch(0.985 0.002 250);
   --destructive: oklch(0.653 0.232 25.964);
   --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.27 0.004 75);
-  --input: oklch(0.3 0.004 75);
+  --border: oklch(0.22 0.003 250);
+  --input: oklch(0.25 0.003 250);
   --ring: oklch(0.624 0.229 32);
-  --chart-1: oklch(0.44 0.004 75);
-  --chart-2: oklch(0.56 0.004 75);
-  --chart-3: oklch(0.71 0.004 75);
-  --chart-4: oklch(0.87 0.004 75);
-  --chart-5: oklch(0.92 0.004 75);
+  --chart-1: oklch(0.44 0.004 250);
+  --chart-2: oklch(0.56 0.004 250);
+  --chart-3: oklch(0.71 0.004 250);
+  --chart-4: oklch(0.87 0.004 250);
+  --chart-5: oklch(0.92 0.004 250);
   --radius: 0.675rem;
-  --sidebar: oklch(0.21 0.004 75);
-  --sidebar-foreground: oklch(0.985 0.002 75);
+  --sidebar: oklch(0.18 0.003 250);
+  --sidebar-foreground: oklch(0.985 0.002 250);
   --sidebar-primary: oklch(0.624 0.229 32);
-  --sidebar-primary-foreground: oklch(0.985 0.002 75);
-  --sidebar-accent: oklch(0.27 0.004 75);
-  --sidebar-accent-foreground: oklch(0.985 0.002 75);
-  --sidebar-border: oklch(0.27 0.004 75);
+  --sidebar-primary-foreground: oklch(0.985 0.002 250);
+  --sidebar-accent: oklch(0.24 0.003 250);
+  --sidebar-accent-foreground: oklch(0.985 0.002 250);
+  --sidebar-border: oklch(0.22 0.003 250);
   --sidebar-ring: oklch(0.624 0.229 32);
   --font-sans: 'Inter Variable', sans-serif;
   --font-serif: Source Serif 4, serif;

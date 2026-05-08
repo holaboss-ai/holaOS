@@ -350,7 +350,7 @@ export function FirstWorkspacePane({
         // Gallery + detail keep their own width; the canvas just provides
         // padding and scroll.
         <div className="mx-auto w-full max-w-6xl flex-1 px-5 pb-8">
-          <div className="rounded-2xl bg-background px-7 py-7 shadow-subtle-sm sm:px-9 sm:py-8">
+          <div className="rounded-2xl bg-background px-7 py-7 shadow-xs sm:px-9 sm:py-8">
             {step === "gallery" ? (
               <MarketplaceGallery
                 authenticated={canUseMarketplaceTemplates}

@@ -265,6 +265,128 @@ test("continueSubagent inherits the composer-selected thinking value for the eff
   }
 });
 
+test("continueSubagent falls back to the controller session's latest model instead of the previous child model", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-continue-controller-model-"));
+  writeRuntimeConfig(root, {
+    runtime: {
+      default_model: "openai/gpt-5.4",
+    },
+  });
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const mainSessionId = "main-1";
+  const childSessionId = "subagent-child-1";
+  const subagentId = "subagent-run-1";
+  const completedAt = utcNowIso();
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.ensureSession({
+      workspaceId,
+      sessionId: mainSessionId,
+      kind: "workspace_session",
+      createdBy: "workspace_user",
+    });
+    store.ensureSession({
+      workspaceId,
+      sessionId: childSessionId,
+      kind: "subagent",
+      parentSessionId: mainSessionId,
+      createdBy: "workspace_agent",
+      archivedAt: completedAt,
+    });
+    store.enqueueInput({
+      workspaceId,
+      sessionId: mainSessionId,
+      payload: {
+        text: "Use model A first.",
+        model: "openai/gpt-5.4",
+        thinking_value: "low",
+      },
+    });
+    const controllerInput = store.enqueueInput({
+      workspaceId,
+      sessionId: mainSessionId,
+      payload: {
+        text: "Switch the controller session to model B.",
+        model: "openai/gpt-5.5",
+        thinking_value: "medium",
+      },
+    });
+    store.ensureRuntimeState({
+      workspaceId,
+      sessionId: mainSessionId,
+      status: "QUEUED",
+      currentInputId: controllerInput.inputId,
+    });
+    const firstInput = store.enqueueInput({
+      workspaceId,
+      sessionId: childSessionId,
+      payload: {
+        text: "Initial delegated task.",
+        model: "openai/gpt-5.4",
+        thinking_value: "low",
+      },
+    });
+    store.updateInput({ workspaceId, inputId: firstInput.inputId, fields: { status: "DONE" } });
+    store.upsertTurnResult({
+      workspaceId,
+      sessionId: childSessionId,
+      inputId: firstInput.inputId,
+      startedAt: completedAt,
+      completedAt,
+      status: "completed",
+      stopReason: "success",
+      assistantText: "Initial result.",
+    });
+    store.createSubagentRun({
+      subagentId,
+      workspaceId,
+      parentSessionId: mainSessionId,
+      parentInputId: "parent-input-1",
+      originMainSessionId: mainSessionId,
+      ownerMainSessionId: mainSessionId,
+      childSessionId,
+      initialChildInputId: firstInput.inputId,
+      currentChildInputId: null,
+      latestChildInputId: firstInput.inputId,
+      title: "Initial delegated task",
+      goal: "Finish the first delegated task.",
+      sourceType: "delegate_task",
+      effectiveModel: "openai/gpt-5.4",
+      status: "completed",
+      summary: "Initial result.",
+      resultPayload: { assistant_text: "Initial result." },
+      completedAt,
+    });
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    const result = service.continueSubagent({
+      workspaceId,
+      sessionId: mainSessionId,
+      subagentId,
+      instruction: "Continue the same subagent with the controller session's current model.",
+    }) as Record<string, unknown>;
+
+    const nextInput = store.getInput({
+      workspaceId,
+      inputId: String(result.latest_child_input_id),
+    });
+    assert.equal(nextInput?.payload.model, "openai/gpt-5.5");
+    assert.equal(nextInput?.payload.thinking_value, "medium");
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("delegateTask only opts into the user browser surface when the parent input literally says use my browser", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-delegate-browser-"));
   const workspaceRoot = path.join(root, "workspace");
@@ -793,6 +915,133 @@ test("resumeSubagent preserves the prior child thinking value", async () => {
     }) as Record<string, unknown>;
 
     const resumedInput = store.getInput({ workspaceId, inputId: String(result.latest_child_input_id) });
+    assert.equal(resumedInput?.payload.model, "openai/gpt-5.5");
+    assert.equal(resumedInput?.payload.thinking_value, "medium");
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("resumeSubagent falls back to the controller session's latest model instead of the blocked child model", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-resume-controller-model-"));
+  writeRuntimeConfig(root, {
+    runtime: {
+      default_model: "openai/gpt-5.4",
+    },
+  });
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const mainSessionId = "main-1";
+  const childSessionId = "subagent-child-1";
+  const subagentId = "subagent-run-1";
+  const blockedAt = utcNowIso();
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.ensureSession({
+      workspaceId,
+      sessionId: mainSessionId,
+      kind: "workspace_session",
+      createdBy: "workspace_user",
+    });
+    store.ensureSession({
+      workspaceId,
+      sessionId: childSessionId,
+      kind: "subagent",
+      parentSessionId: mainSessionId,
+      createdBy: "workspace_agent",
+    });
+    store.enqueueInput({
+      workspaceId,
+      sessionId: mainSessionId,
+      payload: {
+        text: "Use model A first.",
+        model: "openai/gpt-5.4",
+        thinking_value: "low",
+      },
+    });
+    const controllerInput = store.enqueueInput({
+      workspaceId,
+      sessionId: mainSessionId,
+      payload: {
+        text: "Switch the controller session to model B before resume.",
+        model: "openai/gpt-5.5",
+        thinking_value: "medium",
+      },
+    });
+    store.ensureRuntimeState({
+      workspaceId,
+      sessionId: mainSessionId,
+      status: "QUEUED",
+      currentInputId: controllerInput.inputId,
+    });
+    const blockedInput = store.enqueueInput({
+      workspaceId,
+      sessionId: childSessionId,
+      payload: {
+        text: "Blocked delegated task.",
+        model: "openai/gpt-5.4",
+        thinking_value: "low",
+        context: {
+          source: "subagent",
+          use_user_browser_surface: true,
+        },
+      },
+    });
+    store.updateInput({ workspaceId, inputId: blockedInput.inputId, fields: { status: "DONE" } });
+    store.upsertTurnResult({
+      workspaceId,
+      sessionId: childSessionId,
+      inputId: blockedInput.inputId,
+      startedAt: blockedAt,
+      completedAt: blockedAt,
+      status: "completed",
+      stopReason: "waiting_on_user",
+      assistantText: "Please log in to continue.",
+    });
+    store.createSubagentRun({
+      subagentId,
+      workspaceId,
+      parentSessionId: mainSessionId,
+      parentInputId: "parent-input-1",
+      originMainSessionId: mainSessionId,
+      ownerMainSessionId: mainSessionId,
+      childSessionId,
+      initialChildInputId: blockedInput.inputId,
+      currentChildInputId: blockedInput.inputId,
+      latestChildInputId: blockedInput.inputId,
+      title: "Blocked delegated task",
+      goal: "Finish the blocked task.",
+      sourceType: "delegate_task",
+      effectiveModel: "openai/gpt-5.4",
+      status: "waiting_on_user",
+      summary: "Blocked pending user input.",
+      blockingPayload: {
+        status: "waiting_on_user",
+        blocking_question: "Please log in, then tell me to continue.",
+      },
+    });
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    const result = service.resumeSubagent({
+      workspaceId,
+      sessionId: mainSessionId,
+      subagentId,
+      answer: "Continue now.",
+    }) as Record<string, unknown>;
+
+    const resumedInput = store.getInput({
+      workspaceId,
+      inputId: String(result.latest_child_input_id),
+    });
     assert.equal(resumedInput?.payload.model, "openai/gpt-5.5");
     assert.equal(resumedInput?.payload.thinking_value, "medium");
   } finally {

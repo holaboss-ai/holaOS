@@ -23,7 +23,7 @@ import {
   type OperationsDrawerTab,
   OperationsInboxPane,
 } from "@/components/layout/OperationsDrawer";
-import { SettingsDialog } from "@/components/layout/SettingsDialog";
+import { SettingsScreenRoot } from "@/components/layout/SettingsScreenRoot";
 import { TopTabsBar } from "@/components/layout/TopTabsBar";
 import { WorkspaceControlCenter } from "@/components/layout/WorkspaceControlCenter";
 import { WorkspaceAppsDialog } from "@/components/layout/WorkspaceAppsDialog";
@@ -1198,7 +1198,11 @@ function EmptyWorkspacePane() {
   );
 }
 
-function WorkspaceBootstrapPane() {
+function WorkspaceBootstrapPane({
+  subtitle = "Preparing your desktop",
+}: {
+  subtitle?: string;
+}) {
   // Pin to the viewport so the bootstrap surface fills edge-to-edge
   // independent of the AppShell grid's outer padding/gutters. Otherwise
   // the body (which is translucent on macOS for vibrancy) would show as
@@ -1220,7 +1224,7 @@ function WorkspaceBootstrapPane() {
         <div className="relative flex h-16 w-16 items-center justify-center">
           <div
             aria-hidden="true"
-            className="absolute inset-0 rounded-[22px] blur-2xl"
+            className="absolute inset-0 rounded-2xl blur-2xl"
             style={{
               background:
                 "radial-gradient(circle, color-mix(in srgb, var(--primary) 55%, transparent), transparent 70%)",
@@ -1243,7 +1247,7 @@ function WorkspaceBootstrapPane() {
           holaOS
         </h1>
         <p className="mt-1.5 text-[12.5px] font-medium text-muted-foreground">
-          Preparing your desktop
+          {subtitle}
         </p>
         <div
           className="mt-5 flex items-center gap-1.5"
@@ -1298,6 +1302,16 @@ function runtimeStartupBlockedMessage(
   return "";
 }
 
+function workspaceBootstrapSubtitle(
+  runtimeStatus: RuntimeStatusPayload | null,
+): string {
+  const startupMessage =
+    runtimeStatus?.status === "starting"
+      ? runtimeStatus.startupMessage?.trim() || ""
+      : "";
+  return startupMessage || "Preparing your desktop";
+}
+
 function FocusPlaceholder({
   eyebrow,
   title,
@@ -1308,7 +1322,7 @@ function FocusPlaceholder({
   description: string;
 }) {
   return (
-    <section className="theme-shell soft-vignette neon-border relative flex h-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-xl shadow-subtle-sm">
+    <section className="relative flex h-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-card">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(87,255,173,0.08),transparent_45%)]" />
       <div className="relative max-w-[520px] px-8 text-center">
         <div className="text-[10px] uppercase text-primary">{eyebrow}</div>
@@ -1416,6 +1430,14 @@ function AppShellContent() {
   const [devAppUpdatePreviewMode, setDevAppUpdatePreviewMode] =
     useState<DevAppUpdatePreviewMode>(loadDevAppUpdatePreviewMode);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  // Decoupled from `settingsDialogOpen` so the panel stays mounted long
+  // enough for the exit animation to finish before unmount.
+  const [settingsDialogRendered, setSettingsDialogRendered] = useState(false);
+  useEffect(() => {
+    if (settingsDialogOpen) {
+      setSettingsDialogRendered(true);
+    }
+  }, [settingsDialogOpen]);
   const [settingsDialogSection, setSettingsDialogSection] =
     useState<UiSettingsPaneSection>("settings");
   const [publishOpen, setPublishOpen] = useState(false);
@@ -1428,7 +1450,7 @@ function AppShellContent() {
     setCreateWorkspacePanelAnchorWorkspaceId,
   ] = useState("");
   const [activeShellView, setActiveShellView] =
-    useState<ShellView>("control_center");
+    useState<ShellView>("space");
   const [agentView, setAgentView] = useState<AgentView>({ type: "chat" });
   const [chatFocusRequestKey, setChatFocusRequestKey] = useState(1);
   const [chatSessionJumpRequest, setChatSessionJumpRequest] = useState<{
@@ -1442,7 +1464,6 @@ function AppShellContent() {
     chatBrowserJumpRequestKeysBySessionId,
     setChatBrowserJumpRequestKeysBySessionId,
   ] = useState<Record<string, number>>({});
-  const [browserDisplayFlashNonce, setBrowserDisplayFlashNonce] = useState(0);
   const [
     chatComposerDraftTextByWorkspace,
     setChatComposerDraftTextByWorkspace,
@@ -1575,7 +1596,7 @@ function AppShellContent() {
   const knownTaskProposalIdsByWorkspaceRef = useRef<Record<string, string[]>>(
     {},
   );
-  const singleWorkspaceStartupEntryHandledRef = useRef(false);
+  const startupWorkspaceSelectionHandledRef = useRef(false);
   const lastRestorableSpaceFileDisplayViewByWorkspaceRef = useRef<
     Record<string, RestorableSpaceFileDisplayView>
   >({});
@@ -2604,7 +2625,6 @@ function AppShellContent() {
         .setActiveWorkspace(selectedWorkspaceId, "agent", normalizedSessionId)
         .catch(() => undefined);
       consumeChatBrowserJumpRequest(normalizedSessionId, requestKey);
-      setBrowserDisplayFlashNonce((current) => current + 1);
     },
     [consumeChatBrowserJumpRequest, revealBrowserPane, selectedWorkspaceId],
   );
@@ -3641,23 +3661,33 @@ function AppShellContent() {
   );
 
   useEffect(() => {
-    if (singleWorkspaceStartupEntryHandledRef.current) {
+    if (startupWorkspaceSelectionHandledRef.current) {
       return;
     }
     if (!hasHydratedWorkspaceList) {
       return;
     }
-
-    singleWorkspaceStartupEntryHandledRef.current = true;
-    if (activeShellView !== "control_center" || workspaces.length !== 1) {
+    if (workspaces.length === 0) {
       return;
     }
 
-    handleEnterWorkspace(workspaces[0]?.id ?? "");
+    startupWorkspaceSelectionHandledRef.current = true;
+
+    const trimmedSelected = selectedWorkspaceId?.trim() || "";
+    const selectionIsValid =
+      trimmedSelected !== "" &&
+      workspaces.some((workspace) => workspace.id === trimmedSelected);
+
+    if (!selectionIsValid) {
+      const fallbackWorkspaceId = workspaces[0]?.id ?? "";
+      if (fallbackWorkspaceId) {
+        setSelectedWorkspaceId(fallbackWorkspaceId);
+      }
+    }
   }, [
-    activeShellView,
-    handleEnterWorkspace,
     hasHydratedWorkspaceList,
+    selectedWorkspaceId,
+    setSelectedWorkspaceId,
     workspaces,
   ]);
 
@@ -4341,7 +4371,10 @@ function AppShellContent() {
   );
   const shouldSuspendBrowserNativeView =
     workspaceSwitcherOpen ||
-    settingsDialogOpen ||
+    // `Rendered` (not `Open`) — keeps the webview detached until the
+    // exit animation finishes; otherwise the webview re-attaches behind
+    // the still-animating panel and the user sees a layout shudder.
+    settingsDialogRendered ||
     taskProposalDetailsDialogOpen ||
     chatImagePreviewOpen ||
     workspaceAppsDialogOpen ||
@@ -4687,7 +4720,6 @@ function AppShellContent() {
           browserSpace={spaceBrowserSpace}
           suspendNativeView={shouldSuspendBrowserNativeView}
           layoutSyncKey={spaceDisplayLayoutSyncKey}
-          jumpPulseKey={browserDisplayFlashNonce}
           embedded
         />
       );
@@ -4742,7 +4774,6 @@ function AppShellContent() {
   }, [
     activeApp,
     activeAppId,
-    browserDisplayFlashNonce,
     handleMissingInternalResource,
     handleOpenLinkInNewAppBrowserTab,
     hasSelectedWorkspace,
@@ -5104,7 +5135,7 @@ function AppShellContent() {
         data-container="shell"
         className="fixed inset-0 h-screen overflow-hidden text-foreground"
       >
-      <div className="theme-grid pointer-events-none absolute inset-0 bg-noise-grid bg-[size:22px_22px]" />
+      <div className="pointer-events-none absolute inset-0 bg-noise-grid bg-[size:22px_22px] opacity-[0.04]" />
       <div className="theme-orb-primary pointer-events-none absolute -left-32 -top-32 h-80 w-80 rounded-full blur-3xl" />
       <div className="theme-orb-secondary pointer-events-none absolute -bottom-40 right-12 h-96 w-96 rounded-full blur-3xl" />
 
@@ -5164,7 +5195,9 @@ function AppShellContent() {
           bootstrapErrorMessage ? (
             <WorkspaceStartupErrorPane message={bootstrapErrorMessage} />
           ) : (
-            <WorkspaceBootstrapPane />
+            <WorkspaceBootstrapPane
+              subtitle={workspaceBootstrapSubtitle(runtimeStatus)}
+            />
           )
         ) : hydratedRuntimeErrorMessage ? (
           <WorkspaceStartupErrorPane message={hydratedRuntimeErrorMessage} />
@@ -5413,30 +5446,49 @@ function AppShellContent() {
         onClose={() => setWorkspaceAppsDialogOpen(false)}
       />
 
-      <SettingsDialog
-        open={settingsDialogOpen}
-        activeSection={settingsDialogSection}
-        appVersion={effectiveAppUpdateStatus?.currentVersion || ""}
-        onSectionChange={(section) => {
-          setSettingsDialogSection(section);
-          if (section !== "submissions") {
-            setSubmissionsFocusId(null);
-          }
-        }}
-        onClose={() => {
-          setSettingsDialogOpen(false);
-          setSubmissionsFocusId(null);
-        }}
-        colorScheme={colorScheme}
-        onColorSchemeChange={handleColorSchemeChange}
-        themeVariant={themeVariant}
-        themeVariants={THEME_VARIANTS}
-        onThemeVariantChange={handleThemeVariantChange}
-        workspaceCardsPerRow={controlCenterCardsPerRow}
-        onWorkspaceCardsPerRowChange={setControlCenterCardsPerRow}
-        onOpenExternalUrl={handleOpenExternalUrl}
-        submissionsFocusId={submissionsFocusId}
-      />
+      {/* Settings is a full-screen route now — covers the entire shell
+          (TopTabsBar + workspace) when active. The previous modal Dialog
+          mount used to sit here. SettingsScreenRoot owns its own scroll
+          + nav rail; this wrapper just covers the surface so the
+          background shell isn't visible behind it. */}
+      {settingsDialogRendered ? (
+        <div
+          data-state={settingsDialogOpen ? "open" : "closed"}
+          onAnimationEnd={(event) => {
+            if (
+              event.target === event.currentTarget &&
+              !settingsDialogOpen
+            ) {
+              setSettingsDialogRendered(false);
+            }
+          }}
+          className="absolute inset-0 z-40 overflow-hidden bg-background duration-200 ease-out data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:slide-out-to-bottom-2 data-[state=open]:slide-in-from-bottom-2"
+        >
+          <SettingsScreenRoot
+            activeSection={settingsDialogSection}
+            appVersion={effectiveAppUpdateStatus?.currentVersion || ""}
+            onSectionChange={(section) => {
+              setSettingsDialogSection(section);
+              if (section !== "submissions") {
+                setSubmissionsFocusId(null);
+              }
+            }}
+            onBackToApp={() => {
+              setSettingsDialogOpen(false);
+              setSubmissionsFocusId(null);
+            }}
+            colorScheme={colorScheme}
+            onColorSchemeChange={handleColorSchemeChange}
+            themeVariant={themeVariant}
+            themeVariants={THEME_VARIANTS}
+            onThemeVariantChange={handleThemeVariantChange}
+            workspaceCardsPerRow={controlCenterCardsPerRow}
+            onWorkspaceCardsPerRowChange={setControlCenterCardsPerRow}
+            onOpenExternalUrl={handleOpenExternalUrl}
+            submissionsFocusId={submissionsFocusId}
+          />
+        </div>
+      ) : null}
       {selectedWorkspaceId && (
         <PublishScreen
           onOpenChange={setPublishOpen}

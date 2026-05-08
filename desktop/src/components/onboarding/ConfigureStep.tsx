@@ -100,7 +100,7 @@ export function ConfigureStep({
         />
 
         <WizardField htmlFor="workspace-name" label="Workspace name" required>
-          <div className="rounded-lg bg-fg-2 shadow-subtle-xs transition-colors focus-within:bg-background focus-within:shadow-subtle-sm">
+          <div className="rounded-lg bg-fg-2 shadow-2xs transition-colors focus-within:bg-background focus-within:shadow-xs">
             <Input
               autoFocus
               className="h-10 border-0 bg-transparent shadow-none focus-visible:ring-0"
@@ -133,7 +133,7 @@ export function ConfigureStep({
           optional
         >
           {selectedWorkspaceFolder?.rootPath ? (
-            <div className="flex items-center gap-2 rounded-lg bg-fg-2 px-3 py-2 shadow-subtle-xs">
+            <div className="flex items-center gap-2 rounded-lg bg-fg-2 px-3 py-2 shadow-2xs">
               <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
               <span
                 className="flex-1 truncate text-sm text-foreground"

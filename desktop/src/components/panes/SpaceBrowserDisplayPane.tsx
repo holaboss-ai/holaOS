@@ -26,6 +26,7 @@ import {
 import { useBrowserGlowPreview } from "@/components/panes/useBrowserGlowPreview";
 import { useWorkspaceBrowser } from "@/components/panes/useWorkspaceBrowser";
 import { Button } from "@/components/ui/button";
+import { StatusDot } from "@/components/ui/status-dot";
 
 const HOME_URL = "https://www.google.com";
 const EXPLICIT_SCHEME_PATTERN = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
@@ -63,7 +64,6 @@ interface SpaceBrowserDisplayPaneProps {
   suspendNativeView?: boolean;
   layoutSyncKey?: string;
   embedded?: boolean;
-  jumpPulseKey?: number;
 }
 
 export function SpaceBrowserDisplayPane({
@@ -71,7 +71,6 @@ export function SpaceBrowserDisplayPane({
   suspendNativeView = false,
   layoutSyncKey = "",
   embedded = false,
-  jumpPulseKey = 0,
 }: SpaceBrowserDisplayPaneProps) {
   const [browserProfileImportDialogOpen, setBrowserProfileImportDialogOpen] =
     useState(false);
@@ -121,21 +120,6 @@ export function SpaceBrowserDisplayPane({
   } = useBrowserCaptureActions();
   const effectiveSuspendNativeView =
     suspendNativeView || browserProfileImportDialogOpen;
-
-  const [jumpFlashActive, setJumpFlashActive] = useState(false);
-  useEffect(() => {
-    if (jumpPulseKey <= 0) {
-      return;
-    }
-    setJumpFlashActive(true);
-    const timeoutId = window.setTimeout(() => {
-      setJumpFlashActive(false);
-    }, 720);
-    return () => {
-      window.clearTimeout(timeoutId);
-      setJumpFlashActive(false);
-    };
-  }, [jumpPulseKey]);
 
   useEffect(() => {
     setInputValue(activeTab.url || "");
@@ -485,21 +469,15 @@ export function SpaceBrowserDisplayPane({
           ref={viewportRef}
           className={`relative h-full min-h-0 overflow-hidden rounded-xl border bg-card transition-colors ${
             showAgentActivityHighlight
-              ? "browser-active-glow border-border"
+              ? "border-primary/40"
               : "border-border"
-          } ${jumpFlashActive ? "browser-jump-flash" : ""}`}
+          }`}
         >
-          {showAgentActivityHighlight ? (
-            <div
-              aria-hidden="true"
-              className="browser-active-glow-frame pointer-events-none absolute inset-0 rounded-[inherit]"
-            />
-          ) : null}
 
           {!activeTab.initialized ? (
             <div className="absolute inset-0 grid place-items-center bg-card p-6 text-center">
               <div className="flex flex-col items-center gap-3">
-                <div className="grid size-11 place-items-center rounded-[12px] bg-muted text-muted-foreground">
+                <div className="grid size-11 place-items-center rounded-xl bg-muted text-muted-foreground">
                   <Loader2 size={18} className="animate-spin" />
                 </div>
                 <div className="text-sm font-medium text-foreground">
@@ -516,7 +494,7 @@ export function SpaceBrowserDisplayPane({
 
           {activeTab.error ? (
             <div className="absolute inset-x-4 bottom-4 flex items-start gap-2 rounded-lg border-l-2 border-warning bg-card px-3 py-2 text-xs leading-5 text-foreground shadow-sm">
-              <span className="mt-0.5 size-1.5 shrink-0 rounded-full bg-warning" />
+              <StatusDot variant="warning" className="mt-0.5" />
               <span className="min-w-0 flex-1">{activeTab.error}</span>
             </div>
           ) : null}

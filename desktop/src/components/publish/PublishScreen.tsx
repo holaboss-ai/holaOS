@@ -20,6 +20,7 @@ import { AppIcon } from "@/components/marketplace/AppIcon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatusDot } from "@/components/ui/status-dot";
 import {
   Select,
   SelectContent,
@@ -468,7 +469,7 @@ export function PublishScreen({
           <span>{selectedWorkspace?.name ?? "Workspace"}</span>
           {savedAt !== null && (
             <span className="ml-1 inline-flex items-center gap-1 rounded-md bg-fg-4 px-1.5 py-0.5 text-xs">
-              <span className="size-1.5 rounded-full bg-success" />
+              <StatusDot variant="success" />
               Saved {formatRelative(Date.now() - savedAt)}
             </span>
           )}
@@ -562,7 +563,7 @@ export function PublishScreen({
         <main className="flex min-h-0 flex-1 items-start justify-center px-5 pb-5">
           <div className="grid h-full min-h-0 w-full max-w-6xl grid-cols-1 grid-rows-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
             {/* Left: form column */}
-            <section className="flex min-h-0 flex-col overflow-y-auto rounded-2xl bg-background shadow-subtle-sm">
+            <section className="flex min-h-0 flex-col overflow-y-auto rounded-2xl bg-background shadow-xs">
               <div className="flex min-h-full flex-col px-10 pt-10 pb-12">
                 {/* Step counter + big title — re-keyed so the title fades + slides on step change */}
                 <div
@@ -640,7 +641,7 @@ export function PublishScreen({
                   phase.status === "packaging" ||
                   phase.status === "uploading" ||
                   phase.status === "finalizing") && (
-                  <div className="mt-6 rounded-lg bg-fg-2 px-4 py-3 shadow-subtle-xs">
+                  <div className="mt-6 rounded-lg bg-fg-2 px-4 py-3 shadow-2xs">
                     <PhaseStrip phase={phase} />
                   </div>
                 )}
@@ -1171,7 +1172,7 @@ function DocEditor({
               </TooltipContent>
             </Tooltip>
             {showImproveMenu && (
-              <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg bg-popover p-1 shadow-subtle-sm ring-1 ring-border/50">
+              <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg bg-popover p-1 shadow-xs ring-1 ring-border/50">
                 <button
                   className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-fg-4"
                   onClick={() => {
@@ -1606,7 +1607,7 @@ function ScreenshotsUploader({
               <img alt="" className="h-full w-full object-cover" src={url} />
               <button
                 aria-label={`Remove screenshot ${idx + 1}`}
-                className="absolute top-1 right-1 flex size-5 items-center justify-center rounded-full bg-foreground/85 text-background opacity-0 shadow-subtle-sm transition-opacity hover:bg-foreground group-hover:opacity-100 focus-visible:[box-shadow:none!important]"
+                className="absolute top-1 right-1 flex size-5 items-center justify-center rounded-full bg-foreground/85 text-background opacity-0 shadow-xs transition-opacity hover:bg-foreground group-hover:opacity-100 focus-visible:[box-shadow:none!important]"
                 onClick={() => {
                   const next = [...value];
                   next.splice(idx, 1);
@@ -1770,7 +1771,7 @@ function PublishSuccessView({
 
   return (
     <main className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
-      <div className="w-full max-w-[420px] rounded-2xl bg-background px-10 pt-12 pb-8 shadow-subtle-sm ring-1 ring-border/35">
+      <div className="w-full max-w-[420px] rounded-2xl bg-background px-10 pt-12 pb-8 shadow-xs ring-1 ring-border/35">
         {/* Soft halo success ring */}
         <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-success/10 text-success ring-[6px] ring-success/[0.04]">
           <Check className="size-5" strokeWidth={2.5} />
@@ -1793,7 +1794,7 @@ function PublishSuccessView({
           </div>
           <button
             aria-label="Copy template ID"
-            className="inline-flex shrink-0 items-center gap-1 rounded-md bg-background px-2 py-1.5 text-xs font-medium text-foreground shadow-subtle-xs transition-colors hover:bg-fg-2 focus-visible:[box-shadow:none!important]"
+            className="inline-flex shrink-0 items-center gap-1 rounded-md bg-background px-2 py-1.5 text-xs font-medium text-foreground shadow-2xs transition-colors hover:bg-fg-2 focus-visible:[box-shadow:none!important]"
             onClick={copyTemplateId}
             type="button"
           >

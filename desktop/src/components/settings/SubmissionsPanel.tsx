@@ -394,9 +394,9 @@ export function SubmissionsPanel({ initialFocusedId = null }: SubmissionsPanelPr
   if (error) {
     return (
       <div className="grid gap-6">
-        {/* Destructive variant — stays a custom card since SettingsCard
-            uses bg-card; we want bg-destructive/5 for error tone. */}
-        <div className="overflow-hidden rounded-xl bg-destructive/5 shadow-md">
+        {/* Destructive variant — custom card (SettingsCard hard-codes
+            bg-card; we want bg-destructive/5 for error tone). */}
+        <div className="overflow-hidden rounded-xl border border-destructive/24 bg-destructive/5">
           <div className="flex items-center gap-2.5 px-4 py-3">
             <AlertTriangle className="size-4 shrink-0 text-destructive" />
             <p className="text-sm text-destructive">{error}</p>

@@ -21,8 +21,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { MarkdownEditor } from "@holaboss/editor";
 import { DashboardRenderer } from "@/components/dashboard/DashboardRenderer";
-import { SimpleMarkdown } from "@/components/marketplace/SimpleMarkdown";
 import { PresentationPreview } from "@/components/panes/PresentationPreview";
 import {
   bumpDashboardRefreshKey,
@@ -176,39 +176,6 @@ export function InternalSurfacePane({
   }, [onOpenLinkInBrowser]);
 
   const previewAbsolutePath = preview?.absolutePath ?? null;
-  const handleLocalLinkInPreview = useCallback(
-    (href: string) => {
-      if (!onOpenLocalLink) {
-        return;
-      }
-      let raw = href.trim();
-      if (!raw) {
-        return;
-      }
-      if (raw.toLowerCase().startsWith("file://")) {
-        raw = raw.slice(7);
-      }
-      let cleaned = raw;
-      try {
-        cleaned = decodeURI(raw);
-      } catch {
-        cleaned = raw;
-      }
-      let absolute = cleaned;
-      if (!isAbsolutePath(cleaned)) {
-        const previewPath = previewAbsolutePath?.trim() ?? "";
-        const baseDir = previewPath
-          ? dirnameFromAbsolutePath(previewPath)
-          : (workspaceRootPath?.trim() ?? "");
-        if (!baseDir) {
-          return;
-        }
-        absolute = joinPath(baseDir, cleaned);
-      }
-      onOpenLocalLink(absolute);
-    },
-    [onOpenLocalLink, previewAbsolutePath, workspaceRootPath],
-  );
 
   useEffect(() => {
     if (!selectedWorkspaceId) {
@@ -376,7 +343,9 @@ export function InternalSurfacePane({
 
   const isMarkdownPreview = isMarkdownPreviewPayload(preview);
   const isHtmlPreview = isHtmlPreviewPayload(preview);
-  const supportsRenderedTextPreview = isMarkdownPreview || isHtmlPreview;
+  // Markdown is now WYSIWYG (handled by @holaboss/editor) — no preview/edit
+  // toggle. Only HTML still has a preview ↔ source-edit duality.
+  const supportsRenderedTextPreview = isHtmlPreview;
   const isDirty =
     preview?.kind === "text" && preview.isEditable
       ? previewDraft !== (preview.content ?? "")
@@ -550,7 +519,7 @@ export function InternalSurfacePane({
               title="Output preview"
               sandbox=""
               srcDoc={htmlContent}
-              className="min-h-[60vh] w-full rounded-[18px] border border-border bg-white"
+              className="min-h-[60vh] w-full rounded-2xl border border-border bg-white"
             />
           </div>
         );
@@ -710,22 +679,16 @@ export function InternalSurfacePane({
           </div>
 
           {/* Content */}
-          {isMarkdownPreview && textPreviewMode === "preview" ? (
+          {isMarkdownPreview ? (
             <div className="min-h-0 flex-1 overflow-auto">
-              <div className="mx-auto max-w-2xl px-6 py-6">
-                {previewDraft.trim() ? (
-                  <SimpleMarkdown
-                    className="chat-markdown text-sm leading-7 text-foreground"
-                    onLinkClick={openPreviewLink}
-                    onLocalLinkClick={handleLocalLinkInPreview}
-                  >
-                    {previewDraft}
-                  </SimpleMarkdown>
-                ) : (
-                  <div className="py-12 text-center text-xs text-muted-foreground">
-                    Empty file — switch to Edit to add content.
-                  </div>
-                )}
+              <div className="mx-auto w-full max-w-2xl">
+                <MarkdownEditor
+                  value={previewDraft}
+                  onChange={setPreviewDraft}
+                  readOnly={!preview.isEditable}
+                  placeholder="Press / for commands…"
+                  className="min-h-0 flex-1"
+                />
               </div>
             </div>
           ) : isHtmlPreview && textPreviewMode === "preview" ? (
@@ -953,7 +916,7 @@ function EmptyState({
 }) {
   return (
     <div
-      className={`flex h-full items-center justify-center rounded-[20px] border px-6 py-8 text-center ${
+      className={`flex h-full items-center justify-center rounded-2xl border px-6 py-8 text-center ${
         tone === "error"
           ? "border-warning/24 bg-warning/8"
           : "border-border bg-black/10"

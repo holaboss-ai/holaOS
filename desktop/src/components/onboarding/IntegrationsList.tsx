@@ -1,6 +1,7 @@
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { StatusDot } from "@/components/ui/status-dot";
 import { providerDisplayName, providerIcon } from "./constants";
 
 interface IntegrationsListProps {
@@ -85,8 +86,8 @@ function IntegrationRow({
   onAction: () => void;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg bg-fg-2 px-3 py-2 shadow-subtle-xs">
-      <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-background shadow-subtle-xs">
+    <div className="flex items-center gap-3 rounded-lg bg-fg-2 px-3 py-2 shadow-2xs">
+      <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-background shadow-2xs">
         {logoUrl ? (
           <img
             alt=""
@@ -105,7 +106,7 @@ function IntegrationRow({
       {connected ? (
         <div className="flex shrink-0 items-center gap-2">
           <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="size-1.5 rounded-full bg-success" />
+            <StatusDot variant="success" />
             Connected
           </span>
           <Button

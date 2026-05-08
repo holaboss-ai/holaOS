@@ -7,8 +7,9 @@ import test from "node:test";
 import JSZip from "jszip";
 import ExcelJS from "exceljs";
 import { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
-import type { Model } from "@mariozechner/pi-ai";
+import { fauxAssistantMessage, registerFauxProvider, type Model } from "@mariozechner/pi-ai";
 import { streamOpenAIResponses } from "../node_modules/@mariozechner/pi-ai/dist/providers/openai-responses.js";
+import { generateSummary } from "../node_modules/@mariozechner/pi-coding-agent/dist/core/compaction/compaction.js";
 
 import type { HarnessHostPiRequest } from "./contracts.js";
 import {
@@ -74,6 +75,72 @@ function onlyPiNativeEvents<T extends { event_type: string; payload: Record<stri
 
 function derivedPiEvents(...args: Parameters<typeof mapPiSessionEvent>) {
   return withoutPiNativeEvents(mapPiSessionEvent(...args));
+}
+
+function createCompactionUserMessage(text: string) {
+  return {
+    role: "user" as const,
+    content: [{ type: "text" as const, text }],
+    timestamp: Date.now(),
+  };
+}
+
+async function runCompactionSummaryScenario(params: {
+  contextWindow: number;
+  reserveTokens: number;
+  messages: Array<{ role: "user"; content: Array<{ type: "text"; text: string }>; timestamp: number }>;
+  thresholdBytes: number;
+}) {
+  const prompts: string[] = [];
+  let summaryIndex = 0;
+  const registration = registerFauxProvider({
+    models: [
+      {
+        id: "faux-compaction",
+        name: "Faux Compaction",
+        contextWindow: params.contextWindow,
+        maxTokens: params.reserveTokens,
+      },
+    ],
+    tokenSize: { min: 1000, max: 1000 },
+  });
+
+  const responder = (context: {
+    messages: Array<{ content?: Array<{ type: string; text?: string }> }>;
+  }) => {
+    const promptText = context.messages[0]?.content?.[0]?.text ?? "";
+    prompts.push(promptText);
+    if (Buffer.byteLength(promptText, "utf8") > params.thresholdBytes) {
+      throw new Error("Your input exceeds the context window of this model.");
+    }
+    summaryIndex += 1;
+    return fauxAssistantMessage(`summary-${summaryIndex}`);
+  };
+
+  registration.setResponses(Array.from({ length: 32 }, () => responder));
+
+  try {
+    const model = registration.getModel("faux-compaction");
+    assert.ok(model);
+    const summary = await generateSummary(
+      params.messages as never,
+      model as Model<"faux">,
+      params.reserveTokens,
+      "token",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "compaction-session",
+    );
+    return {
+      summary,
+      prompts,
+      callCount: registration.state.callCount,
+    };
+  } finally {
+    registration.unregister();
+  }
 }
 
 test("pi normalizes array-wrapped openai-compatible error bodies", async () => {
@@ -2574,6 +2641,48 @@ test("compactPiSession returns a structured result for successful snapshot compa
   assert.equal(result.diagnostics, null);
   assert.equal(result.error, null);
   assert.equal(disposed, true);
+});
+
+test("generateSummary compacts the left side first and merges the raw right side when it fits", async () => {
+  const result = await runCompactionSummaryScenario({
+    contextWindow: 9_800,
+    reserveTokens: 4_000,
+    thresholdBytes: 100_000,
+    messages: [
+      createCompactionUserMessage("L".repeat(10_000)),
+      createCompactionUserMessage("A".repeat(6_000)),
+      createCompactionUserMessage("B".repeat(6_000)),
+    ],
+  });
+
+  assert.equal(result.callCount, 2);
+  assert.equal(result.summary, "summary-2");
+  assert.equal(result.prompts.length, 2);
+  assert.ok(result.prompts.every((prompt) => !prompt.includes("<continuity-overlap>")));
+  assert.ok(!result.prompts[0]?.includes("<previous-summary>"));
+  assert.match(result.prompts[0] ?? "", /L{100}/);
+  assert.match(result.prompts[1] ?? "", /<previous-summary>\nsummary-1\n<\/previous-summary>/);
+  assert.match(result.prompts[1] ?? "", /A{100}|B{100}/);
+  assert.ok(!result.prompts[1]?.includes("[Summary]:"));
+});
+
+test("generateSummary independently compacts the right side before merging summaries when raw right content still does not fit", async () => {
+  const result = await runCompactionSummaryScenario({
+    contextWindow: 9_000,
+    reserveTokens: 4_000,
+    thresholdBytes: 100_000,
+    messages: [
+      createCompactionUserMessage("L".repeat(10_000)),
+      createCompactionUserMessage("A".repeat(6_000)),
+      createCompactionUserMessage("B".repeat(6_000)),
+    ],
+  });
+
+  assert.equal(result.callCount, 4);
+  assert.equal(result.summary, "summary-4");
+  assert.ok(result.prompts.every((prompt) => !prompt.includes("<continuity-overlap>")));
+  assert.ok(result.prompts.some((prompt) => prompt.includes("[Summary]: summary-3")));
+  assert.ok(result.prompts.some((prompt) => prompt.includes("<previous-summary>\nsummary-1\n</previous-summary>")));
 });
 
 test("compactPiSession prefers native post-run maintenance compaction when available", async () => {

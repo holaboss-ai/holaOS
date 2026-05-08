@@ -44,7 +44,7 @@ export function SettingsRow({
       onClick={interactive ? onClick : undefined}
       data-layout="settings-row"
       className={cn(
-        "flex w-full items-center justify-between gap-4 px-4 py-3 text-left",
+        "flex w-full items-center justify-between gap-4 px-4 py-3.5 text-left",
         interactive &&
           "transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         className,

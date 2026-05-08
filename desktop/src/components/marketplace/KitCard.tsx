@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { KitEmoji } from "./KitEmoji";
 
 interface KitCardProps {
@@ -16,49 +17,42 @@ export function KitCard({ template, onClick, selected = false }: KitCardProps) {
       type="button"
       disabled={isComingSoon}
       onClick={() => onClick(template)}
-      className={`group relative overflow-hidden rounded-xl border px-4 py-4 text-left transition-colors ${
+      className={cn(
+        "group relative flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors",
         isComingSoon
-          ? "cursor-default border-border bg-card opacity-50"
+          ? "cursor-default opacity-50"
           : selected
-            ? "border-primary/35 bg-primary/10"
-            : "border-border bg-muted/50 hover:bg-accent"
-      }`}
+            ? "bg-primary/10"
+            : "hover:bg-fg-2",
+      )}
     >
-      <div className="flex items-start gap-3">
-        <KitEmoji emoji={template.emoji} size={36} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold text-foreground">
-              {displayName}
-            </span>
-            {isComingSoon ? (
-              <Badge variant="secondary" className="shrink-0 text-xs">
-                Coming soon
-              </Badge>
-            ) : null}
-          </div>
-          {template.description ? (
-            <p
-              className="mt-1 text-xs leading-relaxed text-muted-foreground"
-              style={{
-                display: "-webkit-box",
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-              }}
+      <KitEmoji emoji={template.emoji} size={36} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm font-medium text-foreground">
+            {displayName}
+          </span>
+          {isComingSoon ? (
+            <Badge
+              variant="secondary"
+              className="shrink-0 px-1.5 py-0 text-[10px] font-normal"
             >
-              {template.description}
-            </p>
+              Coming soon
+            </Badge>
           ) : null}
-          <div className="mt-2 flex items-center gap-3 text-xs uppercase tracking-widest text-muted-foreground">
-            {template.install_count != null && template.install_count > 0 ? (
-              <span>{template.install_count} installs</span>
-            ) : null}
-            {template.apps.length > 0 ? (
-              <span>{template.apps.length} apps</span>
-            ) : null}
-          </div>
         </div>
+        {template.description ? (
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            {template.description}
+          </p>
+        ) : null}
+      </div>
+      <div className="shrink-0 text-xs uppercase tracking-wide text-muted-foreground">
+        {template.install_count != null && template.install_count > 0 ? (
+          <span>{template.install_count} installs</span>
+        ) : template.apps.length > 0 ? (
+          <span>{template.apps.length} apps</span>
+        ) : null}
       </div>
     </button>
   );

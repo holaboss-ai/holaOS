@@ -1,17 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ExternalLink, FileUp, LoaderCircle, Search } from "lucide-react";
+import { AppWindow, ExternalLink, FileUp, LoaderCircle, Search } from "lucide-react";
 import {
   getProviderForCatalogEntry,
   resolveAppDisplay,
   useWorkspaceDesktop,
 } from "@/lib/workspaceDesktop";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-} from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -24,25 +19,14 @@ import { AppCatalogCard } from "./AppCatalogCard";
 
 function AppCatalogCardSkeleton() {
   return (
-    <Card size="sm" className="animate-pulse">
-      <CardHeader>
-        <div className="flex items-center gap-3">
-          <div className="size-9 shrink-0 rounded-lg bg-muted-foreground/15" />
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <div className="h-3.5 w-24 rounded bg-muted-foreground/15" />
-            <div className="h-2.5 w-10 rounded bg-muted-foreground/10" />
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="flex-1 space-y-1.5">
-        <div className="h-2 w-full rounded bg-muted-foreground/15" />
-        <div className="h-2 w-[92%] rounded bg-muted-foreground/15" />
-        <div className="h-2 w-[70%] rounded bg-muted-foreground/15" />
-      </CardContent>
-      <CardFooter className="justify-end">
-        <div className="h-7 w-20 rounded-md bg-muted-foreground/15" />
-      </CardFooter>
-    </Card>
+    <div className="flex animate-pulse items-center gap-3 px-3 py-2.5">
+      <div className="size-9 shrink-0 rounded-lg bg-muted-foreground/15" />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="h-3.5 w-32 rounded bg-muted-foreground/15" />
+        <div className="h-3 w-[80%] rounded bg-muted-foreground/10" />
+      </div>
+      <div className="h-7 w-20 shrink-0 rounded-md bg-muted-foreground/15" />
+    </div>
   );
 }
 
@@ -312,7 +296,7 @@ export function AppsGallery() {
             role="dialog"
             aria-modal="true"
             aria-label="Connect account"
-            className="relative z-10 w-[min(440px,calc(100vw-32px))] rounded-2xl border border-border/55 bg-background p-5 shadow-2xl"
+            className="relative z-10 w-[min(440px,calc(100vw-32px))] rounded-2xl border border-border bg-background p-5 shadow-2xl"
           >
             <p className="text-base font-semibold text-foreground">
               Connect{" "}
@@ -358,34 +342,42 @@ export function AppsGallery() {
       ) : null}
 
       {isLoadingAppCatalog && appCatalog.length === 0 ? (
-        <div className="mt-4 grid grid-cols-1 gap-2 pb-6 md:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-3 divide-y divide-border border-y border-border pb-6">
           {Array.from({ length: 6 }).map((_, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton count
             <AppCatalogCardSkeleton key={i} />
           ))}
         </div>
       ) : appCatalog.length === 0 ? (
-        <div className="mt-8 text-center text-xs text-muted-foreground">
-          No apps available.
-        </div>
+        <EmptyState
+          icon={AppWindow}
+          size="md"
+          title="No apps available."
+          className="mt-8"
+        />
       ) : filteredCatalog.length === 0 ? (
-        <div className="mt-8 flex flex-col items-center gap-2 text-center text-xs text-muted-foreground">
-          <span>No apps match the current filter.</span>
-          {(query.trim() || categoryFilter !== "all") && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setQuery("");
-                setCategoryFilter("all");
-              }}
-            >
-              Clear filter
-            </Button>
-          )}
-        </div>
+        <EmptyState
+          icon={Search}
+          size="md"
+          title="No apps match the current filter."
+          className="mt-8"
+          action={
+            (query.trim() || categoryFilter !== "all") && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setQuery("");
+                  setCategoryFilter("all");
+                }}
+              >
+                Clear filter
+              </Button>
+            )
+          }
+        />
       ) : (
-        <div className="mt-4 grid grid-cols-1 gap-2 pb-6 md:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-3 divide-y divide-border border-y border-border pb-6">
           {filteredCatalog.map((entry) => {
             const isInstalled = installedIds.has(entry.app_id);
             const isInstalling = installingAppId === entry.app_id;

@@ -11,8 +11,8 @@ const firstWorkspacePanePath = path.join(__dirname, "FirstWorkspacePane.tsx");
 test("creating view uses the publish-flow shell DNA: rounded card on bg-fg-2 canvas with subtle shadow", async () => {
   const source = await readFile(creatingViewPath, "utf8");
 
-  // Card: rounded-2xl bg-background with shadow-subtle-sm — matches PublishScreen.
-  assert.match(source, /rounded-2xl bg-background[\s\S]*shadow-subtle-sm/);
+  // Card: rounded-2xl bg-background with shadow-xs — matches PublishScreen.
+  assert.match(source, /rounded-2xl bg-background[\s\S]*shadow-xs/);
   // No more theme-shell with hard borders.
   assert.doesNotMatch(source, /theme-shell/);
   assert.doesNotMatch(source, /border border-border\/45/);

@@ -61,7 +61,7 @@ export function DataViewPanel({
 
   return (
     <section className="group overflow-hidden rounded-xl bg-card shadow-md smooth-corners">
-      <header className="border-b border-border/70 bg-fg-2 px-4 py-3">
+      <header className="border-b border-border bg-fg-2 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <h3 className="truncate text-sm font-semibold tracking-tight text-foreground">
@@ -155,7 +155,7 @@ function ViewBody({
   // gallery / calendar / timeline — declared in v2 spec, renderer ships
   // in PR2. Show a clean placeholder rather than crashing.
   return (
-    <div className="my-6 rounded-md border border-dashed border-border/70 bg-fg-2 px-4 py-6 text-center text-xs text-muted-foreground">
+    <div className="my-6 rounded-md border border-dashed border-border bg-fg-2 px-4 py-6 text-center text-xs text-muted-foreground">
       The <span className="font-medium text-foreground">{view.type}</span> view
       ships in the next dashboard release. Showing an alternate view above
       should keep this panel useful in the meantime.

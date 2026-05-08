@@ -52,7 +52,7 @@ export function WorkspaceWizardLayout({
     <div className="flex w-full flex-1 items-start justify-center px-5 pb-8">
       <div
         className={cn(
-          "w-full rounded-2xl bg-background px-8 pt-9 pb-8 shadow-subtle-sm sm:px-10 sm:pt-10 sm:pb-9",
+          "w-full rounded-2xl bg-background px-8 pt-9 pb-8 shadow-xs sm:px-10 sm:pt-10 sm:pb-9",
           WIDTH_MAP[width],
         )}
       >

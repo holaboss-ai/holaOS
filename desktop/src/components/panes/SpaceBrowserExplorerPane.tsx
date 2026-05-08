@@ -15,6 +15,8 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatusDot } from "@/components/ui/status-dot";
 import {
   Select,
   SelectContent,
@@ -84,22 +86,21 @@ function Favicon({ url, fallback, className }: FaviconProps) {
   );
 }
 
-function sessionDotClass(tone: SessionStatusTone, flashing = false): string {
-  const base = (() => {
-    switch (tone) {
-      case "active":
-        return "bg-success";
-      case "waiting":
-        return "bg-warning";
-      case "paused":
-        return "bg-info";
-      case "error":
-        return "bg-destructive";
-      default:
-        return "bg-muted-foreground";
-    }
-  })();
-  return flashing ? `${base} animate-pulse` : base;
+function sessionDotVariant(
+  tone: SessionStatusTone,
+): "success" | "warning" | "info" | "destructive" | "muted" {
+  switch (tone) {
+    case "active":
+      return "success";
+    case "waiting":
+      return "warning";
+    case "paused":
+      return "info";
+    case "error":
+      return "destructive";
+    default:
+      return "muted";
+  }
 }
 
 function toneFromRuntimeStatus(
@@ -322,12 +323,11 @@ export function SpaceBrowserExplorerPane({
               className="flex items-center gap-2 px-2.5 py-1 text-xs leading-none"
               title={sessionBrowserStatus?.label ?? "Agent session"}
             >
-              <span
-                aria-hidden="true"
-                className={`size-1.5 shrink-0 rounded-full ${sessionDotClass(
+              <StatusDot
+                variant={sessionDotVariant(
                   (sessionBrowserStatus?.tone as SessionStatusTone) ?? "idle",
-                  sessionBrowserStatus?.flashing ?? false,
-                )}`}
+                )}
+                pulse={sessionBrowserStatus?.flashing ?? false}
               />
               <span className="min-w-0 flex-1 truncate text-foreground">
                 {currentSessionLabel}
@@ -343,13 +343,12 @@ export function SpaceBrowserExplorerPane({
                 title={sessionBrowserStatus?.label ?? "Agent session"}
               >
                 <SelectValue>
-                  <span
-                    aria-hidden="true"
-                    className={`size-1.5 shrink-0 rounded-full ${sessionDotClass(
+                  <StatusDot
+                    variant={sessionDotVariant(
                       (sessionBrowserStatus?.tone as SessionStatusTone) ??
                         "idle",
-                      sessionBrowserStatus?.flashing ?? false,
-                    )}`}
+                    )}
+                    pulse={sessionBrowserStatus?.flashing ?? false}
                   />
                   <span className="min-w-0 flex-1 truncate leading-none text-foreground">
                     {currentSessionLabel}
@@ -373,12 +372,10 @@ export function SpaceBrowserExplorerPane({
                       value={session.session_id}
                       className="items-start gap-2 rounded-md px-2.5 py-1.5 text-xs"
                     >
-                      <span
-                        aria-hidden="true"
-                        className={`mt-1 size-1.5 shrink-0 rounded-full ${sessionDotClass(
-                          tone,
-                          flashing,
-                        )}`}
+                      <StatusDot
+                        variant={sessionDotVariant(tone)}
+                        pulse={flashing}
+                        className="mt-1"
                       />
                       <span
                         className="min-w-0 flex-1 whitespace-normal leading-snug text-foreground line-clamp-2"
@@ -493,14 +490,11 @@ export function SpaceBrowserExplorerPane({
               );
             })
           ) : (
-            <div className="flex flex-col items-center justify-center gap-2 px-4 py-8 text-center">
-              <div className="grid size-8 place-items-center rounded-[10px] bg-muted text-muted-foreground">
-                <Globe className="size-3.5" />
-              </div>
-              <div className="text-xs leading-5 text-muted-foreground">
-                No open tabs in the {browserSpace} browser.
-              </div>
-            </div>
+            <EmptyState
+              icon={Globe}
+              size="md"
+              title={`No open tabs in the ${browserSpace} browser.`}
+            />
           )}
         </div>
       </div>
@@ -545,9 +539,10 @@ export function SpaceBrowserExplorerPane({
                 {count}
               </span>
               {showPending ? (
-                <span
-                  aria-hidden="true"
-                  className="absolute right-1 top-1 size-1.5 animate-pulse rounded-full bg-primary"
+                <StatusDot
+                  variant="primary"
+                  pulse
+                  className="absolute right-1 top-1"
                 />
               ) : null}
             </button>

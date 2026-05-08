@@ -1,5 +1,6 @@
 import { Check, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { StatusDot } from "@/components/ui/status-dot";
 import { cn } from "@/lib/utils";
 
 interface CreatingViewProps {
@@ -77,7 +78,7 @@ export function CreatingView({
   return (
     <section className={cn(sectionClassName, "grid place-items-center")}>
       <div className="w-full max-w-[440px] px-5 pb-8">
-        <div className="rounded-2xl bg-background px-9 pt-12 pb-9 shadow-subtle-sm">
+        <div className="rounded-2xl bg-background px-9 pt-12 pb-9 shadow-xs">
           {/* Halo spinner — same DNA as the publish success card */}
           <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-primary/10 ring-[6px] ring-primary/[0.05]">
             <svg
@@ -128,7 +129,7 @@ export function CreatingView({
               return (
                 <li
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors shadow-subtle-xs",
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors shadow-2xs",
                     isActive ? "bg-primary/[0.06]" : "bg-fg-2",
                   )}
                   key={step}
@@ -139,8 +140,8 @@ export function CreatingView({
                       isDone
                         ? "bg-primary text-primary-foreground"
                         : isActive
-                          ? "bg-background text-primary shadow-subtle-xs"
-                          : "bg-background text-muted-foreground shadow-subtle-xs",
+                          ? "bg-background text-primary shadow-2xs"
+                          : "bg-background text-muted-foreground shadow-2xs",
                     )}
                   >
                     {isDone ? (
@@ -148,7 +149,7 @@ export function CreatingView({
                     ) : isActive ? (
                       <Loader2 className="size-3.5 animate-spin" />
                     ) : (
-                      <span className="size-1.5 rounded-full bg-fg-24" />
+                      <StatusDot variant="neutral" />
                     )}
                   </div>
                   <div className="min-w-0 flex-1">

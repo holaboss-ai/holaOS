@@ -1,0 +1,167 @@
+/* Visual effects — shadows, surfaces, OS vibrancy, browser glow,
+   shimmer, spinner, mask. */
+
+/* Tinted shadow — set --shadow-color (R,G,B) per element.
+   Light: soft glow. Dark: solid 1px tinted ring (no glow). */
+.shadow-tinted {
+  --shadow-color: 0, 0, 0;
+  box-shadow:
+    rgba(var(--shadow-color), calc(var(--hairline-alpha) * 1.5)) 0 0 0 1px,
+    rgba(var(--shadow-color), var(--hairline-alpha)) 0 1px 1px -0.5px,
+    rgba(var(--shadow-color), var(--shadow-alpha)) 0 3px 3px -1.5px,
+    rgba(var(--shadow-color), calc(var(--shadow-alpha) * 0.67)) 0 6px 6px -3px;
+}
+.dark .shadow-tinted {
+  box-shadow:
+    rgba(var(--shadow-color), calc(var(--hairline-alpha) * 2.5)) 0 0 0 1px;
+}
+
+/* ---- Theme surfaces (legacy class-based — prefer bg-card/bg-muted) ---- */
+
+.theme-shell {
+  background: var(--card);
+}
+
+.theme-header-surface {
+  background: color-mix(in oklch, var(--card) 80%, transparent);
+}
+
+.focus-shell {
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.focus-shell:focus-within {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 20%, transparent);
+}
+
+/* ---- OS vibrancy ----
+   Window-level translucent surface so OS-native material (vibrancy on
+   macOS, mica/acrylic on Windows) shows through. We mix toward
+   transparent rather than fully transparent so a missing material
+   still falls back to a tinted theme color. */
+html[data-platform="darwin"],
+html[data-platform="darwin"] body,
+html[data-platform="win32"],
+html[data-platform="win32"] body {
+  background: color-mix(in oklch, var(--background) 60%, transparent);
+}
+
+/* Dark mode: lower the tint floor (15% vs light's 60%) so OS vibrancy
+   actually shows through near-black backgrounds. */
+html[data-platform="darwin"][data-theme$="-dark"],
+html[data-platform="darwin"][data-theme$="-dark"] body,
+html[data-platform="win32"][data-theme$="-dark"],
+html[data-platform="win32"][data-theme$="-dark"] body {
+  background: color-mix(in oklch, var(--background) 15%, transparent);
+}
+
+/* Dark pane surfaces: 78% solid lets OS vibrancy bleed through PaneCard's
+   backdrop-blur, composing into real frosted glass while keeping text legible. */
+html[data-platform="darwin"][data-theme$="-dark"] [data-pane-card="true"],
+html[data-platform="win32"][data-theme$="-dark"] [data-pane-card="true"] {
+  background: color-mix(in oklch, var(--card) 78%, transparent);
+}
+
+/* Loading shells: mostly solid for legibility, hint of OS material. */
+html[data-platform="darwin"] .theme-shell,
+html[data-platform="win32"] .theme-shell {
+  background: color-mix(in oklch, var(--card) 88%, transparent);
+}
+
+/* ---- Decorative theme elements ---- */
+
+.theme-orb-primary {
+  background-color: color-mix(in oklch, var(--primary) 4%, transparent);
+}
+
+.theme-orb-secondary {
+  background-color: color-mix(in oklch, var(--secondary) 3%, transparent);
+}
+
+/* ---- Shimmer skeleton ----
+   Directional gradient sweep for "loading" states. Apply alongside
+   a base muted-bg element; the ::after layer runs the sweep. More
+   alive than animate-pulse (which is symmetric, no direction). */
+@keyframes hb-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+.animate-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.animate-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--fg-6) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: hb-shimmer 1.6s ease-in-out infinite;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* 9-cube grid spinner — inherits size from font-size, color from currentColor. */
+.hb-spinner {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 1fr);
+  width: 1em;
+  height: 1em;
+  gap: 0.08em;
+}
+.hb-spinner > span {
+  background-color: currentColor;
+  animation: hb-spinner-grid 1.3s infinite ease-in-out;
+  transform: scale3d(0.5, 0.5, 1);
+}
+.hb-spinner > span:nth-child(1) { animation-delay: 0.2s; }
+.hb-spinner > span:nth-child(2) { animation-delay: 0.3s; }
+.hb-spinner > span:nth-child(3) { animation-delay: 0.4s; }
+.hb-spinner > span:nth-child(4) { animation-delay: 0.1s; }
+.hb-spinner > span:nth-child(5) { animation-delay: 0.2s; }
+.hb-spinner > span:nth-child(6) { animation-delay: 0.3s; }
+.hb-spinner > span:nth-child(7) { animation-delay: 0s; }
+.hb-spinner > span:nth-child(8) { animation-delay: 0.1s; }
+.hb-spinner > span:nth-child(9) { animation-delay: 0.2s; }
+@keyframes hb-spinner-grid {
+  0%, 70%, 100% {
+    transform: scale3d(0.5, 0.5, 1);
+  }
+  35% {
+    transform: scale3d(0, 0, 1);
+  }
+}
+
+/* Edge fade mask — caller sets --mask-left / --mask-right (px).
+   Both at 0 = no-op, safe to leave applied permanently. */
+.mask-edges-x {
+  --mask-left: 0px;
+  --mask-right: 0px;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    black var(--mask-left),
+    black calc(100% - var(--mask-right)),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    black var(--mask-left),
+    black calc(100% - var(--mask-right)),
+    transparent 100%
+  );
+  transition: mask-image 120ms ease-out, -webkit-mask-image 120ms ease-out;
+}

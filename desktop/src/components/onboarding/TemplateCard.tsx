@@ -11,8 +11,8 @@ interface RowProps {
 
 function SourceRow({ icon, title, subtitle, onChange, changeLabel }: RowProps) {
   return (
-    <div className="flex items-center gap-3 rounded-lg bg-fg-2 px-3.5 py-2.5 shadow-subtle-xs">
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-background shadow-subtle-xs">
+    <div className="flex items-center gap-3 rounded-lg bg-fg-2 px-3.5 py-2.5 shadow-2xs">
+      <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-background shadow-2xs">
         {icon}
       </div>
       <div className="min-w-0 flex-1">

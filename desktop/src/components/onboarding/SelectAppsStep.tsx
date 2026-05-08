@@ -58,7 +58,7 @@ export function SelectAppsStep({
               <button
                 aria-pressed={isChecked}
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors shadow-subtle-xs focus-visible:[box-shadow:none!important]",
+                  "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors shadow-2xs focus-visible:[box-shadow:none!important]",
                   isChecked ? "bg-primary/[0.06]" : "bg-fg-2 hover:bg-fg-4",
                   isLocked ? "cursor-default" : "cursor-pointer",
                 )}

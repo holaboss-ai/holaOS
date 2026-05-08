@@ -16,6 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { StatusDot } from "@/components/ui/status-dot";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -405,7 +406,7 @@ export function AppSurfacePane({
                 className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-success"
                 title="Running"
               >
-                <span className="size-1.5 rounded-full bg-success" />
+                <StatusDot variant="success" />
                 {!isNarrowPane ? "Running" : null}
               </span>
             ) : surfaceState === "initializing" ? (
@@ -421,7 +422,7 @@ export function AppSurfacePane({
                 className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-destructive"
                 title="Error"
               >
-                <span className="size-1.5 rounded-full bg-destructive" />
+                <StatusDot variant="destructive" />
                 {!isNarrowPane ? "Error" : null}
               </span>
             )}
@@ -523,7 +524,7 @@ export function AppSurfacePane({
                   })()}
                   <SelectContent
                     align="end"
-                    className="min-w-[240px] gap-0 rounded-lg p-1 shadow-subtle-sm"
+                    className="min-w-[240px] gap-0 rounded-lg p-1 shadow-xs"
                   >
                     {candidates.map((conn, index) => {
                       const meta = accountMetadata.get(conn.connection_id);
@@ -610,7 +611,7 @@ export function AppSurfacePane({
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
-                className="min-w-[160px] rounded-lg p-1 shadow-subtle-sm"
+                className="min-w-[160px] rounded-lg p-1 shadow-xs"
               >
                 <DropdownMenuItem
                   variant="destructive"

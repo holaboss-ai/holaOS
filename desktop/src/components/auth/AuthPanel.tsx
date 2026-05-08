@@ -35,6 +35,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { StatusDot } from "@/components/ui/status-dot";
 import {
   Select,
   SelectContent,
@@ -78,7 +79,7 @@ const KNOWN_PROVIDER_ORDER = [
 const SUBAGENT_MODEL_FOLLOW_COMPOSER = "__subagent_follow_composer__";
 type KnownProviderId = (typeof KNOWN_PROVIDER_ORDER)[number];
 const AUTH_PANEL_SELECT_TRIGGER_CLASS_NAME =
-  "auth-settings-control theme-control-surface relative isolate h-9 w-full overflow-hidden rounded-[10px] border border-border bg-muted px-2.5 text-sm text-foreground shadow-none transition-colors hover:border-border focus-visible:border-border focus-visible:ring-0 focus-visible:ring-transparent aria-invalid:border-border aria-invalid:ring-0";
+  "auth-settings-control relative isolate h-9 w-full overflow-hidden rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground shadow-none transition-colors hover:border-border focus-visible:border-border focus-visible:ring-0 focus-visible:ring-transparent aria-invalid:border-border aria-invalid:ring-0";
 const LEGACY_DIRECT_PROVIDER_MODEL_ALIASES: Record<
   string,
   Record<string, string>
@@ -786,6 +787,24 @@ function configuredRuntimeProviderPrefixes(
 
 function runtimeProviderStorageId(providerId: KnownProviderId): string {
   return providerId === "holaboss" ? "holaboss_model_proxy" : providerId;
+}
+
+function runtimeConfigProviderHasModelToken(
+  runtimeConfig: RuntimeConfigPayload | null,
+  providerId: string,
+  token: string,
+): boolean {
+  const normalizedToken = token.trim();
+  if (!normalizedToken) {
+    return false;
+  }
+  return (
+    runtimeConfig?.providerModelGroups.some(
+      (group) =>
+        group.providerId.trim() === providerId &&
+        group.models.some((model) => model.token.trim() === normalizedToken),
+    ) ?? false
+  );
 }
 
 function canonicalDraftProviderStorageId(providerId: string): string {
@@ -2044,7 +2063,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
   ];
 
   const setupLoadingPanel = (
-    <div className="theme-subtle-surface flex flex-col items-center gap-3 rounded-[20px] border border-border px-5 py-8 text-center">
+    <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-muted px-5 py-8 text-center">
       <div className="flex size-11 items-center justify-center rounded-full border border-primary bg-primary/10 text-primary">
         <Loader2 size={18} className="animate-spin" />
       </div>
@@ -3358,7 +3377,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
               {statusTone ? (
                 <Badge
                   variant="outline"
-                  className={`${badgeClass} text-[11px]`}
+                  className={`${badgeClass} text-xs`}
                 >
                   {statusLabel}
                 </Badge>
@@ -3433,7 +3452,15 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
   // in this panel every day. It belongs ABOVE the provider list (you
   // care which model you're talking to before you care which provider
   // serves it), so we surface it as its own section.
-  const defaultChatModelOptions = buildDefaultChatModelOptions(runtimeConfig);
+  const defaultChatModelOptions = buildDefaultChatModelOptions(runtimeConfig).filter(
+    (option) =>
+      isSignedIn ||
+      !runtimeConfigProviderHasModelToken(
+        runtimeConfig,
+        "holaboss_model_proxy",
+        option.value,
+      ),
+  );
   const defaultChatModelToken = (runtimeConfig?.defaultModel ?? "").trim();
   const defaultChatModelMatched = defaultChatModelOptions.some(
     (option) => option.value === defaultChatModelToken,
@@ -3499,6 +3526,40 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
     }
   };
 
+  useEffect(() => {
+    if (!window.electronAPI) return;
+    if (isSignedIn || isProviderDraftDirty) {
+      return;
+    }
+    const staleDefaultModel = runtimeConfigProviderHasModelToken(
+      runtimeConfig,
+      "holaboss_model_proxy",
+      defaultChatModelToken,
+    );
+    const staleSubagentModel = runtimeConfigProviderHasModelToken(
+      runtimeConfig,
+      "holaboss_model_proxy",
+      subagentModelToken,
+    );
+    if (!staleDefaultModel && !staleSubagentModel) {
+      return;
+    }
+    void window.electronAPI.runtime
+      .setConfig({
+        ...(staleDefaultModel ? { defaultModel: "" } : {}),
+        ...(staleSubagentModel ? { subagentModel: "" } : {}),
+      })
+      .catch(() => {
+        // Non-fatal — the signed-out picker already hides managed models.
+      });
+  }, [
+    defaultChatModelToken,
+    isProviderDraftDirty,
+    isSignedIn,
+    runtimeConfig,
+    subagentModelToken,
+  ]);
+
   const runtimeProviderSettings = (
     <div className="grid gap-6">
       {advancedSettingsWarnings.length > 0 ? (
@@ -3526,12 +3587,11 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
             <>
               <SettingsMenuSelectRow
                 label="Default chat model"
-                description="Used for new sessions unless a workspace overrides it."
+                description="Used for new sessions and whenever the composer stays on Auto."
                 value={defaultChatModelMatched ? defaultChatModelToken : ""}
                 onValueChange={handleDefaultChatModelChange}
                 options={defaultChatModelOptions}
                 placeholder="Pick a model"
-                triggerWidth="w-[260px]"
               />
               <SettingsMenuSelectRow
                 label="Subagent model"
@@ -3540,7 +3600,6 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
                 onValueChange={handleSubagentModelChange}
                 options={subagentModelOptions}
                 placeholder="Pick a model"
-                triggerWidth="w-[260px]"
               />
             </>
           ) : (
@@ -3563,7 +3622,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
         description="Connect the providers you want the agent to be able to use."
       >
         {connectedProviderIds.length > 0 ? (
-          <div className="overflow-hidden rounded-xl bg-card shadow-md">
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
             {connectedProviderIds.map((providerId, index) =>
               renderProviderRow(
                 providerId,
@@ -3575,7 +3634,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
           // Empty state: card-shaped CTA. Cleaner than a full provider list
           // that's mostly disconnected; mirrors craft-agents-oss's connections
           // empty state.
-          <div className="flex flex-col items-center justify-center gap-2 rounded-xl bg-card shadow-md px-6 py-8 text-center">
+          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card px-6 py-8 text-center">
             <div className="text-sm font-medium text-foreground">
               No providers connected
             </div>
@@ -3596,7 +3655,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
               render={
                 <button
                   type="button"
-                  className="group flex w-full items-center justify-between gap-3 rounded-xl bg-card px-3 py-2 shadow-md transition-colors hover:bg-accent"
+                  className="group flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2 transition-colors hover:bg-accent"
                 >
                   <span className="flex items-center gap-2 text-sm font-medium text-foreground">
                     <Plus className="size-4 text-muted-foreground" />
@@ -3657,7 +3716,6 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
               applyWebSearchProviderSelection(webSearchProviderDraftId(value))
             }
             options={webSearchProviderOptions}
-            triggerWidth="w-[220px]"
             disabled={
               !hasHydratedWebSearchDraft || webSearchSaveStatus === "saving"
             }
@@ -4227,8 +4285,14 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
                 variant="outline"
                 className="border-border bg-background/60 text-[11px] text-muted-foreground"
               >
-                <span
-                  className={`inline-block size-1.5 rounded-full ${runtimeBindingReady ? "bg-success" : isSignedIn ? "bg-warning" : "bg-muted-foreground"}`}
+                <StatusDot
+                  variant={
+                    runtimeBindingReady
+                      ? "success"
+                      : isSignedIn
+                        ? "warning"
+                        : "muted"
+                  }
                 />
                 <span>
                   {runtimeBindingReady
@@ -4298,14 +4362,14 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
 
   if (showsSetupLoadingState) {
     return (
-      <section className="theme-shell w-full max-w-none overflow-hidden rounded-[24px] border border-border text-sm text-foreground shadow-card">
+      <section className="theme-shell w-full max-w-none overflow-hidden rounded-3xl border border-border text-sm text-foreground">
         <div className="px-4 py-5">{setupLoadingPanel}</div>
       </section>
     );
   }
 
   return (
-    <section className="theme-shell w-full max-w-none overflow-hidden rounded-[24px] border border-border text-sm text-foreground shadow-card">
+    <section className="theme-shell w-full max-w-none overflow-hidden rounded-3xl border border-border text-sm text-foreground shadow-card">
       {showAccountSection && (
         <>
           <div className="border-b border-panel-border/40 px-4 py-4">
@@ -4340,7 +4404,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
               {infoRows.map((row) => (
                 <div
                   key={row.label}
-                  className="theme-subtle-surface flex items-center justify-between gap-3 rounded-[16px] border border-panel-border/35 px-4 py-3"
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-panel-border/35 bg-muted px-4 py-3"
                 >
                   <div className="text-sm text-foreground">{row.label}</div>
                   <div className="max-w-[58%] truncate text-right text-sm text-muted-foreground">
@@ -4381,7 +4445,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
 
             {(authMessage || authError) && (
               <div
-                className={`mt-3 rounded-[16px] border px-4 py-3 text-sm ${
+                className={`mt-3 rounded-2xl border px-4 py-3 text-sm ${
                   authError
                     ? "border-destructive/35 bg-destructive/8 text-destructive"
                     : "border-success/30 bg-success/10 text-success"
@@ -4399,7 +4463,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
           {runtimeProviderSettings}
           {(authMessage || authError) && (
             <div
-              className={`mt-3 rounded-[16px] border px-4 py-3 text-sm ${
+              className={`mt-3 rounded-2xl border px-4 py-3 text-sm ${
                 authError
                   ? "border-destructive/35 bg-destructive/8 text-destructive"
                   : "border-success/30 bg-success/10 text-success"
