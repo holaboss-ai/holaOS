@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Archive, Bot, ChevronDown, Clock3, Loader2, WandSparkles } from "lucide-react";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { Button } from "@/components/ui/button";
+import { StatusDot } from "@/components/ui/status-dot";
 
 const SUBAGENT_SESSIONS_POLL_INTERVAL_MS = 2000;
 type InspectableSessionFilter = "all" | "subagent" | "cronjob" | "task_proposal";
@@ -329,18 +330,30 @@ export function SubagentSessionsPane({
                 session.title?.trim() || inspectableRunSessionLabel(session);
               const archived = Boolean((session.archived_at || "").trim());
               const updatedLabel = formatSessionUpdatedLabel(session);
+              const kindLabel = archived
+                ? "Archived"
+                : inspectableRunSessionLabel(session);
+              const isTaskProposal =
+                inspectableRunSessionCategory(session) === "task_proposal" &&
+                !archived;
+              const meta = updatedLabel
+                ? `${kindLabel} · ${updatedLabel}`
+                : kindLabel;
               return (
                 <button
                   key={session.session_id}
                   type="button"
                   onClick={() => onOpenSession?.(session)}
-                  className="group flex w-full min-w-0 items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-fg-2"
+                  className="group flex w-full min-w-0 items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-fg-2"
                 >
+                  {isTaskProposal ? (
+                    <StatusDot variant="warning" size="sm" />
+                  ) : null}
                   <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                     {title}
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">
-                    {updatedLabel ?? (archived ? "Archived" : "Live")}
+                    {meta}
                   </span>
                 </button>
               );
