@@ -4199,8 +4199,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
 
     return (
       <section className="grid w-full gap-6">
-        <SettingsSection title="Session">
-          <SettingsCard>
+        <SettingsCard>
             <div className="flex items-center justify-between gap-3 px-4 py-3">
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <div className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-muted text-muted-foreground ring-1 ring-border">
@@ -4323,7 +4322,6 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
               </div>
             )}
           </SettingsCard>
-        </SettingsSection>
 
         <BillingSummaryCard
           overview={billingState.overview}
