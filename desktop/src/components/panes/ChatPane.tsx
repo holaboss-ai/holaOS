@@ -82,6 +82,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
+import { EntityChip } from "@/components/ui/entity-chip";
 import { EntityMention } from "@/components/ui/entity-mention";
 import {
   MENTION_URL_SCHEME,
@@ -8592,15 +8593,13 @@ function UserTurnComponent({
         className={`relative z-0 flex min-w-0 max-w-[80%] flex-col items-end gap-2 group-hover/user-turn:z-10 group-focus-within/user-turn:z-10 ${showHoverFooter ? "pb-7" : ""}`.trim()}
       >
         {parsedQuotedSkills.skillIds.length > 0 ? (
-          <div className="flex max-w-full flex-wrap justify-end gap-2">
+          <div className="flex max-w-full flex-wrap justify-end gap-1">
             {parsedQuotedSkills.skillIds.map((skillId) => (
-              <div
+              <EntityChip
                 key={skillId}
-                className="inline-flex items-center gap-1.5 rounded-full border border-primary bg-primary/8 px-3 py-1 text-xs font-medium text-foreground"
-              >
-                <Sparkles className="size-3 text-primary" />
-                <span className="truncate">/{skillId}</span>
-              </div>
+                icon={<Sparkles className="text-muted-foreground" />}
+                label={`/${skillId}`}
+              />
             ))}
           </div>
         ) : null}
@@ -11641,24 +11640,25 @@ function Composer({
           </div>
         ) : null}
         {quotedSkills.length > 0 ? (
-          <div className="border-b border-border px-4 py-3">
-            <div className="flex flex-wrap gap-2">
+          <div className="border-b border-border px-4 py-2.5">
+            <div className="flex flex-wrap gap-1">
               {quotedSkills.map((skill) => (
-                <div
+                <EntityChip
                   key={skill.skillId}
-                  className="inline-flex max-w-full items-center gap-2 rounded-full border border-primary bg-primary/8 px-3 py-1.5 text-xs text-foreground"
-                >
-                  <Sparkles className="size-3 text-primary" />
-                  <span className="truncate">{skill.title}</span>
-                  <button
-                    type="button"
-                    onClick={() => onRemoveQuotedSkill(skill.skillId)}
-                    className="grid h-4 w-4 place-items-center rounded-full text-muted-foreground transition hover:text-foreground"
-                    aria-label={`Remove quoted skill ${skill.title}`}
-                  >
-                    <X className="size-3" />
-                  </button>
-                </div>
+                  size="md"
+                  icon={<Sparkles className="text-muted-foreground" />}
+                  label={skill.title}
+                  trailing={
+                    <button
+                      type="button"
+                      onClick={() => onRemoveQuotedSkill(skill.skillId)}
+                      className="grid size-4 place-items-center rounded-sm text-muted-foreground transition hover:bg-fg-8 hover:text-foreground"
+                      aria-label={`Remove quoted skill ${skill.title}`}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  }
+                />
               ))}
             </div>
           </div>
