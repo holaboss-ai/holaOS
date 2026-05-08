@@ -52,6 +52,7 @@ import {
   Plus,
   Search,
   Sparkles,
+  Wand2,
   Zap,
   Square,
   Waypoints,
@@ -11540,7 +11541,7 @@ function Composer({
         <div className="pointer-events-none absolute left-3 right-3 top-4 z-20 -translate-y-[calc(100%+2px)]">
           <div
             ref={slashCommandMenuRef}
-            className="pointer-events-auto overflow-hidden rounded-xl border border-border bg-popover shadow-md"
+            className="pointer-events-auto overflow-hidden rounded-xl bg-popover shadow-md"
           >
             {filteredSlashCommands.length > 0 ? (
               <div className="max-h-[280px] overflow-y-auto p-1">
@@ -11549,23 +11550,21 @@ function Composer({
                     key={command.key}
                     type="button"
                     onClick={() => applySlashCommand(command)}
-                    className={`flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
+                    className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs transition-colors ${
                       index === highlightedSlashIndex
                         ? "bg-fg-8 text-foreground"
                         : "hover:bg-fg-4"
                     }`}
                   >
-                    <Sparkles className="size-3.5 mt-0.5 shrink-0 text-primary" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">
-                        {command.label}
-                      </span>
+                    <Wand2 className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate font-medium">
+                      {command.label}
                     </span>
                   </button>
                 ))}
               </div>
             ) : (
-              <div className="px-3 py-3 text-xs text-muted-foreground">
+              <div className="px-3 py-2.5 text-xs text-muted-foreground">
                 {slashCommands.length === 0
                   ? "No skills in this workspace yet — add one to create slash commands."
                   : "No skills match."}
@@ -11576,14 +11575,14 @@ function Composer({
       ) : null}
       {showMentionMenu ? (
         <div className="pointer-events-none absolute left-3 right-3 top-4 z-20 -translate-y-[calc(100%+2px)]">
-          <div className="pointer-events-auto overflow-hidden rounded-xl border border-border bg-popover shadow-md">
+          <div className="pointer-events-auto overflow-hidden rounded-xl bg-popover shadow-md">
             <div className="max-h-[280px] overflow-y-auto p-1">
               {filteredMentionItems.map((item, index) => (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => applyMentionItem(item)}
-                  className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
+                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs transition-colors ${
                     index === highlightedMentionIndex
                       ? "bg-fg-8 text-foreground"
                       : "hover:bg-fg-4"
