@@ -542,7 +542,7 @@ export function SettingsScreenRoot({
                 <SettingsRow label="holaOS Desktop" description="Version">
                   <Badge
                     variant="outline"
-                    className="border-border bg-background/60 font-mono text-[11px] text-foreground"
+                    className="border-border bg-fg-2 font-mono text-[11px] text-foreground"
                   >
                     v{displayAppVersion}
                   </Badge>
@@ -559,7 +559,7 @@ export function SettingsScreenRoot({
                         <span>Desktop updates</span>
                         <Badge
                           variant="outline"
-                          className={`border-border bg-background/60 text-[11px] ${
+                          className={`border-border bg-fg-2 text-[11px] ${
                             appUpdateState.error
                               ? "text-destructive"
                               : "text-muted-foreground"
@@ -587,12 +587,12 @@ export function SettingsScreenRoot({
                   </div>
 
                   {appUpdateState.progressPercent !== null ? (
-                    <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-border/60">
+                    <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-fg-8">
                       <div
                         className={`h-full rounded-full transition-[width] ${
                           appUpdateState.error
                             ? "bg-destructive"
-                            : "bg-primary/80"
+                            : "bg-primary"
                         }`}
                         style={{
                           width: `${appUpdateState.progressPercent}%`,
@@ -628,7 +628,7 @@ export function SettingsScreenRoot({
                       Beta updates
                       <Badge
                         variant="outline"
-                        className="border-border bg-background/60 text-[11px] text-muted-foreground"
+                        className="border-border bg-fg-2 text-[11px] text-muted-foreground"
                       >
                         {betaChannelEnabled ? "Beta" : "Latest"}
                       </Badge>
@@ -680,7 +680,7 @@ export function SettingsScreenRoot({
                         <span className="flex items-center gap-2">
                           <span
                             aria-hidden="true"
-                            className="size-3 shrink-0 rounded-sm border border-border"
+                            className="size-3.5 shrink-0 rounded-full"
                             style={{ background: swatch }}
                           />
                           {THEME_VARIANT_LABELS[variant]}
