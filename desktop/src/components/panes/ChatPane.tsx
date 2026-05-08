@@ -8027,7 +8027,7 @@ export function ChatPane({
               {hasMessages ? (
                 <div
                   ref={messagesContentRef}
-                  className={`flex min-w-0 w-full flex-col gap-4 pl-4 pr-7 pb-3 pt-5 ${
+                  className={`flex min-w-0 w-full flex-col gap-2 pl-4 pr-7 pb-3 pt-5 ${
                     showHistoryRestoreScreen ? "invisible" : ""
                   }`}
                 >
@@ -9258,7 +9258,7 @@ function AssistantTurnComponent({
       </article>
 
       {showActionsMenu ? (
-        <div className="pointer-events-none flex h-7 items-center pl-2 pt-0.5 opacity-0 transition-opacity duration-150 group-hover/assistant-turn:pointer-events-auto group-hover/assistant-turn:opacity-100 group-focus-within/assistant-turn:pointer-events-auto group-focus-within/assistant-turn:opacity-100">
+        <div className="pointer-events-none flex h-6 items-center pl-2 opacity-0 transition-opacity duration-150 group-hover/assistant-turn:pointer-events-auto group-hover/assistant-turn:opacity-100 group-focus-within/assistant-turn:pointer-events-auto group-focus-within/assistant-turn:opacity-100">
           <AssistantTurnActionsMenu
             copyText={copyText}
             hasFileEdits={hasFileEdits}
