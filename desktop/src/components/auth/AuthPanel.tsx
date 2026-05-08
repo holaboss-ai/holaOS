@@ -3583,45 +3583,6 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
       ) : null}
 
       <SettingsSection
-        title="Defaults"
-        description="What the agent uses out of the box. Workspaces can override these later."
-      >
-        <SettingsCard>
-          {defaultChatModelOptions.length > 0 ? (
-            <>
-              <SettingsMenuSelectRow
-                label="Default chat model"
-                description="Used for new sessions and whenever the composer stays on Auto."
-                value={defaultChatModelMatched ? defaultChatModelToken : ""}
-                onValueChange={handleDefaultChatModelChange}
-                options={defaultChatModelOptions}
-                placeholder="Pick a model"
-              />
-              <SettingsMenuSelectRow
-                label="Subagent model"
-                description="Optional override for hidden subagent runs. Leave it on Follow composer to use the current composer model."
-                value={subagentModelValue}
-                onValueChange={handleSubagentModelChange}
-                options={subagentModelOptions}
-                placeholder="Pick a model"
-              />
-            </>
-          ) : (
-            <>
-              <SettingsRow
-                label="Default chat model"
-                description="Connect a provider below to choose your default model."
-              />
-              <SettingsRow
-                label="Subagent model"
-                description="Connect a provider below to choose your subagent model."
-              />
-            </>
-          )}
-        </SettingsCard>
-      </SettingsSection>
-
-      <SettingsSection
         title="Model providers"
         description="Connect the providers you want the agent to be able to use."
       >
@@ -3702,6 +3663,32 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
           </DropdownMenu>
         ) : null}
       </SettingsSection>
+
+      {defaultChatModelOptions.length > 0 ? (
+        <SettingsSection
+          title="Defaults"
+          description="What the agent uses out of the box. Workspaces can override these later."
+        >
+          <SettingsCard>
+            <SettingsMenuSelectRow
+              label="Default chat model"
+              description="Used for new sessions and whenever the composer stays on Auto."
+              value={defaultChatModelMatched ? defaultChatModelToken : ""}
+              onValueChange={handleDefaultChatModelChange}
+              options={defaultChatModelOptions}
+              placeholder="Pick a model"
+            />
+            <SettingsMenuSelectRow
+              label="Subagent model"
+              description="Optional override for hidden subagent runs. Leave it on Follow composer to use the current composer model."
+              value={subagentModelValue}
+              onValueChange={handleSubagentModelChange}
+              options={subagentModelOptions}
+              placeholder="Pick a model"
+            />
+          </SettingsCard>
+        </SettingsSection>
+      ) : null}
 
       <SettingsSection
         title="Web search"
@@ -3797,18 +3784,16 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
         </SettingsCard>
       </SettingsSection>
 
-      <SettingsSection title="Advanced settings">
-        <SettingsCard>
-          <SettingsRow
-            label="Provider routing"
-            description="Pick providers for background tasks, recall embeddings, and image generation"
-            interactive
-            onClick={() => setShowAdvancedRuntimeSettings(true)}
-          >
-            <ChevronRight className="size-4 text-muted-foreground" />
-          </SettingsRow>
-        </SettingsCard>
-      </SettingsSection>
+      <SettingsCard>
+        <SettingsRow
+          label="Provider routing"
+          description="Pick providers for background tasks, recall embeddings, and image generation."
+          interactive
+          onClick={() => setShowAdvancedRuntimeSettings(true)}
+        >
+          <ChevronRight className="size-4 text-muted-foreground" />
+        </SettingsRow>
+      </SettingsCard>
 
       {/* Provider routing — opens in a centered dialog so the routing
           widgets get focused vertical space without taking over the whole

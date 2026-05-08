@@ -110,7 +110,7 @@ const SETTINGS_NAV: ReadonlyArray<SettingsScreenNavEntry<UiSettingsPaneSection>>
   { id: "settings", label: "General", icon: Settings2 },
   { id: "account", label: "Account", icon: User2 },
   { id: "billing", label: "Billing", icon: CreditCard },
-  { id: "providers", label: "AI", icon: Waypoints },
+  { id: "providers", label: "Providers", icon: Waypoints },
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "submissions", label: "Submissions", icon: Send },
 ];
@@ -143,7 +143,7 @@ function pageTitle(section: UiSettingsPaneSection): string {
     case "billing":
       return "Billing";
     case "providers":
-      return "AI";
+      return "Providers";
     case "integrations":
       return "Integrations";
     case "submissions":
