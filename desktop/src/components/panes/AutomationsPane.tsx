@@ -439,7 +439,7 @@ export function AutomationsPane({
                 return (
                   <li
                     key={job.id}
-                    className={`group relative flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent sm:px-5 ${
+                    className={`group relative flex items-center gap-3 px-4 py-3 transition-colors hover:bg-fg-2 sm:px-5 ${
                       index > 0 ? "border-t border-border" : ""
                     } ${isBusy ? "opacity-60" : ""}`}
                   >
@@ -547,7 +547,7 @@ export function AutomationsPane({
                     type="button"
                     disabled={!onOpenRunSession}
                     onClick={() => onOpenRunSession?.(run.sessionId)}
-                    className={`group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent disabled:cursor-default disabled:hover:bg-transparent sm:px-5 ${
+                    className={`group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-fg-2 disabled:cursor-default disabled:hover:bg-transparent sm:px-5 ${
                       index > 0 ? "border-t border-border" : ""
                     }`}
                   >
