@@ -9173,14 +9173,14 @@ function AssistantTurnComponent({
 
   return (
     <div
-      className="group/assistant-turn relative flex min-w-0 items-start gap-2 animate-in fade-in-0 slide-in-from-bottom-1 duration-200"
+      className="group/assistant-turn relative flex min-w-0 flex-col items-start animate-in fade-in-0 slide-in-from-bottom-1 duration-200"
     >
-      <div className="w-6 shrink-0 pt-1">
-        {showAvatar && workspaceId ? (
-          <AgentAvatar seed={workspaceId} size="md" />
-        ) : null}
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col items-start">
+      <div className="flex w-full min-w-0 items-end gap-2">
+        <div className="w-5 shrink-0">
+          {showAvatar && workspaceId ? (
+            <AgentAvatar seed={workspaceId} size="sm" />
+          ) : null}
+        </div>
       <article
         className={
           fitToContent
@@ -9273,8 +9273,9 @@ function AssistantTurnComponent({
         ) : null}
       </article>
 
+      </div>
       {showActionsMenu || (showAvatar && timeLabel) ? (
-        <div className="flex h-6 items-center gap-2 pl-2">
+        <div className="flex h-6 items-center gap-2 pl-9">
           {showAvatar && timeLabel ? (
             <span className="select-none text-xs text-muted-foreground tabular-nums">
               {timeLabel}
@@ -9300,7 +9301,6 @@ function AssistantTurnComponent({
           ) : null}
         </div>
       ) : null}
-      </div>
     </div>
   );
 }
