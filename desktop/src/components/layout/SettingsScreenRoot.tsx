@@ -16,7 +16,7 @@ import {
   User2,
   Waypoints,
 } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { AuthPanel } from "@/components/auth/AuthPanel";
 import { BillingSettingsPanel } from "@/components/billing/BillingSettingsPanel";
@@ -34,6 +34,11 @@ import {
 } from "@/components/settings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 
@@ -494,23 +499,30 @@ export function SettingsScreenRoot({
       onSectionChange={onSectionChange}
       onBackToApp={onBackToApp}
       railFooter={
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-          {ABOUT_LINKS.map((link, index) => (
-            <Fragment key={link.id}>
-              {index > 0 ? (
-                <span aria-hidden="true">·</span>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => onOpenExternalUrl(link.href)}
-                className="transition-colors hover:text-foreground"
-              >
-                {link.label}
-              </button>
-            </Fragment>
-          ))}
-          <span aria-hidden="true">·</span>
-          <span className="font-mono tabular-nums">
+        <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+          {ABOUT_LINKS.map((link) => {
+            const Icon = link.icon;
+            return (
+              <Tooltip key={link.id}>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => onOpenExternalUrl(link.href)}
+                      aria-label={link.label}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <Icon className="size-3.5" />
+                    </Button>
+                  }
+                />
+                <TooltipContent>{link.label}</TooltipContent>
+              </Tooltip>
+            );
+          })}
+          <span className="ml-auto font-mono tabular-nums">
             v{displayAppVersion}
           </span>
         </div>

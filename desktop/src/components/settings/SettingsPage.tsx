@@ -31,11 +31,11 @@ export function SettingsPage({
   return (
     <div className={cn("mx-auto w-full max-w-3xl px-8 py-10", className)}>
       <header className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-foreground">
           {title}
         </h1>
         {description ? (
-          <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
+          <p className="mt-1 text-sm leading-snug text-muted-foreground">
             {description}
           </p>
         ) : null}
