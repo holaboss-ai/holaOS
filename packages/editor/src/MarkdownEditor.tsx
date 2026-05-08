@@ -26,6 +26,7 @@ import { SlashCommand } from "./extensions/SlashCommand";
 import { BubbleToolbar } from "./extensions/BubbleToolbar";
 import { DragHandleColumn } from "./extensions/DragHandleColumn";
 import { CodeBlockView } from "./extensions/CodeBlockView";
+import { tightenMarkdownTables } from "./markdown";
 
 // Highlight common languages out of the box. `common` covers ~37 languages
 // (js/ts/python/rust/go/sql/json/html/css/bash/md/etc.) at ~70KB. If size
@@ -130,7 +131,10 @@ export const MarkdownEditor = forwardRef<
 
   const editor = useEditor({
     extensions,
-    content: value,
+    // Pre-process: GFM requires table rows to be contiguous; some sources
+    // (often LLM-generated) put a blank line between every row, which
+    // marked then turns into literal-text paragraphs. Tighten before parse.
+    content: tightenMarkdownTables(value),
     contentType: "markdown",
     editable: !readOnly,
     autofocus: autoFocus ?? false,
@@ -146,16 +150,24 @@ export const MarkdownEditor = forwardRef<
       readyFiredRef.current = true;
       onReady?.(editor);
     }
+    // Dev diagnostic: expose the editor on window for console inspection.
+    // Useful for verifying registered extensions / schema in the running app.
+    if (editor && typeof window !== "undefined") {
+      (window as unknown as { __hbEditor?: Editor }).__hbEditor = editor;
+    }
   }, [editor, onReady]);
 
   // Reflect external value changes without overwriting in-flight edits.
   // We compare against the editor's current markdown to avoid an update cycle.
+  // Both sides are normalised so that an external "value with blank-line
+  // tables" doesn't keep diverging from the editor's tightened version.
   useEffect(() => {
     if (!editor) return;
+    const tightened = tightenMarkdownTables(value);
     const current = editor.getMarkdown();
-    if (current === value) return;
+    if (current === tightened) return;
     const wasFocused = editor.isFocused;
-    editor.commands.setContent(value, {
+    editor.commands.setContent(tightened, {
       contentType: "markdown",
       emitUpdate: false,
     });
@@ -174,7 +186,7 @@ export const MarkdownEditor = forwardRef<
     (): MarkdownEditorRef => ({
       getMarkdown: () => (editor ? editor.getMarkdown() : value),
       setMarkdown: (md: string) => {
-        editor?.commands.setContent(md, {
+        editor?.commands.setContent(tightenMarkdownTables(md), {
           contentType: "markdown",
           emitUpdate: true,
         });
