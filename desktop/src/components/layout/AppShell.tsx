@@ -1483,6 +1483,7 @@ function AppShellContent() {
   const spaceExplorerSlideInClass = "slide-in-from-right-3";
   const [spaceWorkspacePanelCollapsed, setSpaceWorkspacePanelCollapsed] =
     useState(loadSpaceWorkspacePanelCollapsed);
+  const [spaceBrowserFullscreen, setSpaceBrowserFullscreen] = useState(false);
   const [spaceBrowserSpace, setSpaceBrowserSpace] =
     useState<BrowserSpaceId>("user");
   const [spaceDisplayView, setSpaceDisplayView] = useState<SpaceDisplayView>({
@@ -3407,7 +3408,7 @@ function AppShellContent() {
         requestKey: nextChatSessionOpenRequestKey(),
       });
       setChatComposerPrefillRequest({
-        text: "Create a cronjob for ",
+        text: "Create a schedule for ",
         requestKey: nextChatComposerPrefillRequestKey(),
         mode: "replace",
       });
@@ -3435,8 +3436,6 @@ function AppShellContent() {
 
       const jobName =
         job.name?.trim() || job.description?.trim() || "Untitled schedule";
-      const instruction =
-        job.instruction?.trim() || job.description?.trim() || "";
       setActiveShellView("space");
       setSpaceVisibility((previous) => ({
         ...previous,
@@ -3450,10 +3449,13 @@ function AppShellContent() {
         parentSessionId: null,
         requestKey: nextChatSessionOpenRequestKey(),
       });
+      // Lean prefill — the agent already has tool access to every
+      // schedule, so it can fetch the cron / instruction / id by
+      // name. Stuffing all that into the composer made the input
+      // almost-impossible to edit (long pre-text in a single-line
+      // composer). Now the user types only what they want to change.
       setChatComposerPrefillRequest({
-        text:
-          `Edit cronjob "${jobName}" (id: ${job.id}). Current cron: ${job.cron}. ` +
-          `Current instruction: ${instruction}\n\nUpdate it to: `,
+        text: `Edit "${jobName}": `,
         requestKey: nextChatComposerPrefillRequestKey(),
         mode: "replace",
       });
@@ -4113,6 +4115,22 @@ function AppShellContent() {
   }, [selectedWorkspaceId, spaceDisplayView]);
 
   useEffect(() => {
+    if (spaceBrowserFullscreen && spaceDisplayView.type !== "browser") {
+      setSpaceBrowserFullscreen(false);
+    }
+  }, [spaceBrowserFullscreen, spaceDisplayView.type]);
+
+  const toggleSpaceBrowserFullscreen = useCallback(() => {
+    setSpaceBrowserFullscreen((prev) => {
+      const next = !prev;
+      if (next) {
+        setSpaceWorkspacePanelCollapsed(false);
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
     if (!selectedWorkspaceId) {
       setSpaceExplorerMode("browser");
       setSpaceDisplayView({ type: "browser" });
@@ -4723,6 +4741,8 @@ function AppShellContent() {
           suspendNativeView={shouldSuspendBrowserNativeView}
           layoutSyncKey={spaceDisplayLayoutSyncKey}
           embedded
+          fullscreen={spaceBrowserFullscreen}
+          onToggleFullscreen={toggleSpaceBrowserFullscreen}
         />
       );
     }
@@ -4782,10 +4802,12 @@ function AppShellContent() {
     installedApps,
     shouldSuspendBrowserNativeView,
     spaceAgentPaneWidth,
+    spaceBrowserFullscreen,
     spaceBrowserSpace,
     spaceDisplayLayoutSyncKey,
     spaceDisplayView,
     spaceExplorerMode,
+    toggleSpaceBrowserFullscreen,
   ]);
 
   const spacePanes = useMemo(
@@ -5242,7 +5264,9 @@ function AppShellContent() {
                         effectiveSpaceWorkspacePanelCollapsed
                           ? "mr-1.5 shrink-0"
                           : "flex-1"
-                      } overflow-hidden rounded-xl border border-border bg-card shadow-md backdrop-blur-sm transition-all duration-200 ease-out`}
+                      } overflow-hidden rounded-xl border border-border bg-card shadow-md ${
+                        spaceBrowserFullscreen ? "" : "backdrop-blur-sm"
+                      } transition-[margin] duration-200 ease-out`}
                     >
                       <div
                         className="shrink-0 overflow-hidden border-r border-border bg-card"
@@ -5293,6 +5317,7 @@ function AppShellContent() {
                                         } else {
                                           restoreLastSpaceFileDisplayView();
                                         }
+                                        setSpaceWorkspacePanelCollapsed(false);
                                       }}
                                       aria-label={`Open ${label.toLowerCase()} explorer`}
                                       aria-pressed={isActive}
@@ -5359,21 +5384,30 @@ function AppShellContent() {
                       </div>
 
                       <div
-                        className="relative shrink-0"
-                        style={{ width: `${filesPaneWidth}px` }}
+                        className="relative shrink-0 overflow-hidden transition-[width] duration-200 ease-out"
+                        style={{
+                          width: effectiveSpaceWorkspacePanelCollapsed
+                            ? 0
+                            : `${filesPaneWidth}px`,
+                          willChange: "width",
+                          contain: "layout paint",
+                        }}
                       >
-                        <div
-                          role="separator"
-                          aria-label="Resize explorer panel"
-                          aria-orientation="vertical"
-                          onPointerDown={startExplorerPanelResize}
-                          className="group absolute inset-y-0 -right-1 z-20 flex w-2 cursor-col-resize touch-none items-center justify-center"
-                        >
-                          <div className="pointer-events-none absolute left-1/2 top-1/2 h-14 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/8 opacity-0 transition duration-150 group-hover:opacity-100" />
-                        </div>
+                        {effectiveSpaceWorkspacePanelCollapsed ? null : (
+                          <div
+                            role="separator"
+                            aria-label="Resize explorer panel"
+                            aria-orientation="vertical"
+                            onPointerDown={startExplorerPanelResize}
+                            className="group absolute inset-y-0 -right-1 z-20 flex w-2 cursor-col-resize touch-none items-center justify-center"
+                          >
+                            <div className="pointer-events-none absolute left-1/2 top-1/2 h-14 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/8 opacity-0 transition duration-150 group-hover:opacity-100" />
+                          </div>
+                        )}
                         <div
                           id="space-explorer-panel"
-                          className={`relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-card ${
+                          style={{ width: `${filesPaneWidth}px` }}
+                          className={`relative flex h-full min-h-0 flex-col overflow-hidden bg-card ${
                             effectiveSpaceWorkspacePanelCollapsed
                               ? ""
                               : "border-r border-border"
@@ -5451,15 +5485,21 @@ function AppShellContent() {
                       </div>
 
                       <div
-                        className={`min-h-0 min-w-0 overflow-hidden transition-all duration-200 ease-out ${
-                          effectiveSpaceWorkspacePanelCollapsed
-                            ? "w-0 flex-none"
-                            : "flex-1"
-                        }`}
+                        className={
+                          spaceBrowserFullscreen
+                            ? "fixed inset-0 z-40 overflow-hidden bg-background"
+                            : `min-h-0 min-w-0 overflow-hidden transition-all duration-200 ease-out ${
+                                effectiveSpaceWorkspacePanelCollapsed
+                                  ? "w-0 flex-none"
+                                  : "flex-1"
+                              }`
+                        }
                         style={
-                          effectiveSpaceWorkspacePanelCollapsed
-                            ? { minWidth: 0 }
-                            : { minWidth: `${SPACE_DISPLAY_MIN_WIDTH}px` }
+                          spaceBrowserFullscreen
+                            ? undefined
+                            : effectiveSpaceWorkspacePanelCollapsed
+                              ? { minWidth: 0 }
+                              : { minWidth: `${SPACE_DISPLAY_MIN_WIDTH}px` }
                         }
                       >
                         {spaceDisplayContent}
