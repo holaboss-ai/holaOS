@@ -9184,8 +9184,8 @@ function AssistantTurnComponent({
       <article
         className={
           fitToContent
-            ? "min-w-0 inline-flex w-fit max-w-full flex-col rounded-lg bg-muted/60 px-3 py-2"
-            : "min-w-0 w-full max-w-4xl rounded-lg bg-muted/60 px-3 py-2"
+            ? "min-w-0 inline-flex w-fit max-w-full flex-col rounded-lg bg-fg-6 px-3 py-2"
+            : "min-w-0 w-full max-w-4xl rounded-lg bg-fg-6 px-3 py-2"
         }
       >
         {showStatusPlaceholder ? renderStatusLine(normalizedStatus) : null}
@@ -9277,7 +9277,7 @@ function AssistantTurnComponent({
       {showActionsMenu || (showAvatar && timeLabel) ? (
         <div className="flex h-6 items-center gap-2 pl-9">
           {showAvatar && timeLabel ? (
-            <span className="select-none text-xs text-muted-foreground tabular-nums">
+            <span className="select-none text-[10px] leading-none text-muted-foreground tabular-nums">
               {timeLabel}
             </span>
           ) : null}
