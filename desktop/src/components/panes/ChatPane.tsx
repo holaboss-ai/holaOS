@@ -100,6 +100,10 @@ import {
   useRendererSentrySection,
 } from "@/lib/rendererSentry";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import {
+  listWorkspaceFiles,
+  type WorkspaceFileEntry,
+} from "@/lib/workspaceFiles";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import * as modelCatalog from "../../../shared/model-catalog.js";
 
@@ -741,7 +745,10 @@ function findActiveMentionRange(
   if (!rawToken.startsWith("@") || rawToken.length === 0) {
     return null;
   }
-  if (!/^@[A-Za-z0-9_.\-]*$/.test(rawToken)) {
+  // Allow `/` in handles so nested file paths (`@apps/twitter/post.md`)
+  // round-trip — the parser still recognises the token if the user
+  // moves the caret back into it.
+  if (!/^@[A-Za-z0-9_.\-/]*$/.test(rawToken)) {
     return null;
   }
   return {
@@ -3385,65 +3392,59 @@ export function ChatPane({
     installedApps,
   } = useWorkspaceDesktop();
 
-  // Top-level workspace files for the `@` picker. Only the root tier
-  // for this first cut — recursive walk + path display is a follow-up.
-  const [workspaceRootFiles, setWorkspaceRootFiles] = useState<
-    LocalFileEntry[]
-  >([]);
+  // Recursive list of workspace files for the `@` picker. The walk
+  // (and its limits) live in `@/lib/workspaceFiles` so other surfaces
+  // can reuse it.
+  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFileEntry[]>(
+    [],
+  );
   useEffect(() => {
-    let cancelled = false;
     const workspaceId = selectedWorkspace?.id;
     if (!workspaceId) {
-      setWorkspaceRootFiles([]);
+      setWorkspaceFiles([]);
       return;
     }
-    void window.electronAPI.fs
-      .listDirectory(null, workspaceId)
-      .then((response) => {
-        if (cancelled) return;
-        // Skip dotfiles + dotfolders; surface plain files first, then
-        // directories. The agent can resolve either kind by name.
-        const entries = response.entries
-          .filter((entry) => !entry.name.startsWith("."))
-          .sort((a, b) => {
-            if (a.isDirectory !== b.isDirectory) {
-              return a.isDirectory ? 1 : -1;
-            }
-            return a.name.localeCompare(b.name);
-          });
-        setWorkspaceRootFiles(entries);
+    const controller = new AbortController();
+    void listWorkspaceFiles(workspaceId, { signal: controller.signal })
+      .then((entries) => {
+        if (!controller.signal.aborted) setWorkspaceFiles(entries);
       })
       .catch(() => {
-        if (!cancelled) setWorkspaceRootFiles([]);
+        if (!controller.signal.aborted) setWorkspaceFiles([]);
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [selectedWorkspace?.id]);
 
-  // `@` references content WITHIN the current workspace — apps and
-  // top-level files for now. Future kinds (sessions, memories,
+  // `@` references content WITHIN the current workspace — files at
+  // any depth + installed apps. Future kinds (sessions, memories,
   // skills) plug into the same array. Cross-workspace navigation is
   // a different affordance (the workspace switcher in TopTabsBar).
   const composerMentionableItems = useMemo<ChatComposerMentionItem[]>(() => {
     const items: ChatComposerMentionItem[] = [];
 
     // Files first — typically the more frequent reference target.
-    for (const entry of workspaceRootFiles) {
-      // Slugify so the inserted token round-trips through
-      // findActiveMentionRange's character class. Filenames with
-      // spaces or other chars become e.g. `My Doc.md` → `my-doc.md`.
-      const handle = entry.name
-        .toLowerCase()
-        .replace(/\s+/g, "-")
-        .replace(/[^a-z0-9_.\-]/g, "");
+    for (const entry of workspaceFiles) {
+      // Slugify each path segment so the inserted token round-trips
+      // through findActiveMentionRange (which now allows `/`).
+      const handle = entry.relativePath
+        .split("/")
+        .map((segment) =>
+          segment
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9_.\-]/g, ""),
+        )
+        .filter(Boolean)
+        .join("/");
       if (!handle) continue;
       items.push({
-        id: `file:${entry.absolutePath}`,
+        id: `file:${entry.relativePath}`,
         handle,
-        label: entry.name,
+        label: entry.relativePath,
         kindIcon: <FileIcon className="size-3.5" />,
-        keywords: [entry.name, handle],
+        keywords: [entry.name, entry.relativePath, handle],
       });
     }
 
@@ -3462,7 +3463,7 @@ export function ChatPane({
     }
 
     return items;
-  }, [installedApps, workspaceRootFiles]);
+  }, [installedApps, workspaceFiles]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionOutputs, setSessionOutputs] = useState<
     WorkspaceOutputRecordPayload[]
