@@ -82,7 +82,6 @@ import {
 } from "@/components/ui/tooltip";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { EntityMention } from "@/components/ui/entity-mention";
-import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import {
   MENTION_URL_SCHEME,
   SimpleMarkdown,
@@ -8370,20 +8369,9 @@ function ChatHeader({
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <AgentAvatar seed={seed} size="sm" />
         <div className="flex min-w-0 flex-col">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-sm font-medium text-foreground">
-              {agentName}
-            </span>
-            {workspace ? (
-              <>
-                <span className="text-xs text-muted-foreground">in</span>
-                <WorkspaceIcon workspace={workspace} size="xs" />
-                <span className="truncate text-xs text-muted-foreground">
-                  {workspace.name}
-                </span>
-              </>
-            ) : null}
-          </div>
+          <span className="truncate text-sm font-medium text-foreground">
+            {agentName}
+          </span>
           {subtitle ? (
             <span className="truncate text-[11px] leading-tight text-muted-foreground">
               {subtitle}
