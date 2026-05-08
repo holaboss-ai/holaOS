@@ -123,7 +123,12 @@ export const MarkdownEditor = forwardRef<
       TableRow,
       TableHeader,
       TableCell,
-      Markdown,
+      // Be explicit that the markdown bridge runs in GFM mode — pairs
+      // with the Table* extensions above and follows the configuration
+      // Tiptap's docs call out for pipe-table support. (marked defaults
+      // gfm to true, but stating it here protects intent if upstream
+      // defaults shift.)
+      Markdown.configure({ markedOptions: { gfm: true } }),
       SlashCommand,
     ],
     [placeholder],
@@ -150,12 +155,28 @@ export const MarkdownEditor = forwardRef<
       readyFiredRef.current = true;
       onReady?.(editor);
     }
-    // Dev diagnostic: expose the editor on window for console inspection.
-    // Useful for verifying registered extensions / schema in the running app.
-    if (editor && typeof window !== "undefined") {
-      (window as unknown as { __hbEditor?: Editor }).__hbEditor = editor;
-    }
   }, [editor, onReady]);
+
+  // Dev-only diagnostic: expose the live editor instance on `window`
+  // so it can be inspected from the renderer console while debugging
+  // schema / extension state. Skipped entirely in production bundles
+  // (NODE_ENV is replaced at build time by Vite / esbuild / tsup), and
+  // cleared on unmount so it can't outlive the component.
+  useEffect(() => {
+    if (!editor) return;
+    if (typeof window === "undefined") return;
+    const isProd =
+      (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process
+        ?.env?.NODE_ENV === "production";
+    if (isProd) return;
+    const w = window as unknown as { __hbEditor?: Editor };
+    w.__hbEditor = editor;
+    return () => {
+      if (w.__hbEditor === editor) {
+        delete w.__hbEditor;
+      }
+    };
+  }, [editor]);
 
   // Reflect external value changes without overwriting in-flight edits.
   // We compare against the editor's current markdown to avoid an update cycle.
