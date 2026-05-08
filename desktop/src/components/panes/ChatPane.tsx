@@ -82,6 +82,7 @@ import {
 } from "@/components/ui/tooltip";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { EntityMention } from "@/components/ui/entity-mention";
+import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import {
   MENTION_URL_SCHEME,
   SimpleMarkdown,
@@ -7854,10 +7855,13 @@ export function ChatPane({
         ) : null}
 
         {!isOnboardingVariant ? (
-          <div className="shrink-0 border-b border-border px-4 py-2.5 sm:px-5">
+          <div className="shrink-0 px-4 py-2 sm:px-5">
             <ChatHeader
-              title={activeSessionTitle}
-              detail={activeSessionDetail}
+              agentName={isViewingBoundMainSession ? "Hola" : assistantLabel}
+              workspace={selectedWorkspace}
+              subtitle={
+                isViewingBoundMainSession ? undefined : activeSessionTitle
+              }
               onReturnToMainSession={
                 isReadOnlyInspectionSession
                   ? () => {
@@ -8335,8 +8339,9 @@ export function ChatPane({
 }
 
 interface ChatHeaderProps {
-  title: string;
-  detail: string;
+  agentName: string;
+  workspace: WorkspaceRecordPayload | null;
+  subtitle?: string;
   onReturnToMainSession?: () => void;
   onOpenSessions?: () => void;
   onOpenInbox?: () => void;
@@ -8345,115 +8350,115 @@ interface ChatHeaderProps {
 }
 
 function ChatHeader({
-  title,
-  detail,
+  agentName,
+  workspace,
+  subtitle,
   onReturnToMainSession,
   onOpenSessions,
   onOpenInbox,
   inboxUnreadCount,
   onOpenAutomations,
 }: ChatHeaderProps) {
+  const hasOverflow =
+    Boolean(onOpenInbox) ||
+    Boolean(onOpenAutomations) ||
+    Boolean(onReturnToMainSession);
+  const seed = workspace?.id ?? agentName ?? "default";
+
   return (
-    <div className="flex items-center justify-between gap-2">
-      <div className="min-w-0 flex-1">
-        <div className="min-w-0">
-          <div className="truncate text-xs font-medium text-foreground">
-            {title}
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <AgentAvatar seed={seed} size="sm" />
+        <div className="flex min-w-0 flex-col">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-sm font-medium text-foreground">
+              {agentName}
+            </span>
+            {workspace ? (
+              <>
+                <span className="text-xs text-muted-foreground">in</span>
+                <WorkspaceIcon workspace={workspace} size="xs" />
+                <span className="truncate text-xs text-muted-foreground">
+                  {workspace.name}
+                </span>
+              </>
+            ) : null}
           </div>
-          <div className="truncate text-[11px] text-muted-foreground">
-            {detail}
-          </div>
+          {subtitle ? (
+            <span className="truncate text-[11px] leading-tight text-muted-foreground">
+              {subtitle}
+            </span>
+          ) : null}
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-1">
-        {onReturnToMainSession ? (
+      <div className="flex shrink-0 items-center gap-0.5">
+        {onOpenSessions ? (
           <Button
             type="button"
-            variant="outline"
-            size="xs"
-            onClick={() => onReturnToMainSession()}
-            aria-label="Return to main session"
-            className="h-7 rounded-full px-2.5 text-[11px]"
+            variant="ghost"
+            size="sm"
+            onClick={() => onOpenSessions()}
+            aria-label="Sessions"
+            className="text-muted-foreground hover:text-foreground"
           >
-            <ArrowLeft className="mr-1 size-3.5" />
-            Main
+            <Bot className="size-3.5" />
+            Sessions
           </Button>
         ) : null}
 
-        {onOpenSessions ? (
-          <Tooltip>
-            <TooltipTrigger
+        {hasOverflow ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger
               render={
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  onClick={() => onOpenSessions()}
-                  aria-label="Show sessions"
-                  className="rounded-lg text-muted-foreground hover:text-foreground"
-                />
+                  aria-label="More chat actions"
+                  className="relative text-muted-foreground hover:text-foreground"
+                >
+                  <MoreHorizontal className="size-4" />
+                  {inboxUnreadCount > 0 && onOpenInbox ? (
+                    <StatusDot
+                      variant="destructive"
+                      size="sm"
+                      className="absolute right-1 top-1 border border-card"
+                    />
+                  ) : null}
+                </Button>
               }
-            >
-              <Bot className="size-4" />
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="py-1">
-              Sessions
-            </TooltipContent>
-          </Tooltip>
-        ) : null}
-
-        {onOpenInbox ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => onOpenInbox()}
-                  aria-label="Show inbox"
-                  className="relative rounded-lg text-muted-foreground hover:text-foreground"
-                />
-              }
-            >
-              <Inbox className="size-4" />
-              {inboxUnreadCount > 0 ? (
-                <StatusDot
-                  variant="destructive"
-                  size="md"
-                  className="absolute right-1.5 top-1.5 border border-card"
-                />
+            />
+            <DropdownMenuContent align="end" className="w-44" sideOffset={4}>
+              {onOpenInbox ? (
+                <DropdownMenuItem onClick={() => onOpenInbox()}>
+                  <Inbox />
+                  Inbox
+                  {inboxUnreadCount > 0 ? (
+                    <span className="ml-auto rounded-full bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+                      {inboxUnreadCount}
+                    </span>
+                  ) : null}
+                </DropdownMenuItem>
               ) : null}
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="py-1">
-              Inbox
-            </TooltipContent>
-          </Tooltip>
+              {onOpenAutomations ? (
+                <DropdownMenuItem onClick={() => onOpenAutomations()}>
+                  <Clock3 />
+                  Automations
+                </DropdownMenuItem>
+              ) : null}
+              {onReturnToMainSession ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => onReturnToMainSession()}>
+                    <ArrowLeft />
+                    Return to main
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : null}
-
-        {onOpenAutomations ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => onOpenAutomations()}
-                  aria-label="Show automations"
-                  className="rounded-lg text-muted-foreground hover:text-foreground"
-                />
-              }
-            >
-              <Clock3 className="size-4" />
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="py-1">
-              Automations
-            </TooltipContent>
-          </Tooltip>
-        ) : null}
-
       </div>
     </div>
   );
