@@ -270,47 +270,6 @@ export const MarkdownEditor = forwardRef<
     [],
   );
 
-  // Notion-style pointer-drag suppression for the bubble menu.
-  //
-  // Without this, every selection-grow event (each pixel as the user drags
-  // to select text) triggers a `shouldShow` re-evaluation; the bubble
-  // appears and follows the moving anchor — flickery and not what users
-  // expect. Notion / BlockNote both hide the toolbar for the duration of
-  // the mouse drag and re-show on `pointerup`.
-  //
-  // Implementation: a ref + DOM listeners. The bubble's `shouldShow`
-  // reads the ref directly. After `pointerup` we dispatch an empty
-  // transaction to force `shouldShow` to re-run (the selection itself
-  // didn't change at the moment of release, so without this nudge the
-  // bubble would only re-appear on the next document mutation).
-  const pointerDraggingRef = useRef(false);
-  useEffect(() => {
-    if (!editor) return;
-    const dom = editor.view.dom;
-    const onDown = () => {
-      pointerDraggingRef.current = true;
-    };
-    const onUp = () => {
-      if (!pointerDraggingRef.current) return;
-      pointerDraggingRef.current = false;
-      // Force shouldShow to re-evaluate now that the drag is over.
-      // Wrap in microtask so the focus/selection finishes settling first.
-      queueMicrotask(() => {
-        if (editor.isDestroyed) return;
-        editor.view.dispatch(editor.view.state.tr);
-      });
-    };
-    // pointerdown only fires when the press starts inside the editor —
-    // exactly the case where we want to suppress. pointerup is on document
-    // because the user might release outside the editor's bounding box.
-    dom.addEventListener("pointerdown", onDown);
-    document.addEventListener("pointerup", onUp);
-    return () => {
-      dom.removeEventListener("pointerdown", onDown);
-      document.removeEventListener("pointerup", onUp);
-    };
-  }, [editor]);
-
   return (
     <div className={`hb-md-editor ${className ?? ""}`.trim()}>
       {editor && !readOnly ? (
