@@ -802,7 +802,22 @@ test("runtime tools capability routes expose local onboarding and cronjob action
     assert.ok(
       capabilityStatus
         .json()
+        .tools.some((tool: { id: string }) => tool.id === "workspace_apps_build")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "workspace_apps_restart_and_wait_ready")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
         .tools.some((tool: { id: string }) => tool.id === "workspace_apps_wait_until_ready")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "workspace_apps_probe_endpoints")
     );
     assert.ok(
       capabilityStatus
@@ -917,6 +932,35 @@ test("workspace app capability routes scaffold, register, and inspect a managed 
     assert.equal(register.json().registered, true);
     assert.equal(register.json().config_path, "apps/demo-app/app.runtime.yaml");
 
+    fs.writeFileSync(
+      path.join(workspaceRoot, "workspace-1", "apps", "demo-app", "package.json"),
+      `${JSON.stringify(
+        {
+          name: "demo-app",
+          version: "0.1.0",
+          private: true,
+          scripts: {
+            build: "node -e \"process.stdout.write('route-build-ok')\"",
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const build = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/demo-app/build",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {},
+    });
+    assert.equal(build.statusCode, 200);
+    assert.equal(build.json().ok, true);
+    assert.match(String(build.json().stdout ?? ""), /route-build-ok/);
+
     const status = await app.inject({
       method: "GET",
       url: "/api/v1/capabilities/runtime-tools/workspace-apps/demo-app/status",
@@ -940,6 +984,193 @@ test("workspace app capability routes scaffold, register, and inspect a managed 
     assert.equal(typeof ports.json().ports.http, "number");
     assert.equal(typeof ports.json().ports.mcp, "number");
   } finally {
+    await app.close();
+    store.close();
+  }
+});
+
+test("workspace app capability routes restart-and-wait and probe managed endpoints", async () => {
+  const root = makeTempDir("hb-runtime-api-workspace-app-restart-probe-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const lifecycleCalls: string[] = [];
+  const app = buildTestRuntimeApiServer({
+    store,
+    appLifecycleExecutor: {
+      startApp: async (params) => {
+        lifecycleCalls.push(`start:${params.workspaceId}:${params.appId}`);
+        return {
+          app_id: params.appId,
+          status: "started",
+          detail: "started",
+          ports: {
+            http: params.httpPort ?? 0,
+            mcp: params.mcpPort ?? 0,
+          },
+        };
+      },
+      stopApp: async (params) => {
+        lifecycleCalls.push(`stop:${params.workspaceId}:${params.appId}`);
+        return {
+          app_id: params.appId,
+          status: "stopped",
+          detail: "stopped",
+          ports: {},
+        };
+      },
+      shutdownAll: async () => ({ stopped: [], failed: [] }),
+    },
+  });
+
+  let uiServer: { close: () => Promise<void> } | null = null;
+  let mcpServer: { close: () => Promise<void> } | null = null;
+  try {
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/scaffold",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {
+        app_id: "demo-app",
+        name: "Demo App",
+      },
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/register",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {
+        app_id: "demo-app",
+      },
+    });
+
+    store.upsertAppBuild({
+      workspaceId: "workspace-1",
+      appId: "demo-app",
+      status: "stopped",
+    });
+
+    const restarted = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/demo-app/restart-and-wait-ready",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {
+        timeout_ms: 1000,
+        poll_interval_ms: 10,
+      },
+    });
+    assert.equal(restarted.statusCode, 200);
+    assert.equal(restarted.json().restarted, true);
+    assert.equal(restarted.json().ready, true);
+    assert.deepEqual(lifecycleCalls.slice(-2), [
+      "stop:workspace-1:demo-app",
+      "start:workspace-1:demo-app",
+    ]);
+
+    const resolved = resolveWorkspaceAppRuntime(
+      path.join(workspaceRoot, "workspace-1"),
+      "demo-app",
+      { store, workspaceId: "workspace-1", allocatePorts: true },
+    );
+
+    uiServer = await startStaticHttpServer((request, response) => {
+      if (request.url === "/") {
+        response.statusCode = 200;
+        response.setHeader("content-type", "text/html; charset=utf-8");
+        response.end("<html><body>route probe</body></html>");
+        return;
+      }
+      response.statusCode = 404;
+      response.end("not found");
+    }, { port: resolved.ports.http });
+
+    mcpServer = await startStaticHttpServer((request, response) => {
+      if (request.method === "GET" && request.url === "/mcp/health") {
+        response.statusCode = 200;
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ ok: true, transport: "http-sse" }));
+        return;
+      }
+      if (request.method === "POST" && request.url === "/mcp/messages") {
+        const chunks: Buffer[] = [];
+        request.on("data", (chunk) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
+        request.on("end", () => {
+          const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+            id?: string | number | null;
+            method?: string;
+          };
+          response.statusCode = 200;
+          response.setHeader("content-type", "application/json");
+          if (payload.method === "initialize") {
+            response.end(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: payload.id ?? null,
+                result: {
+                  protocolVersion: "2025-03-26",
+                  capabilities: { tools: { listChanged: false } },
+                  serverInfo: { name: "demo-app", version: "0.1.0" },
+                },
+              }),
+            );
+            return;
+          }
+          if (payload.method === "tools/list") {
+            response.end(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: payload.id ?? null,
+                result: {
+                  tools: [{ name: "demo_tool" }, { name: "demo_tool_2" }],
+                },
+              }),
+            );
+            return;
+          }
+          response.statusCode = 400;
+          response.end(JSON.stringify({ error: "unexpected method" }));
+        });
+        return;
+      }
+      response.statusCode = 404;
+      response.end("not found");
+    }, { port: resolved.ports.mcp });
+
+    const probed = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/demo-app/probe-endpoints",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {},
+    });
+    assert.equal(probed.statusCode, 200);
+    assert.equal(probed.json().all_ok, true);
+    assert.equal(probed.json().count, 4);
+    assert.equal(
+      probed.json().checks.find((entry: { check: string }) => entry.check === "mcp_tools_list")
+        ?.tool_count,
+      2,
+    );
+  } finally {
+    await uiServer?.close();
+    await mcpServer?.close();
     await app.close();
     store.close();
   }

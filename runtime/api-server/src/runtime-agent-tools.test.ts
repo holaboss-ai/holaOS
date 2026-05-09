@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
+import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test, { afterEach, beforeEach } from "node:test";
+import { once } from "node:events";
 
 import Database from "better-sqlite3";
 import { load as parseYaml } from "js-yaml";
@@ -26,6 +28,21 @@ function writeRuntimeConfig(root: string, document: Record<string, unknown>): vo
   fs.writeFileSync(configPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
   process.env.HB_SANDBOX_ROOT = root;
   process.env.HOLABOSS_RUNTIME_CONFIG_PATH = configPath;
+}
+
+async function startStaticHttpServer(
+  handler: (request: IncomingMessage, response: ServerResponse) => void,
+  port: number,
+): Promise<{ close: () => Promise<void> }> {
+  const server = http.createServer(handler);
+  server.listen(port, "127.0.0.1");
+  await once(server, "listening");
+  return {
+    close: async () => {
+      server.close();
+      await once(server, "close");
+    },
+  };
 }
 
 test("continueSubagent queues a new input onto the same completed child session", async () => {
@@ -1399,6 +1416,53 @@ test("scaffoldWorkspaceApp and registerWorkspaceApp create a minimal managed app
   assert.equal(ports.ports.mcp, status.ports?.mcp);
 });
 
+test("buildWorkspaceApp runs a deterministic app-local build script", async () => {
+  await harness.service.scaffoldWorkspaceApp({
+    workspaceId: harness.workspaceId,
+    appId: "demo-app",
+    name: "Demo App",
+  });
+  fs.writeFileSync(
+    path.join(harness.workspaceDir, "apps", "demo-app", "package.json"),
+    `${JSON.stringify(
+      {
+        name: "demo-app",
+        version: "0.1.0",
+        private: true,
+        scripts: {
+          build: "node -e \"process.stdout.write('build-ok')\"",
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  await harness.service.registerWorkspaceApp({
+    workspaceId: harness.workspaceId,
+    appId: "demo-app",
+  });
+
+  const built = await harness.service.buildWorkspaceApp({
+    workspaceId: harness.workspaceId,
+    appId: "demo-app",
+  }) as {
+    ok: boolean;
+    timed_out: boolean;
+    exit_code: number | null;
+    stdout: string;
+    command: string;
+    build_script: string | null;
+  };
+
+  assert.equal(built.ok, true);
+  assert.equal(built.timed_out, false);
+  assert.equal(built.exit_code, 0);
+  assert.equal(built.command, "npm run build");
+  assert.equal(built.build_script, "node -e \"process.stdout.write('build-ok')\"");
+  assert.match(built.stdout, /build-ok/);
+});
+
 test("ensureWorkspaceAppsRunning, restartWorkspaceApp, and waitUntilWorkspaceAppReady use managed lifecycle state", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-app-lifecycle-"));
   writeRuntimeConfig(root, {
@@ -1503,9 +1567,142 @@ test("ensureWorkspaceAppsRunning, restartWorkspaceApp, and waitUntilWorkspaceApp
       "stop:workspace-1:demo-app",
       "ensure:workspace-1:demo-app",
     ]);
+
+    const restartedAndWaited = await service.restartAndWaitUntilWorkspaceAppReady({
+      workspaceId,
+      appId: "demo-app",
+      timeoutMs: 1_000,
+      pollIntervalMs: 10,
+    }) as {
+      restarted: boolean;
+      ready: boolean;
+      timed_out: boolean;
+    };
+    assert.equal(restartedAndWaited.restarted, true);
+    assert.equal(restartedAndWaited.ready, true);
+    assert.equal(restartedAndWaited.timed_out, false);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("probeWorkspaceAppEndpoints checks managed UI and MCP surfaces deterministically", async () => {
+  await harness.service.scaffoldWorkspaceApp({
+    workspaceId: harness.workspaceId,
+    appId: "demo-app",
+    name: "Demo App",
+  });
+  await harness.service.registerWorkspaceApp({
+    workspaceId: harness.workspaceId,
+    appId: "demo-app",
+  });
+
+  const status = harness.service.getWorkspaceAppStatus({
+    workspaceId: harness.workspaceId,
+    appId: "demo-app",
+  }) as { ports: { http: number; mcp: number } | null };
+  assert.ok(status.ports);
+
+  const uiServer = await startStaticHttpServer((request, response) => {
+    if (request.url === "/") {
+      response.statusCode = 200;
+      response.setHeader("content-type", "text/html; charset=utf-8");
+      response.end("<html><body>demo app</body></html>");
+      return;
+    }
+    response.statusCode = 404;
+    response.end("not found");
+  }, status.ports!.http);
+
+  const mcpServer = await startStaticHttpServer((request, response) => {
+    if (request.method === "GET" && request.url === "/mcp/health") {
+      response.statusCode = 200;
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify({
+          ok: true,
+          transport: "http-sse",
+        }),
+      );
+      return;
+    }
+    if (request.method === "POST" && request.url === "/mcp/messages") {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
+      request.on("end", () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+          id?: string | number | null;
+          method?: string;
+        };
+        response.statusCode = 200;
+        response.setHeader("content-type", "application/json");
+        if (body.method === "initialize") {
+          response.end(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id ?? null,
+              result: {
+                protocolVersion: "2025-03-26",
+                capabilities: {
+                  tools: { listChanged: false },
+                },
+                serverInfo: {
+                  name: "demo-app",
+                  version: "0.1.0",
+                },
+              },
+            }),
+          );
+          return;
+        }
+        if (body.method === "tools/list") {
+          response.end(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id ?? null,
+              result: {
+                tools: [{ name: "demo_tool" }],
+              },
+            }),
+          );
+          return;
+        }
+        response.statusCode = 400;
+        response.end(JSON.stringify({ error: "unexpected method" }));
+      });
+      return;
+    }
+    response.statusCode = 404;
+    response.end("not found");
+  }, status.ports!.mcp);
+
+  try {
+    const probed = await harness.service.probeWorkspaceAppEndpoints({
+      workspaceId: harness.workspaceId,
+      appId: "demo-app",
+    }) as {
+      all_ok: boolean;
+      count: number;
+      checks: Array<{ check: string; ok: boolean; tool_count?: number | null }>;
+    };
+
+    assert.equal(probed.all_ok, true);
+    assert.equal(probed.count, 4);
+    assert.deepEqual(
+      probed.checks.map((entry) => entry.check),
+      ["ui", "mcp_health", "mcp_initialize", "mcp_tools_list"],
+    );
+    assert.ok(probed.checks.every((entry) => entry.ok === true));
+    assert.equal(
+      probed.checks.find((entry) => entry.check === "mcp_tools_list")?.tool_count,
+      1,
+    );
+  } finally {
+    await uiServer.close();
+    await mcpServer.close();
   }
 });
 

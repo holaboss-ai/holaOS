@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -23,10 +24,12 @@ import {
 } from "@holaboss/runtime-state-store";
 
 import { RUNTIME_AGENT_TOOL_DEFINITIONS as RUNTIME_AGENT_TOOL_BASE_DEFINITIONS } from "../../harnesses/src/runtime-agent-tools.js";
+import { buildAppSetupEnv } from "./app-setup-env.js";
 import { cronjobNextRunAt } from "./cron-worker.js";
 import { ensureWorkspaceDataDb } from "./ts-runner-session-state.js";
 import { generateWorkspaceImage } from "./image-generation.js";
 import { searchPublicWeb } from "./native-web-search.js";
+import { killChildProcess, spawnShellCommand } from "./runtime-shell.js";
 import { resolveSubagentExecutionProfile } from "./subagent-model.js";
 import {
   readSessionScratchpad,
@@ -51,6 +54,7 @@ import {
   listWorkspaceApplicationPorts,
   listWorkspaceApplications,
   parseInstalledAppRuntime,
+  resolveWorkspaceAppRuntime,
   updateWorkspaceApplications,
 } from "./workspace-apps.js";
 
@@ -59,6 +63,16 @@ type JsonObject = { [key: string]: JsonValue };
 
 const SUBAGENT_CANCEL_SETTLE_TIMEOUT_MS = 8_000;
 const SUBAGENT_CANCEL_SETTLE_POLL_INTERVAL_MS = 50;
+const WORKSPACE_APP_BUILD_TIMEOUT_MS = 180_000;
+const WORKSPACE_APP_PROBE_TIMEOUT_MS = 5_000;
+const WORKSPACE_APP_ENDPOINT_PROBE_CHECKS = [
+  "ui",
+  "mcp_health",
+  "mcp_initialize",
+  "mcp_tools_list",
+] as const;
+
+type WorkspaceAppEndpointProbeCheck = (typeof WORKSPACE_APP_ENDPOINT_PROBE_CHECKS)[number];
 
 export interface RuntimeAgentToolDefinition {
   id: string;
@@ -275,6 +289,12 @@ export interface RuntimeAgentToolsRegisterWorkspaceAppParams {
   configPath?: string | null;
 }
 
+export interface RuntimeAgentToolsBuildWorkspaceAppParams {
+  workspaceId: string;
+  appId: string;
+  timeoutMs?: number | null;
+}
+
 export interface RuntimeAgentToolsEnsureWorkspaceAppsRunningParams {
   workspaceId: string;
   appIds?: string[] | null;
@@ -283,6 +303,13 @@ export interface RuntimeAgentToolsEnsureWorkspaceAppsRunningParams {
 export interface RuntimeAgentToolsRestartWorkspaceAppParams {
   workspaceId: string;
   appId: string;
+}
+
+export interface RuntimeAgentToolsRestartAndWaitWorkspaceAppReadyParams {
+  workspaceId: string;
+  appId: string;
+  timeoutMs?: number | null;
+  pollIntervalMs?: number | null;
 }
 
 export interface RuntimeAgentToolsWaitUntilWorkspaceAppReadyParams {
@@ -300,6 +327,13 @@ export interface RuntimeAgentToolsGetWorkspaceAppStatusParams {
 export interface RuntimeAgentToolsGetWorkspaceAppPortsParams {
   workspaceId: string;
   appId?: string | null;
+}
+
+export interface RuntimeAgentToolsProbeWorkspaceAppEndpointsParams {
+  workspaceId: string;
+  appId: string;
+  checks?: string[] | null;
+  timeoutMs?: number | null;
 }
 
 export interface RuntimeAgentToolsDescribeDataTableParams {
@@ -1052,6 +1086,12 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS: RuntimeAgentToolDefinition[] = [
     description: runtimeToolBaseDefinition("workspace_apps_register").description
   },
   {
+    id: runtimeToolBaseDefinition("workspace_apps_build").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/workspace-apps/:appId/build",
+    description: runtimeToolBaseDefinition("workspace_apps_build").description
+  },
+  {
     id: runtimeToolBaseDefinition("workspace_apps_ensure_running").id,
     method: "POST",
     path: "/api/v1/capabilities/runtime-tools/workspace-apps/ensure-running",
@@ -1062,6 +1102,12 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS: RuntimeAgentToolDefinition[] = [
     method: "POST",
     path: "/api/v1/capabilities/runtime-tools/workspace-apps/:appId/restart",
     description: runtimeToolBaseDefinition("workspace_apps_restart").description
+  },
+  {
+    id: runtimeToolBaseDefinition("workspace_apps_restart_and_wait_ready").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/workspace-apps/:appId/restart-and-wait-ready",
+    description: runtimeToolBaseDefinition("workspace_apps_restart_and_wait_ready").description
   },
   {
     id: runtimeToolBaseDefinition("workspace_apps_wait_until_ready").id,
@@ -1080,6 +1126,12 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS: RuntimeAgentToolDefinition[] = [
     method: "GET",
     path: "/api/v1/capabilities/runtime-tools/workspace-apps/ports",
     description: runtimeToolBaseDefinition("workspace_apps_get_ports").description
+  },
+  {
+    id: runtimeToolBaseDefinition("workspace_apps_probe_endpoints").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/workspace-apps/:appId/probe-endpoints",
+    description: runtimeToolBaseDefinition("workspace_apps_probe_endpoints").description
   },
   {
     id: runtimeToolBaseDefinition("workspace_data_list_tables").id,
@@ -1164,6 +1216,129 @@ function normalizedStringList(value: unknown): string[] {
     .filter((item): item is string => typeof item === "string")
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+}
+
+function isWorkspaceAppEndpointProbeCheck(value: string): value is WorkspaceAppEndpointProbeCheck {
+  return (WORKSPACE_APP_ENDPOINT_PROBE_CHECKS as readonly string[]).includes(value);
+}
+
+async function runWorkspaceAppCommand(params: {
+  command: string;
+  cwd: string;
+  timeoutMs: number;
+}): Promise<{
+  command: string;
+  exitCode: number | null;
+  timedOut: boolean;
+  stdout: string;
+  stderr: string;
+}> {
+  const MAX_CAPTURE_BYTES = 128 * 1024;
+  return await new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const child = spawnShellCommand(spawn, params.command, {
+      cwd: params.cwd,
+      env: buildAppSetupEnv(params.cwd),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const timeoutHandle = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      killChildProcess(child, "SIGKILL");
+      resolve({
+        command: params.command,
+        exitCode: null,
+        timedOut: true,
+        stdout,
+        stderr,
+      });
+    }, params.timeoutMs);
+
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      if (stdout.length >= MAX_CAPTURE_BYTES) {
+        return;
+      }
+      const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+      stdout = `${stdout}${text}`.slice(0, MAX_CAPTURE_BYTES);
+    });
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      if (stderr.length >= MAX_CAPTURE_BYTES) {
+        return;
+      }
+      const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+      stderr = `${stderr}${text}`.slice(0, MAX_CAPTURE_BYTES);
+    });
+    child.on("error", (error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutHandle);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutHandle);
+      resolve({
+        command: params.command,
+        exitCode: code,
+        timedOut: false,
+        stdout,
+        stderr,
+      });
+    });
+  });
+}
+
+async function fetchWorkspaceAppProbe(params: {
+  url: string;
+  method?: "GET" | "POST";
+  timeoutMs: number;
+  headers?: Record<string, string>;
+  body?: string;
+}): Promise<{
+  ok: boolean;
+  statusCode: number;
+  contentType: string;
+  bodyText: string;
+  jsonBody: unknown | null;
+}> {
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), params.timeoutMs);
+  try {
+    const response = await fetch(params.url, {
+      method: params.method ?? "GET",
+      headers: params.headers,
+      body: params.body,
+      signal: controller.signal,
+    });
+    const contentType = response.headers.get("content-type") ?? "";
+    const bodyText = (await response.text()).slice(0, 8_000);
+    let jsonBody: unknown | null = null;
+    if (contentType.toLowerCase().includes("application/json")) {
+      try {
+        jsonBody = JSON.parse(bodyText);
+      } catch {
+        jsonBody = null;
+      }
+    }
+    return {
+      ok: response.ok,
+      statusCode: response.status,
+      contentType,
+      bodyText,
+      jsonBody,
+    };
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
 }
 
 function normalizeLineEndings(value: string): string {
@@ -4022,6 +4197,84 @@ export class RuntimeAgentToolsService {
     };
   }
 
+  async buildWorkspaceApp(
+    params: RuntimeAgentToolsBuildWorkspaceAppParams,
+  ): Promise<JsonObject> {
+    this.requireWorkspace(params.workspaceId);
+    const appId = sanitizeWorkspaceAppId(params.appId);
+    this.requireRegisteredWorkspaceApp({ workspaceId: params.workspaceId, appId });
+    const workspaceDir = path.join(this.options.workspaceRoot, params.workspaceId);
+    const resolved = resolveWorkspaceAppRuntime(workspaceDir, appId, {
+      store: this.store,
+      workspaceId: params.workspaceId,
+      allocatePorts: true,
+    });
+    const packageJsonPath = path.join(resolved.appDir, "package.json");
+    if (!existsSync(packageJsonPath)) {
+      throw new RuntimeAgentToolsServiceError(
+        404,
+        "workspace_app_package_not_found",
+        `package.json not found for app '${appId}'`,
+      );
+    }
+
+    let packageJson: unknown;
+    try {
+      packageJson = JSON.parse(await fs.readFile(packageJsonPath, "utf8"));
+    } catch (error) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "workspace_app_package_invalid",
+        error instanceof Error ? error.message : "invalid package.json",
+      );
+    }
+
+    const buildScript =
+      isRecord(packageJson) && isRecord(packageJson.scripts) && typeof packageJson.scripts.build === "string"
+        ? packageJson.scripts.build.trim()
+        : "";
+    const appDirRelative = path.relative(workspaceDir, resolved.appDir).replace(/\\/g, "/");
+    if (!buildScript) {
+      return {
+        workspace_id: params.workspaceId,
+        app_id: appId,
+        app_dir: appDirRelative,
+        package_json_path: `${appDirRelative}/package.json`,
+        build_script: null,
+        command: null,
+        skipped: true,
+        reason: "no_build_script",
+        ok: true,
+      };
+    }
+
+    const timeoutMs = normalizedInteger(
+      params.timeoutMs ?? WORKSPACE_APP_BUILD_TIMEOUT_MS,
+      WORKSPACE_APP_BUILD_TIMEOUT_MS,
+      1_000,
+      900_000,
+    );
+    const result = await runWorkspaceAppCommand({
+      command: "npm run build",
+      cwd: resolved.appDir,
+      timeoutMs,
+    });
+    return {
+      workspace_id: params.workspaceId,
+      app_id: appId,
+      app_dir: appDirRelative,
+      package_json_path: `${appDirRelative}/package.json`,
+      build_script: buildScript,
+      command: result.command,
+      timeout_ms: timeoutMs,
+      exit_code: result.exitCode,
+      timed_out: result.timedOut,
+      ok: !result.timedOut && (result.exitCode ?? 1) === 0,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
+  }
+
   getWorkspaceAppStatus(
     params: RuntimeAgentToolsGetWorkspaceAppStatusParams,
   ): JsonObject {
@@ -4167,6 +4420,26 @@ export class RuntimeAgentToolsService {
     };
   }
 
+  async restartAndWaitUntilWorkspaceAppReady(
+    params: RuntimeAgentToolsRestartAndWaitWorkspaceAppReadyParams,
+  ): Promise<JsonObject> {
+    const appId = sanitizeWorkspaceAppId(params.appId);
+    await this.restartWorkspaceApp({
+      workspaceId: params.workspaceId,
+      appId,
+    });
+    const waited = await this.waitUntilWorkspaceAppReady({
+      workspaceId: params.workspaceId,
+      appId,
+      timeoutMs: params.timeoutMs,
+      pollIntervalMs: params.pollIntervalMs,
+    });
+    return {
+      ...(waited as JsonObject),
+      restarted: true,
+    };
+  }
+
   async waitUntilWorkspaceAppReady(
     params: RuntimeAgentToolsWaitUntilWorkspaceAppReadyParams,
   ): Promise<JsonObject> {
@@ -4208,6 +4481,158 @@ export class RuntimeAgentToolsService {
       timed_out: true,
       polls,
       elapsed_ms: Date.now() - startedAt,
+    };
+  }
+
+  async probeWorkspaceAppEndpoints(
+    params: RuntimeAgentToolsProbeWorkspaceAppEndpointsParams,
+  ): Promise<JsonObject> {
+    this.requireWorkspace(params.workspaceId);
+    const appId = sanitizeWorkspaceAppId(params.appId);
+    this.requireRegisteredWorkspaceApp({ workspaceId: params.workspaceId, appId });
+    const requestedChecks = normalizedStringList(params.checks);
+    const invalidChecks = requestedChecks.filter((value) => !isWorkspaceAppEndpointProbeCheck(value));
+    if (invalidChecks.length > 0) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "workspace_app_probe_invalid_checks",
+        `unsupported checks: ${invalidChecks.join(", ")}`,
+      );
+    }
+    const checks = (
+      requestedChecks.length > 0
+        ? requestedChecks
+        : [...WORKSPACE_APP_ENDPOINT_PROBE_CHECKS]
+    ) as WorkspaceAppEndpointProbeCheck[];
+    const timeoutMs = normalizedInteger(
+      params.timeoutMs ?? WORKSPACE_APP_PROBE_TIMEOUT_MS,
+      WORKSPACE_APP_PROBE_TIMEOUT_MS,
+      100,
+      60_000,
+    );
+    const workspaceDir = path.join(this.options.workspaceRoot, params.workspaceId);
+    const resolved = resolveWorkspaceAppRuntime(workspaceDir, appId, {
+      store: this.store,
+      workspaceId: params.workspaceId,
+      allocatePorts: true,
+    });
+    const uiBaseUrl = `http://127.0.0.1:${resolved.ports.http}`;
+    const mcpBaseUrl = `http://127.0.0.1:${resolved.ports.mcp}`;
+    const currentStatus = this.getWorkspaceAppStatus({
+      workspaceId: params.workspaceId,
+      appId,
+    });
+    const results: JsonObject[] = [];
+
+    for (const check of checks) {
+      try {
+        if (check === "ui") {
+          const probe = await fetchWorkspaceAppProbe({
+            url: `${uiBaseUrl}/`,
+            timeoutMs,
+          });
+          results.push({
+            check,
+            ok: probe.ok,
+            url: `${uiBaseUrl}/`,
+            method: "GET",
+            status_code: probe.statusCode,
+            content_type: probe.contentType,
+            body_excerpt: probe.bodyText.slice(0, 500),
+          });
+          continue;
+        }
+
+        if (check === "mcp_health") {
+          const probe = await fetchWorkspaceAppProbe({
+            url: `${mcpBaseUrl}/mcp/health`,
+            timeoutMs,
+          });
+          results.push({
+            check,
+            ok: probe.ok,
+            url: `${mcpBaseUrl}/mcp/health`,
+            method: "GET",
+            status_code: probe.statusCode,
+            content_type: probe.contentType,
+            body: probe.jsonBody && isRecord(probe.jsonBody)
+              ? (probe.jsonBody as JsonObject)
+              : probe.bodyText.slice(0, 500),
+          });
+          continue;
+        }
+
+        if (check === "mcp_initialize" || check === "mcp_tools_list") {
+          const body =
+            check === "mcp_initialize"
+              ? {
+                  jsonrpc: "2.0",
+                  id: "probe-initialize",
+                  method: "initialize",
+                  params: {
+                    protocolVersion: "2025-03-26",
+                    capabilities: {},
+                    clientInfo: {
+                      name: "runtime-agent-tools",
+                      version: "0.1.0",
+                    },
+                  },
+                }
+              : {
+                  jsonrpc: "2.0",
+                  id: "probe-tools-list",
+                  method: "tools/list",
+                  params: {},
+                };
+          const probe = await fetchWorkspaceAppProbe({
+            url: `${mcpBaseUrl}/mcp/messages`,
+            method: "POST",
+            timeoutMs,
+            headers: {
+              "content-type": "application/json",
+            },
+            body: JSON.stringify(body),
+          });
+          const json = probe.jsonBody;
+          const toolCount =
+            check === "mcp_tools_list" &&
+              isRecord(json) &&
+              isRecord(json.result) &&
+              Array.isArray(json.result.tools)
+              ? json.result.tools.length
+              : null;
+          results.push({
+            check,
+            ok: probe.ok,
+            url: `${mcpBaseUrl}/mcp/messages`,
+            method: "POST",
+            status_code: probe.statusCode,
+            content_type: probe.contentType,
+            tool_count: toolCount,
+            body: json && isRecord(json) ? (json as JsonObject) : probe.bodyText.slice(0, 500),
+          });
+        }
+      } catch (error) {
+        results.push({
+          check,
+          ok: false,
+          error: error instanceof Error ? error.message : "probe failed",
+        });
+      }
+    }
+
+    return {
+      workspace_id: params.workspaceId,
+      app_id: appId,
+      timeout_ms: timeoutMs,
+      ports: {
+        http: resolved.ports.http,
+        mcp: resolved.ports.mcp,
+      },
+      checks: results,
+      all_ok: results.every((entry) => entry.ok === true),
+      count: results.length,
+      status: currentStatus,
     };
   }
 

@@ -5415,6 +5415,33 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   );
 
   app.post(
+    "/api/v1/capabilities/runtime-tools/workspace-apps/:appId/build",
+    async (request, reply) => {
+      const params = request.params as { appId: string };
+      const body = isRecord(request.body) ? request.body : {};
+      try {
+        return await runtimeAgentToolsService.buildWorkspaceApp({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }),
+          appId: requiredString(params.appId, "appId"),
+          timeoutMs: typeof body.timeout_ms === "number" ? body.timeout_ms : undefined,
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_apps_build failed",
+        );
+      }
+    },
+  );
+
+  app.post(
     "/api/v1/capabilities/runtime-tools/workspace-apps/:appId/restart",
     async (request, reply) => {
       const params = request.params as { appId: string };
@@ -5435,6 +5462,35 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           reply,
           400,
           error instanceof Error ? error.message : "workspace_apps_restart failed",
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/v1/capabilities/runtime-tools/workspace-apps/:appId/restart-and-wait-ready",
+    async (request, reply) => {
+      const params = request.params as { appId: string };
+      const body = isRecord(request.body) ? request.body : {};
+      try {
+        return await runtimeAgentToolsService.restartAndWaitUntilWorkspaceAppReady({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }),
+          appId: requiredString(params.appId, "appId"),
+          timeoutMs: typeof body.timeout_ms === "number" ? body.timeout_ms : undefined,
+          pollIntervalMs:
+            typeof body.poll_interval_ms === "number" ? body.poll_interval_ms : undefined,
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_apps_restart_and_wait_ready failed",
         );
       }
     },
@@ -5464,6 +5520,36 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           reply,
           400,
           error instanceof Error ? error.message : "workspace_apps_wait_until_ready failed",
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/v1/capabilities/runtime-tools/workspace-apps/:appId/probe-endpoints",
+    async (request, reply) => {
+      const params = request.params as { appId: string };
+      const body = isRecord(request.body) ? request.body : {};
+      try {
+        return await runtimeAgentToolsService.probeWorkspaceAppEndpoints({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }),
+          appId: requiredString(params.appId, "appId"),
+          checks: Array.isArray(body.checks)
+            ? body.checks.filter((value): value is string => typeof value === "string")
+            : undefined,
+          timeoutMs: typeof body.timeout_ms === "number" ? body.timeout_ms : undefined,
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_apps_probe_endpoints failed",
         );
       }
     },

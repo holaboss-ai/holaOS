@@ -701,6 +701,24 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         required: ["app_id"],
         additionalProperties: false,
       };
+    case "workspace_apps_build":
+      return {
+        type: "object",
+        properties: {
+          app_id: {
+            type: "string",
+            description: "Registered workspace app id to build from its app directory.",
+          },
+          timeout_ms: {
+            type: "integer",
+            description:
+              "Optional build timeout in milliseconds. Defaults to a reasonable managed-app build timeout.",
+            minimum: 1,
+          },
+        },
+        required: ["app_id"],
+        additionalProperties: false,
+      };
     case "workspace_apps_ensure_running":
       return {
         type: "object",
@@ -719,6 +737,28 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         type: "object",
         properties: {
           app_id: { type: "string", description: "Registered workspace app id to restart." },
+        },
+        required: ["app_id"],
+        additionalProperties: false,
+      };
+    case "workspace_apps_restart_and_wait_ready":
+      return {
+        type: "object",
+        properties: {
+          app_id: {
+            type: "string",
+            description: "Registered workspace app id to restart and wait on.",
+          },
+          timeout_ms: {
+            type: "integer",
+            description: "Maximum time to wait before returning with `timed_out=true`.",
+            minimum: 1,
+          },
+          poll_interval_ms: {
+            type: "integer",
+            description: "Polling interval between status checks while waiting for readiness.",
+            minimum: 1,
+          },
         },
         required: ["app_id"],
         additionalProperties: false,
@@ -764,6 +804,32 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
               "Optional registered workspace app id. Omit to list deterministic HTTP and MCP ports for every registered app.",
           },
         },
+        additionalProperties: false,
+      };
+    case "workspace_apps_probe_endpoints":
+      return {
+        type: "object",
+        properties: {
+          app_id: {
+            type: "string",
+            description: "Registered workspace app id whose managed endpoints should be probed.",
+          },
+          checks: {
+            type: "array",
+            description:
+              "Optional subset of deterministic endpoint checks. Defaults to `ui`, `mcp_health`, `mcp_initialize`, and `mcp_tools_list`.",
+            items: {
+              type: "string",
+              enum: ["ui", "mcp_health", "mcp_initialize", "mcp_tools_list"],
+            },
+          },
+          timeout_ms: {
+            type: "integer",
+            description: "Per-request timeout in milliseconds for each endpoint probe.",
+            minimum: 1,
+          },
+        },
+        required: ["app_id"],
         additionalProperties: false,
       };
     case "workspace_data_list_tables":

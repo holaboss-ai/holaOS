@@ -184,6 +184,12 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     policy: "mutate"
   },
   {
+    id: "workspace_apps_build",
+    description:
+      "Run a deterministic managed build step for one registered workspace app by invoking its `package.json` build script from the app directory and returning structured stdout, stderr, and exit status.",
+    policy: "mutate"
+  },
+  {
     id: "workspace_apps_ensure_running",
     description:
       "Start all registered workspace apps, or a selected subset, through the managed holaOS runtime lifecycle instead of using an unmanaged preview server.",
@@ -193,6 +199,12 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     id: "workspace_apps_restart",
     description:
       "Restart one managed workspace app through the holaOS runtime after code or config changes so the managed app surface serves fresh code.",
+    policy: "mutate"
+  },
+  {
+    id: "workspace_apps_restart_and_wait_ready",
+    description:
+      "Restart one managed workspace app and then wait until runtime truth reports `ready: true`, returning the final structured managed status in one deterministic step.",
     policy: "mutate"
   },
   {
@@ -211,6 +223,12 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     id: "workspace_apps_get_ports",
     description:
       "Read the runtime-managed HTTP and MCP ports for one registered workspace app, or for all workspace apps, using the workspace's deterministic port allocation.",
+    policy: "inspect"
+  },
+  {
+    id: "workspace_apps_probe_endpoints",
+    description:
+      "Probe the managed UI and MCP endpoints for one registered workspace app using deterministic fetches instead of ad hoc curl or browser verification. Supports `ui`, `mcp_health`, `mcp_initialize`, and `mcp_tools_list` checks.",
     policy: "inspect"
   },
   {

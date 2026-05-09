@@ -434,6 +434,13 @@ function createWorkspaceAppRegisterBody(toolParams: unknown): Record<string, unk
   };
 }
 
+function createWorkspaceAppBuildBody(toolParams: unknown): Record<string, unknown> {
+  const params = isRecord(toolParams) ? toolParams : {};
+  return {
+    ...(typeof params.timeout_ms === "number" ? { timeout_ms: params.timeout_ms } : {}),
+  };
+}
+
 function createWorkspaceAppsEnsureRunningBody(toolParams: unknown): Record<string, unknown> {
   const params = isRecord(toolParams) ? toolParams : {};
   return {
@@ -448,6 +455,14 @@ function createWorkspaceAppWaitUntilReadyBody(toolParams: unknown): Record<strin
     ...(typeof params.poll_interval_ms === "number"
       ? { poll_interval_ms: params.poll_interval_ms }
       : {}),
+  };
+}
+
+function createWorkspaceAppProbeEndpointsBody(toolParams: unknown): Record<string, unknown> {
+  const params = isRecord(toolParams) ? toolParams : {};
+  return {
+    ...(optionalStringArray(params.checks) ? { checks: optionalStringArray(params.checks) } : {}),
+    ...(typeof params.timeout_ms === "number" ? { timeout_ms: params.timeout_ms } : {}),
   };
 }
 
@@ -679,6 +694,12 @@ function requestPlan(
         requestPath: `${RUNTIME_TOOLS_WORKSPACE_APPS_PATH}/register`,
         body: createWorkspaceAppRegisterBody(toolParams),
       };
+    case "workspace_apps_build":
+      return {
+        method: "POST",
+        requestPath: `${workspaceAppPath(isRecord(toolParams) ? toolParams.app_id : undefined)}/build`,
+        body: createWorkspaceAppBuildBody(toolParams),
+      };
     case "workspace_apps_ensure_running":
       return {
         method: "POST",
@@ -690,6 +711,12 @@ function requestPlan(
         method: "POST",
         requestPath: `${workspaceAppPath(isRecord(toolParams) ? toolParams.app_id : undefined)}/restart`,
         body: {},
+      };
+    case "workspace_apps_restart_and_wait_ready":
+      return {
+        method: "POST",
+        requestPath: `${workspaceAppPath(isRecord(toolParams) ? toolParams.app_id : undefined)}/restart-and-wait-ready`,
+        body: createWorkspaceAppWaitUntilReadyBody(toolParams),
       };
     case "workspace_apps_wait_until_ready":
       return {
@@ -706,6 +733,12 @@ function requestPlan(
       return {
         method: "GET",
         requestPath: workspaceAppPortsPath(toolParams),
+      };
+    case "workspace_apps_probe_endpoints":
+      return {
+        method: "POST",
+        requestPath: `${workspaceAppPath(isRecord(toolParams) ? toolParams.app_id : undefined)}/probe-endpoints`,
+        body: createWorkspaceAppProbeEndpointsBody(toolParams),
       };
     case "workspace_data_list_tables": {
       const params = isRecord(toolParams) ? toolParams : {};

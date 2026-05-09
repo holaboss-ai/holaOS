@@ -27,10 +27,13 @@ This includes requests for dashboards, trackers, analytics surfaces, CSV visuali
 When these runtime tools are surfaced for the current run, prefer them over hand-written platform glue:
 - `workspace_apps_scaffold` for the minimum valid app skeleton
 - `workspace_apps_register` for `workspace.yaml` registration
+- `workspace_apps_build` for deterministic `package.json` build verification instead of ad hoc shell
 - `workspace_apps_ensure_running` to hand the app to the managed runtime
 - `workspace_apps_restart` after changing files for an already-running app
+- `workspace_apps_restart_and_wait_ready` when you want one managed restart + readiness step
 - `workspace_apps_wait_until_ready` to verify runtime truth instead of a preview tab
 - `workspace_apps_get_status` and `workspace_apps_get_ports` for managed app inspection
+- `workspace_apps_probe_endpoints` for deterministic managed UI/MCP endpoint checks instead of raw `curl`
 - `workspace_data_list_tables`, `workspace_data_describe_table`, and `workspace_data_sample_rows` for shared data discovery
 
 These tools are for workspace-contract operations. Keep app-specific UI, workflows, and domain logic model-driven.
@@ -42,10 +45,10 @@ Follow this sequence for both new apps and updates to existing apps:
 3. Scaffold the minimum valid app shape or edit the existing app files.
 4. Add only the capabilities the request actually needs.
 5. Register the app or update its workspace registration.
-6. If the app was already running, restart the managed app so the active process picks up the new code.
-7. Ensure the workspace runtime is actually running the managed app after registration or restart.
-8. Wait until runtime truth reports the app as `ready: true`.
-9. Verify the managed UI, MCP, data access, integrations, and outputs that the request depends on.
+6. Run `workspace_apps_build` when a deterministic build script exists instead of relying on ad hoc shell output.
+7. If the app was already running, prefer `workspace_apps_restart_and_wait_ready`; otherwise ensure the managed runtime is running it.
+8. Wait until runtime truth reports the app as `ready: true` if you did not already use the compound restart-and-wait tool.
+9. Verify the managed UI, MCP, data access, integrations, and outputs that the request depends on. Prefer `workspace_apps_probe_endpoints` for UI/MCP contract checks.
 10. Only then report that the app is installed, updated, or working.
 
 Do not treat file creation, `npm install`, or a standalone browser preview as completion.
