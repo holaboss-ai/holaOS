@@ -4,6 +4,7 @@ import {
   Copy,
   FolderKanban,
   Home,
+  LayoutGrid,
   Loader2,
   Minus,
   Plus,
@@ -321,14 +322,14 @@ export function TopTabsBar({
                   <Button
                     variant="bordered"
                     size="icon-sm"
-                    aria-label="Show all workspaces"
+                    aria-label="Open control center"
                     onClick={() => onOpenControlCenter?.()}
                   >
-                    <Home />
+                    <LayoutGrid />
                   </Button>
                 }
               />
-              <TooltipContent side="bottom">Show all workspaces</TooltipContent>
+              <TooltipContent side="bottom">Control center</TooltipContent>
             </Tooltip>
           ) : (
             <Tooltip>
