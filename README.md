@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/platform-macOS%20supported,%20Windows%20%26%20Linux%20in%20progress-f28c28" alt="macOS supported, Windows and Linux in progress" />
   <img src="https://img.shields.io/badge/desktop-Electron-47848f" alt="Electron desktop" />
   <img src="https://img.shields.io/badge/runtime-TypeScript-3178c6" alt="TypeScript runtime" />
-  <img src="https://img.shields.io/badge/license-MIT-0f7ae5" alt="MIT license" />
+  <img src="https://img.shields.io/badge/license-Modified%20Apache%202.0-0f7ae5" alt="Modified Apache 2.0 license" />
 </p>
 
 <p align="center">
@@ -173,5 +173,5 @@ If you want to contribute, start with [Start Developing](https://www.holaos.ai/d
 
 ## OSS Release Notes
 
-- License: MIT. See [LICENSE](LICENSE).
+- License: modified Apache 2.0 with additional commercial-distribution and branding conditions. See [LICENSE](LICENSE).
 - Security issues: report privately to `admin@holaboss.ai`. See [SECURITY.md](SECURITY.md).
