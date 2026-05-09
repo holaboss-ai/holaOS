@@ -216,13 +216,13 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
   {
     id: "workspace_apps_get_status",
     description:
-      "Read runtime truth for one registered workspace app, or list all registered apps, including build status, readiness, config path, and current error state.",
+      "Read runtime truth for one registered workspace app, or list all registered apps, including build status, readiness, ports, runtime contract details, revision hints, config path, and current error state.",
     policy: "inspect"
   },
   {
     id: "workspace_apps_get_ports",
     description:
-      "Read the runtime-managed HTTP and MCP ports for one registered workspace app, or for all workspace apps, using the workspace's deterministic port allocation.",
+      "Legacy helper for reading runtime-managed HTTP and MCP ports. Prefer `workspace_apps_get_status`, which already includes ports along with readiness, revision, and runtime contract details.",
     policy: "inspect"
   },
   {

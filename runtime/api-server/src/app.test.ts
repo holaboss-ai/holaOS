@@ -972,6 +972,10 @@ test("workspace app capability routes scaffold, register, and inspect a managed 
     assert.equal(status.json().app_id, "demo-app");
     assert.equal(status.json().build_status, "pending");
     assert.equal(status.json().ready, false);
+    assert.equal(status.json().runtime_contract?.mcp?.sse_path, "/mcp/sse");
+    assert.equal(status.json().runtime_contract?.mcp?.message_path, "/mcp/messages");
+    assert.equal(status.json().runtime_contract?.healthcheck?.path, "/mcp/health");
+    assert.equal(typeof status.json().revision?.source_updated_at, "string");
 
     const ports = await app.inject({
       method: "GET",
@@ -1055,6 +1059,30 @@ test("workspace app capability routes restart-and-wait and probe managed endpoin
         app_id: "demo-app",
       },
     });
+    fs.writeFileSync(
+      path.join(workspaceRoot, "workspace-1", "apps", "demo-app", "app.runtime.yaml"),
+      `app_id: demo-app
+name: Demo App
+slug: demo-app
+lifecycle:
+  setup: npm install
+  start: npm run start
+healthchecks:
+  api:
+    path: /ready
+    timeout_s: 30
+    interval_s: 5
+mcp:
+  transport: http-sse
+  port: 13100
+  path: /transport/sse
+  tools:
+    - demo_tool
+env_contract:
+  - HOLABOSS_WORKSPACE_ID
+`,
+      "utf8",
+    );
 
     store.upsertAppBuild({
       workspaceId: "workspace-1",
@@ -1094,18 +1122,18 @@ test("workspace app capability routes restart-and-wait and probe managed endpoin
         response.end("<html><body>route probe</body></html>");
         return;
       }
+      if (request.url === "/ready") {
+        response.statusCode = 200;
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ ok: true, message_path: "/transport/messages" }));
+        return;
+      }
       response.statusCode = 404;
       response.end("not found");
     }, { port: resolved.ports.http });
 
     mcpServer = await startStaticHttpServer((request, response) => {
-      if (request.method === "GET" && request.url === "/mcp/health") {
-        response.statusCode = 200;
-        response.setHeader("content-type", "application/json");
-        response.end(JSON.stringify({ ok: true, transport: "http-sse" }));
-        return;
-      }
-      if (request.method === "POST" && request.url === "/mcp/messages") {
+      if (request.method === "POST" && request.url === "/transport/messages") {
         const chunks: Buffer[] = [];
         request.on("data", (chunk) => {
           chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
@@ -1167,6 +1195,14 @@ test("workspace app capability routes restart-and-wait and probe managed endpoin
       probed.json().checks.find((entry: { check: string }) => entry.check === "mcp_tools_list")
         ?.tool_count,
       2,
+    );
+    assert.equal(
+      probed.json().checks.find((entry: { check: string }) => entry.check === "mcp_health")?.url,
+      `http://127.0.0.1:${resolved.ports.http}/ready`,
+    );
+    assert.equal(
+      probed.json().checks.find((entry: { check: string }) => entry.check === "mcp_initialize")?.url,
+      `http://127.0.0.1:${resolved.ports.mcp}/transport/messages`,
     );
   } finally {
     await uiServer?.close();

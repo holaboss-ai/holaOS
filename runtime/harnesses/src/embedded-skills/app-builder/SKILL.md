@@ -32,7 +32,8 @@ When these runtime tools are surfaced for the current run, prefer them over hand
 - `workspace_apps_restart` after changing files for an already-running app
 - `workspace_apps_restart_and_wait_ready` when you want one managed restart + readiness step
 - `workspace_apps_wait_until_ready` to verify runtime truth instead of a preview tab
-- `workspace_apps_get_status` and `workspace_apps_get_ports` for managed app inspection
+- `workspace_apps_get_status` as the primary managed app inspection tool because it includes readiness, ports, runtime contract, and revision hints
+- `workspace_apps_get_ports` only when a legacy caller needs ports alone
 - `workspace_apps_probe_endpoints` for deterministic managed UI/MCP endpoint checks instead of raw `curl`
 - `workspace_data_list_tables`, `workspace_data_describe_table`, and `workspace_data_sample_rows` for shared data discovery
 

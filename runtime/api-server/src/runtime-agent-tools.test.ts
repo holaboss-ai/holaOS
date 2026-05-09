@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test, { afterEach, beforeEach } from "node:test";
 import { once } from "node:events";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import Database from "better-sqlite3";
 import { load as parseYaml } from "js-yaml";
@@ -1398,6 +1399,15 @@ test("scaffoldWorkspaceApp and registerWorkspaceApp create a minimal managed app
     ready: boolean;
     config_path: string;
     ports: { http: number; mcp: number } | null;
+    runtime_contract: {
+      mcp: { sse_path: string; message_path: string; tools_declared: string[] };
+      healthcheck: { path: string; target: string };
+    } | null;
+    revision: {
+      source_updated_at: string | null;
+      build_record_created_at: string | null;
+      managed_runtime_stale: boolean | null;
+    };
   };
   assert.equal(status.build_status, "pending");
   assert.equal(status.ready, false);
@@ -1405,6 +1415,13 @@ test("scaffoldWorkspaceApp and registerWorkspaceApp create a minimal managed app
   assert.ok(status.ports);
   assert.equal(typeof status.ports?.http, "number");
   assert.equal(typeof status.ports?.mcp, "number");
+  assert.equal(status.runtime_contract?.mcp.sse_path, "/mcp/sse");
+  assert.equal(status.runtime_contract?.mcp.message_path, "/mcp/messages");
+  assert.equal(status.runtime_contract?.healthcheck.path, "/mcp/health");
+  assert.equal(status.runtime_contract?.healthcheck.target, "mcp");
+  assert.equal(typeof status.revision.source_updated_at, "string");
+  assert.equal(status.revision.build_record_created_at, null);
+  assert.equal(status.revision.managed_runtime_stale, null);
 
   const ports = harness.service.getWorkspaceAppPorts({
     workspaceId: harness.workspaceId,
@@ -1581,6 +1598,24 @@ test("ensureWorkspaceAppsRunning, restartWorkspaceApp, and waitUntilWorkspaceApp
     assert.equal(restartedAndWaited.restarted, true);
     assert.equal(restartedAndWaited.ready, true);
     assert.equal(restartedAndWaited.timed_out, false);
+
+    await sleep(20);
+    fs.appendFileSync(
+      path.join(workspaceRoot, workspaceId, "apps", "demo-app", "src", "server.ts"),
+      "\n// stale after runtime start\n",
+      "utf8",
+    );
+    const staleStatus = service.getWorkspaceAppStatus({
+      workspaceId,
+      appId: "demo-app",
+    }) as {
+      ready: boolean;
+      revision: { managed_runtime_stale: boolean | null; source_updated_at: string | null; last_ready_at: string | null };
+    };
+    assert.equal(staleStatus.ready, true);
+    assert.equal(staleStatus.revision.managed_runtime_stale, true);
+    assert.equal(typeof staleStatus.revision.source_updated_at, "string");
+    assert.equal(typeof staleStatus.revision.last_ready_at, "string");
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });
@@ -1593,6 +1628,30 @@ test("probeWorkspaceAppEndpoints checks managed UI and MCP surfaces deterministi
     appId: "demo-app",
     name: "Demo App",
   });
+  fs.writeFileSync(
+    path.join(harness.workspaceDir, "apps", "demo-app", "app.runtime.yaml"),
+    `app_id: demo-app
+name: Demo App
+slug: demo-app
+lifecycle:
+  setup: npm install
+  start: npm run start
+healthchecks:
+  api:
+    path: /ready
+    timeout_s: 30
+    interval_s: 5
+mcp:
+  transport: http-sse
+  port: 13100
+  path: /transport/sse
+  tools:
+    - demo_tool
+env_contract:
+  - HOLABOSS_WORKSPACE_ID
+`,
+    "utf8",
+  );
   await harness.service.registerWorkspaceApp({
     workspaceId: harness.workspaceId,
     appId: "demo-app",
@@ -1611,23 +1670,18 @@ test("probeWorkspaceAppEndpoints checks managed UI and MCP surfaces deterministi
       response.end("<html><body>demo app</body></html>");
       return;
     }
+    if (request.url === "/ready") {
+      response.statusCode = 200;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ ok: true, message_path: "/transport/messages" }));
+      return;
+    }
     response.statusCode = 404;
     response.end("not found");
   }, status.ports!.http);
 
   const mcpServer = await startStaticHttpServer((request, response) => {
-    if (request.method === "GET" && request.url === "/mcp/health") {
-      response.statusCode = 200;
-      response.setHeader("content-type", "application/json");
-      response.end(
-        JSON.stringify({
-          ok: true,
-          transport: "http-sse",
-        }),
-      );
-      return;
-    }
-    if (request.method === "POST" && request.url === "/mcp/messages") {
+    if (request.method === "POST" && request.url === "/transport/messages") {
       const chunks: Buffer[] = [];
       request.on("data", (chunk) => {
         chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
@@ -1686,7 +1740,7 @@ test("probeWorkspaceAppEndpoints checks managed UI and MCP surfaces deterministi
     }) as {
       all_ok: boolean;
       count: number;
-      checks: Array<{ check: string; ok: boolean; tool_count?: number | null }>;
+      checks: Array<{ check: string; ok: boolean; tool_count?: number | null; url?: string }>;
     };
 
     assert.equal(probed.all_ok, true);
@@ -1699,6 +1753,14 @@ test("probeWorkspaceAppEndpoints checks managed UI and MCP surfaces deterministi
     assert.equal(
       probed.checks.find((entry) => entry.check === "mcp_tools_list")?.tool_count,
       1,
+    );
+    assert.equal(
+      probed.checks.find((entry) => entry.check === "mcp_health")?.url,
+      `http://127.0.0.1:${status.ports!.http}/ready`,
+    );
+    assert.equal(
+      probed.checks.find((entry) => entry.check === "mcp_initialize")?.url,
+      `http://127.0.0.1:${status.ports!.mcp}/transport/messages`,
     );
   } finally {
     await uiServer.close();

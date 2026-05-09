@@ -789,7 +789,7 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
           app_id: {
             type: "string",
             description:
-              "Optional registered workspace app id. Omit to list status for every registered app.",
+              "Optional registered workspace app id. Omit to list status for every registered app. This is the primary inspection surface for readiness, ports, runtime contract, and revision hints.",
           },
         },
         additionalProperties: false,
@@ -801,7 +801,7 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
           app_id: {
             type: "string",
             description:
-              "Optional registered workspace app id. Omit to list deterministic HTTP and MCP ports for every registered app.",
+              "Optional registered workspace app id. Legacy helper: prefer `workspace_apps_get_status`, which already returns deterministic HTTP and MCP ports.",
           },
         },
         additionalProperties: false,

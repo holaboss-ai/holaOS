@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -10,6 +10,7 @@ import yaml from "js-yaml";
 
 import {
   type AgentSessionRecord,
+  type AppBuildRecord,
   type SessionInputRecord,
   type SessionRuntimeStateRecord,
   type SubagentRunRecord,
@@ -1220,6 +1221,104 @@ function normalizedStringList(value: unknown): string[] {
 
 function isWorkspaceAppEndpointProbeCheck(value: string): value is WorkspaceAppEndpointProbeCheck {
   return (WORKSPACE_APP_ENDPOINT_PROBE_CHECKS as readonly string[]).includes(value);
+}
+
+function latestIsoTimestamp(values: Array<string | null | undefined>): string | null {
+  let latest: string | null = null;
+  for (const value of values) {
+    if (!value) {
+      continue;
+    }
+    if (!latest || value > latest) {
+      latest = value;
+    }
+  }
+  return latest;
+}
+
+function safeStatMtimeIso(targetPath: string): string | null {
+  try {
+    return statSync(targetPath).mtime.toISOString();
+  } catch {
+    return null;
+  }
+}
+
+function latestDirectoryMtimeIso(targetDir: string): string | null {
+  if (!existsSync(targetDir)) {
+    return null;
+  }
+  let latest = safeStatMtimeIso(targetDir);
+  try {
+    for (const entry of readdirSync(targetDir, { withFileTypes: true })) {
+      const fullPath = path.join(targetDir, entry.name);
+      const entryTimestamp = entry.isDirectory()
+        ? latestDirectoryMtimeIso(fullPath)
+        : safeStatMtimeIso(fullPath);
+      latest = latestIsoTimestamp([latest, entryTimestamp]);
+    }
+  } catch {
+    return latest;
+  }
+  return latest;
+}
+
+function workspaceAppMessagePath(mcpPath: string): string {
+  const normalized = normalizedString(mcpPath) || "/mcp/sse";
+  if (normalized.endsWith("/sse")) {
+    return normalized.replace(/\/sse$/, "/messages");
+  }
+  return "/mcp/messages";
+}
+
+function workspaceAppRevisionInfo(params: {
+  workspaceDir: string;
+  appId: string;
+  configPath: string;
+  build: AppBuildRecord | null;
+}): JsonObject {
+  const appDir = path.join(
+    params.workspaceDir,
+    params.configPath ? path.dirname(params.configPath) : path.join("apps", params.appId),
+  );
+  const manifestPath = path.join(params.workspaceDir, params.configPath || `apps/${params.appId}/app.runtime.yaml`);
+  const packageJsonPath = path.join(appDir, "package.json");
+  const tsconfigPath = path.join(appDir, "tsconfig.json");
+  const srcUpdatedAt = latestDirectoryMtimeIso(path.join(appDir, "src"));
+  const distUpdatedAt = latestDirectoryMtimeIso(path.join(appDir, "dist"));
+  const sourceUpdatedAt = latestIsoTimestamp([
+    safeStatMtimeIso(manifestPath),
+    safeStatMtimeIso(packageJsonPath),
+    safeStatMtimeIso(tsconfigPath),
+    srcUpdatedAt,
+  ]);
+  const lastReadyAt = params.build?.status === "running" ? params.build.updatedAt : null;
+  const codeChangedSinceReady =
+    sourceUpdatedAt && lastReadyAt ? sourceUpdatedAt > lastReadyAt : null;
+  const codeChangedSinceBuild =
+    sourceUpdatedAt && params.build?.completedAt
+      ? sourceUpdatedAt > params.build.completedAt
+      : sourceUpdatedAt && params.build
+        ? params.build.completedAt === null
+        : null;
+
+  return {
+    manifest_updated_at: safeStatMtimeIso(manifestPath),
+    package_json_updated_at: safeStatMtimeIso(packageJsonPath),
+    tsconfig_updated_at: safeStatMtimeIso(tsconfigPath),
+    src_updated_at: srcUpdatedAt,
+    dist_updated_at: distUpdatedAt,
+    source_updated_at: sourceUpdatedAt,
+    build_record_created_at: params.build?.createdAt ?? null,
+    runtime_status_updated_at: params.build?.updatedAt ?? null,
+    build_started_at: params.build?.startedAt ?? null,
+    build_completed_at: params.build?.completedAt ?? null,
+    last_ready_at: lastReadyAt,
+    restart_attempts: params.build?.restartAttempts ?? 0,
+    code_changed_since_build: codeChangedSinceBuild,
+    code_changed_since_ready: codeChangedSinceReady,
+    managed_runtime_stale: codeChangedSinceReady,
+  };
 }
 
 async function runWorkspaceAppCommand(params: {
@@ -4042,15 +4141,62 @@ export class RuntimeAgentToolsService {
           allocatePorts: true,
         })[appId] ?? null
       : null;
+    const configPath = typeof params.entry.config_path === "string" ? params.entry.config_path : "";
+    let resolvedRuntime: ReturnType<typeof resolveWorkspaceAppRuntime> | null = null;
+    let runtimeResolutionError: string | null = null;
+    if (appId.length > 0 && configPath) {
+      try {
+        resolvedRuntime = resolveWorkspaceAppRuntime(workspaceDir, appId, {
+          store: this.store,
+          workspaceId: params.workspaceId,
+          allocatePorts: true,
+        });
+      } catch (error) {
+        runtimeResolutionError = error instanceof Error ? error.message : "failed to resolve app runtime";
+      }
+    }
+    const mcpPath = resolvedRuntime?.resolvedApp.mcp.path ?? "/mcp/sse";
+    const runtimeContract = resolvedRuntime
+      ? ({
+          app_dir: path.relative(workspaceDir, resolvedRuntime.appDir).replace(/\\/g, "/"),
+          mcp: {
+            transport: resolvedRuntime.resolvedApp.mcp.transport,
+            sse_path: mcpPath,
+            message_path: workspaceAppMessagePath(mcpPath),
+            tools_declared: resolvedRuntime.resolvedApp.mcpTools,
+          },
+          healthcheck: {
+            target: resolvedRuntime.resolvedApp.healthCheck.target ?? "mcp",
+            path: resolvedRuntime.resolvedApp.healthCheck.path,
+            timeout_s: resolvedRuntime.resolvedApp.healthCheck.timeoutS,
+            interval_s: resolvedRuntime.resolvedApp.healthCheck.intervalS,
+          },
+          env_contract: resolvedRuntime.resolvedApp.envContract,
+          integrations_declared: resolvedRuntime.resolvedApp.integrations?.map((integration) => ({
+            key: integration.key,
+            provider: integration.provider,
+            capability: integration.capability,
+            required: integration.required,
+          })) ?? [],
+        } satisfies JsonObject)
+      : null;
     return {
       workspace_id: params.workspaceId,
       app_id: appId,
-      config_path: typeof params.entry.config_path === "string" ? params.entry.config_path : "",
+      config_path: configPath,
       lifecycle: isRecord(params.entry.lifecycle) ? (params.entry.lifecycle as JsonObject) : null,
       build_status: buildStatus,
       ready: buildStatus === "running",
       error: build?.status === "failed" ? build.error ?? "unknown error" : null,
       ports: ports ? { http: ports.http, mcp: ports.mcp } : null,
+      runtime_contract: runtimeContract,
+      runtime_resolution_error: runtimeResolutionError,
+      revision: workspaceAppRevisionInfo({
+        workspaceDir,
+        appId,
+        configPath,
+        build,
+      }),
       registered: appId.length > 0,
     };
   }
@@ -4518,6 +4664,13 @@ export class RuntimeAgentToolsService {
     });
     const uiBaseUrl = `http://127.0.0.1:${resolved.ports.http}`;
     const mcpBaseUrl = `http://127.0.0.1:${resolved.ports.mcp}`;
+    const mcpSsePath = normalizedString(resolved.resolvedApp.mcp.path) || "/mcp/sse";
+    const derivedMessagePath = workspaceAppMessagePath(mcpSsePath);
+    const healthPath = normalizedString(resolved.resolvedApp.healthCheck.path) || "/mcp/health";
+    const healthBaseUrl =
+      resolved.resolvedApp.healthCheck.target === "api" ? uiBaseUrl : mcpBaseUrl;
+    const healthUrl = `${healthBaseUrl}${healthPath}`;
+    let discoveredMessagePath = derivedMessagePath;
     const currentStatus = this.getWorkspaceAppStatus({
       workspaceId: params.workspaceId,
       appId,
@@ -4545,13 +4698,17 @@ export class RuntimeAgentToolsService {
 
         if (check === "mcp_health") {
           const probe = await fetchWorkspaceAppProbe({
-            url: `${mcpBaseUrl}/mcp/health`,
+            url: healthUrl,
             timeoutMs,
           });
+          const discoveredBody = probe.jsonBody;
+          if (isRecord(discoveredBody) && typeof discoveredBody.message_path === "string") {
+            discoveredMessagePath = normalizedString(discoveredBody.message_path) || discoveredMessagePath;
+          }
           results.push({
             check,
             ok: probe.ok,
-            url: `${mcpBaseUrl}/mcp/health`,
+            url: healthUrl,
             method: "GET",
             status_code: probe.statusCode,
             content_type: probe.contentType,
@@ -4584,8 +4741,9 @@ export class RuntimeAgentToolsService {
                   method: "tools/list",
                   params: {},
                 };
+          const messageUrl = `${mcpBaseUrl}${discoveredMessagePath}`;
           const probe = await fetchWorkspaceAppProbe({
-            url: `${mcpBaseUrl}/mcp/messages`,
+            url: messageUrl,
             method: "POST",
             timeoutMs,
             headers: {
@@ -4604,7 +4762,7 @@ export class RuntimeAgentToolsService {
           results.push({
             check,
             ok: probe.ok,
-            url: `${mcpBaseUrl}/mcp/messages`,
+            url: messageUrl,
             method: "POST",
             status_code: probe.statusCode,
             content_type: probe.contentType,
