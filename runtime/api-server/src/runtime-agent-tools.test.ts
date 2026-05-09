@@ -1328,6 +1328,187 @@ afterEach(() => {
   }
 });
 
+test("scaffoldWorkspaceApp and registerWorkspaceApp create a minimal managed app skeleton", async () => {
+  const scaffold = await harness.service.scaffoldWorkspaceApp({
+    workspaceId: harness.workspaceId,
+    appId: "demo-app",
+    name: "Demo App",
+  });
+
+  assert.equal(scaffold.app_id, "demo-app");
+  assert.equal(scaffold.app_dir, "apps/demo-app");
+  assert.equal(
+    fs.existsSync(path.join(harness.workspaceDir, "apps", "demo-app", "app.runtime.yaml")),
+    true,
+  );
+  assert.equal(
+    fs.existsSync(path.join(harness.workspaceDir, "apps", "demo-app", "src", "server.ts")),
+    true,
+  );
+
+  const firstRegister = await harness.service.registerWorkspaceApp({
+    workspaceId: harness.workspaceId,
+    appId: "demo-app",
+  });
+  assert.equal(firstRegister.changed, true);
+  assert.equal(firstRegister.config_path, "apps/demo-app/app.runtime.yaml");
+
+  const secondRegister = await harness.service.registerWorkspaceApp({
+    workspaceId: harness.workspaceId,
+    appId: "demo-app",
+  });
+  assert.equal(secondRegister.changed, false);
+
+  const workspaceYaml = parseYaml(
+    fs.readFileSync(path.join(harness.workspaceDir, "workspace.yaml"), "utf8"),
+  ) as { applications?: Array<{ app_id: string; config_path: string }> };
+  assert.deepEqual(workspaceYaml.applications, [
+    {
+      app_id: "demo-app",
+      config_path: "apps/demo-app/app.runtime.yaml",
+      lifecycle: {
+        setup: "npm install",
+        start: "npm run start",
+      },
+    },
+  ]);
+
+  const status = harness.service.getWorkspaceAppStatus({
+    workspaceId: harness.workspaceId,
+    appId: "demo-app",
+  }) as {
+    build_status: string;
+    ready: boolean;
+    config_path: string;
+    ports: { http: number; mcp: number } | null;
+  };
+  assert.equal(status.build_status, "pending");
+  assert.equal(status.ready, false);
+  assert.equal(status.config_path, "apps/demo-app/app.runtime.yaml");
+  assert.ok(status.ports);
+  assert.equal(typeof status.ports?.http, "number");
+  assert.equal(typeof status.ports?.mcp, "number");
+
+  const ports = harness.service.getWorkspaceAppPorts({
+    workspaceId: harness.workspaceId,
+    appId: "demo-app",
+  }) as {
+    ports: { http: number; mcp: number };
+  };
+  assert.equal(ports.ports.http, status.ports?.http);
+  assert.equal(ports.ports.mcp, status.ports?.mcp);
+});
+
+test("ensureWorkspaceAppsRunning, restartWorkspaceApp, and waitUntilWorkspaceAppReady use managed lifecycle state", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-app-lifecycle-"));
+  writeRuntimeConfig(root, {
+    runtime: {
+      default_model: "openai/gpt-5.4",
+    },
+  });
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const calls: string[] = [];
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    const service = new RuntimeAgentToolsService(store, {
+      workspaceRoot,
+      appLifecycle: {
+        ensureAppRunning: async (callWorkspaceId, callAppId) => {
+          calls.push(`ensure:${callWorkspaceId}:${callAppId}`);
+          store.upsertAppBuild({
+            workspaceId: callWorkspaceId,
+            appId: callAppId,
+            status: "running",
+          });
+        },
+        stopApp: async (callWorkspaceId, callAppId) => {
+          calls.push(`stop:${callWorkspaceId}:${callAppId}`);
+          store.upsertAppBuild({
+            workspaceId: callWorkspaceId,
+            appId: callAppId,
+            status: "stopped",
+          });
+          return { stopped: true };
+        },
+      },
+    });
+
+    await service.scaffoldWorkspaceApp({
+      workspaceId,
+      appId: "demo-app",
+      name: "Demo App",
+    });
+    await service.registerWorkspaceApp({
+      workspaceId,
+      appId: "demo-app",
+    });
+
+    const ensured = await service.ensureWorkspaceAppsRunning({
+      workspaceId,
+      appIds: ["demo-app"],
+    }) as {
+      app_ids: string[];
+      status: { apps: Array<{ app_id: string; ready: boolean }> };
+    };
+    assert.deepEqual(ensured.app_ids, ["demo-app"]);
+    assert.equal(calls[0], "ensure:workspace-1:demo-app");
+    assert.equal(ensured.status.apps[0]?.ready, true);
+
+    store.upsertAppBuild({
+      workspaceId,
+      appId: "demo-app",
+      status: "building",
+    });
+    setTimeout(() => {
+      store.upsertAppBuild({
+        workspaceId,
+        appId: "demo-app",
+        status: "running",
+      });
+    }, 25);
+
+    const waited = await service.waitUntilWorkspaceAppReady({
+      workspaceId,
+      appId: "demo-app",
+      timeoutMs: 1000,
+      pollIntervalMs: 10,
+    }) as {
+      ready: boolean;
+      timed_out: boolean;
+      build_status: string;
+    };
+    assert.equal(waited.ready, true);
+    assert.equal(waited.timed_out, false);
+    assert.equal(waited.build_status, "running");
+
+    const restarted = await service.restartWorkspaceApp({
+      workspaceId,
+      appId: "demo-app",
+    }) as {
+      restarted: boolean;
+      status: { ready: boolean };
+    };
+    assert.equal(restarted.restarted, true);
+    assert.equal(restarted.status.ready, true);
+    assert.deepEqual(calls.slice(-2), [
+      "stop:workspace-1:demo-app",
+      "ensure:workspace-1:demo-app",
+    ]);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("listDataTables auto-creates data.db on first read; returns empty list when no app has written", () => {
   const result = harness.service.listDataTables({ workspaceId: harness.workspaceId });
   // data.db is now a workspace-level resource owned by the runtime, so
@@ -1351,6 +1532,39 @@ test("listDataTables introspects tables, columns, and row counts", () => {
   assert.equal(posts.row_count, 3);
   const colNames = posts.columns.map((c) => c.name);
   assert.deepEqual(colNames.slice(0, 4), ["id", "content", "status", "created_at"]);
+});
+
+test("describeDataTable and sampleDataTableRows inspect shared workspace data deterministically", () => {
+  seedTwitterPosts(harness.dataDbPath);
+
+  const description = harness.service.describeDataTable({
+    workspaceId: harness.workspaceId,
+    tableName: "twitter_posts",
+  }) as {
+    table_name: string;
+    row_count: number;
+    columns: Array<{ name: string }>;
+  };
+
+  assert.equal(description.table_name, "twitter_posts");
+  assert.equal(description.row_count, 3);
+  assert.deepEqual(
+    description.columns.map((column) => column.name).slice(0, 4),
+    ["id", "content", "status", "created_at"],
+  );
+
+  const sample = harness.service.sampleDataTableRows({
+    workspaceId: harness.workspaceId,
+    tableName: "twitter_posts",
+    limit: 2,
+  }) as {
+    row_count: number;
+    rows: Array<{ id: string; status: string }>;
+  };
+
+  assert.equal(sample.row_count, 2);
+  assert.deepEqual(sample.rows.map((row) => row.id), ["p1", "p2"]);
+  assert.deepEqual(sample.rows.map((row) => row.status), ["draft", "draft"]);
 });
 
 test("listDataTables hides app-internal tables by default; includeSystem reveals them", () => {

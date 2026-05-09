@@ -662,6 +662,156 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         required: ["terminal_id"],
         additionalProperties: false,
       };
+    case "workspace_apps_scaffold":
+      return {
+        type: "object",
+        properties: {
+          app_id: {
+            type: "string",
+            description:
+              "Workspace app id. The scaffold is created under `apps/<app_id>/` and the manifest `app_id` must match.",
+          },
+          name: {
+            type: "string",
+            description: "Optional human-readable app name used in the generated manifest and starter UI.",
+          },
+          overwrite: {
+            type: "boolean",
+            description:
+              "Overwrite the managed starter files if the app directory already exists. Default false.",
+          },
+        },
+        required: ["app_id"],
+        additionalProperties: false,
+      };
+    case "workspace_apps_register":
+      return {
+        type: "object",
+        properties: {
+          app_id: {
+            type: "string",
+            description: "Workspace app id to register in `workspace.yaml`.",
+          },
+          config_path: {
+            type: "string",
+            description:
+              "Optional workspace-relative path to the app manifest. Defaults to `apps/<app_id>/app.runtime.yaml`.",
+          },
+        },
+        required: ["app_id"],
+        additionalProperties: false,
+      };
+    case "workspace_apps_ensure_running":
+      return {
+        type: "object",
+        properties: {
+          app_ids: {
+            type: "array",
+            description:
+              "Optional subset of registered app ids to start. Omit to ensure all registered workspace apps are running.",
+            items: { type: "string" },
+          },
+        },
+        additionalProperties: false,
+      };
+    case "workspace_apps_restart":
+      return {
+        type: "object",
+        properties: {
+          app_id: { type: "string", description: "Registered workspace app id to restart." },
+        },
+        required: ["app_id"],
+        additionalProperties: false,
+      };
+    case "workspace_apps_wait_until_ready":
+      return {
+        type: "object",
+        properties: {
+          app_id: { type: "string", description: "Registered workspace app id to wait on." },
+          timeout_ms: {
+            type: "integer",
+            description: "Maximum time to wait before returning with `timed_out=true`.",
+            minimum: 1,
+          },
+          poll_interval_ms: {
+            type: "integer",
+            description: "Polling interval between status checks while waiting for readiness.",
+            minimum: 1,
+          },
+        },
+        required: ["app_id"],
+        additionalProperties: false,
+      };
+    case "workspace_apps_get_status":
+      return {
+        type: "object",
+        properties: {
+          app_id: {
+            type: "string",
+            description:
+              "Optional registered workspace app id. Omit to list status for every registered app.",
+          },
+        },
+        additionalProperties: false,
+      };
+    case "workspace_apps_get_ports":
+      return {
+        type: "object",
+        properties: {
+          app_id: {
+            type: "string",
+            description:
+              "Optional registered workspace app id. Omit to list deterministic HTTP and MCP ports for every registered app.",
+          },
+        },
+        additionalProperties: false,
+      };
+    case "workspace_data_list_tables":
+      return {
+        type: "object",
+        properties: {
+          include_system: {
+            type: "boolean",
+            description:
+              "Include app-internal tables (publish queues, scheduler logs, api_usage, settings). Default false.",
+          },
+        },
+        additionalProperties: false,
+      };
+    case "workspace_data_describe_table":
+      return {
+        type: "object",
+        properties: {
+          table_name: {
+            type: "string",
+            description: "Exact table name in `.holaboss/state/data.db` to describe.",
+          },
+        },
+        required: ["table_name"],
+        additionalProperties: false,
+      };
+    case "workspace_data_sample_rows":
+      return {
+        type: "object",
+        properties: {
+          table_name: {
+            type: "string",
+            description: "Exact table name in `.holaboss/state/data.db` to sample.",
+          },
+          limit: {
+            type: "integer",
+            description: "Maximum number of rows to return. Defaults to 5 and is capped to a small safe value.",
+            minimum: 1,
+          },
+          offset: {
+            type: "integer",
+            description: "Optional row offset for paginating through a table sample.",
+            minimum: 0,
+          },
+        },
+        required: ["table_name"],
+        additionalProperties: false,
+      };
     case "list_data_tables":
       return {
         type: "object",

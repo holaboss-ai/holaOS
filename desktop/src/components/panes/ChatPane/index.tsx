@@ -4867,7 +4867,7 @@ export function ChatPane({
         if (eventType === "tool_call") {
           const fileDisplayTarget =
             fileDisplaySyncTargetFromToolPayload(eventPayload);
-          if (fileDisplayTarget) {
+          if (fileDisplayTarget && !activeSessionReadOnlyRef.current) {
             const callId =
               typeof eventPayload.call_id === "string"
                 ? eventPayload.call_id.trim()
@@ -7601,4 +7601,3 @@ export function ChatPane({
     </PaneCard>
   );
 }
-

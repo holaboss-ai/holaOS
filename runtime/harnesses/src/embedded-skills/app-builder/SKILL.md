@@ -23,6 +23,18 @@ This includes requests for dashboards, trackers, analytics surfaces, CSV visuali
 5. Never hardcode ports, workspace ids, or provider tokens.
 6. Do not stop at scaffold creation; verify the app is healthy.
 
+## Deterministic Workspace Tools
+When these runtime tools are surfaced for the current run, prefer them over hand-written platform glue:
+- `workspace_apps_scaffold` for the minimum valid app skeleton
+- `workspace_apps_register` for `workspace.yaml` registration
+- `workspace_apps_ensure_running` to hand the app to the managed runtime
+- `workspace_apps_restart` after changing files for an already-running app
+- `workspace_apps_wait_until_ready` to verify runtime truth instead of a preview tab
+- `workspace_apps_get_status` and `workspace_apps_get_ports` for managed app inspection
+- `workspace_data_list_tables`, `workspace_data_describe_table`, and `workspace_data_sample_rows` for shared data discovery
+
+These tools are for workspace-contract operations. Keep app-specific UI, workflows, and domain logic model-driven.
+
 ## Minimum App Contract
 The app is only a real holaOS app when all of these are true:
 - it exists under `apps/<app_id>/`
@@ -482,10 +494,12 @@ When a runtime control path is available, the preferred sequence is:
 
 ```text
 1. Register or install the app.
-2. Ask the workspace runtime to ensure apps are running.
-3. Re-read the installed app list for the workspace.
-4. Confirm the app reports ready: true.
-5. Only then say the app is installed and working.
+2. If you modified an already-running app, stop it first through the workspace runtime.
+3. Ask the workspace runtime to ensure apps are running.
+4. Re-read the installed app list for the workspace.
+5. Confirm the app reports ready: true.
+6. Verify the managed app surface or runtime-managed app port, not only a standalone preview.
+7. Only then say the app is installed and working.
 ```
 
 If a direct runtime control path is not available in the current environment, be explicit about the limitation. Do not claim the app is fully installed and ready if you only verified a standalone preview server.
@@ -513,9 +527,10 @@ If a direct runtime control path is not available in the current environment, be
 6. Create the minimum valid app skeleton.
 7. Add only the capabilities required for the request.
 8. Register or install the app.
-9. Ensure the workspace runtime has actually started the app after registration or install. Do not stop at file creation or a standalone browser preview.
-10. Verify health, MCP behavior, data access, integrations, and outputs as applicable.
-11. If setup, start, manifest, runtime activation, or health checks fail, fix the app before stopping.
+9. If you changed an app that was already installed or already running, restart the managed app through the workspace runtime so the active process actually picks up the new code.
+10. Ensure the workspace runtime has actually started the app after registration, install, or restart. Do not stop at file creation or a standalone browser preview.
+11. Verify health, MCP behavior, data access, integrations, and outputs as applicable.
+12. If setup, start, manifest, runtime activation, restart, or health checks fail, fix the app before stopping.
 
 ## Capability Guidance
 
@@ -606,6 +621,7 @@ integrations:
 - `workspace.yaml` registration exists and matches `app_id`
 - the workspace runtime has picked up the registration and started the app
 - the installed app list reports the app as `ready: true`
+- if an existing app was modified, the managed app process was restarted before verification
 - the app serves `/` on `$PORT` when a UI surface is expected
 - `GET /mcp/health` works on `$MCP_PORT`
 - MCP transport routes are exposed correctly
@@ -624,6 +640,7 @@ integrations:
 ## Common Failure Modes
 - files created but app not registered
 - app files created and browser preview works, but the workspace runtime never starts the managed app
+- an existing managed app was modified, but the old process kept serving stale code because it was never restarted
 - invalid `app.runtime.yaml`
 - hardcoded `PORT` or `MCP_PORT`
 - missing MCP health route

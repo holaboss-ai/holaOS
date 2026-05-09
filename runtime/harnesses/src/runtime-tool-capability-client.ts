@@ -22,7 +22,10 @@ const RUNTIME_TOOLS_SCRATCHPAD_PATH = "/api/v1/capabilities/runtime-tools/scratc
 const RUNTIME_TOOLS_WORKSPACE_INSTRUCTIONS_PATH = "/api/v1/capabilities/runtime-tools/workspace-instructions";
 const RUNTIME_TOOLS_SKILL_PATH = "/api/v1/capabilities/runtime-tools/skill";
 const RUNTIME_TOOLS_TERMINAL_SESSIONS_PATH = "/api/v1/capabilities/runtime-tools/terminal-sessions";
+const RUNTIME_TOOLS_WORKSPACE_APPS_PATH = "/api/v1/capabilities/runtime-tools/workspace-apps";
+const RUNTIME_TOOLS_WORKSPACE_APPS_PORTS_PATH = "/api/v1/capabilities/runtime-tools/workspace-apps/ports";
 const RUNTIME_TOOLS_DATA_TABLES_PATH = "/api/v1/capabilities/runtime-tools/data-tables";
+const RUNTIME_TOOLS_WORKSPACE_DATA_TABLES_PATH = "/api/v1/capabilities/runtime-tools/workspace-data/tables";
 const RUNTIME_TOOLS_DASHBOARDS_PATH = "/api/v1/capabilities/runtime-tools/dashboards";
 const DEFAULT_RUNTIME_TOOL_TIMEOUT_MS = 30000;
 const IMAGE_GENERATE_RUNTIME_TOOL_TIMEOUT_MS = 180000;
@@ -338,6 +341,40 @@ function terminalSessionPath(terminalId: unknown): string {
   return `${RUNTIME_TOOLS_TERMINAL_SESSIONS_PATH}/${encodeURIComponent(value)}`;
 }
 
+function workspaceAppPath(appId: unknown): string {
+  const value = optionalString(appId);
+  if (!value) {
+    throw new Error("app_id is required");
+  }
+  return `${RUNTIME_TOOLS_WORKSPACE_APPS_PATH}/${encodeURIComponent(value)}`;
+}
+
+function workspaceAppStatusPath(toolParams: unknown): string {
+  const params = isRecord(toolParams) ? toolParams : {};
+  const appId = optionalString(params.app_id);
+  if (!appId) {
+    return RUNTIME_TOOLS_WORKSPACE_APPS_PATH;
+  }
+  return `${workspaceAppPath(appId)}/status`;
+}
+
+function workspaceAppPortsPath(toolParams: unknown): string {
+  const params = isRecord(toolParams) ? toolParams : {};
+  const appId = optionalString(params.app_id);
+  if (!appId) {
+    return RUNTIME_TOOLS_WORKSPACE_APPS_PORTS_PATH;
+  }
+  return `${workspaceAppPath(appId)}/ports`;
+}
+
+function workspaceDataTablePath(tableName: unknown): string {
+  const value = optionalString(tableName);
+  if (!value) {
+    throw new Error("table_name is required");
+  }
+  return `${RUNTIME_TOOLS_WORKSPACE_DATA_TABLES_PATH}/${encodeURIComponent(value)}`;
+}
+
 function createTerminalSessionBody(toolParams: unknown): Record<string, unknown> {
   const params = isRecord(toolParams) ? toolParams : {};
   return {
@@ -377,6 +414,48 @@ function signalTerminalSessionBody(toolParams: unknown): Record<string, unknown>
   const params = isRecord(toolParams) ? toolParams : {};
   return {
     ...(optionalString(params.signal) ? { signal: optionalString(params.signal) } : {}),
+  };
+}
+
+function createWorkspaceAppScaffoldBody(toolParams: unknown): Record<string, unknown> {
+  const params = isRecord(toolParams) ? toolParams : {};
+  return {
+    app_id: String(params.app_id ?? ""),
+    ...(optionalString(params.name) ? { name: optionalString(params.name) } : {}),
+    ...(typeof params.overwrite === "boolean" ? { overwrite: params.overwrite } : {}),
+  };
+}
+
+function createWorkspaceAppRegisterBody(toolParams: unknown): Record<string, unknown> {
+  const params = isRecord(toolParams) ? toolParams : {};
+  return {
+    app_id: String(params.app_id ?? ""),
+    ...(optionalString(params.config_path) ? { config_path: optionalString(params.config_path) } : {}),
+  };
+}
+
+function createWorkspaceAppsEnsureRunningBody(toolParams: unknown): Record<string, unknown> {
+  const params = isRecord(toolParams) ? toolParams : {};
+  return {
+    ...(optionalStringArray(params.app_ids) ? { app_ids: optionalStringArray(params.app_ids) } : {}),
+  };
+}
+
+function createWorkspaceAppWaitUntilReadyBody(toolParams: unknown): Record<string, unknown> {
+  const params = isRecord(toolParams) ? toolParams : {};
+  return {
+    ...(typeof params.timeout_ms === "number" ? { timeout_ms: params.timeout_ms } : {}),
+    ...(typeof params.poll_interval_ms === "number"
+      ? { poll_interval_ms: params.poll_interval_ms }
+      : {}),
+  };
+}
+
+function createWorkspaceDataSampleRowsBody(toolParams: unknown): Record<string, unknown> {
+  const params = isRecord(toolParams) ? toolParams : {};
+  return {
+    ...(typeof params.limit === "number" ? { limit: params.limit } : {}),
+    ...(typeof params.offset === "number" ? { offset: params.offset } : {}),
   };
 }
 
@@ -587,6 +666,67 @@ function requestPlan(
         method: "POST",
         requestPath: `${terminalSessionPath(isRecord(toolParams) ? toolParams.terminal_id : undefined)}/close`,
         body: {},
+      };
+    case "workspace_apps_scaffold":
+      return {
+        method: "POST",
+        requestPath: `${RUNTIME_TOOLS_WORKSPACE_APPS_PATH}/scaffold`,
+        body: createWorkspaceAppScaffoldBody(toolParams),
+      };
+    case "workspace_apps_register":
+      return {
+        method: "POST",
+        requestPath: `${RUNTIME_TOOLS_WORKSPACE_APPS_PATH}/register`,
+        body: createWorkspaceAppRegisterBody(toolParams),
+      };
+    case "workspace_apps_ensure_running":
+      return {
+        method: "POST",
+        requestPath: `${RUNTIME_TOOLS_WORKSPACE_APPS_PATH}/ensure-running`,
+        body: createWorkspaceAppsEnsureRunningBody(toolParams),
+      };
+    case "workspace_apps_restart":
+      return {
+        method: "POST",
+        requestPath: `${workspaceAppPath(isRecord(toolParams) ? toolParams.app_id : undefined)}/restart`,
+        body: {},
+      };
+    case "workspace_apps_wait_until_ready":
+      return {
+        method: "POST",
+        requestPath: `${workspaceAppPath(isRecord(toolParams) ? toolParams.app_id : undefined)}/wait-until-ready`,
+        body: createWorkspaceAppWaitUntilReadyBody(toolParams),
+      };
+    case "workspace_apps_get_status":
+      return {
+        method: "GET",
+        requestPath: workspaceAppStatusPath(toolParams),
+      };
+    case "workspace_apps_get_ports":
+      return {
+        method: "GET",
+        requestPath: workspaceAppPortsPath(toolParams),
+      };
+    case "workspace_data_list_tables": {
+      const params = isRecord(toolParams) ? toolParams : {};
+      const include = params.include_system === true ? "true" : "";
+      return {
+        method: "GET",
+        requestPath: include
+          ? `${RUNTIME_TOOLS_WORKSPACE_DATA_TABLES_PATH}?include_system=true`
+          : RUNTIME_TOOLS_WORKSPACE_DATA_TABLES_PATH,
+      };
+    }
+    case "workspace_data_describe_table":
+      return {
+        method: "GET",
+        requestPath: workspaceDataTablePath(isRecord(toolParams) ? toolParams.table_name : undefined),
+      };
+    case "workspace_data_sample_rows":
+      return {
+        method: "POST",
+        requestPath: `${workspaceDataTablePath(isRecord(toolParams) ? toolParams.table_name : undefined)}/sample`,
+        body: createWorkspaceDataSampleRowsBody(toolParams),
       };
     case "list_data_tables": {
       const params = isRecord(toolParams) ? toolParams : {};

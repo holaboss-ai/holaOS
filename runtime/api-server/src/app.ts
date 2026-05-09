@@ -2728,6 +2728,17 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     workspaceRoot: store.workspaceRoot,
     terminalSessionManager,
     queueWorker,
+    appLifecycle: {
+      ensureAppRunning: async (workspaceId: string, appId: string) => {
+        await ensureAppRunning(workspaceId, appId);
+      },
+      ensureAllAppsRunning: async (workspaceId: string) => {
+        return await ensureAllAppsRunning(workspaceId);
+      },
+      stopApp: async (workspaceId: string, appId: string) => {
+        return await stopManagedWorkspaceApp(workspaceId, appId);
+      },
+    },
   });
   async function maybeShapeCapabilityToolResult(params: {
     headers: Record<string, unknown>;
@@ -3024,6 +3035,30 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         appEnsureRunningTasks.delete(taskKey);
       }
     }
+  }
+
+  async function stopManagedWorkspaceApp(workspaceId: string, appId: string) {
+    const workspace = store.getWorkspace(workspaceId);
+    if (!workspace) {
+      throw new Error("workspace not found");
+    }
+    const workspaceDir = store.workspaceDir(workspaceId);
+    const resolvedApp = resolveWorkspaceAppRuntime(workspaceDir, appId, {
+      store,
+      workspaceId,
+    });
+    const result = await appLifecycleExecutor.stopApp({
+      appId,
+      appDir: resolvedApp.appDir,
+      workspaceId,
+      resolvedApp: resolvedApp.resolvedApp,
+    });
+    store.upsertAppBuild({
+      workspaceId,
+      appId,
+      status: "stopped",
+    });
+    return result;
   }
 
   async function ensureAllAppsRunning(
@@ -5285,6 +5320,328 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           error instanceof Error
             ? error.message
             : "background task archive failed",
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/v1/capabilities/runtime-tools/workspace-apps/scaffold",
+    async (request, reply) => {
+      if (!isRecord(request.body)) {
+        return sendError(reply, 400, "request body must be an object");
+      }
+      try {
+        const body = request.body;
+        return await runtimeAgentToolsService.scaffoldWorkspaceApp({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }),
+          appId: requiredString(body.app_id, "app_id"),
+          name: nullableString(body.name) ?? undefined,
+          overwrite: body.overwrite === true,
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_apps_scaffold failed",
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/v1/capabilities/runtime-tools/workspace-apps/register",
+    async (request, reply) => {
+      if (!isRecord(request.body)) {
+        return sendError(reply, 400, "request body must be an object");
+      }
+      try {
+        const body = request.body;
+        return await runtimeAgentToolsService.registerWorkspaceApp({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }),
+          appId: requiredString(body.app_id, "app_id"),
+          configPath: nullableString(body.config_path) ?? undefined,
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_apps_register failed",
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/v1/capabilities/runtime-tools/workspace-apps/ensure-running",
+    async (request, reply) => {
+      if (!isRecord(request.body)) {
+        return sendError(reply, 400, "request body must be an object");
+      }
+      try {
+        const body = request.body;
+        return await runtimeAgentToolsService.ensureWorkspaceAppsRunning({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }),
+          appIds: Array.isArray(body.app_ids)
+            ? body.app_ids.filter((value): value is string => typeof value === "string")
+            : undefined,
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_apps_ensure_running failed",
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/v1/capabilities/runtime-tools/workspace-apps/:appId/restart",
+    async (request, reply) => {
+      const params = request.params as { appId: string };
+      const body = isRecord(request.body) ? request.body : {};
+      try {
+        return await runtimeAgentToolsService.restartWorkspaceApp({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }),
+          appId: requiredString(params.appId, "appId"),
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_apps_restart failed",
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/v1/capabilities/runtime-tools/workspace-apps/:appId/wait-until-ready",
+    async (request, reply) => {
+      const params = request.params as { appId: string };
+      const body = isRecord(request.body) ? request.body : {};
+      try {
+        return await runtimeAgentToolsService.waitUntilWorkspaceAppReady({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }),
+          appId: requiredString(params.appId, "appId"),
+          timeoutMs: typeof body.timeout_ms === "number" ? body.timeout_ms : undefined,
+          pollIntervalMs:
+            typeof body.poll_interval_ms === "number" ? body.poll_interval_ms : undefined,
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_apps_wait_until_ready failed",
+        );
+      }
+    },
+  );
+
+  app.get(
+    "/api/v1/capabilities/runtime-tools/workspace-apps",
+    async (request, reply) => {
+      try {
+        return runtimeAgentToolsService.getWorkspaceAppStatus({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            query: isRecord(request.query) ? request.query : undefined,
+          }),
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_apps_get_status failed",
+        );
+      }
+    },
+  );
+
+  app.get(
+    "/api/v1/capabilities/runtime-tools/workspace-apps/:appId/status",
+    async (request, reply) => {
+      const params = request.params as { appId: string };
+      try {
+        return runtimeAgentToolsService.getWorkspaceAppStatus({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            query: isRecord(request.query) ? request.query : undefined,
+          }),
+          appId: requiredString(params.appId, "appId"),
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_apps_get_status failed",
+        );
+      }
+    },
+  );
+
+  app.get(
+    "/api/v1/capabilities/runtime-tools/workspace-apps/ports",
+    async (request, reply) => {
+      try {
+        return runtimeAgentToolsService.getWorkspaceAppPorts({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            query: isRecord(request.query) ? request.query : undefined,
+          }),
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_apps_get_ports failed",
+        );
+      }
+    },
+  );
+
+  app.get(
+    "/api/v1/capabilities/runtime-tools/workspace-apps/:appId/ports",
+    async (request, reply) => {
+      const params = request.params as { appId: string };
+      try {
+        return runtimeAgentToolsService.getWorkspaceAppPorts({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            query: isRecord(request.query) ? request.query : undefined,
+          }),
+          appId: requiredString(params.appId, "appId"),
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_apps_get_ports failed",
+        );
+      }
+    },
+  );
+
+  app.get(
+    "/api/v1/capabilities/runtime-tools/workspace-data/tables",
+    async (request, reply) => {
+      try {
+        const query = isRecord(request.query) ? request.query : null;
+        const includeSystem =
+          query && typeof query.include_system === "string"
+            ? query.include_system === "true" || query.include_system === "1"
+            : false;
+        return runtimeAgentToolsService.listDataTables({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            query,
+          }),
+          includeSystem,
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_data_list_tables failed",
+        );
+      }
+    },
+  );
+
+  app.get(
+    "/api/v1/capabilities/runtime-tools/workspace-data/tables/:tableName",
+    async (request, reply) => {
+      const params = request.params as { tableName: string };
+      try {
+        return runtimeAgentToolsService.describeDataTable({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            query: isRecord(request.query) ? request.query : undefined,
+          }),
+          tableName: requiredString(params.tableName, "tableName"),
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_data_describe_table failed",
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/v1/capabilities/runtime-tools/workspace-data/tables/:tableName/sample",
+    async (request, reply) => {
+      const params = request.params as { tableName: string };
+      const body = isRecord(request.body) ? request.body : {};
+      try {
+        return runtimeAgentToolsService.sampleDataTableRows({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }),
+          tableName: requiredString(params.tableName, "tableName"),
+          limit: typeof body.limit === "number" ? body.limit : undefined,
+          offset: typeof body.offset === "number" ? body.offset : undefined,
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_data_sample_rows failed",
         );
       }
     },

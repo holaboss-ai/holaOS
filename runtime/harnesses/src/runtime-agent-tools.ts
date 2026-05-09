@@ -172,6 +172,66 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     policy: "mutate"
   },
   {
+    id: "workspace_apps_scaffold",
+    description:
+      "Create the minimum valid holaOS app skeleton under `apps/<app_id>/` for the current workspace using the canonical runtime-managed Node/TypeScript/Express starter files.",
+    policy: "mutate"
+  },
+  {
+    id: "workspace_apps_register",
+    description:
+      "Register or update one app entry in `workspace.yaml` for the current workspace after validating the target `app.runtime.yaml` file.",
+    policy: "mutate"
+  },
+  {
+    id: "workspace_apps_ensure_running",
+    description:
+      "Start all registered workspace apps, or a selected subset, through the managed holaOS runtime lifecycle instead of using an unmanaged preview server.",
+    policy: "mutate"
+  },
+  {
+    id: "workspace_apps_restart",
+    description:
+      "Restart one managed workspace app through the holaOS runtime after code or config changes so the managed app surface serves fresh code.",
+    policy: "mutate"
+  },
+  {
+    id: "workspace_apps_wait_until_ready",
+    description:
+      "Poll one managed workspace app until the runtime reports `ready: true`, or return the latest structured status on timeout or failure.",
+    policy: "inspect"
+  },
+  {
+    id: "workspace_apps_get_status",
+    description:
+      "Read runtime truth for one registered workspace app, or list all registered apps, including build status, readiness, config path, and current error state.",
+    policy: "inspect"
+  },
+  {
+    id: "workspace_apps_get_ports",
+    description:
+      "Read the runtime-managed HTTP and MCP ports for one registered workspace app, or for all workspace apps, using the workspace's deterministic port allocation.",
+    policy: "inspect"
+  },
+  {
+    id: "workspace_data_list_tables",
+    description:
+      "List the user-facing tables in the workspace's shared SQLite at `.holaboss/state/data.db`. Prefer this deterministic workspace-data surface when discovering existing sources of truth.",
+    policy: "inspect"
+  },
+  {
+    id: "workspace_data_describe_table",
+    description:
+      "Describe one table in the workspace's shared SQLite by returning its columns, types, and approximate row count.",
+    policy: "inspect"
+  },
+  {
+    id: "workspace_data_sample_rows",
+    description:
+      "Return a small sample of rows from one table in the workspace's shared SQLite so you can shape UI and queries against real data.",
+    policy: "inspect"
+  },
+  {
     id: "list_data_tables",
     description:
       "List the user-facing tables in the workspace's shared SQLite at `.holaboss/state/data.db` so you can compose SQL for `create_dashboard`. The runtime already provisions that DB file; if this returns count=0, the DB exists but no user-facing tables have been created yet. Each row reports a table's name, its columns with types, and approximate row count. Module apps write app-namespaced tables (e.g. twitter_posts, linkedin_posts, twitter_post_metrics) — read across them freely; never create a separate root `./data.db` yourself. App-internal tables (publish queues, scheduler logs, api usage counters, settings flags) are hidden by default — pass include_system=true if you actually need them, but they're rarely useful for dashboards.",

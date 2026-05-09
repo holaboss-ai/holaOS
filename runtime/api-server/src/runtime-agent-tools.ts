@@ -47,6 +47,12 @@ import {
 import type { TerminalSessionManagerLike } from "./terminal-session-manager.js";
 import type { QueueWorkerLike } from "./queue-worker.js";
 import { invokeWorkspaceSkill, resolveWorkspaceSkills } from "./workspace-skills.js";
+import {
+  listWorkspaceApplicationPorts,
+  listWorkspaceApplications,
+  parseInstalledAppRuntime,
+  updateWorkspaceApplications,
+} from "./workspace-apps.js";
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 type JsonObject = { [key: string]: JsonValue };
@@ -65,6 +71,12 @@ export interface RuntimeAgentToolCapabilityPayload {
   available: true;
   workspace_id: string | null;
   tools: RuntimeAgentToolDefinition[];
+}
+
+interface RuntimeAgentToolAppLifecycleCallbacks {
+  ensureAppRunning?: ((workspaceId: string, appId: string) => Promise<void>) | null;
+  ensureAllAppsRunning?: ((workspaceId: string) => Promise<unknown>) | null;
+  stopApp?: ((workspaceId: string, appId: string) => Promise<unknown>) | null;
 }
 
 export interface RuntimeAgentToolsCreateCronjobParams {
@@ -250,6 +262,58 @@ export interface RuntimeAgentToolsCreateDataTableParams {
   replaceExisting?: boolean;
 }
 
+export interface RuntimeAgentToolsScaffoldWorkspaceAppParams {
+  workspaceId: string;
+  appId: string;
+  name?: string | null;
+  overwrite?: boolean;
+}
+
+export interface RuntimeAgentToolsRegisterWorkspaceAppParams {
+  workspaceId: string;
+  appId: string;
+  configPath?: string | null;
+}
+
+export interface RuntimeAgentToolsEnsureWorkspaceAppsRunningParams {
+  workspaceId: string;
+  appIds?: string[] | null;
+}
+
+export interface RuntimeAgentToolsRestartWorkspaceAppParams {
+  workspaceId: string;
+  appId: string;
+}
+
+export interface RuntimeAgentToolsWaitUntilWorkspaceAppReadyParams {
+  workspaceId: string;
+  appId: string;
+  timeoutMs?: number | null;
+  pollIntervalMs?: number | null;
+}
+
+export interface RuntimeAgentToolsGetWorkspaceAppStatusParams {
+  workspaceId: string;
+  appId?: string | null;
+}
+
+export interface RuntimeAgentToolsGetWorkspaceAppPortsParams {
+  workspaceId: string;
+  appId?: string | null;
+}
+
+export interface RuntimeAgentToolsDescribeDataTableParams {
+  workspaceId: string;
+  tableName: string;
+}
+
+export interface RuntimeAgentToolsSampleDataTableRowsParams {
+  workspaceId: string;
+  tableName: string;
+  limit?: number | null;
+  offset?: number | null;
+}
+
 // Suffixes that mark a table as app-internal under the cross-platform
 // metrics convention (see post-metrics-convention plan doc). Tables
 // matching these are hidden from list_data_tables by default so the
@@ -274,6 +338,378 @@ function isSystemTable(name: string): boolean {
 // queues / scheduler logs).
 function isRuntimeInternalTable(name: string): boolean {
   return name.startsWith("_");
+}
+
+function sanitizeWorkspaceAppId(raw: string): string {
+  const value = raw.trim();
+  if (!value) {
+    throw new RuntimeAgentToolsServiceError(400, "app_id_required", "app_id is required");
+  }
+  if (value.includes("/") || value.includes("\\")) {
+    throw new RuntimeAgentToolsServiceError(
+      400,
+      "app_id_invalid",
+      "app_id must not contain path separators",
+    );
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value)) {
+    throw new RuntimeAgentToolsServiceError(
+      400,
+      "app_id_invalid",
+      "app_id contains invalid characters",
+    );
+  }
+  return value;
+}
+
+function humanizeWorkspaceAppName(appId: string): string {
+  return appId
+    .split(/[._-]+/)
+    .filter((part) => part.length > 0)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function workspaceAppSlug(appId: string): string {
+  return appId
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || appId;
+}
+
+function resolveWorkspaceRelativePath(rootDir: string, relativePath: string): string {
+  const normalized = relativePath.replace(/\\/g, "/").trim();
+  if (!normalized || normalized.split("/").includes("..")) {
+    throw new RuntimeAgentToolsServiceError(
+      400,
+      "workspace_path_invalid",
+      "path traversal not allowed",
+    );
+  }
+  const resolvedRoot = path.resolve(rootDir);
+  const fullPath = path.resolve(resolvedRoot, normalized);
+  if (fullPath !== resolvedRoot && !fullPath.startsWith(`${resolvedRoot}${path.sep}`)) {
+    throw new RuntimeAgentToolsServiceError(
+      400,
+      "workspace_path_invalid",
+      "path traversal not allowed",
+    );
+  }
+  return fullPath;
+}
+
+function scaffoldWorkspaceAppManifest(params: { appId: string; name: string }): string {
+  return yaml.dump(
+    {
+      app_id: params.appId,
+      name: params.name,
+      slug: workspaceAppSlug(params.appId),
+      lifecycle: {
+        setup: "npm install",
+        start: "npm run start",
+      },
+      healthchecks: {
+        mcp: {
+          path: "/mcp/health",
+          timeout_s: 30,
+          interval_s: 5,
+        },
+      },
+      mcp: {
+        transport: "http-sse",
+        port: 13100,
+        path: "/mcp/sse",
+        tools: [],
+      },
+      env_contract: ["HOLABOSS_WORKSPACE_ID"],
+    },
+    { sortKeys: false, noRefs: true, lineWidth: 0 },
+  );
+}
+
+function scaffoldWorkspaceAppPackageJson(params: { appId: string }): string {
+  return `${JSON.stringify(
+    {
+      name: params.appId,
+      version: "0.1.0",
+      private: true,
+      scripts: {
+        start: "tsx src/server.ts",
+        build: "tsc -p tsconfig.json",
+      },
+      dependencies: {
+        express: "^4.21.2",
+      },
+      devDependencies: {
+        "@types/express": "^4.17.21",
+        "@types/node": "^24.0.1",
+        tsx: "^4.19.3",
+        typescript: "^5.8.3",
+      },
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+function scaffoldWorkspaceAppTsconfig(): string {
+  return `${JSON.stringify(
+    {
+      compilerOptions: {
+        target: "ES2020",
+        module: "CommonJS",
+        moduleResolution: "Node",
+        esModuleInterop: true,
+        forceConsistentCasingInFileNames: true,
+        strict: true,
+        skipLibCheck: true,
+        outDir: "dist",
+        rootDir: "src",
+        types: ["node"],
+      },
+      include: ["src/**/*.ts"],
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+function scaffoldWorkspaceAppServerTs(params: { appId: string; name: string }): string {
+  const appIdLiteral = JSON.stringify(params.appId);
+  const appNameLiteral = JSON.stringify(params.name);
+  return `import express, { type Request, type Response } from "express";
+import { randomUUID } from "node:crypto";
+import { type AddressInfo } from "node:net";
+
+const appId = ${appIdLiteral};
+const appName = ${appNameLiteral};
+const uiPort = Number(process.env.PORT || 3000);
+const mcpPort = Number(process.env.MCP_PORT || 13100);
+
+function jsonRpcSuccess(id: unknown, result: Record<string, unknown>) {
+  return { jsonrpc: "2.0", id, result };
+}
+
+function jsonRpcError(id: unknown, code: number, message: string) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    error: { code, message },
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const uiApp = express();
+uiApp.get("/", (_req, res) => {
+  res.status(200).type("html").send(\`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>\${appName}</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      body {
+        margin: 0;
+        background: #08111f;
+        color: #ecf3ff;
+      }
+
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 48px 24px 64px;
+      }
+
+      .eyebrow {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(32, 154, 255, 0.18);
+        color: #61c4ff;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      h1 {
+        margin: 20px 0 12px;
+        font-size: clamp(40px, 9vw, 68px);
+        line-height: 0.98;
+      }
+
+      p {
+        margin: 0;
+        color: #b6c5dd;
+        font-size: 18px;
+        line-height: 1.6;
+      }
+
+      .card {
+        margin-top: 32px;
+        padding: 20px 22px;
+        border-radius: 22px;
+        background: rgba(13, 24, 45, 0.84);
+        border: 1px solid rgba(120, 156, 214, 0.2);
+      }
+
+      code {
+        font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <span class="eyebrow">holaOS app scaffold</span>
+      <h1>\${appName}</h1>
+      <p>This runtime-managed starter is registered with the current workspace. Replace this placeholder with the first useful UI for the user request.</p>
+      <section class="card">
+        <strong>Managed runtime status</strong>
+        <p>UI port: <code>\${uiPort}</code><br />MCP port: <code>\${mcpPort}</code></p>
+      </section>
+    </main>
+  </body>
+</html>\`);
+});
+
+uiApp.get("/health", (_req, res) => {
+  res.status(200).json({ ok: true, app_id: appId });
+});
+
+const mcpApp = express();
+mcpApp.use(express.json({ limit: "1mb" }));
+
+mcpApp.get("/mcp/health", (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    app_id: appId,
+    transport: "http-sse",
+    sse_path: "/mcp/sse",
+    message_path: "/mcp/messages",
+  });
+});
+
+mcpApp.get("/mcp/sse", (req: Request, res: Response) => {
+  const sessionId =
+    typeof req.query.sessionId === "string" ? req.query.sessionId : randomUUID();
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  if (typeof res.flushHeaders === "function") {
+    res.flushHeaders();
+  }
+
+  res.write(
+    \`event: endpoint\\ndata: \${JSON.stringify({ sessionId, messagePath: "/mcp/messages" })}\\n\\n\`,
+  );
+  res.write(\`event: ready\\ndata: \${JSON.stringify({ appId })}\\n\\n\`);
+
+  const heartbeat = setInterval(() => {
+    res.write(\`event: ping\\ndata: \${JSON.stringify({ ts: new Date().toISOString() })}\\n\\n\`);
+  }, 15000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    res.end();
+  });
+});
+
+mcpApp.post("/mcp/messages", (req, res) => {
+  const body = isRecord(req.body) ? req.body : {};
+  const id = body.id ?? null;
+  const method = typeof body.method === "string" ? body.method : "";
+  const params = isRecord(body.params) ? body.params : {};
+
+  if (!method) {
+    res.status(400).json(jsonRpcError(id, -32600, "Invalid Request"));
+    return;
+  }
+
+  if (method === "initialize") {
+    const protocolVersion =
+      typeof params.protocolVersion === "string" ? params.protocolVersion : "2025-03-26";
+    res.status(200).json(
+      jsonRpcSuccess(id, {
+        protocolVersion,
+        capabilities: {
+          tools: {
+            listChanged: false,
+          },
+        },
+        serverInfo: {
+          name: appId,
+          version: "0.1.0",
+        },
+      }),
+    );
+    return;
+  }
+
+  if (method === "tools/list") {
+    res.status(200).json(jsonRpcSuccess(id, { tools: [] }));
+    return;
+  }
+
+  if (method === "resources/list") {
+    res.status(200).json(jsonRpcSuccess(id, { resources: [] }));
+    return;
+  }
+
+  if (method === "prompts/list") {
+    res.status(200).json(jsonRpcSuccess(id, { prompts: [] }));
+    return;
+  }
+
+  if (method === "ping") {
+    res.status(200).json(jsonRpcSuccess(id, {}));
+    return;
+  }
+
+  if (method.startsWith("notifications/")) {
+    res.status(202).json({ ok: true });
+    return;
+  }
+
+  res.status(200).json(jsonRpcError(id, -32601, \`Method not found: \${method}\`));
+});
+
+const uiServer = uiApp.listen(uiPort, () => {
+  const address = uiServer.address() as AddressInfo;
+  console.log(\`[\${appId}] UI listening on http://127.0.0.1:\${address.port}\`);
+});
+
+const mcpServer = mcpApp.listen(mcpPort, () => {
+  const address = mcpServer.address() as AddressInfo;
+  console.log(\`[\${appId}] MCP listening on http://127.0.0.1:\${address.port}\`);
+});
+
+function shutdown(signal: string) {
+  console.log(\`[\${appId}] Received \${signal}, shutting down.\`);
+  uiServer.close(() => undefined);
+  mcpServer.close(() => undefined);
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function fallbackWorkspaceAppBuildStatus(entry: Record<string, unknown>): string {
+  const lifecycle = isRecord(entry.lifecycle) ? (entry.lifecycle as Record<string, unknown>) : null;
+  return typeof lifecycle?.setup === "string" && lifecycle.setup.trim().length > 0 ? "pending" : "stopped";
 }
 
 export type DashboardPanelInput =
@@ -602,6 +1038,66 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS: RuntimeAgentToolDefinition[] = [
     method: "POST",
     path: "/api/v1/capabilities/runtime-tools/terminal-sessions/:terminalId/close",
     description: runtimeToolBaseDefinition("terminal_session_close").description
+  },
+  {
+    id: runtimeToolBaseDefinition("workspace_apps_scaffold").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/workspace-apps/scaffold",
+    description: runtimeToolBaseDefinition("workspace_apps_scaffold").description
+  },
+  {
+    id: runtimeToolBaseDefinition("workspace_apps_register").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/workspace-apps/register",
+    description: runtimeToolBaseDefinition("workspace_apps_register").description
+  },
+  {
+    id: runtimeToolBaseDefinition("workspace_apps_ensure_running").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/workspace-apps/ensure-running",
+    description: runtimeToolBaseDefinition("workspace_apps_ensure_running").description
+  },
+  {
+    id: runtimeToolBaseDefinition("workspace_apps_restart").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/workspace-apps/:appId/restart",
+    description: runtimeToolBaseDefinition("workspace_apps_restart").description
+  },
+  {
+    id: runtimeToolBaseDefinition("workspace_apps_wait_until_ready").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/workspace-apps/:appId/wait-until-ready",
+    description: runtimeToolBaseDefinition("workspace_apps_wait_until_ready").description
+  },
+  {
+    id: runtimeToolBaseDefinition("workspace_apps_get_status").id,
+    method: "GET",
+    path: "/api/v1/capabilities/runtime-tools/workspace-apps/:appId/status",
+    description: runtimeToolBaseDefinition("workspace_apps_get_status").description
+  },
+  {
+    id: runtimeToolBaseDefinition("workspace_apps_get_ports").id,
+    method: "GET",
+    path: "/api/v1/capabilities/runtime-tools/workspace-apps/ports",
+    description: runtimeToolBaseDefinition("workspace_apps_get_ports").description
+  },
+  {
+    id: runtimeToolBaseDefinition("workspace_data_list_tables").id,
+    method: "GET",
+    path: "/api/v1/capabilities/runtime-tools/workspace-data/tables",
+    description: runtimeToolBaseDefinition("workspace_data_list_tables").description
+  },
+  {
+    id: runtimeToolBaseDefinition("workspace_data_describe_table").id,
+    method: "GET",
+    path: "/api/v1/capabilities/runtime-tools/workspace-data/tables/:tableName",
+    description: runtimeToolBaseDefinition("workspace_data_describe_table").description
+  },
+  {
+    id: runtimeToolBaseDefinition("workspace_data_sample_rows").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/workspace-data/tables/:tableName/sample",
+    description: runtimeToolBaseDefinition("workspace_data_sample_rows").description
   },
   {
     id: runtimeToolBaseDefinition("list_data_tables").id,
@@ -1546,6 +2042,7 @@ export class RuntimeAgentToolsService {
       workspaceRoot: string;
       terminalSessionManager?: TerminalSessionManagerLike | null;
       queueWorker?: QueueWorkerLike | null;
+      appLifecycle?: RuntimeAgentToolAppLifecycleCallbacks | null;
     },
   ) {}
 
@@ -3314,6 +3811,532 @@ export class RuntimeAgentToolsService {
       throw new RuntimeAgentToolsServiceError(404, "terminal_session_not_found", "terminal session not found");
     }
     return terminal;
+  }
+
+  private requireWorkspaceAppLifecycle(): RuntimeAgentToolAppLifecycleCallbacks {
+    const lifecycle = this.options.appLifecycle;
+    if (!lifecycle) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "workspace_app_lifecycle_unavailable",
+        "workspace app lifecycle is not available in this runtime",
+      );
+    }
+    return lifecycle;
+  }
+
+  private listRegisteredWorkspaceAppEntries(workspaceId: string): Array<Record<string, unknown>> {
+    this.requireWorkspace(workspaceId);
+    return listWorkspaceApplications(path.join(this.options.workspaceRoot, workspaceId));
+  }
+
+  private requireRegisteredWorkspaceApp(params: {
+    workspaceId: string;
+    appId: string;
+  }): Record<string, unknown> {
+    const appId = sanitizeWorkspaceAppId(params.appId);
+    const entry = this.listRegisteredWorkspaceAppEntries(params.workspaceId).find(
+      (candidate) => candidate.app_id === appId,
+    );
+    if (!entry) {
+      throw new RuntimeAgentToolsServiceError(
+        404,
+        "workspace_app_not_found",
+        `app '${appId}' is not registered in workspace.yaml`,
+      );
+    }
+    return entry;
+  }
+
+  private workspaceAppStatusEntry(params: {
+    workspaceId: string;
+    entry: Record<string, unknown>;
+  }): JsonObject {
+    const appId = typeof params.entry.app_id === "string" ? params.entry.app_id : "";
+    const build = appId
+      ? this.store.getAppBuild({ workspaceId: params.workspaceId, appId })
+      : null;
+    const buildStatus = appId
+      ? build?.status ?? fallbackWorkspaceAppBuildStatus(params.entry)
+      : "unknown";
+    const workspaceDir = path.join(this.options.workspaceRoot, params.workspaceId);
+    const ports = appId
+      ? listWorkspaceApplicationPorts(workspaceDir, {
+          store: this.store,
+          workspaceId: params.workspaceId,
+          allocatePorts: true,
+        })[appId] ?? null
+      : null;
+    return {
+      workspace_id: params.workspaceId,
+      app_id: appId,
+      config_path: typeof params.entry.config_path === "string" ? params.entry.config_path : "",
+      lifecycle: isRecord(params.entry.lifecycle) ? (params.entry.lifecycle as JsonObject) : null,
+      build_status: buildStatus,
+      ready: buildStatus === "running",
+      error: build?.status === "failed" ? build.error ?? "unknown error" : null,
+      ports: ports ? { http: ports.http, mcp: ports.mcp } : null,
+      registered: appId.length > 0,
+    };
+  }
+
+  async scaffoldWorkspaceApp(
+    params: RuntimeAgentToolsScaffoldWorkspaceAppParams,
+  ): Promise<JsonObject> {
+    this.requireWorkspace(params.workspaceId);
+    const appId = sanitizeWorkspaceAppId(params.appId);
+    const name =
+      normalizedString(params.name) || humanizeWorkspaceAppName(appId) || appId;
+    const workspaceDir = path.join(this.options.workspaceRoot, params.workspaceId);
+    const appDir = path.join(workspaceDir, "apps", appId);
+    const overwrite = params.overwrite === true;
+
+    await fs.mkdir(path.join(appDir, "src"), { recursive: true });
+
+    const managedFiles = [
+      "app.runtime.yaml",
+      "package.json",
+      "tsconfig.json",
+      path.join("src", "server.ts"),
+    ];
+
+    if (!overwrite) {
+      for (const relativePath of managedFiles) {
+        if (existsSync(path.join(appDir, relativePath))) {
+          throw new RuntimeAgentToolsServiceError(
+            409,
+            "workspace_app_scaffold_exists",
+            `scaffold target already exists at apps/${appId}; pass overwrite=true to rewrite the managed starter files`,
+          );
+        }
+      }
+    }
+
+    const files: Array<{ relativePath: string; content: string }> = [
+      {
+        relativePath: "app.runtime.yaml",
+        content: scaffoldWorkspaceAppManifest({ appId, name }),
+      },
+      {
+        relativePath: "package.json",
+        content: scaffoldWorkspaceAppPackageJson({ appId }),
+      },
+      {
+        relativePath: "tsconfig.json",
+        content: scaffoldWorkspaceAppTsconfig(),
+      },
+      {
+        relativePath: path.join("src", "server.ts"),
+        content: scaffoldWorkspaceAppServerTs({ appId, name }),
+      },
+    ];
+
+    for (const file of files) {
+      const fullPath = path.join(appDir, file.relativePath);
+      await fs.mkdir(path.dirname(fullPath), { recursive: true });
+      await fs.writeFile(fullPath, file.content, "utf8");
+    }
+
+    return {
+      workspace_id: params.workspaceId,
+      app_id: appId,
+      app_dir: `apps/${appId}`,
+      manifest_path: `apps/${appId}/app.runtime.yaml`,
+      created_files: files.map((file) => `apps/${appId}/${file.relativePath.replace(/\\/g, "/")}`),
+      overwritten: overwrite,
+    };
+  }
+
+  async registerWorkspaceApp(
+    params: RuntimeAgentToolsRegisterWorkspaceAppParams,
+  ): Promise<JsonObject> {
+    this.requireWorkspace(params.workspaceId);
+    const appId = sanitizeWorkspaceAppId(params.appId);
+    const workspaceDir = path.join(this.options.workspaceRoot, params.workspaceId);
+    const configPath =
+      normalizedString(params.configPath) || `apps/${appId}/app.runtime.yaml`;
+    const manifestPath = resolveWorkspaceRelativePath(workspaceDir, configPath);
+    if (!existsSync(manifestPath)) {
+      throw new RuntimeAgentToolsServiceError(
+        404,
+        "workspace_app_manifest_not_found",
+        `manifest not found at ${configPath}`,
+      );
+    }
+
+    let parsed;
+    try {
+      parsed = parseInstalledAppRuntime(
+        await fs.readFile(manifestPath, "utf8"),
+        appId,
+        configPath.replace(/\\/g, "/"),
+      );
+    } catch (error) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "workspace_app_manifest_invalid",
+        error instanceof Error ? error.message : "invalid app.runtime.yaml",
+      );
+    }
+
+    const lifecycle: Record<string, string> = {};
+    if (parsed.lifecycle.setup) lifecycle.setup = parsed.lifecycle.setup;
+    if (parsed.lifecycle.start) lifecycle.start = parsed.lifecycle.start;
+    if (parsed.lifecycle.stop) lifecycle.stop = parsed.lifecycle.stop;
+
+    let changed = false;
+    updateWorkspaceApplications(workspaceDir, (applications) => {
+      const nextEntry: Record<string, unknown> = {
+        app_id: appId,
+        config_path: parsed.configPath,
+      };
+      if (Object.keys(lifecycle).length > 0) {
+        nextEntry.lifecycle = lifecycle;
+      }
+      const existingIndex = applications.findIndex((entry) => entry.app_id === appId);
+      if (existingIndex >= 0) {
+        const current = applications[existingIndex] ?? {};
+        const sameConfig = current.config_path === parsed.configPath;
+        const currentLifecycle = isRecord(current.lifecycle) ? current.lifecycle : null;
+        const sameLifecycle =
+          JSON.stringify(currentLifecycle ?? {}) === JSON.stringify(Object.keys(lifecycle).length > 0 ? lifecycle : {});
+        if (sameConfig && sameLifecycle) {
+          return applications;
+        }
+        applications[existingIndex] = nextEntry;
+        changed = true;
+        return applications;
+      }
+      applications.push(nextEntry);
+      changed = true;
+      return applications;
+    });
+
+    return {
+      workspace_id: params.workspaceId,
+      app_id: appId,
+      config_path: parsed.configPath,
+      lifecycle: Object.keys(lifecycle).length > 0 ? lifecycle : null,
+      changed,
+      registered: true,
+    };
+  }
+
+  getWorkspaceAppStatus(
+    params: RuntimeAgentToolsGetWorkspaceAppStatusParams,
+  ): JsonObject {
+    const appId = normalizedString(params.appId);
+    if (appId) {
+      const entry = this.requireRegisteredWorkspaceApp({
+        workspaceId: params.workspaceId,
+        appId,
+      });
+      return this.workspaceAppStatusEntry({
+        workspaceId: params.workspaceId,
+        entry,
+      });
+    }
+
+    const apps = this.listRegisteredWorkspaceAppEntries(params.workspaceId)
+      .filter((entry) => typeof entry.app_id === "string" && entry.app_id.length > 0)
+      .map((entry) =>
+        this.workspaceAppStatusEntry({
+          workspaceId: params.workspaceId,
+          entry,
+        }),
+      );
+    return {
+      workspace_id: params.workspaceId,
+      apps,
+      count: apps.length,
+    };
+  }
+
+  getWorkspaceAppPorts(
+    params: RuntimeAgentToolsGetWorkspaceAppPortsParams,
+  ): JsonObject {
+    this.requireWorkspace(params.workspaceId);
+    const workspaceDir = path.join(this.options.workspaceRoot, params.workspaceId);
+    const portsByApp = listWorkspaceApplicationPorts(workspaceDir, {
+      store: this.store,
+      workspaceId: params.workspaceId,
+      allocatePorts: true,
+    });
+    const appId = normalizedString(params.appId);
+    if (appId) {
+      this.requireRegisteredWorkspaceApp({
+        workspaceId: params.workspaceId,
+        appId,
+      });
+      const ports = portsByApp[appId];
+      return {
+        workspace_id: params.workspaceId,
+        app_id: appId,
+        ports: ports ? { http: ports.http, mcp: ports.mcp } : null,
+      };
+    }
+
+    const apps = Object.entries(portsByApp).map(([registeredAppId, ports]) => ({
+      app_id: registeredAppId,
+      ports: { http: ports.http, mcp: ports.mcp },
+    }));
+    return {
+      workspace_id: params.workspaceId,
+      apps,
+      count: apps.length,
+    };
+  }
+
+  async ensureWorkspaceAppsRunning(
+    params: RuntimeAgentToolsEnsureWorkspaceAppsRunningParams,
+  ): Promise<JsonObject> {
+    this.requireWorkspace(params.workspaceId);
+    const lifecycle = this.requireWorkspaceAppLifecycle();
+    const requestedAppIds = normalizedStringList(params.appIds);
+    const targetAppIds =
+      requestedAppIds.length > 0
+        ? requestedAppIds.map((appId) => sanitizeWorkspaceAppId(appId))
+        : this.listRegisteredWorkspaceAppEntries(params.workspaceId)
+            .map((entry) => (typeof entry.app_id === "string" ? entry.app_id : ""))
+            .filter((appId) => appId.length > 0);
+
+    if (targetAppIds.length === 0) {
+      throw new RuntimeAgentToolsServiceError(
+        404,
+        "workspace_apps_empty",
+        "no registered workspace apps found",
+      );
+    }
+
+    for (const appId of targetAppIds) {
+      this.requireRegisteredWorkspaceApp({ workspaceId: params.workspaceId, appId });
+    }
+
+    if (requestedAppIds.length === 0 && lifecycle.ensureAllAppsRunning) {
+      await lifecycle.ensureAllAppsRunning(params.workspaceId);
+    } else if (lifecycle.ensureAppRunning) {
+      for (const appId of targetAppIds) {
+        await lifecycle.ensureAppRunning(params.workspaceId, appId);
+      }
+    } else {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "workspace_app_ensure_running_unavailable",
+        "managed app startup is not available in this runtime",
+      );
+    }
+
+    const statusResult = this.getWorkspaceAppStatus({
+      workspaceId: params.workspaceId,
+    });
+    return {
+      workspace_id: params.workspaceId,
+      app_ids: targetAppIds,
+      count: targetAppIds.length,
+      status: statusResult,
+    };
+  }
+
+  async restartWorkspaceApp(
+    params: RuntimeAgentToolsRestartWorkspaceAppParams,
+  ): Promise<JsonObject> {
+    this.requireWorkspace(params.workspaceId);
+    const lifecycle = this.requireWorkspaceAppLifecycle();
+    const appId = sanitizeWorkspaceAppId(params.appId);
+    this.requireRegisteredWorkspaceApp({ workspaceId: params.workspaceId, appId });
+
+    if (!lifecycle.stopApp || !lifecycle.ensureAppRunning) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "workspace_app_restart_unavailable",
+        "managed app restart is not available in this runtime",
+      );
+    }
+
+    await lifecycle.stopApp(params.workspaceId, appId);
+    await lifecycle.ensureAppRunning(params.workspaceId, appId);
+    const status = this.getWorkspaceAppStatus({
+      workspaceId: params.workspaceId,
+      appId,
+    });
+    return {
+      workspace_id: params.workspaceId,
+      app_id: appId,
+      restarted: true,
+      status,
+    };
+  }
+
+  async waitUntilWorkspaceAppReady(
+    params: RuntimeAgentToolsWaitUntilWorkspaceAppReadyParams,
+  ): Promise<JsonObject> {
+    const appId = sanitizeWorkspaceAppId(params.appId);
+    this.requireRegisteredWorkspaceApp({ workspaceId: params.workspaceId, appId });
+    const timeoutMs = normalizedInteger(params.timeoutMs ?? 60_000, 60_000, 1, 300_000);
+    const pollIntervalMs = normalizedInteger(
+      params.pollIntervalMs ?? 1_000,
+      1_000,
+      50,
+      10_000,
+    );
+    const startedAt = Date.now();
+    let polls = 0;
+
+    while (Date.now() - startedAt <= timeoutMs) {
+      polls += 1;
+      const status = this.getWorkspaceAppStatus({
+        workspaceId: params.workspaceId,
+        appId,
+      });
+      if (status.ready === true || status.build_status === "failed") {
+        return {
+          ...(status as JsonObject),
+          timed_out: false,
+          polls,
+          elapsed_ms: Date.now() - startedAt,
+        };
+      }
+      await sleep(pollIntervalMs);
+    }
+
+    const status = this.getWorkspaceAppStatus({
+      workspaceId: params.workspaceId,
+      appId,
+    });
+    return {
+      ...(status as JsonObject),
+      timed_out: true,
+      polls,
+      elapsed_ms: Date.now() - startedAt,
+    };
+  }
+
+  describeDataTable(
+    params: RuntimeAgentToolsDescribeDataTableParams,
+  ): JsonObject {
+    this.requireWorkspace(params.workspaceId);
+    const dbPath = ensureWorkspaceDataDb(
+      path.join(this.options.workspaceRoot, params.workspaceId),
+    );
+    const tableName = normalizedString(params.tableName);
+    if (!tableName) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "table_name_required",
+        "table_name is required",
+      );
+    }
+
+    let db: Database.Database | null = null;
+    try {
+      db = new Database(dbPath, { readonly: true, fileMustExist: true });
+      db.pragma("query_only = ON");
+      if (isRuntimeInternalTable(tableName)) {
+        throw new RuntimeAgentToolsServiceError(
+          404,
+          "table_not_found",
+          `table "${tableName}" not found`,
+        );
+      }
+      const exists = db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1")
+        .get(tableName) as { 1?: number } | undefined;
+      if (!exists) {
+        throw new RuntimeAgentToolsServiceError(
+          404,
+          "table_not_found",
+          `table "${tableName}" not found`,
+        );
+      }
+      const quoted = quoteSqlIdentifier(tableName);
+      const columns = db
+        .prepare(`PRAGMA table_info(${quoted})`)
+        .all() as Array<{ name: string; type: string; notnull: number; pk: number }>;
+      const rowCount = db
+        .prepare(`SELECT COUNT(*) AS c FROM ${quoted}`)
+        .get() as { c: number };
+      return {
+        workspace_id: params.workspaceId,
+        table_name: tableName,
+        columns: columns.map((column) => ({
+          name: column.name,
+          type: column.type,
+          not_null: Boolean(column.notnull),
+          primary_key: Boolean(column.pk),
+        })),
+        row_count: rowCount.c,
+        system_table: isSystemTable(tableName),
+      };
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        throw error;
+      }
+      throw new RuntimeAgentToolsServiceError(
+        500,
+        "describe_data_table_failed",
+        error instanceof Error ? error.message : "Failed to describe data table",
+      );
+    } finally {
+      if (db) {
+        try {
+          db.close();
+        } catch {
+          /* best effort */
+        }
+      }
+    }
+  }
+
+  sampleDataTableRows(
+    params: RuntimeAgentToolsSampleDataTableRowsParams,
+  ): JsonObject {
+    this.requireWorkspace(params.workspaceId);
+    const description = this.describeDataTable({
+      workspaceId: params.workspaceId,
+      tableName: params.tableName,
+    });
+    const tableName = String(description.table_name ?? "");
+    const limit = normalizedInteger(params.limit ?? 5, 5, 1, 25);
+    const offset = normalizedInteger(params.offset ?? 0, 0, 0, 10_000);
+    const dbPath = ensureWorkspaceDataDb(
+      path.join(this.options.workspaceRoot, params.workspaceId),
+    );
+
+    let db: Database.Database | null = null;
+    try {
+      db = new Database(dbPath, { readonly: true, fileMustExist: true });
+      db.pragma("query_only = ON");
+      const rows = db
+        .prepare(
+          `SELECT * FROM ${quoteSqlIdentifier(tableName)} LIMIT ${limit} OFFSET ${offset}`,
+        )
+        .all() as Array<Record<string, JsonValue>>;
+      return {
+        workspace_id: params.workspaceId,
+        table_name: tableName,
+        limit,
+        offset,
+        rows,
+        row_count: rows.length,
+      };
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        throw error;
+      }
+      throw new RuntimeAgentToolsServiceError(
+        500,
+        "sample_data_table_rows_failed",
+        error instanceof Error ? error.message : "Failed to sample data table rows",
+      );
+    } finally {
+      if (db) {
+        try {
+          db.close();
+        } catch {
+          /* best effort */
+        }
+      }
+    }
   }
 
   // Introspects the workspace's shared SQLite (data.db) and returns the

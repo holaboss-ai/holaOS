@@ -794,6 +794,21 @@ test("runtime tools capability routes expose local onboarding and cronjob action
         .json()
         .tools.some((tool: { id: string }) => tool.id === "skill")
     );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "workspace_apps_scaffold")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "workspace_apps_wait_until_ready")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "workspace_data_describe_table")
+    );
 
     const onboardingStatus = await app.inject({
       method: "GET",
@@ -852,6 +867,78 @@ test("runtime tools capability routes expose local onboarding and cronjob action
     });
     assert.equal(listedJobs.statusCode, 200);
     assert.equal(listedJobs.json().count, 1);
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
+test("workspace app capability routes scaffold, register, and inspect a managed app starter", async () => {
+  const root = makeTempDir("hb-runtime-api-workspace-app-tools-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  try {
+    const scaffold = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/scaffold",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {
+        app_id: "demo-app",
+        name: "Demo App",
+      },
+    });
+    assert.equal(scaffold.statusCode, 200);
+    assert.equal(scaffold.json().app_id, "demo-app");
+
+    const register = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/register",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {
+        app_id: "demo-app",
+      },
+    });
+    assert.equal(register.statusCode, 200);
+    assert.equal(register.json().registered, true);
+    assert.equal(register.json().config_path, "apps/demo-app/app.runtime.yaml");
+
+    const status = await app.inject({
+      method: "GET",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/demo-app/status",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+    });
+    assert.equal(status.statusCode, 200);
+    assert.equal(status.json().app_id, "demo-app");
+    assert.equal(status.json().build_status, "pending");
+    assert.equal(status.json().ready, false);
+
+    const ports = await app.inject({
+      method: "GET",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/demo-app/ports",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+    });
+    assert.equal(ports.statusCode, 200);
+    assert.equal(typeof ports.json().ports.http, "number");
+    assert.equal(typeof ports.json().ports.mcp, "number");
   } finally {
     await app.close();
     store.close();
