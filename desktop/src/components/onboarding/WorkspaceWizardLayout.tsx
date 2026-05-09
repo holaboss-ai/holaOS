@@ -1,4 +1,4 @@
-import { ArrowRight, Loader2 } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,8 @@ interface WorkspaceWizardLayoutProps {
   /** Tertiary ghost action shown below the action bar (e.g. "Skip"). */
   tertiary?: WizardAction;
   errorMessage?: string | null;
+  /** Optional hero/decoration block rendered above the title. */
+  aboveTitle?: ReactNode;
   /** Optional content (e.g. dynamic banner) rendered between body and action bar. */
   belowBody?: ReactNode;
 }
@@ -46,10 +48,11 @@ export function WorkspaceWizardLayout({
   secondary,
   tertiary,
   errorMessage,
+  aboveTitle,
   belowBody,
 }: WorkspaceWizardLayoutProps) {
   return (
-    <div className="flex w-full flex-1 items-start justify-center px-5 pb-8">
+    <div className="flex w-full flex-1 items-center justify-center px-5 py-8">
       <div
         className={cn(
           "w-full rounded-2xl bg-background px-8 pt-9 pb-8 shadow-xs sm:px-10 sm:pt-10 sm:pb-9",
@@ -75,8 +78,10 @@ export function WorkspaceWizardLayout({
           </div>
         </div>
 
+        {aboveTitle ? <div className="mt-5">{aboveTitle}</div> : null}
+
         {/* Title + description */}
-        <div className="mt-5">
+        <div className={aboveTitle ? "mt-6" : "mt-5"}>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
             {title}
           </h1>
@@ -127,7 +132,7 @@ export function WorkspaceWizardLayout({
             ) : (
               <>
                 {primary.label}
-                {primary.hideIcon ? null : <ArrowRight className="size-3.5" />}
+                {primary.hideIcon ? null : <ChevronRight className="size-3.5" />}
               </>
             )}
           </Button>
@@ -136,11 +141,12 @@ export function WorkspaceWizardLayout({
         {tertiary ? (
           <div className="mt-4 text-center">
             <Button
+              className="text-muted-foreground"
               disabled={tertiary.disabled}
               onClick={tertiary.onClick}
               size="xs"
               type="button"
-              variant="link"
+              variant="ghost"
             >
               {tertiary.label}
             </Button>
