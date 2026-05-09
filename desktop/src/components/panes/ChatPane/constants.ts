@@ -79,4 +79,5 @@ export const RUNTIME_MODEL_CAPABILITY_ALIASES: Record<string, string> = {
  *  inline-code spans are not yet skipped — a `@token` inside a
  *  ``` ``` ``` fence will still get rewritten. Acceptable for v1
  *  since user-submitted code is rare in chat. */
-export const MENTION_TOKEN_PATTERN = /(^|[\s])@([A-Za-z0-9_.\-/]+)/g;
+export const MENTION_TOKEN_PATTERN =
+  /(^|[\s])@([\p{L}\p{N}_.\-/]+)/gu;

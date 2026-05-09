@@ -5,15 +5,16 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Tokens — tweakcn themes override per [data-theme="*"]. */
+/* Tokens — themes override per [data-theme="<variant>-{light,dark}"]. */
 @import "./styles/tokens.css";
-@import "./styles/themes/amber-minimal.css";
-@import "./styles/themes/bold-tech.css";
-@import "./styles/themes/bubblegum.css";
+@import "./styles/themes/holaos.css";
 @import "./styles/themes/catppuccin.css";
-@import "./styles/themes/sepia.css";
-@import "./styles/themes/clean-slate.css";
-@import "./styles/themes/cosmic-night.css";
+@import "./styles/themes/rose-pine.css";
+@import "./styles/themes/solarized.css";
+@import "./styles/themes/nord.css";
+@import "./styles/themes/one-dark-pro.css";
+@import "./styles/themes/gruvbox.css";
+@import "./styles/themes/vitesse.css";
 
 /* App styles. */
 @import "./styles/base.css";

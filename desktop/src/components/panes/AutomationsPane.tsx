@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  CalendarClock,
   ChevronRight,
   Clock3,
+  Inbox,
   MoreHorizontal,
   Pencil,
   Play,
   Plus,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -209,7 +210,7 @@ export function AutomationsPane({
       ? "border-b border-primary/20 bg-primary/5 text-foreground"
       : statusTone === "error"
         ? "border-b border-destructive/20 bg-destructive/5 text-destructive"
-        : "border-b border-border bg-muted/40 text-muted-foreground";
+        : "border-b border-border bg-fg-2 text-muted-foreground";
 
   const setInfoMessage = (message: string) => {
     setStatusTone("info");
@@ -390,7 +391,7 @@ export function AutomationsPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-border px-4 py-2 sm:px-5">
+      <div className="shrink-0 px-4 py-2 sm:px-5">
         <div className="flex items-center justify-between gap-2">
           <Tabs
             value={activeTab}
@@ -403,13 +404,12 @@ export function AutomationsPane({
           </Tabs>
           <Button
             type="button"
-            variant="ghost"
-            size="icon-sm"
+            variant="outline"
+            size="sm"
             onClick={handleNewSchedule}
-            aria-label="New schedule"
-            className="rounded-lg text-muted-foreground hover:text-foreground"
           >
-            <Plus className="size-4" />
+            <Plus className="size-3.5" />
+            New schedule
           </Button>
         </div>
       </div>
@@ -425,8 +425,9 @@ export function AutomationsPane({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!activeWorkspaceId ? (
           <EmptyState
-            icon={Clock3}
+            icon={CalendarClock}
             size="md"
+            decorated
             title="No workspace selected"
             description={emptyWorkspaceMessage}
           />
@@ -436,22 +437,37 @@ export function AutomationsPane({
           <SkeletonList />
         ) : activeTab === "scheduled" ? (
           scheduledJobs.length === 0 ? (
-            <EmptyScheduled onCreate={handleNewSchedule} />
+            <EmptyState
+              icon={CalendarClock}
+              size="md"
+              decorated
+              title="Nothing scheduled"
+              description="Schedules run automatically at the time you set."
+              action={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleNewSchedule}
+                >
+                  <Plus className="size-3.5" />
+                  New schedule
+                </Button>
+              }
+            />
           ) : (
-            <ul>
-              {scheduledJobs.map((job, index) => {
+            <ul className="divide-y divide-border">
+              {scheduledJobs.map((job) => {
                 const isBusy = busyJobId === job.id;
                 const kindLabel = jobKindLabel(job);
                 return (
                   <li
                     key={job.id}
                     className={`group relative flex items-center gap-3 px-4 py-3 transition-colors hover:bg-fg-2 sm:px-5 ${
-                      index > 0 ? "border-t border-border" : ""
-                    } ${isBusy ? "opacity-60" : ""}`}
+                      isBusy ? "opacity-60" : ""
+                    }`}
                   >
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                      <Clock3 className="size-3.5" />
-                    </div>
+                    <Clock3 className="size-4 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         <span className="truncate text-sm font-medium text-foreground">
@@ -460,18 +476,21 @@ export function AutomationsPane({
                         {kindLabel !== "Automation" ? (
                           <Badge
                             variant="outline"
-                            className="border-border bg-background/60 px-1.5 py-0 text-[10px] font-medium leading-4 text-muted-foreground"
+                            className="border-border bg-fg-2 px-1.5 py-0 text-[10px] font-medium leading-4 text-muted-foreground"
                           >
                             {kindLabel}
                           </Badge>
                         ) : null}
                       </div>
-                      <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                        {scheduleAtLabel(job)}
+                      <div className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                        <span className="truncate">{scheduleAtLabel(job)}</span>
                         {!job.enabled ? (
-                          <span className="ml-1.5 text-muted-foreground/70">
-                            · paused
-                          </span>
+                          <Badge
+                            variant="outline"
+                            className="border-border bg-fg-2 px-1.5 py-0 text-[10px] font-medium leading-4 text-muted-foreground"
+                          >
+                            Paused
+                          </Badge>
                         ) : null}
                       </div>
                       {job.last_error ? (
@@ -519,7 +538,7 @@ export function AutomationsPane({
                           disabled={isBusy}
                         >
                           <Pencil size={14} />
-                          Edit in chat
+                          Edit
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => void handleDelete(job)}
@@ -538,14 +557,15 @@ export function AutomationsPane({
           )
         ) : completedRuns.length === 0 ? (
           <EmptyState
-            icon={Clock3}
+            icon={Inbox}
             size="md"
+            decorated
             title="No runs yet"
-            description="Once a scheduled task fires, its history will show up here."
+            description="Completed runs appear here."
           />
         ) : (
-          <ul>
-            {completedRuns.map((run, index) => {
+          <ul className="divide-y divide-border">
+            {completedRuns.map((run) => {
               const failed = isFailedStatus(run.status);
               return (
                 <li key={run.sessionId}>
@@ -553,23 +573,13 @@ export function AutomationsPane({
                     type="button"
                     disabled={!onOpenRunSession}
                     onClick={() => onOpenRunSession?.(run.sessionId)}
-                    className={`group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-fg-2 disabled:cursor-default disabled:hover:bg-transparent sm:px-5 ${
-                      index > 0 ? "border-t border-border" : ""
-                    }`}
+                    className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-fg-2 disabled:cursor-default disabled:hover:bg-transparent sm:px-5"
                   >
-                    <div
-                      className={`flex size-8 shrink-0 items-center justify-center rounded-md ${
-                        failed
-                          ? "bg-destructive/10 text-destructive"
-                          : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      {failed ? (
-                        <AlertTriangle className="size-3.5" />
-                      ) : (
-                        <Clock3 className="size-3.5" />
-                      )}
-                    </div>
+                    {failed ? (
+                      <AlertTriangle className="size-4 shrink-0 text-destructive" />
+                    ) : (
+                      <Clock3 className="size-4 shrink-0 text-muted-foreground" />
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium text-foreground">
                         {run.title}
@@ -599,57 +609,27 @@ export function AutomationsPane({
   );
 }
 
-function EmptyScheduled({ onCreate }: { onCreate: () => void }) {
-  return (
-    <EmptyState
-      icon={Clock3}
-      size="md"
-      title="No schedules yet"
-      description={
-        <>
-          Ask the agent to set one up — try{" "}
-          <span className="text-foreground/80">
-            &ldquo;post a LinkedIn update every Monday at 9am&rdquo;
-          </span>
-          .
-        </>
-      }
-      action={
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={onCreate}
-          className="gap-1.5"
-        >
-          <Sparkles className="size-3.5" />
-          Ask the agent
-        </Button>
-      }
-    />
-  );
-}
-
 function SkeletonList() {
   const rows = ["w-32", "w-44", "w-36", "w-40"];
   return (
-    <ul role="status" aria-busy="true" aria-label="Loading automations">
+    <ul
+      role="status"
+      aria-busy="true"
+      aria-label="Loading automations"
+      className="divide-y divide-border"
+    >
       {rows.map((titleW, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton list
         <li
           key={index}
-          className={`flex items-center gap-3 px-4 py-3 sm:px-5 ${
-            index > 0 ? "border-t border-border" : ""
-          }`}
+          className="flex items-center gap-3 px-4 py-3 sm:px-5"
         >
-          <div className="size-8 shrink-0 animate-pulse rounded-md bg-muted-foreground/15" />
+          <div className="size-4 shrink-0 animate-pulse rounded bg-fg-8" />
           <div className="min-w-0 flex-1 space-y-1.5">
-            <div
-              className={`h-3.5 ${titleW} animate-pulse rounded bg-muted-foreground/20`}
-            />
-            <div className="h-2.5 w-24 animate-pulse rounded bg-muted-foreground/15" />
+            <div className={`h-3.5 ${titleW} animate-pulse rounded bg-fg-8`} />
+            <div className="h-2.5 w-24 animate-pulse rounded bg-fg-6" />
           </div>
-          <div className="h-5 w-9 shrink-0 animate-pulse rounded-full bg-muted-foreground/15" />
+          <div className="h-5 w-9 shrink-0 animate-pulse rounded-full bg-fg-6" />
         </li>
       ))}
     </ul>

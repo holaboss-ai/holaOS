@@ -214,7 +214,7 @@ export function findActiveMentionRange(
   // Allow `/` in handles so nested file paths (`@apps/twitter/post.md`)
   // round-trip — the parser still recognises the token if the user
   // moves the caret back into it.
-  if (!/^@[A-Za-z0-9_.\-/]*$/.test(rawToken)) {
+  if (!/^@[\p{L}\p{N}_.\-/]*$/u.test(rawToken)) {
     return null;
   }
   return {
@@ -231,10 +231,13 @@ export function replaceMentionText(
 ): { value: string; caretIndex: number } {
   const before = value.slice(0, range.start);
   const after = value.slice(range.end);
-  // Trailing space follows the inserted handle so the user can keep
-  // typing without manually adding one. Mirrors what most chat apps
-  // do after a successful mention selection.
-  const trailing = after.startsWith(" ") || after.length === 0 ? "" : " ";
+  // Always insert a trailing space unless one is already present.
+  // (Previously skipped when `after.length === 0`, which left the
+  // inserted handle with the caret still inside its mention range —
+  // findActiveMentionRange kept matching, the picker stayed open, and
+  // the user had to press Escape to dismiss.) Adding the space
+  // unconditionally breaks the range cleanly so the picker closes.
+  const trailing = after.startsWith(" ") ? "" : " ";
   const nextValue = `${before}${insertion}${trailing}${after}`;
   return {
     value: nextValue,

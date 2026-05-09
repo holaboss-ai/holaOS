@@ -54,6 +54,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
+import { useIsDarkTheme } from "@/lib/themeAttr";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 
 import type {
@@ -67,30 +68,33 @@ import type {
  * kept as small color squares in the Theme select dropdown.
  */
 const THEME_SWATCHES: Record<string, [string, string, string]> = {
-  "amber-minimal-dark": ["#1a1814", "#e8853a", "#2e2920"],
-  "amber-minimal-light": ["#ffffff", "#e8853a", "#fef5ec"],
-  "cosmic-night-dark": ["#1a1035", "#a78bfa", "#352a5c"],
-  "cosmic-night-light": ["#f5f3ff", "#7c3aed", "#e4dff7"],
-  "sepia-dark": ["#2c2520", "#c0825a", "#3d332e"],
-  "sepia-light": ["#faf6ef", "#c0825a", "#ebe3d2"],
-  "clean-slate-dark": ["#1a1d25", "#6d8cf5", "#2d3340"],
-  "clean-slate-light": ["#f8f9fc", "#5b72e0", "#e4e7f0"],
-  "bold-tech-dark": ["#0f0b1a", "#a855f7", "#261e3d"],
-  "bold-tech-light": ["#ffffff", "#8b5cf6", "#f0ecfb"],
-  "catppuccin-dark": ["#1e1e2e", "#cba6f7", "#313244"],
-  "catppuccin-light": ["#eff1f5", "#8839ef", "#ccd0da"],
-  "bubblegum-dark": ["#1f2937", "#f9a8d4", "#374151"],
-  "bubblegum-light": ["#fef2f8", "#ec4899", "#fce7f3"],
+  "holaos-dark": ["#1a1814", "#e8853a", "#2e2920"],
+  "holaos-light": ["#ffffff", "#e8853a", "#fef5ec"],
+  "catppuccin-dark": ["#1e1e2e", "#f5c2e7", "#313244"],
+  "catppuccin-light": ["#eff1f5", "#ea76cb", "#e1e3e8"],
+  "rose-pine-dark": ["#191724", "#c4a7e7", "#26233a"],
+  "rose-pine-light": ["#faf4ed", "#907aa9", "#f2e9de"],
+  "solarized-dark": ["#002b36", "#268bd2", "#073642"],
+  "solarized-light": ["#fdf6e3", "#268bd2", "#eee8d5"],
+  "nord-dark": ["#2e3440", "#88c0d0", "#3b4252"],
+  "nord-light": ["#eceff4", "#5e81ac", "#d8dee9"],
+  "one-dark-pro-dark": ["#282c34", "#61afef", "#3a3f4b"],
+  "one-dark-pro-light": ["#fafafa", "#4078f2", "#eaeaeb"],
+  "gruvbox-dark": ["#282828", "#fabd2f", "#3c3836"],
+  "gruvbox-light": ["#fbf1c7", "#d79921", "#ebdbb2"],
+  "vitesse-dark": ["#121212", "#4d9375", "#1c1c1c"],
+  "vitesse-light": ["#ffffff", "#1e754f", "#f0f0f0"],
 };
 
 const THEME_VARIANT_LABELS: Record<ThemeVariant, string> = {
-  "amber-minimal": "Holaos",
-  "cosmic-night": "Cosmic Night",
-  sepia: "Sepia",
-  "clean-slate": "Clean Slate",
-  "bold-tech": "Bold Tech",
+  holaos: "holaOS",
   catppuccin: "Catppuccin",
-  bubblegum: "Bubblegum",
+  "rose-pine": "Rosé Pine",
+  solarized: "Solarized",
+  nord: "Nord",
+  "one-dark-pro": "One Dark Pro",
+  gruvbox: "Gruvbox",
+  vitesse: "Vitesse",
 };
 
 const COLOR_SCHEME_LABELS: Record<ColorScheme, string> = {
@@ -312,6 +316,7 @@ export function SettingsScreenRoot({
   submissionsFocusId = null,
 }: SettingsScreenRootProps) {
   const displayAppVersion = appVersion.trim() || "Unavailable";
+  const isDarkTheme = useIsDarkTheme();
   const { hasHydratedWorkspaceList, selectedWorkspace, workspaces } =
     useWorkspaceDesktop();
   const [diagnosticsExportState, setDiagnosticsExportState] = useState<{
@@ -667,9 +672,15 @@ export function SettingsScreenRoot({
                     onThemeVariantChange(value as ThemeVariant)
                   }
                   options={themeVariants.map((variant) => {
+                    const preferredKey = isDarkTheme
+                      ? `${variant}-dark`
+                      : `${variant}-light`;
+                    const fallbackKey = isDarkTheme
+                      ? `${variant}-light`
+                      : `${variant}-dark`;
                     const swatch =
-                      THEME_SWATCHES[`${variant}-light`]?.[1] ??
-                      THEME_SWATCHES[`${variant}-dark`]?.[1] ??
+                      THEME_SWATCHES[preferredKey]?.[1] ??
+                      THEME_SWATCHES[fallbackKey]?.[1] ??
                       "#808080";
                     return {
                       value: variant,

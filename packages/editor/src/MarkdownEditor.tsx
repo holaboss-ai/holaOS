@@ -1,5 +1,7 @@
 import {
   forwardRef,
+  memo,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -7,7 +9,8 @@ import {
   useState,
 } from "react";
 import { Editor, EditorContent, ReactNodeViewRenderer, useEditor } from "@tiptap/react";
-import { BubbleMenu } from "@tiptap/react/menus";
+import { isNodeSelection } from "@tiptap/core";
+import { BubbleMenu, type BubbleMenuProps } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskList from "@tiptap/extension-task-list";
@@ -27,6 +30,33 @@ import { BubbleToolbar } from "./extensions/BubbleToolbar";
 import { DragHandleColumn } from "./extensions/DragHandleColumn";
 import { CodeBlockView } from "./extensions/CodeBlockView";
 import { tightenMarkdownTables } from "./markdown";
+
+// Memoised so DragHandle's frequent onNodeChange (every block transition
+// during mouse move) doesn't cascade re-renders into the bubble surface.
+const MemoBubbleToolbar = memo(BubbleToolbar);
+const MemoDragHandleColumn = memo(DragHandleColumn);
+
+// Stable callback references for BubbleMenu — both `appendTo` and
+// `shouldShow` get hoisted out of the component so their identity is
+// constant across renders. The React BubbleMenu wrapper has these in its
+// useEffect dependency array; an inline lambda recreated every render
+// fires that effect every render, which dispatches a `updateOptions`
+// transaction, which re-evaluates shouldShow, which can flip visibility.
+// That's the canonical "bubble menu flickers on mouse move" bug.
+const bubbleAppendTo = (): HTMLElement => document.body;
+
+const bubbleShouldShow: NonNullable<BubbleMenuProps["shouldShow"]> = ({
+  editor,
+  state,
+  from,
+  to,
+}) => {
+  if (!editor.isEditable) return false;
+  if (state.selection.empty) return false;
+  if (isNodeSelection(state.selection)) return false;
+  if (editor.isActive("codeBlock")) return false;
+  return state.doc.textBetween(from, to).length > 0;
+};
 
 // Highlight common languages out of the box. `common` covers ~37 languages
 // (js/ts/python/rust/go/sql/json/html/css/bash/md/etc.) at ~70KB. If size
@@ -220,13 +250,25 @@ export const MarkdownEditor = forwardRef<
     [editor, value],
   );
 
-  // Track the currently-hovered node so the drag-handle column can know
-  // what "+" should insert next to. Tiptap's DragHandle gives us this via
-  // its onNodeChange callback.
-  const [activeNode, setActiveNode] = useState<{ node: Node | null; pos: number }>({
+  // Drag-handle's currently-hovered node lives in a ref, NOT useState.
+  // DragHandle fires `onNodeChange` on every block transition the mouse
+  // crosses. Pushing that into setState would re-render MarkdownEditor on
+  // every mouse move — and the BubbleMenu wrapper's useEffect deps include
+  // its own props, which would then dispatch `updateOptions` transactions
+  // on every render. That cascade is exactly what made the bubble flicker
+  // when the cursor hovered text. The DragHandleColumn re-mounts in place
+  // each time the handle re-positions, so it can read the latest values
+  // from this ref without React state at all.
+  const activeNodeRef = useRef<{ node: Node | null; pos: number }>({
     node: null,
     pos: 0,
   });
+  const handleDragNodeChange = useCallback(
+    ({ node, pos }: { node: Node | null; pos: number }) => {
+      activeNodeRef.current = { node, pos };
+    },
+    [],
+  );
 
   return (
     <div className={`hb-md-editor ${className ?? ""}`.trim()}>
@@ -234,42 +276,21 @@ export const MarkdownEditor = forwardRef<
         <DragHandle
           editor={editor}
           className="hb-drag-handle"
-          onNodeChange={({ node, pos }) => setActiveNode({ node, pos })}
+          onNodeChange={handleDragNodeChange}
         >
-          <DragHandleColumn editor={editor} node={activeNode.node} pos={activeNode.pos} />
+          <MemoDragHandleColumn editor={editor} nodeRef={activeNodeRef} />
         </DragHandle>
       ) : null}
       {editor ? (
+        // Stable references for every prop — see notes on bubbleAppendTo /
+        // bubbleShouldShow above. With these, BubbleMenu's deps-effect
+        // doesn't re-fire on parent re-renders.
         <BubbleMenu
           editor={editor}
-          // Mount the bubble into document.body so the parent's overflow:auto
-          // doesn't clip it. Critical — without this, the bubble renders
-          // but sits inside .hb-md-editor__content and gets clipped.
-          appendTo={() => document.body}
-          // Use the plugin's built-in shouldShow:
-          //   - editor focused
-          //   - selection non-empty
-          //   - selection contains text (not just an empty block)
-          //   - editor is editable
-          // We additionally hide inside code blocks where marks are noise.
-          shouldShow={({ editor, view, state, from, to }) => {
-            if (!view.hasFocus()) return false;
-            if (state.selection.empty) return false;
-            if (editor.isActive("codeBlock")) return false;
-            const hasText = state.doc.textBetween(from, to).length > 0;
-            return hasText;
-          }}
-          // Reduce the default 250ms debounce — Notion-feel needs <100ms.
-          updateDelay={50}
-          options={{
-            placement: "top",
-            offset: 8,
-            flip: true,
-            shift: { padding: 8 },
-          }}
-          data-hb-bubble-root=""
+          appendTo={bubbleAppendTo}
+          shouldShow={bubbleShouldShow}
         >
-          <BubbleToolbar editor={editor} />
+          <MemoBubbleToolbar editor={editor} />
         </BubbleMenu>
       ) : null}
       <EditorContent editor={editor} className="hb-md-editor__content" />

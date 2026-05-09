@@ -1,11 +1,10 @@
-/* Default theme — quiet, near-neutral grays with a subtle cool undertone
-   and the holaboss orange reserved for brand/CTA. Tuned so hairline
-   borders read as page rhythm, not as cell walls; surfaces (card, muted,
-   accent) sit close enough to background that elevation comes from
-   structure rather than from the surface tint itself. */
+/* holaOS — the brand-native theme. Quiet near-neutral grays with a cool
+   undertone and the holaboss orange reserved for brand/CTA. Hairlines read
+   as page rhythm, not cell walls; surfaces (card, muted, accent) sit close
+   enough to background that elevation comes from structure rather than tint. */
 
 /* Light mode */
-[data-theme="amber-minimal-light"] {
+[data-theme="holaos-light"] {
   --background: oklch(1 0 0);
   --foreground: oklch(0.18 0.003 250);
   --card: oklch(0.985 0.002 250);
@@ -61,28 +60,30 @@
 }
 
 /* Dark mode */
-[data-theme="amber-minimal-dark"] {
+[data-theme="holaos-dark"] {
   --background: oklch(0.16 0.003 250);
-  --foreground: oklch(0.985 0.002 250);
-  --card: oklch(0.20 0.003 250);
-  --card-foreground: oklch(0.985 0.002 250);
-  --popover: oklch(0.20 0.003 250);
-  --popover-foreground: oklch(0.985 0.002 250);
+  --foreground: oklch(0.97 0.002 250);
+  --card: oklch(0.235 0.003 250);
+  --card-foreground: oklch(0.97 0.002 250);
+  --popover: oklch(0.235 0.003 250);
+  --popover-foreground: oklch(0.97 0.002 250);
   --primary: oklch(0.624 0.229 32);
   --primary-foreground: oklch(0.98 0.01 32);
-  --secondary: oklch(0.22 0.003 250);
-  --secondary-foreground: oklch(0.985 0.002 250);
-  /* Muted sits BELOW background so surfaces using bg-muted — tab list
-     rails, code blocks, disabled fields — read as a subtle recess
-     rather than a raised pad. */
-  --muted: oklch(0.14 0.003 250);
-  --muted-foreground: oklch(0.6 0.005 250);
-  --accent: oklch(0.24 0.003 250);
-  --accent-foreground: oklch(0.985 0.002 250);
+  --secondary: oklch(0.27 0.003 250);
+  --secondary-foreground: oklch(0.97 0.002 250);
+  /* Muted reads as a soft mid-tone above background so surfaces using
+     bg-muted — tab list rails, code blocks, disabled fields, the user
+     chat bubble base mix — actually read on a dark page. */
+  --muted: oklch(0.205 0.003 250);
+  --muted-foreground: oklch(0.66 0.005 250);
+  --accent: oklch(0.30 0.003 250);
+  --accent-foreground: oklch(0.97 0.002 250);
   --destructive: oklch(0.653 0.232 25.964);
   --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.22 0.003 250);
-  --input: oklch(0.25 0.003 250);
+  /* Border sits clearly above card (0.235) so hairlines on cards are
+     visible without being loud against the page surface. */
+  --border: oklch(0.32 0.003 250);
+  --input: oklch(0.32 0.003 250);
   --ring: oklch(0.624 0.229 32);
   --chart-1: oklch(0.44 0.004 250);
   --chart-2: oklch(0.56 0.004 250);
@@ -90,13 +91,13 @@
   --chart-4: oklch(0.87 0.004 250);
   --chart-5: oklch(0.92 0.004 250);
   --radius: 0.675rem;
-  --sidebar: oklch(0.18 0.003 250);
-  --sidebar-foreground: oklch(0.985 0.002 250);
+  --sidebar: oklch(0.205 0.003 250);
+  --sidebar-foreground: oklch(0.97 0.002 250);
   --sidebar-primary: oklch(0.624 0.229 32);
-  --sidebar-primary-foreground: oklch(0.985 0.002 250);
-  --sidebar-accent: oklch(0.24 0.003 250);
-  --sidebar-accent-foreground: oklch(0.985 0.002 250);
-  --sidebar-border: oklch(0.22 0.003 250);
+  --sidebar-primary-foreground: oklch(0.97 0.002 250);
+  --sidebar-accent: oklch(0.30 0.003 250);
+  --sidebar-accent-foreground: oklch(0.97 0.002 250);
+  --sidebar-border: oklch(0.32 0.003 250);
   --sidebar-ring: oklch(0.624 0.229 32);
   --font-sans: 'Inter Variable', sans-serif;
   --font-serif: Source Serif 4, serif;

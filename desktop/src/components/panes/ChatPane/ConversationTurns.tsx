@@ -13,7 +13,7 @@ export function ConversationTurns<Message extends ChatMessage>({
   assistantLabel,
   assistantMode,
   showExecutionInternals,
-  assistantFitToContent = false,
+  assistantFitToContent = true,
   /** Drives the agent avatar's seed so each workspace has its own
    *  persistent face. */
   workspaceId,
@@ -82,7 +82,11 @@ export function ConversationTurns<Message extends ChatMessage>({
         const isLastInAssistantGroup =
           message.role === "assistant" &&
           (!next || next.role === "user") &&
-          !liveAssistantTurn;
+          // Suppress only when the live turn continues this same group
+          // (no user message has rolled in to break it). When `next` is
+          // a user turn the live turn is a new group and this assistant
+          // message keeps its avatar.
+          !(liveAssistantTurn && !next);
         const turn =
           message.role === "user" ? (
             <UserTurn

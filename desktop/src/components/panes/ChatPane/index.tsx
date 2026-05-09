@@ -2556,14 +2556,16 @@ export function ChatPane({
     // Files first — typically the more frequent reference target.
     for (const entry of workspaceFiles) {
       // Slugify each path segment so the inserted token round-trips
-      // through findActiveMentionRange (which now allows `/`).
+      // through findActiveMentionRange. Unicode letters / digits are
+      // preserved so CJK-named files (e.g. `产品方案.md`) survive
+      // round-trip; only true non-letter characters get stripped.
       const handle = entry.relativePath
         .split("/")
         .map((segment) =>
           segment
             .toLowerCase()
             .replace(/\s+/g, "-")
-            .replace(/[^a-z0-9_.\-]/g, ""),
+            .replace(/[^\p{L}\p{N}_.\-]/gu, ""),
         )
         .filter(Boolean)
         .join("/");
@@ -2593,6 +2595,32 @@ export function ChatPane({
 
     return items;
   }, [installedApps, workspaceFiles]);
+
+  // handle → workspace-file entry map. Built from the same slug logic
+  // as composerMentionableItems above so a `@<handle>` typed by the
+  // user resolves cleanly to the file's absolute path at send time.
+  // Used for the auto-attach-on-send pipeline below — without this,
+  // mention tokens flow to the agent as plain text that may or may
+  // not be picked up by file-read tools.
+  const mentionableFilesByHandle = useMemo(() => {
+    const byHandle = new Map<string, WorkspaceFileEntry>();
+    for (const entry of workspaceFiles) {
+      const handle = entry.relativePath
+        .split("/")
+        .map((segment) =>
+          segment
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^\p{L}\p{N}_.\-]/gu, ""),
+        )
+        .filter(Boolean)
+        .join("/");
+      if (!handle) continue;
+      byHandle.set(handle, entry);
+    }
+    return byHandle;
+  }, [workspaceFiles]);
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionOutputs, setSessionOutputs] = useState<
     WorkspaceOutputRecordPayload[]
@@ -2688,6 +2716,13 @@ export function ChatPane({
   const composerBlockRef = useRef<HTMLDivElement>(null);
   const composerIsComposingRef = useRef(false);
   const shouldAutoScrollRef = useRef(true);
+  // When a prefill arrives (e.g. routing back from Automations), the
+  // session may still be loading history. We can't scroll to bottom
+  // immediately because scrollHeight is wrong. Mark the scroll as
+  // pending and consume it once history settles + messages render.
+  const pendingPrefillBottomScrollRef = useRef(false);
+  const pendingPrefillFrame1Ref = useRef(0);
+  const pendingPrefillFrame2Ref = useRef(0);
   const [isAwayFromChatBottom, setIsAwayFromChatBottom] = useState(false);
   const pendingOptimisticUserMessagesRef = useRef<
     PendingOptimisticUserMessage[]
@@ -3960,7 +3995,17 @@ export function ChatPane({
 
     container.scrollTo({
       top: container.scrollHeight,
-      behavior: isResponding || isHistoryViewportPending ? "auto" : "smooth",
+      // While a prefill bottom-scroll is in flight ChatPane has
+      // remounted with scrollTop=0 (cold mount from a sibling
+      // agentView), so any smooth animation toward the moving target
+      // gets interrupted by late renders and strands the list midway.
+      // Force instant snaps until the prefill consumer clears.
+      behavior:
+        isResponding ||
+        isHistoryViewportPending ||
+        pendingPrefillBottomScrollRef.current
+          ? "auto"
+          : "smooth",
     });
   }, [
     isHistoryViewportPending,
@@ -3970,6 +4015,42 @@ export function ChatPane({
     liveExecutionItems,
     messages,
   ]);
+
+  // Consume the pending-prefill bottom-scroll once history has settled.
+  // ChatPane mounts cold from a sibling agentView (Automations / Inbox /
+  // Sessions) with scrollTop=0; without an explicit snap the user sees
+  // the list animate from top toward the latest turn and stop wherever
+  // a late render interrupted it. Snap on the load-settled transition
+  // and retry across a couple frames in case sessionOutputs /
+  // executionItems land after isLoadingHistory has flipped false.
+  useEffect(() => {
+    if (!pendingPrefillBottomScrollRef.current || isLoadingHistory) {
+      return;
+    }
+    const snap = () => {
+      const target = messagesRef.current;
+      if (!target || hasActiveChatSelection(target)) {
+        return;
+      }
+      target.scrollTo({ top: target.scrollHeight, behavior: "auto" });
+    };
+    snap();
+    const f1 = requestAnimationFrame(() => {
+      snap();
+      const f2 = requestAnimationFrame(snap);
+      pendingPrefillFrame2Ref.current = f2;
+    });
+    pendingPrefillFrame1Ref.current = f1;
+    const settleTimer = window.setTimeout(() => {
+      snap();
+      pendingPrefillBottomScrollRef.current = false;
+    }, 240);
+    return () => {
+      cancelAnimationFrame(pendingPrefillFrame1Ref.current);
+      cancelAnimationFrame(pendingPrefillFrame2Ref.current);
+      window.clearTimeout(settleTimer);
+    };
+  }, [isLoadingHistory, messages]);
 
   useLayoutEffect(() => {
     const pendingRestore = pendingHistoryPrependRestoreRef.current;
@@ -4151,6 +4232,15 @@ export function ChatPane({
       setQuotedSkillIds(parsedPrefill.skillIds);
       setPendingAttachments([]);
     }
+    // Routing back into chat (e.g. clicking Edit on a schedule)
+    // doesn't change `messages` so the existing autoscroll effect
+    // never fires. History may also still be loading when this
+    // effect runs, so a synchronous scrollTo would target an
+    // incomplete container. Mark the scroll as pending; the
+    // effect below consumes it once isLoadingHistory settles and
+    // messages have rendered.
+    shouldAutoScrollRef.current = true;
+    pendingPrefillBottomScrollRef.current = true;
     onComposerPrefillConsumed?.(requestKey);
   }, [
     composerPrefillRequest?.mode,
@@ -5373,7 +5463,7 @@ export function ChatPane({
 
       let localAttachmentIndex = 0;
       let explorerAttachmentIndex = 0;
-      const stagedAttachments = attachmentEntries.map((entry) => {
+      const stagedExplicitAttachments = attachmentEntries.map((entry) => {
         if (entry.source === "local-file") {
           const attachment =
             stagedLocalAttachments.attachments[localAttachmentIndex];
@@ -5392,6 +5482,46 @@ export function ChatPane({
         }
         return attachment;
       });
+
+      // Auto-attach mentioned workspace files. Without this the agent
+      // only sees the plain `@<handle>` token in the message text and
+      // has to guess whether to read the file with its own tools.
+      // Scan the user's text for mention handles, resolve each to a
+      // workspace file we already know about, dedupe against any
+      // explicit attachments, and stage as workspace-file attachments.
+      const explicitAbsolutePaths = new Set(
+        explorerFiles.map((entry) => entry.absolutePath),
+      );
+      const mentionedFileEntries: WorkspaceFileEntry[] = [];
+      const seenHandles = new Set<string>();
+      for (const match of trimmed.matchAll(MENTION_TOKEN_PATTERN)) {
+        const handle = match[2];
+        if (!handle || seenHandles.has(handle)) continue;
+        seenHandles.add(handle);
+        const fileEntry = mentionableFilesByHandle.get(handle);
+        if (!fileEntry) continue;
+        if (explicitAbsolutePaths.has(fileEntry.absolutePath)) continue;
+        mentionedFileEntries.push(fileEntry);
+      }
+      const stagedMentionAttachments =
+        mentionedFileEntries.length > 0
+          ? (
+              await window.electronAPI.workspace.stageSessionAttachmentPaths({
+                workspace_id: selectedWorkspace.id,
+                files: mentionedFileEntries.map((entry) => ({
+                  absolute_path: entry.absolutePath,
+                  name: entry.name,
+                  mime_type: null,
+                  kind: "file" as const,
+                })),
+              })
+            ).attachments
+          : [];
+
+      const stagedAttachments = [
+        ...stagedExplicitAttachments,
+        ...stagedMentionAttachments,
+      ];
 
       const serializedPrompt = serializeQuotedSkillPrompt(
         trimmed,
@@ -6976,6 +7106,12 @@ export function ChatPane({
               inboxUnreadCount={inboxUnreadCount}
               onOpenSessions={onOpenSessions}
               onOpenAutomations={onOpenAutomations}
+              onViewAllArtifacts={() => {
+                setArtifactBrowserFilter("all");
+                setArtifactBrowserScopedOutputs(null);
+                setArtifactBrowserScope("session");
+                setArtifactBrowserOpen(true);
+              }}
             />
           </div>
         ) : null}
@@ -7160,7 +7296,7 @@ export function ChatPane({
               {hasMessages ? (
                 <div
                   ref={messagesContentRef}
-                  className={`flex min-w-0 w-full flex-col gap-2 pl-4 pr-7 pb-3 pt-5 ${
+                  className={`mx-auto flex min-w-0 w-full ${CHAT_LAYOUT.contentMaxWidth} flex-col gap-2 pl-4 pr-7 pb-3 pt-5 ${
                     showHistoryRestoreScreen ? "invisible" : ""
                   }`}
                 >

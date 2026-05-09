@@ -39,7 +39,7 @@ import { cn } from "@/lib/utils";
 const PREVIEW_HISTORY_LIMIT = 18;
 const PREVIEW_MESSAGE_LIMIT = 12;
 const PREVIEW_OUTPUT_LIMIT = 80;
-const WORKSPACE_CARD_MIN_WIDTH = 360;
+const WORKSPACE_CARD_MIN_WIDTH = 320;
 const CONTROL_CENTER_TERMINAL_REFRESH_DELAYS_MS = [150, 500, 1_500, 3_000];
 const CONTROL_CENTER_IDLE_RECONCILE_INTERVAL_MS = 2500;
 const CONTROL_CENTER_RUNTIME_POLL_INTERVAL_MS = 750;
@@ -48,6 +48,8 @@ const CARD_VISIBILITY_THRESHOLD = 0.5;
 type PreviewChatMessage = ChatMessage & {
   optimistic?: boolean;
 };
+
+type RuntimeCardState = "idle" | "queued" | "working" | "waiting" | "error";
 
 interface WorkspaceControlCenterProps {
   workspaces: WorkspaceRecordPayload[];
@@ -71,7 +73,6 @@ interface WorkspaceControlCenterProps {
 interface WorkspaceCardProps {
   workspace: WorkspaceRecordPayload;
   isSelected: boolean;
-  composerModel: string | null;
   isDragging: boolean;
   isDragTarget: boolean;
   hasUnreadCompletionHighlight: boolean;
@@ -89,11 +90,12 @@ interface WorkspaceCardProps {
   onDragOverWorkspace: (event: ReactDragEvent<HTMLElement>) => void;
   onDropWorkspace: (event: ReactDragEvent<HTMLElement>, workspaceId: string) => void;
   onDragEndWorkspace: () => void;
-  onCardComposerSubmit: (workspaceId: string) => void;
   onWorkspaceCompletion: (workspaceId: string) => void;
+  onRuntimeStateChange: (
+    workspaceId: string,
+    state: RuntimeCardState,
+  ) => void;
 }
-
-type RuntimeCardState = "idle" | "queued" | "working" | "waiting" | "error";
 
 function runtimeStateStatus(value: string | null | undefined): string {
   return (value || "").trim().toUpperCase();
@@ -282,7 +284,6 @@ function formatLastActivityLabel(value: string | null | undefined) {
 const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
   workspace,
   isSelected,
-  composerModel,
   isDragging,
   isDragTarget,
   hasUnreadCompletionHighlight,
@@ -294,8 +295,8 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
   onDragOverWorkspace,
   onDropWorkspace,
   onDragEndWorkspace,
-  onCardComposerSubmit,
   onWorkspaceCompletion,
+  onRuntimeStateChange,
 }: WorkspaceCardProps) {
   const workspaceId = workspace.id;
   const workspaceFallbackActivityAt = fallbackWorkspaceActivityAt(workspace);
@@ -307,10 +308,8 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
     useState<SessionRuntimeRecordPayload | null>(null);
   const [runtimeCardState, setRuntimeCardState] =
     useState<RuntimeCardState>("idle");
-  const [composerText, setComposerText] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResponding, setIsResponding] = useState(false);
   const [liveAssistantText, setLiveAssistantText] = useState("");
   const [liveAgentStatus, setLiveAgentStatus] = useState("");
@@ -363,6 +362,13 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
       }),
     [messages, workspaceFallbackActivityAt],
   );
+
+  // Bubble runtime state changes up so the parent can compute the
+  // aggregate strip ("3 working · 1 needs attention …") without
+  // re-fetching every workspace's runtime state itself.
+  useEffect(() => {
+    onRuntimeStateChange(workspaceId, runtimeCardState);
+  }, [onRuntimeStateChange, runtimeCardState, workspaceId]);
 
   const closeActiveStream = useCallback(async (reason: string) => {
     const streamId = activeStreamIdRef.current;
@@ -1013,101 +1019,6 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
     shouldStickToBottomRef.current = isNearBottom(scroller);
   };
 
-  const handleSubmit = async () => {
-    const text = composerText.trim();
-    const sessionId = mainSession?.session_id?.trim() || "";
-    if (!text || !sessionId || isSubmitting || isResponding || workspaceUnavailable) {
-      return;
-    }
-
-    const optimisticInputId = `user-preview-${crypto.randomUUID()}`;
-    shouldStickToBottomRef.current = true;
-    setErrorMessage("");
-    setIsSubmitting(true);
-    setComposerText("");
-    setLiveAssistantText("");
-    setLiveAgentStatus("");
-    clearScheduledTerminalRefreshes();
-    onSelectWorkspace(workspaceId);
-    setMessages((current) =>
-      trimPreviewMessages([
-        ...current,
-        {
-          id: optimisticInputId,
-          role: "user",
-          text,
-          createdAt: new Date().toISOString(),
-          optimistic: true,
-        },
-      ]),
-    );
-
-    try {
-      const queued = await window.electronAPI.workspace.queueSessionInput({
-        text,
-        workspace_id: workspaceId,
-        image_urls: null,
-        attachments: null,
-        session_id: sessionId,
-        priority: 0,
-        model: composerModel,
-      });
-      if (disposedRef.current) {
-        return;
-      }
-      clearScheduledTerminalRefreshes();
-      pendingInputIdRef.current = queued.input_id;
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === optimisticInputId
-            ? {
-                ...message,
-                id: `user-${queued.input_id}`,
-                optimistic: false,
-              }
-            : message,
-        ),
-      );
-      setIsResponding(true);
-      setLiveAssistantText("");
-      setLiveAgentStatus(
-        queued.status.trim().toUpperCase() === "QUEUED" ? "Queued" : "Working",
-      );
-      setRuntimeCardState(
-        queued.status.trim().toUpperCase() === "QUEUED" ? "queued" : "working",
-      );
-      onCardComposerSubmit(workspaceId);
-      await openLiveStream({
-        sessionId: queued.session_id,
-        inputId: queued.input_id,
-        includeHistory: true,
-      });
-    } catch (error) {
-      if (disposedRef.current) {
-        return;
-      }
-      setComposerText(text);
-      setMessages((current) =>
-        current.filter((message) => message.id !== optimisticInputId),
-      );
-      setErrorMessage(
-        error instanceof Error ? error.message : "Could not send message.",
-      );
-      setIsResponding(false);
-    } finally {
-      if (!disposedRef.current) {
-        setIsSubmitting(false);
-      }
-    }
-  };
-
-  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== "Enter" || event.shiftKey) {
-      return;
-    }
-    event.preventDefault();
-    void handleSubmit();
-  };
   const liveAssistantTurn =
     isResponding || Boolean(liveAssistantText.trim())
       ? {
@@ -1130,7 +1041,7 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
       onDragOver={onDragOverWorkspace}
       onDrop={(event) => onDropWorkspace(event, workspaceId)}
       className={cn(
-        "relative h-full min-h-0 min-w-0 gap-0 bg-card py-0 transition-colors",
+        "relative h-full min-h-0 min-w-0 gap-0 overflow-hidden bg-card py-0 transition-colors",
         isDragging && "cursor-grabbing opacity-70",
         isDragTarget && "ring-2 ring-primary ring-inset",
         hasUnreadCompletionHighlight
@@ -1170,13 +1081,13 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
             ) : null}
           </CardTitle>
           <div className="flex shrink-0 items-center gap-2">
-            <span className="text-xs text-muted-foreground">
+            <span className="text-[11px] tabular-nums text-muted-foreground">
               {formatLastActivityLabel(lastActivityAt)}
             </span>
             {runtimeCardState === "waiting" || runtimeCardState === "error" ? (
               <Badge
                 variant={previewStatusVariant(runtimeCardState)}
-                className="h-6 rounded-full px-2 text-xs"
+                className="h-5 rounded-full px-1.5 text-[10px]"
               >
                 {previewStatusLabel(runtimeCardState)}
               </Badge>
@@ -1194,7 +1105,7 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
         </div>
       </CardHeader>
 
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-2 px-0 pb-0 pt-0">
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-0 px-0 pb-0 pt-0">
         <div
           ref={previewScrollerRef}
           onScroll={handlePreviewScroll}
@@ -1235,60 +1146,18 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
               />
             </div>
           ) : (
-            <div className="flex h-full items-center justify-center text-center text-xs text-muted-foreground">
-              Start the main session from here. Replies will stay inside this
-              card until you enter the workspace.
+            <div className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
+              No activity yet — message this workspace from the command bar
+              below.
             </div>
           )}
         </div>
 
         {errorMessage ? (
-          <div className="theme-chat-system-bubble mx-3 rounded-md border px-3 py-2 text-xs">
+          <div className="theme-chat-system-bubble mx-3 mb-2 rounded-md border px-3 py-2 text-xs">
             {errorMessage}
           </div>
         ) : null}
-
-        <div className="border-t border-border bg-fg-2 px-3 py-2">
-          <div className="flex items-end gap-2">
-            <textarea
-              value={composerText}
-              onChange={(event) => setComposerText(event.target.value)}
-              onKeyDown={handleComposerKeyDown}
-              onFocus={() => onSelectWorkspace(workspaceId)}
-              rows={1}
-              disabled={isSubmitting || isResponding || workspaceUnavailable}
-              placeholder={
-                workspaceUnavailable
-                  ? "Workspace folder is missing."
-                  : isResponding
-                    ? "Wait for the current run to finish."
-                    : "Message this workspace directly..."
-              }
-              className="min-h-[36px] max-h-[84px] flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-sm leading-5 outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60"
-            />
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => {
-                void handleSubmit();
-              }}
-              disabled={
-                !composerText.trim() ||
-                isSubmitting ||
-                isResponding ||
-                workspaceUnavailable
-              }
-              className="h-9 shrink-0 rounded-md px-3"
-            >
-              {isSubmitting ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <SendHorizontal className="size-3.5" />
-              )}
-              Send
-            </Button>
-          </div>
-        </div>
       </CardContent>
       <ArtifactBrowserModal
         open={artifactBrowserOpen}
@@ -1303,6 +1172,207 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
     </Card>
   );
 });
+
+interface WorkspaceCommandBarProps {
+  selectedWorkspace: WorkspaceRecordPayload | null;
+  composerModel: string | null;
+  onSubmitted: (workspaceId: string) => void;
+}
+
+function WorkspaceCommandBar({
+  selectedWorkspace,
+  composerModel,
+  onSubmitted,
+}: WorkspaceCommandBarProps) {
+  const [text, setText] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Clear errors when the user switches to a different workspace —
+  // the previous error was about the previous target.
+  useEffect(() => {
+    setErrorMessage("");
+  }, [selectedWorkspace?.id]);
+
+  const workspaceId = selectedWorkspace?.id ?? null;
+  const workspaceUnavailable =
+    selectedWorkspace?.folder_state === "missing";
+  const disabled =
+    !workspaceId || workspaceUnavailable || isSubmitting;
+
+  const handleSubmit = async () => {
+    if (!workspaceId || workspaceUnavailable || isSubmitting) {
+      return;
+    }
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return;
+    }
+    setIsSubmitting(true);
+    setErrorMessage("");
+    try {
+      const ensured =
+        await window.electronAPI.workspace.ensureMainSession(workspaceId);
+      const queued = await window.electronAPI.workspace.queueSessionInput({
+        text: trimmed,
+        workspace_id: workspaceId,
+        image_urls: null,
+        attachments: null,
+        session_id: ensured.session.session_id,
+        priority: 0,
+        model: composerModel,
+      });
+      void queued;
+      setText("");
+      onSubmitted(workspaceId);
+      // Re-focus so the user can immediately fire another command at
+      // the same workspace without re-clicking the input.
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Could not send message.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Enter" || event.shiftKey) {
+      return;
+    }
+    event.preventDefault();
+    void handleSubmit();
+  };
+
+  const placeholder = !workspaceId
+    ? "Select a workspace card above to message it…"
+    : workspaceUnavailable
+      ? "Workspace folder is missing."
+      : `Message ${selectedWorkspace?.name ?? "workspace"}…`;
+
+  return (
+    <div className="shrink-0 border-t border-border bg-fg-2 px-4 py-3">
+      <div className="mx-auto flex max-w-3xl flex-col gap-2">
+        {selectedWorkspace ? (
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <span>Sending to</span>
+            <WorkspaceIcon workspace={selectedWorkspace} size="sm" />
+            <span className="truncate font-medium text-foreground">
+              {selectedWorkspace.name}
+            </span>
+          </div>
+        ) : null}
+        {errorMessage ? (
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs text-destructive">
+            {errorMessage}
+          </div>
+        ) : null}
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={handleKeyDown}
+            rows={1}
+            disabled={disabled}
+            placeholder={placeholder}
+            className="min-h-[40px] max-h-[160px] flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-sm leading-5 outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60"
+          />
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => {
+              void handleSubmit();
+            }}
+            disabled={disabled || !text.trim()}
+            className="h-10 shrink-0 rounded-md px-3"
+          >
+            {isSubmitting ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <SendHorizontal className="size-3.5" />
+            )}
+            Send
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function statusToneColor(state: RuntimeCardState | "total") {
+  switch (state) {
+    case "error":
+      return "bg-destructive";
+    case "queued":
+    case "waiting":
+      return "bg-warning";
+    case "working":
+      return "bg-primary";
+    case "idle":
+      return "bg-success";
+    default:
+      return "bg-muted-foreground";
+  }
+}
+
+interface AggregateCounts {
+  total: number;
+  working: number;
+  queued: number;
+  waiting: number;
+  idle: number;
+  error: number;
+}
+
+function AggregateStrip({ counts }: { counts: AggregateCounts }) {
+  const segments: Array<{
+    state: RuntimeCardState | "total";
+    count: number;
+    label: string;
+  }> = [
+    { state: "total", count: counts.total, label: "workspaces" },
+    { state: "working", count: counts.working, label: "working" },
+    { state: "queued", count: counts.queued, label: "queued" },
+    { state: "waiting", count: counts.waiting, label: "waiting" },
+    { state: "error", count: counts.error, label: "needs attention" },
+  ];
+  const visible = segments.filter(
+    (segment) => segment.state === "total" || segment.count > 0,
+  );
+
+  return (
+    <div className="shrink-0 border-b border-border px-4 py-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        {visible.map((segment, index) => (
+          <span
+            key={segment.state}
+            className="inline-flex items-center gap-1.5"
+          >
+            {index > 0 ? (
+              <span aria-hidden="true" className="text-muted-foreground/50">
+                ·
+              </span>
+            ) : null}
+            {segment.state !== "total" ? (
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "inline-flex h-1.5 w-1.5 rounded-full",
+                  statusToneColor(segment.state),
+                )}
+              />
+            ) : null}
+            <span className="tabular-nums text-foreground">{segment.count}</span>
+            <span>{segment.label}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function WorkspaceControlCenter({
   workspaces,
@@ -1319,7 +1389,6 @@ export function WorkspaceControlCenter({
   onCardComposerSubmit,
   onWorkspaceCompletion,
 }: WorkspaceControlCenterProps) {
-  void cardsPerRow;
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const cardNodesRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -1327,6 +1396,9 @@ export function WorkspaceControlCenter({
   const previousHighlightIdsRef = useRef<Set<string>>(new Set());
   const [draggedWorkspaceId, setDraggedWorkspaceId] = useState("");
   const [dragTargetWorkspaceId, setDragTargetWorkspaceId] = useState("");
+  const [runtimeStateByWorkspaceId, setRuntimeStateByWorkspaceId] = useState<
+    Record<string, RuntimeCardState>
+  >({});
 
   const sortedWorkspaces = useMemo(() => {
     return [...workspaces].sort((left, right) => {
@@ -1343,6 +1415,50 @@ export function WorkspaceControlCenter({
   const orderedWorkspaces = useMemo(
     () => mergeWorkspaceOrder(sortedWorkspaces, orderedWorkspaceIds),
     [orderedWorkspaceIds, sortedWorkspaces],
+  );
+
+  const selectedWorkspace = useMemo(() => {
+    const id = (selectedWorkspaceId || "").trim();
+    if (!id) {
+      return null;
+    }
+    return (
+      orderedWorkspaces.find((workspace) => workspace.id.trim() === id) ?? null
+    );
+  }, [orderedWorkspaces, selectedWorkspaceId]);
+
+  const aggregateCounts = useMemo<AggregateCounts>(() => {
+    const counts: AggregateCounts = {
+      total: orderedWorkspaces.length,
+      working: 0,
+      queued: 0,
+      waiting: 0,
+      idle: 0,
+      error: 0,
+    };
+    for (const workspace of orderedWorkspaces) {
+      const id = workspace.id.trim();
+      const state: RuntimeCardState =
+        runtimeStateByWorkspaceId[id] ?? "idle";
+      counts[state] += 1;
+    }
+    return counts;
+  }, [orderedWorkspaces, runtimeStateByWorkspaceId]);
+
+  const handleRuntimeStateChange = useCallback(
+    (workspaceId: string, state: RuntimeCardState) => {
+      setRuntimeStateByWorkspaceId((current) => {
+        const id = workspaceId.trim();
+        if (!id) {
+          return current;
+        }
+        if (current[id] === state) {
+          return current;
+        }
+        return { ...current, [id]: state };
+      });
+    },
+    [],
   );
 
   const highlightedWorkspaceIdSet = useMemo(
@@ -1518,15 +1634,27 @@ export function WorkspaceControlCenter({
     [draggedWorkspaceId, onWorkspaceOrderChange, orderedWorkspaces],
   );
 
+  // Honor `cardsPerRow` when explicitly set (>0); otherwise fall back
+  // to a responsive auto-fill grid based on a target tile width. The
+  // gallery view stays dense at narrow widths and breathes at wide
+  // ones without forcing a fixed column count.
+  const gridStyle =
+    cardsPerRow > 0
+      ? { gridTemplateColumns: `repeat(${cardsPerRow}, minmax(0, 1fr))` }
+      : {
+          gridTemplateColumns: `repeat(auto-fill, minmax(${WORKSPACE_CARD_MIN_WIDTH}px, 1fr))`,
+        };
+
   return (
     <section className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+      <AggregateStrip counts={aggregateCounts} />
       <div
         ref={viewportRef}
-        className="min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden px-4 py-3"
+        className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3"
       >
         <div
-          className="flex h-full gap-3"
-          style={{ minWidth: "min-content" }}
+          className="grid auto-rows-[minmax(220px,1fr)] gap-3"
+          style={gridStyle}
         >
           {orderedWorkspaces.map((workspace) => {
             const id = workspace.id.trim();
@@ -1535,16 +1663,11 @@ export function WorkspaceControlCenter({
                 key={workspace.id}
                 ref={(node) => attachCardNode(id, node)}
                 data-workspace-id={id}
-                className="h-full min-w-0 shrink-0 grow"
-                style={{
-                  flexBasis: 0,
-                  minWidth: WORKSPACE_CARD_MIN_WIDTH,
-                }}
+                className="min-h-0 min-w-0"
               >
                 <WorkspaceControlCenterCard
                   workspace={workspace}
                   isSelected={id === (selectedWorkspaceId || "").trim()}
-                  composerModel={composerModel}
                   isDragging={draggedWorkspaceId === id}
                   isDragTarget={
                     Boolean(draggedWorkspaceId) &&
@@ -1560,14 +1683,19 @@ export function WorkspaceControlCenter({
                   onDragOverWorkspace={handleDragOverWorkspace}
                   onDropWorkspace={handleDropWorkspace}
                   onDragEndWorkspace={handleDragEndWorkspace}
-                  onCardComposerSubmit={onCardComposerSubmit}
                   onWorkspaceCompletion={onWorkspaceCompletion}
+                  onRuntimeStateChange={handleRuntimeStateChange}
                 />
               </div>
             );
           })}
         </div>
       </div>
+      <WorkspaceCommandBar
+        selectedWorkspace={selectedWorkspace}
+        composerModel={composerModel}
+        onSubmitted={onCardComposerSubmit}
+      />
     </section>
   );
 }

@@ -32,6 +32,14 @@ export interface EmptyStateProps {
   size?: "sm" | "md"
   /** Force min-height (px). Useful for chart cells that shouldn't collapse. */
   minHeight?: number
+  /**
+   * Wrap the icon in a card-on-card chip framed by an Attio-style wide
+   * hairline grid backdrop that fades to transparent at the outer
+   * edges. Use for full-pane empties that need real presence
+   * (Automations, primary list views). Default off so compact in-card
+   * empties stay flat. Only applies when `size="md"`.
+   */
+  decorated?: boolean
   /** Extra classes on the outer wrapper. */
   className?: string
 }
@@ -43,12 +51,13 @@ export function EmptyState({
   action,
   size = "sm",
   minHeight,
+  decorated = false,
   className,
 }: EmptyStateProps) {
   const isMd = size === "md"
   const wrapperClass = cn(
     "flex flex-col items-center justify-center text-center",
-    isMd ? "gap-2.5 px-4 py-8" : "gap-2 py-10 text-muted-foreground",
+    isMd ? "gap-3 px-4 py-14" : "gap-2 py-10 text-muted-foreground",
     className,
   )
   const titleClass = isMd
@@ -65,9 +74,31 @@ export function EmptyState({
     >
       {Icon ? (
         isMd ? (
-          <div className="grid size-10 place-items-center rounded-xl bg-muted text-muted-foreground">
-            <Icon className="size-4" strokeWidth={1.6} />
-          </div>
+          decorated ? (
+            <div className="relative flex h-24 w-72 items-center justify-center overflow-hidden">
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0"
+                style={{
+                  backgroundImage:
+                    "linear-gradient(to right, var(--color-fg-8) 1px, transparent 1px), linear-gradient(to bottom, var(--color-fg-8) 1px, transparent 1px)",
+                  backgroundSize: "32px 32px",
+                  backgroundPosition: "center center",
+                  maskImage:
+                    "radial-gradient(ellipse at center, black 0%, black 38%, transparent 80%)",
+                  WebkitMaskImage:
+                    "radial-gradient(ellipse at center, black 0%, black 38%, transparent 80%)",
+                }}
+              />
+              <div className="relative grid size-12 place-items-center rounded-xl border border-border bg-card text-muted-foreground shadow-xs">
+                <Icon className="size-[18px]" strokeWidth={1.6} />
+              </div>
+            </div>
+          ) : (
+            <div className="grid size-10 place-items-center rounded-xl bg-muted text-muted-foreground">
+              <Icon className="size-4" strokeWidth={1.6} />
+            </div>
+          )
         ) : (
           <Icon size={22} strokeWidth={1.5} className="opacity-45" />
         )

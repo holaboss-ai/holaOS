@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Editor } from "@tiptap/core";
 
 import {
@@ -33,7 +33,7 @@ const MARK_BUTTONS: MarkButton[] = [
     shortcut: "⌘B",
     icon: IconBold,
     isActive: (e) => e.isActive("bold"),
-    toggle: (e) => e.chain().focus().toggleBold().run(),
+    toggle: (e) => e.chain().focus(undefined, { scrollIntoView: false }).toggleBold().run(),
   },
   {
     id: "italic",
@@ -41,7 +41,7 @@ const MARK_BUTTONS: MarkButton[] = [
     shortcut: "⌘I",
     icon: IconItalic,
     isActive: (e) => e.isActive("italic"),
-    toggle: (e) => e.chain().focus().toggleItalic().run(),
+    toggle: (e) => e.chain().focus(undefined, { scrollIntoView: false }).toggleItalic().run(),
   },
   {
     id: "underline",
@@ -49,7 +49,7 @@ const MARK_BUTTONS: MarkButton[] = [
     shortcut: "⌘U",
     icon: IconUnderline,
     isActive: (e) => e.isActive("underline"),
-    toggle: (e) => e.chain().focus().toggleUnderline().run(),
+    toggle: (e) => e.chain().focus(undefined, { scrollIntoView: false }).toggleUnderline().run(),
   },
   {
     id: "strike",
@@ -57,7 +57,7 @@ const MARK_BUTTONS: MarkButton[] = [
     shortcut: "⌘⇧X",
     icon: IconStrike,
     isActive: (e) => e.isActive("strike"),
-    toggle: (e) => e.chain().focus().toggleStrike().run(),
+    toggle: (e) => e.chain().focus(undefined, { scrollIntoView: false }).toggleStrike().run(),
   },
   {
     id: "code",
@@ -65,7 +65,7 @@ const MARK_BUTTONS: MarkButton[] = [
     shortcut: "⌘E",
     icon: IconCode,
     isActive: (e) => e.isActive("code"),
-    toggle: (e) => e.chain().focus().toggleCode().run(),
+    toggle: (e) => e.chain().focus(undefined, { scrollIntoView: false }).toggleCode().run(),
   },
 ];
 
@@ -74,16 +74,34 @@ const MARK_BUTTONS: MarkButton[] = [
 // type without leaving the selection.
 export function BubbleToolbar({ editor }: BubbleToolbarProps) {
   const [turnIntoOpen, setTurnIntoOpen] = useState(false);
+  // Capture the selection at the moment the user opens Turn-into. Between
+  // the trigger click and the item click the editor's effective selection
+  // can drift (DOM focus shuffling between portal element and editor),
+  // and a `setNode` against the wrong selection silently rewrites the
+  // last block of the document instead of the one the user picked.
+  // Restoring this snapshot before applying makes the action robust.
+  const savedSelectionRef = useRef<{ from: number; to: number } | null>(null);
+
+  const captureSelection = () => {
+    const sel = editor.state.selection;
+    savedSelectionRef.current = { from: sel.from, to: sel.to };
+  };
+
+  const restoreSelection = () => {
+    const saved = savedSelectionRef.current;
+    if (!saved) return;
+    editor.commands.setTextSelection(saved);
+  };
 
   const onLinkClick = () => {
     const previous = editor.getAttributes("link").href as string | undefined;
     const url = window.prompt("Link URL", previous ?? "");
     if (url === null) return; // cancelled
     if (url === "") {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run();
+      editor.chain().focus(undefined, { scrollIntoView: false }).extendMarkRange("link").unsetLink().run();
       return;
     }
-    editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+    editor.chain().focus(undefined, { scrollIntoView: false }).extendMarkRange("link").setLink({ href: url }).run();
   };
 
   return (
@@ -95,6 +113,8 @@ export function BubbleToolbar({ editor }: BubbleToolbarProps) {
           className="hb-bubble__turn-trigger"
           onMouseDown={(e) => {
             e.preventDefault();
+            // Snapshot the live selection before any DOM focus shuffles.
+            captureSelection();
             setTurnIntoOpen((v) => !v);
           }}
           aria-haspopup="menu"
@@ -121,6 +141,9 @@ export function BubbleToolbar({ editor }: BubbleToolbarProps) {
                   className="hb-bubble__turn-item"
                   onMouseDown={(e) => {
                     e.preventDefault();
+                    // Restore the original selection before mutating —
+                    // see savedSelectionRef comment.
+                    restoreSelection();
                     opt.apply(editor);
                     setTurnIntoOpen(false);
                   }}

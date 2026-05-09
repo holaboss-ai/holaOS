@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
@@ -12,10 +18,9 @@ import { TURN_INTO_OPTIONS } from "./blockTypes";
 
 export interface BlockMenuProps {
   editor: Editor;
-  /** The currently-targeted block (set by drag handle's onNodeChange). */
-  node: PMNode | null;
-  /** Position of that block in the document. */
-  pos: number;
+  /** Read-only ref to the active block. Resolved at click time so the
+   * menu doesn't need to re-render every time the drag handle moves. */
+  nodeRef: RefObject<{ node: PMNode | null; pos: number }>;
   /** Anchor element — menu pops below this. Usually the grip button. */
   anchor: HTMLElement | null;
   /** Whether the menu is open. Parent controls. */
@@ -31,8 +36,7 @@ export interface BlockMenuProps {
 // behaves cleanly. Position is computed against the anchor element's rect.
 export function BlockMenu({
   editor,
-  node,
-  pos,
+  nodeRef,
   anchor,
   open,
   onClose,
@@ -82,17 +86,23 @@ export function BlockMenu({
   };
 
   const onDuplicate = () => {
+    const { node, pos } = nodeRef.current;
     if (!node) return;
     const insertAt = pos + node.nodeSize;
-    editor.chain().focus().insertContentAt(insertAt, node.toJSON()).run();
+    editor
+      .chain()
+      .focus(undefined, { scrollIntoView: false })
+      .insertContentAt(insertAt, node.toJSON())
+      .run();
     close();
   };
 
   const onDelete = () => {
+    const { node, pos } = nodeRef.current;
     if (!node) return;
     editor
       .chain()
-      .focus()
+      .focus(undefined, { scrollIntoView: false })
       .deleteRange({ from: pos, to: pos + node.nodeSize })
       .run();
     close();
@@ -131,6 +141,12 @@ export function BlockMenu({
                   data-active={active || undefined}
                   className="hb-block-menu__subitem"
                   onClick={() => {
+                    // Anchor the change to the block the drag handle was
+                    // pointing at — not whatever the editor's current
+                    // selection happens to be (which may be elsewhere).
+                    const { node, pos } = nodeRef.current;
+                    if (!node) return;
+                    editor.commands.setTextSelection(pos + 1);
                     opt.apply(editor);
                     close();
                   }}

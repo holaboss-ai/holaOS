@@ -12,7 +12,7 @@ import { AssistantTurnActionsMenu } from "./ActionsMenu";
 import { AssistantTurnMemoryProposals } from "./MemoryProposals";
 import { AssistantTurnOutputs } from "./Outputs";
 import { TraceStepGroup } from "./TraceStepGroup";
-import { LiveStatusLine, StreamingCursor } from "./status";
+import { LiveStatusLine } from "./status";
 
 function executionItemsHaveFileEdits(
   items: ChatExecutionTimelineItem[],
@@ -61,7 +61,7 @@ function AssistantTurnComponent({
   label,
   mode,
   showExecutionInternals = true,
-  fitToContent = false,
+  fitToContent = true,
   text,
   tone = "default",
   segments,
@@ -222,8 +222,8 @@ function AssistantTurnComponent({
       <article
         className={
           fitToContent
-            ? "min-w-0 inline-flex w-fit max-w-full flex-col rounded-lg bg-fg-6 px-3 py-2"
-            : "min-w-0 w-full max-w-4xl rounded-lg bg-fg-6 px-3 py-2"
+            ? "min-w-0 inline-flex w-fit max-w-full flex-col rounded-lg bg-fg-6 dark:bg-card px-3 py-2"
+            : "min-w-0 w-full max-w-4xl rounded-lg bg-fg-6 dark:bg-card px-3 py-2"
         }
       >
         {showStatusPlaceholder ? renderStatusLine(normalizedStatus) : null}
@@ -265,7 +265,11 @@ function AssistantTurnComponent({
           ) : (
             <SimpleMarkdown
               key={`output-${index}`}
-              className="chat-markdown chat-assistant-markdown mt-2 first:mt-0 max-w-full text-foreground"
+              className={`chat-markdown chat-assistant-markdown mt-2 first:mt-0 max-w-full text-foreground${
+                showStreamingCursor && index === renderedSegments.length - 1
+                  ? " is-live"
+                  : ""
+              }`}
               onLinkClick={onLinkClick}
               onLocalLinkClick={onLocalLinkClick}
             >
@@ -282,8 +286,6 @@ function AssistantTurnComponent({
                 : "",
             )
           : null}
-
-        {showStreamingCursor ? <StreamingCursor /> : null}
 
         {footerAccessory ? (
           <div className="mt-2 flex justify-start">{footerAccessory}</div>

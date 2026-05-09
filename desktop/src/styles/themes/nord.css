@@ -1,17 +1,16 @@
-/* Catppuccin — soothing pastel theme. Uses Pink as primary (rather than
-   the also-canonical Mauve) so the swatch doesn't collide with Rosé Pine.
-   Source: https://github.com/catppuccin/catppuccin */
+/* Nord — arctic, north-bluish, calm.
+   Source: https://github.com/nordtheme/nord */
 
-/* Light mode (Latte) */
-[data-theme="catppuccin-light"] {
-  --background: #eff1f5;
-  --foreground: #4c4f69;
-  --primary: #ea76cb;
-  --primary-foreground: #eff1f5;
-  --info: #df8e1d;
-  --success: #40a02b;
-  --destructive: #d20f39;
-  --destructive-foreground: #eff1f5;
+/* Light mode */
+[data-theme="nord-light"] {
+  --background: #eceff4;
+  --foreground: #2e3440;
+  --primary: #5e81ac;
+  --primary-foreground: #eceff4;
+  --info: #ebcb8b;
+  --success: #a3be8c;
+  --destructive: #bf616a;
+  --destructive-foreground: #eceff4;
 
   --card: color-mix(in srgb, var(--foreground) 2%, var(--background));
   --card-foreground: var(--foreground);
@@ -48,16 +47,16 @@
   --font-mono: "Geist Mono Variable", JetBrains Mono, monospace;
 }
 
-/* Dark mode (Mocha) */
-[data-theme="catppuccin-dark"] {
-  --background: #1e1e2e;
-  --foreground: #cdd6f4;
-  --primary: #f5c2e7;
-  --primary-foreground: #1e1e2e;
-  --info: #fab387;
-  --success: #a6e3a1;
-  --destructive: #f38ba8;
-  --destructive-foreground: #1e1e2e;
+/* Dark mode */
+[data-theme="nord-dark"] {
+  --background: #2e3440;
+  --foreground: #eceff4;
+  --primary: #88c0d0;
+  --primary-foreground: #2e3440;
+  --info: #ebcb8b;
+  --success: #a3be8c;
+  --destructive: #bf616a;
+  --destructive-foreground: #2e3440;
 
   --card: color-mix(in srgb, var(--foreground) 4%, var(--background));
   --card-foreground: var(--foreground);
@@ -69,7 +68,7 @@
   --muted-foreground: color-mix(in srgb, var(--foreground) 60%, var(--background));
   --accent: color-mix(in srgb, var(--foreground) 12%, var(--background));
   --accent-foreground: var(--foreground);
-  --border: color-mix(in srgb, var(--foreground) 14%, var(--background));
+  --border: color-mix(in srgb, var(--foreground) 16%, var(--background));
   --input: color-mix(in srgb, var(--foreground) 12%, var(--background));
   --ring: var(--primary);
 
@@ -79,7 +78,7 @@
   --sidebar-primary-foreground: var(--primary-foreground);
   --sidebar-accent: color-mix(in srgb, var(--foreground) 12%, var(--background));
   --sidebar-accent-foreground: var(--foreground);
-  --sidebar-border: color-mix(in srgb, var(--foreground) 14%, var(--background));
+  --sidebar-border: color-mix(in srgb, var(--foreground) 16%, var(--background));
   --sidebar-ring: var(--primary);
 
   --chart-1: var(--primary);

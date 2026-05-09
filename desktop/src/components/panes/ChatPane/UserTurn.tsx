@@ -202,7 +202,7 @@ function UserTurnComponent({
               </Button>
             ) : null}
             {timeLabel ? (
-              <span className="select-none whitespace-nowrap tabular-nums">
+              <span className="select-none whitespace-nowrap text-[10px] leading-none tabular-nums">
                 {timeLabel}
               </span>
             ) : null}

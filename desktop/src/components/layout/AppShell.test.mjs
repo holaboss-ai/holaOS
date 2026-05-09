@@ -958,7 +958,7 @@ test("app shell can route new schedule creation into a prefilled workspace chat"
   assert.match(source, /setAgentView\(\{ type: "chat" \}\);/);
   assert.match(source, /setChatSessionJumpRequest\(null\);/);
   assert.match(source, /setChatSessionOpenRequest\(\{\s*sessionId: "",\s*mode: "draft",\s*parentSessionId: null,\s*requestKey: nextChatSessionOpenRequestKey\(\),\s*\}\);/);
-  assert.match(source, /setChatComposerPrefillRequest\(\{\s*text: "Create a cronjob for ",\s*requestKey: nextChatComposerPrefillRequestKey\(\),\s*mode: "replace",\s*\}\);/);
+  assert.match(source, /setChatComposerPrefillRequest\(\{\s*text: "Create a schedule for ",\s*requestKey: nextChatComposerPrefillRequestKey\(\),\s*mode: "replace",\s*\}\);/);
   assert.match(source, /composerPrefillRequest=\{chatComposerPrefillRequest\}/);
   assert.match(source, /onComposerPrefillConsumed=\{handleChatComposerPrefillConsumed\}/);
   assert.match(source, /<AutomationsPane[\s\S]*composerModel=\{currentComposerSelectedModel\(runtimeConfig\)\}/);
@@ -970,9 +970,7 @@ test("app shell can route schedule edits into a prefilled workspace chat", async
 
   assert.match(source, /const handleEditScheduleInChat = useCallback\(\s*\(\s*job: CronjobRecordPayload,\s*workspaceId\?: string \| null,?\s*\) => \{/);
   assert.match(source, /const jobName =\s*job\.name\?\.trim\(\) \|\| job\.description\?\.trim\(\) \|\| "Untitled schedule";/);
-  assert.match(source, /const instruction =\s*job\.instruction\?\.trim\(\) \|\| job\.description\?\.trim\(\) \|\| "";/);
-  assert.match(source, /Edit cronjob "\$\{jobName\}" \(id: \$\{job\.id\}\)\. Current cron: \$\{job\.cron\}\./);
-  assert.match(source, /Current instruction: \$\{instruction\}\\n\\nUpdate it to:/);
+  assert.match(source, /text: `Edit "\$\{jobName\}": `,/);
   assert.match(source, /mode: "replace"/);
   assert.match(source, /<AutomationsPane[\s\S]*onEditSchedule=\{\(job\) =>\s*handleEditScheduleInChat\(job, selectedWorkspaceId\)/);
 });

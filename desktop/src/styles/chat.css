@@ -34,3 +34,20 @@
     transparent 76%
   );
 }
+
+@keyframes chat-streaming-caret-blink {
+  0%, 50% { opacity: 0.65; }
+  50.01%, 100% { opacity: 0; }
+}
+
+.chat-assistant-markdown.is-live > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: currentColor;
+  border-radius: 1px;
+  animation: chat-streaming-caret-blink 1100ms steps(1) infinite;
+}

@@ -21,24 +21,6 @@ export function LiveStatusEllipsis() {
   );
 }
 
-export function StreamingCursor() {
-  return (
-    <>
-      <style>{`
-        @keyframes streaming-cursor-blink {
-          0%, 50% { opacity: 1; }
-          50.01%, 100% { opacity: 0; }
-        }
-      `}</style>
-      <span
-        aria-hidden="true"
-        className="ml-0.5 inline-block h-[1em] w-[2px] -mb-[2px] translate-y-[3px] rounded-[1px] bg-foreground/65"
-        style={{ animation: "streaming-cursor-blink 1100ms steps(1) infinite" }}
-      />
-    </>
-  );
-}
-
 export function LiveStatusLine({
   label,
   className = "",
