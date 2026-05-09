@@ -391,6 +391,7 @@ function normalizedSessionTitleSnippet(value: string): string {
 function sessionTitleFromFirstUserInput(
   text: string,
   attachments: SessionInputAttachmentPayload[],
+  imageUrls: readonly string[] = [],
 ): string | null {
   if (text.trim()) {
     return normalizedSessionTitleSnippet(text);
@@ -401,6 +402,12 @@ function sessionTitleFromFirstUserInput(
   if (attachments.length > 1) {
     const firstName = attachments[0]?.name?.trim() || "Attachment";
     return normalizedSessionTitleSnippet(`${firstName} +${attachments.length - 1} more`);
+  }
+  if (imageUrls.length === 1) {
+    return "Image input";
+  }
+  if (imageUrls.length > 1) {
+    return normalizedSessionTitleSnippet(`${imageUrls.length} image inputs`);
   }
   return null;
 }
@@ -763,6 +770,25 @@ function requiredSessionInputAttachments(value: unknown, workspaceDir: string): 
     }
 
     return attachment;
+  });
+}
+
+function requiredSessionInputImageUrls(value: unknown): string[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error("image_urls must be an array");
+  }
+  return value.map((item, index) => {
+    if (typeof item !== "string") {
+      throw new Error(`image_urls[${index}] must be a string`);
+    }
+    const trimmed = item.trim();
+    if (!trimmed) {
+      throw new Error(`image_urls[${index}] must be a non-empty string`);
+    }
+    return trimmed;
   });
 }
 
@@ -7020,8 +7046,14 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     } catch (error) {
       return sendError(reply, 422, error instanceof Error ? error.message : "attachments are invalid");
     }
-    if (!trimmedText && attachments.length === 0) {
-      return sendError(reply, 422, "text or attachments are required");
+    let imageUrls: string[];
+    try {
+      imageUrls = requiredSessionInputImageUrls(request.body.image_urls);
+    } catch (error) {
+      return sendError(reply, 422, error instanceof Error ? error.message : "image_urls are invalid");
+    }
+    if (!trimmedText && attachments.length === 0 && imageUrls.length === 0) {
+      return sendError(reply, 422, "text, attachments, or image_urls are required");
     }
 
     const existingSession = store.getSession({
@@ -7029,7 +7061,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       sessionId: resolvedSessionId
     });
     const inferredKind = inferredSessionKind(workspace, resolvedSessionId);
-    const generatedSessionTitle = sessionTitleFromFirstUserInput(trimmedText, attachments);
+    const generatedSessionTitle = sessionTitleFromFirstUserInput(trimmedText, attachments, imageUrls);
 
     store.ensureSession({
       workspaceId,
@@ -7077,7 +7109,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       payload: {
         text: trimmedText,
         attachments,
-        image_urls: Array.isArray(request.body.image_urls) ? request.body.image_urls : [],
+        image_urls: imageUrls,
         model: nullableString(request.body.model) ?? null,
         thinking_value: nullableString(request.body.thinking_value) ?? null,
         context:
@@ -7215,8 +7247,11 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const existingAttachments = Array.isArray(existingPayload.attachments)
       ? existingPayload.attachments
       : [];
-    if (!trimmedText && existingAttachments.length === 0) {
-      return sendError(reply, 422, "text or attachments are required");
+    const existingImageUrls = Array.isArray(existingPayload.image_urls)
+      ? existingPayload.image_urls
+      : [];
+    if (!trimmedText && existingAttachments.length === 0 && existingImageUrls.length === 0) {
+      return sendError(reply, 422, "text, attachments, or image_urls are required");
     }
 
     const updated = store.updateInput({

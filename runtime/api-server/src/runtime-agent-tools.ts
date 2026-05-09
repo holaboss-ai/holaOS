@@ -2583,7 +2583,7 @@ export class RuntimeAgentToolsService {
   invokeSkill(params: RuntimeAgentToolsInvokeSkillParams): JsonObject {
     this.requireWorkspace(params.workspaceId);
     try {
-      const workspaceDir = path.join(this.options.workspaceRoot, params.workspaceId);
+      const workspaceDir = this.store.workspaceDir(params.workspaceId);
       const result = invokeWorkspaceSkill({
         requestedName: params.requestedName,
         args: params.args,

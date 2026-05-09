@@ -73,6 +73,7 @@ test("decodeRunnerRequestBase64 applies defaults for optional fields", () => {
     input_id: "input-1",
     instruction: "Ship it",
     attachments: [],
+    image_urls: [],
     context: {
       nested: {
         ok: true,
@@ -103,6 +104,7 @@ test("decodeHarnessHostPiRequestBase64 validates and normalizes request payloads
       instruction: "Do the thing",
       context_messages: ["Recent runtime context"],
       tools: { read: true, web_search: false, ignore: "x" },
+      image_urls: ["https://example.com/reference.png"],
       thinking_value: "medium",
       provider_id: "openai",
       model_id: "gpt-5.1",
@@ -136,6 +138,7 @@ test("decodeHarnessHostPiRequestBase64 validates and normalizes request payloads
     context_messages: ["Recent runtime context"],
     tools: { read: true, web_search: false },
     attachments: [],
+    image_urls: ["https://example.com/reference.png"],
     thinking_value: "medium",
     debug: false,
     harness_session_id: undefined,

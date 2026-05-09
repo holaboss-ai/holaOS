@@ -10,11 +10,13 @@ import { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
 import { fauxAssistantMessage, registerFauxProvider, type Model } from "@mariozechner/pi-ai";
 import { streamOpenAIResponses } from "../node_modules/@mariozechner/pi-ai/dist/providers/openai-responses.js";
 import { generateSummary } from "../node_modules/@mariozechner/pi-coding-agent/dist/core/compaction/compaction.js";
+import { createHarnessSkillWideningState } from "../../harnesses/src/index.js";
 
 import type { HarnessHostPiRequest } from "./contracts.js";
 import {
   buildPiProviderConfig,
   buildPiPromptPayload,
+  createPiSkillToolDefinition,
   buildPiMcpServerBindings,
   buildPiMcpToolName,
   compactPiSession,
@@ -27,6 +29,7 @@ import {
   requestedPiThinkingBudgets,
   requestedPiThinkingConfig,
   requestedPiThinkingLevel,
+  refreshPiSkillCatalog,
   resolvePiSkillDirs,
   workspaceBoundaryOverrideRequested,
   workspaceBoundaryViolationForToolCall,
@@ -105,9 +108,7 @@ async function runCompactionSummaryScenario(params: {
     tokenSize: { min: 1000, max: 1000 },
   });
 
-  const responder = (context: {
-    messages: Array<{ content?: Array<{ type: string; text?: string }> }>;
-  }) => {
+  const responder = (context: any) => {
     const promptText = context.messages[0]?.content?.[0]?.text ?? "";
     prompts.push(promptText);
     if (Buffer.byteLength(promptText, "utf8") > params.thresholdBytes) {
@@ -1362,10 +1363,12 @@ test("buildPiMcpServerBindings converts remote and local MCP payloads into mcpor
 
 test("resolvePiSkillDirs returns existing source skill directories in order", () => {
   const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "hb-pi-skills-workspace-"));
+  const emptyEmbeddedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hb-pi-skills-empty-"));
   const skillAlphaDir = path.join(workspaceDir, "skills", "alpha");
   const skillBetaDir = path.join(workspaceDir, "skills", "beta");
   fs.mkdirSync(skillAlphaDir, { recursive: true });
   fs.mkdirSync(skillBetaDir, { recursive: true });
+  const previousEmbeddedSkillsDir = process.env.HOLABOSS_EMBEDDED_SKILLS_DIR;
   const request: HarnessHostPiRequest = {
     ...baseRequest(),
     workspace_dir: workspaceDir,
@@ -1378,9 +1381,227 @@ test("resolvePiSkillDirs returns existing source skill directories in order", ()
   };
 
   try {
-    assert.deepEqual(resolvePiSkillDirs(request), [skillAlphaDir, skillBetaDir]);
+    process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = emptyEmbeddedRoot;
+    assert.deepEqual(resolvePiSkillDirs(request), [
+      fs.realpathSync(skillAlphaDir),
+      fs.realpathSync(skillBetaDir),
+    ]);
   } finally {
+    if (previousEmbeddedSkillsDir === undefined) {
+      delete process.env.HOLABOSS_EMBEDDED_SKILLS_DIR;
+    } else {
+      process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = previousEmbeddedSkillsDir;
+    }
     fs.rmSync(workspaceDir, { recursive: true, force: true });
+    fs.rmSync(emptyEmbeddedRoot, { recursive: true, force: true });
+  }
+});
+
+test("resolvePiSkillDirs prepends embedded skill directories when the request omits them", () => {
+  const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "hb-pi-skills-workspace-"));
+  const embeddedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hb-pi-embedded-skills-"));
+  const skillAlphaDir = path.join(workspaceDir, "skills", "alpha");
+  fs.mkdirSync(skillAlphaDir, { recursive: true });
+  const previousEmbeddedSkillsDir = process.env.HOLABOSS_EMBEDDED_SKILLS_DIR;
+  const request: HarnessHostPiRequest = {
+    ...baseRequest(),
+    workspace_dir: workspaceDir,
+    workspace_skill_dirs: [skillAlphaDir],
+  };
+
+  try {
+    fs.mkdirSync(path.join(embeddedRoot, "skill-creator"), { recursive: true });
+    fs.mkdirSync(path.join(embeddedRoot, "skill-installer"), { recursive: true });
+    fs.writeFileSync(
+      path.join(embeddedRoot, "skill-creator", "SKILL.md"),
+      "---\nname: skill-creator\ndescription: Skill creator\n---\n# Skill Creator\n",
+      "utf8",
+    );
+    fs.writeFileSync(
+      path.join(embeddedRoot, "skill-installer", "SKILL.md"),
+      "---\nname: skill-installer\ndescription: Skill installer\n---\n# Skill Installer\n",
+      "utf8",
+    );
+    process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = embeddedRoot;
+    assert.deepEqual(
+      resolvePiSkillDirs(request).map((skillDir) => path.basename(skillDir)),
+      ["skill-creator", "skill-installer", "alpha"],
+    );
+  } finally {
+    if (previousEmbeddedSkillsDir === undefined) {
+      delete process.env.HOLABOSS_EMBEDDED_SKILLS_DIR;
+    } else {
+      process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = previousEmbeddedSkillsDir;
+    }
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+    fs.rmSync(embeddedRoot, { recursive: true, force: true });
+  }
+});
+
+test("resolvePiSkillDirs discovers workspace skill directories created after the request snapshot", () => {
+  const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "hb-pi-skills-workspace-"));
+  const emptyEmbeddedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hb-pi-skills-empty-"));
+  const skillAlphaDir = path.join(workspaceDir, "skills", "alpha");
+  const skillBetaDir = path.join(workspaceDir, "skills", "beta");
+  fs.mkdirSync(skillAlphaDir, { recursive: true });
+  fs.mkdirSync(skillBetaDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillAlphaDir, "SKILL.md"),
+    "---\nname: alpha\ndescription: Alpha skill\n---\n# Alpha\n",
+    "utf8",
+  );
+  fs.writeFileSync(
+    path.join(skillBetaDir, "SKILL.md"),
+    "---\nname: beta\ndescription: Beta skill\n---\n# Beta\n",
+    "utf8",
+  );
+  const previousEmbeddedSkillsDir = process.env.HOLABOSS_EMBEDDED_SKILLS_DIR;
+  const request: HarnessHostPiRequest = {
+    ...baseRequest(),
+    workspace_dir: workspaceDir,
+    workspace_skill_dirs: [skillAlphaDir],
+  };
+
+  try {
+    process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = emptyEmbeddedRoot;
+    assert.deepEqual(
+      resolvePiSkillDirs(request).map((skillDir) => path.basename(skillDir)),
+      ["alpha", "beta"],
+    );
+  } finally {
+    if (previousEmbeddedSkillsDir === undefined) {
+      delete process.env.HOLABOSS_EMBEDDED_SKILLS_DIR;
+    } else {
+      process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = previousEmbeddedSkillsDir;
+    }
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+    fs.rmSync(emptyEmbeddedRoot, { recursive: true, force: true });
+  }
+});
+
+test("buildPiPromptPayload recovers quoted embedded skills when request skill dirs are empty", async () => {
+  const embeddedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hb-pi-embedded-quoted-skills-"));
+  const previousEmbeddedSkillsDir = process.env.HOLABOSS_EMBEDDED_SKILLS_DIR;
+
+  try {
+    fs.mkdirSync(path.join(embeddedRoot, "skill-creator"), { recursive: true });
+    fs.writeFileSync(
+      path.join(embeddedRoot, "skill-creator", "SKILL.md"),
+      "---\nname: skill-creator\ndescription: Skill creator\n---\n# Skill Creator\nUse the canonical skill format.\n",
+      "utf8",
+    );
+    process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = embeddedRoot;
+
+    const prompt = await buildPiPromptPayload({
+      ...baseRequest(),
+      instruction: ["/skill-creator", "", "Use it to define the new skill."].join("\n"),
+      workspace_skill_dirs: [],
+    });
+
+    assert.match(prompt.text, /Quoted workspace skills:/);
+    assert.match(prompt.text, /<skill name="skill-creator"/);
+    assert.match(prompt.text, /Use the canonical skill format\./);
+    assert.match(prompt.text, /Use it to define the new skill\./);
+  } finally {
+    if (previousEmbeddedSkillsDir === undefined) {
+      delete process.env.HOLABOSS_EMBEDDED_SKILLS_DIR;
+    } else {
+      process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = previousEmbeddedSkillsDir;
+    }
+    fs.rmSync(embeddedRoot, { recursive: true, force: true });
+  }
+});
+
+test("createPiSkillToolDefinition refreshes the skill catalog before invocation", async () => {
+  const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "hb-pi-dynamic-skill-tool-"));
+  const emptyEmbeddedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hb-pi-dynamic-skill-tool-empty-"));
+  const skillDirs: string[] = [];
+  const skillMetadataByAlias = new Map<string, {
+    skillId: string;
+    skillName: string;
+    filePath: string;
+    baseDir: string;
+    grantedTools: string[];
+    grantedCommands: string[];
+  }>();
+  const skillWideningState = createHarnessSkillWideningState(
+    skillMetadataByAlias,
+    ["bash", "read", "skill"],
+    [],
+  );
+  const previousEmbeddedSkillsDir = process.env.HOLABOSS_EMBEDDED_SKILLS_DIR;
+
+  try {
+    process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = emptyEmbeddedRoot;
+    const tool = createPiSkillToolDefinition(
+      skillMetadataByAlias,
+      skillWideningState,
+      false,
+      {
+        refreshCatalog: () =>
+          refreshPiSkillCatalog({
+            skillDirs,
+            skillMetadataByAlias,
+            skillWideningState,
+            availableToolNames: ["bash", "read", "skill"],
+            availableCommandIds: [],
+          }),
+      },
+    );
+
+    const jokeMakingDir = path.join(workspaceDir, "skills", "joke-making");
+    fs.mkdirSync(jokeMakingDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(jokeMakingDir, "SKILL.md"),
+      [
+        "---",
+        "name: joke-making",
+        "description: Generate jokes.",
+        "holaboss_granted_tools: [bash]",
+        "---",
+        "# Joke Making",
+        "",
+        "Create jokes in different tones without becoming cruel.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    skillDirs.push(jokeMakingDir);
+
+    const result = await tool.execute(
+      "call-1",
+      {
+        name: "joke-making",
+        args: "Discovery check only.",
+      },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    const textBlock = result.content.find((block) => block.type === "text");
+    assert.equal(typeof textBlock?.text, "string");
+    assert.match(String(textBlock?.text), /<skill name="joke-making"/);
+    assert.match(String(textBlock?.text), /Discovery check only\./);
+    assert.deepEqual(
+      [...new Set([...skillMetadataByAlias.values()].map((metadata) => metadata.skillId))].sort(),
+      ["joke-making"],
+    );
+    const details = result.details as {
+      policy_widening?: {
+        granted_tools?: string[];
+        active_granted_tools?: string[];
+      };
+    };
+    assert.deepEqual(details.policy_widening?.granted_tools, ["bash"]);
+    assert.deepEqual(details.policy_widening?.active_granted_tools, ["bash"]);
+  } finally {
+    if (previousEmbeddedSkillsDir === undefined) {
+      delete process.env.HOLABOSS_EMBEDDED_SKILLS_DIR;
+    } else {
+      process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = previousEmbeddedSkillsDir;
+    }
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+    fs.rmSync(emptyEmbeddedRoot, { recursive: true, force: true });
   }
 });
 
@@ -3084,6 +3305,54 @@ test("buildPiPromptPayload inlines native images, extracts common document forma
     ]);
   } finally {
     fs.rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});
+
+test("buildPiPromptPayload inlines image_urls from data URLs and remote image fetches", async () => {
+  const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === "https://example.com/reference.png") {
+      return new Response(imageBytes, {
+        status: 200,
+        headers: { "content-type": "image/png" },
+      });
+    }
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    const prompt = await buildPiPromptPayload({
+      ...baseRequest(),
+      attachments: [],
+      image_urls: [
+        `data:image/png;base64,${imageBytes.toString("base64")}`,
+        "https://example.com/reference.png",
+        "https://example.com/missing.png",
+      ],
+    });
+
+    assert.match(prompt.text, /^List the files\s+Attachments: none\./);
+    assert.match(prompt.text, /Referenced image URLs:/);
+    assert.match(prompt.text, /\[Image URL 1\] data URL/);
+    assert.match(prompt.text, /\[Image URL 2\] https:\/\/example\.com\/reference\.png/);
+    assert.match(prompt.text, /Image URLs not inlined as image inputs:/);
+    assert.match(prompt.text, /\[Image URL 3\] https:\/\/example\.com\/missing\.png/);
+    assert.deepEqual(prompt.images, [
+      {
+        type: "image",
+        data: imageBytes.toString("base64"),
+        mimeType: "image/png",
+      },
+      {
+        type: "image",
+        data: imageBytes.toString("base64"),
+        mimeType: "image/png",
+      },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 

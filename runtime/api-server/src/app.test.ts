@@ -6352,6 +6352,44 @@ test("queue route persists input and runtime state without writing session histo
   store.close();
 });
 
+test("queue route accepts image_urls without text or attachments", async () => {
+  const root = makeTempDir("hb-runtime-api-queue-image-urls-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/v1/agent-sessions/queue",
+    payload: {
+      workspace_id: workspace.id,
+      image_urls: ["https://example.com/reference.png"]
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  const queued = store.getInput({ workspaceId: workspace.id, inputId: response.json().input_id });
+  assert.ok(queued);
+  assert.equal(queued.payload.text, "");
+  assert.deepEqual(queued.payload.image_urls, ["https://example.com/reference.png"]);
+
+  const session = store.getSession({ workspaceId: workspace.id, sessionId: response.json().session_id });
+  assert.ok(session);
+  assert.equal(session?.title, "Image input");
+
+  await app.close();
+  store.close();
+});
+
 test("queue route preserves the active claimed input while adding later queued work", async () => {
   const root = makeTempDir("hb-runtime-api-queue-preserve-active-");
   const store = new RuntimeStateStore({

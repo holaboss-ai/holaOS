@@ -182,11 +182,20 @@ export function resolveHarnessWorkspaceSkillDirs(skillDirs: readonly string[]): 
   const seen = new Set<string>();
   for (const rawDir of skillDirs) {
     const resolvedDir = path.resolve(rawDir);
-    if (seen.has(resolvedDir) || !directoryExists(resolvedDir)) {
+    if (!directoryExists(resolvedDir)) {
       continue;
     }
-    seen.add(resolvedDir);
-    ordered.push(resolvedDir);
+    let canonicalDir: string;
+    try {
+      canonicalDir = fs.realpathSync(resolvedDir);
+    } catch {
+      canonicalDir = resolvedDir;
+    }
+    if (seen.has(canonicalDir)) {
+      continue;
+    }
+    seen.add(canonicalDir);
+    ordered.push(canonicalDir);
   }
   return ordered;
 }

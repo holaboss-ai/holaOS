@@ -688,12 +688,13 @@ export function buildBaseAgentPromptSections(
     "Use coordination tools instead of hidden state. The newest user message is primary.",
     "Resume unfinished work only when the newest message clearly asks to continue it; otherwise respond to the new message directly.",
     "Ask for missing identity details instead of guessing.",
-    "Use `AGENTS.md` as the requirement ledger. Keep always-on policy there; turn conditional, situational, or procedural requirements into indexed workspace-local skills, using `skill-creator` when available."
+    "Use `AGENTS.md` as the durable workspace ledger. Keep durable instructions, verified procedures, stable facts, conventions, decisions, and recurring blockers there; turn conditional or situational guidance into indexed local skills, using `skill-creator` when available."
   ];
   if (hasWorkspaceInstructionUpdateTool(request)) {
     executionLines.push(
-      "When the user states any requirement, rule, preference, constraint, or template, record it in root `AGENTS.md` with `holaboss_update_workspace_instructions` instead of relying only on transient context.",
-      "Record it even when it appears turn-scoped; skip only if the user explicitly says not to persist it."
+      "Record durable workspace knowledge in root `AGENTS.md` with `holaboss_update_workspace_instructions` instead of relying only on transient context.",
+      "This includes durable requirements or preferences, verified commands or procedures, stable facts, conventions, decisions, and recurring blockers from the user, direct inspection, or grounded tool or subagent results.",
+      "Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state. Skip persistence only if the user explicitly says not to persist it."
     );
   }
   if (capabilityManifest?.browser_tools.length) {
@@ -939,12 +940,13 @@ export function buildMainSessionPromptSections(
     "Use coordination tools instead of hidden state. The newest user message is primary.",
     "Resume unfinished work only when the newest message clearly asks to continue it; otherwise respond to the new message directly.",
     "Ask for missing identity details instead of guessing.",
-    "Use `AGENTS.md` as the requirement ledger. Keep always-on policy there; turn conditional, situational, or procedural requirements into indexed workspace-local skills, using `skill-creator` when available."
+    "Use `AGENTS.md` as the durable workspace ledger. Keep durable instructions, verified procedures, stable facts, conventions, decisions, and recurring blockers there; turn conditional or situational guidance into indexed local skills, using `skill-creator` when available."
   ];
   if (hasWorkspaceInstructionUpdateTool(request)) {
     conversationLines.push(
-      "When the user states any requirement, rule, preference, constraint, or template, record it in root `AGENTS.md` with `holaboss_update_workspace_instructions` instead of relying only on transient context.",
-      "Record it even when it appears turn-scoped; skip only if the user explicitly says not to persist it."
+      "Record durable workspace knowledge in root `AGENTS.md` with `holaboss_update_workspace_instructions` instead of relying only on transient context.",
+      "This includes durable requirements or preferences, verified commands or procedures, stable facts, conventions, decisions, and recurring blockers from the user, direct inspection, or grounded tool or subagent results.",
+      "Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state. Skip persistence only if the user explicitly says not to persist it."
     );
   }
   if (normalizedSessionKind === "onboarding") {

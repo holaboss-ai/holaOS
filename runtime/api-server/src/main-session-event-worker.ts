@@ -90,6 +90,8 @@ function buildMainSessionEventBatchInstruction(
       "This message is a supplemental continuation only, not a fresh answer to the user's last conversational question.",
       "Do not repeat, paraphrase, or re-answer any direct reply the main session already gave. Only add the newly completed background results.",
       "These events are background updates. Keep the reply concise and natural.",
+      "If completed work established durable verified workspace knowledge that future runs should reuse, record it in `AGENTS.md` with `holaboss_update_workspace_instructions` before replying.",
+      "Do not persist one-off deliverables, unresolved hypotheses, partial investigations, or temporary runtime state.",
       "If an event comes from an automation or cronjob, treat it like a specific automation update rather than a generic status bulletin.",
       "Use the event title, goal, context, and deliverables to explain what ran and what changed in concrete terms.",
       "If an automation update is marked as the first run, you may mention that naturally when it helps orient the user.",

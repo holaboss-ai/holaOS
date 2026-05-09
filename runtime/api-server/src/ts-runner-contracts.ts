@@ -33,6 +33,7 @@ export interface TsRunnerRequest {
   input_id: string;
   instruction: string;
   attachments?: TsRunnerInputAttachment[];
+  image_urls?: string[];
   context: JsonObject;
   model?: string | null;
   thinking_value?: string | null;
@@ -145,6 +146,16 @@ function attachments(value: unknown): TsRunnerInputAttachment[] {
     .filter((item): item is TsRunnerInputAttachment => Boolean(item));
 }
 
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
 export function decodeTsRunnerRequestPayload(encoded: string): unknown {
   const trimmed = encoded.trim();
   if (!trimmed) {
@@ -190,6 +201,7 @@ export function validateTsRunnerRequest(payload: unknown): TsRunnerRequest {
     input_id: requiredString(payload.input_id, "input_id"),
     instruction: requiredString(payload.instruction, "instruction"),
     attachments: attachments(payload.attachments),
+    image_urls: stringArray(payload.image_urls),
     context: context as JsonObject,
     model: payload.model === undefined || payload.model === null ? null : requiredString(payload.model, "model"),
     thinking_value:

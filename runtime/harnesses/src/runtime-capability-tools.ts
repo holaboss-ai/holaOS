@@ -812,9 +812,10 @@ function runtimeToolPromptGuidelines(toolId: RuntimeAgentToolId): string[] {
   }
   if (toolId === "holaboss_update_workspace_instructions") {
     return [
-      "Use `holaboss_update_workspace_instructions` when the user gives any requirement, rule, preference, constraint, or template that should be recorded in root `AGENTS.md`.",
-      "Default to recording it even when it appears scoped only to the current deliverable or turn; only skip it when the user explicitly says not to record it.",
-      "After recording the requirement in `AGENTS.md`, if it is conditional, situational, or procedural rather than always-on policy, also create or update a workspace-local skill and keep a short skills index entry in `AGENTS.md`.",
+      "Use `holaboss_update_workspace_instructions` when durable workspace knowledge should be recorded in root `AGENTS.md`.",
+      "Record durable user requirements and preferences, verified commands and procedures, stable workspace facts, conventions, decisions, and recurring blockers that future runs should reuse, whether they came from the user, direct inspection, or grounded tool or subagent results.",
+      "Do not record narrow one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state. Only skip a durable item when the user explicitly says not to record it.",
+      "After recording durable guidance in `AGENTS.md`, if it is conditional, situational, or procedural rather than always-on policy, also create or update a workspace-local skill and keep a short skills index entry in `AGENTS.md`.",
       "Use `read_current` before replacing the managed section when you need to preserve or refine existing workspace instructions.",
       "Use `append_rule` for concise rules, `remove_rule` to retract one, and `replace_managed_section` for structured markdown templates, indexes, or larger rule sets.",
     ];
