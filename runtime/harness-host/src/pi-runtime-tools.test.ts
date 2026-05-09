@@ -244,7 +244,7 @@ test("Pi runtime cronjob tools send instruction separately from description", as
     },
   ]);
   assert.equal(
-    result.content[0]?.text,
+    result.content[0]?.type === "text" ? result.content[0].text : undefined,
     JSON.stringify({ delivery: { channel: "session_run", mode: "deliver" } }, null, 2),
   );
 });

@@ -28,9 +28,10 @@ test("background tasks pane polls workspace background tasks and supports inline
   assert.match(source, /onClick=\{\(\) => setInlineExpanded\(\(value\) => !value\)\}/);
   assert.match(source, /const \[removingTaskId, setRemovingTaskId\] = useState<string \| null>\(null\);/);
   assert.match(source, /function canRemoveTask\(task: BackgroundTaskRecordPayload\)/);
+  assert.match(source, /return status !== "queued" && status !== "running";/);
   assert.match(source, /const taskBody = \(\s*<div className="flex min-w-0 items-center gap-2">/);
   assert.match(source, /className="min-w-0 flex-1 truncate text-xs font-medium text-foreground"/);
-  assert.match(source, /className="min-w-0 flex-1">[\s\S]*className="truncate text-sm font-medium text-foreground"/);
+  assert.match(source, /className="min-w-0 flex-1 truncate text-sm font-medium text-foreground"/);
   assert.match(source, /aria-label=\{`Remove background task \$\{task\.title\.trim\(\) \|\| task\.subagent_id\}`\}/);
   assert.match(source, /<Trash2 size=\{12\} \/>/);
   assert.doesNotMatch(

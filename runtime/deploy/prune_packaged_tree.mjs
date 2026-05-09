@@ -53,6 +53,9 @@ function countFiles(rootPath) {
 }
 
 function shouldPruneFile(fileName) {
+  if (fileName === "SKILL.md") {
+    return false;
+  }
   return FILE_SUFFIXES_TO_PRUNE.some((suffix) => fileName.endsWith(suffix));
 }
 

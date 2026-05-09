@@ -1232,6 +1232,63 @@ function makeHarness(): Harness {
   };
 }
 
+test("invokeSkill resolves workspace-local skills from a registered custom workspace path", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-skill-custom-"));
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const customRoot = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-skill-custom-workspace-"));
+  const customWorkspaceDir = path.join(customRoot, "workspace");
+  const skillDir = path.join(customWorkspaceDir, "skills", "deploy-helper");
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+      workspacePath: customWorkspaceDir,
+    });
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      [
+        "---",
+        "name: deploy-helper",
+        "description: Deployment helper",
+        "---",
+        "",
+        "# Deploy Helper",
+        "",
+        "Use the deploy workflow carefully.",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    const result = service.invokeSkill({
+      workspaceId: "workspace-1",
+      requestedName: "deploy-helper",
+      args: "Only use the docs path.",
+    }) as {
+      text: string;
+      skill_id: string;
+      skill_file_path: string;
+    };
+
+    assert.equal(result.skill_id, "deploy-helper");
+    assert.match(result.text, /Only use the docs path\./);
+    assert.equal(
+      result.skill_file_path,
+      fs.realpathSync(path.join(skillDir, "SKILL.md")),
+    );
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(customRoot, { recursive: true, force: true });
+  }
+});
+
 function seedTwitterPosts(dbPath: string) {
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");

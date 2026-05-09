@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import * as Sentry from "@sentry/node";
 import {
@@ -28,6 +28,7 @@ import { APIError as OpenAIApiError } from "openai";
 import { createCallResult, createRuntime, type Runtime as McporterRuntime, type ServerDefinition } from "mcporter";
 import { MODELS } from "../node_modules/@mariozechner/pi-ai/dist/models.generated.js";
 import {
+  DEFAULT_HARNESS_MAX_INLINE_IMAGE_BYTES,
   buildHarnessAttachmentFallbackPromptLine,
   buildHarnessAttachmentPromptPath,
   inlineHarnessDocumentAttachmentSection,
@@ -129,6 +130,8 @@ export interface PiDeps {
   createSession: (request: HarnessHostPiRequest) => Promise<PiSessionHandle>;
 }
 
+const EMBEDDED_SKILLS_DIR_ENV = "HOLABOSS_EMBEDDED_SKILLS_DIR";
+
 type PiInternalCompactionSession = {
   _checkCompaction?: (assistantMessage: unknown, skipAbortedCheck?: boolean) => Promise<void>;
 };
@@ -187,6 +190,7 @@ const PI_MCP_DISCOVERY_RETRY_INTERVAL_MS = 250;
 const PI_FALLBACK_CONTEXT_WINDOW = 65_536;
 const PI_FALLBACK_MAX_TOKENS = 8_192;
 const PI_COMPACTION_CONTEXT_RESERVE_RATIO = 0.5;
+const PI_WORKSPACE_SKILLS_RELATIVE_PATH = "skills";
 
 const PI_MODEL_CATALOG = MODELS as Record<string, Record<string, HarnessCatalogModelEntry>>;
 const PI_MCP_DISCOVERY_MAX_WAIT_MS = 10000;
@@ -258,13 +262,167 @@ function runtimeContextMessagesBlock(request: HarnessHostPiRequest): string {
   ].join("\n\n");
 }
 
+const IMAGE_URL_FETCH_TIMEOUT_MS = 15_000;
+const IMAGE_MIME_TYPES_BY_EXTENSION = new Map<string, string>([
+  [".avif", "image/avif"],
+  [".bmp", "image/bmp"],
+  [".gif", "image/gif"],
+  [".jpeg", "image/jpeg"],
+  [".jpg", "image/jpeg"],
+  [".png", "image/png"],
+  [".svg", "image/svg+xml"],
+  [".webp", "image/webp"],
+]);
+
+function imageUrlPromptLabel(imageUrl: string, index: number, request: HarnessHostPiRequest): string {
+  if (/^data:/i.test(imageUrl)) {
+    return `[Image URL ${index + 1}] data URL`;
+  }
+  try {
+    const parsed = new URL(imageUrl);
+    if (parsed.protocol === "file:") {
+      const resolvedPath = resolvePathWithinHarnessWorkspace(
+        createWorkspaceBoundaryPolicy(request.workspace_dir, false),
+        fileURLToPath(parsed),
+      );
+      if (resolvedPath) {
+        const relativePath = path.relative(request.workspace_dir, resolvedPath).replace(/\\/g, "/");
+        return `[Image URL ${index + 1}] ./${relativePath}`;
+      }
+    }
+    return `[Image URL ${index + 1}] ${parsed.toString()}`;
+  } catch {
+    return `[Image URL ${index + 1}] ${imageUrl}`;
+  }
+}
+
+function imageContentFromDataUrl(
+  imageUrl: string,
+  maxInlineImageBytes = DEFAULT_HARNESS_MAX_INLINE_IMAGE_BYTES,
+): ImageContent | null {
+  const match = /^data:([^;,]+);base64,([\s\S]+)$/i.exec(imageUrl);
+  if (!match) {
+    return null;
+  }
+  const mimeType = (match[1] ?? "").trim().toLowerCase();
+  if (!mimeType.startsWith("image/")) {
+    return null;
+  }
+  try {
+    const buffer = Buffer.from(match[2] ?? "", "base64");
+    if (buffer.length === 0 || buffer.length > maxInlineImageBytes) {
+      return null;
+    }
+    return {
+      type: "image",
+      data: buffer.toString("base64"),
+      mimeType,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function inlineWorkspaceImageUrl(
+  request: HarnessHostPiRequest,
+  imageUrl: string,
+  maxInlineImageBytes = DEFAULT_HARNESS_MAX_INLINE_IMAGE_BYTES,
+): ImageContent | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(imageUrl);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "file:") {
+    return null;
+  }
+  const absolutePath = resolvePathWithinHarnessWorkspace(
+    createWorkspaceBoundaryPolicy(request.workspace_dir, false),
+    fileURLToPath(parsed),
+  );
+  if (!absolutePath) {
+    return null;
+  }
+  const mimeType = IMAGE_MIME_TYPES_BY_EXTENSION.get(path.extname(absolutePath).toLowerCase()) ?? "";
+  if (!mimeType.startsWith("image/")) {
+    return null;
+  }
+  const stat = fs.statSync(absolutePath, { throwIfNoEntry: false });
+  if (!stat?.isFile()) {
+    return null;
+  }
+  const relativePath = path.relative(request.workspace_dir, absolutePath).replace(/\\/g, "/");
+  return inlineHarnessImageAttachment({
+    attachment: {
+      id: absolutePath,
+      kind: "image",
+      name: path.basename(absolutePath),
+      mime_type: mimeType,
+      size_bytes: stat.size,
+      workspace_path: relativePath,
+    },
+    absolutePath,
+    maxInlineImageBytes,
+  });
+}
+
+async function inlineRemoteImageUrl(
+  imageUrl: string,
+  maxInlineImageBytes = DEFAULT_HARNESS_MAX_INLINE_IMAGE_BYTES,
+): Promise<ImageContent | null> {
+  if (!/^https?:\/\//i.test(imageUrl) || typeof fetch !== "function") {
+    return null;
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), IMAGE_URL_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(imageUrl, {
+      method: "GET",
+      redirect: "follow",
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const mimeType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ?? "";
+    if (!mimeType.startsWith("image/")) {
+      return null;
+    }
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length === 0 || bytes.length > maxInlineImageBytes) {
+      return null;
+    }
+    return {
+      type: "image",
+      data: bytes.toString("base64"),
+      mimeType,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function inlineImageUrlInput(request: HarnessHostPiRequest, imageUrl: string): Promise<ImageContent | null> {
+  return (
+    imageContentFromDataUrl(imageUrl) ??
+    inlineWorkspaceImageUrl(request, imageUrl) ??
+    await inlineRemoteImageUrl(imageUrl)
+  );
+}
+
 export async function buildPiPromptPayload(request: HarnessHostPiRequest): Promise<PiPromptPayload> {
   const sections: string[] = [];
   const imageLines: string[] = [];
   const folderLines: string[] = [];
   const fallbackLines: string[] = [];
+  const imageUrlLines: string[] = [];
+  const imageUrlFallbackLines: string[] = [];
   const images: ImageContent[] = [];
   const attachments = request.attachments ?? [];
+  const imageUrls = request.image_urls ?? [];
 
   const todoResumeInstruction = buildHarnessTodoResumeInstruction({
     hasRequestedSessionFile: Boolean(resolveRequestedSessionFile(request)),
@@ -275,7 +433,7 @@ export async function buildPiPromptPayload(request: HarnessHostPiRequest): Promi
     sections.push(todoResumeInstruction);
   }
 
-  const quotedSkills = resolveQuotedSkillSections(request.instruction, request.workspace_skill_dirs);
+  const quotedSkills = resolveQuotedSkillSections(request.instruction, resolvePiSkillDirs(request));
   if (quotedSkills.blocks.length > 0) {
     sections.push(["Quoted workspace skills:", ...quotedSkills.blocks].join("\n\n"));
   }
@@ -327,12 +485,29 @@ export async function buildPiPromptPayload(request: HarnessHostPiRequest): Promi
     fallbackLines.push(buildHarnessAttachmentFallbackPromptLine(attachment, promptPath));
   }
 
-  if (attachments.length === 0) {
+  for (const [index, imageUrl] of imageUrls.entries()) {
+    const promptLabel = imageUrlPromptLabel(imageUrl, index, request);
+    const image = await inlineImageUrlInput(request, imageUrl);
+    if (image) {
+      images.push(image);
+      imageUrlLines.push(`- ${promptLabel}`);
+      continue;
+    }
+    imageUrlFallbackLines.push(`- ${promptLabel}`);
+  }
+
+  if (attachments.length === 0 && imageUrlLines.length === 0) {
     sections.push(["Attachments: none.", "Image inputs: none."].join("\n"));
-  } else if (imageLines.length > 0) {
+  } else if (attachments.length === 0) {
+    sections.push("Attachments: none.");
+  }
+  if (imageLines.length > 0) {
     sections.push(["Attached images:", ...imageLines].join("\n"));
-  } else {
+  } else if (attachments.length > 0 && imageUrlLines.length === 0) {
     sections.push("Image inputs: none.");
+  }
+  if (imageUrlLines.length > 0) {
+    sections.push(["Referenced image URLs:", ...imageUrlLines].join("\n"));
   }
   if (folderLines.length > 0) {
     sections.push(
@@ -348,6 +523,14 @@ export async function buildPiPromptPayload(request: HarnessHostPiRequest): Promi
       [
         "Other attachments are staged in the workspace and should be inspected from these paths:",
         ...fallbackLines,
+      ].join("\n")
+    );
+  }
+  if (imageUrlFallbackLines.length > 0) {
+    sections.push(
+      [
+        "Image URLs not inlined as image inputs:",
+        ...imageUrlFallbackLines,
       ].join("\n")
     );
   }
@@ -939,11 +1122,103 @@ function resolvePiSessionDir(workspaceDir: string): string {
   return path.join(workspaceDir, PI_SESSION_DIR);
 }
 
-export function resolvePiSkillDirs(request: HarnessHostPiRequest): string[] {
-  return resolveHarnessWorkspaceSkillDirs(request.workspace_skill_dirs);
+function directoryExists(target: string): boolean {
+  return fs.statSync(target, { throwIfNoEntry: false })?.isDirectory() ?? false;
 }
 
-function loadPiSkills(skillDirs: string[]): LoadSkillsResult {
+function piRuntimeRootDir(): string {
+  const configured = optionalTrimmedString(process.env.HOLABOSS_RUNTIME_ROOT);
+  if (configured) {
+    return path.resolve(configured);
+  }
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+}
+
+function resolveEmbeddedPiSkillDirs(): string[] {
+  const override = optionalTrimmedString(process.env[EMBEDDED_SKILLS_DIR_ENV]);
+  const candidateRoots = override
+    ? [path.resolve(override)]
+    : [
+        path.join(piRuntimeRootDir(), "harnesses", "src", "embedded-skills"),
+        path.join(piRuntimeRootDir(), "runtime", "harnesses", "src", "embedded-skills"),
+      ];
+  const discoveredSkillDirs: string[] = [];
+
+  for (const candidateRoot of candidateRoots) {
+    if (!directoryExists(candidateRoot)) {
+      continue;
+    }
+    const entries = fs
+      .readdirSync(candidateRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => path.join(candidateRoot, entry.name))
+      .map((skillDir) => {
+        try {
+          return fs.realpathSync(skillDir);
+        } catch {
+          return null;
+        }
+      })
+      .filter((skillDir): skillDir is string => Boolean(skillDir))
+      .filter((skillDir) => fs.existsSync(path.join(skillDir, "SKILL.md")))
+      .sort((left, right) => path.basename(left).localeCompare(path.basename(right)));
+    discoveredSkillDirs.push(...entries);
+  }
+
+  return resolveHarnessWorkspaceSkillDirs(discoveredSkillDirs);
+}
+
+function resolveWorkspaceLocalPiSkillDirs(workspaceDir: string): string[] {
+  const resolvedWorkspaceDir = path.resolve(workspaceDir);
+  let workspaceRealPath: string;
+  try {
+    workspaceRealPath = fs.realpathSync(resolvedWorkspaceDir);
+  } catch {
+    return [];
+  }
+  const workspaceSkillsDir = path.join(resolvedWorkspaceDir, PI_WORKSPACE_SKILLS_RELATIVE_PATH);
+  let workspaceSkillsRealPath: string;
+  try {
+    workspaceSkillsRealPath = fs.realpathSync(workspaceSkillsDir);
+  } catch {
+    return [];
+  }
+  const relativeSkillsPath = path.relative(workspaceRealPath, workspaceSkillsRealPath);
+  if (relativeSkillsPath.startsWith("..") || path.isAbsolute(relativeSkillsPath)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(workspaceSkillsRealPath, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(workspaceSkillsRealPath, entry.name))
+    .map((skillDir) => {
+      try {
+        return fs.realpathSync(skillDir);
+      } catch {
+        return null;
+      }
+    })
+    .filter((skillDir): skillDir is string => Boolean(skillDir))
+    .filter((skillDir) => {
+      const relativeSkillDir = path.relative(workspaceRealPath, skillDir);
+      if (relativeSkillDir.startsWith("..") || path.isAbsolute(relativeSkillDir)) {
+        return false;
+      }
+      return fs.existsSync(path.join(skillDir, "SKILL.md"));
+    })
+    .sort((left, right) => path.basename(left).localeCompare(path.basename(right)));
+}
+
+export function resolvePiSkillDirs(request: HarnessHostPiRequest): string[] {
+  return resolveHarnessWorkspaceSkillDirs([
+    ...resolveEmbeddedPiSkillDirs(),
+    ...resolveWorkspaceLocalPiSkillDirs(request.workspace_dir),
+    ...request.workspace_skill_dirs,
+  ]);
+}
+
+function loadPiSkills(skillDirs: readonly string[]): LoadSkillsResult {
   return loadHarnessWorkspaceSkills<Skill, ResourceDiagnostic>({
     skillDirs,
     loadSkillsFromDir: (dir) =>
@@ -1044,16 +1319,105 @@ function buildPiSkillMetadataByAlias(skills: Skill[]): Map<string, PiSkillMetada
   return buildHarnessSkillMetadataByAlias(skills);
 }
 
-function createPiSkillToolDefinition(
-  skillMetadataByAlias: ReadonlyMap<string, PiSkillMetadata>,
+function replacePiSkillMetadataByAlias(
+  target: Map<string, PiSkillMetadata>,
+  source: ReadonlyMap<string, PiSkillMetadata>,
+): void {
+  target.clear();
+  for (const [alias, metadata] of source.entries()) {
+    target.set(alias, metadata);
+  }
+}
+
+function replacePiStringSet(target: Set<string>, source: Iterable<string>): void {
+  target.clear();
+  for (const value of source) {
+    target.add(value);
+  }
+}
+
+function replacePiSkillIdMap(
+  target: Map<string, ReadonlySet<string>>,
+  source: ReadonlyMap<string, ReadonlySet<string>>,
+): void {
+  target.clear();
+  for (const [key, value] of source.entries()) {
+    target.set(key, new Set(value));
+  }
+}
+
+export function refreshPiSkillCatalog(params: {
+  skillDirs: readonly string[];
+  skillMetadataByAlias: Map<string, PiSkillMetadata>;
+  skillWideningState: PiSkillWideningState;
+  availableToolNames: string[];
+  availableCommandIds: string[];
+}): void {
+  const loadedSkills = loadPiSkills(params.skillDirs);
+  const nextSkillMetadataByAlias = buildPiSkillMetadataByAlias(loadedSkills.skills);
+  replacePiSkillMetadataByAlias(params.skillMetadataByAlias, nextSkillMetadataByAlias);
+
+  const nextSkillWideningState = createPiSkillWideningState(
+    params.skillMetadataByAlias,
+    params.availableToolNames,
+    params.availableCommandIds,
+  );
+  const preservedGrantedTools = [...params.skillWideningState.grantedToolNames]
+    .filter((toolName) => nextSkillWideningState.managedToolNames.has(toolName))
+    .sort((left, right) => left.localeCompare(right));
+  const preservedGrantedCommands = [...params.skillWideningState.grantedCommandIds]
+    .filter((commandId) => nextSkillWideningState.managedCommandIds.has(commandId))
+    .sort((left, right) => left.localeCompare(right));
+
+  replacePiStringSet(
+    params.skillWideningState.managedToolNames,
+    nextSkillWideningState.managedToolNames,
+  );
+  replacePiStringSet(
+    params.skillWideningState.grantedToolNames,
+    preservedGrantedTools,
+  );
+  replacePiSkillIdMap(
+    params.skillWideningState.skillIdsByManagedTool as Map<string, ReadonlySet<string>>,
+    nextSkillWideningState.skillIdsByManagedTool,
+  );
+  replacePiStringSet(
+    params.skillWideningState.managedCommandIds,
+    nextSkillWideningState.managedCommandIds,
+  );
+  replacePiStringSet(
+    params.skillWideningState.grantedCommandIds,
+    preservedGrantedCommands,
+  );
+  replacePiSkillIdMap(
+    params.skillWideningState.skillIdsByManagedCommand as Map<string, ReadonlySet<string>>,
+    nextSkillWideningState.skillIdsByManagedCommand,
+  );
+}
+
+export function createPiSkillToolDefinition(
+  skillMetadataByAlias: Map<string, PiSkillMetadata>,
   skillWideningState: PiSkillWideningState,
-  workspaceBoundaryPolicy: PiWorkspaceBoundaryPolicy
+  workspaceBoundaryOverrideRequested: boolean,
+  options?: {
+    refreshCatalog?: () => void | Promise<void>;
+  }
 ): ToolDefinition {
-  return createHarnessSkillToolDefinition({
+  const baseTool = createHarnessSkillToolDefinition({
     skillMetadataByAlias,
     skillWideningState,
-    workspaceBoundaryOverrideRequested: workspaceBoundaryPolicy.overrideRequested,
+    workspaceBoundaryOverrideRequested,
   }) as unknown as ToolDefinition;
+  if (!options?.refreshCatalog) {
+    return baseTool;
+  }
+  return {
+    ...baseTool,
+    execute: async (...args: Parameters<ToolDefinition["execute"]>) => {
+      await options.refreshCatalog?.();
+      return await baseTool.execute(...args);
+    },
+  };
 }
 
 function wrapToolWithSkillWidening<TTool extends { name: string; execute: (...args: any[]) => Promise<any> }>(
@@ -1516,9 +1880,26 @@ async function defaultCreateSession(request: HarnessHostPiRequest): Promise<PiSe
     [...availableToolNames, "skill"],
     availableCommandIds
   );
+  const refreshPiSkillCatalogForSession = () =>
+    refreshPiSkillCatalog({
+      skillDirs: resolvePiSkillDirs(request),
+      skillMetadataByAlias,
+      skillWideningState,
+      availableToolNames: [...availableToolNames, "skill"],
+      availableCommandIds,
+    });
   const skillTools =
-    skillMetadataByAlias.size > 0 && toolEnabledForPiRequest(request, "skill")
-      ? [createPiSkillToolDefinition(skillMetadataByAlias, skillWideningState, workspaceBoundaryPolicy)]
+    toolEnabledForPiRequest(request, "skill")
+      ? [
+          createPiSkillToolDefinition(
+            skillMetadataByAlias,
+            skillWideningState,
+            workspaceBoundaryPolicy.overrideRequested,
+            {
+              refreshCatalog: refreshPiSkillCatalogForSession,
+            },
+          ),
+        ]
       : [];
   const tools = baseTools.map((tool) =>
     wrapToolWithWorkspaceBoundary(wrapToolWithSkillWidening(tool, skillWideningState), workspaceBoundaryPolicy)

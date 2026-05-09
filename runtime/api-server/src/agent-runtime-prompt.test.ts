@@ -162,7 +162,7 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
   );
   assert.match(
     prompt.systemPrompt,
-    /Use `AGENTS\.md` as the requirement ledger\. Keep always-on policy there; turn conditional, situational, or procedural requirements into indexed workspace-local skills, using `skill-creator` when available\./i
+    /Use `AGENTS\.md` as the durable workspace ledger\. Keep durable instructions, verified procedures, stable facts, conventions, decisions, and recurring blockers there; turn conditional or situational guidance into indexed local skills, using `skill-creator` when available\./i
   );
   assert.match(prompt.systemPrompt, /Session policy:/);
   assert.match(prompt.systemPrompt, /front-of-house workspace session/i);
@@ -174,7 +174,7 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
   assert.doesNotMatch(prompt.systemPrompt, /Connected MCP tools available now:/);
   assert.doesNotMatch(prompt.systemPrompt, /Skills available now:/);
   assert.doesNotMatch(prompt.systemPrompt, /Connected MCP access: available\./);
-  assert.ok(prompt.systemPrompt.length < 4500);
+  assert.ok(prompt.systemPrompt.length < 4600);
   assert.equal(prompt.contextMessages.length, 1);
   assert.match(prompt.contextMessages.join("\n\n"), /Capability availability snapshot:/);
   assert.match(prompt.contextMessages.join("\n\n"), /Inspect tools: available \(\d+ enabled\)\./);
@@ -498,7 +498,7 @@ test("composeAgentPrompt can inject a run-specific routing recovery override for
   assert.match(prompt.systemPrompt, /produce the report artifact/i);
 });
 
-test("composeAgentPrompt instructs main sessions to record all user requirements into AGENTS.md when the tool is available", () => {
+test("composeAgentPrompt instructs main sessions to record durable workspace knowledge into AGENTS.md when the tool is available", () => {
   const capabilityManifest = buildAgentCapabilityManifest({
     defaultTools: ["read"],
     extraTools: ["holaboss_update_workspace_instructions"],
@@ -521,19 +521,19 @@ test("composeAgentPrompt instructs main sessions to record all user requirements
 
   assert.match(
     prompt.systemPrompt,
-    /When the user states any requirement, rule, preference, constraint, or template, record it in root `AGENTS\.md` with `holaboss_update_workspace_instructions`/i,
+    /Record durable workspace knowledge in root `AGENTS\.md` with `holaboss_update_workspace_instructions`/i,
   );
   assert.match(
     prompt.systemPrompt,
-    /Record it even when it appears turn-scoped; skip only if the user explicitly says not to persist it\./i,
+    /durable requirements or preferences, verified commands or procedures, stable facts, conventions, decisions, and recurring blockers/i,
   );
   assert.match(
     prompt.systemPrompt,
-    /conditional, situational, or procedural requirements into indexed workspace-local skills, using `skill-creator` when available\./i,
+    /Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state\./i,
   );
 });
 
-test("composeBaseAgentPrompt instructs direct sessions to record all user requirements into AGENTS.md when the tool is available", () => {
+test("composeBaseAgentPrompt instructs direct sessions to record durable workspace knowledge into AGENTS.md when the tool is available", () => {
   const capabilityManifest = buildAgentCapabilityManifest({
     defaultTools: ["read"],
     extraTools: ["holaboss_update_workspace_instructions"],
@@ -556,15 +556,15 @@ test("composeBaseAgentPrompt instructs direct sessions to record all user requir
 
   assert.match(
     prompt.systemPrompt,
-    /When the user states any requirement, rule, preference, constraint, or template, record it in root `AGENTS\.md` with `holaboss_update_workspace_instructions`/i,
+    /Record durable workspace knowledge in root `AGENTS\.md` with `holaboss_update_workspace_instructions`/i,
   );
   assert.match(
     prompt.systemPrompt,
-    /Record it even when it appears turn-scoped; skip only if the user explicitly says not to persist it\./i,
+    /durable requirements or preferences, verified commands or procedures, stable facts, conventions, decisions, and recurring blockers/i,
   );
   assert.match(
     prompt.systemPrompt,
-    /conditional, situational, or procedural requirements into indexed workspace-local skills, using `skill-creator` when available\./i,
+    /Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state\./i,
   );
 });
 

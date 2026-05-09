@@ -283,9 +283,7 @@ export function BackgroundTasksPane({
 
   function canRemoveTask(task: BackgroundTaskRecordPayload) {
     const status = task.status.trim().toLowerCase();
-    return (
-      status === "completed" || status === "failed" || status === "cancelled"
-    );
+    return status !== "queued" && status !== "running";
   }
 
   if (variant === "inline") {

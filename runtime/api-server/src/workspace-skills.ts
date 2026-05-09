@@ -64,12 +64,26 @@ function runtimeRootDir(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 }
 
+function directoryExists(target: string): boolean {
+  return fs.statSync(target, { throwIfNoEntry: false })?.isDirectory() ?? false;
+}
+
 function embeddedSkillsRoot(): string {
   const override = (process.env[EMBEDDED_SKILLS_DIR_ENV] ?? "").trim();
   if (override) {
     return path.resolve(override);
   }
-  return path.join(runtimeRootDir(), "harnesses", "src", "embedded-skills");
+  const runtimeRoot = runtimeRootDir();
+  const candidates = [
+    path.join(runtimeRoot, "harnesses", "src", "embedded-skills"),
+    path.join(runtimeRoot, "runtime", "harnesses", "src", "embedded-skills"),
+  ];
+  for (const candidate of candidates) {
+    if (directoryExists(candidate)) {
+      return candidate;
+    }
+  }
+  return candidates[0] ?? path.join(runtimeRoot, "harnesses", "src", "embedded-skills");
 }
 
 function skillFrontmatter(content: string): Record<string, unknown> | null {

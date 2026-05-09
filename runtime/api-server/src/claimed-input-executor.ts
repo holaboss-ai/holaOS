@@ -172,18 +172,48 @@ function sessionInputAttachments(value: unknown): SessionInputAttachment[] {
     .filter((item): item is SessionInputAttachment => Boolean(item));
 }
 
-function defaultInstructionForAttachments(
+function sessionInputImageUrls(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function defaultInstructionForInputMedia(
   attachments: SessionInputAttachment[],
+  imageUrls: readonly string[],
 ): string {
   if (attachments.length === 0) {
+    if (imageUrls.length === 1) {
+      return "Review the referenced image.";
+    }
+    if (imageUrls.length > 1) {
+      return "Review the referenced images.";
+    }
     return "";
   }
   if (attachments.length === 1) {
+    if (imageUrls.length > 0) {
+      return attachments[0].kind === "folder"
+        ? "Review the attached folder and referenced images."
+        : attachments[0].kind === "image"
+          ? "Review the attached image and referenced images."
+          : "Review the attached file and referenced images.";
+    }
     return attachments[0].kind === "image"
       ? "Review the attached image."
       : attachments[0].kind === "folder"
         ? "Review the attached folder."
         : "Review the attached file.";
+  }
+  if (imageUrls.length > 0) {
+    if (attachments.some((attachment) => attachment.kind === "folder")) {
+      return "Review the attached files, folders, and referenced images.";
+    }
+    return "Review the attached files and referenced images.";
   }
   if (attachments.some((attachment) => attachment.kind === "image")) {
     return "Review the attached files, folders, and images.";
@@ -598,12 +628,14 @@ function buildOnboardingInstruction(params: {
   sessionId: string;
   text: string;
   attachments: SessionInputAttachment[];
+  imageUrls: string[];
   workspace: WorkspaceRecord;
 }): string {
   const trimmed =
-    params.text.trim() || defaultInstructionForAttachments(params.attachments);
+    params.text.trim() ||
+    defaultInstructionForInputMedia(params.attachments, params.imageUrls);
   if (!trimmed) {
-    throw new Error("text or attachments are required");
+    throw new Error("text, attachments, or image_urls are required");
   }
   const onboardingStatus = (params.workspace.onboardingStatus ?? "")
     .trim()
@@ -3088,6 +3120,7 @@ export async function processClaimedInput(params: {
       return;
     }
     const attachments = sessionInputAttachments(record.payload.attachments);
+    const imageUrls = sessionInputImageUrls(record.payload.image_urls);
     const inputContext = isRecord(record.payload.context)
       ? record.payload.context
       : null;
@@ -3100,6 +3133,7 @@ export async function processClaimedInput(params: {
         sessionId: record.sessionId,
         text: String(record.payload.text ?? ""),
         attachments,
+        imageUrls,
         workspace,
       }),
       context: inputContext,
@@ -3253,6 +3287,7 @@ export async function processClaimedInput(params: {
       input_id: record.inputId,
       instruction,
       attachments,
+      image_urls: imageUrls,
       context: runtimeContext,
       model: record.payload.model ?? null,
       thinking_value: record.payload.thinking_value ?? null,

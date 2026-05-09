@@ -303,6 +303,7 @@ test("decodeTsRunnerRequest decodes a valid runner request", () => {
     input_id: "input-1",
     instruction: "hello",
     attachments: [],
+    image_urls: [],
     context: { k: "v" },
     model: "openai/gpt-5.4",
     thinking_value: null,
@@ -3673,6 +3674,81 @@ test("runTsRunnerCli stages browser tools for subagent executor sessions and str
   assert.deepEqual(
     (capturedProjectRequest as { extra_tools: string[] }).extra_tools,
     ["web_search", "browser_get_state", "holaboss_onboarding_complete"],
+  );
+});
+
+test("runTsRunnerCli passes image_urls into the pi harness request", async () => {
+  const sandboxRoot = setTempSandboxRoot("hb-ts-runner-pi-image-urls-");
+  const workspaceDir = path.join(sandboxRoot, "workspace", "workspace-1");
+  fs.mkdirSync(workspaceDir, { recursive: true });
+
+  let capturedHarnessRequest: Record<string, unknown> | null = null;
+
+  const exitCode = await runTsRunnerCli(
+    [
+      "--request-base64",
+      encodeRequest({
+        ...baseRequest(),
+        image_urls: ["https://example.com/reference.png"],
+        context: {
+          _sandbox_runtime_exec_v1: {
+            harness: "pi",
+          },
+        },
+      }),
+    ],
+    {
+      deps: {
+        ...testDeps(),
+        projectAgentRuntimeConfig: () => ({
+          provider_id: "openai",
+          model_id: "gpt-5.4",
+          mode: "code",
+          system_prompt: "You are concise.",
+          model_client: {
+            model_proxy_provider: "openai_compatible",
+            api_key: "token",
+            base_url: "http://127.0.0.1:4000/openai/v1",
+            default_headers: { "X-Test": "1" },
+          },
+          tools: { read: true },
+          workspace_tool_ids: [],
+          workspace_skill_ids: [],
+          output_schema_member_id: null,
+          output_format: null,
+          workspace_config_checksum: "checksum-1",
+        }),
+        runHarnessHost: async ({ requestPayload }) => {
+          capturedHarnessRequest = requestPayload;
+          return {
+            exitCode: 0,
+            stderr: "",
+            sawEvent: false,
+            terminalEmitted: false,
+            lastSequence: 0,
+          };
+        },
+      },
+      io: {
+        stdout: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+        stderr: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+      },
+    },
+  );
+
+  assert.equal(exitCode, 0);
+  assert.ok(capturedHarnessRequest);
+  assert.deepEqual(
+    (capturedHarnessRequest as { image_urls: string[] }).image_urls,
+    ["https://example.com/reference.png"],
   );
 });
 

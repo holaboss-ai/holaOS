@@ -371,6 +371,7 @@ function turnRequestSnapshotPayload(params: {
     harness_id: params.bootstrap.harness,
     raw_instruction: params.request.instruction,
     attachments: params.request.attachments ?? [],
+    image_urls: params.request.image_urls ?? [],
     runtime_config: {
       provider_id: params.runtimeConfig.provider_id,
       model_id: params.runtimeConfig.model_id,

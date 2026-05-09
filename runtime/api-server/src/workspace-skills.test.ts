@@ -12,6 +12,7 @@ import {
 
 const ORIGINAL_ENV = {
   HOLABOSS_EMBEDDED_SKILLS_DIR: process.env.HOLABOSS_EMBEDDED_SKILLS_DIR,
+  HOLABOSS_RUNTIME_ROOT: process.env.HOLABOSS_RUNTIME_ROOT,
 };
 
 const TEMP_DIRS: string[] = [];
@@ -58,6 +59,11 @@ afterEach(() => {
   } else {
     process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = ORIGINAL_ENV.HOLABOSS_EMBEDDED_SKILLS_DIR;
   }
+  if (ORIGINAL_ENV.HOLABOSS_RUNTIME_ROOT === undefined) {
+    delete process.env.HOLABOSS_RUNTIME_ROOT;
+  } else {
+    process.env.HOLABOSS_RUNTIME_ROOT = ORIGINAL_ENV.HOLABOSS_RUNTIME_ROOT;
+  }
   for (const dir of TEMP_DIRS.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -76,6 +82,25 @@ test("resolveWorkspaceSkills includes embedded defaults when no workspace skills
       skillId: "holaboss-runtime",
       origin: "embedded",
     })
+  ]);
+});
+
+test("resolveWorkspaceSkills finds bundled embedded skills when HOLABOSS_RUNTIME_ROOT points at the bundle root", () => {
+  delete process.env.HOLABOSS_EMBEDDED_SKILLS_DIR;
+  const runtimeBundleRoot = makeTempDir("hb-runtime-bundle-root-");
+  const embeddedRoot = path.join(runtimeBundleRoot, "runtime", "harnesses", "src", "embedded-skills");
+  fs.mkdirSync(embeddedRoot, { recursive: true });
+  writeSkill(embeddedRoot, "skill-creator");
+  process.env.HOLABOSS_RUNTIME_ROOT = runtimeBundleRoot;
+
+  const workspaceDir = makeTempDir("hb-workspace-bundle-embedded-skills-");
+
+  assert.deepEqual(resolveWorkspaceSkills(workspaceDir), [
+    expectedResolvedSkill({
+      root: embeddedRoot,
+      skillId: "skill-creator",
+      origin: "embedded",
+    }),
   ]);
 });
 
