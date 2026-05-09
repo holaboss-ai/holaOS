@@ -127,6 +127,7 @@ test("manual CI workflow publishes desktop installers without standalone runtime
   assert.doesNotMatch(source, /RUNTIME_ASSET_NAME: holaboss-runtime-windows\.tar\.gz/);
   assert.doesNotMatch(source, /gh release upload "\$\{RELEASE_TAG\}"/);
   assert.match(source, /Build desktop code for macOS release/);
+  assert.match(source, /- name: Prepare desktop \(build SDK \+ install desktop deps\)\n\s+env:\n\s+ELECTRON_SKIP_BINARY_DOWNLOAD: "1"\n\s+run: npm run desktop:prepare/);
   assert.match(source, /Build signed macOS app bundle/);
   assert.match(source, /app-update\.yml is missing from signed app bundle/);
   assert.match(source, /packaged_app="\$\{RUNNER_TEMP\}\/holaOS\.app"/);

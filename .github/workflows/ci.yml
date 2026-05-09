@@ -320,6 +320,8 @@ jobs:
             runtime/api-server/dist
 
       - name: Prepare desktop (build SDK + install desktop deps)
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
         run: npm run desktop:prepare
 
       - name: Require mac signing and notarization credentials
@@ -599,6 +601,8 @@ jobs:
             desktop/package-lock.json
 
       - name: Prepare desktop (build SDK + install desktop deps)
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
         run: npm run desktop:prepare
 
       - name: Build Windows desktop installer
