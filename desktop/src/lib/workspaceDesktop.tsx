@@ -1539,10 +1539,17 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       return;
     }
     const timer = setInterval(() => {
-      void refreshInstalledApps();
+      void window.electronAPI.workspace
+        .activateWorkspace(selectedWorkspaceId)
+        .then((response) => {
+          applyWorkspaceLifecycle(response);
+        })
+        .catch(() => {
+          void refreshInstalledApps();
+        });
     }, 3000);
     return () => clearInterval(timer);
-  }, [installedApps, selectedWorkspaceId]);
+  }, [installedApps, refreshInstalledApps, selectedWorkspaceId]);
 
   const value = useMemo(
     () => ({

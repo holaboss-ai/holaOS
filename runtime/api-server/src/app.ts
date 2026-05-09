@@ -2878,6 +2878,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       const isShellManaged =
         Boolean(resolved.resolvedApp.lifecycle.start?.trim()) ||
         Boolean(resolved.resolvedApp.startCommand?.trim());
+      const build = store.getAppBuild({ workspaceId, appId });
       const healthy = await isAppHealthy({
         resolvedApp: resolved.resolvedApp,
         httpPort: resolved.ports.http,
@@ -2898,29 +2899,42 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         return;
       }
       if (healthy && isShellManaged) {
-        appLifecycleExecutor.rememberAppPorts?.({
-          workspaceId,
-          appId,
-          httpPort: resolved.ports.http,
-          mcpPort: resolved.ports.mcp,
-        });
-        app.log.info(
-          {
-            event: "app.ensure_running.healthy_untracked_reused",
+        if (build?.status !== "running") {
+          app.log.warn(
+            {
+              event: "app.ensure_running.healthy_untracked_refused",
+              workspaceId,
+              appId,
+              http: resolved.ports.http,
+              mcp: resolved.ports.mcp,
+              buildStatus: build?.status ?? null,
+            },
+            "ensureAppRunning: refusing to reuse untracked healthy listener without prior running state",
+          );
+        } else {
+          appLifecycleExecutor.rememberAppPorts?.({
             workspaceId,
             appId,
-            http: resolved.ports.http,
-            mcp: resolved.ports.mcp,
-          },
-          "ensureAppRunning: healthy app has no tracked process; reusing existing listener",
-        );
-        store.upsertAppBuild({ workspaceId, appId, status: "running" });
-        reconcileAppMcpRegistry(workspaceDir, appId, resolved);
-        return;
+            httpPort: resolved.ports.http,
+            mcpPort: resolved.ports.mcp,
+          });
+          app.log.info(
+            {
+              event: "app.ensure_running.healthy_untracked_reused",
+              workspaceId,
+              appId,
+              http: resolved.ports.http,
+              mcp: resolved.ports.mcp,
+            },
+            "ensureAppRunning: healthy app has no tracked process; reusing existing listener",
+          );
+          store.upsertAppBuild({ workspaceId, appId, status: "running" });
+          reconcileAppMcpRegistry(workspaceDir, appId, resolved);
+          return;
+        }
       }
 
       // Setup needed?
-      const build = store.getAppBuild({ workspaceId, appId });
       const needsSetup =
         !appBuildHasCompletedSetup(build?.status) &&
         resolved.resolvedApp.lifecycle.setup.trim().length > 0;

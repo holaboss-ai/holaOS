@@ -104,6 +104,392 @@ Typical dependencies:
 - `tsx`
 - `@holaboss/bridge` and `better-sqlite3` when shared workspace data access is needed
 
+## Workspace Context First
+This is not generic app generation. Build against the active holaOS workspace.
+
+Before writing code, inspect the workspace context that already exists:
+- `workspace.yaml`
+- `AGENTS.md` if present
+- peer apps under `apps/`
+- the user's local files if the request depends on them
+- installed app data sources when the app should read existing tables
+- existing outputs, routes, or naming conventions when relevant
+
+Prefer reusing workspace conventions and sources of truth over inventing a standalone mini-project shape.
+
+## Canonical System Snippets
+Prefer adapting these snippets over inventing holaOS runtime glue from scratch. Keep imports, env names, manifest fields, and route shapes aligned with these examples unless the workspace already uses a better local convention.
+
+### Minimal `package.json`
+
+```json
+{
+  "name": "my-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^24.0.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3"
+  }
+}
+```
+
+### Minimal `tsconfig.json`
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"]
+}
+```
+
+### Minimal Runtime-Managed `src/server.ts`
+
+Use this when the app needs a simple UI surface and no complex framework. This is the preferred starting point for dashboards, trackers, and import visualizers.
+
+```ts
+import express, { type Request, type Response } from "express";
+import { randomUUID } from "node:crypto";
+import { AddressInfo } from "node:net";
+
+const appId = "my-app";
+const uiPort = Number(process.env.PORT || 3000);
+const mcpPort = Number(process.env.MCP_PORT || 13100);
+
+function jsonRpcSuccess(id: unknown, result: Record<string, unknown>) {
+  return { jsonrpc: "2.0", id, result };
+}
+
+function jsonRpcError(id: unknown, code: number, message: string) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    error: { code, message },
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const uiApp = express();
+uiApp.get("/", (_req, res) => {
+  res.status(200).type("html").send(`
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>My App</title>
+      </head>
+      <body>
+        <main>
+          <h1>My App</h1>
+          <p>Replace this placeholder with the first useful UI.</p>
+        </main>
+      </body>
+    </html>
+  `);
+});
+
+const mcpApp = express();
+mcpApp.use(express.json({ limit: "1mb" }));
+
+mcpApp.get("/mcp/health", (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    app_id: appId,
+    transport: "http-sse",
+    sse_path: "/mcp/sse",
+    message_path: "/mcp/messages",
+  });
+});
+
+mcpApp.get("/mcp/sse", (req: Request, res: Response) => {
+  const sessionId =
+    typeof req.query.sessionId === "string" ? req.query.sessionId : randomUUID();
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  if (typeof res.flushHeaders === "function") {
+    res.flushHeaders();
+  }
+
+  res.write(
+    `event: endpoint\ndata: ${JSON.stringify({ sessionId, messagePath: "/mcp/messages" })}\n\n`,
+  );
+  res.write(`event: ready\ndata: ${JSON.stringify({ appId })}\n\n`);
+
+  const heartbeat = setInterval(() => {
+    res.write(`event: ping\ndata: ${JSON.stringify({ ts: new Date().toISOString() })}\n\n`);
+  }, 15000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    res.end();
+  });
+});
+
+mcpApp.post("/mcp/messages", (req, res) => {
+  const body = isRecord(req.body) ? req.body : {};
+  const id = body.id ?? null;
+  const method = typeof body.method === "string" ? body.method : "";
+  const params = isRecord(body.params) ? body.params : {};
+
+  if (!method) {
+    res.status(400).json(jsonRpcError(id, -32600, "Invalid Request"));
+    return;
+  }
+
+  if (method === "initialize") {
+    const protocolVersion =
+      typeof params.protocolVersion === "string" ? params.protocolVersion : "2025-03-26";
+    res.status(200).json(
+      jsonRpcSuccess(id, {
+        protocolVersion,
+        capabilities: {
+          tools: {
+            listChanged: false,
+          },
+        },
+        serverInfo: {
+          name: appId,
+          version: "0.1.0",
+        },
+      }),
+    );
+    return;
+  }
+
+  if (method === "tools/list") {
+    res.status(200).json(jsonRpcSuccess(id, { tools: [] }));
+    return;
+  }
+
+  if (method === "resources/list") {
+    res.status(200).json(jsonRpcSuccess(id, { resources: [] }));
+    return;
+  }
+
+  if (method === "prompts/list") {
+    res.status(200).json(jsonRpcSuccess(id, { prompts: [] }));
+    return;
+  }
+
+  if (method === "ping") {
+    res.status(200).json(jsonRpcSuccess(id, {}));
+    return;
+  }
+
+  if (method.startsWith("notifications/")) {
+    res.status(202).json({ ok: true });
+    return;
+  }
+
+  res.status(200).json(jsonRpcError(id, -32601, `Method not found: ${method}`));
+});
+
+const uiServer = uiApp.listen(uiPort, () => {
+  const address = uiServer.address() as AddressInfo;
+  console.log(`[${appId}] UI listening on http://127.0.0.1:${address.port}`);
+});
+
+const mcpServer = mcpApp.listen(mcpPort, () => {
+  const address = mcpServer.address() as AddressInfo;
+  console.log(`[${appId}] MCP listening on http://127.0.0.1:${address.port}`);
+});
+
+function shutdown(signal: string) {
+  console.log(`[${appId}] Received ${signal}, shutting down.`);
+  uiServer.close(() => undefined);
+  mcpServer.close(() => undefined);
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+```
+
+### Shared Workspace DB Read Pattern
+
+Use this when the app should read shared workspace data. Add `WORKSPACE_DB_PATH` to `env_contract` and install `@holaboss/bridge` plus `better-sqlite3`.
+
+```ts
+import { getWorkspaceDb } from "@holaboss/bridge";
+
+const db = getWorkspaceDb();
+
+export function listRecentTwitterPosts(limit = 25) {
+  return db
+    .prepare(
+      `
+        SELECT id, text, created_at
+        FROM twitter_posts
+        ORDER BY created_at DESC
+        LIMIT ?
+      `,
+    )
+    .all(limit) as Array<{
+      id: string;
+      text: string;
+      created_at: string;
+    }>;
+}
+```
+
+Rules:
+- foreign app tables are read-only
+- do not copy another app's rows into new tables unless there is a clear reason
+- verify the foreign table exists before claiming the app works
+
+### App-Owned Table Pattern
+
+Use this when the app needs durable state such as saved filters, annotations, imports, or preferences.
+
+```ts
+import { getWorkspaceDb } from "@holaboss/bridge";
+
+const db = getWorkspaceDb();
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS my_app_saved_views (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    config_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+export function saveView(id: string, name: string, configJson: string) {
+  db.prepare(
+    `
+      INSERT INTO my_app_saved_views (id, name, config_json)
+      VALUES (?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        config_json = excluded.config_json
+    `,
+  ).run(id, name, configJson);
+}
+```
+
+Rules:
+- use the app's own prefix for durable tables
+- app-owned tables may store imports, annotations, settings, and derived state
+- foreign app tables remain read-only
+
+### Integration Manifest Pattern
+
+Use this when the app needs provider access through holaOS-managed integrations.
+
+```yaml
+integrations:
+  - key: primary_google
+    provider: google
+    capability: gmail
+    scopes:
+      - https://www.googleapis.com/auth/gmail.modify
+    required: true
+    credential_source: platform
+    holaboss_user_id_required: true
+```
+
+Use the bridge client instead of expecting raw provider tokens:
+
+```ts
+import { createIntegrationClient } from "@holaboss/bridge";
+
+const gmail = createIntegrationClient("google");
+
+const response = await gmail.proxy({
+  method: "POST",
+  endpoint: "/gmail/v1/users/me/messages/send",
+  body: {
+    raw: encodedMessage,
+  },
+});
+```
+
+Rules:
+- do not expect provider tokens directly in env
+- use integrations only when existing installed app data is not already sufficient
+- keep integration declarations explicit in `app.runtime.yaml`
+
+### Durable Output Pattern
+
+Use this when the app should publish durable workspace records outside the app surface.
+
+```ts
+import { createAppOutput, updateAppOutput } from "@holaboss/bridge";
+
+const output = await createAppOutput({
+  outputType: "draft_post",
+  title: draft.title,
+  moduleId: "twitter",
+  moduleResourceId: draft.id,
+  status: "queued",
+  metadata: {
+    view: "drafts",
+  },
+});
+
+if (output) {
+  await updateAppOutput(output.id, {
+    status: "published",
+    moduleResourceId: published.id,
+  });
+}
+```
+
+Rules:
+- use outputs only when the result should live outside the app UI
+- avoid duplicate outputs for the same resource
+- prefer app-local UI state when the result does not need workspace-level visibility
+
+### Managed Runtime Verification Pattern
+
+Never stop at `npm install`, file creation, or a browser preview.
+
+The managed app is only actually ready when:
+- `workspace.yaml` includes the app registration
+- the workspace runtime has started the app
+- the installed app list reports `ready: true`
+- the UI route works on the runtime-managed app port
+- `GET /mcp/health` works on the runtime-managed MCP port
+
+When a runtime control path is available, the preferred sequence is:
+
+```text
+1. Register or install the app.
+2. Ask the workspace runtime to ensure apps are running.
+3. Re-read the installed app list for the workspace.
+4. Confirm the app reports ready: true.
+5. Only then say the app is installed and working.
+```
+
+If a direct runtime control path is not available in the current environment, be explicit about the limitation. Do not claim the app is fully installed and ready if you only verified a standalone preview server.
+
 ## Workflow
 1. Determine the minimum useful first version of the app.
 2. Identify the data source or sources the app should use:
@@ -127,8 +513,9 @@ Typical dependencies:
 6. Create the minimum valid app skeleton.
 7. Add only the capabilities required for the request.
 8. Register or install the app.
-9. Verify health, MCP behavior, data access, integrations, and outputs as applicable.
-10. If setup, start, manifest, or health checks fail, fix the app before stopping.
+9. Ensure the workspace runtime has actually started the app after registration or install. Do not stop at file creation or a standalone browser preview.
+10. Verify health, MCP behavior, data access, integrations, and outputs as applicable.
+11. If setup, start, manifest, runtime activation, or health checks fail, fix the app before stopping.
 
 ## Capability Guidance
 
@@ -217,6 +604,8 @@ integrations:
 ## Verification Checklist
 - `app.runtime.yaml` exists and parses cleanly
 - `workspace.yaml` registration exists and matches `app_id`
+- the workspace runtime has picked up the registration and started the app
+- the installed app list reports the app as `ready: true`
 - the app serves `/` on `$PORT` when a UI surface is expected
 - `GET /mcp/health` works on `$MCP_PORT`
 - MCP transport routes are exposed correctly
@@ -234,6 +623,7 @@ integrations:
 
 ## Common Failure Modes
 - files created but app not registered
+- app files created and browser preview works, but the workspace runtime never starts the managed app
 - invalid `app.runtime.yaml`
 - hardcoded `PORT` or `MCP_PORT`
 - missing MCP health route

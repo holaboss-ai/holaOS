@@ -99,6 +99,17 @@ test("workspace activation reset clears the activating flag before wiping readin
   );
 });
 
+test("workspace desktop re-activates workspaces while installed apps are still starting", async () => {
+  const source = await readFile(WORKSPACE_DESKTOP_PATH, "utf8");
+
+  assert.match(source, /const hasInitializing = installedApps\.some\(\(app\) => !app\.ready\);/);
+  assert.match(
+    source,
+    /window\.electronAPI\.workspace\s*\.activateWorkspace\(selectedWorkspaceId\)/,
+    "expected non-ready app polling to re-run workspace activation instead of only reading lifecycle state",
+  );
+});
+
 test("workspace creation can copy an existing workspace browser profile or import from a browser", async () => {
   const source = await readFile(WORKSPACE_DESKTOP_PATH, "utf8");
 

@@ -5440,6 +5440,7 @@ test("auto-start on ready reuses a healthy untracked shell-managed app", async (
     });
     assert.equal(resolved.ports.http, httpPort);
     assert.equal(resolved.ports.mcp, mcpPort);
+    store.upsertAppBuild({ workspaceId: workspace.id, appId: "app-a", status: "running" });
 
     await app.ready();
     await sleep(150);
@@ -5453,6 +5454,176 @@ test("auto-start on ready reuses a healthy untracked shell-managed app", async (
         mcpPort
       }
     ]);
+    assert.equal(store.getAppBuild({ workspaceId: workspace.id, appId: "app-a" })?.status, "running");
+  } finally {
+    if (httpServer) {
+      await httpServer.close();
+    }
+    if (mcpServer) {
+      await mcpServer.close();
+    }
+    patchedStore.allocateAppPort = originalAllocateAppPort;
+    patchedStore.getAppPort = originalGetAppPort;
+    if (previousEmbeddedRuntime === undefined) {
+      delete process.env.HOLABOSS_EMBEDDED_RUNTIME;
+    } else {
+      process.env.HOLABOSS_EMBEDDED_RUNTIME = previousEmbeddedRuntime;
+    }
+    await app.close();
+    store.close();
+  }
+});
+
+test("auto-start on ready does not reuse a healthy untracked shell-managed app without prior running state", async () => {
+  const previousEmbeddedRuntime = process.env.HOLABOSS_EMBEDDED_RUNTIME;
+  process.env.HOLABOSS_EMBEDDED_RUNTIME = "1";
+  const root = makeTempDir("hb-runtime-api-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-2",
+    name: "Workspace Apps",
+    harness: "pi",
+    status: "active"
+  });
+  const workspaceDir = path.join(workspaceRoot, workspace.id);
+  const appDir = path.join(workspaceDir, "apps", "app-a");
+  fs.mkdirSync(appDir, { recursive: true });
+
+  fs.writeFileSync(
+    path.join(appDir, "app.runtime.yaml"),
+    [
+      "app_id: app-a",
+      "name: App A",
+      "mcp:",
+      "  transport: http-sse",
+      "  port: 13100",
+      "  path: /mcp",
+      "healthchecks:",
+      "  http:",
+      "    path: /health",
+      "    timeout_s: 1",
+      "  mcp:",
+      "    path: /health",
+      "    timeout_s: 1",
+      "lifecycle:",
+      "  setup: ''",
+      "  start: npm run start"
+    ].join("\n"),
+    "utf8"
+  );
+  fs.writeFileSync(
+    path.join(workspaceDir, "workspace.yaml"),
+    [
+      "applications:",
+      "  - app_id: app-a",
+      "    config_path: apps/app-a/app.runtime.yaml"
+    ].join("\n"),
+    "utf8"
+  );
+
+  let httpServer: { url: string; close: () => Promise<void> } | undefined;
+  let mcpServer: { url: string; close: () => Promise<void> } | undefined;
+  const patchedStore = store as RuntimeStateStore & {
+    allocateAppPort: RuntimeStateStore["allocateAppPort"];
+    getAppPort: RuntimeStateStore["getAppPort"];
+  };
+  const originalAllocateAppPort = store.allocateAppPort.bind(store);
+  const originalGetAppPort = store.getAppPort.bind(store);
+  const lifecycleCalls: Array<Record<string, unknown>> = [];
+  const rememberedPorts: Array<Record<string, unknown>> = [];
+  let httpPort = 0;
+  let mcpPort = 0;
+  const app = buildRuntimeApiServer({
+    store,
+    queueWorker: null,
+    durableMemoryWorker: null,
+    cronWorker: null,
+    bridgeWorker: null,
+    recallEmbeddingBackfillWorker: null,
+    enableAppHealthMonitor: false,
+    startAppsOnReady: true,
+    appLifecycleExecutor: {
+      async startApp(params) {
+        lifecycleCalls.push({ action: "start", ...params });
+        return {
+          app_id: params.appId,
+          status: "started",
+          detail: "app started with lifecycle manager",
+          ports: { http: params.httpPort ?? 18080, mcp: params.mcpPort ?? 13100 }
+        };
+      },
+      async stopApp() {
+        throw new Error("not used");
+      },
+      async shutdownAll() {
+        throw new Error("not used");
+      },
+      isTrackingApp() {
+        return false;
+      },
+      rememberAppPorts(params) {
+        rememberedPorts.push(params);
+      }
+    }
+  });
+
+  try {
+    httpServer = await startStaticHttpServer(
+      (_request, response) => {
+        response.statusCode = 200;
+        response.end("ok");
+      },
+      { port: 0 },
+    );
+    mcpServer = await startStaticHttpServer(
+      (_request, response) => {
+        response.statusCode = 200;
+        response.end("ok");
+      },
+      { port: 0 },
+    );
+    httpPort = Number(new URL(httpServer.url).port);
+    mcpPort = Number(new URL(mcpServer.url).port);
+    const portMap = new Map<string, number>([
+      ["app-a__http", httpPort],
+      ["app-a__mcp", mcpPort]
+    ]);
+    patchedStore.allocateAppPort = ((params) => {
+      const port = portMap.get(params.appId);
+      if (port !== undefined) {
+        return {
+          workspaceId: params.workspaceId,
+          appId: params.appId,
+          port,
+          createdAt: "test-created-at",
+          updatedAt: "test-updated-at"
+        };
+      }
+      return originalAllocateAppPort(params);
+    }) as RuntimeStateStore["allocateAppPort"];
+    patchedStore.getAppPort = ((params) => {
+      const port = portMap.get(params.appId);
+      if (port !== undefined) {
+        return {
+          workspaceId: params.workspaceId,
+          appId: params.appId,
+          port,
+          createdAt: "test-created-at",
+          updatedAt: "test-updated-at"
+        };
+      }
+      return originalGetAppPort(params);
+    }) as RuntimeStateStore["getAppPort"];
+
+    await app.ready();
+    await sleep(150);
+
+    assert.equal(lifecycleCalls.length, 1);
+    assert.equal(rememberedPorts.length, 0);
     assert.equal(store.getAppBuild({ workspaceId: workspace.id, appId: "app-a" })?.status, "running");
   } finally {
     if (httpServer) {
