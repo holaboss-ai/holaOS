@@ -179,15 +179,10 @@
   margin: 1.5em 0;
 }
 
-/* Placeholder (rendered by @tiptap/extension-placeholder) */
-.hb-md-editor .ProseMirror .is-empty:not(.hb-md-empty)::before {
-  content: attr(data-placeholder);
-  color: color-mix(in oklab, currentColor 35%, transparent);
-  pointer-events: none;
-  float: left;
-  height: 0;
-}
-.hb-md-editor .ProseMirror p.is-editor-empty:first-child::before {
+/* Placeholder — @tiptap/extension-placeholder adds .is-empty to every
+ * empty block and (additionally) .is-editor-empty to all blocks of a
+ * fully-empty doc. Single rule covers both cases. */
+.hb-md-editor .ProseMirror .is-empty::before {
   content: attr(data-placeholder);
   color: color-mix(in oklab, currentColor 35%, transparent);
   pointer-events: none;
