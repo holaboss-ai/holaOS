@@ -86,6 +86,7 @@ const CONTROL_CENTER_CARDS_PER_ROW_STORAGE_KEY =
   "holaboss-control-center-cards-per-row-v1";
 const CONTROL_CENTER_WORKSPACE_CARD_ORDER_STORAGE_KEY =
   "holaboss-control-center-workspace-card-order-v1";
+const LAST_SHELL_VIEW_STORAGE_KEY = "holaboss-last-shell-view-v1";
 const THEMES = [
   "holaos-dark",
   "holaos-light",
@@ -874,6 +875,25 @@ function loadControlCenterCardsPerRow(): ControlCenterCardsPerRow {
   return 3;
 }
 
+/**
+ * Restore the user's last "landing view" — either control center or
+ * a specific workspace ("space"). The workspace itself is already
+ * persisted by useWorkspaceSelection, so we only need to remember
+ * which surface they were last in. New users (no saved value) get
+ * "space" so onboarding lands directly in their first workspace.
+ */
+function loadLastShellView(): ShellView {
+  try {
+    const raw = localStorage.getItem(LAST_SHELL_VIEW_STORAGE_KEY);
+    if (raw === "control_center" || raw === "space") {
+      return raw;
+    }
+  } catch {
+    // ignore invalid persisted shell-view state
+  }
+  return "space";
+}
+
 function loadControlCenterWorkspaceCardOrder(): string[] {
   try {
     const raw = localStorage.getItem(
@@ -1455,7 +1475,19 @@ function AppShellContent() {
     setCreateWorkspacePanelAnchorWorkspaceId,
   ] = useState("");
   const [activeShellView, setActiveShellView] =
-    useState<ShellView>("space");
+    useState<ShellView>(() => loadLastShellView());
+  // Persist the landing view so the next launch restores wherever the
+  // user last was — control center if they were surveying the fleet,
+  // or "space" (in-workspace) which combines with useWorkspaceSelection's
+  // own persistence to drop them back into the exact workspace they
+  // were using.
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAST_SHELL_VIEW_STORAGE_KEY, activeShellView);
+    } catch {
+      // ignore quota / private-mode failures
+    }
+  }, [activeShellView]);
   const [agentView, setAgentView] = useState<AgentView>({ type: "chat" });
   const [chatFocusRequestKey, setChatFocusRequestKey] = useState(1);
   const [chatSessionJumpRequest, setChatSessionJumpRequest] = useState<{
