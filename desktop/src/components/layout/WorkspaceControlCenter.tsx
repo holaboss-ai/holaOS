@@ -4,6 +4,7 @@ import {
   Loader2,
   SendHorizontal,
   TriangleAlert,
+  X,
 } from "lucide-react";
 import {
   memo,
@@ -245,6 +246,54 @@ function statusAccentClassName(state: RuntimeCardState) {
     default:
       return "bg-success";
   }
+}
+
+function statusStripeClassName(state: RuntimeCardState) {
+  switch (state) {
+    case "error":
+      return "bg-destructive";
+    case "queued":
+    case "waiting":
+      return "bg-warning";
+    case "working":
+      return "bg-primary";
+    default:
+      return "bg-transparent";
+  }
+}
+
+/** Bucket recent message timestamps into `slotCount` equal time slices
+ *  spanning the most-recent ~30 minutes, returning each slice's
+ *  intensity normalised against the busiest slice. Powers the tiny
+ *  activity-density bar in each tile's footer — Grafana-flavoured
+ *  signal that something is alive without spelling out exact counts. */
+function buildRecentEventDensity(
+  messages: PreviewChatMessage[],
+  slotCount: number,
+): number[] {
+  if (slotCount <= 0) {
+    return [];
+  }
+  const windowMs = 30 * 60 * 1000;
+  const now = Date.now();
+  const buckets = new Array<number>(slotCount).fill(0);
+  for (const message of messages) {
+    const timestamp = Date.parse(message.createdAt || "");
+    if (!Number.isFinite(timestamp)) continue;
+    const ageMs = now - timestamp;
+    if (ageMs < 0 || ageMs > windowMs) continue;
+    const slotIndex = Math.min(
+      slotCount - 1,
+      slotCount - 1 - Math.floor((ageMs / windowMs) * slotCount),
+    );
+    if (slotIndex < 0) continue;
+    buckets[slotIndex] += 1;
+  }
+  const peak = Math.max(...buckets, 0);
+  if (peak === 0) {
+    return buckets;
+  }
+  return buckets.map((value) => value / peak);
 }
 
 function isNearBottom(container: HTMLDivElement) {
@@ -1032,6 +1081,15 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
   const showPreviewConversation =
     messages.length > 0 || Boolean(liveAssistantTurn);
 
+  const userMessageCount = useMemo(
+    () => messages.filter((message) => message.role === "user").length,
+    [messages],
+  );
+  const recentEventDensity = useMemo(
+    () => buildRecentEventDensity(messages, 8),
+    [messages],
+  );
+
   return (
     <Card
       size="sm"
@@ -1044,80 +1102,93 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
         "relative h-full min-h-0 min-w-0 gap-0 overflow-hidden bg-card py-0 transition-colors",
         isDragging && "cursor-grabbing opacity-70",
         isDragTarget && "ring-2 ring-primary ring-inset",
-        hasUnreadCompletionHighlight
-          ? "ring-1 ring-primary/40 ring-inset"
-          : isSelected && "ring-1 ring-border ring-inset",
+        // Selected tile gets a primary ring (binds visually to the
+        // floating composer at the bottom). Unread-completion highlight
+        // only applies when the tile is *not* selected, so the two
+        // signals don't fight.
+        isSelected
+          ? "ring-1 ring-primary/50 ring-inset"
+          : hasUnreadCompletionHighlight
+            ? "ring-1 ring-primary/40 ring-inset"
+            : "ring-1 ring-border ring-inset",
       )}
     >
-      <CardHeader className="gap-0 border-b border-border px-3 py-2">
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="flex min-w-0 flex-1 items-center gap-2 text-sm">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              draggable
-              aria-label={`Reorder ${workspace.name}`}
-              onDragStart={(event) => onDragStartWorkspace(event, workspaceId)}
-              onDragEnd={onDragEndWorkspace}
-              className="h-6 w-6 shrink-0 cursor-grab rounded-md text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing"
-            >
-              <GripVertical className="size-3.5" />
-            </Button>
-            <WorkspaceIcon workspace={workspace} size="md" />
-            <span className="truncate">{workspace.name}</span>
+      <span
+        aria-hidden="true"
+        className={cn(
+          "absolute inset-x-0 top-0 h-[2px] transition-colors",
+          statusStripeClassName(runtimeCardState),
+          runtimeCardState === "working" && "hb-tile-stripe-working",
+        )}
+      />
+      <CardHeader className="gap-0 border-b border-border px-2.5 py-1.5">
+        <div className="flex items-center gap-1.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            draggable
+            aria-label={`Reorder ${workspace.name}`}
+            onDragStart={(event) => onDragStartWorkspace(event, workspaceId)}
+            onDragEnd={onDragEndWorkspace}
+            className="h-5 w-5 shrink-0 cursor-grab rounded text-muted-foreground/60 hover:text-foreground active:cursor-grabbing"
+          >
+            <GripVertical className="size-3" />
+          </Button>
+          <WorkspaceIcon workspace={workspace} size="sm" />
+          <CardTitle className="min-w-0 flex-1 truncate text-[13px] font-medium">
+            {workspace.name}
+          </CardTitle>
+          <Badge
+            variant={previewStatusVariant(runtimeCardState)}
+            className="h-4 shrink-0 gap-1 rounded-full px-1.5 text-[10px] font-medium uppercase tracking-wide"
+          >
             <span
               aria-hidden="true"
               className={cn(
-                "inline-flex h-2 w-2 shrink-0 rounded-full",
+                "inline-flex h-1.5 w-1.5 rounded-full",
                 statusAccentClassName(runtimeCardState),
               )}
             />
-            {workspace.folder_state === "missing" ? (
-              <span className="inline-flex items-center gap-1 text-xs text-warning">
-                <TriangleAlert className="size-3.5" />
-                Missing folder
-              </span>
-            ) : null}
-          </CardTitle>
-          <div className="flex shrink-0 items-center gap-2">
-            <span className="text-[11px] tabular-nums text-muted-foreground">
-              {formatLastActivityLabel(lastActivityAt)}
-            </span>
-            {runtimeCardState === "waiting" || runtimeCardState === "error" ? (
-              <Badge
-                variant={previewStatusVariant(runtimeCardState)}
-                className="h-5 rounded-full px-1.5 text-[10px]"
-              >
-                {previewStatusLabel(runtimeCardState)}
-              </Badge>
-            ) : null}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleEnterWorkspace}
-              className="h-6 rounded-full px-2.5 text-xs hover:bg-accent"
-            >
-              Enter
-              <ArrowUpRight className="size-3.5" />
-            </Button>
-          </div>
+            {previewStatusLabel(runtimeCardState)}
+          </Badge>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Enter ${workspace.name}`}
+            onClick={handleEnterWorkspace}
+            className="h-5 w-5 shrink-0 rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <ArrowUpRight className="size-3.5" />
+          </Button>
         </div>
+        {workspace.folder_state === "missing" ? (
+          <div className="mt-1 inline-flex items-center gap-1 text-[10px] text-warning">
+            <TriangleAlert className="size-3" />
+            Folder missing
+          </div>
+        ) : null}
       </CardHeader>
 
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-0 px-0 pb-0 pt-0">
+      <CardContent className="relative flex min-h-0 flex-1 flex-col gap-0 px-0 pb-0 pt-0">
         <div
           ref={previewScrollerRef}
           onScroll={handlePreviewScroll}
-          className="min-h-0 flex-1 overflow-y-auto px-3 py-2"
+          className="relative min-h-0 flex-1 overflow-y-auto px-2.5 py-1.5"
+          style={{
+            maskImage:
+              "linear-gradient(to bottom, transparent 0, black 12px, black calc(100% - 16px), transparent 100%)",
+            WebkitMaskImage:
+              "linear-gradient(to bottom, transparent 0, black 12px, black calc(100% - 16px), transparent 100%)",
+          }}
         >
           {isLoading ? (
-            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-              <Loader2 className="mr-2 size-3.5 animate-spin" />
-              Loading main session
+            <div className="flex h-full items-center justify-center text-[11px] text-muted-foreground">
+              <Loader2 className="mr-1.5 size-3 animate-spin" />
+              Loading
             </div>
           ) : showPreviewConversation ? (
-            <div className="space-y-2.5">
+            <div className="space-y-1.5 text-[12px]">
               <ConversationTurns
                 messages={messages}
                 assistantLabel={workspace.name}
@@ -1146,18 +1217,75 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
               />
             </div>
           ) : (
-            <div className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
-              No activity yet — message this workspace from the command bar
-              below.
+            <div className="flex h-full items-center justify-center">
+              <div
+                aria-hidden="true"
+                className="relative grid size-12 place-items-center text-muted-foreground/50"
+              >
+                <span
+                  className="pointer-events-none absolute inset-0"
+                  style={{
+                    backgroundImage:
+                      "radial-gradient(circle, var(--color-fg-12) 1px, transparent 1px)",
+                    backgroundSize: "6px 6px",
+                    maskImage:
+                      "radial-gradient(circle at center, transparent 0, transparent 35%, black 100%)",
+                    WebkitMaskImage:
+                      "radial-gradient(circle at center, transparent 0, transparent 35%, black 100%)",
+                  }}
+                />
+                <WorkspaceIcon workspace={workspace} size="md" />
+              </div>
             </div>
           )}
         </div>
 
         {errorMessage ? (
-          <div className="theme-chat-system-bubble mx-3 mb-2 rounded-md border px-3 py-2 text-xs">
+          <div className="mx-2.5 mb-1.5 line-clamp-2 rounded border border-destructive/30 bg-destructive/5 px-2 py-1 text-[10px] text-destructive">
             {errorMessage}
           </div>
         ) : null}
+
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border bg-fg-2 px-2.5 py-1 text-[10px] tabular-nums text-muted-foreground">
+          <span className="truncate">
+            {userMessageCount > 0
+              ? `${userMessageCount} ${userMessageCount === 1 ? "msg" : "msgs"}`
+              : "no msgs"}
+            <span className="mx-1.5 text-muted-foreground/40">·</span>
+            {formatLastActivityLabel(lastActivityAt)}
+          </span>
+          <span
+            aria-hidden="true"
+            className="flex shrink-0 items-end gap-[2px]"
+            title="Recent activity"
+          >
+            {recentEventDensity.map((intensity, index) => {
+              const lit = [
+                intensity >= 0.05,
+                intensity >= 0.4,
+                intensity >= 0.75,
+              ];
+              return (
+                <span
+                  // biome-ignore lint/suspicious/noArrayIndexKey: positional column
+                  key={index}
+                  className="flex flex-col-reverse gap-[1.5px]"
+                >
+                  {lit.map((isLit, dotIndex) => (
+                    <span
+                      // biome-ignore lint/suspicious/noArrayIndexKey: positional dot
+                      key={dotIndex}
+                      className={cn(
+                        "block size-[2px] rounded-full",
+                        isLit ? "bg-foreground/55" : "bg-foreground/10",
+                      )}
+                    />
+                  ))}
+                </span>
+              );
+            })}
+          </span>
+        </div>
       </CardContent>
       <ArtifactBrowserModal
         open={artifactBrowserOpen}
@@ -1177,12 +1305,14 @@ interface WorkspaceCommandBarProps {
   selectedWorkspace: WorkspaceRecordPayload | null;
   composerModel: string | null;
   onSubmitted: (workspaceId: string) => void;
+  onDismiss: () => void;
 }
 
 function WorkspaceCommandBar({
   selectedWorkspace,
   composerModel,
   onSubmitted,
+  onDismiss,
 }: WorkspaceCommandBarProps) {
   const [text, setText] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1194,6 +1324,17 @@ function WorkspaceCommandBar({
   useEffect(() => {
     setErrorMessage("");
   }, [selectedWorkspace?.id]);
+
+  // Auto-focus when the floating composer mounts or the target
+  // workspace changes — clicking a tile shouldn't require a second
+  // click into the textarea.
+  useEffect(() => {
+    if (!selectedWorkspace) return;
+    const frameId = requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frameId);
+  }, [selectedWorkspace?.id, selectedWorkspace]);
 
   const workspaceId = selectedWorkspace?.id ?? null;
   const workspaceUnavailable =
@@ -1253,23 +1394,50 @@ function WorkspaceCommandBar({
       : `Message ${selectedWorkspace?.name ?? "workspace"}…`;
 
   return (
-    <div className="shrink-0 border-t border-border bg-fg-2 px-4 py-3">
-      <div className="mx-auto flex max-w-3xl flex-col gap-2">
-        {selectedWorkspace ? (
-          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+    <div
+      role="dialog"
+      aria-label={
+        selectedWorkspace
+          ? `Send a message to ${selectedWorkspace.name}`
+          : "Send a message"
+      }
+      className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4"
+    >
+      <div className="pointer-events-auto w-full max-w-3xl animate-in fade-in-0 slide-in-from-bottom-4 rounded-xl border border-border bg-card shadow-lg duration-200 ease-out">
+        <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5">
+          <div className="flex min-w-0 flex-1 items-center gap-2 text-[11px] text-muted-foreground">
             <span>Sending to</span>
-            <WorkspaceIcon workspace={selectedWorkspace} size="sm" />
-            <span className="truncate font-medium text-foreground">
-              {selectedWorkspace.name}
-            </span>
+            {selectedWorkspace ? (
+              <>
+                <WorkspaceIcon workspace={selectedWorkspace} size="sm" />
+                <span className="truncate font-medium text-foreground">
+                  {selectedWorkspace.name}
+                </span>
+              </>
+            ) : null}
           </div>
-        ) : null}
+          <div className="flex shrink-0 items-center gap-2 text-[10px] text-muted-foreground">
+            <kbd className="rounded border border-border bg-fg-2 px-1.5 py-[1px] font-mono text-[10px] tabular-nums">
+              esc
+            </kbd>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Dismiss command bar"
+              onClick={onDismiss}
+              className="h-5 w-5 rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <X className="size-3" />
+            </Button>
+          </div>
+        </div>
         {errorMessage ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs text-destructive">
+          <div className="border-b border-destructive/20 bg-destructive/5 px-3 py-1.5 text-xs text-destructive">
             {errorMessage}
           </div>
         ) : null}
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-2 p-2">
           <textarea
             ref={textareaRef}
             value={text}
@@ -1399,6 +1567,35 @@ export function WorkspaceControlCenter({
   const [runtimeStateByWorkspaceId, setRuntimeStateByWorkspaceId] = useState<
     Record<string, RuntimeCardState>
   >({});
+  // Composer visibility is intent-driven: clicking any tile opens it
+  // (even re-clicking the already-selected tile re-opens after a
+  // dismissal); Esc / ✕ / click-on-the-gallery-gutter closes it.
+  // Track this locally so dismissal doesn't have to clear the parent's
+  // selectedWorkspaceId — selection itself is independent.
+  const [composerOpen, setComposerOpen] = useState(false);
+
+  const handleSelectWorkspaceWithComposer = useCallback(
+    (workspaceId: string) => {
+      setComposerOpen(true);
+      onSelectWorkspace(workspaceId);
+    },
+    [onSelectWorkspace],
+  );
+
+  const handleDismissComposer = useCallback(() => {
+    setComposerOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!composerOpen) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setComposerOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [composerOpen]);
 
   const sortedWorkspaces = useMemo(() => {
     return [...workspaces].sort((left, right) => {
@@ -1650,11 +1847,25 @@ export function WorkspaceControlCenter({
       <AggregateStrip counts={aggregateCounts} />
       <div
         ref={viewportRef}
+        onClick={(event) => {
+          // Click on the gallery gutter (not on a tile) dismisses the
+          // floating composer. Tile clicks bubble up but with a child
+          // as event.target, so the strict identity check filters them
+          // out.
+          if (event.target === event.currentTarget) {
+            handleDismissComposer();
+          }
+        }}
         className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3"
       >
         <div
-          className="grid auto-rows-[minmax(220px,1fr)] gap-3"
+          className="grid auto-rows-[300px] gap-2.5"
           style={gridStyle}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              handleDismissComposer();
+            }
+          }}
         >
           {orderedWorkspaces.map((workspace) => {
             const id = workspace.id.trim();
@@ -1663,7 +1874,7 @@ export function WorkspaceControlCenter({
                 key={workspace.id}
                 ref={(node) => attachCardNode(id, node)}
                 data-workspace-id={id}
-                className="min-h-0 min-w-0"
+                className="group/control-tile min-h-0 min-w-0"
               >
                 <WorkspaceControlCenterCard
                   workspace={workspace}
@@ -1675,7 +1886,7 @@ export function WorkspaceControlCenter({
                     draggedWorkspaceId !== id
                   }
                   hasUnreadCompletionHighlight={highlightedWorkspaceIdSet.has(id)}
-                  onSelectWorkspace={onSelectWorkspace}
+                  onSelectWorkspace={handleSelectWorkspaceWithComposer}
                   onEnterWorkspace={onEnterWorkspace}
                   onOpenOutput={onOpenOutput}
                   onDragStartWorkspace={handleDragStartWorkspace}
@@ -1691,11 +1902,14 @@ export function WorkspaceControlCenter({
           })}
         </div>
       </div>
-      <WorkspaceCommandBar
-        selectedWorkspace={selectedWorkspace}
-        composerModel={composerModel}
-        onSubmitted={onCardComposerSubmit}
-      />
+      {composerOpen && selectedWorkspace ? (
+        <WorkspaceCommandBar
+          selectedWorkspace={selectedWorkspace}
+          composerModel={composerModel}
+          onSubmitted={onCardComposerSubmit}
+          onDismiss={handleDismissComposer}
+        />
+      ) : null}
     </section>
   );
 }
