@@ -35,6 +35,21 @@ When these runtime tools are surfaced for the current run, prefer them over hand
 
 These tools are for workspace-contract operations. Keep app-specific UI, workflows, and domain logic model-driven.
 
+## Build/Update Lifecycle
+Follow this sequence for both new apps and updates to existing apps:
+1. Inspect workspace context, existing apps, data sources, and any required local files.
+2. Decide whether to modify an existing app or create a new one.
+3. Scaffold the minimum valid app shape or edit the existing app files.
+4. Add only the capabilities the request actually needs.
+5. Register the app or update its workspace registration.
+6. If the app was already running, restart the managed app so the active process picks up the new code.
+7. Ensure the workspace runtime is actually running the managed app after registration or restart.
+8. Wait until runtime truth reports the app as `ready: true`.
+9. Verify the managed UI, MCP, data access, integrations, and outputs that the request depends on.
+10. Only then report that the app is installed, updated, or working.
+
+Do not treat file creation, `npm install`, or a standalone browser preview as completion.
+
 ## Minimum App Contract
 The app is only a real holaOS app when all of these are true:
 - it exists under `apps/<app_id>/`
