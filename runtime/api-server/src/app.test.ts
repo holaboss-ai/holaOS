@@ -738,123 +738,124 @@ test("runtime tools capability routes expose local onboarding and cronjob action
     onboardingSessionId: "session-1"
   });
   const app = buildTestRuntimeApiServer({ store });
+  try {
+    const capabilityStatus = await app.inject({
+      method: "GET",
+      url: "/api/v1/capabilities/runtime-tools",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1"
+      }
+    });
+    assert.equal(capabilityStatus.statusCode, 200);
+    assert.equal(capabilityStatus.json().available, true);
+    assert.equal(capabilityStatus.json().workspace_id, "workspace-1");
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "holaboss_onboarding_complete")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "image_generate")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "download_url")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "write_report")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "web_search")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "todoread")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "todowrite")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "terminal_session_start")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "skill")
+    );
 
-  const capabilityStatus = await app.inject({
-    method: "GET",
-    url: "/api/v1/capabilities/runtime-tools",
-    headers: {
-      "x-holaboss-workspace-id": "workspace-1"
-    }
-  });
-  assert.equal(capabilityStatus.statusCode, 200);
-  assert.equal(capabilityStatus.json().available, true);
-  assert.equal(capabilityStatus.json().workspace_id, "workspace-1");
-  assert.ok(
-    capabilityStatus
-      .json()
-      .tools.some((tool: { id: string }) => tool.id === "holaboss_onboarding_complete")
-  );
-  assert.ok(
-    capabilityStatus
-      .json()
-      .tools.some((tool: { id: string }) => tool.id === "image_generate")
-  );
-  assert.ok(
-    capabilityStatus
-      .json()
-      .tools.some((tool: { id: string }) => tool.id === "download_url")
-  );
-  assert.ok(
-    capabilityStatus
-      .json()
-      .tools.some((tool: { id: string }) => tool.id === "write_report")
-  );
-  assert.ok(
-    capabilityStatus
-      .json()
-      .tools.some((tool: { id: string }) => tool.id === "web_search")
-  );
-  assert.ok(
-    capabilityStatus
-      .json()
-      .tools.some((tool: { id: string }) => tool.id === "todoread")
-  );
-  assert.ok(
-    capabilityStatus
-      .json()
-      .tools.some((tool: { id: string }) => tool.id === "todowrite")
-  );
-  assert.ok(
-    capabilityStatus
-      .json()
-      .tools.some((tool: { id: string }) => tool.id === "terminal_session_start")
-  );
-  assert.ok(
-    capabilityStatus
-      .json()
-      .tools.some((tool: { id: string }) => tool.id === "skill")
-  );
+    const onboardingStatus = await app.inject({
+      method: "GET",
+      url: "/api/v1/capabilities/runtime-tools/onboarding/status",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1"
+      }
+    });
+    assert.equal(onboardingStatus.statusCode, 200);
+    assert.equal(onboardingStatus.json().onboarding_status, "pending");
 
-  const onboardingStatus = await app.inject({
-    method: "GET",
-    url: "/api/v1/capabilities/runtime-tools/onboarding/status",
-    headers: {
-      "x-holaboss-workspace-id": "workspace-1"
-    }
-  });
-  assert.equal(onboardingStatus.statusCode, 200);
-  assert.equal(onboardingStatus.json().onboarding_status, "pending");
+    const onboardingComplete = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/onboarding/complete",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1"
+      },
+      payload: {
+        summary: "ready to work"
+      }
+    });
+    assert.equal(onboardingComplete.statusCode, 200);
+    assert.equal(onboardingComplete.json().onboarding_status, "completed");
+    assert.equal(onboardingComplete.json().onboarding_completion_summary, "ready to work");
 
-  const onboardingComplete = await app.inject({
-    method: "POST",
-    url: "/api/v1/capabilities/runtime-tools/onboarding/complete",
-    headers: {
-      "x-holaboss-workspace-id": "workspace-1"
-    },
-    payload: {
-      summary: "ready to work"
-    }
-  });
-  assert.equal(onboardingComplete.statusCode, 200);
-  assert.equal(onboardingComplete.json().onboarding_status, "completed");
-  assert.equal(onboardingComplete.json().onboarding_completion_summary, "ready to work");
+    const createdJob = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/cronjobs",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+        "x-holaboss-session-id": "session-main",
+        "x-holaboss-selected-model": "openai/gpt-5.4"
+      },
+      payload: {
+        cron: "0 9 * * *",
+        description: "Daily check",
+        delivery: { mode: "deliver", channel: "session_run" }
+      }
+    });
+    assert.equal(createdJob.statusCode, 200);
+    assert.equal(createdJob.json().initiated_by, "workspace_agent");
+    assert.deepEqual(createdJob.json().delivery, {
+      mode: "announce",
+      channel: "session_run",
+      to: null
+    });
+    assert.equal(createdJob.json().metadata.model, undefined);
+    assert.equal(createdJob.json().metadata.source_session_id, "session-main");
 
-  const createdJob = await app.inject({
-    method: "POST",
-    url: "/api/v1/capabilities/runtime-tools/cronjobs",
-    headers: {
-      "x-holaboss-workspace-id": "workspace-1",
-      "x-holaboss-session-id": "session-main",
-      "x-holaboss-selected-model": "openai/gpt-5.4"
-    },
-    payload: {
-      cron: "0 9 * * *",
-      description: "Daily check",
-      delivery: { mode: "deliver", channel: "session_run" }
-    }
-  });
-  assert.equal(createdJob.statusCode, 200);
-  assert.equal(createdJob.json().initiated_by, "workspace_agent");
-  assert.deepEqual(createdJob.json().delivery, {
-    mode: "announce",
-    channel: "session_run",
-    to: null
-  });
-  assert.equal(createdJob.json().metadata.model, "openai/gpt-5.4");
-  assert.equal(createdJob.json().metadata.source_session_id, "session-main");
-
-  const listedJobs = await app.inject({
-    method: "GET",
-    url: "/api/v1/capabilities/runtime-tools/cronjobs",
-    headers: {
-      "x-holaboss-workspace-id": "workspace-1"
-    }
-  });
-  assert.equal(listedJobs.statusCode, 200);
-  assert.equal(listedJobs.json().count, 1);
-
-  await app.close();
-  store.close();
+    const listedJobs = await app.inject({
+      method: "GET",
+      url: "/api/v1/capabilities/runtime-tools/cronjobs",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1"
+      }
+    });
+    assert.equal(listedJobs.statusCode, 200);
+    assert.equal(listedJobs.json().count, 1);
+  } finally {
+    await app.close();
+    store.close();
+  }
 });
 
 test("runtime subagent capability routes create and cancel hidden background tasks", async () => {
@@ -5285,6 +5286,7 @@ test("ensure-running dedupes concurrent setup/start for the same app", async () 
 });
 
 test("auto-start on ready reuses a healthy untracked shell-managed app", async () => {
+  const previousEmbeddedRuntime = process.env.HOLABOSS_EMBEDDED_RUNTIME;
   process.env.HOLABOSS_EMBEDDED_RUNTIME = "1";
   const root = makeTempDir("hb-runtime-api-");
   const workspaceRoot = path.join(root, "workspace");
@@ -5338,28 +5340,16 @@ test("auto-start on ready reuses a healthy untracked shell-managed app", async (
     ].join("\n"),
     "utf8"
   );
-  const resolved = resolveWorkspaceAppRuntime(workspaceDir, "app-a", {
-    store,
-    workspaceId: workspace.id,
-    allocatePorts: true,
-  });
-  const httpPort = resolved.ports.http;
-  const mcpPort = resolved.ports.mcp;
-  const httpServer = await startStaticHttpServer(
-    (_request, response) => {
-      response.statusCode = 200;
-      response.end("ok");
-    },
-    { port: httpPort },
-  );
-  const mcpServer = await startStaticHttpServer(
-    (_request, response) => {
-      response.statusCode = 200;
-      response.end("ok");
-    },
-    { port: mcpPort },
-  );
-
+  let httpServer: { url: string; close: () => Promise<void> } | undefined;
+  let mcpServer: { url: string; close: () => Promise<void> } | undefined;
+  const patchedStore = store as RuntimeStateStore & {
+    allocateAppPort: RuntimeStateStore["allocateAppPort"];
+    getAppPort: RuntimeStateStore["getAppPort"];
+  };
+  const originalAllocateAppPort = store.allocateAppPort.bind(store);
+  const originalGetAppPort = store.getAppPort.bind(store);
+  let httpPort = 0;
+  let mcpPort = 0;
   const lifecycleCalls: Array<Record<string, unknown>> = [];
   const rememberedPorts: Array<Record<string, unknown>> = [];
   const app = buildRuntimeApiServer({
@@ -5395,25 +5385,92 @@ test("auto-start on ready reuses a healthy untracked shell-managed app", async (
       }
     }
   });
+  try {
+    httpServer = await startStaticHttpServer(
+      (_request, response) => {
+        response.statusCode = 200;
+        response.end("ok");
+      },
+      { port: 0 },
+    );
+    mcpServer = await startStaticHttpServer(
+      (_request, response) => {
+        response.statusCode = 200;
+        response.end("ok");
+      },
+      { port: 0 },
+    );
+    httpPort = Number(new URL(httpServer.url).port);
+    mcpPort = Number(new URL(mcpServer.url).port);
+    const portMap = new Map<string, number>([
+      ["app-a__http", httpPort],
+      ["app-a__mcp", mcpPort]
+    ]);
+    patchedStore.allocateAppPort = ((params) => {
+      const port = portMap.get(params.appId);
+      if (port !== undefined) {
+        return {
+          workspaceId: params.workspaceId,
+          appId: params.appId,
+          port,
+          createdAt: "test-created-at",
+          updatedAt: "test-updated-at"
+        };
+      }
+      return originalAllocateAppPort(params);
+    }) as RuntimeStateStore["allocateAppPort"];
+    patchedStore.getAppPort = ((params) => {
+      const port = portMap.get(params.appId);
+      if (port !== undefined) {
+        return {
+          workspaceId: params.workspaceId,
+          appId: params.appId,
+          port,
+          createdAt: "test-created-at",
+          updatedAt: "test-updated-at"
+        };
+      }
+      return originalGetAppPort(params);
+    }) as RuntimeStateStore["getAppPort"];
 
-  await app.ready();
-  await sleep(150);
-
-  assert.equal(lifecycleCalls.length, 0);
-  assert.deepEqual(rememberedPorts, [
-    {
+    const resolved = resolveWorkspaceAppRuntime(workspaceDir, "app-a", {
+      store,
       workspaceId: workspace.id,
-      appId: "app-a",
-      httpPort,
-      mcpPort
-    }
-  ]);
-  assert.equal(store.getAppBuild({ workspaceId: workspace.id, appId: "app-a" })?.status, "running");
+      allocatePorts: true,
+    });
+    assert.equal(resolved.ports.http, httpPort);
+    assert.equal(resolved.ports.mcp, mcpPort);
 
-  await httpServer.close();
-  await mcpServer.close();
-  await app.close();
-  store.close();
+    await app.ready();
+    await sleep(150);
+
+    assert.equal(lifecycleCalls.length, 0);
+    assert.deepEqual(rememberedPorts, [
+      {
+        workspaceId: workspace.id,
+        appId: "app-a",
+        httpPort,
+        mcpPort
+      }
+    ]);
+    assert.equal(store.getAppBuild({ workspaceId: workspace.id, appId: "app-a" })?.status, "running");
+  } finally {
+    if (httpServer) {
+      await httpServer.close();
+    }
+    if (mcpServer) {
+      await mcpServer.close();
+    }
+    patchedStore.allocateAppPort = originalAllocateAppPort;
+    patchedStore.getAppPort = originalGetAppPort;
+    if (previousEmbeddedRuntime === undefined) {
+      delete process.env.HOLABOSS_EMBEDDED_RUNTIME;
+    } else {
+      process.env.HOLABOSS_EMBEDDED_RUNTIME = previousEmbeddedRuntime;
+    }
+    await app.close();
+    store.close();
+  }
 });
 
 test("app setup timeout honors configured timeout", async () => {
