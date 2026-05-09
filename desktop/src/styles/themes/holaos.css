@@ -1,11 +1,10 @@
-/* Default theme — quiet, near-neutral grays with a subtle cool undertone
-   and the holaboss orange reserved for brand/CTA. Tuned so hairline
-   borders read as page rhythm, not as cell walls; surfaces (card, muted,
-   accent) sit close enough to background that elevation comes from
-   structure rather than from the surface tint itself. */
+/* holaOS — the brand-native theme. Quiet near-neutral grays with a cool
+   undertone and the holaboss orange reserved for brand/CTA. Hairlines read
+   as page rhythm, not cell walls; surfaces (card, muted, accent) sit close
+   enough to background that elevation comes from structure rather than tint. */
 
 /* Light mode */
-[data-theme="amber-minimal-light"] {
+[data-theme="holaos-light"] {
   --background: oklch(1 0 0);
   --foreground: oklch(0.18 0.003 250);
   --card: oklch(0.985 0.002 250);
@@ -61,7 +60,7 @@
 }
 
 /* Dark mode */
-[data-theme="amber-minimal-dark"] {
+[data-theme="holaos-dark"] {
   --background: oklch(0.16 0.003 250);
   --foreground: oklch(0.97 0.002 250);
   --card: oklch(0.235 0.003 250);

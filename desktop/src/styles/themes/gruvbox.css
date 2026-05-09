@@ -1,17 +1,18 @@
-/* Catppuccin — soothing pastel theme. Uses Pink as primary (rather than
-   the also-canonical Mauve) so the swatch doesn't collide with Rosé Pine.
-   Source: https://github.com/catppuccin/catppuccin */
+/* Gruvbox — retro groove with earthy warm bg. Uses Yellow as primary
+   (rather than the also-canonical Aqua/Orange) so the swatch stays
+   distinct from holaOS orange and Nord cyan.
+   Source: https://github.com/morhetz/gruvbox */
 
-/* Light mode (Latte) */
-[data-theme="catppuccin-light"] {
-  --background: #eff1f5;
-  --foreground: #4c4f69;
-  --primary: #ea76cb;
-  --primary-foreground: #eff1f5;
-  --info: #df8e1d;
-  --success: #40a02b;
-  --destructive: #d20f39;
-  --destructive-foreground: #eff1f5;
+/* Light mode */
+[data-theme="gruvbox-light"] {
+  --background: #fbf1c7;
+  --foreground: #3c3836;
+  --primary: #d79921;
+  --primary-foreground: #fbf1c7;
+  --info: #458588;
+  --success: #98971a;
+  --destructive: #cc241d;
+  --destructive-foreground: #fbf1c7;
 
   --card: color-mix(in srgb, var(--foreground) 2%, var(--background));
   --card-foreground: var(--foreground);
@@ -48,16 +49,16 @@
   --font-mono: "Geist Mono Variable", JetBrains Mono, monospace;
 }
 
-/* Dark mode (Mocha) */
-[data-theme="catppuccin-dark"] {
-  --background: #1e1e2e;
-  --foreground: #cdd6f4;
-  --primary: #f5c2e7;
-  --primary-foreground: #1e1e2e;
-  --info: #fab387;
-  --success: #a6e3a1;
-  --destructive: #f38ba8;
-  --destructive-foreground: #1e1e2e;
+/* Dark mode */
+[data-theme="gruvbox-dark"] {
+  --background: #282828;
+  --foreground: #ebdbb2;
+  --primary: #fabd2f;
+  --primary-foreground: #282828;
+  --info: #83a598;
+  --success: #b8bb26;
+  --destructive: #fb4934;
+  --destructive-foreground: #282828;
 
   --card: color-mix(in srgb, var(--foreground) 4%, var(--background));
   --card-foreground: var(--foreground);

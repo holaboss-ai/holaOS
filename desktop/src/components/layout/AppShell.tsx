@@ -87,20 +87,22 @@ const CONTROL_CENTER_CARDS_PER_ROW_STORAGE_KEY =
 const CONTROL_CENTER_WORKSPACE_CARD_ORDER_STORAGE_KEY =
   "holaboss-control-center-workspace-card-order-v1";
 const THEMES = [
-  "amber-minimal-dark",
-  "amber-minimal-light",
-  "cosmic-night-dark",
-  "cosmic-night-light",
-  "sepia-dark",
-  "sepia-light",
-  "clean-slate-dark",
-  "clean-slate-light",
-  "bold-tech-dark",
-  "bold-tech-light",
+  "holaos-dark",
+  "holaos-light",
   "catppuccin-dark",
   "catppuccin-light",
-  "bubblegum-dark",
-  "bubblegum-light",
+  "rose-pine-dark",
+  "rose-pine-light",
+  "solarized-dark",
+  "solarized-light",
+  "nord-dark",
+  "nord-light",
+  "one-dark-pro-dark",
+  "one-dark-pro-light",
+  "gruvbox-dark",
+  "gruvbox-light",
+  "vitesse-dark",
+  "vitesse-light",
 ] as const;
 const MIN_EXPLORER_PANEL_WIDTH = 220;
 const MAX_EXPLORER_PANEL_WIDTH = 480;
@@ -189,13 +191,14 @@ function isAppTheme(value: string): value is AppTheme {
 // Appearance model — two orthogonal axes combined into the legacy AppTheme
 // string for Electron IPC and `data-theme` application.
 export const THEME_VARIANTS = [
-  "amber-minimal",
-  "cosmic-night",
-  "sepia",
-  "clean-slate",
-  "bold-tech",
+  "holaos",
   "catppuccin",
-  "bubblegum",
+  "rose-pine",
+  "solarized",
+  "nord",
+  "one-dark-pro",
+  "gruvbox",
+  "vitesse",
 ] as const;
 
 export type ThemeVariant = (typeof THEME_VARIANTS)[number];
@@ -1017,7 +1020,7 @@ function loadThemeVariant(): ThemeVariant {
   } catch {
     // ignore
   }
-  return "amber-minimal";
+  return "holaos";
 }
 
 function normalizeDevAppUpdatePreviewMode(

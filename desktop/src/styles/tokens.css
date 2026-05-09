@@ -257,7 +257,7 @@
 }
 /* Surface palette — registered so theme switches interpolate the
    whole canvas instead of hard-cutting on most surfaces. Initial
-   values mirror the amber-minimal-light defaults. */
+   values mirror the holaos-light defaults. */
 @property --card {
   syntax: "<color>";
   inherits: true;
@@ -311,7 +311,7 @@
   --radius: 0.5rem;
 
   /* Surface + content. Quiet near-neutral grays with a subtle cool
-     undertone; mirrors amber-minimal-light. */
+     undertone; mirrors holaos-light. */
   --background: oklch(1 0 0);
   --foreground: oklch(0.18 0.003 250);
   --card: oklch(0.985 0.002 250);

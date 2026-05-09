@@ -250,22 +250,24 @@ const BROWSER_OBSERVABILITY_DEFAULT_LIMIT =
 // `browser-pane/import-chromium.ts`. Safari export filename constants
 // moved to `browser-pane/import-browsers.ts`.
 const APP_THEMES = new Set([
-  "amber-minimal-dark",
-  "amber-minimal-light",
-  "cosmic-night-dark",
-  "cosmic-night-light",
-  "sepia-dark",
-  "sepia-light",
-  "clean-slate-dark",
-  "clean-slate-light",
-  "bold-tech-dark",
-  "bold-tech-light",
+  "holaos-dark",
+  "holaos-light",
   "catppuccin-dark",
   "catppuccin-light",
-  "bubblegum-dark",
-  "bubblegum-light",
+  "rose-pine-dark",
+  "rose-pine-light",
+  "solarized-dark",
+  "solarized-light",
+  "nord-dark",
+  "nord-light",
+  "one-dark-pro-dark",
+  "one-dark-pro-light",
+  "gruvbox-dark",
+  "gruvbox-light",
+  "vitesse-dark",
+  "vitesse-light",
 ]);
-const DEFAULT_APP_THEME = "amber-minimal-light";
+const DEFAULT_APP_THEME = "holaos-light";
 const GITHUB_RELEASES_OWNER = "holaboss-ai";
 const GITHUB_RELEASES_REPO = "holaOS-releases";
 const APP_UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
@@ -969,7 +971,7 @@ let statusItemTray: Tray | null = null;
 const unresponsiveDesktopWindows = new WeakSet<BrowserWindow>();
 let attachedBrowserTabView: BrowserView | null = null;
 let attachedAppSurfaceView: BrowserView | null = null;
-let currentTheme = "amber-minimal-light";
+let currentTheme = "holaos-light";
 let browserBounds: BrowserBoundsPayload = { x: 0, y: 0, width: 0, height: 0 };
 // Popup state (downloads / history / overflow / address suggestions) lives in
 // `browser-pane/popups.ts`. main.ts holds the module instance below and
