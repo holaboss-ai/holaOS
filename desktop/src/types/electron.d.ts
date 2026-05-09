@@ -842,23 +842,31 @@ interface RuntimeNotificationListOptionsPayload {
   interface CronjobCreatePayload {
     workspace_id: string;
     initiated_by: string;
+    session_id?: string;
     name?: string;
     cron: string;
     description: string;
     instruction?: string;
     enabled?: boolean;
     delivery: CronjobDeliveryPayload;
+    model?: string;
     metadata?: Record<string, unknown>;
   }
 
   interface CronjobUpdatePayload {
+    session_id?: string;
     name?: string;
     cron?: string;
     description?: string;
     instruction?: string;
     enabled?: boolean;
     delivery?: CronjobDeliveryPayload;
+    model?: string;
     metadata?: Record<string, unknown>;
+  }
+
+  interface CronjobRunNowPayload {
+    model?: string;
   }
 
   type RuntimeNotificationLevel = "info" | "success" | "warning" | "error";
@@ -1744,7 +1752,7 @@ interface RuntimeNotificationListOptionsPayload {
       createWorkspace: (payload: HolabossCreateWorkspacePayload) => Promise<WorkspaceResponsePayload>;
       deleteWorkspace: (workspaceId: string, keepFiles?: boolean) => Promise<WorkspaceResponsePayload>;
       listCronjobs: (workspaceId: string, enabledOnly?: boolean) => Promise<CronjobListResponsePayload>;
-      runCronjobNow: (workspaceId: string, jobId: string) => Promise<CronjobRunResponsePayload>;
+      runCronjobNow: (workspaceId: string, jobId: string, payload?: CronjobRunNowPayload) => Promise<CronjobRunResponsePayload>;
       createCronjob: (payload: CronjobCreatePayload) => Promise<CronjobRecordPayload>;
       updateCronjob: (workspaceId: string, jobId: string, payload: CronjobUpdatePayload) => Promise<CronjobRecordPayload>;
       deleteCronjob: (workspaceId: string, jobId: string) => Promise<{ success: boolean }>;

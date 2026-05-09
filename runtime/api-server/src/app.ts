@@ -608,6 +608,32 @@ function capabilityInputId(params: {
   );
 }
 
+function cronjobMetadataWithRequestDefaults(params: {
+  body: Record<string, unknown>;
+  existingMetadata?: Record<string, unknown> | null;
+}): Record<string, unknown> {
+  const metadata = hasOwn(params.body, "metadata")
+    ? { ...(optionalDict(params.body.metadata) ?? {}) }
+    : { ...((params.existingMetadata ?? {}) as Record<string, unknown>) };
+  delete metadata.model;
+
+  if (hasOwn(params.body, "session_id")) {
+    const sourceSessionId = nullableString(params.body.session_id);
+    if (sourceSessionId) {
+      metadata.source_session_id = sourceSessionId;
+    } else {
+      delete metadata.source_session_id;
+    }
+  } else if (typeof metadata.source_session_id !== "string") {
+    const sourceSessionId = optionalString(params.body.session_id);
+    if (sourceSessionId) {
+      metadata.source_session_id = sourceSessionId;
+    }
+  }
+
+  return metadata;
+}
+
 function requiredCronjobDeliveryInput(value: unknown): {
   channel: string;
   mode?: string;
@@ -1133,6 +1159,8 @@ function outputPayload(record: OutputRecord): Record<string, unknown> {
 }
 
 function cronjobPayload(record: CronjobRecord): Record<string, unknown> {
+  const metadata = isRecord(record.metadata) ? { ...record.metadata } : {};
+  delete metadata.model;
   return {
     id: record.id,
     workspace_id: record.workspaceId,
@@ -1143,7 +1171,7 @@ function cronjobPayload(record: CronjobRecord): Record<string, unknown> {
     instruction: record.instruction,
     enabled: record.enabled,
     delivery: record.delivery,
-    metadata: record.metadata,
+    metadata,
     last_run_at: record.lastRunAt,
     next_run_at: record.nextRunAt,
     run_count: record.runCount,
@@ -7911,7 +7939,9 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       instruction: optionalString(request.body.instruction) ?? requiredString(request.body.description, "description"),
       enabled: optionalBoolean(request.body.enabled, true),
       delivery: requiredDict(request.body.delivery, "delivery"),
-      metadata: optionalDict(request.body.metadata) ?? {},
+      metadata: cronjobMetadataWithRequestDefaults({
+        body: request.body,
+      }),
       nextRunAt: cronjobNextRunAt(requiredString(request.body.cron, "cron"), new Date())
     });
     return cronjobPayload(job);
@@ -7933,6 +7963,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
 
   app.post("/api/v1/cronjobs/:jobId/run", async (request, reply) => {
     const query = isRecord(request.query) ? request.query : {};
+    const body = isRecord(request.body) ? request.body : {};
     const workspaceId = optionalString(query.workspace_id);
     if (!workspaceId) {
       return sendError(reply, 400, "workspace_id is required");
@@ -7950,6 +7981,14 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         job,
         now,
         () => queueWorker?.wake(),
+        {
+          sessionId: optionalString(body.session_id),
+          selectedModel:
+            optionalString(body.model) ||
+            optionalString(body.selected_model) ||
+            null,
+          selectedThinkingValue: optionalString(body.thinking_value) || null,
+        },
       );
       const updated = store.updateCronjob({
         workspaceId,
@@ -8009,6 +8048,11 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         : description != null && existing.instruction.trim() === existing.description.trim()
           ? description
           : undefined;
+    const metadataProvided =
+      hasOwn(request.body, "metadata") ||
+      hasOwn(request.body, "model") ||
+      hasOwn(request.body, "selected_model") ||
+      hasOwn(request.body, "session_id");
     const job = store.updateCronjob({
       workspaceId,
       jobId: params.jobId,
@@ -8018,7 +8062,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       instruction,
       enabled: hasOwn(request.body, "enabled") ? optionalBoolean(request.body.enabled, false) : null,
       delivery: hasOwn(request.body, "delivery") ? (optionalDict(request.body.delivery) ?? {}) : undefined,
-      metadata: hasOwn(request.body, "metadata") ? (optionalDict(request.body.metadata) ?? {}) : undefined,
+      metadata: metadataProvided
+        ? cronjobMetadataWithRequestDefaults({
+            body: request.body,
+            existingMetadata: existing.metadata,
+          })
+        : undefined,
       nextRunAt: cron == null ? cron : cronjobNextRunAt(cron, new Date())
     });
     if (!job) {

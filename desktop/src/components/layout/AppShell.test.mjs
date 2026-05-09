@@ -626,6 +626,7 @@ test("app shell uses the top toolbar for shell navigation and removes the left r
   assert.match(source, /onOpenAutomations=\{handleOpenAutomationsPane\}/);
   assert.match(source, /<SubagentSessionsPane[\s\S]*variant="full"/);
   assert.match(source, /<AutomationsPane[\s\S]*onRunNow=\{handleReturnToChatPane\}/);
+  assert.match(source, /<AutomationsPane[\s\S]*composerModel=\{currentComposerSelectedModel\(runtimeConfig\)\}/);
   assert.match(source, /<AutomationsPane[\s\S]*onCreateSchedule=\{\(\) =>\s*handleCreateScheduleInChat\(selectedWorkspaceId\)/);
   assert.doesNotMatch(source, /<SettingsDialog[\s\S]*onCreateAutomationSchedule/);
   assert.doesNotMatch(source, /<SettingsDialog[\s\S]*onEditAutomationSchedule/);
@@ -960,6 +961,7 @@ test("app shell can route new schedule creation into a prefilled workspace chat"
   assert.match(source, /setChatComposerPrefillRequest\(\{\s*text: "Create a schedule for ",\s*requestKey: nextChatComposerPrefillRequestKey\(\),\s*mode: "replace",\s*\}\);/);
   assert.match(source, /composerPrefillRequest=\{chatComposerPrefillRequest\}/);
   assert.match(source, /onComposerPrefillConsumed=\{handleChatComposerPrefillConsumed\}/);
+  assert.match(source, /<AutomationsPane[\s\S]*composerModel=\{currentComposerSelectedModel\(runtimeConfig\)\}/);
   assert.match(source, /<AutomationsPane[\s\S]*onCreateSchedule=\{\(\) =>\s*handleCreateScheduleInChat\(selectedWorkspaceId\)/);
 });
 

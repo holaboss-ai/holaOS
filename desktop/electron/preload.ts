@@ -687,23 +687,31 @@ interface CronjobListResponsePayload {
 interface CronjobCreatePayload {
   workspace_id: string;
   initiated_by: string;
+  session_id?: string;
   name?: string;
   cron: string;
   description: string;
   instruction?: string;
   enabled?: boolean;
   delivery: CronjobDeliveryPayload;
+  model?: string;
   metadata?: Record<string, unknown>;
 }
 
 interface CronjobUpdatePayload {
+  session_id?: string;
   name?: string;
   cron?: string;
   description?: string;
   instruction?: string;
   enabled?: boolean;
   delivery?: CronjobDeliveryPayload;
+  model?: string;
   metadata?: Record<string, unknown>;
+}
+
+interface CronjobRunNowPayload {
+  model?: string;
 }
 
 interface SessionRuntimeRecordPayload {
@@ -1373,8 +1381,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("workspace:deleteWorkspace", workspaceId, keepFiles) as Promise<WorkspaceResponsePayload>,
     listCronjobs: (workspaceId: string, enabledOnly?: boolean) =>
       ipcRenderer.invoke("workspace:listCronjobs", workspaceId, enabledOnly) as Promise<CronjobListResponsePayload>,
-    runCronjobNow: (workspaceId: string, jobId: string) =>
-      ipcRenderer.invoke("workspace:runCronjobNow", workspaceId, jobId) as Promise<CronjobRunResponsePayload>,
+    runCronjobNow: (workspaceId: string, jobId: string, payload?: CronjobRunNowPayload) =>
+      ipcRenderer.invoke("workspace:runCronjobNow", workspaceId, jobId, payload) as Promise<CronjobRunResponsePayload>,
     createCronjob: (payload: CronjobCreatePayload) =>
       ipcRenderer.invoke("workspace:createCronjob", payload) as Promise<CronjobRecordPayload>,
     updateCronjob: (workspaceId: string, jobId: string, payload: CronjobUpdatePayload) =>

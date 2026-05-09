@@ -135,7 +135,7 @@ test("runtime cron worker queues due session_run cronjobs as hidden subagents an
     delivery: { channel: "session_run" },
     metadata: {
       session_id: "session-main",
-      model: "gpt-5",
+      model: "openai_codex/gpt-5.4",
       priority: 3,
       idempotency_key: "cron-idempotency",
       team: "growth"
@@ -189,7 +189,7 @@ test("runtime cron worker queues due session_run cronjobs as hidden subagents an
   assert.deepEqual(run?.toolProfile, {
     requested_tools: ["terminal", "file", "browser", "web"],
   });
-  assert.equal(run?.requestedModel, "gpt-5");
+  assert.equal(run?.requestedModel, null);
   assert.equal(run?.effectiveModel, "openai/gpt-5.4");
   assert.ok(childSession);
   assert.equal(childSession?.kind, "subagent");
@@ -197,6 +197,7 @@ test("runtime cron worker queues due session_run cronjobs as hidden subagents an
   assert.equal(runtimeState.status, "QUEUED");
   assert.equal(queued.length, 1);
   assert.equal(queued[0].payload.model, "openai/gpt-5.4");
+  assert.equal(queued[0].payload.thinking_value, "medium");
   assert.equal(
     (queued[0].payload.context as Record<string, unknown>).source,
     "subagent",
@@ -226,7 +227,221 @@ test("runtime cron worker queues due session_run cronjobs as hidden subagents an
   store.close();
 });
 
-test("runtime cron worker uses the configured global subagent model instead of inheriting the main-session model", async () => {
+test("runtime cron worker inherits the latest non-batch main-session model when the cronjob has no explicit model", async () => {
+  const root = makeTempDir("hb-runtime-cron-worker-");
+  const configPath = path.join(root, "state", "runtime-config.json");
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(
+    configPath,
+    `${JSON.stringify(
+      {
+        runtime: {
+          default_model: "holaboss_model_proxy/gpt-5.4",
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  process.env.HB_SANDBOX_ROOT = root;
+  process.env.HOLABOSS_RUNTIME_CONFIG_PATH = configPath;
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.ensureSession({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    kind: "workspace_session",
+  });
+  store.upsertConversationBinding({
+    workspaceId: workspace.id,
+    channel: "desktop",
+    conversationKey: "workspace-main",
+    sessionId: "session-main",
+    role: "main",
+  });
+  store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: {
+      text: "Use Codex for this workspace.",
+      model: "openai_codex/gpt-5.4",
+      thinking_value: "xhigh",
+      context: {},
+    },
+  });
+  store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: {
+      text: "[Holaboss Main Session Event Batch v1]",
+      model: "holaboss_model_proxy/gpt-5.4",
+      thinking_value: "medium",
+      context: {
+        source: "main_session_event_batch",
+      },
+    },
+  });
+  const job = store.createCronjob({
+    workspaceId: workspace.id,
+    initiatedBy: "workspace_agent",
+    name: "Hourly follow composer",
+    cron: "0 * * * *",
+    description: "Follow the latest main-session model",
+    instruction: "Do the hourly follow-composer task.",
+    delivery: { channel: "session_run" },
+    metadata: {},
+    nextRunAt: "2025-01-01T09:00:00Z",
+  });
+
+  const worker = new RuntimeCronWorker({
+    store,
+    queueWorker: {
+      async start() {},
+      wake() {},
+      async close() {}
+    }
+  });
+
+  const processed = await worker.processDueCronjobsOnce(new Date("2025-01-01T09:30:00Z"));
+  const queued = store.claimInputs({ limit: 10, claimedBy: "test", leaseSeconds: 300 });
+  const runs = store.listSubagentRunsByWorkspace({ workspaceId: workspace.id });
+  const childQueued = queued.find((record) =>
+    typeof record.payload.context === "object" &&
+    record.payload.context !== null &&
+    (record.payload.context as Record<string, unknown>).source === "subagent"
+  );
+
+  assert.equal(processed, 1);
+  assert.ok(childQueued);
+  assert.equal(childQueued?.payload.model, "openai_codex/gpt-5.4");
+  assert.equal(childQueued?.payload.thinking_value, "xhigh");
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0]?.requestedModel, "openai_codex/gpt-5.4");
+  assert.equal(runs[0]?.effectiveModel, "openai_codex/gpt-5.4");
+
+  store.close();
+});
+
+test("runtime cron worker prefers the current desktop main-session binding over the cronjob source session", async () => {
+  const root = makeTempDir("hb-runtime-cron-worker-");
+  const configPath = path.join(root, "state", "runtime-config.json");
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(
+    configPath,
+    `${JSON.stringify(
+      {
+        runtime: {
+          default_model: "openai/gpt-5.4",
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  process.env.HB_SANDBOX_ROOT = root;
+  process.env.HOLABOSS_RUNTIME_CONFIG_PATH = configPath;
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.ensureSession({
+    workspaceId: workspace.id,
+    sessionId: "session-old",
+    kind: "workspace_session",
+  });
+  store.ensureSession({
+    workspaceId: workspace.id,
+    sessionId: "session-current",
+    kind: "workspace_session",
+  });
+  store.upsertConversationBinding({
+    workspaceId: workspace.id,
+    channel: "desktop",
+    conversationKey: "workspace-main",
+    sessionId: "session-current",
+    role: "main",
+  });
+  store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-old",
+    payload: {
+      text: "Old main session composer",
+      model: "openai_codex/gpt-5.4",
+      thinking_value: "xhigh",
+      context: {},
+    },
+  });
+  store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-current",
+    payload: {
+      text: "Current desktop composer",
+      model: "holaboss_model_proxy/gpt-5.5",
+      thinking_value: "medium",
+      context: {},
+    },
+  });
+  const job = store.createCronjob({
+    workspaceId: workspace.id,
+    initiatedBy: "workspace_agent",
+    name: "Follow desktop composer",
+    cron: "0 9 * * *",
+    description: "Use the current desktop main session",
+    instruction: "Use the current desktop main session.",
+    delivery: { channel: "session_run" },
+    metadata: {
+      source_session_id: "session-old",
+    },
+    nextRunAt: "2025-01-01T09:00:00Z",
+  });
+
+  const worker = new RuntimeCronWorker({
+    store,
+    queueWorker: {
+      async start() {},
+      wake() {},
+      async close() {}
+    }
+  });
+
+  const processed = await worker.processDueCronjobsOnce(new Date("2025-01-01T09:30:00Z"));
+  const queued = store.claimInputs({ limit: 10, claimedBy: "test", leaseSeconds: 300 });
+  const runs = store.listSubagentRunsByWorkspace({ workspaceId: workspace.id });
+  const childQueued = queued.find((record) =>
+    typeof record.payload.context === "object" &&
+    record.payload.context !== null &&
+    (record.payload.context as Record<string, unknown>).source === "subagent"
+  );
+
+  assert.equal(processed, 1);
+  assert.ok(childQueued);
+  assert.equal(childQueued?.payload.model, "holaboss_model_proxy/gpt-5.5");
+  assert.equal(childQueued?.payload.thinking_value, "medium");
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0]?.ownerMainSessionId, "session-current");
+  assert.equal(runs[0]?.requestedModel, "holaboss_model_proxy/gpt-5.5");
+  assert.equal(runs[0]?.effectiveModel, "holaboss_model_proxy/gpt-5.5");
+
+  store.close();
+});
+
+test("runtime cron worker ignores the configured global subagent model and follows the main-session model", async () => {
   const root = makeTempDir("hb-runtime-cron-worker-");
   const configPath = path.join(root, "state", "runtime-config.json");
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -270,18 +485,15 @@ test("runtime cron worker uses the configured global subagent model instead of i
     sessionId: "session-main",
     role: "main",
   });
-  store.upsertTurnRequestSnapshot({
+  store.enqueueInput({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    inputId: "input-main",
-    snapshotKind: "harness_host_request",
-    fingerprint: "snapshot-main",
     payload: {
-      runtime_config: {
-        provider_id: "openai",
-        model_id: "gpt-5.4"
-      }
-    }
+      text: "Use Codex for cronjobs.",
+      model: "openai_codex/gpt-5.4",
+      thinking_value: "xhigh",
+      context: {},
+    },
   });
   const job = store.createCronjob({
     workspaceId: workspace.id,
@@ -307,13 +519,20 @@ test("runtime cron worker uses the configured global subagent model instead of i
   const processed = await worker.processDueCronjobsOnce(new Date("2025-01-01T09:30:00Z"));
   const queued = store.claimInputs({ limit: 10, claimedBy: "test", leaseSeconds: 300 });
   const runs = store.listSubagentRunsByWorkspace({ workspaceId: workspace.id });
+  const childQueued = queued.find((record) =>
+    typeof record.payload.context === "object" &&
+    record.payload.context !== null &&
+    (record.payload.context as Record<string, unknown>).source === "subagent"
+  );
 
   assert.equal(processed, 1);
-  assert.equal(queued.length, 1);
-  assert.equal(queued[0]?.payload.model, "anthropic_direct/claude-sonnet-4-6");
+  assert.ok(childQueued);
+  assert.equal(childQueued?.payload.model, "openai_codex/gpt-5.4");
+  assert.equal(childQueued?.payload.thinking_value, "xhigh");
   assert.equal(runs.length, 1);
   assert.equal(runs[0]?.ownerMainSessionId, "session-main");
-  assert.equal(runs[0]?.effectiveModel, "anthropic_direct/claude-sonnet-4-6");
+  assert.equal(runs[0]?.requestedModel, "openai_codex/gpt-5.4");
+  assert.equal(runs[0]?.effectiveModel, "openai_codex/gpt-5.4");
 
   store.close();
 });
@@ -435,29 +654,142 @@ test("cronjob routes compute next_run_at and cron worker lifecycle hooks run", a
       payload: {
         workspace_id: workspace.id,
         initiated_by: "workspace_agent",
+        session_id: "session-main",
         cron: "0 9 * * *",
         description: "Daily check",
-        delivery: { channel: "session_run" }
+        delivery: { channel: "session_run" },
+        model: "openai_codex/gpt-5.4",
       }
     });
-    const body = created.json() as { id: string; next_run_at: string | null };
+    const body = created.json() as {
+      id: string;
+      next_run_at: string | null;
+      metadata: {
+        model?: string;
+        source_session_id?: string;
+      };
+    };
     const updated = await app.inject({
       method: "PATCH",
       url: `/api/v1/cronjobs/${body.id}`,
       payload: {
         workspace_id: workspace.id,
-        cron: "0 10 * * *"
+        cron: "0 10 * * *",
+        session_id: "session-follow-up",
       }
     });
+    const updatedBody = updated.json() as {
+      next_run_at: string | null;
+      metadata: {
+        model?: string;
+        source_session_id?: string;
+      };
+    };
 
     assert.equal(startCalls, 1);
     assert.equal(created.statusCode, 200);
     assert.ok(body.next_run_at);
+    assert.equal(body.metadata.model, undefined);
+    assert.equal(body.metadata.source_session_id, "session-main");
     assert.equal(updated.statusCode, 200);
-    assert.ok(updated.json().next_run_at);
+    assert.ok(updatedBody.next_run_at);
+    assert.equal(updatedBody.metadata.model, undefined);
+    assert.equal(updatedBody.metadata.source_session_id, "session-follow-up");
   } finally {
     await app.close();
     assert.equal(closeCalls, 1);
+    store.close();
+  }
+});
+
+test("cronjob run-now route follows the current composer model override", async () => {
+  const root = makeTempDir("hb-runtime-cron-worker-");
+  const configPath = path.join(root, "state", "runtime-config.json");
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(
+    configPath,
+    `${JSON.stringify(
+      {
+        runtime: {
+          default_model: "openai/gpt-5.4",
+          subagents: {
+            model: "anthropic_direct/claude-sonnet-4-6",
+          },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  process.env.HB_SANDBOX_ROOT = root;
+  process.env.HOLABOSS_RUNTIME_CONFIG_PATH = configPath;
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.ensureSession({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    kind: "workspace_session",
+  });
+  store.upsertConversationBinding({
+    workspaceId: workspace.id,
+    channel: "desktop",
+    conversationKey: "workspace-main",
+    sessionId: "session-main",
+    role: "main",
+  });
+  const job = store.createCronjob({
+    workspaceId: workspace.id,
+    initiatedBy: "workspace_agent",
+    name: "Run now follows composer",
+    cron: "0 9 * * *",
+    description: "Follow the current composer model",
+    instruction: "Report the current model.",
+    delivery: { channel: "session_run" },
+    metadata: {
+      source_session_id: "session-main",
+      model: "openai_codex/gpt-5.4",
+    },
+    nextRunAt: "2025-01-01T09:00:00Z",
+  });
+
+  const app = buildRuntimeApiServer({
+    store,
+    queueWorker: null,
+    bridgeWorker: null,
+    cronWorker: null,
+  });
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/cronjobs/${job.id}/run`,
+      query: {
+        workspace_id: workspace.id,
+      },
+      payload: {
+        model: "holaboss_model_proxy/gpt-5.5",
+      }
+    });
+    const queued = store.claimInputs({ limit: 10, claimedBy: "test", leaseSeconds: 300 });
+    const runs = store.listSubagentRunsByWorkspace({ workspaceId: workspace.id });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(queued.length, 1);
+    assert.equal(queued[0]?.payload.model, "holaboss_model_proxy/gpt-5.5");
+    assert.equal(queued[0]?.payload.thinking_value, "medium");
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0]?.requestedModel, "holaboss_model_proxy/gpt-5.5");
+    assert.equal(runs[0]?.effectiveModel, "holaboss_model_proxy/gpt-5.5");
+  } finally {
+    await app.close();
     store.close();
   }
 });

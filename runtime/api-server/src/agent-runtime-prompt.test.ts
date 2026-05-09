@@ -329,6 +329,9 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /Prefer surfaced MCP\/app tools over opening the web app, browser exploration, or web research when they can satisfy the request, including when the user supplies a URL for that system; use browser\/web around an MCP-backed system only for UI verification, requested independent confirmation, or after the MCP path is blocked\./);
   assert.match(prompt.systemPrompt, /Do not answer with a capability-apology or manual fallback first when `holaboss_delegate_task` is available/i);
   assert.match(prompt.systemPrompt, /trust the current run and retry the tool when appropriate/i);
+  assert.match(prompt.systemPrompt, /Treat prior tool failures, subagent failures, and access or integration blockers as observations about earlier attempts, not static truth about the current run\./);
+  assert.match(prompt.systemPrompt, /When the user asks to retry, continue, or try again after mutable external state may have changed, prefer a fresh attempt over paraphrasing the previous failure from chat history\./);
+  assert.match(prompt.systemPrompt, /Only restate an earlier access, authorization, or integration blocker after a current attempt or current tool result confirms it still applies\./);
   assert.match(prompt.systemPrompt, /Do not paste long document, HTML, markdown, or report bodies into chat\./);
   assert.ok(
     prompt.promptSections.some(

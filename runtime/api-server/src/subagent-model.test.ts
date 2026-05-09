@@ -129,3 +129,34 @@ test("configured subagent model takes precedence over composer thinking and uses
     },
   );
 });
+
+test("cronjob follow-composer mode ignores the configured subagent model", () => {
+  const root = makeTempDir("hb-subagent-model-ignore-configured-");
+  writeRuntimeConfig(root, {
+    runtime: {
+      default_model: "openai_direct/gpt-5.4",
+      subagents: {
+        model: "anthropic_direct/claude-sonnet-4-6",
+      },
+    },
+  });
+
+  assert.equal(
+    resolveSubagentExecutionModel({
+      selectedModel: "openai_codex/gpt-5.4",
+      ignoreConfiguredSubagentModel: true,
+    }),
+    "openai_codex/gpt-5.4",
+  );
+  assert.deepEqual(
+    resolveSubagentExecutionProfile({
+      selectedModel: "openai_codex/gpt-5.4",
+      selectedThinkingValue: "xhigh",
+      ignoreConfiguredSubagentModel: true,
+    }),
+    {
+      model: "openai_codex/gpt-5.4",
+      thinkingValue: "xhigh",
+    },
+  );
+});

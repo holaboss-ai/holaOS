@@ -34,6 +34,7 @@ interface CompletedAutomationRun {
 
 interface AutomationsPaneProps {
   workspaceId?: string | null;
+  composerModel?: string | null;
   emptyWorkspaceMessage?: string;
   onOpenRunSession?: (sessionId: string) => void;
   onRunNow?: (job: CronjobRecordPayload) => void;
@@ -169,7 +170,8 @@ function isFailedStatus(status: string): boolean {
 
 export function AutomationsPane({
   workspaceId,
-  emptyWorkspaceMessage = "Switch from the top bar to view its automations.",
+  composerModel,
+  emptyWorkspaceMessage = "Choose a workspace from the top bar to view and manage automations.",
   onOpenRunSession,
   onRunNow,
   onCreateSchedule,
@@ -341,7 +343,11 @@ export function AutomationsPane({
     setBusyJobId(job.id);
     setStatusMessage("");
     try {
-      const response = await window.electronAPI.workspace.runCronjobNow(job.workspace_id, job.id);
+      const response = await window.electronAPI.workspace.runCronjobNow(
+        job.workspace_id,
+        job.id,
+        composerModel ? { model: composerModel } : undefined,
+      );
       setCronjobs((previous) =>
         previous.map((item) =>
           item.id === response.cronjob.id ? response.cronjob : item,

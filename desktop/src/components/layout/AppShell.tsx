@@ -2174,6 +2174,7 @@ function AppShellContent() {
           setSpaceExplorerMode("browser");
           setSpaceBrowserSpace(targetBrowserSpace);
           setSpaceDisplayView({ type: "browser" });
+          setSpaceWorkspacePanelCollapsed(false);
           setSpaceVisibility((previous) => ({
             ...previous,
             browser: true,
@@ -4457,6 +4458,7 @@ function AppShellContent() {
           >
             <AutomationsPane
               workspaceId={selectedWorkspaceId}
+              composerModel={currentComposerSelectedModel(runtimeConfig)}
               emptyWorkspaceMessage="Choose a workspace from the top bar to view and manage automations."
               onOpenRunSession={(sessionId) =>
                 handleOpenAutomationRunSession(sessionId, selectedWorkspaceId)

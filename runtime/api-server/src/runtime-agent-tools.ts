@@ -1254,13 +1254,10 @@ function metadataWithCronjobDefaults(params: {
 }
 ): JsonObject {
   const nextMetadata: JsonObject = { ...((params.metadata ?? {}) as JsonObject) };
+  delete nextMetadata.model;
   const userId = normalizedString(params.holabossUserId);
   if (userId && typeof nextMetadata.holaboss_user_id !== "string") {
     nextMetadata.holaboss_user_id = userId;
-  }
-  const selectedModel = normalizedString(params.selectedModel);
-  if (selectedModel && typeof nextMetadata.model !== "string") {
-    nextMetadata.model = selectedModel;
   }
   const sourceSessionId = normalizedString(params.sourceSessionId);
   if (sourceSessionId && typeof nextMetadata.source_session_id !== "string") {
@@ -1325,6 +1322,8 @@ export function onboardingPayload(workspace: WorkspaceRecord): JsonObject {
 }
 
 export function cronjobPayload(record: CronjobRecord): JsonObject {
+  const metadata: JsonObject = { ...((record.metadata ?? {}) as JsonObject) };
+  delete metadata.model;
   return {
     id: record.id,
     workspace_id: record.workspaceId,
@@ -1335,7 +1334,7 @@ export function cronjobPayload(record: CronjobRecord): JsonObject {
     instruction: record.instruction,
     enabled: record.enabled,
     delivery: record.delivery as JsonValue,
-    metadata: record.metadata as JsonValue,
+    metadata: metadata as JsonValue,
     last_run_at: record.lastRunAt,
     next_run_at: record.nextRunAt,
     run_count: record.runCount,
@@ -1674,7 +1673,13 @@ export class RuntimeAgentToolsService {
               mode: params.delivery.mode,
               to: params.delivery.to
             }),
-      metadata: params.metadata === undefined ? undefined : params.metadata ?? {},
+      metadata:
+        params.metadata === undefined
+          ? undefined
+          : metadataWithCronjobDefaults({
+              metadata: params.metadata,
+              holabossUserId: null,
+            }),
       nextRunAt: cron === null ? undefined : cronjobNextRunAt(cron, new Date())
     });
     if (!updated) {

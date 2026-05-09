@@ -67,6 +67,7 @@ function resolvedThinkingValue(params: {
 export function resolveSubagentExecutionProfile(params?: {
   selectedModel?: string | null;
   selectedThinkingValue?: string | null;
+  ignoreConfiguredSubagentModel?: boolean;
 }): ResolvedSubagentExecutionProfile {
   const runtimeConfig = resolveProductRuntimeConfig({
     requireAuth: false,
@@ -74,7 +75,9 @@ export function resolveSubagentExecutionProfile(params?: {
     requireBaseUrl: false,
     includeDefaultBaseUrl: false,
   });
-  const configuredSubagentModel = normalizedValue(runtimeConfig.subagentModel);
+  const configuredSubagentModel = params?.ignoreConfiguredSubagentModel
+    ? ""
+    : normalizedValue(runtimeConfig.subagentModel);
   if (configuredSubagentModel) {
     return {
       model: configuredSubagentModel,
@@ -106,6 +109,7 @@ export function resolveSubagentExecutionProfile(params?: {
 
 export function resolveSubagentExecutionModel(params?: {
   selectedModel?: string | null;
+  ignoreConfiguredSubagentModel?: boolean;
 }): string {
   return resolveSubagentExecutionProfile(params).model;
 }
