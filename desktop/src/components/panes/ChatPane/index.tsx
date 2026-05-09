@@ -2690,6 +2690,11 @@ export function ChatPane({
   const composerBlockRef = useRef<HTMLDivElement>(null);
   const composerIsComposingRef = useRef(false);
   const shouldAutoScrollRef = useRef(true);
+  // When a prefill arrives (e.g. routing back from Automations), the
+  // session may still be loading history. We can't scroll to bottom
+  // immediately because scrollHeight is wrong. Mark the scroll as
+  // pending and consume it once history settles + messages render.
+  const pendingPrefillBottomScrollRef = useRef(false);
   const [isAwayFromChatBottom, setIsAwayFromChatBottom] = useState(false);
   const pendingOptimisticUserMessagesRef = useRef<
     PendingOptimisticUserMessage[]
@@ -3973,6 +3978,29 @@ export function ChatPane({
     messages,
   ]);
 
+  // Consume the pending-prefill bottom-scroll once history has settled.
+  // Fires on the messages-changed-and-load-finished transition, so
+  // ChatPane lands at the latest turn after a route-back from
+  // Automations / Inbox / Sessions instead of wherever the previous
+  // viewport left scrollTop.
+  useEffect(() => {
+    if (!pendingPrefillBottomScrollRef.current || isLoadingHistory) {
+      return;
+    }
+    const container = messagesRef.current;
+    if (!container) {
+      return;
+    }
+    pendingPrefillBottomScrollRef.current = false;
+    requestAnimationFrame(() => {
+      const target = messagesRef.current;
+      if (!target || hasActiveChatSelection(target)) {
+        return;
+      }
+      target.scrollTo({ top: target.scrollHeight, behavior: "auto" });
+    });
+  }, [isLoadingHistory, messages]);
+
   useLayoutEffect(() => {
     const pendingRestore = pendingHistoryPrependRestoreRef.current;
     const container = messagesRef.current;
@@ -4153,21 +4181,15 @@ export function ChatPane({
       setQuotedSkillIds(parsedPrefill.skillIds);
       setPendingAttachments([]);
     }
-    // Snap to the bottom on prefill — when something just routed the
-    // user back into chat (e.g. clicking Edit on a schedule), the
-    // existing autoscroll effect doesn't re-run because `messages`
-    // didn't change. Restore the ref + jump directly so the last
-    // turn sits above the composer with the fresh prefilled draft.
+    // Routing back into chat (e.g. clicking Edit on a schedule)
+    // doesn't change `messages` so the existing autoscroll effect
+    // never fires. History may also still be loading when this
+    // effect runs, so a synchronous scrollTo would target an
+    // incomplete container. Mark the scroll as pending; the
+    // effect below consumes it once isLoadingHistory settles and
+    // messages have rendered.
     shouldAutoScrollRef.current = true;
-    requestAnimationFrame(() => {
-      const container = messagesRef.current;
-      if (container && !hasActiveChatSelection(container)) {
-        container.scrollTo({
-          top: container.scrollHeight,
-          behavior: "auto",
-        });
-      }
-    });
+    pendingPrefillBottomScrollRef.current = true;
     onComposerPrefillConsumed?.(requestKey);
   }, [
     composerPrefillRequest?.mode,
