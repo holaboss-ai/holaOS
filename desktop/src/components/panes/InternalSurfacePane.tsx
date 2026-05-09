@@ -680,17 +680,13 @@ export function InternalSurfacePane({
 
           {/* Content */}
           {isMarkdownPreview ? (
-            <div className="min-h-0 flex-1 overflow-auto">
-              <div className="mx-auto w-full max-w-2xl">
-                <MarkdownEditor
-                  value={previewDraft}
-                  onChange={setPreviewDraft}
-                  readOnly={!preview.isEditable}
-                  placeholder="Press / for commands…"
-                  className="min-h-0 flex-1"
-                />
-              </div>
-            </div>
+            <MarkdownEditor
+              value={previewDraft}
+              onChange={setPreviewDraft}
+              readOnly={!preview.isEditable}
+              placeholder="Press / for commands…"
+              className="min-h-0 flex-1"
+            />
           ) : isHtmlPreview && textPreviewMode === "preview" ? (
             previewDraft.trim() ? (
               <div className="min-h-0 flex-1 overflow-hidden bg-muted p-4">
