@@ -754,6 +754,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  width: 100%;          /* the .turn wrapper doesn't flex-stretch its child */
   padding: 0.4375rem 0.625rem;
   border: 0;
   border-radius: var(--hb-radius-sm);
