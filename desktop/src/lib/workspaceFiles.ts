@@ -14,6 +14,10 @@ export interface WorkspaceFileEntry {
   name: string;
   /** Workspace-root-relative path with `/` separators. */
   relativePath: string;
+  /** OS-absolute path resolved by the renderer-side fs IPC during the
+   *  walk. Surfaces here so callers can hand it directly to
+   *  `stageSessionAttachmentPaths` without a second round-trip. */
+  absolutePath: string;
 }
 
 export interface ListWorkspaceFilesOptions {
@@ -93,7 +97,11 @@ export async function listWorkspaceFiles(
         continue;
       }
 
-      collected.push({ name: entry.name, relativePath: relPath });
+      collected.push({
+        name: entry.name,
+        relativePath: relPath,
+        absolutePath: entry.absolutePath,
+      });
       if (collected.length >= maxFiles) break;
     }
   }

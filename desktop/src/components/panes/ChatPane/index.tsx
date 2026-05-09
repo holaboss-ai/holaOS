@@ -2595,6 +2595,32 @@ export function ChatPane({
 
     return items;
   }, [installedApps, workspaceFiles]);
+
+  // handle → workspace-file entry map. Built from the same slug logic
+  // as composerMentionableItems above so a `@<handle>` typed by the
+  // user resolves cleanly to the file's absolute path at send time.
+  // Used for the auto-attach-on-send pipeline below — without this,
+  // mention tokens flow to the agent as plain text that may or may
+  // not be picked up by file-read tools.
+  const mentionableFilesByHandle = useMemo(() => {
+    const byHandle = new Map<string, WorkspaceFileEntry>();
+    for (const entry of workspaceFiles) {
+      const handle = entry.relativePath
+        .split("/")
+        .map((segment) =>
+          segment
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^\p{L}\p{N}_.\-]/gu, ""),
+        )
+        .filter(Boolean)
+        .join("/");
+      if (!handle) continue;
+      byHandle.set(handle, entry);
+    }
+    return byHandle;
+  }, [workspaceFiles]);
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionOutputs, setSessionOutputs] = useState<
     WorkspaceOutputRecordPayload[]
@@ -5437,7 +5463,7 @@ export function ChatPane({
 
       let localAttachmentIndex = 0;
       let explorerAttachmentIndex = 0;
-      const stagedAttachments = attachmentEntries.map((entry) => {
+      const stagedExplicitAttachments = attachmentEntries.map((entry) => {
         if (entry.source === "local-file") {
           const attachment =
             stagedLocalAttachments.attachments[localAttachmentIndex];
@@ -5456,6 +5482,46 @@ export function ChatPane({
         }
         return attachment;
       });
+
+      // Auto-attach mentioned workspace files. Without this the agent
+      // only sees the plain `@<handle>` token in the message text and
+      // has to guess whether to read the file with its own tools.
+      // Scan the user's text for mention handles, resolve each to a
+      // workspace file we already know about, dedupe against any
+      // explicit attachments, and stage as workspace-file attachments.
+      const explicitAbsolutePaths = new Set(
+        explorerFiles.map((entry) => entry.absolutePath),
+      );
+      const mentionedFileEntries: WorkspaceFileEntry[] = [];
+      const seenHandles = new Set<string>();
+      for (const match of trimmed.matchAll(MENTION_TOKEN_PATTERN)) {
+        const handle = match[2];
+        if (!handle || seenHandles.has(handle)) continue;
+        seenHandles.add(handle);
+        const fileEntry = mentionableFilesByHandle.get(handle);
+        if (!fileEntry) continue;
+        if (explicitAbsolutePaths.has(fileEntry.absolutePath)) continue;
+        mentionedFileEntries.push(fileEntry);
+      }
+      const stagedMentionAttachments =
+        mentionedFileEntries.length > 0
+          ? (
+              await window.electronAPI.workspace.stageSessionAttachmentPaths({
+                workspace_id: selectedWorkspace.id,
+                files: mentionedFileEntries.map((entry) => ({
+                  absolute_path: entry.absolutePath,
+                  name: entry.name,
+                  mime_type: null,
+                  kind: "file" as const,
+                })),
+              })
+            ).attachments
+          : [];
+
+      const stagedAttachments = [
+        ...stagedExplicitAttachments,
+        ...stagedMentionAttachments,
+      ];
 
       const serializedPrompt = serializeQuotedSkillPrompt(
         trimmed,
