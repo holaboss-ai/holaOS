@@ -4211,6 +4211,12 @@ async function exportDesktopDiagnosticsBundle(
 ) {
   const workspace = resolveDiagnosticsWorkspace(payload?.workspaceId ?? null);
   const workspaceSummary = diagnosticsWorkspaceSummary(workspace);
+  const workspaceRuntimeDbPath = workspace
+    ? workspaceRuntimeDbPathForStartupCheck(
+        workspace.id,
+        workspace.workspace_path ?? null,
+      )
+    : null;
   const downloadsDir = app.getPath("downloads");
   const bundlePath = path.join(
     downloadsDir,
@@ -4222,6 +4228,7 @@ async function exportDesktopDiagnosticsBundle(
     runtimeLogPath: runtimeLogsPath(),
     runtimeDbPath: runtimeDatabasePath(),
     runtimeConfigPath: runtimeConfigPath(),
+    workspaceRuntimeDbPath,
     workspaceId: workspace?.id ?? null,
     workspaceSummary,
     summary: {
