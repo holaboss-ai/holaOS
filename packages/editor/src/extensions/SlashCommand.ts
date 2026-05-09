@@ -33,6 +33,16 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
         // Allow `/` mid-word so the menu still triggers if the user is in the
         // middle of editing a paragraph; can revisit if it gets noisy.
         allowSpaces: false,
+        // Don't fire inside code blocks: `/` is a real character there
+        // (e.g. closing tags, comments, division), and inserting block-level
+        // commands inside a code block makes no sense.
+        allow: ({ state }) => {
+          const $from = state.selection.$from;
+          for (let depth = $from.depth; depth >= 0; depth -= 1) {
+            if ($from.node(depth).type.name === "codeBlock") return false;
+          }
+          return true;
+        },
         items: ({ query }: { query: string }) =>
           filterSlashItems(defaultSlashItems(), query).slice(0, 10),
         command: ({ editor, range, props }) => {
