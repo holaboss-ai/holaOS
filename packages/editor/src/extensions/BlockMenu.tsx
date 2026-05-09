@@ -84,7 +84,7 @@ export function BlockMenu({
   const onDuplicate = () => {
     if (!node) return;
     const insertAt = pos + node.nodeSize;
-    editor.chain().focus().insertContentAt(insertAt, node.toJSON()).run();
+    editor.chain().focus(undefined, { scrollIntoView: false }).insertContentAt(insertAt, node.toJSON()).run();
     close();
   };
 
@@ -92,7 +92,7 @@ export function BlockMenu({
     if (!node) return;
     editor
       .chain()
-      .focus()
+      .focus(undefined, { scrollIntoView: false })
       .deleteRange({ from: pos, to: pos + node.nodeSize })
       .run();
     close();
