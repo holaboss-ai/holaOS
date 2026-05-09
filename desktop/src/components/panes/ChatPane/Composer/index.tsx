@@ -585,9 +585,11 @@ export function Composer({
       activeMentionRange,
       `@${item.handle}`,
     );
+    // Explicitly dismiss the current mention key so the picker can't
+    // re-open against the freshly-inserted handle on the same render.
+    setDismissedMentionKey(activeMentionKey);
     onChange(nextInput.value);
     setCaretIndex(nextInput.caretIndex);
-    setDismissedMentionKey("");
     window.requestAnimationFrame(() => {
       const textarea = textareaRef.current;
       if (!textarea) {
@@ -852,6 +854,7 @@ export function Composer({
                 <button
                   key={item.id}
                   type="button"
+                  onMouseDown={(event) => event.preventDefault()}
                   onClick={() => applyMentionItem(item)}
                   className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs transition-colors ${
                     index === highlightedMentionIndex
