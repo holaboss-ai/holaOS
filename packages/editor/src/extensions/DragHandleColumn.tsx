@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type RefObject } from "react";
 import type { Editor } from "@tiptap/core";
 import type { Node } from "@tiptap/pm/model";
 
@@ -7,10 +7,13 @@ import { BlockMenu } from "./BlockMenu";
 
 interface DragHandleColumnProps {
   editor: Editor;
-  /** Current hovered node, supplied by Tiptap's DragHandle via onNodeChange. */
-  node: Node | null;
-  /** Position of that node in the document. */
-  pos: number;
+  /** Read-only ref to the active block. The parent updates this on every
+   * DragHandle node change WITHOUT triggering a React re-render — the
+   * latest value is read at click time when we actually need it. This
+   * keeps the parent (MarkdownEditor) stable while the mouse moves over
+   * text, which prevents the bubble menu's deps-effect from re-firing
+   * (and the bubble from flickering). */
+  nodeRef: RefObject<{ node: Node | null; pos: number }>;
 }
 
 // Notion-style left-margin handle column. Three affordances:
@@ -22,18 +25,19 @@ interface DragHandleColumnProps {
 // pointer beyond a small threshold between mousedown and mouseup, treat as
 // drag (do nothing — Tiptap owns it). Otherwise treat as click and open
 // the menu.
-export function DragHandleColumn({ editor, node, pos }: DragHandleColumnProps) {
+export function DragHandleColumn({ editor, nodeRef }: DragHandleColumnProps) {
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const gripRef = useRef<HTMLButtonElement | null>(null);
   const downRef = useRef<{ x: number; y: number } | null>(null);
 
   const onAddClick = () => {
+    const { node, pos } = nodeRef.current;
     if (!node) return;
     const insertAt = pos + node.nodeSize;
     editor
       .chain()
-      .focus()
+      .focus(undefined, { scrollIntoView: false })
       .insertContentAt(insertAt, { type: "paragraph" })
       .setTextSelection(insertAt + 1)
       .run();
@@ -87,10 +91,11 @@ export function DragHandleColumn({ editor, node, pos }: DragHandleColumnProps) {
         </button>
       </div>
 
+      {/* Block menu (Turn into / Duplicate / Delete) reads the latest
+          node + pos at open time, also from the ref. */}
       <BlockMenu
         editor={editor}
-        node={node}
-        pos={pos}
+        nodeRef={nodeRef}
         anchor={gripRef.current}
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
