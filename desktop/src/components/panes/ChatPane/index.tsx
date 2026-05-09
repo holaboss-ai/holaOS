@@ -7417,7 +7417,7 @@ export function ChatPane({
                 </div>
               ) : (
                 <div
-                  className={`w-full px-4 pb-10 pt-10 sm:px-5 ${
+                  className={`mx-auto w-full ${CHAT_LAYOUT.contentMaxWidth} px-4 pb-10 pt-10 sm:px-5 ${
                     showHistoryRestoreScreen ? "invisible" : ""
                   }`}
                 >
