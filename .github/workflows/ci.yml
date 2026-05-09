@@ -17,11 +17,11 @@ on:
         default: main
         type: string
       release_tag:
-        description: GitHub release tag to create or update
+        description: GitHub release tag to create in holaOS-releases
         required: true
         type: string
       release_title:
-        description: Optional GitHub release title (defaults to the tag)
+        description: Optional GitHub release title (defaults to holaOS <version>)
         required: false
         type: string
       prerelease:
@@ -45,6 +45,9 @@ on:
 
 permissions:
   contents: read
+
+env:
+  HOLABOSS_RELEASES_REPO: holaboss-ai/holaOS-releases
 
 jobs:
   desktop-typecheck:
@@ -213,16 +216,16 @@ jobs:
         id: release_meta
         run: |
           release_tag="${{ inputs.release_tag }}"
-          if ! printf '%s' "${release_tag}" | grep -Eq '^holaboss-desktop-[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "release_tag must match holaboss-desktop-YYYY.MDD.R; got ${release_tag}" >&2
+          if ! printf '%s' "${release_tag}" | grep -Eq '^holaOS-[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "release_tag must match holaOS-YYYY.MDD.R; got ${release_tag}" >&2
             exit 1
           fi
 
-          release_version="${release_tag#holaboss-desktop-}"
+          release_version="${release_tag#holaOS-}"
           release_title="${{ inputs.release_title }}"
           release_channel="${{ inputs.release_channel }}"
           if [ -z "${release_title}" ]; then
-            release_title="Holaboss ${release_version}"
+            release_title="holaOS ${release_version}"
           fi
           if [ "${release_channel}" != "latest" ] && [ "${release_channel}" != "beta" ]; then
             echo "release_channel must be one of: latest, beta; got ${release_channel}" >&2
@@ -247,76 +250,24 @@ jobs:
 
       - name: Ensure release tag is available
         env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ steps.release_meta.outputs.release_sha }}
+          GH_TOKEN: ${{ secrets.HOLABOSS_RELEASES_REPO_TOKEN }}
           RELEASE_TAG: ${{ steps.release_meta.outputs.release_tag }}
+          RELEASE_GH_REPO: holaboss-ai/holaOS-releases
         run: |
-          remote_tag_sha="$(
-            git ls-remote --tags origin "refs/tags/${RELEASE_TAG}" | awk '{print $1}' | head -n1
-          )"
-          if [ -n "${remote_tag_sha}" ] && [ "${remote_tag_sha}" != "${RELEASE_SHA}" ]; then
-            echo "release tag ${RELEASE_TAG} already points to ${remote_tag_sha}, not ${RELEASE_SHA}" >&2
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "manual release publishing to ${RELEASE_GH_REPO} requires HOLABOSS_RELEASES_REPO_TOKEN" >&2
             exit 1
           fi
 
-          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "release ${RELEASE_TAG} already exists on GitHub" >&2
+          if git ls-remote --tags "https://github.com/${RELEASE_GH_REPO}.git" "refs/tags/${RELEASE_TAG}" | grep -q .; then
+            echo "release tag ${RELEASE_TAG} already exists in ${RELEASE_GH_REPO}" >&2
             exit 1
           fi
 
-  build-linux-runtime:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    needs: ensure-release
-    runs-on: ubuntu-latest
-    env:
-      RELEASE_TAG: ${{ needs.ensure-release.outputs.release_tag }}
-      RELEASE_CHANNEL: ${{ needs.ensure-release.outputs.release_channel }}
-      HOLABOSS_RELEASE_CHANNEL: ${{ needs.ensure-release.outputs.release_channel }}
-      GH_REPO: holaboss-ai/holaOS
-      RUNTIME_ASSET_NAME: holaboss-runtime-linux.tar.gz
-      RUNTIME_ARTIFACT_NAME: holaboss-runtime-linux
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.ensure-release.outputs.release_ref }}
-
-      - name: Setup Node 24
-        uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-
-      - name: Build Linux runtime bundle
-        env:
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-          SENTRY_ENVIRONMENT: production
-          HOLABOSS_RUNTIME_VERSION: ${{ env.RELEASE_TAG }}
-        run: bash runtime/deploy/package_linux_runtime.sh out/runtime-linux
-
-      - name: Upload runtime Sentry source maps
-        if: ${{ env.SENTRY_AUTH_TOKEN != '' }}
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
-          SENTRY_PROJECT: holaboss-runtime
-        run: |
-          npx @sentry/cli sourcemaps upload \
-            --release "${{ env.RELEASE_TAG }}" \
-            --url-prefix "~/" \
-            runtime/api-server/dist
-
-      - name: Archive Linux runtime bundle
-        run: tar -C out -czf "out/${RUNTIME_ASSET_NAME}" runtime-linux
-
-      - name: Upload Linux runtime bundle artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ env.RUNTIME_ARTIFACT_NAME }}-${{ inputs.release_tag }}
-          path: |
-            out/${{ env.RUNTIME_ASSET_NAME }}
-            out/runtime-linux/package-metadata.json
-            out/runtime-linux/runtime/metadata.json
-          if-no-files-found: error
+          if gh release view "${RELEASE_TAG}" --repo "${RELEASE_GH_REPO}" >/dev/null 2>&1; then
+            echo "release ${RELEASE_TAG} already exists in ${RELEASE_GH_REPO}" >&2
+            exit 1
+          fi
 
   release-macos-desktop:
     if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -326,9 +277,8 @@ jobs:
       RELEASE_TAG: ${{ needs.ensure-release.outputs.release_tag }}
       RELEASE_CHANNEL: ${{ needs.ensure-release.outputs.release_channel }}
       HOLABOSS_RELEASE_CHANNEL: ${{ needs.ensure-release.outputs.release_channel }}
-      RUNTIME_ASSET_NAME: holaboss-runtime-macos.tar.gz
       DESKTOP_ASSET_PREFIX: holaboss-desktop-macos
-      DESKTOP_RELEASE_ASSET_NAME: Holaboss-macos-arm64.dmg
+      DESKTOP_RELEASE_ASSET_NAME: holaOS-macos-arm64.dmg
       MAC_CERTIFICATE: ${{ secrets.MAC_CERTIFICATE }}
       MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -369,9 +319,6 @@ jobs:
             --url-prefix "~/" \
             runtime/api-server/dist
 
-      - name: Archive macOS runtime bundle
-        run: tar -C out -czf "out/${RUNTIME_ASSET_NAME}" runtime-macos
-
       - name: Prepare desktop (build SDK + install desktop deps)
         run: npm run desktop:prepare
 
@@ -393,7 +340,7 @@ jobs:
         shell: bash
         env:
           HOLABOSS_RELEASE_TAG: ${{ env.RELEASE_TAG }}
-          HOLABOSS_RUNTIME_TARBALL: ${{ github.workspace }}/out/${{ env.RUNTIME_ASSET_NAME }}
+          HOLABOSS_RUNTIME_DIR: ${{ github.workspace }}/out/runtime-macos/
           HOLABOSS_AUTH_BASE_URL: ${{ vars.HOLABOSS_AUTH_BASE_URL }}
           HOLABOSS_AUTH_SIGN_IN_URL: ${{ vars.HOLABOSS_AUTH_SIGN_IN_URL }}
           HOLABOSS_BACKEND_BASE_URL: ${{ vars.HOLABOSS_BACKEND_BASE_URL }}
@@ -460,7 +407,7 @@ jobs:
             echo "app-update.yml is missing from signed app bundle" >&2
             exit 1
           fi
-          packaged_app="${RUNNER_TEMP}/Holaboss.app"
+          packaged_app="${RUNNER_TEMP}/holaOS.app"
           rm -rf "${packaged_app}"
           ditto "${app_path}" "${packaged_app}"
           echo "app_path=${packaged_app}" >> "${GITHUB_OUTPUT}"
@@ -581,11 +528,11 @@ jobs:
               exit 1
             fi
           fi
-          if ! zipinfo -1 "${zip_path}" | grep -Eq '^Holaboss\.app/'; then
-            echo "macOS zip does not contain Holaboss.app as the root app bundle" >&2
+          if ! zipinfo -1 "${zip_path}" | grep -Eq '^holaOS\.app/'; then
+            echo "macOS zip does not contain holaOS.app as the root app bundle" >&2
             exit 1
           fi
-          if ! zipinfo -1 "${zip_path}" | grep -Fxq 'Holaboss.app/Contents/Resources/app-update.yml'; then
+          if ! zipinfo -1 "${zip_path}" | grep -Fxq 'holaOS.app/Contents/Resources/app-update.yml'; then
             echo "app-update.yml is missing from final macOS zip" >&2
             exit 1
           fi
@@ -593,9 +540,9 @@ jobs:
           rm -rf "${extract_dir}"
           mkdir -p "${extract_dir}"
           ditto -x -k "${zip_path}" "${extract_dir}"
-          extracted_app="${extract_dir}/Holaboss.app"
+          extracted_app="${extract_dir}/holaOS.app"
           if [ ! -d "${extracted_app}" ]; then
-            echo "Holaboss.app was not extracted from the final macOS zip" >&2
+            echo "holaOS.app was not extracted from the final macOS zip" >&2
             exit 1
           fi
           codesign --verify --deep --strict --verbose=2 "${extracted_app}"
@@ -632,8 +579,7 @@ jobs:
       RELEASE_CHANNEL: ${{ needs.ensure-release.outputs.release_channel }}
       HOLABOSS_RELEASE_CHANNEL: ${{ needs.ensure-release.outputs.release_channel }}
       DESKTOP_ASSET_PREFIX: holaboss-desktop-windows
-      DESKTOP_RELEASE_ASSET_NAME: Holaboss-windows-x64-setup.exe
-      RUNTIME_ASSET_NAME: holaboss-runtime-windows.tar.gz
+      DESKTOP_RELEASE_ASSET_NAME: holaOS-windows-x64-setup.exe
       WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
       WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
     steps:
@@ -702,15 +648,11 @@ jobs:
             throw "No staged Windows runtime bundle was produced under desktop/out/runtime-windows."
           }
 
-          tar -C out -czf "out/$env:RUNTIME_ASSET_NAME" runtime-windows
-
           $installerPath = $installer.FullName
           $stablePath = Join-Path $PWD "out/release/$env:DESKTOP_RELEASE_ASSET_NAME"
-          $runtimeAssetPath = Join-Path $PWD "out/$env:RUNTIME_ASSET_NAME"
           Copy-Item -LiteralPath $installerPath -Destination $stablePath -Force
           Add-Content -Path $env:GITHUB_OUTPUT -Value "generated_installer_path=$installerPath"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "installer_path=$stablePath"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "runtime_asset_path=$runtimeAssetPath"
 
       - name: Upload desktop Sentry source maps
         if: ${{ env.SENTRY_AUTH_TOKEN != '' }}
@@ -757,7 +699,6 @@ jobs:
             desktop/out/release/*.exe
             desktop/out/release/*.yml
             desktop/out/release/*.blockmap
-            desktop/out/${{ env.RUNTIME_ASSET_NAME }}
             desktop/out/runtime-windows/package-metadata.json
             desktop/out/runtime-windows/runtime/metadata.json
           if-no-files-found: error
@@ -768,13 +709,11 @@ jobs:
         always() &&
         github.event_name == 'workflow_dispatch' &&
         needs.ensure-release.result == 'success' &&
-        needs.build-linux-runtime.result == 'success' &&
         needs.release-macos-desktop.result == 'success' &&
         (needs.release-windows-desktop.result == 'success' || needs.release-windows-desktop.result == 'skipped')
       }}
     needs:
       - ensure-release
-      - build-linux-runtime
       - release-macos-desktop
       - release-windows-desktop
     permissions:
@@ -788,14 +727,9 @@ jobs:
       RELEASE_CHANNEL: ${{ needs.ensure-release.outputs.release_channel }}
       HOLABOSS_RELEASE_CHANNEL: ${{ needs.ensure-release.outputs.release_channel }}
       PRERELEASE: ${{ inputs.prerelease }}
-      GH_REPO: holaboss-ai/holaOS
+      SOURCE_GH_REPO: ${{ github.repository }}
+      RELEASE_GH_REPO: holaboss-ai/holaOS-releases
     steps:
-      - name: Download Linux runtime release artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: holaboss-runtime-linux-${{ inputs.release_tag }}
-          path: release-assets/linux-runtime
-
       - name: Download macOS desktop release artifacts
         uses: actions/download-artifact@v8
         with:
@@ -811,34 +745,40 @@ jobs:
 
       - name: Publish validated GitHub release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.HOLABOSS_RELEASES_REPO_TOKEN }}
         run: |
           notes_path="$(mktemp)"
           trap 'rm -f "${notes_path}"' EXIT
 
-          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "release ${RELEASE_TAG} already exists on GitHub" >&2
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "manual release publishing to ${RELEASE_GH_REPO} requires HOLABOSS_RELEASES_REPO_TOKEN" >&2
             exit 1
           fi
 
-          if git ls-remote --tags "https://github.com/${GH_REPO}.git" "refs/tags/${RELEASE_TAG}" | grep -q .; then
-            echo "release tag ${RELEASE_TAG} already exists on origin" >&2
+          if gh release view "${RELEASE_TAG}" --repo "${RELEASE_GH_REPO}" >/dev/null 2>&1; then
+            echo "release ${RELEASE_TAG} already exists in ${RELEASE_GH_REPO}" >&2
             exit 1
           fi
 
-          gh api "repos/${GH_REPO}/releases/generate-notes" \
+          if git ls-remote --tags "https://github.com/${RELEASE_GH_REPO}.git" "refs/tags/${RELEASE_TAG}" | grep -q .; then
+            echo "release tag ${RELEASE_TAG} already exists in ${RELEASE_GH_REPO}" >&2
+            exit 1
+          fi
+
+          gh api "repos/${SOURCE_GH_REPO}/releases/generate-notes" \
             --method POST \
             -f "tag_name=${RELEASE_TAG}" \
             -f "target_commitish=${RELEASE_SHA}" \
             --jq '.body' > "${notes_path}"
 
-          linux_runtime_asset="release-assets/linux-runtime/holaboss-runtime-linux.tar.gz"
-          mac_dmg_asset="release-assets/macos-desktop/Holaboss-macos-arm64.dmg"
-          mac_zip_asset="$(find release-assets/macos-desktop -maxdepth 1 -name 'Holaboss-*-arm64-mac.zip' -print -quit)"
-          if [ ! -f "${linux_runtime_asset}" ]; then
-            echo "missing Linux runtime release asset" >&2
-            exit 1
-          fi
+          sed -i.bak \
+            -e '/^\*\*Full Changelog\*\*:/d' \
+            -e '/^Full Changelog:/d' \
+            "${notes_path}"
+          rm -f "${notes_path}.bak"
+
+          mac_dmg_asset="release-assets/macos-desktop/holaOS-macos-arm64.dmg"
+          mac_zip_asset="$(find release-assets/macos-desktop -maxdepth 1 -name 'holaOS-*-arm64-mac.zip' -print -quit)"
           if [ ! -f "${mac_dmg_asset}" ]; then
             echo "missing macOS DMG release asset" >&2
             exit 1
@@ -849,7 +789,6 @@ jobs:
           fi
 
           upload_paths=(
-            "${linux_runtime_asset}"
             "${mac_dmg_asset}"
             "${mac_zip_asset}"
           )
@@ -866,7 +805,7 @@ jobs:
               upload_paths+=("${windows_asset}")
             done < <(
               find release-assets/windows-desktop -maxdepth 1 -type f \
-                \( -name '*.exe' -o -name '*.yml' -o -name '*.blockmap' -o -name 'holaboss-runtime-windows.tar.gz' \) \
+                \( -name '*.exe' -o -name '*.yml' -o -name '*.blockmap' \) \
                 -print | sort
             )
           fi
@@ -877,7 +816,7 @@ jobs:
           fi
 
           gh release create "${RELEASE_TAG}" \
-            --target "${RELEASE_SHA}" \
+            --repo "${RELEASE_GH_REPO}" \
             --title "${RELEASE_TITLE}" \
             --notes-file "${notes_path}" \
             "${prerelease_flag[@]}" \

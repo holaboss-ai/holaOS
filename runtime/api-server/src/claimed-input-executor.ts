@@ -703,6 +703,10 @@ function instructionWithInlineBackgroundUpdates(params: {
   baseInstruction: string;
   context: Record<string, unknown> | null | undefined;
 }): string {
+  const source = optionalString(params.context?.source)?.toLowerCase();
+  if (source === "main_session_event_batch") {
+    return params.baseInstruction;
+  }
   const deliveryBucket = optionalString(params.context?.delivery_bucket)?.toLowerCase();
   if (deliveryBucket !== "background_update") {
     return params.baseInstruction;

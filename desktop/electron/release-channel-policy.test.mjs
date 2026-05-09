@@ -100,8 +100,8 @@ test("manual CI workflow publishes desktop installers without standalone runtime
   assert.match(source, /^name: CI$/m);
   assert.match(source, /HOLABOSS_RELEASES_REPO: holaboss-ai\/holaOS-releases/);
   assert.match(source, /workflow_dispatch:\n\s+inputs:\n\s+ref:/);
-  assert.match(source, /release_tag:\n\s+description: GitHub release tag to create or update/);
-  assert.match(source, /release_title:\n\s+description: Optional GitHub release title/);
+  assert.match(source, /release_tag:\n\s+description: GitHub release tag to create in holaOS-releases/);
+  assert.match(source, /release_title:\n\s+description: Optional GitHub release title \(defaults to holaOS <version>\)/);
   assert.match(source, /prerelease:\n\s+description: Mark the GitHub release as a prerelease/);
   assert.match(source, /release_channel:\n\s+description: Auto-update channel to publish for desktop clients/);
   assert.match(source, /default: latest/);
