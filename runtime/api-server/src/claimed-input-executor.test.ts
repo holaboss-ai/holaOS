@@ -1504,10 +1504,12 @@ test("claimed input delivers materialized main-session event batches without ins
     materializedInputId: queued.inputId,
   });
 
+  let capturedInstruction = "";
   await processClaimedInput({
     store,
     record: queued,
     executeRunnerRequestFn: async (payload, options = {}) => {
+      capturedInstruction = String(payload.instruction);
       await options.onEvent?.({
         session_id: payload.session_id,
         input_id: payload.input_id,
@@ -1551,6 +1553,8 @@ test("claimed input delivers materialized main-session event batches without ins
     messages[0]?.text,
     "The research is done and the report is ready.",
   );
+  assert.doesNotMatch(capturedInstruction, /Pending Background Updates/);
+  assert.match(capturedInstruction, /\[Holaboss Main Session Event Batch v1\]/);
   assert.equal(updatedEvent?.status, "delivered");
   assert.ok(updatedEvent?.deliveredAt);
 
