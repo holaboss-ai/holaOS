@@ -590,3 +590,21 @@
 .simple-markdown.file-preview-markdown .md-hr {
   margin: 36px 0;
 }
+
+/* Toast / notification card markdown — single-line dense rendering.
+   The notification body is normally one short paragraph, so all block
+   margins collapse and link/code/strong styling stays inline. */
+.simple-markdown.hb-toast-message {
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+.simple-markdown.hb-toast-message > * {
+  margin: 0;
+}
+.simple-markdown.hb-toast-message > * + * {
+  margin-top: 0.25rem;
+}
+.simple-markdown.hb-toast-message .md-strong {
+  color: var(--foreground);
+}
