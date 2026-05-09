@@ -2695,6 +2695,8 @@ export function ChatPane({
   // immediately because scrollHeight is wrong. Mark the scroll as
   // pending and consume it once history settles + messages render.
   const pendingPrefillBottomScrollRef = useRef(false);
+  const pendingPrefillFrame1Ref = useRef(0);
+  const pendingPrefillFrame2Ref = useRef(0);
   const [isAwayFromChatBottom, setIsAwayFromChatBottom] = useState(false);
   const pendingOptimisticUserMessagesRef = useRef<
     PendingOptimisticUserMessage[]
@@ -3967,7 +3969,17 @@ export function ChatPane({
 
     container.scrollTo({
       top: container.scrollHeight,
-      behavior: isResponding || isHistoryViewportPending ? "auto" : "smooth",
+      // While a prefill bottom-scroll is in flight ChatPane has
+      // remounted with scrollTop=0 (cold mount from a sibling
+      // agentView), so any smooth animation toward the moving target
+      // gets interrupted by late renders and strands the list midway.
+      // Force instant snaps until the prefill consumer clears.
+      behavior:
+        isResponding ||
+        isHistoryViewportPending ||
+        pendingPrefillBottomScrollRef.current
+          ? "auto"
+          : "smooth",
     });
   }, [
     isHistoryViewportPending,
@@ -3979,26 +3991,39 @@ export function ChatPane({
   ]);
 
   // Consume the pending-prefill bottom-scroll once history has settled.
-  // Fires on the messages-changed-and-load-finished transition, so
-  // ChatPane lands at the latest turn after a route-back from
-  // Automations / Inbox / Sessions instead of wherever the previous
-  // viewport left scrollTop.
+  // ChatPane mounts cold from a sibling agentView (Automations / Inbox /
+  // Sessions) with scrollTop=0; without an explicit snap the user sees
+  // the list animate from top toward the latest turn and stop wherever
+  // a late render interrupted it. Snap on the load-settled transition
+  // and retry across a couple frames in case sessionOutputs /
+  // executionItems land after isLoadingHistory has flipped false.
   useEffect(() => {
     if (!pendingPrefillBottomScrollRef.current || isLoadingHistory) {
       return;
     }
-    const container = messagesRef.current;
-    if (!container) {
-      return;
-    }
-    pendingPrefillBottomScrollRef.current = false;
-    requestAnimationFrame(() => {
+    const snap = () => {
       const target = messagesRef.current;
       if (!target || hasActiveChatSelection(target)) {
         return;
       }
       target.scrollTo({ top: target.scrollHeight, behavior: "auto" });
+    };
+    snap();
+    const f1 = requestAnimationFrame(() => {
+      snap();
+      const f2 = requestAnimationFrame(snap);
+      pendingPrefillFrame2Ref.current = f2;
     });
+    pendingPrefillFrame1Ref.current = f1;
+    const settleTimer = window.setTimeout(() => {
+      snap();
+      pendingPrefillBottomScrollRef.current = false;
+    }, 240);
+    return () => {
+      cancelAnimationFrame(pendingPrefillFrame1Ref.current);
+      cancelAnimationFrame(pendingPrefillFrame2Ref.current);
+      window.clearTimeout(settleTimer);
+    };
   }, [isLoadingHistory, messages]);
 
   useLayoutEffect(() => {
