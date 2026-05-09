@@ -56,11 +56,11 @@ function toastIconClassName(level: RuntimeNotificationLevel): string {
 }
 
 function toastIcon(level: RuntimeNotificationLevel): React.ReactNode {
-  if (level === "success") return <CircleCheck className="size-4" />;
-  if (level === "warning") return <TriangleAlert className="size-4" />;
-  if (level === "error") return <TriangleAlert className="size-4" />;
-  if (level === "info") return <Info className="size-4" />;
-  return <Bell className="size-4" />;
+  if (level === "success") return <CircleCheck className="size-3.5" />;
+  if (level === "warning") return <TriangleAlert className="size-3.5" />;
+  if (level === "error") return <TriangleAlert className="size-3.5" />;
+  if (level === "info") return <Info className="size-3.5" />;
+  return <Bell className="size-3.5" />;
 }
 
 /** Action-button colour per tone. Error / info get their tone colour;
@@ -171,11 +171,11 @@ export function NotificationToastStack({
                 {isCollapsedBackgroundToast ? (
                   <div aria-hidden="true" className="h-[76px]" />
                 ) : (
-                  <div className="flex items-start gap-3 p-3.5">
+                  <div className="flex items-start gap-2.5 px-3 py-2.5">
                     <span
                       aria-hidden="true"
                       className={cn(
-                        "mt-0.5 shrink-0",
+                        "mt-px shrink-0",
                         toastIconClassName(notification.level),
                       )}
                     >
@@ -184,10 +184,10 @@ export function NotificationToastStack({
                     <div className="min-w-0 flex-1">
                       {isSessionTarget ? (
                         <div className="min-w-0 text-left">
-                          <div className="text-sm font-semibold leading-tight text-foreground">
+                          <div className="text-[13px] font-semibold leading-tight text-foreground">
                             {notification.title}
                           </div>
-                          <SimpleMarkdown className="hb-toast-message mt-1 text-xs leading-5 text-muted-foreground">
+                          <SimpleMarkdown className="hb-toast-message mt-0.5">
                             {notification.message}
                           </SimpleMarkdown>
                         </div>
@@ -197,26 +197,26 @@ export function NotificationToastStack({
                           onClick={() => onActivateNotification(notification.id)}
                           className="min-w-0 text-left"
                         >
-                          <div className="text-sm font-semibold leading-tight text-foreground">
+                          <div className="text-[13px] font-semibold leading-tight text-foreground">
                             {notification.title}
                           </div>
-                          <SimpleMarkdown className="hb-toast-message mt-1 text-xs leading-5 text-muted-foreground">
+                          <SimpleMarkdown className="hb-toast-message mt-0.5">
                             {notification.message}
                           </SimpleMarkdown>
                         </button>
                       )}
                       {isSessionTarget ? (
-                        <div className="mt-2.5">
+                        <div className="mt-2">
                           <Button
                             type="button"
                             size="sm"
                             onClick={() => onActivateNotification(notification.id)}
                             className={cn(
-                              "h-7 rounded-md px-3 text-xs font-medium shadow-none",
+                              "h-6 rounded-md px-2.5 text-[11px] font-medium shadow-none",
                               toastButtonClassName(notification.level),
                             )}
                           >
-                            <ArrowUpRight className="size-3.5" />
+                            <ArrowUpRight className="size-3" />
                             View session
                           </Button>
                         </div>
@@ -228,9 +228,9 @@ export function NotificationToastStack({
                       size="icon-xs"
                       aria-label={`Dismiss notification ${notification.title}`}
                       onClick={() => onCloseToast(notification.id)}
-                      className="-mr-1 -mt-1 text-muted-foreground hover:text-foreground"
+                      className="-mr-1 -mt-0.5 text-muted-foreground/60 hover:text-foreground"
                     >
-                      <X size={14} />
+                      <X size={12} />
                     </Button>
                   </div>
                 )}

@@ -595,15 +595,17 @@
    The notification body is normally one short paragraph, so all block
    margins collapse and link/code/strong styling stays inline. */
 .simple-markdown.hb-toast-message {
-  font-size: inherit;
-  line-height: inherit;
-  color: inherit;
+  font-size: 0.75rem;
+  line-height: 1.05rem;
+  color: var(--muted-foreground);
 }
 .simple-markdown.hb-toast-message > * {
   margin: 0;
+  font-size: inherit;
+  line-height: inherit;
 }
 .simple-markdown.hb-toast-message > * + * {
-  margin-top: 0.25rem;
+  margin-top: 0.2rem;
 }
 .simple-markdown.hb-toast-message .md-strong {
   color: var(--foreground);
