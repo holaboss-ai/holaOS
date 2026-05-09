@@ -116,7 +116,7 @@ export const MarkdownEditor = forwardRef<
         // Disable StarterKit's plain code block — we replace it with the
         // lowlight-powered version below for syntax highlighting.
         codeBlock: false,
-        heading: { levels: [1, 2, 3] },
+        heading: { levels: [1, 2, 3, 4, 5, 6] },
         link: {
           openOnClick: false,
           autolink: true,
