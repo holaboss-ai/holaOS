@@ -345,7 +345,10 @@ function resolveLivePiSessionFile(params: {
     workspaceDir: params.workspaceDir,
     harness: "pi",
   });
-  for (const candidate of [persistedSessionId, params.harnessSessionId]) {
+  // Main-session followups must stay anchored to the current session binding.
+  // The workspace-level pi pointer is only a fallback when the session binding
+  // is empty or has not been materialized into a real file yet.
+  for (const candidate of [params.harnessSessionId, persistedSessionId]) {
     const resolvedCandidate = nonEmptyString(candidate);
     const resolved = resolvedCandidate ? path.resolve(resolvedCandidate) : null;
     if (resolved && fs.existsSync(resolved)) {

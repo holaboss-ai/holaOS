@@ -1836,7 +1836,7 @@ test("claimed input requeues paused materialized main-session event batches with
   store.close();
 });
 
-test("claimed input runs main-session followups on a snapshot and syncs only the assistant reply into live pi history", async () => {
+test("claimed input runs main-session followups on the bound session snapshot even when workspace pi state points elsewhere", async () => {
   const store = makeStore("hb-claimed-input-main-session-followup-snapshot-");
   const workspace = store.createWorkspace({
     workspaceId: "workspace-1",
@@ -1862,6 +1862,28 @@ test("claimed input runs main-session followups on a snapshot and syncs only the
     workspaceDir,
     harness: "pi",
     sessionId: liveSessionFile,
+  });
+  store.upsertBinding({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    harness: "pi",
+    harnessSessionId: liveSessionFile,
+  });
+  const { sessionManager: otherSessionManager, sessionFile: otherSessionFile } =
+    createPiSessionFile({
+      workspaceDir,
+      sessionDir: path.join(workspaceDir, ".holaboss", "pi-sessions"),
+    });
+  otherSessionManager.appendMessage(
+    piUserMessage("This is a subagent-only pi session."),
+  );
+  otherSessionManager.appendMessage(
+    piAssistantMessage("Subagent result lives here."),
+  );
+  persistWorkspaceHarnessSessionId({
+    workspaceDir,
+    harness: "pi",
+    sessionId: otherSessionFile,
   });
 
   const event = store.enqueueMainSessionEvent({
@@ -1914,6 +1936,11 @@ test("claimed input runs main-session followups on a snapshot and syncs only the
           : "";
       assert.ok(snapshotSessionFile);
       assert.notEqual(snapshotSessionFile, liveSessionFile);
+      assert.equal(path.basename(snapshotSessionFile), path.basename(liveSessionFile));
+      assert.notEqual(
+        path.basename(snapshotSessionFile),
+        path.basename(otherSessionFile),
+      );
       await options.onEvent?.({
         session_id: payload.session_id,
         input_id: payload.input_id,
