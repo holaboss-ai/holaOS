@@ -1635,6 +1635,9 @@ function AppShellContent() {
     {},
   );
   const startupWorkspaceSelectionHandledRef = useRef(false);
+  const seenWorkspaceIdsRef = useRef<Set<string>>(new Set());
+  const newlyCreatedWorkspaceIdsRef = useRef<Set<string>>(new Set());
+  const workspaceListInitializedRef = useRef(false);
   const lastRestorableSpaceFileDisplayViewByWorkspaceRef = useRef<
     Record<string, RestorableSpaceFileDisplayView>
   >({});
@@ -3723,6 +3726,40 @@ function AppShellContent() {
     setSelectedWorkspaceId,
     workspaces,
   ]);
+
+  // Flag any workspace IDs that show up *after* the initial hydration as
+  // "freshly created in this session". Hydration itself never marks
+  // anything new — existing workspaces from a prior session land in seen
+  // before initialised flips true, so reload doesn't re-trigger expand.
+  useEffect(() => {
+    if (!hasHydratedWorkspaceList) {
+      return;
+    }
+    for (const workspace of workspaces) {
+      if (
+        workspaceListInitializedRef.current &&
+        !seenWorkspaceIdsRef.current.has(workspace.id)
+      ) {
+        newlyCreatedWorkspaceIdsRef.current.add(workspace.id);
+      }
+      seenWorkspaceIdsRef.current.add(workspace.id);
+    }
+    workspaceListInitializedRef.current = true;
+  }, [workspaces, hasHydratedWorkspaceList]);
+
+  // First time selectedWorkspaceId points at a freshly-created workspace,
+  // expand the explorer panel so the user lands on a fully-revealed
+  // surface. Consumed once — subsequent visits respect persisted state.
+  useEffect(() => {
+    const workspaceId = selectedWorkspaceId?.trim();
+    if (!workspaceId) {
+      return;
+    }
+    if (newlyCreatedWorkspaceIdsRef.current.has(workspaceId)) {
+      newlyCreatedWorkspaceIdsRef.current.delete(workspaceId);
+      setSpaceWorkspacePanelCollapsed(false);
+    }
+  }, [selectedWorkspaceId]);
 
   const handleChatComposerDraftTextChange = useCallback(
     (text: string) => {
