@@ -2411,53 +2411,39 @@ function ChatScheduleEditContextCard({
 }) {
   const title = job.name?.trim() || job.description?.trim() || "Schedule";
   const instruction = job.instruction?.trim() ?? "";
-  const description = job.description?.trim() ?? "";
-  const showDescription = description && description !== instruction;
   return (
-    <div className="rounded-2xl border border-border bg-fg-2 px-3.5 py-3 text-sm shadow-sm">
-      <div className="flex items-start gap-2.5">
-        <Clock3 className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
-            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              Editing
+    <div className="flex items-start gap-2 rounded-xl bg-fg-2/60 px-3 py-2 text-sm">
+      <Clock3 className="mt-1 size-3.5 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-xs text-muted-foreground">Editing</span>
+          <span className="truncate text-sm font-medium text-foreground">
+            {title}
+          </span>
+          {!job.enabled ? (
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              · paused
             </span>
-            <span className="truncate text-[13px] font-semibold leading-tight text-foreground">
-              {title}
-            </span>
-          </div>
-          <div className="mt-0.5 truncate text-xs text-muted-foreground">
-            <span className="font-mono text-[11px]">{job.cron}</span>
-            {!job.enabled ? (
-              <span className="ml-2 text-[10px] uppercase tracking-wide">
-                · Paused
-              </span>
-            ) : null}
-          </div>
-          {instruction ? (
-            <div className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-card px-2.5 py-1.5 text-xs leading-5 text-foreground">
-              {instruction}
-            </div>
-          ) : null}
-          {showDescription ? (
-            <div className="mt-1.5 text-xs leading-5 text-muted-foreground">
-              {description}
-            </div>
           ) : null}
         </div>
-        {onDismiss ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Dismiss schedule context"
-            onClick={onDismiss}
-            className="-mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
-          >
-            <X size={12} />
-          </Button>
+        {instruction ? (
+          <div className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-muted-foreground">
+            {instruction}
+          </div>
         ) : null}
       </div>
+      {onDismiss ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Dismiss schedule context"
+          onClick={onDismiss}
+          className="-mr-1 -mt-0.5 size-5 text-muted-foreground/60 hover:text-foreground"
+        >
+          <X size={12} />
+        </Button>
+      ) : null}
     </div>
   );
 }
