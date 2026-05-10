@@ -1195,6 +1195,16 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
   useEffect(() => {
     let cancelled = false;
     async function loadMarketplaceTemplates() {
+      // Skip the fetch when there's no usable session — the BFF will 401
+      // anyway, and a 401 elsewhere in the stack can trigger an unwanted
+      // auto sign-in browser popup. Just clear local state.
+      if (!canUseMarketplaceTemplates) {
+        setMarketplaceTemplates([]);
+        setSelectedMarketplaceTemplateName("");
+        setMarketplaceTemplatesError("");
+        setIsLoadingMarketplaceTemplates(false);
+        return;
+      }
       setIsLoadingMarketplaceTemplates(true);
       setMarketplaceTemplatesError("");
       try {
