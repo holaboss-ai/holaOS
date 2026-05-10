@@ -7335,7 +7335,7 @@ export function ChatPane({
                   void loadOlderSessionHistory();
                 }
               }}
-              className={`chat-scrollbar-thin h-full min-h-0 overflow-x-hidden overflow-y-auto ${hasMessages ? "" : "flex items-center justify-center"}`}
+              className="chat-scrollbar-thin h-full min-h-0 overflow-x-hidden overflow-y-auto"
             >
               {hasMessages ? (
                 <div
@@ -7417,7 +7417,7 @@ export function ChatPane({
                 </div>
               ) : (
                 <div
-                  className={`w-full px-4 pb-10 pt-10 sm:px-5 ${
+                  className={`mx-auto flex min-h-full w-full ${CHAT_LAYOUT.contentMaxWidth} flex-col justify-center px-4 pb-10 pt-10 sm:px-5 ${
                     showHistoryRestoreScreen ? "invisible" : ""
                   }`}
                 >
