@@ -20,6 +20,7 @@
   "dependencies": {
     "@fastify/websocket": "^11.2.0",
     "@holaboss/runtime-state-store": "file:../state-store",
+    "@mariozechner/pi-coding-agent": "0.66.0",
     "@modelcontextprotocol/sdk": "^1.28.0",
     "@sentry/node": "^10.48.0",
     "@types/js-yaml": "^4.0.9",

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
 import type {
   OutputRecord,
@@ -89,8 +90,14 @@ const CONTEXT_BUDGET_COMPACTION_EVENT_TYPES = new Set([
   "compaction_end",
   "compaction_restored",
 ]);
-const PI_SESSION_MANAGER_MODULE_PATH =
-  "../../harness-host/node_modules/@mariozechner/pi-coding-agent/dist/core/session-manager.js";
+const PI_PACKAGE_ENTRY_PATH = fileURLToPath(
+  import.meta.resolve("@mariozechner/pi-coding-agent"),
+);
+const PI_SESSION_MANAGER_MODULE_PATH = path.join(
+  path.dirname(PI_PACKAGE_ENTRY_PATH),
+  "core",
+  "session-manager.js",
+);
 const PI_SESSION_DIR_RELATIVE = path.join(".holaboss", "pi-sessions");
 
 interface SessionInputAttachment {

@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, test as nodeTest } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { RuntimeStateStore } from "@holaboss/runtime-state-store";
 
@@ -32,8 +33,14 @@ const ORIGINAL_ENV = {
   HOLABOSS_HARNESS_RUN_TIMEOUT_S: process.env.HOLABOSS_HARNESS_RUN_TIMEOUT_S,
 };
 const require = createRequire(import.meta.url);
-const PI_SESSION_MANAGER_MODULE_PATH =
-  "../../harness-host/node_modules/@mariozechner/pi-coding-agent/dist/core/session-manager.js";
+const PI_PACKAGE_ENTRY_PATH = fileURLToPath(
+  import.meta.resolve("@mariozechner/pi-coding-agent"),
+);
+const PI_SESSION_MANAGER_MODULE_PATH = path.join(
+  path.dirname(PI_PACKAGE_ENTRY_PATH),
+  "core",
+  "session-manager.js",
+);
 
 function test(
   name: string,
