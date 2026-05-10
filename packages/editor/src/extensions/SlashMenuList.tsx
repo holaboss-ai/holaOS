@@ -20,6 +20,7 @@ import {
   IconListChecks,
   IconListOrdered,
   IconQuote,
+  IconTable,
   IconText,
 } from "../icons";
 
@@ -278,6 +279,21 @@ export function defaultSlashItems(): SlashItem[] {
       shortcut: "```",
       command: ({ editor, range }) =>
         editor.chain().focus(undefined, { scrollIntoView: false }).deleteRange(range).toggleCodeBlock().run(),
+    },
+    {
+      id: "table",
+      section: "Other",
+      title: "Table",
+      subtitle: "3×3 grid, columns resize",
+      keywords: ["table", "grid", "rows", "cols"],
+      icon: IconTable,
+      command: ({ editor, range }) =>
+        editor
+          .chain()
+          .focus(undefined, { scrollIntoView: false })
+          .deleteRange(range)
+          .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+          .run(),
     },
     {
       id: "divider",

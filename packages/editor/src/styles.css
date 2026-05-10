@@ -63,18 +63,27 @@
   margin-top: 0.5em;
 }
 
-/* Subtle row-level hover. Only on direct children of ProseMirror so
- * inline marks don't trigger it. The padding + negative margin keeps the
- * highlight slightly wider than the text without shifting layout. */
-.hb-md-editor .ProseMirror > *:not(pre):not(hr) {
+/* Subtle row-level hover. Lists are excluded — hovering one item lit
+ * the whole list, and the shorthand padding clobbered ul/ol's
+ * padding-left, pushing bullets to the editor's left edge. */
+.hb-md-editor .ProseMirror > *:not(pre):not(hr):not(ul):not(ol) {
   position: relative;
   border-radius: 0.25rem;
-  padding: 1px 4px;
+  padding-block: 1px;
+  padding-inline: 4px;
   margin-left: -4px;
   margin-right: -4px;
   transition: background-color 80ms ease;
 }
-.hb-md-editor .ProseMirror > *:not(pre):not(hr):hover {
+.hb-md-editor .ProseMirror > *:not(pre):not(hr):not(ul):not(ol):hover {
+  background: color-mix(in oklab, currentColor 3%, transparent);
+}
+/* Hover at the list-item level instead. */
+.hb-md-editor .ProseMirror li {
+  border-radius: 0.25rem;
+  transition: background-color 80ms ease;
+}
+.hb-md-editor .ProseMirror li:hover {
   background: color-mix(in oklab, currentColor 3%, transparent);
 }
 
