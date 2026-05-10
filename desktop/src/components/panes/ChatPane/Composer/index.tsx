@@ -966,15 +966,7 @@ export function Composer({
           }`}
         >
           {showModelSelector ? (
-            <div
-              className={
-                compactComposerControls
-                  ? "min-w-0 shrink-0"
-                  : noAvailableModels
-                    ? "min-w-0 flex flex-1 basis-full flex-wrap items-center gap-2"
-                    : "min-w-0 shrink-0"
-              }
-            >
+            <div className="min-w-0 shrink-0">
               {noAvailableModels ? (
                 <Button
                   type="button"

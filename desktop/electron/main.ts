@@ -9367,6 +9367,14 @@ async function retryAfterSessionAuth(
   if (unauthorizedResponse.status !== 401 || !desktopAuthClient) {
     return unauthorizedResponse;
   }
+  // Don't auto-launch sign-in when the user has explicitly signed out (no
+  // cookie). The retry is for *expired* sessions; for an intentional
+  // sign-out, 401 is the expected result and pulling the user to the login
+  // page surprises them ("clicked Settings, browser opened to sign-in").
+  // The caller will surface the 401 as a normal "not authenticated" error.
+  if (!authCookieHeader()) {
+    return unauthorizedResponse;
+  }
   try {
     if (!pendingGatewayAuthRetry) {
       const authComplete = waitForAuthCallback();
