@@ -1,5 +1,8 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
 import type {
   OutputRecord,
@@ -53,12 +56,18 @@ import {
 } from "./turn-output-capture.js";
 import { compactTurnSummary } from "./turn-result-summary.js";
 import { queuedMainSessionEventPromptEntry } from "./main-session-event-prompt.js";
+import {
+  persistWorkspaceHarnessSessionId,
+  readWorkspaceHarnessSessionId,
+} from "./ts-runner-session-state.js";
 
 const ONBOARD_PROMPT_HEADER = "[Holaboss Workspace Onboarding v1]";
 const RUNTIME_EXEC_CONTEXT_KEY = "_sandbox_runtime_exec_v1";
 const RUNTIME_EXEC_MODEL_PROXY_API_KEY_KEY = "model_proxy_api_key";
 const RUNTIME_EXEC_SANDBOX_ID_KEY = "sandbox_id";
 const RUNTIME_EXEC_RUN_ID_KEY = "run_id";
+const RUNTIME_EXEC_EPHEMERAL_HARNESS_SESSION_KEY =
+  "ephemeral_harness_session";
 const DEFAULT_CLAIM_LEASE_SECONDS = 300;
 const TERMINAL_OUTPUT_EVENT_TYPES = new Set(["run_completed", "run_failed"]);
 const CLAIMED_INPUT_SENTRY_TEXT_LIMIT = 1200;
@@ -81,6 +90,15 @@ const CONTEXT_BUDGET_COMPACTION_EVENT_TYPES = new Set([
   "compaction_end",
   "compaction_restored",
 ]);
+const PI_PACKAGE_ENTRY_PATH = fileURLToPath(
+  import.meta.resolve("@mariozechner/pi-coding-agent"),
+);
+const PI_SESSION_MANAGER_MODULE_PATH = path.join(
+  path.dirname(PI_PACKAGE_ENTRY_PATH),
+  "core",
+  "session-manager.js",
+);
+const PI_SESSION_DIR_RELATIVE = path.join(".holaboss", "pi-sessions");
 
 interface SessionInputAttachment {
   id: string;
@@ -98,6 +116,41 @@ interface RuntimeBindingSentryContextInput {
   modelProxyBaseUrl: string;
   defaultModel?: string;
   defaultProvider?: string;
+}
+
+interface PiSessionBranchEntry {
+  id: string;
+  type?: string;
+  message?: unknown;
+}
+
+interface PiSessionManagerInstance {
+  getBranch(fromId?: string): PiSessionBranchEntry[];
+  getLeafId(): string | null;
+  branch(branchFromId: string): void;
+  resetLeaf(): void;
+  appendMessage(message: Record<string, unknown>): string;
+}
+
+interface PiSessionManagerStatic {
+  create(cwd: string, sessionDir?: string): PiSessionManagerInstance;
+  open(sessionFile: string): PiSessionManagerInstance;
+}
+
+interface PiCompactionBranchEntry extends PiSessionBranchEntry {
+  id: string;
+}
+
+type GetLatestPiCompactionEntryFn = (
+  branch: PiSessionBranchEntry[],
+) => PiCompactionBranchEntry | null | undefined;
+
+interface EphemeralPiFollowupRunState {
+  snapshotDir: string;
+  snapshotSessionFile: string;
+  liveSessionFile: string | null;
+  baseLeafId: string | null;
+  baseLatestCompactionId: string | null;
 }
 
 interface TurnContextBudgetTelemetry {
@@ -234,6 +287,196 @@ function nonEmptyString(value: unknown): string | null {
   }
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+const require = createRequire(import.meta.url);
+
+function loadPiSessionManagerModule(): {
+  SessionManager: PiSessionManagerStatic;
+  getLatestCompactionEntry: GetLatestPiCompactionEntryFn;
+} {
+  return require(PI_SESSION_MANAGER_MODULE_PATH) as {
+    SessionManager: PiSessionManagerStatic;
+    getLatestCompactionEntry: GetLatestPiCompactionEntryFn;
+  };
+}
+
+function resolvePiLiveSessionDir(workspaceDir: string): string {
+  return path.join(workspaceDir, PI_SESSION_DIR_RELATIVE);
+}
+
+function openPiSessionManager(sessionFile: string): PiSessionManagerInstance {
+  return loadPiSessionManagerModule().SessionManager.open(sessionFile);
+}
+
+function createPiSessionFile(params: {
+  workspaceDir: string;
+  sessionDir: string;
+}): string {
+  fs.mkdirSync(params.sessionDir, { recursive: true });
+  const sessionManager = loadPiSessionManagerModule().SessionManager.create(
+    params.workspaceDir,
+    params.sessionDir,
+  );
+  const sessionFile = nonEmptyString(
+    (sessionManager as { getSessionFile?: () => string | undefined })
+      .getSessionFile?.(),
+  );
+  if (!sessionFile) {
+    throw new Error("pi session manager did not return a session file");
+  }
+  return sessionFile;
+}
+
+function latestPiCompactionId(branch: PiSessionBranchEntry[]): string | null {
+  return loadPiSessionManagerModule().getLatestCompactionEntry(branch)?.id ?? null;
+}
+
+function currentPiSessionLeafState(sessionFile: string): {
+  leafId: string | null;
+  latestCompactionId: string | null;
+} {
+  const sessionManager = openPiSessionManager(sessionFile);
+  const branch = sessionManager.getBranch();
+  return {
+    leafId: sessionManager.getLeafId(),
+    latestCompactionId: latestPiCompactionId(branch),
+  };
+}
+
+function resolveLivePiSessionFile(params: {
+  workspaceDir: string;
+  harnessSessionId: string | null;
+}): string | null {
+  const persistedSessionId = readWorkspaceHarnessSessionId({
+    workspaceDir: params.workspaceDir,
+    harness: "pi",
+  });
+  // Main-session followups must stay anchored to the current session binding.
+  // The workspace-level pi pointer is only a fallback when the session binding
+  // is empty or has not been materialized into a real file yet.
+  for (const candidate of [params.harnessSessionId, persistedSessionId]) {
+    const resolvedCandidate = nonEmptyString(candidate);
+    const resolved = resolvedCandidate ? path.resolve(resolvedCandidate) : null;
+    if (resolved && fs.existsSync(resolved)) {
+      return resolved;
+    }
+  }
+  return null;
+}
+
+function prepareEphemeralPiFollowupRun(params: {
+  workspaceDir: string;
+  harnessSessionId: string | null;
+}): EphemeralPiFollowupRunState {
+  const liveSessionFile = resolveLivePiSessionFile({
+    workspaceDir: params.workspaceDir,
+    harnessSessionId: params.harnessSessionId,
+  });
+  const snapshotDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "hb-main-session-followup-"),
+  );
+  const snapshotSessionFile = liveSessionFile
+    ? path.join(snapshotDir, path.basename(liveSessionFile))
+    : createPiSessionFile({
+        workspaceDir: params.workspaceDir,
+        sessionDir: snapshotDir,
+      });
+  if (liveSessionFile) {
+    fs.copyFileSync(liveSessionFile, snapshotSessionFile);
+  }
+  const baseState = liveSessionFile
+    ? currentPiSessionLeafState(liveSessionFile)
+    : {
+        leafId: null,
+        latestCompactionId: null,
+      };
+  return {
+    snapshotDir,
+    snapshotSessionFile,
+    liveSessionFile,
+    baseLeafId: baseState.leafId,
+    baseLatestCompactionId: baseState.latestCompactionId,
+  };
+}
+
+function isPiAssistantMessageRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return isRecord(value) && value.role === "assistant";
+}
+
+function latestPiAssistantMessageFromSessionFile(
+  sessionFile: string,
+): Record<string, unknown> | null {
+  const branch = openPiSessionManager(sessionFile).getBranch();
+  for (let index = branch.length - 1; index >= 0; index -= 1) {
+    const entry = branch[index];
+    if (entry.type === "message" && isPiAssistantMessageRecord(entry.message)) {
+      return entry.message;
+    }
+  }
+  return null;
+}
+
+function assistantMessageFromPiNativeEventPayload(
+  payload: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const nativeType = nonEmptyString(payload.native_type)?.toLowerCase();
+  if (nativeType !== "message_end") {
+    return null;
+  }
+  const nativeEvent = isRecord(payload.native_event) ? payload.native_event : null;
+  if (!nativeEvent) {
+    return null;
+  }
+  const message = nativeEvent.message;
+  return isPiAssistantMessageRecord(message) ? message : null;
+}
+
+function canReanchorPiAssistantMessage(params: {
+  sessionFile: string;
+  baseLeafId: string | null;
+  baseLatestCompactionId: string | null;
+}): boolean {
+  const sessionManager = openPiSessionManager(params.sessionFile);
+  if (sessionManager.getLeafId() !== (params.baseLeafId ?? null)) {
+    return false;
+  }
+  const branch = sessionManager.getBranch();
+  return (
+    latestPiCompactionId(branch) === (params.baseLatestCompactionId ?? null)
+  );
+}
+
+function appendPiAssistantMessageAtLeaf(params: {
+  sessionFile: string;
+  baseLeafId: string | null;
+  assistantMessage: Record<string, unknown>;
+}): void {
+  const sessionManager = openPiSessionManager(params.sessionFile);
+  if (params.baseLeafId) {
+    sessionManager.branch(params.baseLeafId);
+  } else {
+    sessionManager.resetLeaf();
+  }
+  sessionManager.appendMessage(params.assistantMessage);
+}
+
+function sanitizeEphemeralHarnessSessionPayload(params: {
+  payload: Record<string, unknown>;
+  liveSessionFile: string | null;
+}): Record<string, unknown> {
+  if (!("harness_session_id" in params.payload)) {
+    return params.payload;
+  }
+  const nextPayload = { ...params.payload };
+  if (params.liveSessionFile) {
+    nextPayload.harness_session_id = params.liveSessionFile;
+  } else {
+    delete nextPayload.harness_session_id;
+  }
+  return nextPayload;
 }
 
 function claimedInputRunId(params: {
@@ -2876,7 +3119,11 @@ function maybePersistHarnessSessionId(params: {
   harness: string;
   eventType: string;
   payload: Record<string, unknown>;
+  allowBindingPersistence?: boolean;
 }): void {
+  if (params.allowBindingPersistence === false) {
+    return;
+  }
   if (!["run_completed", "run_failed"].includes(params.eventType)) {
     return;
   }
@@ -3170,6 +3417,8 @@ export async function processClaimedInput(params: {
     const priorExecContext = isRecord(runtimeContext[RUNTIME_EXEC_CONTEXT_KEY])
       ? { ...runtimeContext[RUNTIME_EXEC_CONTEXT_KEY] }
       : {};
+    let ephemeralPiFollowupRun: EphemeralPiFollowupRunState | null = null;
+    let useEphemeralHarnessSession = false;
     const resolveRuntimeConfig =
       params.resolveProductRuntimeConfigFn ?? resolveProductRuntimeConfig;
     const runtimeBinding = resolveRuntimeConfig({
@@ -3177,6 +3426,45 @@ export async function processClaimedInput(params: {
       requireUser: false,
       requireBaseUrl: false,
     });
+    if (inputSource === "main_session_event_batch" && harness === "pi") {
+      try {
+        ephemeralPiFollowupRun = prepareEphemeralPiFollowupRun({
+          workspaceDir,
+          harnessSessionId,
+        });
+        useEphemeralHarnessSession = true;
+        if (ephemeralPiFollowupRun.liveSessionFile) {
+          checkpointHarnessSessionId = ephemeralPiFollowupRun.liveSessionFile;
+        }
+      } catch (error) {
+        (params.captureRuntimeExceptionFn ?? captureRuntimeException)({
+          error,
+          level: "warning",
+          fingerprint: [
+            "runtime",
+            "claimed_input",
+            "followup_snapshot_prepare_failed",
+            harness,
+          ],
+          tags: {
+            surface: "claimed_input_executor",
+            failure_kind: "followup_snapshot_prepare_failed",
+            harness,
+            session_kind: sessionKind,
+          },
+          contexts: {
+            claimed_input: {
+              workspace_id: record.workspaceId,
+              session_id: record.sessionId,
+              input_id: record.inputId,
+              run_id: runId,
+              harness_session_id: checkpointHarnessSessionId,
+              selected_model: selectedModel,
+            },
+          },
+        });
+      }
+    }
     if (
       typeof priorExecContext[RUNTIME_EXEC_MODEL_PROXY_API_KEY_KEY] !==
         "string" &&
@@ -3195,7 +3483,11 @@ export async function processClaimedInput(params: {
       priorExecContext[RUNTIME_EXEC_RUN_ID_KEY] = runId;
     }
     priorExecContext.harness = harness;
-    priorExecContext.harness_session_id = harnessSessionId;
+    priorExecContext.harness_session_id =
+      ephemeralPiFollowupRun?.snapshotSessionFile ?? harnessSessionId;
+    if (useEphemeralHarnessSession) {
+      priorExecContext[RUNTIME_EXEC_EPHEMERAL_HARNESS_SESSION_KEY] = true;
+    }
     runtimeContext[RUNTIME_EXEC_CONTEXT_KEY] = priorExecContext;
     const registerRunStarted =
       params.registerRunStartedFn ?? registerWorkspaceAgentRunStarted;
@@ -3309,6 +3601,8 @@ export async function processClaimedInput(params: {
     });
 
     const assistantParts: string[] = [];
+    let capturedPiAssistantMessage: Record<string, unknown> | null = null;
+    let syncedEphemeralLiveSessionFile: string | null = null;
     let terminalStatus: "IDLE" | "WAITING_USER" | "PAUSED" | "ERROR" = "IDLE";
     let lastError: Record<string, unknown> | null = null;
     let lastSequence = 0;
@@ -3452,7 +3746,13 @@ export async function processClaimedInput(params: {
           const sequence =
             typeof event.sequence === "number" ? event.sequence : 0;
           lastSequence = Math.max(lastSequence, sequence);
-          const eventPayload = payloadForEvent(event);
+          let eventPayload = payloadForEvent(event);
+          if (useEphemeralHarnessSession) {
+            eventPayload = sanitizeEphemeralHarnessSessionPayload({
+              payload: eventPayload,
+              liveSessionFile: ephemeralPiFollowupRun?.liveSessionFile ?? null,
+            });
+          }
           const eventTimestamp = eventTimestampOrNow(event);
           const eventType =
             typeof event.event_type === "string" ? event.event_type : "unknown";
@@ -3481,6 +3781,11 @@ export async function processClaimedInput(params: {
           if (terminalHarnessSessionId) {
             checkpointHarnessSessionId = terminalHarnessSessionId;
           }
+          if (eventType === "pi_native_event") {
+            capturedPiAssistantMessage =
+              assistantMessageFromPiNativeEventPayload(eventPayload) ??
+              capturedPiAssistantMessage;
+          }
           if (eventType === "run_completed" || eventType === "run_failed") {
             deferredTerminalEvent = {
               eventType,
@@ -3505,6 +3810,7 @@ export async function processClaimedInput(params: {
             harness,
             eventType,
             payload: eventPayload,
+            allowBindingPersistence: !useEphemeralHarnessSession,
           });
           if (
             event.event_type === "output_delta" &&
@@ -3961,6 +4267,93 @@ export async function processClaimedInput(params: {
             }
           : null;
       const assistantText = assistantParts.join("").trim();
+      if (
+        useEphemeralHarnessSession &&
+        terminalStatus !== "ERROR" &&
+        terminalStatus !== "PAUSED" &&
+        ephemeralPiFollowupRun
+      ) {
+        const assistantMessage =
+          capturedPiAssistantMessage ??
+          latestPiAssistantMessageFromSessionFile(
+            ephemeralPiFollowupRun.snapshotSessionFile,
+          );
+        if (assistantMessage) {
+          let createdLiveSessionFile = false;
+          let liveSessionFile = ephemeralPiFollowupRun.liveSessionFile;
+          try {
+            if (!liveSessionFile) {
+              liveSessionFile = createPiSessionFile({
+                workspaceDir,
+                sessionDir: resolvePiLiveSessionDir(workspaceDir),
+              });
+              createdLiveSessionFile = true;
+            }
+            if (
+              canReanchorPiAssistantMessage({
+                sessionFile: liveSessionFile,
+                baseLeafId: ephemeralPiFollowupRun.baseLeafId,
+                baseLatestCompactionId:
+                  ephemeralPiFollowupRun.baseLatestCompactionId,
+              })
+            ) {
+              appendPiAssistantMessageAtLeaf({
+                sessionFile: liveSessionFile,
+                baseLeafId: ephemeralPiFollowupRun.baseLeafId,
+                assistantMessage,
+              });
+              syncedEphemeralLiveSessionFile = liveSessionFile;
+              checkpointHarnessSessionId = liveSessionFile;
+              ephemeralPiFollowupRun.liveSessionFile = liveSessionFile;
+              store.upsertBinding({
+                workspaceId: record.workspaceId,
+                sessionId: record.sessionId,
+                harness,
+                harnessSessionId: liveSessionFile,
+              });
+              persistWorkspaceHarnessSessionId({
+                workspaceDir,
+                harness,
+                sessionId: liveSessionFile,
+              });
+            } else if (createdLiveSessionFile) {
+              fs.rmSync(liveSessionFile, { force: true });
+            }
+          } catch (error) {
+            if (createdLiveSessionFile && liveSessionFile) {
+              fs.rmSync(liveSessionFile, { force: true });
+            }
+            (params.captureRuntimeExceptionFn ?? captureRuntimeException)({
+              error,
+              level: "warning",
+              fingerprint: [
+                "runtime",
+                "claimed_input",
+                "followup_live_sync_failed",
+                harness,
+              ],
+              tags: {
+                surface: "claimed_input_executor",
+                failure_kind: "followup_live_sync_failed",
+                harness,
+                session_kind: sessionKind,
+              },
+              contexts: {
+                claimed_input: {
+                  workspace_id: record.workspaceId,
+                  session_id: record.sessionId,
+                  input_id: record.inputId,
+                  run_id: runId,
+                  harness_session_id:
+                    ephemeralPiFollowupRun.liveSessionFile ??
+                    checkpointHarnessSessionId,
+                  selected_model: selectedModel,
+                },
+              },
+            });
+          }
+        }
+      }
       const toolUsageSummary = summarizeToolCalls(
         toolCallsById,
         skillInvocationsById,
@@ -3970,22 +4363,39 @@ export async function processClaimedInput(params: {
         store.getWorkspace(record.workspaceId)?.harness ??
         normalizeHarnessId(priorExecContext.harness) ??
         "pi";
-      const checkpointJob = enqueueCheckpointJob({
-        store,
-        workspaceId: record.workspaceId,
-        sessionId: record.sessionId,
-        inputId: record.inputId,
-        harness: checkpointHarness,
-        harnessSessionId:
-          checkpointHarnessSessionId ||
-          (store.getBinding({
+      if (syncedEphemeralLiveSessionFile) {
+        if (deferredTerminalEvent) {
+          deferredTerminalEvent.payload.harness_session_id =
+            syncedEphemeralLiveSessionFile;
+        }
+        if (terminalEventToRelay) {
+          terminalEventToRelay = {
+            ...terminalEventToRelay,
+            payload: {
+              ...terminalEventToRelay.payload,
+              harness_session_id: syncedEphemeralLiveSessionFile,
+            },
+          };
+        }
+      }
+      const checkpointJob = useEphemeralHarnessSession
+        ? null
+        : enqueueCheckpointJob({
+            store,
             workspaceId: record.workspaceId,
             sessionId: record.sessionId,
-          })?.harnessSessionId ??
-            null),
-        contextUsage,
-        wakeWorker: params.wakeDurableMemoryWorker ?? null,
-      });
+            inputId: record.inputId,
+            harness: checkpointHarness,
+            harnessSessionId:
+              checkpointHarnessSessionId ||
+              (store.getBinding({
+                workspaceId: record.workspaceId,
+                sessionId: record.sessionId,
+              })?.harnessSessionId ??
+                null),
+            contextUsage,
+            wakeWorker: params.wakeDurableMemoryWorker ?? null,
+          });
       const contextBudgetDecisions = buildMergedContextBudgetPayload({
         startedAt: turnStartedAt,
         completedAt: completedAt ?? new Date().toISOString(),
@@ -4332,6 +4742,13 @@ export async function processClaimedInput(params: {
         record,
         turnResult,
       });
+    } finally {
+      if (ephemeralPiFollowupRun) {
+        fs.rmSync(ephemeralPiFollowupRun.snapshotDir, {
+          recursive: true,
+          force: true,
+        });
+      }
     }
   };
 

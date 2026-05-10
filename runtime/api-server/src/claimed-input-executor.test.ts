@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, test as nodeTest } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { RuntimeStateStore } from "@holaboss/runtime-state-store";
 
@@ -14,6 +16,10 @@ import {
 import type { MemoryServiceLike } from "./memory.js";
 import type { RuntimeSentryCaptureOptions } from "./runtime-sentry.js";
 import type { PiContextUsage } from "./session-checkpoint.js";
+import {
+  persistWorkspaceHarnessSessionId,
+  readWorkspaceHarnessSessionId,
+} from "./ts-runner-session-state.js";
 
 const tempDirs: string[] = [];
 const ORIGINAL_ENV = {
@@ -26,6 +32,15 @@ const ORIGINAL_ENV = {
   HOLABOSS_RUNTIME_CONFIG_PATH: process.env.HOLABOSS_RUNTIME_CONFIG_PATH,
   HOLABOSS_HARNESS_RUN_TIMEOUT_S: process.env.HOLABOSS_HARNESS_RUN_TIMEOUT_S,
 };
+const require = createRequire(import.meta.url);
+const PI_PACKAGE_ENTRY_PATH = fileURLToPath(
+  import.meta.resolve("@mariozechner/pi-coding-agent"),
+);
+const PI_SESSION_MANAGER_MODULE_PATH = path.join(
+  path.dirname(PI_PACKAGE_ENTRY_PATH),
+  "core",
+  "session-manager.js",
+);
 
 function test(
   name: string,
@@ -98,6 +113,109 @@ function makeStore(prefix: string): RuntimeStateStore {
 function setNodeRunnerCommand(lines: string[]): void {
   const scriptBase64 = Buffer.from(lines.join("\n"), "utf8").toString("base64");
   process.env.SANDBOX_AGENT_RUNNER_COMMAND_TEMPLATE = `printf '%s' '${scriptBase64}' | base64 --decode | {runtime_node} - {request_base64}`;
+}
+
+function openPiSessionManager(sessionFile: string) {
+  const { SessionManager } = require(PI_SESSION_MANAGER_MODULE_PATH) as {
+    SessionManager: {
+      create: (cwd: string, sessionDir?: string) => {
+        appendMessage: (message: Record<string, unknown>) => string;
+        buildSessionContext: () => {
+          messages: Array<Record<string, unknown>>;
+        };
+        getSessionFile: () => string | undefined;
+      };
+      open: (sessionFile: string) => {
+        buildSessionContext: () => {
+          messages: Array<Record<string, unknown>>;
+        };
+        getSessionFile: () => string | undefined;
+      };
+    };
+  };
+  return SessionManager.open(sessionFile);
+}
+
+function createPiSessionFile(params: {
+  workspaceDir: string;
+  sessionDir: string;
+}) {
+  fs.mkdirSync(params.sessionDir, { recursive: true });
+  const { SessionManager } = require(PI_SESSION_MANAGER_MODULE_PATH) as {
+    SessionManager: {
+      create: (cwd: string, sessionDir?: string) => {
+        appendMessage: (message: Record<string, unknown>) => string;
+        buildSessionContext: () => {
+          messages: Array<Record<string, unknown>>;
+        };
+        getSessionFile: () => string | undefined;
+      };
+    };
+  };
+  const sessionManager = SessionManager.create(
+    params.workspaceDir,
+    params.sessionDir,
+  );
+  const sessionFile = sessionManager.getSessionFile();
+  assert.ok(sessionFile);
+  return {
+    sessionManager,
+    sessionFile,
+  };
+}
+
+function piUserMessage(text: string): Record<string, unknown> {
+  return {
+    role: "user",
+    content: text,
+    timestamp: Date.now(),
+  };
+}
+
+function piAssistantMessage(text: string): Record<string, unknown> {
+  return {
+    role: "assistant",
+    content: [{ type: "text", text }],
+    api: "responses",
+    provider: "openai",
+    model: "gpt-test",
+    usage: {
+      input: 1,
+      output: 1,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 2,
+      cost: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 0,
+      },
+    },
+    stopReason: "stop",
+    timestamp: Date.now(),
+  };
+}
+
+function piSessionMessageTexts(sessionFile: string): string[] {
+  const context = openPiSessionManager(sessionFile).buildSessionContext();
+  return context.messages.map((message) => {
+    const content = message.content;
+    if (typeof content === "string") {
+      return content;
+    }
+    if (Array.isArray(content)) {
+      return content
+        .filter(
+          (entry): entry is { type: string; text?: string } =>
+            Boolean(entry) && typeof entry === "object",
+        )
+        .map((entry) => (entry.type === "text" ? entry.text ?? "" : ""))
+        .join("");
+    }
+    return "";
+  });
 }
 
 function writeRuntimeConfigDocument(document: Record<string, unknown>): string {
@@ -1721,6 +1839,181 @@ test("claimed input requeues paused materialized main-session event batches with
   assert.equal(deliveryRetry?.retry_delay_ms, 0);
   assert.equal(deliveryRetry?.next_retry_at, updatedEvent?.earliestDeliverAt);
   assert.equal(deliveryRetry?.last_stop_reason, "paused");
+
+  store.close();
+});
+
+test("claimed input runs main-session followups on the bound session snapshot even when workspace pi state points elsewhere", async () => {
+  const store = makeStore("hb-claimed-input-main-session-followup-snapshot-");
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.ensureSession({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    kind: "workspace_session",
+  });
+  const workspaceDir = store.workspaceDir(workspace.id);
+  const { sessionManager, sessionFile: liveSessionFile } = createPiSessionFile({
+    workspaceDir,
+    sessionDir: path.join(workspaceDir, ".holaboss", "pi-sessions"),
+  });
+  sessionManager.appendMessage(
+    piUserMessage("Tell me when the background task finishes."),
+  );
+  sessionManager.appendMessage(piAssistantMessage("Working on it."));
+  persistWorkspaceHarnessSessionId({
+    workspaceDir,
+    harness: "pi",
+    sessionId: liveSessionFile,
+  });
+  store.upsertBinding({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    harness: "pi",
+    harnessSessionId: liveSessionFile,
+  });
+  const { sessionManager: otherSessionManager, sessionFile: otherSessionFile } =
+    createPiSessionFile({
+      workspaceDir,
+      sessionDir: path.join(workspaceDir, ".holaboss", "pi-sessions"),
+    });
+  otherSessionManager.appendMessage(
+    piUserMessage("This is a subagent-only pi session."),
+  );
+  otherSessionManager.appendMessage(
+    piAssistantMessage("Subagent result lives here."),
+  );
+  persistWorkspaceHarnessSessionId({
+    workspaceDir,
+    harness: "pi",
+    sessionId: otherSessionFile,
+  });
+
+  const event = store.enqueueMainSessionEvent({
+    workspaceId: workspace.id,
+    ownerMainSessionId: "session-main",
+    originMainSessionId: "session-main",
+    subagentId: "subagent-1",
+    eventType: "completed",
+    deliveryBucket: "background_update",
+    payload: {
+      status: "completed",
+      summary: "Research is done.",
+    },
+  });
+  const queued = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: {
+      text: "[Holaboss Main Session Event Batch v1]\nSummarize the queued event.",
+      context: {
+        source: "main_session_event_batch",
+        main_session_event_ids: [event.eventId],
+        delivery_bucket: "background_update",
+      },
+    },
+    idempotencyKey: `main-session-event-batch:${event.eventId}`,
+  });
+  store.markMainSessionEventsMaterialized({
+    workspaceId: workspace.id,
+    eventIds: [event.eventId],
+    materializedInputId: queued.inputId,
+  });
+
+  let snapshotSessionFile = "";
+  let checkpointQueued = false;
+  await processClaimedInput({
+    store,
+    record: queued,
+    enqueueSessionCheckpointJobFn: () => {
+      checkpointQueued = true;
+      return null;
+    },
+    executeRunnerRequestFn: async (payload, options = {}) => {
+      const execContext = recordValue(
+        recordValue(payload.context)?._sandbox_runtime_exec_v1,
+      );
+      snapshotSessionFile =
+        typeof execContext?.harness_session_id === "string"
+          ? execContext.harness_session_id
+          : "";
+      assert.ok(snapshotSessionFile);
+      assert.notEqual(snapshotSessionFile, liveSessionFile);
+      assert.equal(path.basename(snapshotSessionFile), path.basename(liveSessionFile));
+      assert.notEqual(
+        path.basename(snapshotSessionFile),
+        path.basename(otherSessionFile),
+      );
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 1,
+        event_type: "run_started",
+        payload: {},
+      });
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 2,
+        event_type: "output_delta",
+        payload: { delta: "The report is ready." },
+      });
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 3,
+        event_type: "pi_native_event",
+        payload: {
+          native_type: "message_end",
+          native_event: {
+            type: "message_end",
+            message: piAssistantMessage("The report is ready."),
+          },
+          harness_session_id: snapshotSessionFile,
+        },
+      });
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 4,
+        event_type: "run_completed",
+        payload: {
+          status: "ok",
+          harness_session_id: snapshotSessionFile,
+        },
+      });
+      return {
+        events: [],
+        skippedLines: [],
+        stderr: "",
+        returnCode: 0,
+        sawTerminal: true,
+      };
+    },
+  });
+
+  assert.equal(checkpointQueued, false);
+  assert.equal(
+    store.getBinding({
+      workspaceId: workspace.id,
+      sessionId: "session-main",
+    })?.harnessSessionId,
+    liveSessionFile,
+  );
+  assert.equal(
+    readWorkspaceHarnessSessionId({ workspaceDir, harness: "pi" }),
+    liveSessionFile,
+  );
+  assert.equal(fs.existsSync(path.dirname(snapshotSessionFile)), false);
+  assert.deepEqual(piSessionMessageTexts(liveSessionFile), [
+    "Tell me when the background task finishes.",
+    "Working on it.",
+    "The report is ready.",
+  ]);
 
   store.close();
 });

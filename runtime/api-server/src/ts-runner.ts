@@ -442,6 +442,14 @@ function runtimeExecContextString(
   return firstNonEmptyString(value[key]);
 }
 
+function runtimeExecContextBoolean(
+  request: TsRunnerRequest,
+  key: string,
+): boolean {
+  const value = request.context[RUNTIME_EXEC_CONTEXT_KEY];
+  return isRecord(value) && value[key] === true;
+}
+
 function evolveCandidateContext(
   request: TsRunnerRequest,
 ): AgentEvolveCandidateContext | null {
@@ -1950,9 +1958,13 @@ export async function relayTsRunnerEvent(params: {
   event: TsRunnerEvent;
   harness: string;
   workspaceDir: string;
+  persistHarnessSessionState?: boolean;
   logger?: LoggerLike;
 }): Promise<void> {
   await params.emitEvent(params.event);
+  if (params.persistHarnessSessionState === false) {
+    return;
+  }
   const sessionId = terminalHarnessSessionId(params.event);
   if (params.event.event_type === "run_failed") {
     clearWorkspaceHarnessSessionId({
@@ -1984,6 +1996,10 @@ export async function executeTsRunnerRequest(
   const logger = options.logger ?? console;
   const deps = { ...defaultExecutionDeps(), ...options.deps };
   const bootstrap = resolveTsRunnerBootstrapState(request, { logger });
+  const persistHarnessSessionState = !runtimeExecContextBoolean(
+    request,
+    "ephemeral_harness_session",
+  );
   const harnessPlugin = deps.resolveHarnessPlugin(bootstrap.harness);
   const harnessAdapter = harnessPlugin.adapter;
   const bootstrapStartedAtMs = Date.now();
@@ -1995,6 +2011,7 @@ export async function executeTsRunnerRequest(
     emitEvent: options.emitEvent,
     harness: bootstrap.harness,
     workspaceDir: bootstrap.workspaceDir,
+    persistHarnessSessionState,
     logger,
     event: buildTsRunnerEvent({
       sessionId: request.session_id,
@@ -2453,6 +2470,7 @@ export async function executeTsRunnerRequest(
               event,
               harness: bootstrap.harness,
               workspaceDir: bootstrap.workspaceDir,
+              persistHarnessSessionState,
               logger,
             });
           },
@@ -2467,6 +2485,7 @@ export async function executeTsRunnerRequest(
       emitEvent: options.emitEvent,
       harness: bootstrap.harness,
       workspaceDir: bootstrap.workspaceDir,
+      persistHarnessSessionState,
       logger,
       event: buildTsRunnerFailureEvent({
         sessionId: request.session_id,
@@ -2481,6 +2500,7 @@ export async function executeTsRunnerRequest(
       emitEvent: options.emitEvent,
       harness: bootstrap.harness,
       workspaceDir: bootstrap.workspaceDir,
+      persistHarnessSessionState,
       logger,
       event: buildTsRunnerFailureEvent({
         sessionId: request.session_id,

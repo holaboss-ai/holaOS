@@ -124,8 +124,14 @@ export interface SessionCheckpointSessionOps {
 }
 
 const require = createRequire(import.meta.url);
-const PI_SESSION_MANAGER_MODULE_PATH =
-  "../../harness-host/node_modules/@mariozechner/pi-coding-agent/dist/core/session-manager.js";
+const PI_PACKAGE_ENTRY_PATH = fileURLToPath(
+  import.meta.resolve("@mariozechner/pi-coding-agent"),
+);
+const PI_SESSION_MANAGER_MODULE_PATH = path.join(
+  path.dirname(PI_PACKAGE_ENTRY_PATH),
+  "core",
+  "session-manager.js",
+);
 
 function loadPiSessionManagerModule(): {
   SessionManager: PiSessionManagerStatic;

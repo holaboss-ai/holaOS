@@ -858,6 +858,45 @@ test("runtime tools capability routes expose local onboarding and cronjob action
   }
 });
 
+test("runtime onboarding completion returns 409 workspace_folder_missing when the managed folder is gone", async () => {
+  const root = makeTempDir("hb-runtime-api-onboarding-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    onboardingStatus: "pending",
+    onboardingSessionId: "session-1",
+  });
+  const workspaceDir = path.join(workspaceRoot, "workspace-1");
+  fs.rmSync(workspaceDir, { recursive: true, force: true });
+  const app = buildTestRuntimeApiServer({ store });
+  try {
+    const resp = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/onboarding/complete",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1"
+      },
+      payload: {
+        summary: "ready to work"
+      }
+    });
+
+    assert.equal(resp.statusCode, 409);
+    assert.equal(resp.json().code, "workspace_folder_missing");
+    assert.equal(path.resolve(resp.json().workspace_path), path.resolve(workspaceDir));
+    assert.equal(fs.existsSync(workspaceDir), false);
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
 test("runtime subagent capability routes create and cancel hidden background tasks", async () => {
   const root = makeTempDir("hb-runtime-api-subagents-");
   const workspaceRoot = path.join(root, "workspace");
@@ -3103,6 +3142,38 @@ test("PATCH workspace_path still accepts a folder with the legacy identity path"
     fs.readFileSync(path.join(movedPath, ".holaboss", "state", "workspace_id"), "utf-8").trim(),
     workspaceId,
   );
+
+  await app.close();
+  store.close();
+});
+
+test("PATCH workspace metadata returns 409 workspace_folder_missing when a managed folder is gone", async () => {
+  const root = makeTempDir("hb-runtime-api-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  const app = buildTestRuntimeApiServer({ store });
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/v1/workspaces",
+    payload: { name: "Managed", harness: "pi" }
+  });
+  const workspaceId = (created.json().workspace as { id: string }).id;
+  const workspaceDir = path.join(workspaceRoot, workspaceId);
+  fs.rmSync(workspaceDir, { recursive: true, force: true });
+
+  const resp = await app.inject({
+    method: "PATCH",
+    url: `/api/v1/workspaces/${workspaceId}`,
+    payload: { onboarding_requested_by: "workspace_agent" }
+  });
+
+  assert.equal(resp.statusCode, 409);
+  assert.equal(resp.json().code, "workspace_folder_missing");
+  assert.equal(path.resolve(resp.json().workspace_path), path.resolve(workspaceDir));
+  assert.equal(fs.existsSync(workspaceDir), false);
 
   await app.close();
   store.close();

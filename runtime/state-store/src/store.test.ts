@@ -548,6 +548,95 @@ test("assertWorkspaceFolderHealthy throws a structured error when missing", () =
   store.close();
 });
 
+test("updateWorkspace throws a structured error and does not recreate a missing managed folder", () => {
+  const root = makeTempDir("hb-state-store-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  store.createWorkspace({
+    workspaceId: "ws-managed",
+    name: "Managed",
+    harness: "pi"
+  });
+  const workspaceDir = path.join(workspaceRoot, "ws-managed");
+  fs.rmSync(workspaceDir, { recursive: true, force: true });
+
+  let caught: unknown;
+  try {
+    store.updateWorkspace("ws-managed", {
+      onboardingRequestedBy: "workspace_agent"
+    });
+  } catch (error) {
+    caught = error;
+  }
+
+  const err = caught as Error & { code?: string; workspacePath?: string };
+  assert.ok(err instanceof Error);
+  assert.equal(err.code, "workspace_folder_missing");
+  assert.equal(path.resolve(err.workspacePath ?? ""), path.resolve(workspaceDir));
+  assert.equal(fs.existsSync(workspaceDir), false);
+  assert.equal(store.getWorkspace("ws-managed")?.onboardingRequestedBy ?? null, null);
+  store.close();
+});
+
+test("updateWorkspace clears a stale managed identity write lock before persisting identity", () => {
+  const root = makeTempDir("hb-state-store-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  store.createWorkspace({
+    workspaceId: "ws-managed",
+    name: "Managed",
+    harness: "pi"
+  });
+  const workspaceDir = path.join(workspaceRoot, "ws-managed");
+  const stateDir = path.join(workspaceDir, ".holaboss", "state");
+  const lockPath = path.join(stateDir, "workspace_id.lock");
+  fs.writeFileSync(lockPath, "stale-lock\n", "utf-8");
+  const staleAt = new Date(Date.now() - 60_000);
+  fs.utimesSync(lockPath, staleAt, staleAt);
+
+  const updated = store.updateWorkspace("ws-managed", {
+    onboardingRequestedBy: "workspace_agent"
+  });
+
+  assert.equal(updated.onboardingRequestedBy, "workspace_agent");
+  assert.equal(fs.existsSync(lockPath), false);
+  assert.equal(
+    fs.readFileSync(path.join(stateDir, "workspace_id"), "utf-8").trim(),
+    "ws-managed",
+  );
+  store.close();
+});
+
+test("deleteWorkspace still succeeds when a managed folder is already missing", () => {
+  const root = makeTempDir("hb-state-store-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  store.createWorkspace({
+    workspaceId: "ws-managed",
+    name: "Managed",
+    harness: "pi"
+  });
+  fs.rmSync(path.join(workspaceRoot, "ws-managed"), { recursive: true, force: true });
+
+  const deleted = store.deleteWorkspace("ws-managed");
+
+  assert.ok(deleted.deletedAtUtc);
+  assert.equal(
+    store.getWorkspace("ws-managed", { includeDeleted: true })?.deletedAtUtc,
+    deleted.deletedAtUtc,
+  );
+  store.close();
+});
+
 test("createWorkspace rejects the managed workspace root as a custom path", () => {
   const root = makeTempDir("hb-state-store-");
   const workspaceRoot = path.join(root, "workspace");

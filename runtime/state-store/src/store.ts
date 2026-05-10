@@ -22,6 +22,12 @@ const WORKSPACE_RUNTIME_DB_FILENAME = "runtime.db";
 const WORKSPACE_IDENTITY_FILENAME = "workspace_id";
 const LEGACY_WORKSPACE_METADATA_FILENAME = "workspace.json";
 const DELETED_WORKSPACE_PATH_TOMBSTONE_PREFIX = "__deleted__";
+const WORKSPACE_IDENTITY_LOCK_FILENAME = `${WORKSPACE_IDENTITY_FILENAME}.lock`;
+const WORKSPACE_IDENTITY_WRITE_RETRY_ATTEMPTS = 3;
+const WORKSPACE_IDENTITY_WRITE_RETRY_DELAY_MS = 25;
+const WORKSPACE_IDENTITY_LOCK_RETRY_ATTEMPTS = 20;
+const WORKSPACE_IDENTITY_LOCK_RETRY_DELAY_MS = 25;
+const WORKSPACE_IDENTITY_LOCK_STALE_MS = 30_000;
 const WORKSPACE_RUNTIME_LEGACY_BACKFILL_MARKER_KEY =
   "legacy_workspace_backfill_v1_complete";
 const WORKSPACE_SCOPED_LEGACY_BACKFILL_TABLES = [
@@ -51,6 +57,49 @@ const WORKSPACE_SCOPED_LEGACY_BACKFILL_TABLES = [
   "cronjobs",
   "runtime_notifications",
 ] as const;
+const SYNC_SLEEP_BUFFER = new Int32Array(new SharedArrayBuffer(4));
+
+type RuntimeStateStoreWorkspaceErrorCode =
+  | "workspace_folder_missing"
+  | "workspace_identity_write_busy"
+  | "workspace_identity_write_failed";
+
+type RuntimeStateStoreWorkspaceError = Error & {
+  code?: RuntimeStateStoreWorkspaceErrorCode;
+  workspacePath?: string;
+  cause?: unknown;
+};
+
+function sleepSync(ms: number): void {
+  if (ms <= 0) {
+    return;
+  }
+  Atomics.wait(SYNC_SLEEP_BUFFER, 0, 0, ms);
+}
+
+function createWorkspaceFolderMissingError(workspacePath: string): RuntimeStateStoreWorkspaceError {
+  const err = new Error(
+    `workspace folder is missing at ${workspacePath}. Relocate the workspace or delete the record.`,
+  ) as RuntimeStateStoreWorkspaceError;
+  err.code = "workspace_folder_missing";
+  err.workspacePath = workspacePath;
+  return err;
+}
+
+function createWorkspaceIdentityWriteError(params: {
+  workspacePath: string;
+  detail: string;
+  code?: RuntimeStateStoreWorkspaceErrorCode;
+  cause?: unknown;
+}): RuntimeStateStoreWorkspaceError {
+  const err = new Error(
+    `failed to persist workspace identity file under ${params.workspacePath}: ${params.detail}`,
+  ) as RuntimeStateStoreWorkspaceError;
+  err.code = params.code ?? "workspace_identity_write_failed";
+  err.workspacePath = params.workspacePath;
+  err.cause = params.cause;
+  return err;
+}
 
 export interface WorkspaceRecord {
   id: string;
@@ -1116,6 +1165,26 @@ export class RuntimeStateStore {
     );
   }
 
+  private workspacePathState(workspacePath: string): "healthy" | "missing" {
+    const resolvedWorkspacePath = path.resolve(workspacePath);
+    try {
+      if (fs.existsSync(resolvedWorkspacePath) && fs.statSync(resolvedWorkspacePath).isDirectory()) {
+        return "healthy";
+      }
+    } catch {
+      // Fall through — any stat error means we can't trust the folder.
+    }
+    return "missing";
+  }
+
+  private assertWorkspacePathHealthy(workspacePath: string): string {
+    const resolvedWorkspacePath = path.resolve(workspacePath);
+    if (this.workspacePathState(resolvedWorkspacePath) === "healthy") {
+      return resolvedWorkspacePath;
+    }
+    throw createWorkspaceFolderMissingError(resolvedWorkspacePath);
+  }
+
   /**
    * Classifies the on-disk folder as "healthy" or "missing". Missing covers
    * all "can't use this folder right now" conditions (deleted, moved,
@@ -1125,15 +1194,7 @@ export class RuntimeStateStore {
    * one-time activation check (see activateWorkspaceFolder).
    */
   workspaceFolderState(workspaceId: string): "healthy" | "missing" {
-    const dir = this.workspaceDir(workspaceId);
-    try {
-      if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
-        return "healthy";
-      }
-    } catch {
-      // Fall through — any stat error means we can't trust the folder.
-    }
-    return "missing";
+    return this.workspacePathState(this.workspaceDir(workspaceId));
   }
 
   /**
@@ -1147,12 +1208,7 @@ export class RuntimeStateStore {
     if (this.workspaceFolderState(workspaceId) === "healthy") {
       return dir;
     }
-    const err = new Error(
-      `workspace folder is missing at ${dir}. Relocate the workspace or delete the record.`,
-    ) as Error & { code?: string; workspacePath?: string };
-    err.code = "workspace_folder_missing";
-    err.workspacePath = dir;
-    throw err;
+    throw createWorkspaceFolderMissingError(dir);
   }
 
   listWorkspaces(options: { includeDeleted?: boolean } = {}): WorkspaceRecord[] {
@@ -1460,8 +1516,11 @@ export class RuntimeStateStore {
       }
     }
     next.updatedAt = utcNowIso();
-    this.upsertWorkspaceRow(next, this.workspaceDir(workspaceId));
-    this.writeWorkspaceIdentityFile(this.workspaceDir(workspaceId), workspaceId);
+    const workspacePath = this.workspaceDir(workspaceId);
+    if (!next.deletedAtUtc) {
+      this.writeWorkspaceIdentityFile(workspacePath, workspaceId);
+    }
+    this.upsertWorkspaceRow(next, workspacePath);
     return next;
   }
 
@@ -9203,12 +9262,18 @@ export class RuntimeStateStore {
           }
           continue;
         }
+        const discoveredPath = this.discoverWorkspacePath(row.id);
         const resolvedPath =
           workspacePath && fs.existsSync(workspacePath) && fs.statSync(workspacePath).isDirectory()
             ? workspacePath
-            : this.discoverWorkspacePath(row.id) ?? this.defaultWorkspaceDir(row.id);
+            : discoveredPath ?? this.defaultWorkspaceDir(row.id);
         db.prepare("UPDATE workspaces SET workspace_path = ? WHERE id = ?").run(resolvedPath, row.id);
-        this.writeWorkspaceIdentityFile(resolvedPath, row.id);
+        if (!workspacePath && !discoveredPath && this.isWithinManagedRoot(resolvedPath)) {
+          fs.mkdirSync(resolvedPath, { recursive: true });
+          this.writeWorkspaceIdentityFile(resolvedPath, row.id);
+          continue;
+        }
+        this.maybeWriteWorkspaceIdentityFile(resolvedPath, row.id);
       }
     }
 
@@ -9240,11 +9305,12 @@ export class RuntimeStateStore {
             existingLegacyWorkspaceDir = null;
           }
         }
+        const discoveredPath = this.discoverWorkspacePath(record.id);
         const workspacePath = record.deletedAtUtc
           ? (
               (() => {
                 const preservedPath = this.workspacePathMatchesIdentity(
-                  this.discoverWorkspacePath(record.id),
+                  discoveredPath,
                   record.id,
                 ) ?? this.workspacePathMatchesIdentity(
                   legacyWorkspacePath?.startsWith(`${DELETED_WORKSPACE_PATH_TOMBSTONE_PREFIX}/`)
@@ -9259,12 +9325,17 @@ export class RuntimeStateStore {
             )
           : (
               existingLegacyWorkspaceDir ??
-              this.discoverWorkspacePath(record.id) ??
+              discoveredPath ??
               this.defaultWorkspaceDir(record.id)
             );
         this.upsertWorkspaceRowInDb(record, workspacePath, db);
         if (!record.deletedAtUtc) {
-          this.writeWorkspaceIdentityFile(workspacePath, record.id);
+          if (!existingLegacyWorkspaceDir && !discoveredPath && !legacyWorkspacePath && this.isWithinManagedRoot(workspacePath)) {
+            fs.mkdirSync(workspacePath, { recursive: true });
+            this.writeWorkspaceIdentityFile(workspacePath, record.id);
+            continue;
+          }
+          this.maybeWriteWorkspaceIdentityFile(workspacePath, record.id);
         }
       }
       db.exec("DROP TABLE workspaces_legacy_with_owner; DROP INDEX IF EXISTS idx_workspaces_user_updated;");
@@ -9397,11 +9468,176 @@ export class RuntimeStateStore {
   }
 
   private writeWorkspaceIdentityFile(workspacePath: string, workspaceId: string): void {
-    const identityPath = currentWorkspaceIdentityPath(workspacePath);
-    fs.mkdirSync(path.dirname(identityPath), { recursive: true });
-    const tempPath = `${identityPath}.tmp`;
-    fs.writeFileSync(tempPath, `${workspaceId}\n`, "utf-8");
-    fs.renameSync(tempPath, identityPath);
+    const resolvedWorkspacePath = path.resolve(workspacePath);
+    const usesManagedWriteLock = this.isWithinManagedRoot(resolvedWorkspacePath);
+    const maxAttempts = usesManagedWriteLock ? WORKSPACE_IDENTITY_WRITE_RETRY_ATTEMPTS : 1;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const tempPath = `${currentWorkspaceIdentityPath(resolvedWorkspacePath)}.${process.pid}.${attempt}.${randomUUID()}.tmp`;
+      try {
+        const writeOnce = () => {
+          const stateDir = this.ensureWorkspaceIdentityStateDir(resolvedWorkspacePath);
+          const identityPath = path.join(stateDir, WORKSPACE_IDENTITY_FILENAME);
+          fs.writeFileSync(tempPath, `${workspaceId}\n`, "utf-8");
+          fs.renameSync(tempPath, identityPath);
+        };
+        if (usesManagedWriteLock) {
+          this.withManagedWorkspaceIdentityWriteLock(resolvedWorkspacePath, writeOnce);
+        } else {
+          writeOnce();
+        }
+        return;
+      } catch (error) {
+        try {
+          fs.rmSync(tempPath, { force: true });
+        } catch {
+          // Best-effort cleanup only.
+        }
+        const normalized = this.normalizeWorkspaceIdentityWriteError(resolvedWorkspacePath, error);
+        if (
+          attempt < maxAttempts &&
+          this.shouldRetryWorkspaceIdentityWrite(resolvedWorkspacePath, normalized)
+        ) {
+          sleepSync(WORKSPACE_IDENTITY_WRITE_RETRY_DELAY_MS * attempt);
+          continue;
+        }
+        throw normalized;
+      }
+    }
+  }
+
+  private maybeWriteWorkspaceIdentityFile(workspacePath: string, workspaceId: string): void {
+    if (this.workspacePathState(workspacePath) !== "healthy") {
+      return;
+    }
+    this.writeWorkspaceIdentityFile(workspacePath, workspaceId);
+  }
+
+  private ensureWorkspaceIdentityStateDir(workspacePath: string): string {
+    const resolvedWorkspacePath = this.assertWorkspacePathHealthy(workspacePath);
+    const runtimeDir = path.join(resolvedWorkspacePath, WORKSPACE_RUNTIME_DIRNAME);
+    const stateDir = path.join(runtimeDir, WORKSPACE_STATE_DIRNAME);
+    this.ensureWorkspaceIdentityDir(runtimeDir, resolvedWorkspacePath);
+    this.ensureWorkspaceIdentityDir(stateDir, resolvedWorkspacePath);
+    return stateDir;
+  }
+
+  private ensureWorkspaceIdentityDir(dirPath: string, workspacePath: string): void {
+    try {
+      fs.mkdirSync(dirPath);
+      return;
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === "EEXIST") {
+        try {
+          if (fs.statSync(dirPath).isDirectory()) {
+            return;
+          }
+        } catch {
+          // Fall through to the normalized error below.
+        }
+      }
+      throw this.normalizeWorkspaceIdentityWriteError(workspacePath, error);
+    }
+  }
+
+  private withManagedWorkspaceIdentityWriteLock<T>(workspacePath: string, fn: () => T): T {
+    const resolvedWorkspacePath = path.resolve(workspacePath);
+    if (!this.isWithinManagedRoot(resolvedWorkspacePath)) {
+      return fn();
+    }
+    const stateDir = this.ensureWorkspaceIdentityStateDir(resolvedWorkspacePath);
+    const lockPath = path.join(stateDir, WORKSPACE_IDENTITY_LOCK_FILENAME);
+    for (let attempt = 1; attempt <= WORKSPACE_IDENTITY_LOCK_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        fs.writeFileSync(lockPath, `${process.pid}\n${Date.now()}\n`, { flag: "wx" });
+        try {
+          return fn();
+        } finally {
+          try {
+            fs.rmSync(lockPath, { force: true });
+          } catch {
+            // Best-effort cleanup only.
+          }
+        }
+      } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        if (err.code === "EEXIST") {
+          if (this.tryClearStaleWorkspaceIdentityWriteLock(lockPath)) {
+            continue;
+          }
+          if (attempt < WORKSPACE_IDENTITY_LOCK_RETRY_ATTEMPTS) {
+            sleepSync(WORKSPACE_IDENTITY_LOCK_RETRY_DELAY_MS);
+            continue;
+          }
+          throw createWorkspaceIdentityWriteError({
+            workspacePath: resolvedWorkspacePath,
+            detail: "workspace identity write lock remained busy after retries",
+            code: "workspace_identity_write_busy",
+            cause: error,
+          });
+        }
+        throw this.normalizeWorkspaceIdentityWriteError(resolvedWorkspacePath, error);
+      }
+    }
+    throw createWorkspaceIdentityWriteError({
+      workspacePath: resolvedWorkspacePath,
+      detail: "workspace identity write lock remained busy after retries",
+      code: "workspace_identity_write_busy",
+    });
+  }
+
+  private tryClearStaleWorkspaceIdentityWriteLock(lockPath: string): boolean {
+    try {
+      const stat = fs.statSync(lockPath);
+      if (Date.now() - stat.mtimeMs < WORKSPACE_IDENTITY_LOCK_STALE_MS) {
+        return false;
+      }
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      return err.code === "ENOENT";
+    }
+    try {
+      fs.rmSync(lockPath, { force: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private shouldRetryWorkspaceIdentityWrite(workspacePath: string, error: unknown): boolean {
+    if (!this.isWithinManagedRoot(workspacePath)) {
+      return false;
+    }
+    const code =
+      typeof error === "object" && error && "code" in error
+        ? String((error as { code?: unknown }).code ?? "")
+        : "";
+    return ["ENOENT", "EBUSY", "EPERM", "workspace_folder_missing", "workspace_identity_write_busy"].includes(code);
+  }
+
+  private normalizeWorkspaceIdentityWriteError(
+    workspacePath: string,
+    error: unknown,
+  ): RuntimeStateStoreWorkspaceError {
+    const resolvedWorkspacePath = path.resolve(workspacePath);
+    const existing = error as RuntimeStateStoreWorkspaceError;
+    if (
+      existing?.code === "workspace_folder_missing" ||
+      existing?.code === "workspace_identity_write_busy" ||
+      existing?.code === "workspace_identity_write_failed"
+    ) {
+      existing.workspacePath ??= resolvedWorkspacePath;
+      return existing;
+    }
+    if (this.workspacePathState(resolvedWorkspacePath) !== "healthy") {
+      return createWorkspaceFolderMissingError(resolvedWorkspacePath);
+    }
+    return createWorkspaceIdentityWriteError({
+      workspacePath: resolvedWorkspacePath,
+      detail: error instanceof Error ? error.message : String(error),
+      cause: error,
+    });
   }
 
   private discoverWorkspacePath(workspaceId: string): string | null {
