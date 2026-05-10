@@ -845,6 +845,8 @@ function workspaceRecordPayload(
     created_at: workspace.createdAt,
     updated_at: workspace.updatedAt,
     deleted_at_utc: workspace.deletedAtUtc,
+    icon: workspace.icon,
+    icon_color: workspace.iconColor,
     workspace_path: workspacePath ?? null,
     folder_state: folderState ?? null
   };
@@ -5733,6 +5735,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       }
       if (hasOwn(request.body, "onboarding_requested_by")) {
         fields.onboardingRequestedBy = nullableString(request.body.onboarding_requested_by);
+      }
+      if (hasOwn(request.body, "icon")) {
+        fields.icon = nullableString(request.body.icon);
+      }
+      if (hasOwn(request.body, "icon_color")) {
+        fields.iconColor = nullableString(request.body.icon_color);
       }
 
       // Workspace path relocation. This is intentionally a separate branch

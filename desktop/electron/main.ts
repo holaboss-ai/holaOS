@@ -22283,6 +22283,25 @@ app.whenReady().then(async () => {
       localWorkspaceControlPlane.deleteWorkspace(workspaceId, keepFiles),
   );
   handleTrustedIpc(
+    "workspace:updateAppearance",
+    ["main"],
+    async (
+      _event,
+      workspaceId: string,
+      payload: { icon: string | null; iconColor: string | null },
+    ) => {
+      const safeId = String(workspaceId ?? "").trim();
+      if (!safeId) {
+        throw new Error("workspaceId is required");
+      }
+      const response = await runtimeClient.workspaces.update(safeId, {
+        icon: payload?.icon ?? null,
+        icon_color: payload?.iconColor ?? null,
+      });
+      return response;
+    },
+  );
+  handleTrustedIpc(
     "workspace:listCronjobs",
     ["main"],
     async (_event, workspaceId: string, enabledOnly?: boolean) =>

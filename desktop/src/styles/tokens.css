@@ -382,6 +382,78 @@
     var(--foreground)
   );
   --info-text: color-mix(in oklab, var(--info) 45%, var(--foreground));
+
+  /* Workspace identity palette — six muted Notion-style tints. Each color
+     defines a hue anchor; bg/fg compose the hue with --background /
+     --foreground via color-mix so dark mode adapts automatically (bg
+     darkens, fg lightens) without a separate dark-theme override. */
+  --workspace-color-gray: oklch(0.55 0.005 270);
+  --workspace-color-amber: oklch(0.68 0.16 60);
+  --workspace-color-rose: oklch(0.66 0.18 15);
+  --workspace-color-emerald: oklch(0.62 0.13 160);
+  --workspace-color-blue: oklch(0.62 0.14 235);
+  --workspace-color-violet: oklch(0.62 0.16 295);
+
+  --workspace-color-gray-bg: color-mix(
+    in srgb,
+    var(--workspace-color-gray) 14%,
+    var(--background)
+  );
+  --workspace-color-gray-fg: color-mix(
+    in oklab,
+    var(--workspace-color-gray) 65%,
+    var(--foreground)
+  );
+  --workspace-color-amber-bg: color-mix(
+    in srgb,
+    var(--workspace-color-amber) 18%,
+    var(--background)
+  );
+  --workspace-color-amber-fg: color-mix(
+    in oklab,
+    var(--workspace-color-amber) 70%,
+    var(--foreground)
+  );
+  --workspace-color-rose-bg: color-mix(
+    in srgb,
+    var(--workspace-color-rose) 18%,
+    var(--background)
+  );
+  --workspace-color-rose-fg: color-mix(
+    in oklab,
+    var(--workspace-color-rose) 70%,
+    var(--foreground)
+  );
+  --workspace-color-emerald-bg: color-mix(
+    in srgb,
+    var(--workspace-color-emerald) 18%,
+    var(--background)
+  );
+  --workspace-color-emerald-fg: color-mix(
+    in oklab,
+    var(--workspace-color-emerald) 70%,
+    var(--foreground)
+  );
+  --workspace-color-blue-bg: color-mix(
+    in srgb,
+    var(--workspace-color-blue) 18%,
+    var(--background)
+  );
+  --workspace-color-blue-fg: color-mix(
+    in oklab,
+    var(--workspace-color-blue) 70%,
+    var(--foreground)
+  );
+  --workspace-color-violet-bg: color-mix(
+    in srgb,
+    var(--workspace-color-violet) 18%,
+    var(--background)
+  );
+  --workspace-color-violet-fg: color-mix(
+    in oklab,
+    var(--workspace-color-violet) 70%,
+    var(--foreground)
+  );
 }
 
 .dark {
