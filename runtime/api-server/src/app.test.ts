@@ -4639,6 +4639,121 @@ test("workspace template, file, and snapshot routes preserve local payload shape
   store.close();
 });
 
+test("PUT files requires explicit approval before blanking a non-empty file", async () => {
+  const root = makeTempDir("hb-runtime-api-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/v1/workspaces",
+    payload: {
+      name: "Workspace File Guardrails",
+      harness: "pi",
+      status: "active"
+    }
+  });
+  const workspace = created.json().workspace as { id: string };
+  const targetPath = path.join(workspaceRoot, workspace.id, "docs", "note.txt");
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, "keep me\n", "utf8");
+
+  const blocked = await app.inject({
+    method: "PUT",
+    url: `/api/v1/workspaces/${workspace.id}/files/docs/note.txt`,
+    payload: {
+      content_base64: Buffer.from("\n \n", "utf8").toString("base64")
+    }
+  });
+  assert.equal(blocked.statusCode, 409);
+  assert.equal(blocked.json().code, "destructive_write_requires_explicit_approval");
+  assert.match(blocked.json().detail, /would clear a non-empty file/i);
+  assert.equal(fs.readFileSync(targetPath, "utf8"), "keep me\n");
+
+  const allowed = await app.inject({
+    method: "PUT",
+    url: `/api/v1/workspaces/${workspace.id}/files/docs/note.txt`,
+    payload: {
+      content_base64: Buffer.from("\n \n", "utf8").toString("base64"),
+      allow_destructive_write: true
+    }
+  });
+  assert.equal(allowed.statusCode, 200);
+  assert.equal(allowed.json().path, "docs/note.txt");
+  assert.equal(fs.readFileSync(targetPath, "utf8"), "\n \n");
+
+  await app.close();
+  store.close();
+});
+
+test("apply-template requires explicit approval before replace_existing deletes workspace files", async () => {
+  const root = makeTempDir("hb-runtime-api-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/v1/workspaces",
+    payload: {
+      name: "Workspace Template Guardrails",
+      harness: "pi",
+      status: "active"
+    }
+  });
+  const workspace = created.json().workspace as { id: string };
+  const workspaceDir = path.join(workspaceRoot, workspace.id);
+  fs.writeFileSync(path.join(workspaceDir, "stale.txt"), "stale\n", "utf8");
+
+  const blocked = await app.inject({
+    method: "POST",
+    url: `/api/v1/workspaces/${workspace.id}/apply-template`,
+    payload: {
+      replace_existing: true,
+      files: [
+        {
+          path: "README.md",
+          content_base64: Buffer.from("# Fresh\n", "utf8").toString("base64")
+        }
+      ]
+    }
+  });
+  assert.equal(blocked.statusCode, 409);
+  assert.equal(blocked.json().code, "destructive_write_requires_explicit_approval");
+  assert.match(blocked.json().detail, /replace_existing would delete existing workspace files/i);
+  assert.equal(fs.existsSync(path.join(workspaceDir, "stale.txt")), true);
+  assert.equal(fs.existsSync(path.join(workspaceDir, "README.md")), false);
+
+  const allowed = await app.inject({
+    method: "POST",
+    url: `/api/v1/workspaces/${workspace.id}/apply-template`,
+    payload: {
+      replace_existing: true,
+      allow_destructive_write: true,
+      files: [
+        {
+          path: "README.md",
+          content_base64: Buffer.from("# Fresh\n", "utf8").toString("base64")
+        }
+      ]
+    }
+  });
+  assert.equal(allowed.statusCode, 200);
+  assert.equal(allowed.json().files_written, 1);
+  assert.equal(fs.existsSync(path.join(workspaceDir, "stale.txt")), false);
+  assert.equal(fs.readFileSync(path.join(workspaceDir, "README.md"), "utf8"), "# Fresh\n");
+
+  await app.close();
+  store.close();
+});
+
 test("workspace apply-template-from-url downloads and extracts a zip archive", async () => {
   const root = makeTempDir("hb-runtime-api-");
   const workspaceRoot = path.join(root, "workspace");
@@ -4679,7 +4794,8 @@ test("workspace apply-template-from-url downloads and extracts a zip archive", a
       payload: {
         url: `${server.url}/template.zip`,
         api_key: "template-key",
-        replace_existing: true
+        replace_existing: true,
+        allow_destructive_write: true
       }
     });
 
@@ -4696,6 +4812,56 @@ test("workspace apply-template-from-url downloads and extracts a zip archive", a
       "echo remote\n"
     );
     assert.notEqual(fs.statSync(path.join(workspaceDir, "scripts", "run.sh")).mode & 0o111, 0);
+  } finally {
+    await server.close();
+    await app.close();
+    store.close();
+  }
+});
+
+test("workspace apply-template-from-url requires explicit approval before replace_existing deletes workspace files", async () => {
+  const root = makeTempDir("hb-runtime-api-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/v1/workspaces",
+    payload: {
+      name: "Workspace Template URL Guardrails",
+      harness: "pi",
+      status: "active"
+    }
+  });
+  const workspace = created.json().workspace as { id: string };
+  const workspaceDir = path.join(workspaceRoot, workspace.id);
+  fs.writeFileSync(path.join(workspaceDir, "stale.txt"), "stale\n", "utf8");
+
+  const zipArchive = await createZipBuffer([{ path: "README.md", content: "# Remote Template\n" }]);
+  const server = await startStaticHttpServer((_request, response) => {
+    response.writeHead(200, { "content-type": "application/zip" });
+    response.end(zipArchive);
+  });
+
+  try {
+    const blocked = await app.inject({
+      method: "POST",
+      url: `/api/v1/workspaces/${workspace.id}/apply-template-from-url`,
+      payload: {
+        url: `${server.url}/template.zip`,
+        replace_existing: true
+      }
+    });
+
+    assert.equal(blocked.statusCode, 409);
+    assert.equal(blocked.json().code, "destructive_write_requires_explicit_approval");
+    assert.match(blocked.json().detail, /replace_existing would delete existing workspace files/i);
+    assert.equal(fs.existsSync(path.join(workspaceDir, "stale.txt")), true);
+    assert.equal(fs.existsSync(path.join(workspaceDir, "README.md")), false);
   } finally {
     await server.close();
     await app.close();

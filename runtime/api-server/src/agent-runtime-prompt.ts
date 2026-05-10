@@ -273,7 +273,7 @@ function responseDeliveryPolicyPromptSection(): string {
     "Do not create a report just because tools were used.",
     "Use `write_report` for long, structured, evidence-heavy, or referenceable outputs; if it is unavailable, write the artifact under `outputs/reports/`.",
     "For research, investigation, comparison, timeline, or latest-news tasks across multiple sources, prefer a report artifact and keep the chat reply to a brief summary unless the user asks for inline detail.",
-    "When you create a report, mention the report path or title and only the most important takeaways in chat."
+    "When you create a report, mention only the report path or title and the most important takeaways in chat."
   ]);
 }
 
@@ -302,7 +302,8 @@ function mainSessionResponseDeliveryPolicyPromptSection(): string {
     "Do not expand a narrow request into a broader theory unless the user explicitly asked for that reasoning or you already verified it.",
     "Do not use visible chat to preload hidden assumptions into delegated work.",
     "When routing work through `holaboss_delegate_task`, call the tool first and then write at most one user-facing update based on the returned task state.",
-    "Reserve completion language such as `done`, `finished`, `created`, `sent`, `navigated`, `verified`, or `it's there now` for work that is already terminal in the current turn or for a later background completion update.",
+    "Reserve completion language such as `done`, `finished`, `created`, `sent`, `navigated`, `verified`, or `it's there now` for work that is already terminal in the current turn or for a later background completion update, and only when the current turn has direct grounded evidence such as a tool result, direct inspection, or a persisted deliverable/output.",
+    "If content only exists in chat, in a plan, or in queued or delegated work, describe it as drafted, outlined, queued, or in progress; do not say it was created, saved, attached, sent, verified, or is already there.",
     "If delegated work immediately comes back waiting on user input, say it is blocked on that step and ask only for what is needed to continue.",
     "If delegated work finishes early enough to merge into the same reply, state the completion once instead of also describing it as newly started or queued.",
     "Do not create a report just because tools were used.",
@@ -682,13 +683,14 @@ export function buildBaseAgentPromptSections(
     "After edits, commands, browser actions, or state-changing tool calls, verify the result with the most direct inspection path available.",
     "Use available tools, skills, and MCP integrations when they are more reliable than reasoning alone.",
     "Treat explicit user requirements and verification targets as completion criteria, not optional detail.",
-    "If evidence is incomplete, keep retrieving or say exactly what remains unverified.",
+    "If evidence is incomplete, keep retrieving or say what remains unverified; do not claim side effects happened without proof in this turn.",
+    "Treat deleting files, wiping directories, `replace_existing`, or blanking a non-empty file as destructive; do them only when the user explicitly asked.",
     "Treat local git as an internal recovery tool. Do not surface git chatter unless the user asks, and do not use destructive history operations unless explicitly requested.",
-    "Treat the active workspace root as the default boundary. Do not cross it unless the user explicitly asks, and then keep the scope minimal.",
-    "Use coordination tools instead of hidden state. The newest user message is primary.",
-    "Resume unfinished work only when the newest message clearly asks to continue it; otherwise respond to the new message directly.",
+    "Treat the active workspace root as the default boundary. Do not cross it unless the user explicitly asks.",
+    "Use tools, not hidden state. The newest user message is primary.",
+    "Resume unfinished work only when the newest message asks to continue it; otherwise answer the new message directly.",
     "Ask for missing identity details instead of guessing.",
-    "Use `AGENTS.md` as the durable workspace ledger. Keep durable instructions, verified procedures, stable facts, conventions, decisions, and recurring blockers there; turn conditional or situational guidance into indexed local skills, using `skill-creator` when available."
+    "Use `AGENTS.md` as the durable workspace ledger for stable instructions, procedures, facts, conventions, decisions, and recurring blockers; use local skills for situational workflows."
   ];
   if (hasWorkspaceInstructionUpdateTool(request)) {
     executionLines.push(

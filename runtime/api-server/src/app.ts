@@ -1881,6 +1881,16 @@ function sendError(reply: FastifyReply, statusCode: number, detail: string) {
   return reply.code(statusCode).send({ detail });
 }
 
+function destructiveWriteApprovalResponse(detail: string): {
+  code: "destructive_write_requires_explicit_approval";
+  detail: string;
+} {
+  return {
+    code: "destructive_write_requires_explicit_approval",
+    detail
+  };
+}
+
 function resolveWorkspaceFilePath(workspaceDir: string, relativePath: string): string {
   if (!relativePath || relativePath.split("/").includes("..")) {
     throw new Error("path traversal not allowed");
@@ -1891,6 +1901,30 @@ function resolveWorkspaceFilePath(workspaceDir: string, relativePath: string): s
     throw new Error("path traversal not allowed");
   }
   return fullPath;
+}
+
+function isPreservedWorkspaceEntryForReplaceExisting(entryName: string): boolean {
+  return entryName === ".holaboss" || entryName === "workspace.json";
+}
+
+function workspaceReplaceExistingWouldDeleteEntries(workspaceDir: string): boolean {
+  for (const entry of fs.readdirSync(workspaceDir, { withFileTypes: true })) {
+    if (!isPreservedWorkspaceEntryForReplaceExisting(entry.name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isEffectivelyEmptyWorkspaceFileContent(buffer: Buffer): boolean {
+  if (buffer.length === 0) {
+    return true;
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer).trim().length === 0;
+  } catch {
+    return false;
+  }
 }
 
 class InvalidTemplateArchiveError extends Error {
@@ -5929,15 +5963,23 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const params = request.params as { workspaceId: string };
     const files = Array.isArray(request.body.files) ? request.body.files : [];
     const replaceExisting = optionalBoolean(request.body.replace_existing, false);
+    const allowDestructiveWrite = optionalBoolean(request.body.allow_destructive_write, false);
     const workspaceDir = requireHealthyWorkspaceFolder(store, params.workspaceId, reply);
     if (!workspaceDir) {
       return;
     }
 
     fs.mkdirSync(workspaceDir, { recursive: true });
+    if (replaceExisting && workspaceReplaceExistingWouldDeleteEntries(workspaceDir) && !allowDestructiveWrite) {
+      return reply.code(409).send(
+        destructiveWriteApprovalResponse(
+          "replace_existing would delete existing workspace files; retry with allow_destructive_write=true only when the user explicitly asked for that destructive change"
+        )
+      );
+    }
     if (replaceExisting) {
       for (const entry of fs.readdirSync(workspaceDir, { withFileTypes: true })) {
-        if (entry.name === ".holaboss" || entry.name === "workspace.json") {
+        if (isPreservedWorkspaceEntryForReplaceExisting(entry.name)) {
           continue;
         }
         fs.rmSync(path.join(workspaceDir, entry.name), { recursive: true, force: true });
@@ -5978,6 +6020,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const params = request.params as { workspaceId: string };
     const url = requiredString(request.body.url, "url");
     const replaceExisting = optionalBoolean(request.body.replace_existing, false);
+    const allowDestructiveWrite = optionalBoolean(request.body.allow_destructive_write, false);
     const apiKey = optionalString(request.body.api_key);
     const workspaceDir = requireHealthyWorkspaceFolder(store, params.workspaceId, reply);
     if (!workspaceDir) {
@@ -5985,9 +6028,16 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
 
     fs.mkdirSync(workspaceDir, { recursive: true });
+    if (replaceExisting && workspaceReplaceExistingWouldDeleteEntries(workspaceDir) && !allowDestructiveWrite) {
+      return reply.code(409).send(
+        destructiveWriteApprovalResponse(
+          "replace_existing would delete existing workspace files; retry with allow_destructive_write=true only when the user explicitly asked for that destructive change"
+        )
+      );
+    }
     if (replaceExisting) {
       for (const entry of fs.readdirSync(workspaceDir, { withFileTypes: true })) {
-        if (entry.name === ".holaboss" || entry.name === "workspace.json") {
+        if (isPreservedWorkspaceEntryForReplaceExisting(entry.name)) {
           continue;
         }
         fs.rmSync(path.join(workspaceDir, entry.name), { recursive: true, force: true });
@@ -6058,6 +6108,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 400, "request body must be an object");
     }
     const params = request.params as { workspaceId: string; "*": string };
+    const allowDestructiveWrite = optionalBoolean(request.body.allow_destructive_write, false);
     const workspaceDir = requireHealthyWorkspaceFolder(store, params.workspaceId, reply);
     if (!workspaceDir) {
       return;
@@ -6069,7 +6120,18 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 400, error instanceof Error ? error.message : "path traversal not allowed");
     }
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-    fs.writeFileSync(fullPath, Buffer.from(requiredString(request.body.content_base64, "content_base64"), "base64"));
+    const nextContent = Buffer.from(requiredString(request.body.content_base64, "content_base64"), "base64");
+    if (!allowDestructiveWrite && fs.existsSync(fullPath)) {
+      const existingStats = fs.statSync(fullPath);
+      if (existingStats.isFile() && existingStats.size > 0 && isEffectivelyEmptyWorkspaceFileContent(nextContent)) {
+        return reply.code(409).send(
+          destructiveWriteApprovalResponse(
+            `writing ${params["*"]} would clear a non-empty file; retry with allow_destructive_write=true only when the user explicitly asked for that destructive change`
+          )
+        );
+      }
+    }
+    fs.writeFileSync(fullPath, nextContent);
     if (optionalBoolean(request.body.executable, false)) {
       fs.chmodSync(fullPath, fs.statSync(fullPath).mode | 0o111);
     }
