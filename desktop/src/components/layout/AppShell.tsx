@@ -1507,6 +1507,8 @@ function AppShellContent() {
   ] = useState<Record<string, string>>({});
   const [chatComposerPrefillRequest, setChatComposerPrefillRequest] =
     useState<ChatComposerPrefillRequest | null>(null);
+  const [chatScheduleEditContext, setChatScheduleEditContext] =
+    useState<CronjobRecordPayload | null>(null);
   const [chatExplorerAttachmentRequest, setChatExplorerAttachmentRequest] =
     useState<ChatExplorerAttachmentRequest | null>(null);
   const [fileExplorerFocusRequest, setFileExplorerFocusRequest] =
@@ -2843,6 +2845,7 @@ function AppShellContent() {
     setChatSessionOpenRequest(null);
     setChatBrowserJumpRequestKeysBySessionId({});
     setActiveChatSessionId(null);
+    setChatScheduleEditContext(null);
   }, [selectedWorkspaceId]);
 
   useEffect(() => {
@@ -3495,6 +3498,11 @@ function AppShellContent() {
         requestKey: nextChatComposerPrefillRequestKey(),
         mode: "replace",
       });
+      // Surface the schedule's full detail (cron / instruction /
+      // description) above the composer so the user can read what they're
+      // editing without asking the agent to dump it. Cleared on send /
+      // dismiss inside ChatPane.
+      setChatScheduleEditContext(job);
       setChatFocusRequestKey((current) => current + 1);
     },
     [
@@ -4668,6 +4676,8 @@ function AppShellContent() {
               : ""
           }
           onComposerDraftTextChange={handleChatComposerDraftTextChange}
+          scheduleEditContext={chatScheduleEditContext}
+          onScheduleEditContextDismiss={() => setChatScheduleEditContext(null)}
         />
       );
     }

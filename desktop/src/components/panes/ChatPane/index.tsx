@@ -2402,6 +2402,66 @@ function hasActiveChatSelection(container: HTMLDivElement | null) {
   );
 }
 
+function ChatScheduleEditContextCard({
+  job,
+  onDismiss,
+}: {
+  job: CronjobRecordPayload;
+  onDismiss?: () => void;
+}) {
+  const title = job.name?.trim() || job.description?.trim() || "Schedule";
+  const instruction = job.instruction?.trim() ?? "";
+  const description = job.description?.trim() ?? "";
+  const showDescription = description && description !== instruction;
+  return (
+    <div className="rounded-2xl border border-border bg-fg-2 px-3.5 py-3 text-sm shadow-sm">
+      <div className="flex items-start gap-2.5">
+        <Clock3 className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Editing
+            </span>
+            <span className="truncate text-[13px] font-semibold leading-tight text-foreground">
+              {title}
+            </span>
+          </div>
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            <span className="font-mono text-[11px]">{job.cron}</span>
+            {!job.enabled ? (
+              <span className="ml-2 text-[10px] uppercase tracking-wide">
+                · Paused
+              </span>
+            ) : null}
+          </div>
+          {instruction ? (
+            <div className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-card px-2.5 py-1.5 text-xs leading-5 text-foreground">
+              {instruction}
+            </div>
+          ) : null}
+          {showDescription ? (
+            <div className="mt-1.5 text-xs leading-5 text-muted-foreground">
+              {description}
+            </div>
+          ) : null}
+        </div>
+        {onDismiss ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Dismiss schedule context"
+            onClick={onDismiss}
+            className="-mr-1 -mt-0.5 text-muted-foreground hover:text-foreground"
+          >
+            <X size={12} />
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 interface ChatPaneSessionOpenRequest {
   sessionId: string;
   requestKey: number;
@@ -2471,6 +2531,11 @@ interface ChatPaneProps {
   onOpenAutomations?: () => void;
   composerDraftText?: string;
   onComposerDraftTextChange?: (text: string) => void;
+  /** Schedule the user is currently editing — when set, ChatPane shows a
+   *  context card above the composer with the schedule's full details
+   *  (cron, instruction, description). Cleared on send / dismiss. */
+  scheduleEditContext?: CronjobRecordPayload | null;
+  onScheduleEditContextDismiss?: () => void;
 }
 
 export function ChatPane({
@@ -2501,6 +2566,8 @@ export function ChatPane({
   onOpenAutomations,
   composerDraftText = "",
   onComposerDraftTextChange,
+  scheduleEditContext = null,
+  onScheduleEditContextDismiss,
 }: ChatPaneProps) {
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const authSessionState = useDesktopAuthSession();
@@ -6129,6 +6196,12 @@ export function ChatPane({
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     void sendMessage(input);
+    // Schedule-edit context is one-shot: keep it visible while the user is
+    // composing the edit, but clear it once they actually send so the next
+    // message in the same session isn't anchored to a stale schedule.
+    if (scheduleEditContext) {
+      onScheduleEditContextDismiss?.();
+    }
   };
 
   const jumpToSessionBrowser = () => {
@@ -7444,6 +7517,12 @@ export function ChatPane({
                   </div>
                   <form onSubmit={onSubmit} className="w-full">
                     <div className="space-y-3">
+                    {scheduleEditContext ? (
+                      <ChatScheduleEditContextCard
+                        job={scheduleEditContext}
+                        onDismiss={onScheduleEditContextDismiss}
+                      />
+                    ) : null}
                     <QueuedSessionInputRail
                       items={displayedQueuedSessionInputs}
                       onEditItem={
@@ -7548,6 +7627,12 @@ export function ChatPane({
             >
               <form onSubmit={onSubmit} className="w-full">
                 <div className="space-y-3">
+                  {scheduleEditContext ? (
+                    <ChatScheduleEditContextCard
+                      job={scheduleEditContext}
+                      onDismiss={onScheduleEditContextDismiss}
+                    />
+                  ) : null}
                   <QueuedSessionInputRail
                     items={displayedQueuedSessionInputs}
                     onEditItem={
