@@ -10,6 +10,7 @@ export interface DiagnosticsBundleExportParams {
   runtimeLogPath: string;
   runtimeDbPath: string;
   runtimeConfigPath: string;
+  workspaceRuntimeDbPath?: string | null;
   workspaceId?: string | null;
   workspaceSummary?: Record<string, unknown> | null;
   summary: Record<string, unknown>;
@@ -403,6 +404,26 @@ export async function exportDiagnosticsBundle(
         archivePath: "host-state.db",
       });
       includedFiles.push("host-state.db");
+    }
+
+    const workspaceRuntimeDbPath = params.workspaceRuntimeDbPath?.trim() || "";
+    if (workspaceRuntimeDbPath) {
+      const workspaceRuntimeDbSnapshotPath = path.join(
+        stagingRoot,
+        "workspace-runtime.db",
+      );
+      if (
+        await backupRuntimeDatabase(
+          workspaceRuntimeDbPath,
+          workspaceRuntimeDbSnapshotPath,
+        )
+      ) {
+        entries.push({
+          sourcePath: workspaceRuntimeDbSnapshotPath,
+          archivePath: "workspace-runtime.db",
+        });
+        includedFiles.push("workspace-runtime.db");
+      }
     }
 
     const redactedConfigPath = path.join(

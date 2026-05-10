@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import {
   ArrowUpRight,
   Bell,
   CircleCheck,
+  Info,
   TriangleAlert,
   X,
-  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SimpleMarkdown } from "@/components/marketplace/SimpleMarkdown";
 import { cn } from "@/lib/utils";
 
 interface NotificationToastStackProps {
@@ -24,30 +25,56 @@ const COLLAPSED_TOAST_MAX_HEIGHT_PX = 76;
 const COLLAPSED_TOAST_PEEK_PX = 10;
 const EXPANDED_TOAST_GAP_PX = 12;
 
-function toastAccentClassName(level: RuntimeNotificationLevel): string {
-  if (level === "success") {
-    return "bg-success/10 text-success ring-success/30";
-  }
-  if (level === "warning") {
-    return "bg-warning/10 text-warning ring-warning/30";
-  }
-  if (level === "error") {
-    return "bg-destructive/10 text-destructive ring-destructive/30";
-  }
-  return "bg-info/15 text-info ring-info/30";
+/** Map a runtime notification level onto the matching token name in our
+ *  semantic palette. The notification level uses "error" while our token
+ *  name is "destructive"; everything else lines up. */
+function toneTokenName(
+  level: RuntimeNotificationLevel,
+): "destructive" | "info" | "success" | "warning" {
+  if (level === "error") return "destructive";
+  if (level === "success") return "success";
+  if (level === "warning") return "warning";
+  return "info";
+}
+
+/** Soft tone-tinted left → fading-to-card gradient, mirrors the design
+ *  reference. color-mix in oklch keeps the tint perceptually consistent
+ *  in both light and dark themes; goes opaque (no opacity hack on a
+ *  semantic token). */
+function toastGradientStyle(level: RuntimeNotificationLevel): CSSProperties {
+  const tone = toneTokenName(level);
+  return {
+    backgroundImage: `linear-gradient(to right, color-mix(in oklch, var(--${tone}) 9%, var(--card)) 0%, var(--card) 65%)`,
+  };
+}
+
+function toastIconClassName(level: RuntimeNotificationLevel): string {
+  if (level === "success") return "text-success";
+  if (level === "warning") return "text-warning";
+  if (level === "error") return "text-destructive";
+  return "text-info";
 }
 
 function toastIcon(level: RuntimeNotificationLevel): React.ReactNode {
-  if (level === "success") {
-    return <CircleCheck size={16} />;
-  }
-  if (level === "warning") {
-    return <TriangleAlert size={16} />;
-  }
+  if (level === "success") return <CircleCheck className="size-3.5" />;
+  if (level === "warning") return <TriangleAlert className="size-3.5" />;
+  if (level === "error") return <TriangleAlert className="size-3.5" />;
+  if (level === "info") return <Info className="size-3.5" />;
+  return <Bell className="size-3.5" />;
+}
+
+/** Action-button colour per tone. Error / info get their tone colour;
+ *  success / warning get the foreground/background swap because their
+ *  hues are too soft to support text legibility on the bg as a CTA.
+ *  Mirrors the design reference. */
+function toastButtonClassName(level: RuntimeNotificationLevel): string {
   if (level === "error") {
-    return <XCircle size={16} />;
+    return "bg-destructive text-destructive-foreground hover:bg-destructive/90";
   }
-  return <Bell size={16} />;
+  if (level === "info") {
+    return "bg-info text-white hover:bg-info/90";
+  }
+  return "bg-foreground text-background hover:bg-foreground/90";
 }
 
 function notificationTargetSessionId(
@@ -98,7 +125,7 @@ export function NotificationToastStack({
   return (
     <div
       className={cn(
-        "pointer-events-none fixed right-4 top-4 z-[90] flex w-[min(320px,calc(100vw-2rem))] flex-col gap-3 sm:right-6 sm:top-6",
+        "pointer-events-none fixed right-4 top-4 z-[90] flex w-[min(360px,calc(100vw-2rem))] flex-col gap-3 sm:right-6 sm:top-6",
         className,
       )}
       style={style}
@@ -125,61 +152,71 @@ export function NotificationToastStack({
             const targetSessionId = notificationTargetSessionId(notification);
             const isSessionTarget = Boolean(targetSessionId);
             const isCollapsedBackgroundToast = !isExpanded && index > 0;
-            const content = (
-              <>
-                <div className="text-base font-semibold leading-tight text-foreground">
-                  {notification.title}
-                </div>
-                <p className="mt-1 text-[13px] leading-[1.2rem] text-foreground">
-                  {notification.message}
-                </p>
-              </>
-            );
+            const cardStyle = {
+              ...toastCardStyle(index, notifications.length, isExpanded),
+              ...toastGradientStyle(notification.level),
+            };
 
             return (
               <div
                 key={notification.id}
                 className={cn(
-                  "overflow-hidden rounded-3xl border border-border bg-popover/95 ring-1 ring-border backdrop-blur-xl animate-in fade-in-0 slide-in-from-top-2 transition-[margin,transform,opacity,max-height] duration-200 ease-out",
+                  "overflow-hidden rounded-2xl border border-border animate-in fade-in-0 slide-in-from-top-2 transition-[margin,transform,opacity,max-height] duration-200 ease-out",
                   isCollapsedBackgroundToast
-                    ? "pointer-events-none shadow-lg"
-                    : "shadow-2xl",
+                    ? "pointer-events-none shadow-md"
+                    : "shadow-lg",
                 )}
-                style={toastCardStyle(index, notifications.length, isExpanded)}
+                style={cardStyle}
               >
                 {isCollapsedBackgroundToast ? (
                   <div aria-hidden="true" className="h-[76px]" />
                 ) : (
-                  <div className="flex items-start gap-2.5 p-3.5">
-                    <div
+                  <div className="flex items-start gap-2.5 px-3 py-2.5">
+                    <span
+                      aria-hidden="true"
                       className={cn(
-                        "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl ring-1",
-                        toastAccentClassName(notification.level),
+                        "mt-px shrink-0",
+                        toastIconClassName(notification.level),
                       )}
                     >
                       {toastIcon(notification.level)}
-                    </div>
+                    </span>
                     <div className="min-w-0 flex-1">
                       {isSessionTarget ? (
-                        <div className="min-w-0 text-left">{content}</div>
+                        <div className="min-w-0 text-left">
+                          <div className="text-[13px] font-semibold leading-tight text-foreground">
+                            {notification.title}
+                          </div>
+                          <SimpleMarkdown className="hb-toast-message mt-0.5">
+                            {notification.message}
+                          </SimpleMarkdown>
+                        </div>
                       ) : (
                         <button
                           type="button"
                           onClick={() => onActivateNotification(notification.id)}
                           className="min-w-0 text-left"
                         >
-                          {content}
+                          <div className="text-[13px] font-semibold leading-tight text-foreground">
+                            {notification.title}
+                          </div>
+                          <SimpleMarkdown className="hb-toast-message mt-0.5">
+                            {notification.message}
+                          </SimpleMarkdown>
                         </button>
                       )}
                       {isSessionTarget ? (
-                        <div className="mt-2.5">
+                        <div className="mt-2">
                           <Button
                             type="button"
-                            variant="outline"
                             size="sm"
                             onClick={() => onActivateNotification(notification.id)}
+                            className={cn(
+                              "h-6 rounded-md px-2.5 text-[11px] font-medium shadow-none",
+                              toastButtonClassName(notification.level),
+                            )}
                           >
-                            <ArrowUpRight size={14} />
+                            <ArrowUpRight className="size-3" />
                             View session
                           </Button>
                         </div>
@@ -191,9 +228,9 @@ export function NotificationToastStack({
                       size="icon-xs"
                       aria-label={`Dismiss notification ${notification.title}`}
                       onClick={() => onCloseToast(notification.id)}
-                      className="mt-0.5 text-muted-foreground hover:text-foreground"
+                      className="-mr-1 -mt-0.5 text-muted-foreground/60 hover:text-foreground"
                     >
-                      <X size={14} />
+                      <X size={12} />
                     </Button>
                   </div>
                 )}

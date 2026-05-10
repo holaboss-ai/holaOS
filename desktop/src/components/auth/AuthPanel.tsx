@@ -31,6 +31,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { StatusDot } from "@/components/ui/status-dot";
 import { Switch } from "@/components/ui/switch";
@@ -48,6 +49,7 @@ import {
   SettingsMenuSelectRow,
   SettingsRow,
   SettingsSection,
+  SettingsStatusBadge,
   type SettingsMenuOption,
   type SettingsStatusTone,
 } from "@/components/settings";
@@ -1960,14 +1962,6 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
         recallEmbeddingsDefaultModel(providerId, effectiveRuntimeConfig).trim(),
       ),
     );
-  const advancedSettingsWarnings = [
-    !hasResolvableRecallEmbeddingsModel
-      ? "No embedding model can be resolved from the currently connected providers. Recall will stay on the slower staged path until you connect an embedding-capable provider or choose one in Advanced settings."
-      : "",
-    !hasResolvableImageGenerationModel
-      ? "No image generation model can be resolved from the currently connected providers. Image generation will stay disabled until you connect a provider with an image model or choose one in Advanced settings."
-      : "",
-  ].filter(Boolean);
 
   useEffect(() => {
     if (isSignedIn || isProviderDraftDirty) {
@@ -3543,22 +3537,6 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
 
   const runtimeProviderSettings = (
     <div className="grid gap-6">
-      {advancedSettingsWarnings.length > 0 ? (
-        <div className="flex items-start gap-3 rounded-xl bg-warning/10 px-4 py-3 ring-1 ring-warning/25">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
-          <div className="min-w-0 flex-1 text-sm">
-            <div className="font-medium text-foreground">
-              Provider model resolution needs attention
-            </div>
-            <div className="mt-1 grid gap-1 text-xs leading-5 text-muted-foreground">
-              {advancedSettingsWarnings.map((warning) => (
-                <div key={warning}>{warning}</div>
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       <SettingsSection
         title="Model providers"
         description="Connect the providers you want the agent to be able to use."
@@ -3570,28 +3548,23 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
             )}
           </SettingsCard>
         ) : (
-          <SettingsCard>
-            <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
-              <div className="text-sm font-medium text-foreground">
-                No providers connected
-              </div>
-              <div className="max-w-sm text-xs leading-5 text-muted-foreground">
-                Pick one to give the agent access to a model. You can add more
-                later.
-              </div>
-              {availableProviderIds.length > 0 ? (
+          <EmptyState
+            className="py-4"
+            size="md"
+            title="No providers connected"
+            description="Pick one to give the agent access to a model. You can add more later."
+            action={
+              availableProviderIds.length > 0 ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     render={
-                      <Button size="sm" className="w-xs">
+                      <Button type="button" variant="outline" size="sm">
                         <Plus className="size-3.5" />
                         Add provider
                       </Button>
                     }
                   />
-                  <DropdownMenuContent
-                    align="center"
-                  >
+                  <DropdownMenuContent align="center">
                     {availableProviderIds.map((providerId) => {
                       const template = KNOWN_PROVIDER_TEMPLATES[providerId];
                       return (
@@ -3608,9 +3581,9 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
                     })}
                   </DropdownMenuContent>
                 </DropdownMenu>
-              ) : null}
-            </div>
-          </SettingsCard>
+              ) : null
+            }
+          />
         )}
 
         {/* Slim Add-provider row, only when at least one provider is
@@ -3771,6 +3744,8 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
         </SettingsCard>
       </SettingsSection>
 
+      {connectedProviderIds.length > 0 ? (
+        <>
       <SettingsSection
         title="Background tasks"
         description="Used for memory recall and evolve tasks."
@@ -3847,6 +3822,11 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
       <SettingsSection
         title="Recall embeddings"
         description="Used to preselect memory candidates for recall."
+        action={
+          !hasResolvableRecallEmbeddingsModel ? (
+            <SettingsStatusBadge tone="muted">Using fallback</SettingsStatusBadge>
+          ) : null
+        }
       >
         <SettingsCard>
           <SettingsMenuSelectRow
@@ -3927,6 +3907,11 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
       <SettingsSection
         title="Image generation"
         description="Used when the agent generates new images into the workspace."
+        action={
+          !hasResolvableImageGenerationModel ? (
+            <SettingsStatusBadge tone="muted">Disabled</SettingsStatusBadge>
+          ) : null
+        }
       >
         <SettingsCard>
           <SettingsMenuSelectRow
@@ -3997,6 +3982,8 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
           </p>
         ) : null}
       </SettingsSection>
+        </>
+      ) : null}
 
       {/* Provider edit — same dialog pattern, gated by expandedProviderId.
           renderProviderDrawerContent stays untouched; it just renders into

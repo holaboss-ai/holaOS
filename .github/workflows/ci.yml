@@ -750,6 +750,7 @@ jobs:
       - name: Publish validated GitHub release
         env:
           GH_TOKEN: ${{ secrets.HOLABOSS_RELEASES_REPO_TOKEN }}
+          SOURCE_GH_TOKEN: ${{ github.token }}
         run: |
           notes_path="$(mktemp)"
           trap 'rm -f "${notes_path}"' EXIT
@@ -769,7 +770,7 @@ jobs:
             exit 1
           fi
 
-          gh api "repos/${SOURCE_GH_REPO}/releases/generate-notes" \
+          GH_TOKEN="${SOURCE_GH_TOKEN}" gh api "repos/${SOURCE_GH_REPO}/releases/generate-notes" \
             --method POST \
             -f "tag_name=${RELEASE_TAG}" \
             -f "target_commitish=${RELEASE_SHA}" \

@@ -171,7 +171,7 @@ function isFailedStatus(status: string): boolean {
 export function AutomationsPane({
   workspaceId,
   composerModel,
-  emptyWorkspaceMessage = "Choose a workspace from the top bar to view and manage automations.",
+  emptyWorkspaceMessage = "Switch from the top bar to view its automations.",
   onOpenRunSession,
   onRunNow,
   onCreateSchedule,

@@ -40,6 +40,18 @@
   50.01%, 100% { opacity: 0; }
 }
 
+/* Calm 3s breathing applied to the top stripe of a control-center
+   tile whose workspace is currently working. Slower + smaller dip
+   than Tailwind's default animate-pulse so a wall of ten working
+   tiles doesn't feel anxious. */
+@keyframes hb-tile-working-breath {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+.hb-tile-stripe-working {
+  animation: hb-tile-working-breath 3s ease-in-out infinite;
+}
+
 .chat-assistant-markdown.is-live > :last-child::after {
   content: "";
   display: inline-block;

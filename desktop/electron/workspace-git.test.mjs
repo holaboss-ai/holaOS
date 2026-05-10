@@ -44,6 +44,7 @@ test("ensureWorkspaceGitRepo initializes a workspace repo with an initial agent 
 
   const result = await ensureWorkspaceGitRepo(workspaceDir);
 
+  assert.equal(result.available, true);
   assert.equal(result.initialized, true);
   assert.equal(result.initialCommitCreated, true);
   assert.equal(await runGit(workspaceDir, ["rev-parse", "--abbrev-ref", "HEAD"]), "main");
@@ -77,7 +78,33 @@ test("ensureWorkspaceGitRepo is idempotent when the workspace is already initial
 
   const result = await ensureWorkspaceGitRepo(workspaceDir);
 
+  assert.equal(result.available, true);
   assert.equal(result.initialized, false);
   assert.equal(result.initialCommitCreated, false);
   assert.equal(await runGit(workspaceDir, ["rev-parse", "HEAD"]), firstCommit);
+});
+
+test("ensureWorkspaceGitRepo skips initialization when system git is unavailable", async () => {
+  const workspaceDir = await fs.mkdtemp(
+    path.join(os.tmpdir(), "holaboss-workspace-git-"),
+  );
+
+  await fs.writeFile(path.join(workspaceDir, "AGENTS.md"), "# Workspace\n", "utf8");
+
+  const result = await ensureWorkspaceGitRepo(workspaceDir, {
+    runGitCommand: async (_targetDir, args) => {
+      if (args[0] === "init") {
+        throw new Error(
+          "git init --initial-branch main failed: xcode-select: note: No developer tools were found, requesting install.",
+        );
+      }
+      throw new Error(`unexpected git invocation: ${args.join(" ")}`);
+    },
+  });
+
+  assert.equal(result.available, false);
+  assert.equal(result.initialized, false);
+  assert.equal(result.initialCommitCreated, false);
+  assert.match(result.skippedReason ?? "", /xcode-select: note: No developer tools were found/i);
+  await assert.rejects(fs.access(path.join(workspaceDir, ".git")));
 });

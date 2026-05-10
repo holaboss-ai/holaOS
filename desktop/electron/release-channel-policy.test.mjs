@@ -156,7 +156,8 @@ test("manual CI workflow publishes desktop installers without standalone runtime
   assert.match(source, /name: holaboss-desktop-windows-\$\{\{ inputs\.release_tag \}\}/);
   assert.match(source, /SOURCE_GH_REPO: \$\{\{ github\.repository \}\}/);
   assert.match(source, /RELEASE_GH_REPO: holaboss-ai\/holaOS-releases/);
-  assert.match(source, /repos\/\$\{SOURCE_GH_REPO\}\/releases\/generate-notes/);
+  assert.match(source, /SOURCE_GH_TOKEN: \$\{\{ github\.token \}\}/);
+  assert.match(source, /GH_TOKEN="\$\{SOURCE_GH_TOKEN\}" gh api "repos\/\$\{SOURCE_GH_REPO\}\/releases\/generate-notes"/);
   assert.match(source, /sed -i\.bak \\/);
   assert.match(source, /-e '\/\^\\\*\\\*Full Changelog\\\*\\\*:\/d' \\/);
   assert.match(source, /-e '\/\^Full Changelog:\/d' \\/);

@@ -4211,6 +4211,12 @@ async function exportDesktopDiagnosticsBundle(
 ) {
   const workspace = resolveDiagnosticsWorkspace(payload?.workspaceId ?? null);
   const workspaceSummary = diagnosticsWorkspaceSummary(workspace);
+  const workspaceRuntimeDbPath = workspace
+    ? workspaceRuntimeDbPathForStartupCheck(
+        workspace.id,
+        workspace.workspace_path ?? null,
+      )
+    : null;
   const downloadsDir = app.getPath("downloads");
   const bundlePath = path.join(
     downloadsDir,
@@ -4222,6 +4228,7 @@ async function exportDesktopDiagnosticsBundle(
     runtimeLogPath: runtimeLogsPath(),
     runtimeDbPath: runtimeDatabasePath(),
     runtimeConfigPath: runtimeConfigPath(),
+    workspaceRuntimeDbPath,
     workspaceId: workspace?.id ?? null,
     workspaceSummary,
     summary: {
@@ -9358,6 +9365,14 @@ async function retryAfterSessionAuth(
   executeRequest: () => Promise<Response>,
 ): Promise<Response> {
   if (unauthorizedResponse.status !== 401 || !desktopAuthClient) {
+    return unauthorizedResponse;
+  }
+  // Don't auto-launch sign-in when the user has explicitly signed out (no
+  // cookie). The retry is for *expired* sessions; for an intentional
+  // sign-out, 401 is the expected result and pulling the user to the login
+  // page surprises them ("clicked Settings, browser opened to sign-in").
+  // The caller will surface the 401 as a normal "not authenticated" error.
+  if (!authCookieHeader()) {
     return unauthorizedResponse;
   }
   try {
@@ -14558,7 +14573,13 @@ async function createWorkspace(
       }
     }
 
-    await ensureWorkspaceGitRepo(workspaceDir);
+    const workspaceGit = await ensureWorkspaceGitRepo(workspaceDir);
+    if (!workspaceGit.available) {
+      stageLog("workspace_git.skipped", {
+        workspaceId,
+        reason: workspaceGit.skippedReason ?? "git unavailable",
+      });
+    }
 
     let onboardingStatus = "NOT_REQUIRED";
     let onboardingSessionId: string | null = null;
