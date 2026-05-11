@@ -2243,12 +2243,20 @@ function parsePendingIntegrationsList(value: unknown): ChatPendingIntegration[] 
     .filter((entry): entry is ChatPendingIntegration => Boolean(entry));
 }
 
+const PENDING_INTEGRATION_TOOL_NAMES = new Set([
+  "workspace_apps_install",
+  "holaboss_delegate_task",
+  "holaboss_resume_subagent",
+  "holaboss_continue_subagent",
+  "holaboss_get_subagent",
+]);
+
 function pendingIntegrationsFromToolResult(
   payload: Record<string, unknown>,
 ): ChatPendingIntegration[] {
   const toolName =
     typeof payload.tool_name === "string" ? payload.tool_name.trim() : "";
-  if (toolName !== "workspace_apps_install") {
+  if (!PENDING_INTEGRATION_TOOL_NAMES.has(toolName)) {
     return [];
   }
   const phase =
@@ -2260,13 +2268,8 @@ function pendingIntegrationsFromToolResult(
   if (!result) {
     return [];
   }
-  // Path 1: direct field on the payload (covers any caller that passes the
-  // raw runtime tool response through unchanged).
   const direct = parsePendingIntegrationsList(result.pending_integrations);
   if (direct.length > 0) return direct;
-  // Path 2: nested under details.raw — runtime tools wrap their JSON response
-  // through formatCapabilityToolResultForModel, which only writes details.raw
-  // when the response was compacted (large payloads).
   if (isRecord(result.details)) {
     const detailsDirect = parsePendingIntegrationsList(result.details.pending_integrations);
     if (detailsDirect.length > 0) return detailsDirect;
@@ -2275,8 +2278,6 @@ function pendingIntegrationsFromToolResult(
       if (fromRaw.length > 0) return fromRaw;
     }
   }
-  // Path 3 (the common one for runtime tools): the install response is
-  // JSON-stringified into result.content[0].text. Parse it back out.
   if (Array.isArray(result.content)) {
     for (const part of result.content) {
       if (
@@ -2285,17 +2286,37 @@ function pendingIntegrationsFromToolResult(
         typeof part.text === "string" &&
         part.text.includes("pending_integrations")
       ) {
-        try {
-          const parsed = JSON.parse(part.text) as unknown;
-          if (isRecord(parsed)) {
-            const fromText = parsePendingIntegrationsList(parsed.pending_integrations);
-            if (fromText.length > 0) return fromText;
-          }
-        } catch {
-          // not JSON — give up on this part, continue
-        }
+        const fromText = pendingIntegrationsFromTextBlob(part.text);
+        if (fromText.length > 0) return fromText;
       }
     }
+  }
+  return [];
+}
+
+function pendingIntegrationsFromTextBlob(text: string): ChatPendingIntegration[] {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (!isRecord(parsed)) return [];
+    const direct = parsePendingIntegrationsList(parsed.pending_integrations);
+    if (direct.length > 0) return direct;
+    // Subagent metadata wraps the lifecycle payload under various nesting
+    // keys depending on which orchestration tool returned it. Walk a few
+    // known shells before giving up.
+    const candidates = [
+      parsed.result_payload,
+      parsed.blocking_payload,
+      parsed.error_payload,
+      parsed.latest_progress_payload,
+      ...(Array.isArray(parsed.tasks) ? parsed.tasks : []),
+    ];
+    for (const candidate of candidates) {
+      if (!isRecord(candidate)) continue;
+      const list = parsePendingIntegrationsList(candidate.pending_integrations);
+      if (list.length > 0) return list;
+    }
+  } catch {
+    // not JSON — caller decides whether to try other content parts
   }
   return [];
 }
@@ -2399,8 +2420,6 @@ function assistantHistoryStateFromOutputEvents(
 
     if (event.event_type === "tool_call") {
       for (const integration of pendingIntegrationsFromToolResult(eventPayload)) {
-        // De-dupe by provider — multiple installs in one turn shouldn't
-        // surface the same Connect card twice.
         const key = integration.provider_id.trim().toLowerCase();
         if (!pendingIntegrations.some((existing) => existing.provider_id.trim().toLowerCase() === key)) {
           pendingIntegrations.push(integration);

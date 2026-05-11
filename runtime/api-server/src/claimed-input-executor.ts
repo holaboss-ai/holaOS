@@ -2330,6 +2330,74 @@ function plusMillisecondsIso(
   return new Date(base + milliseconds).toISOString();
 }
 
+type SubagentPendingIntegration = {
+  app_id: string;
+  provider_id: string;
+  credential_source: string | null;
+};
+
+function parseSubagentPendingIntegrationsFromText(text: string): SubagentPendingIntegration[] {
+  if (!text.includes("pending_integrations")) {
+    return [];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  if (!isRecord(parsed)) {
+    return [];
+  }
+  const list = Array.isArray(parsed.pending_integrations) ? parsed.pending_integrations : [];
+  const out: SubagentPendingIntegration[] = [];
+  for (const entry of list) {
+    if (!isRecord(entry)) continue;
+    const appId = typeof entry.app_id === "string" ? entry.app_id.trim() : "";
+    const provider = typeof entry.provider_id === "string" ? entry.provider_id.trim() : "";
+    if (!appId || !provider) continue;
+    out.push({
+      app_id: appId,
+      provider_id: provider,
+      credential_source:
+        typeof entry.credential_source === "string" ? entry.credential_source : null,
+    });
+  }
+  return out;
+}
+
+function subagentPendingIntegrations(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  childSessionId: string;
+}): SubagentPendingIntegration[] {
+  const events = params.store.listOutputEvents({
+    workspaceId: params.workspaceId,
+    sessionId: params.childSessionId,
+    includeHistory: true,
+  });
+  const seen = new Set<string>();
+  const out: SubagentPendingIntegration[] = [];
+  for (const event of events) {
+    if (event.eventType !== "tool_call") continue;
+    const payload = isRecord(event.payload) ? event.payload : {};
+    if (payload.tool_name !== "workspace_apps_install") continue;
+    if (payload.phase !== "completed" || payload.error === true) continue;
+    const result = isRecord(payload.result) ? payload.result : null;
+    if (!result || !Array.isArray(result.content)) continue;
+    for (const part of result.content) {
+      if (!isRecord(part) || part.type !== "text" || typeof part.text !== "string") continue;
+      for (const integration of parseSubagentPendingIntegrationsFromText(part.text)) {
+        const key = integration.provider_id.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(integration);
+      }
+    }
+  }
+  return out;
+}
+
 function subagentForwardableDeliverables(
   outputs: OutputRecord[],
 ): Array<Record<string, unknown>> {
@@ -2434,6 +2502,7 @@ function subagentLifecycleSummary(params: {
 }
 
 function subagentLifecyclePayload(params: {
+  store: RuntimeStateStore;
   run: SubagentRunRecord;
   turnResult: TurnResultRecord;
   status: "completed" | "failed" | "waiting_on_user" | "cancelled";
@@ -2442,6 +2511,11 @@ function subagentLifecyclePayload(params: {
   record: SessionInputRecord;
 }): Record<string, unknown> {
   const forwardableDeliverables = subagentForwardableDeliverables(params.outputs);
+  const pendingIntegrations = subagentPendingIntegrations({
+    store: params.store,
+    workspaceId: params.run.workspaceId,
+    childSessionId: params.run.childSessionId,
+  });
   const assistantText = optionalString(params.turnResult.assistantText);
   const payload: Record<string, unknown> = {
     subagent_id: params.run.subagentId,
@@ -2464,6 +2538,9 @@ function subagentLifecyclePayload(params: {
   }
   if (forwardableDeliverables.length > 0) {
     payload.forwardable_deliverables = forwardableDeliverables;
+  }
+  if (pendingIntegrations.length > 0) {
+    payload.pending_integrations = pendingIntegrations;
   }
   if (params.status === "waiting_on_user") {
     payload.blocking_question =
@@ -2563,6 +2640,7 @@ function updateSubagentRunFromTurnResult(params: {
     status,
   });
   const payload = subagentLifecyclePayload({
+    store: params.store,
     run,
     turnResult: params.turnResult,
     status,
