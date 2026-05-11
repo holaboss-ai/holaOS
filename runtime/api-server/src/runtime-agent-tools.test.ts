@@ -1736,6 +1736,238 @@ env_contract:
   }
 });
 
+test("findWorkspaceApps merges catalog and installed entries with dedup and query filter", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-find-apps-"));
+  writeRuntimeConfig(root, { runtime: { default_model: "openai/gpt-5.4" } });
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertAppCatalogEntry({
+      appId: "twitter",
+      source: "marketplace",
+      name: "Twitter",
+      description: "Post and read tweets",
+      icon: null,
+      category: "social",
+      tags: ["social"],
+      version: "1.0.0",
+      archiveUrl: "https://example.com/twitter.tar.gz",
+      archivePath: null,
+      target: "macos-arm64",
+      cachedAt: new Date().toISOString(),
+      providerId: "twitter",
+      credentialSource: "platform",
+    });
+    store.upsertAppCatalogEntry({
+      appId: "linkedin",
+      source: "marketplace",
+      name: "LinkedIn",
+      description: "Publish LinkedIn posts",
+      icon: null,
+      category: "social",
+      tags: ["social"],
+      version: "1.0.0",
+      archiveUrl: "https://example.com/linkedin.tar.gz",
+      archivePath: null,
+      target: "macos-arm64",
+      cachedAt: new Date().toISOString(),
+      providerId: "linkedin",
+      credentialSource: "platform",
+    });
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+
+    // No installs yet — find should return both candidates, neither installed.
+    const allFresh = (await service.findWorkspaceApps({ workspaceId })) as {
+      results: Array<{ app_id: string; installed: boolean; source: string }>;
+      count: number;
+    };
+    assert.equal(allFresh.count, 2);
+    assert.deepEqual(
+      allFresh.results.map((r) => r.app_id).sort(),
+      ["linkedin", "twitter"],
+    );
+    assert.ok(allFresh.results.every((r) => !r.installed));
+
+    // Mark linkedin as installed via direct workspace.yaml mutation.
+    const workspaceDir = path.join(workspaceRoot, workspaceId);
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceDir, "workspace.yaml"),
+      "applications:\n  - app_id: linkedin\n    config_path: apps/linkedin/app.runtime.yaml\n",
+      "utf8",
+    );
+    const afterInstall = (await service.findWorkspaceApps({ workspaceId })) as {
+      results: Array<{ app_id: string; installed: boolean }>;
+    };
+    const linkedin = afterInstall.results.find((r) => r.app_id === "linkedin");
+    const twitter = afterInstall.results.find((r) => r.app_id === "twitter");
+    assert.equal(linkedin?.installed, true);
+    assert.equal(twitter?.installed, false);
+
+    // Query filter narrows to twitter only.
+    const filtered = (await service.findWorkspaceApps({
+      workspaceId,
+      query: "Tweet",
+    })) as { results: Array<{ app_id: string }>; count: number };
+    assert.equal(filtered.count, 1);
+    assert.equal(filtered.results[0]?.app_id, "twitter");
+
+    // Source=installed only returns linkedin.
+    const installedOnly = (await service.findWorkspaceApps({
+      workspaceId,
+      source: "installed",
+    })) as { results: Array<{ app_id: string; source: string }> };
+    assert.equal(installedOnly.results.length, 1);
+    assert.equal(installedOnly.results[0]?.app_id, "linkedin");
+    assert.equal(installedOnly.results[0]?.source, "installed");
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("installWorkspaceApp delegates to lifecycle.installFromArchive and flags refresh on new MCP server", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-install-apps-"));
+  writeRuntimeConfig(root, { runtime: { default_model: "openai/gpt-5.4" } });
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertAppCatalogEntry({
+      appId: "twitter",
+      source: "marketplace",
+      name: "Twitter",
+      description: "Post and read tweets",
+      icon: null,
+      category: "social",
+      tags: ["social"],
+      version: "1.0.0",
+      archiveUrl: "https://example.com/twitter.tar.gz",
+      archivePath: null,
+      target: "macos-arm64",
+      cachedAt: new Date().toISOString(),
+      providerId: "twitter",
+      credentialSource: "platform",
+    });
+
+    const installCalls: Array<{ workspaceId: string; appId: string; archiveUrl: string | null }> = [];
+    const service = new RuntimeAgentToolsService(store, {
+      workspaceRoot,
+      appLifecycle: {
+        installFromArchive: async ({ workspaceId: w, appId, archiveUrl }) => {
+          installCalls.push({ workspaceId: w, appId, archiveUrl: archiveUrl ?? null });
+          // Simulate the real install: register in workspace.yaml + write
+          // mcp_registry entry so the diff detects a new MCP server.
+          const wsDir = path.join(workspaceRoot, w);
+          fs.mkdirSync(wsDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(wsDir, "workspace.yaml"),
+            `applications:\n  - app_id: ${appId}\n    config_path: apps/${appId}/app.runtime.yaml\n`,
+            "utf8",
+          );
+          writeWorkspaceMcpRegistryEntry(wsDir, appId, {
+            mcpEnabled: true,
+            mcpTools: ["twitter_create_post"],
+            mcpPath: "/mcp/sse",
+            mcpTimeoutMs: 30000,
+            mcpPort: 13100,
+          });
+          // Provide a minimal app dir so getWorkspaceAppStatus doesn't crash.
+          fs.mkdirSync(path.join(wsDir, "apps", appId), { recursive: true });
+          fs.writeFileSync(
+            path.join(wsDir, "apps", appId, "app.runtime.yaml"),
+            `app_id: ${appId}\nname: Twitter\nslug: twitter\nlifecycle:\n  setup: "true"\n  start: "true"\nhealthchecks:\n  mcp:\n    path: /mcp/health\n    timeout_s: 30\n    interval_s: 5\nmcp:\n  transport: http-sse\n  port: 13100\n  path: /mcp/sse\n  tools:\n    - twitter_create_post\nenv_contract:\n  - HOLABOSS_WORKSPACE_ID\n`,
+            "utf8",
+          );
+          return { ok: true, ready: true, detail: "App installed and running", error: null };
+        },
+      },
+    });
+
+    const result = (await service.installWorkspaceApp({
+      workspaceId,
+      appId: "twitter",
+    })) as {
+      app_id: string;
+      ready: boolean;
+      requires_session_refresh?: boolean;
+      new_mcp_servers?: string[];
+      provider_id: string | null;
+      credential_source: string | null;
+    };
+    assert.equal(installCalls.length, 1);
+    assert.equal(installCalls[0]?.archiveUrl, "https://example.com/twitter.tar.gz");
+    assert.equal(result.app_id, "twitter");
+    assert.equal(result.ready, true);
+    assert.equal(result.requires_session_refresh, true);
+    assert.deepEqual(result.new_mcp_servers, ["twitter"]);
+    assert.equal(result.provider_id, "twitter");
+    assert.equal(result.credential_source, "platform");
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("installWorkspaceApp throws when app_id is not in the catalog", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-install-missing-"));
+  writeRuntimeConfig(root, { runtime: { default_model: "openai/gpt-5.4" } });
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    const service = new RuntimeAgentToolsService(store, {
+      workspaceRoot,
+      appLifecycle: {
+        installFromArchive: async () => ({
+          ok: true,
+          ready: true,
+          detail: "ok",
+          error: null,
+        }),
+      },
+    });
+
+    await assert.rejects(
+      service.installWorkspaceApp({ workspaceId, appId: "ghost-app" }),
+      (error: unknown) => {
+        if (!(error instanceof RuntimeAgentToolsServiceError)) {
+          return false;
+        }
+        return error.code === "workspace_app_catalog_entry_not_found";
+      },
+    );
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("end-to-end: ensure_running result drives harness waiting_user state", async () => {
   // Contract test linking the runtime-agent-tools side and the harness side
   // of the M1 design: ensureWorkspaceAppsRunning emits requires_session_refresh,

@@ -662,6 +662,37 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         required: ["terminal_id"],
         additionalProperties: false,
       };
+    case "workspace_apps_find":
+      return {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "Optional case-insensitive substring filter applied to app id, name, and description.",
+          },
+          source: {
+            type: "string",
+            enum: ["marketplace", "local", "installed", "all"],
+            description:
+              "Optional source filter. `marketplace` and `local` only return catalog candidates from those sources. `installed` only returns apps already in `workspace.yaml`. `all` (default) merges everything and dedupes by app_id.",
+          },
+        },
+        additionalProperties: false,
+      };
+    case "workspace_apps_install":
+      return {
+        type: "object",
+        properties: {
+          app_id: {
+            type: "string",
+            description:
+              "Catalog app id to install. Must exist in the marketplace or local catalog (call `workspace_apps_find` first if unsure).",
+          },
+        },
+        required: ["app_id"],
+        additionalProperties: false,
+      };
     case "workspace_apps_scaffold":
       return {
         type: "object",

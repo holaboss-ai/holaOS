@@ -415,6 +415,21 @@ function signalTerminalSessionBody(toolParams: unknown): Record<string, unknown>
   };
 }
 
+function createWorkspaceAppFindBody(toolParams: unknown): Record<string, unknown> {
+  const params = isRecord(toolParams) ? toolParams : {};
+  return {
+    ...(optionalString(params.query) ? { query: optionalString(params.query) } : {}),
+    ...(optionalString(params.source) ? { source: optionalString(params.source) } : {}),
+  };
+}
+
+function createWorkspaceAppInstallBody(toolParams: unknown): Record<string, unknown> {
+  const params = isRecord(toolParams) ? toolParams : {};
+  return {
+    app_id: String(params.app_id ?? ""),
+  };
+}
+
 function createWorkspaceAppScaffoldBody(toolParams: unknown): Record<string, unknown> {
   const params = isRecord(toolParams) ? toolParams : {};
   return {
@@ -679,6 +694,18 @@ function requestPlan(
         method: "POST",
         requestPath: `${terminalSessionPath(isRecord(toolParams) ? toolParams.terminal_id : undefined)}/close`,
         body: {},
+      };
+    case "workspace_apps_find":
+      return {
+        method: "POST",
+        requestPath: `${RUNTIME_TOOLS_WORKSPACE_APPS_PATH}/find`,
+        body: createWorkspaceAppFindBody(toolParams),
+      };
+    case "workspace_apps_install":
+      return {
+        method: "POST",
+        requestPath: `${RUNTIME_TOOLS_WORKSPACE_APPS_PATH}/install`,
+        body: createWorkspaceAppInstallBody(toolParams),
       };
     case "workspace_apps_scaffold":
       return {
