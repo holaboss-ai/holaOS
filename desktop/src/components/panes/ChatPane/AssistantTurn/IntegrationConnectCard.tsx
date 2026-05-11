@@ -229,14 +229,14 @@ function IntegrationConnectCard({
               {otherConnections.map((conn) => (
                 <DropdownMenuItem
                   key={conn.connection_id}
-                  onSelect={() => void handleBind(conn.connection_id)}
+                  onClick={() => void handleBind(conn.connection_id)}
                 >
                   Switch to {accountLabelFor(conn)}
                 </DropdownMenuItem>
               ))}
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onSelect={() => void handleConnect()}
+                onClick={() => void handleConnect()}
                 disabled={busy !== null}
               >
                 <ExternalLink className="size-3.5" /> Add another account
@@ -298,7 +298,7 @@ function IntegrationConnectCard({
                 {connections.map((conn) => (
                   <DropdownMenuItem
                     key={conn.connection_id}
-                    onSelect={() => void handleBind(conn.connection_id)}
+                    onClick={() => void handleBind(conn.connection_id)}
                   >
                     {accountLabelFor(conn)}
                   </DropdownMenuItem>
