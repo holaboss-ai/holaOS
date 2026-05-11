@@ -2243,6 +2243,16 @@ function parsePendingIntegrationsList(value: unknown): ChatPendingIntegration[] 
     .filter((entry): entry is ChatPendingIntegration => Boolean(entry));
 }
 
+function pendingIntegrationsFromSubagentLifecycle(
+  payload: Record<string, unknown>,
+): ChatPendingIntegration[] {
+  const subagentPayload = isRecord(payload.subagent_payload)
+    ? payload.subagent_payload
+    : null;
+  if (!subagentPayload) return [];
+  return parsePendingIntegrationsList(subagentPayload.pending_integrations);
+}
+
 const PENDING_INTEGRATION_TOOL_NAMES = new Set([
   "workspace_apps_install",
   "holaboss_delegate_task",
@@ -2420,6 +2430,15 @@ function assistantHistoryStateFromOutputEvents(
 
     if (event.event_type === "tool_call") {
       for (const integration of pendingIntegrationsFromToolResult(eventPayload)) {
+        const key = integration.provider_id.trim().toLowerCase();
+        if (!pendingIntegrations.some((existing) => existing.provider_id.trim().toLowerCase() === key)) {
+          pendingIntegrations.push(integration);
+        }
+      }
+    }
+
+    if (event.event_type === "subagent_lifecycle_update") {
+      for (const integration of pendingIntegrationsFromSubagentLifecycle(eventPayload)) {
         const key = integration.provider_id.trim().toLowerCase();
         if (!pendingIntegrations.some((existing) => existing.provider_id.trim().toLowerCase() === key)) {
           pendingIntegrations.push(integration);
