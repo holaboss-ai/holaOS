@@ -209,9 +209,19 @@ function AssistantTurnComponent({
 
   const timeLabel = chatMessageTimeLabel(createdAt);
 
+  // Skip the slide-in entrance for the Control Center preview cards —
+  // there the mode renders many tiny copies side-by-side and the animation
+  // becomes a distracting "messages rising" effect across cards. Full chat
+  // pane and onboarding still get the entrance for in-context polish.
+  const skipEntranceAnimation = mode === "control_center_preview";
+
   return (
     <div
-      className="group/assistant-turn relative flex min-w-0 flex-col items-start animate-in fade-in-0 slide-in-from-bottom-1 duration-200"
+      className={
+        skipEntranceAnimation
+          ? "group/assistant-turn relative flex min-w-0 flex-col items-start"
+          : "group/assistant-turn relative flex min-w-0 flex-col items-start animate-in fade-in-0 slide-in-from-bottom-1 duration-200"
+      }
     >
       <div className="flex w-full min-w-0 items-end gap-2">
         <div className="w-5 shrink-0">
