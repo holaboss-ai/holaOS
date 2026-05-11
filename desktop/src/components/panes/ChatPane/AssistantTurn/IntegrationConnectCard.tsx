@@ -89,10 +89,30 @@ function IntegrationConnectCard({
     };
   }, [providerKey]);
 
-  // Hide the card entirely when the user already has an active connection —
-  // no point showing a Connect button they don't need.
-  if (state === "checking" || state === "active") {
+  if (state === "checking") {
     return null;
+  }
+
+  // When the user already has an active connection for this provider, render
+  // a small "Already connected" confirmation rather than hiding silently.
+  // The agent told the user to click Connect; if no card appears at all it
+  // looks broken. This makes the state explicit.
+  if (state === "active") {
+    return (
+      <div className="flex max-w-[380px] items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-sm text-foreground">
+        <div className="grid size-7 shrink-0 place-items-center rounded-md bg-emerald-500/15 text-emerald-600">
+          <Check className="size-3.5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium">
+            {displayName} already connected
+          </div>
+          <div className="truncate text-xs text-muted-foreground">
+            Send your next message and the agent will use it.
+          </div>
+        </div>
+      </div>
+    );
   }
 
   async function handleConnect() {

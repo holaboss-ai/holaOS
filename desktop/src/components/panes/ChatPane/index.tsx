@@ -2223,6 +2223,26 @@ function isTerminalSessionOutputEventType(eventType: string) {
   return eventType === "run_completed" || eventType === "run_failed";
 }
 
+function parsePendingIntegrationsList(value: unknown): ChatPendingIntegration[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry): ChatPendingIntegration | null => {
+      if (!isRecord(entry)) return null;
+      const appId = typeof entry.app_id === "string" ? entry.app_id.trim() : "";
+      const provider = typeof entry.provider_id === "string" ? entry.provider_id.trim() : "";
+      if (!appId || !provider) return null;
+      return {
+        app_id: appId,
+        provider_id: provider,
+        credential_source:
+          typeof entry.credential_source === "string"
+            ? entry.credential_source
+            : null,
+      };
+    })
+    .filter((entry): entry is ChatPendingIntegration => Boolean(entry));
+}
+
 function pendingIntegrationsFromToolResult(
   payload: Record<string, unknown>,
 ): ChatPendingIntegration[] {
@@ -2240,30 +2260,44 @@ function pendingIntegrationsFromToolResult(
   if (!result) {
     return [];
   }
-  const direct = Array.isArray(result.pending_integrations)
-    ? result.pending_integrations
-    : null;
-  const nested =
-    !direct && isRecord(result.details) && Array.isArray(result.details.pending_integrations)
-      ? result.details.pending_integrations
-      : null;
-  const list = direct ?? nested ?? [];
-  return list
-    .map((entry): ChatPendingIntegration | null => {
-      if (!isRecord(entry)) return null;
-      const appId = typeof entry.app_id === "string" ? entry.app_id.trim() : "";
-      const provider = typeof entry.provider_id === "string" ? entry.provider_id.trim() : "";
-      if (!appId || !provider) return null;
-      return {
-        app_id: appId,
-        provider_id: provider,
-        credential_source:
-          typeof entry.credential_source === "string"
-            ? entry.credential_source
-            : null,
-      };
-    })
-    .filter((entry): entry is ChatPendingIntegration => Boolean(entry));
+  // Path 1: direct field on the payload (covers any caller that passes the
+  // raw runtime tool response through unchanged).
+  const direct = parsePendingIntegrationsList(result.pending_integrations);
+  if (direct.length > 0) return direct;
+  // Path 2: nested under details.raw — runtime tools wrap their JSON response
+  // through formatCapabilityToolResultForModel, which only writes details.raw
+  // when the response was compacted (large payloads).
+  if (isRecord(result.details)) {
+    const detailsDirect = parsePendingIntegrationsList(result.details.pending_integrations);
+    if (detailsDirect.length > 0) return detailsDirect;
+    if (isRecord(result.details.raw)) {
+      const fromRaw = parsePendingIntegrationsList(result.details.raw.pending_integrations);
+      if (fromRaw.length > 0) return fromRaw;
+    }
+  }
+  // Path 3 (the common one for runtime tools): the install response is
+  // JSON-stringified into result.content[0].text. Parse it back out.
+  if (Array.isArray(result.content)) {
+    for (const part of result.content) {
+      if (
+        isRecord(part) &&
+        part.type === "text" &&
+        typeof part.text === "string" &&
+        part.text.includes("pending_integrations")
+      ) {
+        try {
+          const parsed = JSON.parse(part.text) as unknown;
+          if (isRecord(parsed)) {
+            const fromText = parsePendingIntegrationsList(parsed.pending_integrations);
+            if (fromText.length > 0) return fromText;
+          }
+        } catch {
+          // not JSON — give up on this part, continue
+        }
+      }
+    }
+  }
+  return [];
 }
 
 function assistantHistoryStateFromOutputEvents(
