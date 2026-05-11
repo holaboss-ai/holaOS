@@ -94,21 +94,6 @@ export interface AgentScratchpadContext {
   preview?: string | null;
 }
 
-export interface AgentLegacySessionHistoryContext {
-  manifest_path: string;
-  legacy_session_count: number;
-  entries?: Array<{
-    session_id: string;
-    title?: string | null;
-    kind?: string | null;
-    archived_at?: string | null;
-    message_count?: number | null;
-    output_count?: number | null;
-    json_path?: string | null;
-    markdown_path?: string | null;
-  }> | null;
-}
-
 export interface AgentEvolveCandidateContext {
   candidate_id: string;
   kind: string;
@@ -135,7 +120,6 @@ export interface ComposeBaseAgentPromptRequest {
   operatorSurfaceContext?: AgentOperatorSurfaceContext | null;
   pendingUserMemoryContext?: AgentPendingUserMemoryContext | null;
   recentRuntimeContext?: AgentRecentRuntimeContext | null;
-  legacySessionHistoryContext?: AgentLegacySessionHistoryContext | null;
   scratchpadContext?: AgentScratchpadContext | null;
   evolveCandidateContext?: AgentEvolveCandidateContext | null;
   capabilityManifest?: AgentCapabilityManifest | null;
@@ -322,7 +306,7 @@ function mainSessionSoulPromptSection(): string {
     "Show brief warmth, curiosity, humor, and point of view when the moment calls for it, but do not become chatty, theatrical, or sentimental.",
     "Prefer replies that read like a capable person texting the user back, not a ticket update, operator console, or workflow log.",
     "React naturally before explaining when that is what a human teammate would do: a quick 'Nice', 'Yeah, that is messy', or 'I would not do it that way' is allowed when it fits.",
-    "Have opinions. Pick a sensible path by default instead of listing options, and explain the tradeoff only when it matters.",
+    "Have opinions, don't just blindly follow user's point of view. Pick a sensible path by default instead of listing options, and explain the tradeoff only when it matters.",
     "Do not narrate or analyze your own persona. Just speak as Hola.",
     "Do not fake empathy or perform customer-support warmth. Be present, direct, and human in the way you respond.",
     "Be concise and on-point. Do not ramble, over-explain, or pad replies just to sound helpful.",
@@ -456,62 +440,6 @@ function recentRuntimeContextPromptSection(
     "Run-specific routing recovery:",
     ...lines,
   ]);
-}
-
-function legacySessionHistoryContextPromptSection(
-  context: AgentLegacySessionHistoryContext | null | undefined,
-): string {
-  if (!context) {
-    return "";
-  }
-  const manifestPath = nonEmptyText(context.manifest_path);
-  const legacySessionCount = Number.isFinite(context.legacy_session_count)
-    ? Math.max(0, Math.trunc(context.legacy_session_count))
-    : 0;
-  if (!manifestPath || legacySessionCount <= 0) {
-    return "";
-  }
-  const entries = Array.isArray(context.entries) ? context.entries : [];
-  const lines = [
-    "Legacy session history exports:",
-    "Older front-of-house workspace sessions may have been migrated out of the live transcript and exported to `.holaboss/state/legacy-session-histories`.",
-    "These exports are not automatically merged into the current conversation state.",
-    "When the user asks about prior workspace conversations, past sessions, or historical context, consult the manifest or a directly relevant export before saying that prior session context is unavailable.",
-    "Use `list`, `glob`, and `read` to inspect these legacy exports when needed.",
-    `Manifest path: \`${manifestPath}\`.`,
-    `Legacy exported session count: ${legacySessionCount}.`,
-  ];
-  if (entries.length > 0) {
-    lines.push("Recent exported sessions:");
-    for (const entry of entries) {
-      const sessionId = nonEmptyText(entry.session_id);
-      if (!sessionId) {
-        continue;
-      }
-      const title = nonEmptyText(entry.title) || "Untitled session";
-      const kind = nonEmptyText(entry.kind) || "unknown";
-      const archivedAt = nonEmptyText(entry.archived_at);
-      const messageCount = Number.isFinite(entry.message_count)
-        ? Math.max(0, Math.trunc(entry.message_count ?? 0))
-        : null;
-      const outputCount = Number.isFinite(entry.output_count)
-        ? Math.max(0, Math.trunc(entry.output_count ?? 0))
-        : null;
-      const jsonPath = nonEmptyText(entry.json_path);
-      const markdownPath = nonEmptyText(entry.markdown_path);
-      const details = [
-        `session_id=\`${sessionId}\``,
-        `kind=\`${kind}\``,
-        archivedAt ? `archived=${archivedAt}` : "",
-        messageCount !== null ? `messages=${messageCount}` : "",
-        outputCount !== null ? `outputs=${outputCount}` : "",
-        jsonPath ? `json=\`${jsonPath}\`` : "",
-        markdownPath ? `markdown=\`${markdownPath}\`` : "",
-      ].filter(Boolean).join(", ");
-      lines.push(`- ${title}: ${details}`);
-    }
-  }
-  return linesSection(lines);
 }
 
 function scratchpadContextPromptSection(
@@ -840,16 +768,6 @@ export function buildBaseAgentPromptSections(
   });
 
   pushPromptLayer(promptSections, {
-    id: "legacy_session_history",
-    channel: "context_message",
-    apply_at: "runtime_config",
-    precedence: "runtime_context",
-    priority: 491,
-    volatility: "workspace",
-    content: legacySessionHistoryContextPromptSection(request.legacySessionHistoryContext)
-  });
-
-  pushPromptLayer(promptSections, {
     id: "scratchpad_context",
     channel: "context_message",
     apply_at: "runtime_config",
@@ -958,6 +876,7 @@ export function buildMainSessionPromptSections(
       "The main session is a front-of-house coordinator with only a partial direct capability surface, not the default heavy executor.",
       "Treat the surfaced tool and capability set for this run as your full direct authority. Hidden subagents may have a broader executor surface than you do.",
       "Prefer delegating long-running, tool-heavy, interruptible, or execution-heavy work to hidden subagents.",
+      "When the user asks for fresh execution, fresh investigation, or a new deliverable, do not answer from prior chat memory alone; delegate or inspect first.",
       "For browser control, web research, terminal work, or other execution-heavy tasks, default to delegating unless the direct capability is surfaced here and the work is genuinely small enough to finish inline.",
       "Default delegated browser work to the agent browser. Set `use_user_browser_surface: true` on `holaboss_delegate_task` only when the user explicitly says `use my browser`. Do not infer it from `current tab`, `current page`, `this page`, or similar phrasing.",
       "If the user asks for work that needs capabilities this run does not have directly, but delegated subagents can do it, delegate instead of replying that this run lacks those tools.",
@@ -970,6 +889,9 @@ export function buildMainSessionPromptSections(
       "Treat prior tool failures, subagent failures, and access or integration blockers as observations about earlier attempts, not static truth about the current run.",
       "When the user asks to retry, continue, or try again after mutable external state may have changed, prefer a fresh attempt over paraphrasing the previous failure from chat history.",
       "Only restate an earlier access, authorization, or integration blocker after a current attempt or current tool result confirms it still applies.",
+      "If a request resembles earlier work but the user did not clearly ask to continue or reuse that earlier result, treat it as a fresh task.",
+      "Do not satisfy a fresh task by resurfacing a previous artifact, previous child output, or remembered result unless the user explicitly asked to reuse, continue, transform, summarize, compare, or save that exact prior result.",
+      "Before claiming the work is already done or that an existing artifact satisfies the current request, verify it through direct inspection or a grounded child result.",
       "After delegating fresh background work, do not poll the child repeatedly in the same turn with status-read tools just to see if it finished; return control unless the delegated task is already terminal or immediately waiting on user input.",
       "When the user asks to continue, transform, save, summarize, compare, or report on a previous child result, continue the relevant child session instead of spawning a brand-new child task.",
       "If multiple child sessions could match a continuation request, ask which one the user means before continuing.",
@@ -1126,16 +1048,6 @@ export function buildMainSessionPromptSections(
     priority: 490,
     volatility: "run",
     content: pendingUserMemoryContextPromptSection(request.pendingUserMemoryContext)
-  });
-
-  pushPromptLayer(promptSections, {
-    id: "legacy_session_history",
-    channel: "context_message",
-    apply_at: "runtime_config",
-    precedence: "runtime_context",
-    priority: 491,
-    volatility: "workspace",
-    content: legacySessionHistoryContextPromptSection(request.legacySessionHistoryContext)
   });
 
   pushPromptLayer(promptSections, {

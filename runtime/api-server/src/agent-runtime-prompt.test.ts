@@ -282,7 +282,10 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /brief warmth, curiosity, humor, and point of view/);
   assert.match(prompt.systemPrompt, /capable person texting the user back/);
   assert.match(prompt.systemPrompt, /React naturally before explaining/);
-  assert.match(prompt.systemPrompt, /Have opinions\. Pick a sensible path by default instead of listing options/);
+  assert.match(
+    prompt.systemPrompt,
+    /Have opinions, don't just blindly follow user's point of view\. Pick a sensible path by default instead of listing options/,
+  );
   assert.match(prompt.systemPrompt, /Do not narrate or analyze your own persona\. Just speak as Hola\./);
   assert.match(prompt.systemPrompt, /Do not fake empathy or perform customer-support warmth/);
   assert.match(prompt.systemPrompt, /Be concise and on-point\. Do not ramble, over-explain, or pad replies just to sound helpful\./);
@@ -319,6 +322,7 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /front-of-house coordinator with only a partial direct capability surface/i);
   assert.match(prompt.systemPrompt, /surfaced tool and capability set for this run as your full direct authority/i);
   assert.match(prompt.systemPrompt, /Prefer delegating long-running, tool-heavy, interruptible, or execution-heavy work to hidden subagents\./);
+  assert.match(prompt.systemPrompt, /When the user asks for fresh execution, fresh investigation, or a new deliverable, do not answer from prior chat memory alone; delegate or inspect first\./);
   assert.match(prompt.systemPrompt, /browser control, web research, terminal work, or other execution-heavy tasks, default to delegating/i);
   assert.match(prompt.systemPrompt, /Default delegated browser work to the agent browser\./);
   assert.match(prompt.systemPrompt, /set `use_user_browser_surface: true` on `holaboss_delegate_task`/i);
@@ -332,6 +336,9 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /Treat prior tool failures, subagent failures, and access or integration blockers as observations about earlier attempts, not static truth about the current run\./);
   assert.match(prompt.systemPrompt, /When the user asks to retry, continue, or try again after mutable external state may have changed, prefer a fresh attempt over paraphrasing the previous failure from chat history\./);
   assert.match(prompt.systemPrompt, /Only restate an earlier access, authorization, or integration blocker after a current attempt or current tool result confirms it still applies\./);
+  assert.match(prompt.systemPrompt, /If a request resembles earlier work but the user did not clearly ask to continue or reuse that earlier result, treat it as a fresh task\./);
+  assert.match(prompt.systemPrompt, /Do not satisfy a fresh task by resurfacing a previous artifact, previous child output, or remembered result unless the user explicitly asked to reuse, continue, transform, summarize, compare, or save that exact prior result\./);
+  assert.match(prompt.systemPrompt, /Before claiming the work is already done or that an existing artifact satisfies the current request, verify it through direct inspection or a grounded child result\./);
   assert.match(prompt.systemPrompt, /Do not paste long document, HTML, markdown, or report bodies into chat\./);
   assert.ok(
     prompt.promptSections.some(
@@ -647,48 +654,6 @@ test("composeAgentPrompt keeps onboarding sessions free of subagent delegation d
     /delegate instead of replying that this run lacks those tools\./,
   );
   assert.doesNotMatch(prompt.systemPrompt, /Subagents are backstage executors\./);
-});
-
-test("composeAgentPrompt tells main sessions how to inspect legacy session exports", () => {
-  const capabilityManifest = buildAgentCapabilityManifest({
-    defaultTools: ["read", "glob", "list"],
-    extraTools: [],
-    workspaceSkillIds: [],
-    resolvedMcpToolRefs: [],
-    toolServerIdMap: {},
-  });
-
-  const prompt = composeAgentPrompt("", {
-    defaultTools: ["read", "glob", "list"],
-    extraTools: [],
-    workspaceSkillIds: [],
-    resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
-    sessionMode: "code",
-    harnessId: "pi",
-    legacySessionHistoryContext: {
-      manifest_path: ".holaboss/state/legacy-session-histories/index.json",
-      legacy_session_count: 2,
-      entries: [
-        {
-          session_id: "session-older",
-          title: "Earlier planning chat",
-          kind: "workspace_session",
-          archived_at: "2026-04-24T06:52:27.419Z",
-          message_count: 14,
-          output_count: 1,
-          json_path: ".holaboss/state/legacy-session-histories/session-older.json",
-          markdown_path: ".holaboss/state/legacy-session-histories/session-older.md",
-        },
-      ],
-    },
-    capabilityManifest,
-  });
-
-  assert.match(prompt.contextMessages.join("\n"), /Legacy session history exports:/);
-  assert.match(prompt.contextMessages.join("\n"), /consult the manifest or a directly relevant export before saying that prior session context is unavailable/i);
-  assert.match(prompt.contextMessages.join("\n"), /Manifest path: `\.holaboss\/state\/legacy-session-histories\/index\.json`\./);
-  assert.match(prompt.contextMessages.join("\n"), /Earlier planning chat:/);
 });
 
 test("composeBaseAgentPrompt includes shared todo continuity policy when todo tools are available", () => {

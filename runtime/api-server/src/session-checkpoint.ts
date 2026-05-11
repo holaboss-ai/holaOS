@@ -12,7 +12,7 @@ import { buildRunnerEnv } from "./runner-worker.js";
 import { captureRuntimeException } from "./runtime-sentry.js";
 
 export const SESSION_CHECKPOINT_JOB_TYPE = "session_checkpoint";
-const PI_COMPACTION_CONTEXT_RESERVE_RATIO = 0.5;
+const PI_COMPACTION_CONTEXT_RESERVE_RATIO = 0.7;
 const SESSION_CHECKPOINT_WAIT_POLL_INTERVAL_MS = 100;
 
 export interface PiContextUsage {
@@ -847,6 +847,7 @@ export async function processSessionCheckpointJob(params: {
   try {
     const result = await (params.runPiSessionCompactionFn ?? runPiSessionCompaction)({
       ...harnessRequest,
+      force_compaction: true,
       harness_session_id: compactedSessionPath,
       persisted_harness_session_id: compactedSessionPath,
       timeout_seconds: 0,
