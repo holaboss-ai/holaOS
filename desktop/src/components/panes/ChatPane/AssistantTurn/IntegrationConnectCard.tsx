@@ -288,9 +288,7 @@ function IntegrationConnectCard({
                   <Button size="sm" disabled={busy !== null}>
                     {busy === "binding" ? (
                       <LoaderCircle size={13} className="animate-spin" />
-                    ) : (
-                      <Check size={13} />
-                    )}
+                    ) : null}
                     Pick account
                     <ChevronDown size={13} />
                   </Button>
@@ -314,7 +312,6 @@ function IntegrationConnectCard({
             disabled={busy !== null}
             onClick={() => void handleConnect()}
           >
-            <ExternalLink size={13} />
             Add another
           </Button>
         </div>
