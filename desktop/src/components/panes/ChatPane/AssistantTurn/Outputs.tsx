@@ -5,6 +5,8 @@ import {
   outputSecondaryLabel,
 } from "../ArtifactBrowserModal";
 
+const MAX_VISIBLE_OUTPUTS = 3;
+
 export function AssistantTurnOutputs({
   outputs,
   onOpenOutput,
@@ -18,9 +20,11 @@ export function AssistantTurnOutputs({
   if (displayOutputs.length === 0) {
     return null;
   }
+  const visibleOutputs = displayOutputs.slice(0, MAX_VISIBLE_OUTPUTS);
+  const overflowCount = displayOutputs.length - visibleOutputs.length;
   return (
     <div className="mt-3 flex flex-col gap-2">
-      {displayOutputs.map((output) => (
+      {visibleOutputs.map((output) => (
         <button
           key={output.id}
           type="button"
@@ -51,7 +55,9 @@ export function AssistantTurnOutputs({
             <Folder className="size-3.5" />
           </div>
           <span className="text-xs">
-            View artifacts in this reply ({displayOutputs.length})
+            {overflowCount > 0
+              ? `View all ${displayOutputs.length} artifacts (+${overflowCount} more)`
+              : `View artifacts in this reply (${displayOutputs.length})`}
           </span>
         </button>
       ) : null}
