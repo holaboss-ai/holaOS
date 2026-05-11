@@ -161,6 +161,15 @@ export interface BrowserHttpServiceDeps {
   ) => OperatorSurfaceContextPayload;
 
   browserPagePayload: (tab: HttpServiceTabRecord) => Record<string, unknown>;
+  withTemporarilyRenderedBrowserTab: <T>(
+    tab: HttpServiceTabRecord,
+    callback: () => Promise<T>,
+    options?: {
+      requireFocusedWindow?: boolean;
+      workspaceId?: string | null;
+      waitForRenderedFrame?: boolean;
+    },
+  ) => Promise<T>;
 
   withProgrammaticBrowserInput: <T>(
     webContents: WebContents,
@@ -182,6 +191,18 @@ export interface BrowserHttpService {
     response: ServerResponse<IncomingMessage>,
   ) => Promise<void>;
 }
+
+const INTERACTIVE_ELEMENTS_SELECTOR = [
+  "a[href]",
+  "button",
+  "input",
+  "textarea",
+  "select",
+  "[role='button']",
+  "[role='link']",
+  "[contenteditable]:not([contenteditable='false'])",
+  "[tabindex]",
+].join(",");
 
 function tokenFromRequest(request: IncomingMessage): string {
   const raw = request.headers["x-holaboss-desktop-token"];
@@ -255,9 +276,90 @@ function serializeEvalResult(value: unknown): unknown {
   }
 }
 
+function positiveIntegerPayload(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+    ? value
+    : null;
+}
+
+function optionalExpressionPayload(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function focusIndexedKeyboardTargetExpression(index: number): string {
+  return `(() => {
+    const selector = ${JSON.stringify(INTERACTIVE_ELEMENTS_SELECTOR)};
+    const isVisible = (element) => {
+      if (!(element instanceof HTMLElement)) return false;
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+    };
+    const target = Array.from(document.querySelectorAll(selector)).filter((element) => isVisible(element))[${index - 1}] || null;
+    if (!(target instanceof HTMLElement)) {
+      throw new Error(${JSON.stringify(`No interactive element found for index ${index}.`)});
+    }
+    const editTarget =
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target.isContentEditable
+        ? target
+        : target.querySelector("input, textarea, [contenteditable]:not([contenteditable='false'])");
+    if (!(editTarget instanceof HTMLElement)) {
+      throw new Error(${JSON.stringify(`Element at index ${index} is not text-editable.`)});
+    }
+    editTarget.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+    if (typeof editTarget.focus === "function") {
+      try {
+        editTarget.focus({ preventScroll: true });
+      } catch {
+        editTarget.focus();
+      }
+    }
+    return {
+      ok: true,
+      index: ${index},
+      tag_name: editTarget.tagName.toLowerCase(),
+      role: editTarget.getAttribute("role") || "",
+      editable: true,
+    };
+  })()`;
+}
+
 export function createBrowserHttpService(
   deps: BrowserHttpServiceDeps,
 ): BrowserHttpService {
+  async function captureBrowserScreenshotWithRetries(
+    tab: HttpServiceTabRecord,
+  ): Promise<import("electron").NativeImage> {
+    const maxAttempts = 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        return await tab.view.webContents.capturePage(undefined, {
+          stayHidden: true,
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : String(error);
+        const shouldRetry = message.includes("UnknownVizError");
+        if (!shouldRetry || attempt >= maxAttempts - 1) {
+          throw error;
+        }
+        try {
+          await tab.view.webContents.executeJavaScript("document.readyState", true);
+        } catch {
+          // Ignore renderer warmup failures and keep retrying.
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+    throw new Error("Browser screenshot capture exhausted all retries.");
+  }
+
   async function handleRequest(
     request: IncomingMessage,
     response: ServerResponse<IncomingMessage>,
@@ -861,8 +963,11 @@ export function createBrowserHttpService(
           });
           return;
         }
-        const result =
-          await activeTab.view.webContents.executeJavaScript(expression);
+        const result = await deps.withTemporarilyRenderedBrowserTab(
+          activeTab,
+          async () =>
+            activeTab.view.webContents.executeJavaScript(expression),
+        );
         writeJson(response, 200, {
           tabId: activeTab.state.id,
           result: serializeEvalResult(result),
@@ -903,29 +1008,37 @@ export function createBrowserHttpService(
         if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isFocused()) {
           mainWindow.focus();
         }
-        await deps.withProgrammaticBrowserInput(
-          activeTab.view.webContents,
-          async () => {
-            activeTab.view.webContents.focus();
-            await activeTab.view.webContents.sendInputEvent({
-              type: "mouseMove",
-              x,
-              y,
-            });
-            await activeTab.view.webContents.sendInputEvent({
-              type: "mouseDown",
-              x,
-              y,
-              button: "right",
-              clickCount: 1,
-            });
-            await activeTab.view.webContents.sendInputEvent({
-              type: "mouseUp",
-              x,
-              y,
-              button: "right",
-              clickCount: 1,
-            });
+        await deps.withTemporarilyRenderedBrowserTab(
+          activeTab,
+          async () =>
+            deps.withProgrammaticBrowserInput(
+              activeTab.view.webContents,
+              async () => {
+                activeTab.view.webContents.focus();
+                await activeTab.view.webContents.sendInputEvent({
+                  type: "mouseMove",
+                  x,
+                  y,
+                });
+                await activeTab.view.webContents.sendInputEvent({
+                  type: "mouseDown",
+                  x,
+                  y,
+                  button: "right",
+                  clickCount: 1,
+                });
+                await activeTab.view.webContents.sendInputEvent({
+                  type: "mouseUp",
+                  x,
+                  y,
+                  button: "right",
+                  clickCount: 1,
+                });
+              },
+            ),
+          {
+            requireFocusedWindow: true,
+            workspaceId: targetWorkspaceId,
           },
         );
         writeJson(response, 200, {
@@ -939,11 +1052,11 @@ export function createBrowserHttpService(
 
       if (method === "POST" && pathname === "/api/v1/browser/mouse") {
         const payload = await readJsonBody(request);
-        const x =
+        let x =
           typeof payload.x === "number" && Number.isFinite(payload.x)
             ? Math.round(payload.x)
             : NaN;
-        const y =
+        let y =
           typeof payload.y === "number" && Number.isFinite(payload.y)
             ? Math.round(payload.y)
             : NaN;
@@ -951,9 +1064,13 @@ export function createBrowserHttpService(
           payload.action === "double_click" || payload.action === "hover"
             ? payload.action
             : "click";
-        if (!Number.isFinite(x) || x < 0 || !Number.isFinite(y) || y < 0) {
+        const expression = optionalExpressionPayload(payload.expression);
+        if (
+          !expression &&
+          (!Number.isFinite(x) || x < 0 || !Number.isFinite(y) || y < 0)
+        ) {
           writeJson(response, 400, {
-            error: "Fields 'x' and 'y' must be non-negative numbers.",
+            error: "Fields 'x' and 'y' must be non-negative numbers when no expression is provided.",
           });
           return;
         }
@@ -974,47 +1091,86 @@ export function createBrowserHttpService(
         if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isFocused()) {
           mainWindow.focus();
         }
-        await deps.withProgrammaticBrowserInput(
-          activeTab.view.webContents,
-          async () => {
-            activeTab.view.webContents.focus();
-            await activeTab.view.webContents.sendInputEvent({
-              type: "mouseMove",
-              x,
-              y,
-            });
-            if (action === "click" || action === "double_click") {
-              await activeTab.view.webContents.sendInputEvent({
-                type: "mouseDown",
-                x,
-                y,
-                button: "left",
-                clickCount: 1,
-              });
-              await activeTab.view.webContents.sendInputEvent({
-                type: "mouseUp",
-                x,
-                y,
-                button: "left",
-                clickCount: 1,
-              });
-            }
-            if (action === "double_click") {
-              await activeTab.view.webContents.sendInputEvent({
-                type: "mouseDown",
-                x,
-                y,
-                button: "left",
-                clickCount: 2,
-              });
-              await activeTab.view.webContents.sendInputEvent({
-                type: "mouseUp",
-                x,
-                y,
-                button: "left",
-                clickCount: 2,
-              });
-            }
+        let resolvedAction: unknown = null;
+        await deps.withTemporarilyRenderedBrowserTab(
+          activeTab,
+          async () =>
+            deps.withProgrammaticBrowserInput(
+              activeTab.view.webContents,
+              async () => {
+                activeTab.view.webContents.focus();
+                if (expression) {
+                  resolvedAction = serializeEvalResult(
+                    await activeTab.view.webContents.executeJavaScript(expression),
+                  );
+                  const resolvedPoint =
+                    resolvedAction &&
+                    typeof resolvedAction === "object" &&
+                    !Array.isArray(resolvedAction)
+                      ? (resolvedAction as Record<string, unknown>).result
+                      : null;
+                  x =
+                    resolvedPoint &&
+                    typeof resolvedPoint === "object" &&
+                    !Array.isArray(resolvedPoint) &&
+                    typeof (resolvedPoint as Record<string, unknown>).x === "number" &&
+                    Number.isFinite((resolvedPoint as Record<string, unknown>).x)
+                      ? Math.round((resolvedPoint as Record<string, unknown>).x as number)
+                      : NaN;
+                  y =
+                    resolvedPoint &&
+                    typeof resolvedPoint === "object" &&
+                    !Array.isArray(resolvedPoint) &&
+                    typeof (resolvedPoint as Record<string, unknown>).y === "number" &&
+                    Number.isFinite((resolvedPoint as Record<string, unknown>).y)
+                      ? Math.round((resolvedPoint as Record<string, unknown>).y as number)
+                      : NaN;
+                  if (!Number.isFinite(x) || x < 0 || !Number.isFinite(y) || y < 0) {
+                    throw new Error("Resolved browser mouse action did not provide valid coordinates.");
+                  }
+                }
+                await activeTab.view.webContents.sendInputEvent({
+                  type: "mouseMove",
+                  x,
+                  y,
+                });
+                if (action === "click" || action === "double_click") {
+                  await activeTab.view.webContents.sendInputEvent({
+                    type: "mouseDown",
+                    x,
+                    y,
+                    button: "left",
+                    clickCount: 1,
+                  });
+                  await activeTab.view.webContents.sendInputEvent({
+                    type: "mouseUp",
+                    x,
+                    y,
+                    button: "left",
+                    clickCount: 1,
+                  });
+                }
+                if (action === "double_click") {
+                  await activeTab.view.webContents.sendInputEvent({
+                    type: "mouseDown",
+                    x,
+                    y,
+                    button: "left",
+                    clickCount: 2,
+                  });
+                  await activeTab.view.webContents.sendInputEvent({
+                    type: "mouseUp",
+                    x,
+                    y,
+                    button: "left",
+                    clickCount: 2,
+                  });
+                }
+              },
+            ),
+          {
+            requireFocusedWindow: true,
+            workspaceId: targetWorkspaceId,
           },
         );
         writeJson(response, 200, {
@@ -1023,6 +1179,9 @@ export function createBrowserHttpService(
           action,
           x,
           y,
+          ...(resolvedAction && typeof resolvedAction === "object"
+            ? { resolved_action: resolvedAction }
+            : {}),
         });
         return;
       }
@@ -1037,6 +1196,8 @@ export function createBrowserHttpService(
             : "";
         const clear = payload.clear === true;
         const submit = payload.submit === true;
+        const index = positiveIntegerPayload(payload.index);
+        const expression = optionalExpressionPayload(payload.expression);
         if (action === "press" && !key) {
           writeJson(response, 400, {
             error: "Field 'key' is required for keyboard press actions.",
@@ -1060,26 +1221,47 @@ export function createBrowserHttpService(
         if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isFocused()) {
           mainWindow.focus();
         }
-        await deps.withProgrammaticBrowserInput(
-          activeTab.view.webContents,
-          async () => {
-            activeTab.view.webContents.focus();
-            if (action === "press") {
-              await deps.sendBrowserKeyPress(activeTab.view.webContents, key);
-              return;
-            }
-            if (clear) {
-              await deps.clearFocusedBrowserTextInput(activeTab.view.webContents);
-            }
-            if (text) {
-              await activeTab.view.webContents.insertText(text);
-            }
-            if (submit) {
-              await deps.sendBrowserKeyPress(
-                activeTab.view.webContents,
-                "Enter",
-              );
-            }
+        let focusedTarget: unknown = null;
+        let resolvedAction: unknown = null;
+        await deps.withTemporarilyRenderedBrowserTab(
+          activeTab,
+          async () =>
+            deps.withProgrammaticBrowserInput(
+              activeTab.view.webContents,
+              async () => {
+                activeTab.view.webContents.focus();
+                if (expression) {
+                  resolvedAction = serializeEvalResult(
+                    await activeTab.view.webContents.executeJavaScript(expression),
+                  );
+                } else if (index !== null) {
+                  focusedTarget = serializeEvalResult(
+                    await activeTab.view.webContents.executeJavaScript(
+                      focusIndexedKeyboardTargetExpression(index),
+                    ),
+                  );
+                }
+                if (action === "press") {
+                  await deps.sendBrowserKeyPress(activeTab.view.webContents, key);
+                  return;
+                }
+                if (clear) {
+                  await deps.clearFocusedBrowserTextInput(activeTab.view.webContents);
+                }
+                if (text) {
+                  await activeTab.view.webContents.insertText(text);
+                }
+                if (submit) {
+                  await deps.sendBrowserKeyPress(
+                    activeTab.view.webContents,
+                    "Enter",
+                  );
+                }
+              },
+            ),
+          {
+            requireFocusedWindow: true,
+            workspaceId: targetWorkspaceId,
           },
         );
         writeJson(response, 200, {
@@ -1090,6 +1272,12 @@ export function createBrowserHttpService(
           key: action === "press" ? key : "",
           clear,
           submit,
+          ...(resolvedAction && typeof resolvedAction === "object"
+            ? { resolved_action: resolvedAction }
+            : {}),
+          ...(focusedTarget && typeof focusedTarget === "object"
+            ? (focusedTarget as Record<string, unknown>)
+            : {}),
         });
         return;
       }
@@ -1113,7 +1301,11 @@ export function createBrowserHttpService(
         const qualityRaw =
           typeof payload.quality === "number" ? payload.quality : 90;
         const quality = Math.max(0, Math.min(100, Math.round(qualityRaw)));
-        const image = await activeTab.view.webContents.capturePage();
+        const image = await deps.withTemporarilyRenderedBrowserTab(
+          activeTab,
+          async () => captureBrowserScreenshotWithRetries(activeTab),
+          { waitForRenderedFrame: true },
+        );
         const buffer = format === "jpeg" ? image.toJPEG(quality) : image.toPNG();
         const size = image.getSize();
         writeJson(response, 200, {

@@ -17360,6 +17360,8 @@ const consumeBrowserDownloadOverride =
 const browserContextSuggestedFilename =
   browserPaneTabState.browserContextSuggestedFilename;
 const browserPagePayload = browserPaneTabState.browserPagePayload;
+const withTemporarilyRenderedBrowserTab =
+  browserPaneTabState.withTemporarilyRenderedBrowserTab;
 const setActiveBrowserTabInner = browserPaneTabState.setActiveBrowserTab;
 const closeBrowserTabInner = browserPaneTabState.closeBrowserTab;
 
@@ -17469,6 +17471,12 @@ const browserHttpService: BrowserHttpService = createBrowserHttpService({
     operatorSurfaceContextPayload(workspaceId),
   browserPagePayload: (tab) =>
     browserPagePayload(tab as unknown as BrowserTabRecord),
+  withTemporarilyRenderedBrowserTab: (tab, callback, options) =>
+    withTemporarilyRenderedBrowserTab(
+      tab as unknown as BrowserTabRecord,
+      callback,
+      options,
+    ),
   withProgrammaticBrowserInput: (webContents, callback) =>
     withProgrammaticBrowserInput(webContents, callback),
   sendBrowserKeyPress: (webContents, keyCode, modifiers) =>

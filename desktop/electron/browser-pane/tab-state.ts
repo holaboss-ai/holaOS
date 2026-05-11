@@ -23,10 +23,10 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
+  BrowserWindow,
   BrowserView,
   Menu,
   clipboard,
-  type BrowserWindow,
   type ContextMenuParams,
   type MenuItemConstructorOptions,
   type WebContents,
@@ -91,6 +91,20 @@ import {
   browserContextSuggestedFilename as browserContextSuggestedFilenameUtil,
   oppositeBrowserSpaceId,
 } from "./utils.js";
+
+const BACKGROUND_RENDER_HOST_WIDTH = 1280;
+const BACKGROUND_RENDER_HOST_HEIGHT = 900;
+const BACKGROUND_RENDER_VIEWPORT_POLL_ATTEMPTS = 10;
+const BACKGROUND_RENDER_VIEWPORT_POLL_DELAY_MS = 50;
+const BACKGROUND_RENDER_FRAME_TIMEOUT_MS = 1_000;
+const BACKGROUND_INPUT_HOST_OPACITY = 0.01;
+const SHARED_AGENT_INPUT_HOST_IDLE_MS = 30_000;
+
+interface SharedAgentInputHostState {
+  host: BrowserWindow | null;
+  activeView: BrowserView | null;
+  idleTimer: ReturnType<typeof setTimeout> | null;
+}
 
 export interface BrowserTabRecord {
   view: BrowserView;
@@ -358,11 +372,23 @@ export interface BrowserPaneTabState {
     entry: Pick<BrowserHistoryEntryPayload, "url" | "title" | "faviconUrl">,
   ) => Promise<void>;
   browserPagePayload: (tab: BrowserTabRecord) => Record<string, unknown>;
+  withTemporarilyRenderedBrowserTab: <T>(
+    tab: BrowserTabRecord,
+    callback: () => Promise<T>,
+    options?: {
+      requireFocusedWindow?: boolean;
+      workspaceId?: string | null;
+      waitForRenderedFrame?: boolean;
+    },
+  ) => Promise<T>;
 }
 
 export function createBrowserPaneTabState(
   deps: BrowserPaneTabStateDeps,
 ): BrowserPaneTabState {
+  const sharedAgentInputHosts = new Map<string, SharedAgentInputHostState>();
+  let focusedAgentInputQueue = Promise.resolve();
+
   function hasVisibleBounds(): boolean {
     const b = deps.getBrowserBounds();
     return b.width > 0 && b.height > 0;
@@ -480,6 +506,387 @@ export function createBrowserPaneTabState(
     updateAttachedBrowserView();
   }
 
+  function backgroundRenderHostBounds(): BrowserBoundsPayload {
+    const bounds = deps.getBrowserBounds();
+    return {
+      x: 0,
+      y: 0,
+      width:
+        bounds.width > 0 ? bounds.width : BACKGROUND_RENDER_HOST_WIDTH,
+      height:
+        bounds.height > 0 ? bounds.height : BACKGROUND_RENDER_HOST_HEIGHT,
+    };
+  }
+
+  function invisibleInputHostWindowBounds(
+    viewBounds: BrowserBoundsPayload,
+  ): BrowserBoundsPayload {
+    const mainWindow = deps.getMainWindow();
+    const mainWindowBounds =
+      mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : null;
+    return {
+      x: mainWindowBounds ? Math.round(mainWindowBounds.x) : 0,
+      y: mainWindowBounds ? Math.round(mainWindowBounds.y) : 0,
+      width: viewBounds.width,
+      height: viewBounds.height,
+    };
+  }
+
+  function ensureSharedAgentInputHostState(
+    workspaceId: string,
+  ): SharedAgentInputHostState {
+    const normalizedWorkspaceId = workspaceId.trim();
+    const existing = sharedAgentInputHosts.get(normalizedWorkspaceId);
+    if (existing) {
+      return existing;
+    }
+    const created: SharedAgentInputHostState = {
+      host: null,
+      activeView: null,
+      idleTimer: null,
+    };
+    sharedAgentInputHosts.set(normalizedWorkspaceId, created);
+    return created;
+  }
+
+  function clearSharedAgentInputHostIdleTimer(
+    hostState: SharedAgentInputHostState,
+  ): void {
+    if (!hostState.idleTimer) {
+      return;
+    }
+    clearTimeout(hostState.idleTimer);
+    hostState.idleTimer = null;
+  }
+
+  function destroySharedAgentInputHost(
+    workspaceId: string,
+    hostState?: SharedAgentInputHostState,
+  ): void {
+    const normalizedWorkspaceId = workspaceId.trim();
+    const state =
+      hostState ?? sharedAgentInputHosts.get(normalizedWorkspaceId) ?? null;
+    if (!state) {
+      return;
+    }
+    clearSharedAgentInputHostIdleTimer(state);
+    state.activeView = null;
+    const host = state.host;
+    state.host = null;
+    if (host && !host.isDestroyed()) {
+      host.setBrowserView(null);
+      host.destroy();
+    }
+    sharedAgentInputHosts.delete(normalizedWorkspaceId);
+  }
+
+  function scheduleSharedAgentInputHostDestroy(
+    workspaceId: string,
+    hostState: SharedAgentInputHostState,
+  ): void {
+    clearSharedAgentInputHostIdleTimer(hostState);
+    hostState.idleTimer = setTimeout(() => {
+      destroySharedAgentInputHost(workspaceId, hostState);
+    }, SHARED_AGENT_INPUT_HOST_IDLE_MS);
+  }
+
+  function ensureSharedAgentInputHostWindow(
+    workspaceId: string,
+    viewBounds: BrowserBoundsPayload,
+  ): SharedAgentInputHostState {
+    const hostState = ensureSharedAgentInputHostState(workspaceId);
+    clearSharedAgentInputHostIdleTimer(hostState);
+    const windowBounds = invisibleInputHostWindowBounds(viewBounds);
+    if (hostState.host && !hostState.host.isDestroyed()) {
+      hostState.host.setBounds(windowBounds);
+      return hostState;
+    }
+
+    const host = new BrowserWindow({
+      show: false,
+      skipTaskbar: true,
+      useContentSize: true,
+      x: windowBounds.x,
+      y: windowBounds.y,
+      width: windowBounds.width,
+      height: windowBounds.height,
+      backgroundColor: "#00000000",
+      transparent: true,
+      opacity: BACKGROUND_INPUT_HOST_OPACITY,
+      frame: false,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      movable: false,
+      webPreferences: {
+        sandbox: false,
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    });
+    host.setIgnoreMouseEvents(true);
+    host.on("closed", () => {
+      if (hostState.host === host) {
+        hostState.host = null;
+        hostState.activeView = null;
+        clearSharedAgentInputHostIdleTimer(hostState);
+        sharedAgentInputHosts.delete(workspaceId.trim());
+      }
+    });
+    hostState.host = host;
+    hostState.activeView = null;
+    return hostState;
+  }
+
+  async function waitForBrowserWindowFocus(host: BrowserWindow): Promise<void> {
+    for (
+      let attempt = 0;
+      attempt < BACKGROUND_RENDER_VIEWPORT_POLL_ATTEMPTS;
+      attempt += 1
+    ) {
+      if (host.isDestroyed() || host.isFocused()) {
+        return;
+      }
+      if (attempt < BACKGROUND_RENDER_VIEWPORT_POLL_ATTEMPTS - 1) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, BACKGROUND_RENDER_VIEWPORT_POLL_DELAY_MS),
+        );
+      }
+    }
+  }
+
+  async function waitForRenderedBrowserViewport(
+    tab: BrowserTabRecord,
+  ): Promise<void> {
+    for (
+      let attempt = 0;
+      attempt < BACKGROUND_RENDER_VIEWPORT_POLL_ATTEMPTS;
+      attempt += 1
+    ) {
+      try {
+        const viewport = await tab.view.webContents.executeJavaScript(
+          "({ width: window.innerWidth, height: window.innerHeight })",
+          true,
+        );
+        if (
+          viewport &&
+          typeof viewport === "object" &&
+          typeof (viewport as { width?: unknown }).width === "number" &&
+          (viewport as { width: number }).width > 0 &&
+          typeof (viewport as { height?: unknown }).height === "number" &&
+          (viewport as { height: number }).height > 0
+        ) {
+          return;
+        }
+      } catch {
+        // Ignore transient renderer timing failures and keep polling.
+      }
+      if (attempt < BACKGROUND_RENDER_VIEWPORT_POLL_ATTEMPTS - 1) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, BACKGROUND_RENDER_VIEWPORT_POLL_DELAY_MS),
+        );
+      }
+    }
+  }
+
+  async function waitForRenderedBrowserFrame(
+    tab: BrowserTabRecord,
+  ): Promise<boolean> {
+    await waitForRenderedBrowserViewport(tab);
+    const webContents = tab.view.webContents;
+    if (webContents.isDestroyed()) {
+      return false;
+    }
+
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      let subscribed = false;
+      const timeout = setTimeout(() => {
+        finish(false);
+      }, BACKGROUND_RENDER_FRAME_TIMEOUT_MS);
+
+      const finish = (rendered: boolean) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        if (subscribed) {
+          try {
+            webContents.endFrameSubscription();
+          } catch {
+            // Ignore teardown errors while unwinding a temporary host.
+          }
+        }
+        resolve(rendered);
+      };
+
+      try {
+        webContents.beginFrameSubscription(() => {
+          finish(true);
+        });
+        subscribed = true;
+      } catch {
+        finish(false);
+        return;
+      }
+
+      try {
+        webContents.invalidate();
+      } catch {
+        finish(false);
+      }
+    });
+  }
+
+  async function withBrowserTabHostedInWindow<T>(
+    tab: BrowserTabRecord,
+    callback: () => Promise<T>,
+    host: BrowserWindow,
+    bounds: BrowserBoundsPayload,
+    options: {
+      requireFocusedWindow?: boolean;
+      waitForRenderedFrame?: boolean;
+      destroyHostOnComplete?: boolean;
+      sharedHostState?: SharedAgentInputHostState | null;
+    } = {},
+  ): Promise<T> {
+    const attachedView = deps.getAttachedView();
+    const mainWindow = deps.getMainWindow();
+    const wasAttachedToMainWindow = attachedView === tab.view;
+
+    if (
+      wasAttachedToMainWindow &&
+      mainWindow &&
+      !mainWindow.isDestroyed()
+    ) {
+      mainWindow.setBrowserView(null);
+      deps.setAttachedView(null);
+    }
+
+    if (options.sharedHostState?.activeView && options.sharedHostState.activeView !== tab.view) {
+      host.setBrowserView(null);
+      options.sharedHostState.activeView = null;
+    }
+
+    host.setBrowserView(tab.view);
+    if (options.sharedHostState) {
+      options.sharedHostState.activeView = tab.view;
+    }
+    tab.view.setBounds(bounds);
+
+    if (options.requireFocusedWindow === true) {
+      host.show();
+      host.focus();
+      await waitForBrowserWindowFocus(host);
+      tab.view.webContents.focus();
+    }
+
+    await waitForRenderedBrowserViewport(tab);
+    if (options.waitForRenderedFrame === true) {
+      await waitForRenderedBrowserFrame(tab);
+    }
+
+    try {
+      return await callback();
+    } finally {
+      if (options.sharedHostState?.activeView === tab.view) {
+        options.sharedHostState.activeView = null;
+      }
+      if (!host.isDestroyed()) {
+        host.setBrowserView(null);
+        if (options.destroyHostOnComplete === true) {
+          host.destroy();
+        }
+      }
+      if (wasAttachedToMainWindow && hasVisibleBounds()) {
+        updateAttachedBrowserView();
+      }
+    }
+  }
+
+  async function withQueuedAgentInputHost<T>(
+    workspaceId: string,
+    tab: BrowserTabRecord,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    const previousQueue = focusedAgentInputQueue;
+    let releaseQueue!: () => void;
+    focusedAgentInputQueue = new Promise<void>((resolve) => {
+      releaseQueue = resolve;
+    });
+    await previousQueue.catch(() => undefined);
+
+    let hostState: SharedAgentInputHostState | null = null;
+    try {
+      const bounds = backgroundRenderHostBounds();
+      hostState = ensureSharedAgentInputHostWindow(workspaceId, bounds);
+      const host = hostState.host;
+      if (!host) {
+        throw new Error("Shared agent browser input host could not be created.");
+      }
+      return await withBrowserTabHostedInWindow(tab, callback, host, bounds, {
+        requireFocusedWindow: true,
+        sharedHostState: hostState,
+      });
+    } finally {
+      if (hostState) {
+        scheduleSharedAgentInputHostDestroy(workspaceId, hostState);
+      }
+      releaseQueue();
+    }
+  }
+
+  async function withTemporarilyRenderedBrowserTab<T>(
+    tab: BrowserTabRecord,
+    callback: () => Promise<T>,
+    options: {
+      requireFocusedWindow?: boolean;
+      workspaceId?: string | null;
+      waitForRenderedFrame?: boolean;
+    } = {},
+  ): Promise<T> {
+    const attachedView = deps.getAttachedView();
+    if (
+      !options.requireFocusedWindow &&
+      attachedView === tab.view &&
+      hasVisibleBounds()
+    ) {
+      return callback();
+    }
+
+    const normalizedWorkspaceId =
+      typeof options.workspaceId === "string" ? options.workspaceId.trim() : "";
+    if (options.requireFocusedWindow && normalizedWorkspaceId) {
+      return withQueuedAgentInputHost(normalizedWorkspaceId, tab, callback);
+    }
+
+    const bounds = backgroundRenderHostBounds();
+    const host = new BrowserWindow({
+      show: options.requireFocusedWindow === true,
+      paintWhenInitiallyHidden: true,
+      skipTaskbar: true,
+      useContentSize: true,
+      width: bounds.width,
+      height: bounds.height,
+      backgroundColor: "#050907",
+      frame: false,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      movable: false,
+      webPreferences: {
+        sandbox: false,
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    });
+    return withBrowserTabHostedInWindow(tab, callback, host, bounds, {
+      requireFocusedWindow: options.requireFocusedWindow,
+      destroyHostOnComplete: true,
+    });
+  }
+
   async function captureVisibleSnapshot(): Promise<BrowserVisibleSnapshotPayload | null> {
     const target = activeVisibleBrowserTarget();
     const activeTab = getActiveBrowserTab(
@@ -542,6 +949,15 @@ export function createBrowserPaneTabState(
   }
 
   function closeBrowserTabRecord(tab: BrowserTabRecord): void {
+    for (const hostState of sharedAgentInputHosts.values()) {
+      if (hostState.activeView !== tab.view || !hostState.host) {
+        continue;
+      }
+      if (!hostState.host.isDestroyed()) {
+        hostState.host.setBrowserView(null);
+      }
+      hostState.activeView = null;
+    }
     tab.view.webContents.removeAllListeners();
     void (
       tab.view.webContents as unknown as { close?: () => void }
@@ -1675,5 +2091,6 @@ export function createBrowserPaneTabState(
     emitHistoryState,
     recordHistoryVisit,
     browserPagePayload,
+    withTemporarilyRenderedBrowserTab,
   };
 }
