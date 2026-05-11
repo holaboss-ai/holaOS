@@ -24,9 +24,7 @@ const RUNTIME_TOOLS_SKILL_PATH = "/api/v1/capabilities/runtime-tools/skill";
 const RUNTIME_TOOLS_TERMINAL_SESSIONS_PATH = "/api/v1/capabilities/runtime-tools/terminal-sessions";
 const RUNTIME_TOOLS_WORKSPACE_APPS_PATH = "/api/v1/capabilities/runtime-tools/workspace-apps";
 const RUNTIME_TOOLS_WORKSPACE_APPS_PORTS_PATH = "/api/v1/capabilities/runtime-tools/workspace-apps/ports";
-const RUNTIME_TOOLS_DATA_TABLES_PATH = "/api/v1/capabilities/runtime-tools/data-tables";
 const RUNTIME_TOOLS_WORKSPACE_DATA_TABLES_PATH = "/api/v1/capabilities/runtime-tools/workspace-data/tables";
-const RUNTIME_TOOLS_DASHBOARDS_PATH = "/api/v1/capabilities/runtime-tools/dashboards";
 const DEFAULT_RUNTIME_TOOL_TIMEOUT_MS = 30000;
 const IMAGE_GENERATE_RUNTIME_TOOL_TIMEOUT_MS = 180000;
 const DOWNLOAD_URL_RUNTIME_TOOL_TIMEOUT_MS = 120000;
@@ -761,46 +759,6 @@ function requestPlan(
         requestPath: `${workspaceDataTablePath(isRecord(toolParams) ? toolParams.table_name : undefined)}/sample`,
         body: createWorkspaceDataSampleRowsBody(toolParams),
       };
-    case "list_data_tables": {
-      const params = isRecord(toolParams) ? toolParams : {};
-      const include = params.include_system === true ? "true" : "";
-      return {
-        method: "GET",
-        requestPath: include
-          ? `${RUNTIME_TOOLS_DATA_TABLES_PATH}?include_system=true`
-          : RUNTIME_TOOLS_DATA_TABLES_PATH,
-      };
-    }
-    case "create_data_table": {
-      const params = isRecord(toolParams) ? toolParams : {};
-      return {
-        method: "POST",
-        requestPath: RUNTIME_TOOLS_DATA_TABLES_PATH,
-        body: {
-          name: String(params.name ?? ""),
-          columns: Array.isArray(params.columns) ? params.columns : [],
-          rows: Array.isArray(params.rows) ? params.rows : [],
-          ...(typeof params.replace_existing === "boolean"
-            ? { replace_existing: params.replace_existing }
-            : {}),
-        },
-      };
-    }
-    case "create_dashboard": {
-      const params = isRecord(toolParams) ? toolParams : {};
-      return {
-        method: "POST",
-        requestPath: RUNTIME_TOOLS_DASHBOARDS_PATH,
-        body: {
-          name: String(params.name ?? ""),
-          title: String(params.title ?? ""),
-          ...(optionalString(params.description)
-            ? { description: optionalString(params.description) }
-            : {}),
-          panels: Array.isArray(params.panels) ? params.panels : [],
-        },
-      };
-    }
   }
   throw new Error(`Unsupported runtime tool: ${toolId}`);
 }

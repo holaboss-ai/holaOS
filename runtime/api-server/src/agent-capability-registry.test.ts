@@ -277,9 +277,20 @@ test("renderDelegatedCapabilityAvailabilityContextPromptSection exposes backstag
     sessionKind: "subagent",
     browserToolsAvailable: true,
     browserToolIds: ["browser_get_state"],
-    runtimeToolIds: ["list_data_tables", "create_dashboard"],
+    runtimeToolIds: [
+      "workspace_data_list_tables",
+      "workspace_apps_get_status",
+      "stale_runtime_tool_alpha",
+      "stale_runtime_tool_beta",
+    ],
     defaultTools: ["read", "edit", "bash"],
-    extraTools: ["browser_get_state", "list_data_tables", "create_dashboard"],
+    extraTools: [
+      "browser_get_state",
+      "workspace_data_list_tables",
+      "workspace_apps_get_status",
+      "stale_runtime_tool_alpha",
+      "stale_runtime_tool_beta",
+    ],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [
       {
@@ -304,9 +315,45 @@ test("renderDelegatedCapabilityAvailabilityContextPromptSection exposes backstag
   assert.match(section, /Delegated MCP callable tool aliases for routing only:/);
   assert.match(section, /`twitter\.twitter_create_post` -> call `mcp__twitter__twitter_create_post`/);
   assert.match(section, /Notable delegated-only tools for this run:/);
-  assert.match(section, /Create Dashboard \(`create_dashboard`\)/);
-  assert.match(section, /List Data Tables \(`list_data_tables`\)/);
+  assert.match(section, /Workspace Apps Get Status \(`workspace_apps_get_status`\)/);
+  assert.match(section, /Workspace Data List Tables \(`workspace_data_list_tables`\)/);
+  assert.doesNotMatch(section, /Stale Runtime Tool Alpha \(`stale_runtime_tool_alpha`\)/);
+  assert.doesNotMatch(section, /Stale Runtime Tool Beta \(`stale_runtime_tool_beta`\)/);
   assert.match(section, /Twitter Create Post \(`mcp__twitter__twitter_create_post`\)/);
+});
+
+test("buildAgentCapabilityManifest suppresses unknown staged runtime tools from agent-facing manifests", () => {
+  const manifest = buildAgentCapabilityManifest({
+    harnessId: "pi",
+    sessionKind: "subagent",
+    runtimeToolIds: [
+      "stale_runtime_tool_alpha",
+      "stale_runtime_tool_beta",
+      "workspace_apps_get_status",
+    ],
+    defaultTools: ["read"],
+    extraTools: [
+      "stale_runtime_tool_alpha",
+      "stale_runtime_tool_beta",
+      "workspace_apps_get_status",
+    ],
+    workspaceSkillIds: [],
+    resolvedMcpToolRefs: [],
+  });
+
+  assert.deepEqual(manifest.context.runtime_tool_ids, ["workspace_apps_get_status"]);
+  assert.equal(
+    manifest.runtime_tools.some((capability) => capability.id === "stale_runtime_tool_alpha"),
+    false,
+  );
+  assert.equal(
+    manifest.runtime_tools.some((capability) => capability.id === "stale_runtime_tool_beta"),
+    false,
+  );
+  assert.equal(
+    manifest.runtime_tools.some((capability) => capability.id === "workspace_apps_get_status"),
+    true,
+  );
 });
 
 test("renderDelegatedCapabilityAvailabilityContextPromptSection keeps delegated MCP detail even when front session has direct MCP", () => {

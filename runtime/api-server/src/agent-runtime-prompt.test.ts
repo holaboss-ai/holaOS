@@ -225,10 +225,21 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   });
   const delegatedCapabilityManifest = buildAgentCapabilityManifest({
     defaultTools: ["read", "edit", "bash"],
-    extraTools: ["browser_get_state", "list_data_tables", "create_dashboard"],
+    extraTools: [
+      "browser_get_state",
+      "workspace_data_list_tables",
+      "workspace_apps_get_status",
+      "stale_runtime_tool_alpha",
+      "stale_runtime_tool_beta",
+    ],
     browserToolsAvailable: true,
     browserToolIds: ["browser_get_state"],
-    runtimeToolIds: ["list_data_tables", "create_dashboard"],
+    runtimeToolIds: [
+      "workspace_data_list_tables",
+      "workspace_apps_get_status",
+      "stale_runtime_tool_alpha",
+      "stale_runtime_tool_beta",
+    ],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [
       {
@@ -345,12 +356,22 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   );
   assert.ok(
     prompt.contextMessages.some((message) =>
-      /Create Dashboard \(`create_dashboard`\)/.test(message),
+      /Workspace Apps Get Status \(`workspace_apps_get_status`\)/.test(message),
     ),
   );
   assert.ok(
     prompt.contextMessages.some((message) =>
-      /List Data Tables \(`list_data_tables`\)/.test(message),
+      /Workspace Data List Tables \(`workspace_data_list_tables`\)/.test(message),
+    ),
+  );
+  assert.ok(
+    prompt.contextMessages.every((message) =>
+      !/Stale Runtime Tool Alpha \(`stale_runtime_tool_alpha`\)/.test(message),
+    ),
+  );
+  assert.ok(
+    prompt.contextMessages.every((message) =>
+      !/Stale Runtime Tool Beta \(`stale_runtime_tool_beta`\)/.test(message),
     ),
   );
   assert.ok(

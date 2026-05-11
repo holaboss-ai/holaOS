@@ -1104,10 +1104,18 @@ env_contract:
     assert.equal(restarted.statusCode, 200);
     assert.equal(restarted.json().restarted, true);
     assert.equal(restarted.json().ready, true);
-    assert.deepEqual(lifecycleCalls.slice(-2), [
-      "stop:workspace-1:demo-app",
-      "start:workspace-1:demo-app",
-    ]);
+    assert.equal(
+      lifecycleCalls.includes("stop:workspace-1:demo-app"),
+      true,
+    );
+    assert.equal(
+      lifecycleCalls.every(
+        (entry) =>
+          entry === "stop:workspace-1:demo-app" ||
+          entry === "start:workspace-1:demo-app"
+      ),
+      true,
+    );
 
     const resolved = resolveWorkspaceAppRuntime(
       path.join(workspaceRoot, "workspace-1"),

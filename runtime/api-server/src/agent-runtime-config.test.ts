@@ -808,7 +808,12 @@ test("projectAgentRuntimeConfig includes delegated executor capability context f
       delegated_session_kind: "subagent",
       delegated_browser_tools_available: true,
       delegated_browser_tool_ids: ["browser_get_state"],
-      delegated_runtime_tool_ids: ["list_data_tables", "create_dashboard"],
+      delegated_runtime_tool_ids: [
+        "workspace_data_list_tables",
+        "workspace_apps_get_status",
+        "stale_runtime_tool_alpha",
+        "stale_runtime_tool_beta",
+      ],
       delegated_workspace_command_ids: [],
       runtime_exec_model_proxy_api_key: "hbrt.v1.token",
       runtime_exec_sandbox_id: "sandbox-1",
@@ -823,8 +828,10 @@ test("projectAgentRuntimeConfig includes delegated executor capability context f
       delegated_default_tools: ["read", "edit", "bash"],
       delegated_extra_tools: [
         "browser_get_state",
-        "list_data_tables",
-        "create_dashboard",
+        "workspace_data_list_tables",
+        "workspace_apps_get_status",
+        "stale_runtime_tool_alpha",
+        "stale_runtime_tool_beta",
       ],
       resolved_mcp_tool_refs: [],
       delegated_resolved_mcp_tool_refs: [
@@ -870,11 +877,19 @@ test("projectAgentRuntimeConfig includes delegated executor capability context f
     );
     assert.match(
       result.context_messages?.join("\n\n") ?? "",
-      /Create Dashboard \(`create_dashboard`\)/,
+      /Workspace Apps Get Status \(`workspace_apps_get_status`\)/,
     );
     assert.match(
       result.context_messages?.join("\n\n") ?? "",
-      /List Data Tables \(`list_data_tables`\)/,
+      /Workspace Data List Tables \(`workspace_data_list_tables`\)/,
+    );
+    assert.doesNotMatch(
+      result.context_messages?.join("\n\n") ?? "",
+      /Stale Runtime Tool Alpha \(`stale_runtime_tool_alpha`\)/,
+    );
+    assert.doesNotMatch(
+      result.context_messages?.join("\n\n") ?? "",
+      /Stale Runtime Tool Beta \(`stale_runtime_tool_beta`\)/,
     );
     assert.match(
       result.context_messages?.join("\n\n") ?? "",

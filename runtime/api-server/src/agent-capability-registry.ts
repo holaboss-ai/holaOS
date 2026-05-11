@@ -871,8 +871,12 @@ function buildPolicyContext(
   );
   const runtimeToolIds = uniqueNormalizedSorted(
     params.runtimeToolIds
-      ? params.runtimeToolIds
-      : params.extraTools.filter((toolName) => RUNTIME_TOOL_DEFINITIONS.has(normalizedToken(toolName)))
+      ? params.runtimeToolIds.filter((toolId) =>
+          RUNTIME_TOOL_DEFINITIONS.has(normalizedToken(toolId))
+        )
+      : params.extraTools.filter(
+          (toolName) => RUNTIME_TOOL_DEFINITIONS.has(normalizedToken(toolName))
+        )
   );
   const mcpServerIds = uniqueSorted((params.resolvedMcpServerIds ?? []).map((serverId) => serverId.trim()));
   const workspaceCommands = uniqueSorted((params.workspaceCommandIds ?? []).map((commandId) => commandId.trim()));
@@ -903,6 +907,9 @@ function buildStaticCapabilityRegistry(
 ): StaticAgentCapabilityRegistry {
   const { context, workspaceCommands, workspaceSkills } = buildPolicyContext(params);
   const descriptorByKey = new Map<string, StaticAgentCapabilityDescriptor>();
+  const stagedRuntimeToolIds = new Set(
+    uniqueNormalizedSorted(params.runtimeToolIds ?? [])
+  );
 
   const upsertDescriptor = (descriptor: StaticAgentCapabilityDescriptor | null) => {
     if (!descriptor) {
@@ -919,6 +926,13 @@ function buildStaticCapabilityRegistry(
     upsertDescriptor(buildToolDescriptor(toolName, "default_tool"));
   }
   for (const toolName of params.extraTools) {
+    const normalizedToolName = normalizedToken(toolName);
+    if (
+      stagedRuntimeToolIds.has(normalizedToolName) &&
+      !RUNTIME_TOOL_DEFINITIONS.has(normalizedToolName)
+    ) {
+      continue;
+    }
     upsertDescriptor(buildToolDescriptor(toolName, "extra_tool"));
   }
 

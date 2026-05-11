@@ -248,24 +248,6 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     description:
       "Return a small sample of rows from one table in the workspace's shared SQLite so you can shape UI and queries against real data.",
     policy: "inspect"
-  },
-  {
-    id: "list_data_tables",
-    description:
-      "List the user-facing tables in the workspace's shared SQLite at `.holaboss/state/data.db` so you can compose SQL for `create_dashboard`. The runtime already provisions that DB file; if this returns count=0, the DB exists but no user-facing tables have been created yet. Each row reports a table's name, its columns with types, and approximate row count. Module apps write app-namespaced tables (e.g. twitter_posts, linkedin_posts, twitter_post_metrics) — read across them freely; never create a separate root `./data.db` yourself. App-internal tables (publish queues, scheduler logs, api usage counters, settings flags) are hidden by default — pass include_system=true if you actually need them, but they're rarely useful for dashboards.",
-    policy: "inspect"
-  },
-  {
-    id: "create_data_table",
-    description:
-      "Create a user-facing table in the workspace's shared SQLite at `.holaboss/state/data.db`, optionally inserting rows at the same time. Use this when you need sample or lightweight structured data before calling `create_dashboard`. The runtime already provisions the shared DB file, so write through this tool instead of creating a separate root `./data.db`.",
-    policy: "mutate"
-  },
-  {
-    id: "create_dashboard",
-    description:
-      "Author a `.dashboard` file for the current workspace from a structured spec (title, optional description, list of panels). Panels are either `kpi` (single-value SELECT, prefer aliasing the answer as `value`) or `data_view` (one SELECT shared across one or more views — `table` or read-only `board`; for board, set `group_by` to a low-cardinality enum-like column like status/category). Each query is validated against the shared workspace DB at `.holaboss/state/data.db` before the file is written. Use `list_data_tables` first to discover what's queryable, or `create_data_table` first when you need sample data.",
-    policy: "mutate"
   }
 ] as const;
 
