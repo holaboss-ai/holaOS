@@ -40,9 +40,13 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
   --color-scrim: var(--scrim);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
@@ -348,6 +352,15 @@
   --info: oklch(0.62 0.17 240);
   --scrim: oklch(0.15 0.01 240 / 0.46);
   --destructive: oklch(0.55 0.24 18);
+
+  /* Foreground colours for tonal CTAs (text/icon on a solid tone-bg
+     button or chip). Defaults picked by tone luminance: white-ish on
+     the darker reds/greens/blues, near-black on the light amber.
+     Themes may override per-tone if their hue differs. */
+  --destructive-foreground: oklch(0.98 0 0);
+  --success-foreground: oklch(0.98 0 0);
+  --warning-foreground: oklch(0.18 0 0);
+  --info-foreground: oklch(0.98 0 0);
 
   --hairline-alpha: 0.05;
   --shadow-alpha: 0.07;

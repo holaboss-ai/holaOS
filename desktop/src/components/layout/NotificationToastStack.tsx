@@ -1,7 +1,6 @@
 import { useState, type CSSProperties } from "react";
 import {
   ArrowUpRight,
-  Bell,
   CircleCheck,
   Info,
   TriangleAlert,
@@ -59,22 +58,26 @@ function toastIcon(level: RuntimeNotificationLevel): React.ReactNode {
   if (level === "success") return <CircleCheck className="size-3.5" />;
   if (level === "warning") return <TriangleAlert className="size-3.5" />;
   if (level === "error") return <TriangleAlert className="size-3.5" />;
-  if (level === "info") return <Info className="size-3.5" />;
-  return <Bell className="size-3.5" />;
+  return <Info className="size-3.5" />;
 }
 
-/** Action-button colour per tone. Error / info get their tone colour;
- *  success / warning get the foreground/background swap because their
- *  hues are too soft to support text legibility on the bg as a CTA.
- *  Mirrors the design reference. */
+/** Action-button colour per tone. Every variant now uses its own
+ *  tonal background paired with a luminance-appropriate foreground
+ *  token (defined in tokens.css). Keeps button colour aligned with
+ *  the card's gradient tint across all four levels. Classes are
+ *  spelled out (not built via template) so Tailwind's JIT can pick
+ *  them up at build time. */
 function toastButtonClassName(level: RuntimeNotificationLevel): string {
   if (level === "error") {
     return "bg-destructive text-destructive-foreground hover:bg-destructive/90";
   }
-  if (level === "info") {
-    return "bg-info text-white hover:bg-info/90";
+  if (level === "success") {
+    return "bg-success text-success-foreground hover:bg-success/90";
   }
-  return "bg-foreground text-background hover:bg-foreground/90";
+  if (level === "warning") {
+    return "bg-warning text-warning-foreground hover:bg-warning/90";
+  }
+  return "bg-info text-info-foreground hover:bg-info/90";
 }
 
 function notificationTargetSessionId(
