@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CalendarClock,
+  CheckCircle2,
   ChevronRight,
   Clock3,
   Inbox,
@@ -23,6 +24,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
+import { cn } from "@/lib/utils";
+import {
+  InstructionInlineEditor,
+  ScheduleEditor,
+} from "@/components/panes/AutomationsPaneInlineEditors";
 
 interface CompletedAutomationRun {
   sessionId: string;
@@ -180,6 +186,7 @@ export function AutomationsPane({
   const [activeTab, setActiveTab] = useState<"scheduled" | "completed">(
     "scheduled",
   );
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const activeWorkspaceId = workspaceId ?? selectedWorkspaceId;
   const [cronjobs, setCronjobs] = useState<CronjobRecordPayload[]>([]);
@@ -207,7 +214,7 @@ export function AutomationsPane({
 
   const statusBarClassName =
     statusTone === "success"
-      ? "border-b border-primary/20 bg-primary/5 text-foreground"
+      ? "border-b border-success/20 bg-success/8 text-success"
       : statusTone === "error"
         ? "border-b border-destructive/20 bg-destructive/5 text-destructive"
         : "border-b border-border bg-fg-2 text-muted-foreground";
@@ -216,6 +223,18 @@ export function AutomationsPane({
     setStatusTone("info");
     setStatusMessage(message);
   };
+
+  // Auto-dismiss success messages after a moment so the banner doesn't
+  // linger forever after a save. Errors stay until the user replaces them
+  // (or another action overwrites) — they need acknowledgement. Info
+  // also persists since it's used for "open in chat" affordance hints.
+  useEffect(() => {
+    if (statusTone !== "success" || !statusMessage) return;
+    const timeoutId = window.setTimeout(() => {
+      setStatusMessage("");
+    }, 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [statusMessage, statusTone]);
 
   const refreshData = useCallback(
     async (options?: RefreshDataOptions) => {
@@ -312,6 +331,42 @@ export function AutomationsPane({
       setBusyJobId(null);
     }
   };
+
+  const handleUpdateCronjobField = useCallback(
+    async (
+      job: CronjobRecordPayload,
+      payload: CronjobUpdatePayload,
+      successMessage: string,
+    ) => {
+      setBusyJobId(job.id);
+      setStatusMessage("");
+      try {
+        const updated = await window.electronAPI.workspace.updateCronjob(
+          job.workspace_id,
+          job.id,
+          payload,
+        );
+        setCronjobs((previous) =>
+          previous.map((item) => (item.id === updated.id ? updated : item)),
+        );
+        setStatusTone("success");
+        setStatusMessage(successMessage);
+        void refreshData({
+          preserveStatusMessage: true,
+          suppressErrors: true,
+        });
+      } catch (error) {
+        setStatusTone("error");
+        setStatusMessage(normalizeErrorMessage(error));
+        // Re-throw so the inline editor can keep edit mode open and let
+        // the user retry without losing their draft.
+        throw error;
+      } finally {
+        setBusyJobId(null);
+      }
+    },
+    [refreshData],
+  );
 
   const handleToggleEnabled = async (job: CronjobRecordPayload) => {
     setBusyJobId(job.id);
@@ -416,9 +471,18 @@ export function AutomationsPane({
 
       {statusMessage ? (
         <div
-          className={`shrink-0 px-4 py-1.5 text-xs sm:px-5 ${statusBarClassName}`}
+          key={`${statusTone}:${statusMessage}`}
+          className={cn(
+            "flex shrink-0 items-center gap-1.5 px-4 py-1.5 text-xs duration-200 ease-out animate-in fade-in-0 sm:px-5",
+            statusBarClassName,
+          )}
         >
-          {statusMessage}
+          {statusTone === "success" ? (
+            <CheckCircle2 className="size-3.5 shrink-0" />
+          ) : statusTone === "error" ? (
+            <AlertTriangle className="size-3.5 shrink-0" />
+          ) : null}
+          <span className="min-w-0 truncate">{statusMessage}</span>
         </div>
       ) : null}
 
@@ -460,96 +524,199 @@ export function AutomationsPane({
               {scheduledJobs.map((job) => {
                 const isBusy = busyJobId === job.id;
                 const kindLabel = jobKindLabel(job);
+                const isExpanded = expandedJobId === job.id;
+                const trimmedInstruction = job.instruction?.trim() ?? "";
+                const trimmedDescription = job.description?.trim() ?? "";
+                // Always expandable now that the row exposes inline edit
+                // for instruction + schedule. Falling back to the prior
+                // signal-based check would hide the editor on a fresh job.
+                const hasExpandableDetails =
+                  Boolean(trimmedInstruction) ||
+                  Boolean(trimmedDescription) ||
+                  Boolean(job.last_run_at) ||
+                  Boolean(job.next_run_at) ||
+                  Boolean(job.cron);
                 return (
                   <li
                     key={job.id}
-                    className={`group relative flex items-center gap-3 px-4 py-3 transition-colors hover:bg-fg-2 sm:px-5 ${
-                      isBusy ? "opacity-60" : ""
-                    }`}
+                    className={`group relative ${isBusy ? "opacity-60" : ""}`}
                   >
-                    <Clock3 className="size-4 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="truncate text-sm font-medium text-foreground">
-                          {jobTitle(job)}
-                        </span>
-                        {kindLabel !== "Automation" ? (
-                          <Badge
-                            variant="outline"
-                            className="border-border bg-fg-2 px-1.5 py-0 text-[10px] font-medium leading-4 text-muted-foreground"
-                          >
-                            {kindLabel}
-                          </Badge>
-                        ) : null}
-                      </div>
-                      <div className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
-                        <span className="truncate">{scheduleAtLabel(job)}</span>
-                        {!job.enabled ? (
-                          <Badge
-                            variant="outline"
-                            className="border-border bg-fg-2 px-1.5 py-0 text-[10px] font-medium leading-4 text-muted-foreground"
-                          >
-                            Paused
-                          </Badge>
-                        ) : null}
-                      </div>
-                      {job.last_error ? (
-                        <div className="mt-1 flex items-start gap-1 text-xs text-destructive">
-                          <AlertTriangle className="mt-0.5 size-3 shrink-0" />
-                          <span className="truncate">{job.last_error}</span>
-                        </div>
-                      ) : null}
-                    </div>
-                    <Switch
-                      checked={job.enabled}
-                      onCheckedChange={() => void handleToggleEnabled(job)}
-                      disabled={isBusy}
-                      aria-label={
-                        job.enabled ? "Pause schedule" : "Enable schedule"
-                      }
-                    />
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`Actions for ${jobTitle(job)}`}
-                            className="rounded-lg text-muted-foreground hover:text-foreground"
+                    <div
+                      className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-fg-2 sm:px-5"
+                    >
+                      {hasExpandableDetails ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedJobId((current) =>
+                              current === job.id ? null : job.id,
+                            )
+                          }
+                          aria-expanded={isExpanded}
+                          aria-label={
+                            isExpanded
+                              ? `Hide details for ${jobTitle(job)}`
+                              : `Show details for ${jobTitle(job)}`
+                          }
+                          className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-fg-4 hover:text-foreground"
+                        >
+                          <ChevronRight
+                            className={`size-3.5 transition-transform ${
+                              isExpanded ? "rotate-90" : ""
+                            }`}
                           />
+                        </button>
+                      ) : (
+                        <Clock3 className="size-4 shrink-0 text-muted-foreground" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate text-sm font-medium text-foreground">
+                            {jobTitle(job)}
+                          </span>
+                          {kindLabel !== "Automation" ? (
+                            <Badge
+                              variant="outline"
+                              className="border-border bg-fg-2 px-1.5 py-0 text-[10px] font-medium leading-4 text-muted-foreground"
+                            >
+                              {kindLabel}
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                          <span className="truncate">{scheduleAtLabel(job)}</span>
+                          {!job.enabled ? (
+                            <Badge
+                              variant="outline"
+                              className="border-border bg-fg-2 px-1.5 py-0 text-[10px] font-medium leading-4 text-muted-foreground"
+                            >
+                              Paused
+                            </Badge>
+                          ) : null}
+                        </div>
+                        {job.last_error ? (
+                          <div className="mt-1 flex items-start gap-1 text-xs text-destructive">
+                            <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                            <span className="truncate">{job.last_error}</span>
+                          </div>
+                        ) : null}
+                      </div>
+                      <Switch
+                        checked={job.enabled}
+                        onCheckedChange={() => void handleToggleEnabled(job)}
+                        disabled={isBusy}
+                        aria-label={
+                          job.enabled ? "Pause schedule" : "Enable schedule"
                         }
-                      >
-                        <MoreHorizontal size={14} />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="end"
-                        sideOffset={6}
-                        className="w-44"
-                      >
-                        <DropdownMenuItem
-                          onClick={() => void handleRunNow(job)}
-                          disabled={isBusy}
+                      />
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`Actions for ${jobTitle(job)}`}
+                              className="rounded-lg text-muted-foreground hover:text-foreground"
+                            />
+                          }
                         >
-                          <Play size={14} />
-                          Run now
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => handleEdit(job)}
-                          disabled={isBusy}
+                          <MoreHorizontal size={14} />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="end"
+                          sideOffset={6}
+                          className="w-44"
                         >
-                          <Pencil size={14} />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => void handleDelete(job)}
-                          disabled={isBusy}
-                          variant="destructive"
-                        >
-                          <Trash2 size={14} />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                          <DropdownMenuItem
+                            onClick={() => void handleRunNow(job)}
+                            disabled={isBusy}
+                          >
+                            <Play size={14} />
+                            Run now
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleEdit(job)}
+                            disabled={isBusy}
+                          >
+                            <Pencil size={14} />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => void handleDelete(job)}
+                            disabled={isBusy}
+                            variant="destructive"
+                          >
+                            <Trash2 size={14} />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    {isExpanded && hasExpandableDetails ? (
+                      <div className="border-t border-border bg-fg-2/40 px-4 pb-4 pt-3 sm:px-5">
+                        <div className="ml-8 grid gap-3">
+                          {trimmedInstruction ? (
+                            <InstructionInlineEditor
+                              value={trimmedInstruction}
+                              saving={isBusy}
+                              disabled={isBusy && busyJobId !== job.id}
+                              onSave={(next) =>
+                                handleUpdateCronjobField(
+                                  job,
+                                  { instruction: next },
+                                  `Updated instruction for "${jobTitle(job)}".`,
+                                )
+                              }
+                            />
+                          ) : null}
+                          {trimmedDescription &&
+                          trimmedDescription !== trimmedInstruction ? (
+                            <div className="grid gap-1">
+                              <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Description
+                              </div>
+                              <div className="text-xs leading-5 text-muted-foreground">
+                                {trimmedDescription}
+                              </div>
+                            </div>
+                          ) : null}
+                          <div className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                            {job.next_run_at ? (
+                              <>
+                                <span>Next run</span>
+                                <span className="text-foreground">
+                                  {formatRelativeTimestamp(job.next_run_at)}
+                                </span>
+                              </>
+                            ) : null}
+                            {job.last_run_at ? (
+                              <>
+                                <span>Last run</span>
+                                <span className="text-foreground">
+                                  {formatRelativeTimestamp(job.last_run_at)}
+                                  {job.run_count > 0
+                                    ? ` · ${job.run_count} total`
+                                    : ""}
+                                </span>
+                              </>
+                            ) : null}
+                            <span>Schedule</span>
+                            <ScheduleEditor
+                              cron={job.cron}
+                              saving={isBusy}
+                              disabled={isBusy && busyJobId !== job.id}
+                              onSave={(next) =>
+                                handleUpdateCronjobField(
+                                  job,
+                                  { cron: next },
+                                  `Updated schedule for "${jobTitle(job)}".`,
+                                )
+                              }
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
                   </li>
                 );
               })}

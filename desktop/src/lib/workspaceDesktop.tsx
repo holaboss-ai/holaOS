@@ -175,6 +175,10 @@ interface WorkspaceDesktopContextValue {
   chooseTemplateFolder: () => Promise<void>;
   createWorkspace: () => Promise<void>;
   deleteWorkspace: (workspaceId: string) => Promise<void>;
+  updateWorkspaceAppearance: (
+    workspaceId: string,
+    payload: { icon: string | null; iconColor: string | null },
+  ) => Promise<void>;
   removeInstalledApp: (appId: string) => Promise<void>;
   selectedApps: Set<string>;
   setSelectedApps: (value: Set<string> | ((prev: Set<string>) => Set<string>)) => void;
@@ -870,6 +874,48 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       throw error;
     } finally {
       setDeletingWorkspaceId((current) => (current === trimmedWorkspaceId ? null : current));
+    }
+  }
+
+  async function updateWorkspaceAppearance(
+    workspaceId: string,
+    payload: { icon: string | null; iconColor: string | null },
+  ) {
+    const trimmedWorkspaceId = workspaceId.trim();
+    if (!trimmedWorkspaceId) {
+      throw new Error("workspaceId is required");
+    }
+    const optimistic = {
+      icon: payload.icon,
+      icon_color: payload.iconColor,
+    };
+    setWorkspaces((current) =>
+      current.map((workspace) =>
+        workspace.id === trimmedWorkspaceId
+          ? { ...workspace, ...optimistic }
+          : workspace,
+      ),
+    );
+    try {
+      const response = await window.electronAPI.workspace.updateAppearance(
+        trimmedWorkspaceId,
+        payload,
+      );
+      const updated = response?.workspace;
+      if (updated) {
+        setWorkspaces((current) =>
+          current.map((workspace) =>
+            workspace.id === trimmedWorkspaceId ? updated : workspace,
+          ),
+        );
+      }
+    } catch (error) {
+      // Revert by re-fetching the authoritative list. Surface the error
+      // through the standard channel so the caller / surrounding chrome
+      // can render it.
+      await loadWorkspaceData({ preserveSelection: true, allowEmpty: true });
+      setWorkspaceErrorMessage(normalizeErrorMessage(error));
+      throw error;
     }
   }
 
@@ -1627,6 +1673,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       chooseTemplateFolder,
       createWorkspace,
       deleteWorkspace,
+      updateWorkspaceAppearance,
       removeInstalledApp,
       selectedApps,
       setSelectedApps,
@@ -1697,6 +1744,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       activateWorkspace,
       createWorkspace,
       deleteWorkspace,
+      updateWorkspaceAppearance,
       removeInstalledApp,
       selectedApps,
       pendingIntegrations,

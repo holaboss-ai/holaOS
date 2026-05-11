@@ -110,6 +110,14 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
   );
   assert.match(
     prompt.systemPrompt,
+    /If evidence is incomplete, keep retrieving or say what remains unverified; do not claim side effects happened without proof in this turn\./
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Treat deleting files, wiping directories, `replace_existing`, or blanking a non-empty file as destructive; do them only when the user explicitly asked\./
+  );
+  assert.match(
+    prompt.systemPrompt,
     /Use available tools, skills, and MCP integrations when they are more reliable than reasoning alone\./
   );
   assert.match(
@@ -126,7 +134,7 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
   );
   assert.match(
     prompt.systemPrompt,
-    /Do not cross it unless the user explicitly asks, and then keep the scope minimal\./
+    /Do not cross it unless the user explicitly asks\./
   );
   assert.match(
     prompt.systemPrompt,
@@ -146,19 +154,19 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
   );
   assert.match(
     prompt.systemPrompt,
-    /mention the report path or title and only the most important takeaways in chat\./
+    /mention only the report path or title and the most important takeaways in chat/i
   );
   assert.match(
     prompt.systemPrompt,
-    /Use coordination tools instead of hidden state\. The newest user message is primary\./
+    /Use tools, not hidden state\. The newest user message is primary\./
   );
   assert.match(
     prompt.systemPrompt,
-    /Resume unfinished work only when the newest message clearly asks to continue it/
+    /Resume unfinished work only when the newest message asks to continue it/
   );
   assert.match(
     prompt.systemPrompt,
-    /Use `AGENTS\.md` as the durable workspace ledger\. Keep durable instructions, verified procedures, stable facts, conventions, decisions, and recurring blockers there; turn conditional or situational guidance into indexed local skills, using `skill-creator` when available\./i
+    /Use `AGENTS\.md` as the durable workspace ledger for stable instructions, procedures, facts, conventions, decisions, and recurring blockers; use local skills for situational workflows\./i
   );
   assert.match(prompt.systemPrompt, /Session policy:/);
   assert.match(prompt.systemPrompt, /front-of-house workspace session/i);
@@ -309,6 +317,8 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /Do not use visible chat to preload hidden assumptions into delegated work\./);
   assert.match(prompt.systemPrompt, /When routing work through `holaboss_delegate_task`, call the tool first and then write at most one user-facing update based on the returned task state\./);
   assert.match(prompt.systemPrompt, /Reserve completion language such as `done`, `finished`, `created`, `sent`, `navigated`, `verified`, or `it's there now`/i);
+  assert.match(prompt.systemPrompt, /only when the current turn has direct grounded evidence such as a tool result, direct inspection, or a persisted deliverable\/output\./i);
+  assert.match(prompt.systemPrompt, /If content only exists in chat, in a plan, or in queued or delegated work, describe it as drafted, outlined, queued, or in progress; do not say it was created, saved, attached, sent, verified, or is already there\./);
   assert.match(prompt.systemPrompt, /If delegated work immediately comes back waiting on user input, say it is blocked on that step and ask only for what is needed to continue\./);
   assert.match(prompt.systemPrompt, /If delegated work finishes early enough to merge into the same reply, state the completion once instead of also describing it as newly started or queued\./);
   assert.match(prompt.systemPrompt, /If the user asks for a report, brief, memo, digest, recap, write-up, or other deliverable that would be longer than a short chat reply, prefer producing it as an artifact through delegated background work/i);
@@ -1170,7 +1180,11 @@ test("composeBaseAgentPrompt requires proactive fallback when partial retrieval 
   );
   assert.match(
     prompt.systemPrompt,
-    /If evidence is incomplete, keep retrieving or say exactly what remains unverified\./
+    /If evidence is incomplete, keep retrieving or say what remains unverified; do not claim side effects happened without proof in this turn\./
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Treat deleting files, wiping directories, `replace_existing`, or blanking a non-empty file as destructive; do them only when the user explicitly asked\./
   );
   assert.match(
     prompt.systemPrompt,

@@ -14,6 +14,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -52,6 +53,7 @@ import { StoplightProvider } from "@/lib/StoplightContext";
 import { holabossLogoUrl } from "@/lib/assetPaths";
 import { type ExplorerAttachmentDragPayload } from "@/lib/attachmentDrag";
 import { CHAT_LAYOUT } from "@/lib/chatLayout";
+import { useEscapeToClose } from "@/lib/useEscapeToClose";
 import { DesktopBillingProvider } from "@/lib/billing/useDesktopBilling";
 import {
   pushRendererSentryActivity,
@@ -748,13 +750,13 @@ function shouldShowNativeRuntimeNotification(
   notification: RuntimeNotificationRecordPayload,
   isWindowMinimized: boolean,
 ): boolean {
+  if (isSystemCronjobNotification(notification)) {
+    return true;
+  }
   if (!isWindowMinimized) {
     return false;
   }
-  return (
-    notification.source_type === "main_session" ||
-    isSystemCronjobNotification(notification)
-  );
+  return notification.source_type === "main_session";
 }
 
 function shouldDismissVisibleRuntimeNotification(
@@ -1507,6 +1509,8 @@ function AppShellContent() {
   ] = useState<Record<string, string>>({});
   const [chatComposerPrefillRequest, setChatComposerPrefillRequest] =
     useState<ChatComposerPrefillRequest | null>(null);
+  const [chatScheduleEditContext, setChatScheduleEditContext] =
+    useState<CronjobRecordPayload | null>(null);
   const [chatExplorerAttachmentRequest, setChatExplorerAttachmentRequest] =
     useState<ChatExplorerAttachmentRequest | null>(null);
   const [fileExplorerFocusRequest, setFileExplorerFocusRequest] =
@@ -1527,6 +1531,16 @@ function AppShellContent() {
   const [spaceAgentPaneWidth, setSpaceAgentPaneWidth] = useState(
     SPACE_AGENT_PANE_WIDTH,
   );
+  // Live width of the space layout row, fed by the ResizeObserver below.
+  // Used to derive explicit pixel widths for the display / agent panes
+  // (instead of toggling flex-1 ↔ width:Xpx, which the browser can't
+  // smoothly interpolate — see Tier 2 design notes).
+  const [spaceLayoutHostWidth, setSpaceLayoutHostWidth] = useState(0);
+  // True while the space-pane width transition is mid-flight. Flips
+  // true on collapse/fullscreen toggle, back to false ~230ms later.
+  // ChatPane reads this to pin its inner column width — preventing
+  // text re-wrap during the outer animation.
+  const [isSpacePaneAnimating, setIsSpacePaneAnimating] = useState(false);
   const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(
     null,
   );
@@ -1540,6 +1554,8 @@ function AppShellContent() {
     useState(loadBrowserPaneWidth);
   const [controlCenterCardsPerRow, setControlCenterCardsPerRow] =
     useState<ControlCenterCardsPerRow>(loadControlCenterCardsPerRow);
+  const [desktopNotificationsEnabled, setDesktopNotificationsEnabled] =
+    useState(true);
   const [isUtilityPaneResizing, setIsUtilityPaneResizing] = useState(false);
   const [operationsDrawerOpen, setOperationsDrawerOpen] = useState(
     loadOperationsDrawerOpen,
@@ -1644,6 +1660,14 @@ function AppShellContent() {
   const lastRestorableSpaceAppDisplayViewByWorkspaceRef = useRef<
     Record<string, RestorableSpaceAppDisplayView>
   >({});
+  // Marks the workspace id for which the next workspace-change cycle should
+  // *not* reset spaceDisplayView — the caller is about to (or just did) set
+  // displayView explicitly, so the workspace-change effect at #space-display-
+  // view-restore must defer to that intent. Cleared after the effect honors
+  // it. See handleOpenControlCenterWorkspaceOutput for the canonical caller.
+  const explicitSpaceDisplayViewRequestedForWorkspaceRef = useRef<string | null>(
+    null,
+  );
   const spaceDisplayResizeStateRef = useRef<{
     startWidth: number;
     startX: number;
@@ -2392,6 +2416,7 @@ function AppShellContent() {
             body: item.message,
             workspaceId: item.workspace_id,
             sessionId: notificationTargetSessionId(item),
+            force: isSystemCronjobNotification(item),
           });
           if (shown) {
             consumeControlCenterComposerSubmissionSuppression();
@@ -2522,6 +2547,15 @@ function AppShellContent() {
         } catch {
           // Ignore transient shell URL open failures.
         }
+        return;
+      }
+      // Fallback: no session, no URL (typical for cronjob reminders) — at
+      // least switch to the originating workspace so the click does something
+      // visible.
+      const fallbackWorkspaceId = notification.workspace_id.trim();
+      if (fallbackWorkspaceId) {
+        setSelectedWorkspaceId(fallbackWorkspaceId);
+        setActiveShellView("space");
       }
     },
     [
@@ -2604,6 +2638,37 @@ function AppShellContent() {
     },
     [dismissTaskProposalToast, handleDismissNotification],
   );
+
+  const inboxNotifications = useMemo(
+    () => notifications.filter((item) => item.state === "unread"),
+    [notifications],
+  );
+  const inboxWorkspacesById = useMemo(() => {
+    const map = new Map<string, WorkspaceRecordPayload>();
+    for (const workspace of workspaces) {
+      map.set(workspace.id.trim(), workspace);
+    }
+    return map;
+  }, [workspaces]);
+  const handleMarkAllInboxNotificationsRead = useCallback(async () => {
+    if (!window.electronAPI || inboxNotifications.length === 0) return;
+    // Optimistically clear locally so the badge / popover update without
+    // waiting on the round-trip; refreshNotifications below reconciles with
+    // the server's truth.
+    for (const item of inboxNotifications) {
+      dismissNotificationToast(item.id);
+    }
+    await Promise.allSettled(
+      inboxNotifications.map((item) =>
+        window.electronAPI!.workspace.updateNotification(
+          item.workspace_id,
+          item.id,
+          { state: "dismissed" },
+        ),
+      ),
+    );
+    await refreshNotifications();
+  }, [dismissNotificationToast, inboxNotifications, refreshNotifications]);
 
   useEffect(() => {
     void refreshNotifications();
@@ -2846,6 +2911,7 @@ function AppShellContent() {
     setChatSessionOpenRequest(null);
     setChatBrowserJumpRequestKeysBySessionId({});
     setActiveChatSessionId(null);
+    setChatScheduleEditContext(null);
   }, [selectedWorkspaceId]);
 
   useEffect(() => {
@@ -3498,6 +3564,11 @@ function AppShellContent() {
         requestKey: nextChatComposerPrefillRequestKey(),
         mode: "replace",
       });
+      // Surface the schedule's full detail (cron / instruction /
+      // description) above the composer so the user can read what they're
+      // editing without asking the agent to dump it. Cleared on send /
+      // dismiss inside ChatPane.
+      setChatScheduleEditContext(job);
       setChatFocusRequestKey((current) => current + 1);
     },
     [
@@ -3694,6 +3765,58 @@ function AppShellContent() {
       selectedWorkspaceId,
       setSelectedWorkspaceId,
     ],
+  );
+
+  useEffect(() => {
+    const unsubscribe = window.electronAPI.ui.onNotificationActivated(
+      ({ workspaceId }) => {
+        if (!workspaceId) return;
+        handleEnterWorkspace(workspaceId);
+      },
+    );
+    return unsubscribe;
+  }, [handleEnterWorkspace]);
+
+  useEffect(() => {
+    const unread = notifications.reduce(
+      (count, item) => (item.state === "unread" ? count + 1 : count),
+      0,
+    );
+    void window.electronAPI.ui.setBadgeCount(unread);
+  }, [notifications]);
+
+  useEffect(() => {
+    return () => {
+      void window.electronAPI.ui.setBadgeCount(0);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.electronAPI.ui
+      .getNotificationsEnabled()
+      .then((enabled) => {
+        if (!cancelled) {
+          setDesktopNotificationsEnabled(enabled);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleDesktopNotificationsChange = useCallback(
+    (enabled: boolean) => {
+      setDesktopNotificationsEnabled(enabled);
+      void window.electronAPI.ui
+        .setNotificationsEnabled(enabled)
+        .then((persisted) => {
+          setDesktopNotificationsEnabled(persisted);
+        })
+        .catch(() => undefined);
+    },
+    [],
   );
 
   useEffect(() => {
@@ -4187,12 +4310,6 @@ function AppShellContent() {
     setSpaceDisplayView(spaceDisplayView);
   }, [selectedWorkspaceId, spaceDisplayView]);
 
-  useEffect(() => {
-    if (spaceBrowserFullscreen && spaceDisplayView.type !== "browser") {
-      setSpaceBrowserFullscreen(false);
-    }
-  }, [spaceBrowserFullscreen, spaceDisplayView.type]);
-
   const toggleSpaceBrowserFullscreen = useCallback(() => {
     setSpaceBrowserFullscreen((prev) => {
       const next = !prev;
@@ -4204,9 +4321,57 @@ function AppShellContent() {
   }, []);
 
   useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "\\") return;
+      const meta = event.metaKey || event.ctrlKey;
+      if (!meta || event.altKey || event.shiftKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+      event.preventDefault();
+      toggleSpaceBrowserFullscreen();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [toggleSpaceBrowserFullscreen]);
+
+  // ESC-to-close for the custom full-screen panels. Each panel owns its
+  // own escape binding via useEscapeToClose; Radix-based dialogs
+  // (WorkspaceAppsDialog, PublishScreen) own their own ESC handling, and
+  // the hook's defaultPrevented guard makes sure we don't fight them.
+  useEscapeToClose(createWorkspacePanelOpen, handleCloseCreateWorkspacePanel);
+  const handleCloseSettingsViaEscape = useCallback(() => {
+    setSettingsDialogOpen(false);
+    setSubmissionsFocusId(null);
+  }, []);
+  useEscapeToClose(settingsDialogOpen, handleCloseSettingsViaEscape);
+
+  useEffect(() => {
     if (!selectedWorkspaceId) {
       setSpaceExplorerMode("browser");
       setSpaceDisplayView({ type: "browser" });
+      return;
+    }
+
+    // If the click handler that just triggered this workspace switch
+    // explicitly set spaceDisplayView (e.g. opening a file from a Control
+    // Center card), honor that intent — don't restore from cache or reset
+    // to browser. Otherwise this effect races the click handler and wipes
+    // the just-set view (the "first-visit workspace, click file, preview
+    // doesn't open" bug).
+    if (
+      explicitSpaceDisplayViewRequestedForWorkspaceRef.current ===
+      selectedWorkspaceId
+    ) {
+      explicitSpaceDisplayViewRequestedForWorkspaceRef.current = null;
       return;
     }
 
@@ -4229,14 +4394,31 @@ function AppShellContent() {
     const previousWorkspaceId =
       reportedOperatorSurfaceWorkspaceIdRef.current?.trim() || "";
     const nextWorkspaceId = selectedWorkspaceId?.trim() || "";
+    const switchedWorkspaces =
+      previousWorkspaceId.length > 0 &&
+      previousWorkspaceId !== nextWorkspaceId;
 
     async function syncReportedOperatorSurfaceContext() {
       try {
-        if (previousWorkspaceId && previousWorkspaceId !== nextWorkspaceId) {
+        if (switchedWorkspaces) {
+          // Clear the destination workspace first so a just-switched shell
+          // never reports the previous workspace's surface context under the
+          // new workspace id during the transition render.
           await window.electronAPI.workspace.setOperatorSurfaceContext(
             previousWorkspaceId,
             null,
           );
+          if (nextWorkspaceId) {
+            await window.electronAPI.workspace.setOperatorSurfaceContext(
+              nextWorkspaceId,
+              null,
+            );
+          }
+          if (!cancelled) {
+            reportedOperatorSurfaceWorkspaceIdRef.current =
+              nextWorkspaceId || null;
+          }
+          return;
         }
         if (nextWorkspaceId) {
           await window.electronAPI.workspace.setOperatorSurfaceContext(
@@ -4397,6 +4579,12 @@ function AppShellContent() {
         } catch {
           workspaceInstalledAppIds = new Set<string>();
         }
+        // Mark before the workspace switch: this batches with the
+        // setSpaceDisplayView call inside openWorkspaceOutputTarget below,
+        // so when the workspace-change effect fires it sees the marker and
+        // defers to our explicit displayView instead of overwriting it.
+        explicitSpaceDisplayViewRequestedForWorkspaceRef.current =
+          normalizedWorkspaceId;
         setSelectedWorkspaceId(normalizedWorkspaceId);
       }
 
@@ -4705,6 +4893,9 @@ function AppShellContent() {
               : ""
           }
           onComposerDraftTextChange={handleChatComposerDraftTextChange}
+          scheduleEditContext={chatScheduleEditContext}
+          onScheduleEditContextDismiss={() => setChatScheduleEditContext(null)}
+          isPaneAnimating={isSpacePaneAnimating}
         />
       );
     }
@@ -4800,6 +4991,7 @@ function AppShellContent() {
     triggerRemoteTaskProposal,
     chooseWorkspaceRelocationFolder,
     deleteWorkspace,
+    isSpacePaneAnimating,
   ]);
 
   const spaceDisplayLayoutSyncKey = `${spaceExplorerMode}:${spaceBrowserSpace}:${filesPaneWidth}:${spaceAgentPaneWidth}:${spaceBrowserFullscreen ? "fs" : "split"}`;
@@ -4816,7 +5008,6 @@ function AppShellContent() {
           layoutSyncKey={spaceDisplayLayoutSyncKey}
           embedded
           fullscreen={spaceBrowserFullscreen}
-          onToggleFullscreen={toggleSpaceBrowserFullscreen}
         />
       );
     }
@@ -4971,6 +5162,12 @@ function AppShellContent() {
     let frame: number | null = null;
     const flush = () => {
       frame = null;
+      const measuredHostWidth = Math.round(
+        utilityPaneHostRef.current?.getBoundingClientRect().width ?? 0,
+      );
+      setSpaceLayoutHostWidth((prev) =>
+        prev === measuredHostWidth ? prev : measuredHostWidth,
+      );
       setSpaceAgentPaneWidth((current) => clampSpaceAgentPaneWidth(current));
       if (hasVisibleSpacePanes) {
         syncUtilityPaneWidths();
@@ -5005,6 +5202,75 @@ function AppShellContent() {
     hasVisibleSpacePanes,
     spaceMode,
     syncUtilityPaneWidths,
+  ]);
+
+  // Synchronous initial measurement so the first paint after spaceMode
+  // mounts already has the correct pixel widths — without this the panes
+  // would flash through a width:0 layout before the ResizeObserver fires.
+  useLayoutEffect(() => {
+    if (!spaceMode) return;
+    const host = utilityPaneHostRef.current;
+    if (!host) return;
+    const width = Math.round(host.getBoundingClientRect().width);
+    setSpaceLayoutHostWidth((prev) => (prev === width ? prev : width));
+  }, [spaceMode]);
+
+  // Skip the initial mount — there's no transition to mask there.
+  // The state itself is declared earlier (alongside spaceLayoutHostWidth)
+  // so the agentContent useMemo can pass it down to ChatPane.
+  const spacePaneAnimatingFirstRunRef = useRef(true);
+  useEffect(() => {
+    if (spacePaneAnimatingFirstRunRef.current) {
+      spacePaneAnimatingFirstRunRef.current = false;
+      return;
+    }
+    setIsSpacePaneAnimating(true);
+    // 230ms = the 200ms width transition + a small grace window so the
+    // freeze releases after the browser has settled the final layout.
+    const timer = window.setTimeout(() => {
+      setIsSpacePaneAnimating(false);
+    }, 230);
+    return () => window.clearTimeout(timer);
+  }, [effectiveSpaceWorkspacePanelCollapsed, spaceBrowserFullscreen]);
+
+  // Width of the resize handle in the space layout row (matches the
+  // `w-2` class on the separator div below).
+  const SPACE_DISPLAY_HANDLE_WIDTH = 8;
+  // Sum of the explorer rail + the handle slot. Both stay constant
+  // through the collapse/expand transition, so the display and agent
+  // panes share `hostWidth - reserved` between them.
+  const spaceLayoutReservedWidth =
+    SPACE_EXPLORER_RAIL_WIDTH + SPACE_DISPLAY_HANDLE_WIDTH;
+  // Pixel widths for the display and agent panes. Computing them as
+  // explicit values (instead of toggling `flex-1` ↔ `width:Xpx`) lets
+  // the browser interpolate width smoothly — the root cause fix for
+  // the choppy collapse/expand animation.
+  const spaceLayoutDerivedWidths = useMemo(() => {
+    const host = spaceLayoutHostWidth;
+    if (host <= 0) {
+      return null;
+    }
+    const remaining = Math.max(0, host - spaceLayoutReservedWidth);
+    if (spaceBrowserFullscreen) {
+      return { displayWidth: remaining, agentWidth: 0 };
+    }
+    if (effectiveSpaceWorkspacePanelCollapsed) {
+      return { displayWidth: 0, agentWidth: remaining };
+    }
+    const agentWidth = Math.max(
+      MIN_AGENT_CONTENT_WIDTH,
+      Math.min(spaceAgentPaneWidth, remaining - SPACE_DISPLAY_MIN_WIDTH),
+    );
+    return {
+      displayWidth: Math.max(0, remaining - agentWidth),
+      agentWidth,
+    };
+  }, [
+    effectiveSpaceWorkspacePanelCollapsed,
+    spaceAgentPaneWidth,
+    spaceBrowserFullscreen,
+    spaceLayoutHostWidth,
+    spaceLayoutReservedWidth,
   ]);
 
   const startSpaceDisplayResize = useCallback(
@@ -5268,6 +5534,20 @@ function AppShellContent() {
               desktopPlatform={desktopPlatform}
               runtimeStatus={runtimeStatus}
               controlCenterActive={controlCenterMode}
+              chatPanelHidden={spaceBrowserFullscreen}
+              showChatPanelToggle={spaceMode && !controlCenterMode}
+              onToggleChatPanel={toggleSpaceBrowserFullscreen}
+              inboxNotifications={inboxNotifications}
+              inboxWorkspacesById={inboxWorkspacesById}
+              onActivateInboxNotification={(id) =>
+                void handleActivateDisplayedNotification(id)
+              }
+              onDismissInboxNotification={(id) =>
+                void handleCloseDisplayedNotification(id)
+              }
+              onMarkAllInboxNotificationsRead={() =>
+                void handleMarkAllInboxNotificationsRead()
+              }
               onOpenControlCenter={handleOpenControlCenter}
               onWorkspaceSwitcherVisibilityChange={setWorkspaceSwitcherOpen}
               onOpenWorkspaceCreatePanel={handleOpenCreateWorkspacePanel}
@@ -5308,7 +5588,6 @@ function AppShellContent() {
             workspaces={workspaces}
             selectedWorkspaceId={selectedWorkspaceId}
             cardsPerRow={controlCenterCardsPerRow}
-            composerModel={currentComposerSelectedModel(runtimeConfig)}
             orderedWorkspaceIds={controlCenterWorkspaceCardOrder}
             highlightedWorkspaceIds={controlCenterHighlightedWorkspaceIds}
             onSelectWorkspace={handleSelectControlCenterWorkspace}
@@ -5322,6 +5601,7 @@ function AppShellContent() {
               handleMarkControlCenterWorkspaceComposerSubmission
             }
             onWorkspaceCompletion={handleControlCenterWorkspaceCompletion}
+            onCreateWorkspace={handleOpenCreateWorkspacePanel}
           />
         ) : (
           <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
@@ -5334,13 +5614,7 @@ function AppShellContent() {
                   >
                     <section
                       id="space-workspace-panel"
-                      className={`flex min-h-0 min-w-0 ${
-                        spaceBrowserFullscreen
-                          ? "flex-1"
-                          : effectiveSpaceWorkspacePanelCollapsed
-                            ? "mr-1.5 shrink-0"
-                            : "flex-1"
-                      } overflow-hidden rounded-xl border border-border bg-card shadow-md backdrop-blur-sm transition-[margin] duration-200 ease-out`}
+                      className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-card shadow-md backdrop-blur-sm"
                     >
                       <div
                         className="shrink-0 overflow-hidden border-r border-border bg-card"
@@ -5559,56 +5833,52 @@ function AppShellContent() {
                       </div>
 
                       <div
-                        className={`min-h-0 min-w-0 overflow-hidden transition-all duration-200 ease-out ${
-                          spaceBrowserFullscreen
-                            ? "flex-1"
-                            : effectiveSpaceWorkspacePanelCollapsed
-                              ? "w-0 flex-none"
-                              : "flex-1"
-                        }`}
-                        style={
-                          spaceBrowserFullscreen
-                            ? { minWidth: 0 }
-                            : effectiveSpaceWorkspacePanelCollapsed
-                              ? { minWidth: 0 }
-                              : { minWidth: `${SPACE_DISPLAY_MIN_WIDTH}px` }
-                        }
+                        className="min-h-0 min-w-0 flex-1 overflow-hidden"
+                        style={{ minWidth: 0 }}
                       >
                         {spaceDisplayContent}
                       </div>
                     </section>
 
-                    {!effectiveSpaceWorkspacePanelCollapsed &&
-                    !spaceBrowserFullscreen ? (
+                    {!spaceBrowserFullscreen ? (
                       <div
                         role="separator"
                         aria-label="Resize display pane"
                         aria-orientation="vertical"
-                        onPointerDown={startSpaceDisplayResize}
-                        className="group relative z-10 flex w-2 shrink-0 cursor-col-resize touch-none items-center justify-center"
+                        aria-hidden={effectiveSpaceWorkspacePanelCollapsed}
+                        onPointerDown={
+                          effectiveSpaceWorkspacePanelCollapsed
+                            ? undefined
+                            : startSpaceDisplayResize
+                        }
+                        className={`group relative z-10 flex w-2 shrink-0 items-center justify-center transition-opacity duration-200 ease-out ${
+                          effectiveSpaceWorkspacePanelCollapsed
+                            ? "pointer-events-none cursor-default opacity-0"
+                            : "cursor-col-resize touch-none opacity-100"
+                        }`}
                       >
                         <div className="pointer-events-none absolute left-1/2 top-1/2 h-14 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/8 opacity-0 transition duration-150 group-hover:opacity-100" />
                       </div>
                     ) : null}
 
                     <div
-                      className={`min-h-0 rounded-xl transition-all duration-200 ease-out ${
-                        spaceBrowserFullscreen
-                          ? "w-0 shrink-0 overflow-hidden"
-                          : effectiveSpaceWorkspacePanelCollapsed
-                            ? "flex-1"
-                            : "shrink-0"
+                      className={`min-h-0 shrink-0 overflow-hidden rounded-xl ${
+                        isUtilityPaneResizing
+                          ? ""
+                          : "transition-[width] duration-200 ease-out"
                       }`}
-                      style={
-                        spaceBrowserFullscreen
-                          ? { width: 0, minWidth: 0 }
-                          : effectiveSpaceWorkspacePanelCollapsed
-                            ? { minWidth: `${MIN_AGENT_CONTENT_WIDTH}px` }
-                            : {
-                                width: `${spaceAgentPaneWidth}px`,
-                                minWidth: `${MIN_AGENT_CONTENT_WIDTH}px`,
-                              }
-                      }
+                      style={{
+                        // Explicit pixel width in every state so the browser
+                        // interpolates `width` smoothly; toggling flex-1 ↔
+                        // width:Xpx caused the choppy collapse animation.
+                        width: spaceLayoutDerivedWidths
+                          ? `${spaceLayoutDerivedWidths.agentWidth}px`
+                          : `${spaceAgentPaneWidth}px`,
+                        minWidth: spaceBrowserFullscreen
+                          ? 0
+                          : `${MIN_AGENT_CONTENT_WIDTH}px`,
+                        contain: "layout style",
+                      }}
                       aria-hidden={spaceBrowserFullscreen}
                     >
                       {agentContent}
@@ -5670,6 +5940,8 @@ function AppShellContent() {
             onThemeVariantChange={handleThemeVariantChange}
             workspaceCardsPerRow={controlCenterCardsPerRow}
             onWorkspaceCardsPerRowChange={setControlCenterCardsPerRow}
+            desktopNotificationsEnabled={desktopNotificationsEnabled}
+            onDesktopNotificationsChange={handleDesktopNotificationsChange}
             onOpenExternalUrl={handleOpenExternalUrl}
             submissionsFocusId={submissionsFocusId}
           />

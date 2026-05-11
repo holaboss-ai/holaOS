@@ -24,7 +24,7 @@ interface StatusVisual {
   recoverable: boolean;
 }
 
-function runtimeStatusVisual(status: RuntimeStatus | undefined): StatusVisual {
+export function runtimeStatusVisual(status: RuntimeStatus | undefined): StatusVisual {
   switch (status) {
     case "running":
       return {
@@ -93,6 +93,12 @@ export function RuntimeStatusIndicator({
   const [isRestarting, setIsRestarting] = useState(false);
 
   if (!status) {
+    return null;
+  }
+  // Hide the bar button entirely when the runtime is healthy. The avatar
+  // dropdown footer always carries a quieter copy of the same info, so users
+  // who specifically want to confirm "all green" can still find it there.
+  if (status.status === "running") {
     return null;
   }
 
