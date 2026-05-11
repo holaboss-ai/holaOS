@@ -109,6 +109,7 @@ export function ConversationTurns<Message extends ChatMessage>({
               executionItems={message.executionItems ?? []}
               memoryProposals={message.memoryProposals ?? []}
               outputs={message.outputs ?? []}
+              pendingIntegrations={message.pendingIntegrations ?? []}
               memoryProposalAction={memoryProposalAction}
               editingMemoryProposalId={editingMemoryProposalId}
               memoryProposalDrafts={memoryProposalDrafts}

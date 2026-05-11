@@ -4379,6 +4379,26 @@ export class RuntimeAgentToolsService {
       appId,
     });
 
+    // If the catalog entry declares a provider, surface it as a pending
+    // integration. The runtime can't check whether the user already has an
+    // active connection (composio lives desktop-side), so we always emit the
+    // signal and let the frontend filter / render the Connect card. When no
+    // provider is declared, omit the field entirely.
+    const pendingIntegrations =
+      entry.providerId
+        ? [
+            {
+              app_id: appId,
+              provider_id: entry.providerId,
+              credential_source: entry.credentialSource,
+            },
+          ]
+        : [];
+    const integrationNote =
+      pendingIntegrations.length > 0
+        ? `This app needs a connected ${entry.providerId} account. Tell the user a Connect button is shown below your message — they can click it to authorize. Do not try to call the app's tools until they confirm the connection.`
+        : null;
+
     return {
       workspace_id: params.workspaceId,
       app_id: appId,
@@ -4391,6 +4411,9 @@ export class RuntimeAgentToolsService {
       error: installResult.error,
       status,
       ...buildSessionRefreshFields(newMcpServers),
+      ...(pendingIntegrations.length > 0
+        ? { pending_integrations: pendingIntegrations, integration_note: integrationNote }
+        : {}),
     };
   }
 

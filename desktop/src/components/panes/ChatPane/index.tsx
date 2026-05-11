@@ -128,6 +128,7 @@ import {
   type ChatTraceStepStatus,
   type ChatTraceStep,
   type ChatExecutionTimelineItem,
+  type ChatPendingIntegration,
   type PendingLocalAttachmentFile,
   type PendingExplorerAttachmentFile,
   type PendingAttachment,
@@ -727,6 +728,9 @@ export function chatMessagesFromSessionState(params: {
           if (turnOutputs.length > 0) {
             nextMessage.outputs = turnOutputs;
           }
+          if (restoredAssistantState.pendingIntegrations) {
+            nextMessage.pendingIntegrations = restoredAssistantState.pendingIntegrations;
+          }
         }
       }
 
@@ -768,6 +772,7 @@ export function chatMessagesFromSessionState(params: {
           outputs: turnOutputs.length > 0 ? turnOutputs : undefined,
           memoryProposals:
             turnMemoryProposals.length > 0 ? turnMemoryProposals : undefined,
+          pendingIntegrations: restoredAssistantState.pendingIntegrations,
         };
         if (
           hasRenderableAssistantTurn(syntheticAssistantMessage, {
@@ -2218,6 +2223,49 @@ function isTerminalSessionOutputEventType(eventType: string) {
   return eventType === "run_completed" || eventType === "run_failed";
 }
 
+function pendingIntegrationsFromToolResult(
+  payload: Record<string, unknown>,
+): ChatPendingIntegration[] {
+  const toolName =
+    typeof payload.tool_name === "string" ? payload.tool_name.trim() : "";
+  if (toolName !== "workspace_apps_install") {
+    return [];
+  }
+  const phase =
+    typeof payload.phase === "string" ? payload.phase.trim().toLowerCase() : "";
+  if (phase !== "completed" || payload.error === true) {
+    return [];
+  }
+  const result = isRecord(payload.result) ? payload.result : null;
+  if (!result) {
+    return [];
+  }
+  const direct = Array.isArray(result.pending_integrations)
+    ? result.pending_integrations
+    : null;
+  const nested =
+    !direct && isRecord(result.details) && Array.isArray(result.details.pending_integrations)
+      ? result.details.pending_integrations
+      : null;
+  const list = direct ?? nested ?? [];
+  return list
+    .map((entry): ChatPendingIntegration | null => {
+      if (!isRecord(entry)) return null;
+      const appId = typeof entry.app_id === "string" ? entry.app_id.trim() : "";
+      const provider = typeof entry.provider_id === "string" ? entry.provider_id.trim() : "";
+      if (!appId || !provider) return null;
+      return {
+        app_id: appId,
+        provider_id: provider,
+        credential_source:
+          typeof entry.credential_source === "string"
+            ? entry.credential_source
+            : null,
+      };
+    })
+    .filter((entry): entry is ChatPendingIntegration => Boolean(entry));
+}
+
 function assistantHistoryStateFromOutputEvents(
   outputEvents: SessionOutputEventPayload[],
 ) {
@@ -2231,6 +2279,7 @@ function assistantHistoryStateFromOutputEvents(
   let encounteredTerminalEvent = false;
   let failureText = "";
   let terminalCreatedAt = "";
+  const pendingIntegrations: ChatPendingIntegration[] = [];
 
   const flushExecutionSegment = () => {
     if (executionItems.length === 0) {
@@ -2314,6 +2363,17 @@ function assistantHistoryStateFromOutputEvents(
       }
     }
 
+    if (event.event_type === "tool_call") {
+      for (const integration of pendingIntegrationsFromToolResult(eventPayload)) {
+        // De-dupe by provider — multiple installs in one turn shouldn't
+        // surface the same Connect card twice.
+        const key = integration.provider_id.trim().toLowerCase();
+        if (!pendingIntegrations.some((existing) => existing.provider_id.trim().toLowerCase() === key)) {
+          pendingIntegrations.push(integration);
+        }
+      }
+    }
+
     if (event.event_type === "output_delta") {
       flushExecutionSegment();
       const delta =
@@ -2366,6 +2426,7 @@ function assistantHistoryStateFromOutputEvents(
     executionItems: executionItems.length > 0 ? executionItems : undefined,
     failureText: failureText || undefined,
     terminalCreatedAt: terminalCreatedAt || undefined,
+    pendingIntegrations: pendingIntegrations.length > 0 ? pendingIntegrations : undefined,
   };
 }
 

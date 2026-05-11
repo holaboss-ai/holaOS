@@ -1920,6 +1920,85 @@ test("installWorkspaceApp delegates to lifecycle.installFromArchive and flags re
     assert.deepEqual(result.new_mcp_servers, ["twitter"]);
     assert.equal(result.provider_id, "twitter");
     assert.equal(result.credential_source, "platform");
+    assert.deepEqual(
+      ((result as { pending_integrations?: Array<{ provider_id: string; app_id: string }> }).pending_integrations ?? []).map(
+        (entry) => entry.provider_id,
+      ),
+      ["twitter"],
+    );
+    assert.match(
+      (result as { integration_note?: string }).integration_note ?? "",
+      /Connect button/i,
+    );
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("installWorkspaceApp omits pending_integrations when the catalog entry has no provider", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-install-no-provider-"));
+  writeRuntimeConfig(root, { runtime: { default_model: "openai/gpt-5.4" } });
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertAppCatalogEntry({
+      appId: "csv-tool",
+      source: "marketplace",
+      name: "CSV Tool",
+      description: "Local CSV processor",
+      icon: null,
+      category: "internal",
+      tags: [],
+      version: "1.0.0",
+      archiveUrl: "https://example.com/csv-tool.tar.gz",
+      archivePath: null,
+      target: "macos-arm64",
+      cachedAt: new Date().toISOString(),
+      providerId: null,
+      credentialSource: null,
+    });
+
+    const service = new RuntimeAgentToolsService(store, {
+      workspaceRoot,
+      appLifecycle: {
+        installFromArchive: async ({ workspaceId: w, appId }) => {
+          const wsDir = path.join(workspaceRoot, w);
+          fs.mkdirSync(wsDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(wsDir, "workspace.yaml"),
+            `applications:\n  - app_id: ${appId}\n    config_path: apps/${appId}/app.runtime.yaml\n`,
+            "utf8",
+          );
+          fs.mkdirSync(path.join(wsDir, "apps", appId), { recursive: true });
+          fs.writeFileSync(
+            path.join(wsDir, "apps", appId, "app.runtime.yaml"),
+            `app_id: ${appId}\nname: CSV Tool\nslug: csv-tool\nlifecycle:\n  setup: "true"\n  start: "true"\nhealthchecks:\n  mcp:\n    path: /mcp/health\n    timeout_s: 30\n    interval_s: 5\nmcp:\n  transport: http-sse\n  port: 13100\n  path: /mcp/sse\n  tools: []\nenv_contract:\n  - HOLABOSS_WORKSPACE_ID\n`,
+            "utf8",
+          );
+          return { ok: true, ready: true, detail: "ok", error: null };
+        },
+      },
+    });
+
+    const result = (await service.installWorkspaceApp({
+      workspaceId,
+      appId: "csv-tool",
+    })) as {
+      pending_integrations?: unknown;
+      integration_note?: unknown;
+    };
+    assert.equal(result.pending_integrations, undefined);
+    assert.equal(result.integration_note, undefined);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });

@@ -126,6 +126,18 @@ interface WorkspaceDesktopContextValue {
   clearPendingAppInstall: () => void;
   connectAndInstallApp: () => Promise<void>;
   isConnectingAppIntegration: boolean;
+  /**
+   * Run the composio OAuth dance for `provider`, optionally binding the new
+   * connection to `appId`. Returns the new connection id on success.
+   * Used by the chat IntegrationConnectCard surfaced when an agent install
+   * created an app whose provider has no active connection. Throws on
+   * timeout or composio error so the caller can surface the message.
+   */
+  connectIntegrationProvider: (params: {
+    provider: string;
+    appId?: string | null;
+    accountLabel?: string | null;
+  }) => Promise<{ connectionId: string }>;
   templateSourceMode: TemplateSourceMode;
   setTemplateSourceMode: (value: TemplateSourceMode) => void;
   createHarnessOptions: WorkspaceHarnessOption[];
@@ -1002,79 +1014,86 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     setPendingAppInstall(null);
   }
 
+  async function connectIntegrationProvider({
+    provider,
+    accountLabel,
+  }: {
+    provider: string;
+    appId?: string | null;
+    accountLabel?: string | null;
+  }): Promise<{ connectionId: string }> {
+    const runtimeConfig = await window.electronAPI.runtime.getConfig();
+    const userId = runtimeConfig.userId ?? (resolvedUserId || "local");
+
+    // Snapshot existing connection ids before initiating — see
+    // IntegrationsPane comment: poll the list and look for a new id,
+    // since the id from /link isn't reliably queryable.
+    let beforeIds = new Set<string>();
+    try {
+      const before =
+        await window.electronAPI.workspace.composioListConnections();
+      beforeIds = new Set(before.connections.map((c) => c.id));
+    } catch {
+      // tolerate snapshot failure
+    }
+
+    const link = await window.electronAPI.workspace.composioConnect({
+      provider,
+      owner_user_id: userId,
+    });
+    await window.electronAPI.ui.openExternalUrl(link.redirect_url);
+
+    const COMPOSIO_POLL_INTERVAL_MS = 3000;
+    const COMPOSIO_POLL_MAX_TICKS = 100;
+    const MAX_CONSECUTIVE_ERRORS = 20;
+    let consecutiveErrors = 0;
+    for (let tick = 0; tick < COMPOSIO_POLL_MAX_TICKS; tick++) {
+      await new Promise((r) => setTimeout(r, COMPOSIO_POLL_INTERVAL_MS));
+      let current;
+      try {
+        current =
+          await window.electronAPI.workspace.composioListConnections();
+        consecutiveErrors = 0;
+      } catch (pollError) {
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          throw pollError;
+        }
+        continue;
+      }
+      const newConnection = current.connections.find(
+        (c) =>
+          !beforeIds.has(c.id) &&
+          c.toolkitSlug.toLowerCase() === provider.toLowerCase(),
+      );
+      if (newConnection) {
+        await window.electronAPI.workspace.composioFinalize({
+          connected_account_id: newConnection.id,
+          provider,
+          owner_user_id: userId,
+          account_label: accountLabel ?? `${provider} (Managed)`,
+        });
+        return { connectionId: newConnection.id };
+      }
+    }
+    throw new Error(
+      `Connection to ${provider} timed out after ${
+        (COMPOSIO_POLL_MAX_TICKS * COMPOSIO_POLL_INTERVAL_MS) / 1000
+      }s. Please try again.`,
+    );
+  }
+
   async function connectAndInstallApp() {
     if (!pendingAppInstall) return;
     const { appId, provider } = pendingAppInstall;
     setIsConnectingAppIntegration(true);
     setAppCatalogError("");
     try {
-      const runtimeConfig = await window.electronAPI.runtime.getConfig();
-      const userId = runtimeConfig.userId ?? (resolvedUserId || "local");
-
-      // Snapshot existing connection ids before initiating — see
-      // IntegrationsPane comment: poll the list and look for a new id,
-      // since the id from /link isn't reliably queryable.
-      let beforeIds = new Set<string>();
-      try {
-        const before =
-          await window.electronAPI.workspace.composioListConnections();
-        beforeIds = new Set(before.connections.map((c) => c.id));
-      } catch {
-        // tolerate snapshot failure
-      }
-
-      const link = await window.electronAPI.workspace.composioConnect({
-        provider,
-        owner_user_id: userId,
-      });
-      await window.electronAPI.ui.openExternalUrl(link.redirect_url);
-
-      const COMPOSIO_POLL_INTERVAL_MS = 3000;
-      const COMPOSIO_POLL_MAX_TICKS = 100;
-      const MAX_CONSECUTIVE_ERRORS = 20;
-      let consecutiveErrors = 0;
-      let connected = false;
-      for (let tick = 0; tick < COMPOSIO_POLL_MAX_TICKS; tick++) {
-        await new Promise((r) => setTimeout(r, COMPOSIO_POLL_INTERVAL_MS));
-        let current;
-        try {
-          current =
-            await window.electronAPI.workspace.composioListConnections();
-          consecutiveErrors = 0;
-        } catch (pollError) {
-          consecutiveErrors += 1;
-          if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-            throw pollError;
-          }
-          continue;
-        }
-        const newConnection = current.connections.find(
-          (c) =>
-            !beforeIds.has(c.id) &&
-            c.toolkitSlug.toLowerCase() === provider.toLowerCase(),
-        );
-        if (newConnection) {
-          await window.electronAPI.workspace.composioFinalize({
-            connected_account_id: newConnection.id,
-            provider,
-            owner_user_id: userId,
-            account_label: `${provider} (Managed)`,
-          });
-          // First-time connect → no requested connectionId; doInstallApp
-          // falls through to its "auto-pick first active" path which now
-          // sees the freshly-stored connection.
-          await doInstallApp(appId, null);
-          connected = true;
-          return;
-        }
-      }
-      if (!connected) {
-        setAppCatalogError(
-          `Connection to ${provider} timed out after ${
-            (COMPOSIO_POLL_MAX_TICKS * COMPOSIO_POLL_INTERVAL_MS) / 1000
-          }s. Please try again.`,
-        );
-      }
+      await connectIntegrationProvider({ provider, appId });
+      // First-time connect → no requested connectionId; doInstallApp falls
+      // through to its "auto-pick first active" path which now sees the
+      // freshly-stored connection.
+      await doInstallApp(appId, null);
     } catch (error) {
       setAppCatalogError(normalizeErrorMessage(error));
     } finally {
@@ -1578,6 +1597,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       clearPendingAppInstall,
       connectAndInstallApp,
       isConnectingAppIntegration,
+      connectIntegrationProvider,
       templateSourceMode,
       setTemplateSourceMode,
       createHarnessOptions: WORKSPACE_HARNESS_OPTIONS,
