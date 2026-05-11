@@ -7,8 +7,6 @@ import {
   LayoutGrid,
   Loader2,
   MessageCircle,
-  PanelRightClose,
-  PanelRightOpen,
 } from "lucide-react";
 import {
   type PointerEvent as ReactPointerEvent,
@@ -5565,6 +5563,13 @@ function AppShellContent() {
               }}
               onOpenExternalUrl={handleOpenExternalUrl}
               onPublish={() => setPublishOpen(true)}
+              showWorkspacePanelToggle={
+                spaceMode && !controlCenterMode && !spaceBrowserFullscreen
+              }
+              workspacePanelCollapsed={effectiveSpaceWorkspacePanelCollapsed}
+              onToggleWorkspacePanel={() =>
+                setSpaceWorkspacePanelCollapsed((prev) => !prev)
+              }
             />
           </div>
         ) : null}
@@ -5691,43 +5696,6 @@ function AppShellContent() {
                               </Tooltip>
                             );
                           })}
-                          <div className="flex-1" />
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() =>
-                                    setSpaceWorkspacePanelCollapsed(
-                                      (prev) => !prev,
-                                    )
-                                  }
-                                  aria-label={
-                                    effectiveSpaceWorkspacePanelCollapsed
-                                      ? "Show preview"
-                                      : "Hide preview"
-                                  }
-                                  className="text-muted-foreground hover:bg-accent hover:text-foreground"
-                                >
-                                  {effectiveSpaceWorkspacePanelCollapsed ? (
-                                    <PanelRightOpen />
-                                  ) : (
-                                    <PanelRightClose />
-                                  )}
-                                </Button>
-                              }
-                            />
-                            <TooltipContent
-                              side="right"
-                              align="center"
-                              className="py-1"
-                            >
-                              {effectiveSpaceWorkspacePanelCollapsed
-                                ? "Show preview"
-                                : "Hide preview"}
-                            </TooltipContent>
-                          </Tooltip>
                         </nav>
                       </div>
 

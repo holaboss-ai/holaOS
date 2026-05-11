@@ -9,6 +9,8 @@ import {
   LayoutGrid,
   Loader2,
   Minus,
+  PanelLeftClose,
+  PanelLeftOpen,
   PanelRight,
   PanelRightDashed,
   Plus,
@@ -85,6 +87,12 @@ interface TopTabsBarProps {
   onOpenBilling?: () => void;
   onOpenExternalUrl?: (url: string) => void;
   onPublish?: () => void;
+  /** When set, renders the workspace-panel toggle in the titlebar's left
+   *  cluster. Mirrors the Notion / Linear / Slack "primary sidebar"
+   *  toggle position, replacing the previously-orphaned rail-bottom one. */
+  showWorkspacePanelToggle?: boolean;
+  workspacePanelCollapsed?: boolean;
+  onToggleWorkspacePanel?: () => void;
 }
 
 export function TopTabsBar({
@@ -108,6 +116,9 @@ export function TopTabsBar({
   onOpenBilling,
   onOpenExternalUrl,
   onPublish,
+  showWorkspacePanelToggle = false,
+  workspacePanelCollapsed = false,
+  onToggleWorkspacePanel,
 }: TopTabsBarProps) {
   const [inboxOpen, setInboxOpen] = useState(false);
   // Mac stoplight compensation now flows through StoplightContext (set in
@@ -336,8 +347,6 @@ export function TopTabsBar({
       className={headerClassName}
     >
       <div className={headerGridClassName} style={headerGridStyle}>
-        {/* LEFT: layout controls — VSCode-style panel toggle anchors the
-            top-left corner; future view-mode toggles slot in here too. */}
         <div
           className={`${integratedTitleBar ? "window-no-drag " : ""}hidden min-w-0 items-center gap-1.5 lg:flex`}
         >
@@ -364,6 +373,35 @@ export function TopTabsBar({
                 <span className="ml-1.5 text-muted-foreground">
                   {desktopPlatform === "darwin" ? "⌘\\" : "Ctrl+\\"}
                 </span>
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
+          {showWorkspacePanelToggle && onToggleWorkspacePanel ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={
+                      workspacePanelCollapsed
+                        ? "Show workspace"
+                        : "Focus chat"
+                    }
+                    aria-pressed={workspacePanelCollapsed}
+                    onClick={() => onToggleWorkspacePanel()}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    {workspacePanelCollapsed ? (
+                      <PanelLeftOpen />
+                    ) : (
+                      <PanelLeftClose />
+                    )}
+                  </Button>
+                }
+              />
+              <TooltipContent side="bottom">
+                {workspacePanelCollapsed ? "Show workspace" : "Focus chat"}
               </TooltipContent>
             </Tooltip>
           ) : null}
