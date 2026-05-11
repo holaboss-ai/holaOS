@@ -1227,9 +1227,11 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
                     "radial-gradient(ellipse at center, black 0%, transparent 70%)",
                 }}
               />
-              <div className="relative flex size-14 items-center justify-center overflow-hidden rounded-xl border border-border bg-fg-2 shadow-sm">
-                <WorkspaceIcon workspace={workspace} size="md" />
-              </div>
+              <WorkspaceIcon
+                workspace={workspace}
+                size="xl"
+                className="relative shadow-sm"
+              />
               <div className="relative flex flex-col items-center gap-0.5">
                 <span className="text-[12px] font-medium text-foreground/80">
                   Ready when you are

@@ -30,6 +30,7 @@ const workspaceIconVariants = cva(
         sm: "size-5 rounded text-[9px]",
         md: "size-6 rounded-md text-[10px]",
         lg: "size-8 rounded-md text-xs",
+        xl: "size-14 rounded-xl text-lg",
       },
     },
     defaultVariants: { size: "sm" },
@@ -41,6 +42,7 @@ const iconGlyphSize = {
   sm: "size-3",
   md: "size-3.5",
   lg: "size-4",
+  xl: "size-7",
 } as const;
 
 interface WorkspaceLike {
