@@ -55,9 +55,24 @@ import {
   listWorkspaceApplicationPorts,
   listWorkspaceApplications,
   parseInstalledAppRuntime,
+  readWorkspaceMcpRegistryServerNames,
   resolveWorkspaceAppRuntime,
   updateWorkspaceApplications,
 } from "./workspace-apps.js";
+
+const SESSION_REFRESH_NOTE =
+  "New MCP servers became available in this turn. Their tools will be visible to you starting from the next user message — please end this turn (do not call the new tools yet) and let the user trigger the next one.";
+
+function buildSessionRefreshFields(newMcpServers: string[]): JsonObject {
+  if (newMcpServers.length === 0) {
+    return {};
+  }
+  return {
+    requires_session_refresh: true,
+    new_mcp_servers: [...newMcpServers],
+    session_refresh_note: SESSION_REFRESH_NOTE,
+  };
+}
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 type JsonObject = { [key: string]: JsonValue };
@@ -4448,6 +4463,9 @@ export class RuntimeAgentToolsService {
       this.requireRegisteredWorkspaceApp({ workspaceId: params.workspaceId, appId });
     }
 
+    const workspaceDir = path.join(this.options.workspaceRoot, params.workspaceId);
+    const mcpServersBefore = readWorkspaceMcpRegistryServerNames(workspaceDir);
+
     if (requestedAppIds.length === 0 && lifecycle.ensureAllAppsRunning) {
       await lifecycle.ensureAllAppsRunning(params.workspaceId);
     } else if (lifecycle.ensureAppRunning) {
@@ -4462,6 +4480,9 @@ export class RuntimeAgentToolsService {
       );
     }
 
+    const mcpServersAfter = readWorkspaceMcpRegistryServerNames(workspaceDir);
+    const newMcpServers = [...mcpServersAfter].filter((name) => !mcpServersBefore.has(name));
+
     const statusResult = this.getWorkspaceAppStatus({
       workspaceId: params.workspaceId,
     });
@@ -4470,6 +4491,7 @@ export class RuntimeAgentToolsService {
       app_ids: targetAppIds,
       count: targetAppIds.length,
       status: statusResult,
+      ...buildSessionRefreshFields(newMcpServers),
     };
   }
 

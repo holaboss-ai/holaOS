@@ -17,6 +17,11 @@ import {
   RuntimeAgentToolsService,
   RuntimeAgentToolsServiceError,
 } from "./runtime-agent-tools.js";
+import {
+  resolveWorkspaceAppRuntime,
+  writeWorkspaceMcpRegistryEntry,
+} from "./workspace-apps.js";
+import { noteHarnessWaitingForUserOnToolCompletion } from "../../harnesses/src/runner-events.js";
 
 const ORIGINAL_ENV = {
   HB_SANDBOX_ROOT: process.env.HB_SANDBOX_ROOT,
@@ -1616,6 +1621,230 @@ test("ensureWorkspaceAppsRunning, restartWorkspaceApp, and waitUntilWorkspaceApp
     assert.equal(staleStatus.revision.managed_runtime_stale, true);
     assert.equal(typeof staleStatus.revision.source_updated_at, "string");
     assert.equal(typeof staleStatus.revision.last_ready_at, "string");
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("ensureWorkspaceAppsRunning flags requires_session_refresh when a new MCP server appears", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-app-mcp-refresh-"));
+  writeRuntimeConfig(root, { runtime: { default_model: "openai/gpt-5.4" } });
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    const workspaceDir = path.join(workspaceRoot, workspaceId);
+
+    const service = new RuntimeAgentToolsService(store, {
+      workspaceRoot,
+      appLifecycle: {
+        ensureAppRunning: async (callWorkspaceId, callAppId) => {
+          // Mirror the real ensureAppRunning -> reconcileAppMcpRegistry path so
+          // the mcp_registry diff actually reflects the new server entry.
+          store.upsertAppBuild({
+            workspaceId: callWorkspaceId,
+            appId: callAppId,
+            status: "running",
+          });
+          const callWorkspaceDir = path.join(workspaceRoot, callWorkspaceId);
+          const resolved = resolveWorkspaceAppRuntime(callWorkspaceDir, callAppId, {
+            store,
+            workspaceId: callWorkspaceId,
+            allocatePorts: true,
+          });
+          writeWorkspaceMcpRegistryEntry(callWorkspaceDir, callAppId, {
+            mcpEnabled: true,
+            mcpTools: resolved.resolvedApp.mcpTools,
+            mcpPath: resolved.resolvedApp.mcp.path || "/mcp/sse",
+            mcpTimeoutMs: 30000,
+            mcpPort: resolved.ports.mcp,
+            bumpStartedAt: true,
+          });
+        },
+      },
+    });
+
+    await service.scaffoldWorkspaceApp({
+      workspaceId,
+      appId: "demo-app",
+      name: "Demo App",
+    });
+    fs.writeFileSync(
+      path.join(workspaceDir, "apps", "demo-app", "app.runtime.yaml"),
+      `app_id: demo-app
+name: Demo App
+slug: demo-app
+lifecycle:
+  setup: npm install
+  start: npm run start
+healthchecks:
+  mcp:
+    path: /mcp/health
+    timeout_s: 30
+    interval_s: 5
+mcp:
+  transport: http-sse
+  port: 13100
+  path: /mcp/sse
+  tools:
+    - demo_tool
+env_contract:
+  - HOLABOSS_WORKSPACE_ID
+`,
+      "utf8",
+    );
+    await service.registerWorkspaceApp({
+      workspaceId,
+      appId: "demo-app",
+    });
+
+    const firstResult = (await service.ensureWorkspaceAppsRunning({
+      workspaceId,
+      appIds: ["demo-app"],
+    })) as {
+      requires_session_refresh?: boolean;
+      new_mcp_servers?: string[];
+      session_refresh_note?: string;
+    };
+    assert.equal(firstResult.requires_session_refresh, true);
+    assert.deepEqual(firstResult.new_mcp_servers, ["demo-app"]);
+    assert.equal(typeof firstResult.session_refresh_note, "string");
+    assert.match(firstResult.session_refresh_note ?? "", /next user message/i);
+
+    // Calling again should NOT flag refresh — server already in registry.
+    const secondResult = (await service.ensureWorkspaceAppsRunning({
+      workspaceId,
+      appIds: ["demo-app"],
+    })) as {
+      requires_session_refresh?: boolean;
+      new_mcp_servers?: string[];
+    };
+    assert.equal(secondResult.requires_session_refresh, undefined);
+    assert.equal(secondResult.new_mcp_servers, undefined);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("end-to-end: ensure_running result drives harness waiting_user state", async () => {
+  // Contract test linking the runtime-agent-tools side and the harness side
+  // of the M1 design: ensureWorkspaceAppsRunning emits requires_session_refresh,
+  // and noteHarnessWaitingForUserOnToolCompletion observes that flag and flips
+  // the runner state. We do not spawn the actual harness subprocess here — the
+  // boundary tested is the in-process tool-result -> harness state contract.
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-e2e-refresh-"));
+  writeRuntimeConfig(root, { runtime: { default_model: "openai/gpt-5.4" } });
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    const service = new RuntimeAgentToolsService(store, {
+      workspaceRoot,
+      appLifecycle: {
+        ensureAppRunning: async (callWorkspaceId, callAppId) => {
+          store.upsertAppBuild({
+            workspaceId: callWorkspaceId,
+            appId: callAppId,
+            status: "running",
+          });
+          const callWorkspaceDir = path.join(workspaceRoot, callWorkspaceId);
+          const resolved = resolveWorkspaceAppRuntime(callWorkspaceDir, callAppId, {
+            store,
+            workspaceId: callWorkspaceId,
+            allocatePorts: true,
+          });
+          writeWorkspaceMcpRegistryEntry(callWorkspaceDir, callAppId, {
+            mcpEnabled: true,
+            mcpTools: resolved.resolvedApp.mcpTools,
+            mcpPath: resolved.resolvedApp.mcp.path || "/mcp/sse",
+            mcpTimeoutMs: 30000,
+            mcpPort: resolved.ports.mcp,
+            bumpStartedAt: true,
+          });
+        },
+      },
+    });
+
+    await service.scaffoldWorkspaceApp({
+      workspaceId,
+      appId: "demo-app",
+      name: "Demo App",
+    });
+    fs.writeFileSync(
+      path.join(workspaceRoot, workspaceId, "apps", "demo-app", "app.runtime.yaml"),
+      `app_id: demo-app
+name: Demo App
+slug: demo-app
+lifecycle:
+  setup: npm install
+  start: npm run start
+healthchecks:
+  mcp:
+    path: /mcp/health
+    timeout_s: 30
+    interval_s: 5
+mcp:
+  transport: http-sse
+  port: 13100
+  path: /mcp/sse
+  tools:
+    - demo_tool
+env_contract:
+  - HOLABOSS_WORKSPACE_ID
+`,
+      "utf8",
+    );
+    await service.registerWorkspaceApp({
+      workspaceId,
+      appId: "demo-app",
+    });
+
+    const result = await service.ensureWorkspaceAppsRunning({
+      workspaceId,
+      appIds: ["demo-app"],
+    });
+
+    // Now feed the tool result through the harness boundary helper.
+    const state = { waitingForUser: false };
+    noteHarnessWaitingForUserOnToolCompletion({
+      toolName: "workspace_apps_ensure_running",
+      isError: false,
+      state,
+      result,
+    });
+    assert.equal(state.waitingForUser, true);
+
+    // Subsequent ensure_running call (no new server) should NOT flip state.
+    const secondResult = await service.ensureWorkspaceAppsRunning({
+      workspaceId,
+      appIds: ["demo-app"],
+    });
+    const secondState = { waitingForUser: false };
+    noteHarnessWaitingForUserOnToolCompletion({
+      toolName: "workspace_apps_ensure_running",
+      isError: false,
+      state: secondState,
+      result: secondResult,
+    });
+    assert.equal(secondState.waitingForUser, false);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });

@@ -165,12 +165,37 @@ export function summarizeHarnessQuestionPrompt(args: unknown, result: unknown): 
   return null;
 }
 
+function isSessionRefreshRequiredResult(result: unknown): boolean {
+  if (!isRecord(result)) {
+    return false;
+  }
+  if (result.requires_session_refresh === true) {
+    return true;
+  }
+  if (isRecord(result.details) && result.details.requires_session_refresh === true) {
+    return true;
+  }
+  return false;
+}
+
 export function noteHarnessWaitingForUserOnToolCompletion(params: {
   toolName: unknown;
   isError: boolean;
   state: HarnessRunnerWaitState;
+  result?: unknown;
 }): void {
-  if (!params.isError && isHarnessQuestionToolName(params.toolName)) {
+  if (params.isError) {
+    return;
+  }
+  if (isHarnessQuestionToolName(params.toolName)) {
+    params.state.waitingForUser = true;
+    return;
+  }
+  // Tools that mutated MCP topology (installed/registered a new server) flag
+  // requires_session_refresh on their result so the turn ends here. The next
+  // user message spawns a fresh ts-runner that re-reads workspace.yaml and
+  // attaches the new MCP servers — see plans/.../agent-autonomous-app-management.
+  if (isSessionRefreshRequiredResult(params.result)) {
     params.state.waitingForUser = true;
   }
 }

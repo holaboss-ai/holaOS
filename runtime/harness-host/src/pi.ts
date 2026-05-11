@@ -2270,6 +2270,7 @@ function mapPiEvent(
         toolName,
         isError: Boolean(event.isError),
         state,
+        result: event.result,
       });
       const skillMapped = maybeMapSkillInvocationEnd(event, args, state);
       if (skillMapped) {
