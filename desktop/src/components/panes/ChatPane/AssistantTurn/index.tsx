@@ -74,6 +74,7 @@ function AssistantTurnComponent({
   memoryProposals,
   outputs,
   pendingIntegrations = [],
+  onAfterIntegrationBind,
   memoryProposalAction,
   editingMemoryProposalId,
   memoryProposalDrafts,
@@ -106,6 +107,7 @@ function AssistantTurnComponent({
   memoryProposals: MemoryUpdateProposalRecordPayload[];
   outputs: WorkspaceOutputRecordPayload[];
   pendingIntegrations?: AssistantTurnPendingIntegration[];
+  onAfterIntegrationBind?: () => void;
   memoryProposalAction: {
     proposalId: string;
     action: "accept" | "dismiss";
@@ -322,6 +324,7 @@ function AssistantTurnComponent({
         {pendingIntegrations.length > 0 ? (
           <AssistantTurnIntegrationConnects
             pendingIntegrations={pendingIntegrations}
+            onAfterBind={onAfterIntegrationBind}
           />
         ) : null}
       </article>

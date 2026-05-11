@@ -44,8 +44,10 @@ function normalizeErrorMessage(error: unknown): string {
 
 export function AssistantTurnIntegrationConnects({
   pendingIntegrations,
+  onAfterBind,
 }: {
   pendingIntegrations: AssistantTurnPendingIntegration[];
+  onAfterBind?: () => void;
 }) {
   if (pendingIntegrations.length === 0) {
     return null;
@@ -63,6 +65,7 @@ export function AssistantTurnIntegrationConnects({
         <IntegrationConnectCard
           key={`${entry.provider_id}|${entry.app_id}`}
           integration={entry}
+          onAfterBind={onAfterBind}
         />
       ))}
     </div>
@@ -71,8 +74,10 @@ export function AssistantTurnIntegrationConnects({
 
 function IntegrationConnectCard({
   integration,
+  onAfterBind,
 }: {
   integration: AssistantTurnPendingIntegration;
+  onAfterBind?: () => void;
 }) {
   const { composioToolkitsByProvider, connectIntegrationProvider } =
     useWorkspaceDesktop();
@@ -167,6 +172,7 @@ function IntegrationConnectCard({
         );
       }
       await refresh();
+      onAfterBind?.();
     } catch (error) {
       setErrorMessage(normalizeErrorMessage(error));
     } finally {
@@ -187,6 +193,7 @@ function IntegrationConnectCard({
         { connection_id: connectionId },
       );
       await refresh();
+      onAfterBind?.();
     } catch (error) {
       setErrorMessage(normalizeErrorMessage(error));
     } finally {

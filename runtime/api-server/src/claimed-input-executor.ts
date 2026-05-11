@@ -2020,6 +2020,79 @@ function maybeCreateCronjobCompletionNotification(params: {
   });
 }
 
+function maybeCreateBackgroundIntegrationNotification(params: {
+  store: RuntimeStateStore;
+  record: SessionInputRecord;
+  turnResult: TurnResultRecord;
+}): void {
+  if (params.turnResult.status !== "waiting_user") {
+    return;
+  }
+  const session = params.store.getSession({
+    workspaceId: params.record.workspaceId,
+    sessionId: params.record.sessionId,
+  });
+  if (optionalString(session?.kind)?.toLowerCase() !== "subagent") {
+    return;
+  }
+  const run = params.store.getSubagentRunByChildSession({
+    workspaceId: params.record.workspaceId,
+    childSessionId: params.record.sessionId,
+  });
+  if (!run) return;
+  const blockingPayload = isRecord(run.blockingPayload) ? run.blockingPayload : null;
+  const pendingList = blockingPayload && Array.isArray(blockingPayload.pending_integrations)
+    ? blockingPayload.pending_integrations
+    : [];
+  if (pendingList.length === 0) return;
+  const providers = [
+    ...new Set(
+      pendingList
+        .map((entry) => (isRecord(entry) ? optionalString(entry.provider_id) : null))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+  const apps = [
+    ...new Set(
+      pendingList
+        .map((entry) => (isRecord(entry) ? optionalString(entry.app_id) : null))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+  if (providers.length === 0 || apps.length === 0) return;
+
+  const workspace = params.store.getWorkspace(params.record.workspaceId);
+  if (!workspace) return;
+  const workspaceName = workspace.name.trim() || "Workspace";
+  const providerLabel = providers.length === 1 ? providers[0] : `${providers.length} integrations`;
+  const appLabel = apps.length === 1 ? apps[0] : `${apps.length} apps`;
+
+  params.store.createRuntimeNotification({
+    workspaceId: params.record.workspaceId,
+    sourceType: "background_integration",
+    sourceLabel: workspaceName,
+    title: `${workspaceName} — Connect ${providerLabel}`,
+    message: `${appLabel} needs your ${providerLabel} account to continue. Open the workspace to authorize.`,
+    level: "info",
+    priority: "normal",
+    metadata: {
+      // session_id is what the desktop notification click handler reads to
+      // jump the user into a chat — point at the owner main session so the
+      // M3 subagent_lifecycle_update event is in scope and the Connect card
+      // renders right where they land.
+      session_id: run.ownerMainSessionId,
+      subagent_id: run.subagentId,
+      child_session_id: run.childSessionId,
+      origin_main_session_id: run.originMainSessionId,
+      owner_main_session_id: run.ownerMainSessionId,
+      pending_integrations: pendingList,
+      providers,
+      apps,
+      activation_state: "pending",
+    },
+  });
+}
+
 function maybeCreateMainSessionCompletionNotification(params: {
   store: RuntimeStateStore;
   record: SessionInputRecord;
@@ -4290,6 +4363,11 @@ export async function processClaimedInput(params: {
         record,
         turnResult,
       });
+      maybeCreateBackgroundIntegrationNotification({
+        store,
+        record,
+        turnResult,
+      });
       maybeQueueCronjobCompletionFollowup({
         store,
         record,
@@ -4401,6 +4479,11 @@ export async function processClaimedInput(params: {
         turnResult,
       });
       maybeCreateMainSessionCompletionNotification({
+        store,
+        record,
+        turnResult,
+      });
+      maybeCreateBackgroundIntegrationNotification({
         store,
         record,
         turnResult,
