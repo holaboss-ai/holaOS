@@ -63,18 +63,27 @@
   margin-top: 0.5em;
 }
 
-/* Subtle row-level hover. Only on direct children of ProseMirror so
- * inline marks don't trigger it. The padding + negative margin keeps the
- * highlight slightly wider than the text without shifting layout. */
-.hb-md-editor .ProseMirror > *:not(pre):not(hr) {
+/* Subtle row-level hover. Lists are excluded — hovering one item lit
+ * the whole list, and the shorthand padding clobbered ul/ol's
+ * padding-left, pushing bullets to the editor's left edge. */
+.hb-md-editor .ProseMirror > *:not(pre):not(hr):not(ul):not(ol) {
   position: relative;
   border-radius: 0.25rem;
-  padding: 1px 4px;
+  padding-block: 1px;
+  padding-inline: 4px;
   margin-left: -4px;
   margin-right: -4px;
   transition: background-color 80ms ease;
 }
-.hb-md-editor .ProseMirror > *:not(pre):not(hr):hover {
+.hb-md-editor .ProseMirror > *:not(pre):not(hr):not(ul):not(ol):hover {
+  background: color-mix(in oklab, currentColor 3%, transparent);
+}
+/* Hover at the list-item level instead. */
+.hb-md-editor .ProseMirror li {
+  border-radius: 0.25rem;
+  transition: background-color 80ms ease;
+}
+.hb-md-editor .ProseMirror li:hover {
   background: color-mix(in oklab, currentColor 3%, transparent);
 }
 
@@ -83,9 +92,7 @@
 }
 
 /* Headings — Notion uses tighter top margins, larger weight */
-.hb-md-editor .ProseMirror h1,
-.hb-md-editor .ProseMirror h2,
-.hb-md-editor .ProseMirror h3 {
+.hb-md-editor .ProseMirror :is(h1, h2, h3, h4, h5, h6) {
   font-weight: 600;
   line-height: 1.25;
   letter-spacing: -0.015em;
@@ -99,6 +106,14 @@
 }
 .hb-md-editor .ProseMirror h2 { font-size: 1.5rem; }      /* 24px */
 .hb-md-editor .ProseMirror h3 { font-size: 1.1875rem; }   /* 19px */
+.hb-md-editor .ProseMirror h4 { font-size: 1.0625rem; }   /* 17px */
+.hb-md-editor .ProseMirror h5 { font-size: 0.9375rem; }   /* 15px (body) */
+.hb-md-editor .ProseMirror h6 {
+  font-size: 0.8125rem;       /* 13px */
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: color-mix(in oklab, currentColor 65%, transparent);
+}
 
 /* Lists */
 .hb-md-editor .ProseMirror ul,
@@ -173,15 +188,10 @@
   margin: 1.5em 0;
 }
 
-/* Placeholder (rendered by @tiptap/extension-placeholder) */
-.hb-md-editor .ProseMirror .is-empty:not(.hb-md-empty)::before {
-  content: attr(data-placeholder);
-  color: color-mix(in oklab, currentColor 35%, transparent);
-  pointer-events: none;
-  float: left;
-  height: 0;
-}
-.hb-md-editor .ProseMirror p.is-editor-empty:first-child::before {
+/* Placeholder — @tiptap/extension-placeholder adds .is-empty to every
+ * empty block and (additionally) .is-editor-empty to all blocks of a
+ * fully-empty doc. Single rule covers both cases. */
+.hb-md-editor .ProseMirror .is-empty::before {
   content: attr(data-placeholder);
   color: color-mix(in oklab, currentColor 35%, transparent);
   pointer-events: none;
@@ -754,6 +764,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  width: 100%;          /* the .turn wrapper doesn't flex-stretch its child */
   padding: 0.4375rem 0.625rem;
   border: 0;
   border-radius: var(--hb-radius-sm);

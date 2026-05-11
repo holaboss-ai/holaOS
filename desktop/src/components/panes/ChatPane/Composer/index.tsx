@@ -13,7 +13,6 @@ import {
 } from "react";
 import {
   ArrowLeft,
-  ArrowRight,
   ArrowUp,
   Check,
   ChevronRight,
@@ -967,45 +966,21 @@ export function Composer({
           }`}
         >
           {showModelSelector ? (
-            <div
-              className={
-                compactComposerControls
-                  ? "min-w-0 shrink-0"
-                  : noAvailableModels
-                    ? "min-w-0 flex flex-1 basis-full flex-wrap items-center gap-2"
-                    : "min-w-0 shrink-0"
-              }
-            >
+            <div className="min-w-0 shrink-0">
               {noAvailableModels ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="lg"
-                    onClick={onOpenModelProviders}
-                    className={`shrink-0 justify-between rounded-lg bg-card text-xs font-semibold hover:border-primary hover:bg-card ${
-                      compactComposerControls ? "px-2.5" : ""
-                    }`}
-                    aria-label="Configure model providers"
-                  >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <Waypoints className="size-3.5 shrink-0 text-muted-foreground" />
-                      <span className="truncate">
-                        {compactComposerControls
-                          ? "Providers"
-                          : "Set up providers"}
-                      </span>
-                    </span>
-                    <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
-                  </Button>
-                  <div
-                    className={`min-w-0 text-[10px] leading-5 text-muted-foreground ${
-                      compactComposerControls ? "hidden" : ""
-                    }`}
-                  >
-                    Open provider settings to connect a model.
-                  </div>
-                </>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={onOpenModelProviders}
+                  className="shrink-0 gap-1.5 rounded-md text-xs font-medium hover:border-primary"
+                  aria-label="Configure model providers"
+                >
+                  <Waypoints className="size-3.5 text-muted-foreground" />
+                  <span className="truncate">
+                    {compactComposerControls ? "Providers" : "Set up providers"}
+                  </span>
+                </Button>
               ) : (
                 <ModelCombobox
                   selectedModel={selectedModel}

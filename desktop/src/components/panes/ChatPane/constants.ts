@@ -32,6 +32,12 @@ export const CHAT_AUTO_SCROLL_THRESHOLD_PX = 72;
 // re-trigger threshold.
 export const CHAT_HISTORY_PAGE_SIZE = 50;
 export const CHAT_HISTORY_TOP_LOAD_THRESHOLD_PX = 96;
+// Sub-agent / inspection sessions tend to load in <16ms (small history,
+// local SQLite). Without a floor the skeleton paints for less than a frame
+// and the user perceives the message-mount animations as "replaying" the
+// whole turn list. Hold the skeleton long enough that those enter
+// animations resolve behind it.
+export const SKELETON_MIN_DISPLAY_MS = 250;
 export const COMPOSER_FOOTER_GAP_PX = 8;
 export const COMPOSER_FULL_MODEL_CONTROL_WIDTH_PX = 240;
 export const COMPOSER_FULL_THINKING_CONTROL_WIDTH_PX = 88;

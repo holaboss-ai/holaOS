@@ -133,30 +133,22 @@ function summarizeInlineBackgroundTasks(tasks: BackgroundTaskRecordPayload[]) {
     (task) => task.status.trim().toLowerCase() === "waiting_on_user",
   ).length;
   if (waitingCount > 0) {
-    return waitingCount === 1
-      ? "1 background task waiting on you"
-      : `${waitingCount} background tasks waiting on you`;
+    return `${waitingCount} waiting`;
   }
   const activeCount = tasks.filter((task) => {
     const status = task.status.trim().toLowerCase();
     return status === "queued" || status === "running";
   }).length;
   if (activeCount > 0) {
-    return activeCount === 1
-      ? "1 background task in progress"
-      : `${activeCount} background tasks in progress`;
+    return `${activeCount} running`;
   }
   const failedCount = tasks.filter(
     (task) => task.status.trim().toLowerCase() === "failed",
   ).length;
   if (failedCount > 0) {
-    return failedCount === 1
-      ? "1 background task failed"
-      : `${failedCount} background tasks failed`;
+    return `${failedCount} failed`;
   }
-  return tasks.length === 1
-    ? "1 recent background task"
-    : `${tasks.length} recent background tasks`;
+  return `${tasks.length} recent`;
 }
 
 function inlineBackgroundIndicator(tasks: BackgroundTaskRecordPayload[]) {
@@ -296,48 +288,39 @@ export function BackgroundTasksPane({
     }
 
     const indicator = inlineBackgroundIndicator(sortedTasks);
-    const focusTask = sortedTasks[0] ?? null;
     const summaryLabel = summarizeInlineBackgroundTasks(sortedTasks);
-    const detailLabel = focusTask ? backgroundTaskDetail(focusTask) : "";
 
     return (
-      <div className="shrink-0 px-4 pt-3 sm:px-5">
-        <div className="overflow-hidden rounded-lg border border-border bg-background/80 shadow-xs backdrop-blur-xl">
-          <button
-            type="button"
-            onClick={() => setInlineExpanded((value) => !value)}
-            aria-expanded={inlineExpanded}
-            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition hover:bg-muted/60"
+      <div
+        className={`overflow-hidden rounded-2xl border border-border bg-card shadow-sm ${
+          inlineExpanded ? "w-80" : "w-auto"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setInlineExpanded((value) => !value)}
+          aria-expanded={inlineExpanded}
+          className="flex w-full items-center gap-1.5 px-2.5 py-1 text-left transition-colors hover:bg-fg-2"
+        >
+          <span
+            className={`inline-flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-3 ${indicator.className}`}
           >
-            <span
-              className={`inline-flex size-4 shrink-0 items-center justify-center ${indicator.className}`}
-            >
-              {isLoading && tasks.length === 0 ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                indicator.icon
-              )}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-xs font-medium text-foreground">
-                {summaryLabel}
-              </div>
-              {detailLabel ? (
-                <div className="truncate text-[11px] text-muted-foreground">
-                  {detailLabel}
-                </div>
-              ) : null}
-            </div>
-            <div className="shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground">
-              {sortedTasks.length}
-            </div>
-            <ChevronDown
-              className={`size-3.5 shrink-0 text-muted-foreground transition ${inlineExpanded ? "rotate-0" : "-rotate-90"}`}
-            />
-          </button>
+            {isLoading && tasks.length === 0 ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : (
+              indicator.icon
+            )}
+          </span>
+          <span className="text-[11px] font-medium tabular-nums text-foreground">
+            {summaryLabel}
+          </span>
+          <ChevronDown
+            className={`size-3 shrink-0 text-muted-foreground transition ${inlineExpanded ? "rotate-0" : "-rotate-90"}`}
+          />
+        </button>
 
           {inlineExpanded ? (
-            <div className="max-h-[320px] overflow-y-auto border-t border-border px-3 py-3">
+            <div className="max-h-[320px] overflow-y-auto border-t border-border px-3 py-3 animate-in fade-in-0 slide-in-from-top-1 duration-150">
               {errorMessage ? (
                 <div className="flex items-center gap-2 rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
                   <AlertTriangle size={14} />
@@ -404,7 +387,6 @@ export function BackgroundTasksPane({
               </div>
             </div>
           ) : null}
-        </div>
       </div>
     );
   }

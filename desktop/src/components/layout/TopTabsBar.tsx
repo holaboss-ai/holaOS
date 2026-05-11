@@ -4,6 +4,7 @@ import {
   Copy,
   FolderKanban,
   Home,
+  LayoutGrid,
   Loader2,
   Minus,
   Plus,
@@ -30,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/components/ui/status-dot";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
+import { WorkspaceIconPicker } from "@/components/ui/workspace-icon-picker";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -124,6 +126,7 @@ export function TopTabsBar({
     deletingWorkspaceId,
     workspaceErrorMessage,
     deleteWorkspace,
+    updateWorkspaceAppearance,
   } = useWorkspaceDesktop();
 
   const onDeleteWorkspace = async (workspace: WorkspaceRecordPayload) => {
@@ -321,14 +324,14 @@ export function TopTabsBar({
                   <Button
                     variant="bordered"
                     size="icon-sm"
-                    aria-label="Show all workspaces"
+                    aria-label="Open control center"
                     onClick={() => onOpenControlCenter?.()}
                   >
-                    <Home />
+                    <LayoutGrid />
                   </Button>
                 }
               />
-              <TooltipContent side="bottom">Show all workspaces</TooltipContent>
+              <TooltipContent side="bottom">Control center</TooltipContent>
             </Tooltip>
           ) : (
             <Tooltip>
@@ -534,6 +537,17 @@ export function TopTabsBar({
                             isDeleting && "opacity-50",
                           )}
                         >
+                          <WorkspaceIconPicker
+                            workspace={workspace}
+                            size="md"
+                            disabled={isDeleting}
+                            onChange={({ icon, iconColor }) => {
+                              void updateWorkspaceAppearance(workspace.id, {
+                                icon,
+                                iconColor,
+                              });
+                            }}
+                          />
                           <button
                             type="button"
                             disabled={isDeleting}
@@ -543,7 +557,6 @@ export function TopTabsBar({
                             }}
                             className="flex min-w-0 flex-1 items-center gap-2 px-1 text-left text-sm font-medium disabled:cursor-not-allowed"
                           >
-                            <WorkspaceIcon workspace={workspace} size="md" />
                             <span className="truncate">{workspace.name}</span>
                             {folderMissing ? (
                               <StatusDot

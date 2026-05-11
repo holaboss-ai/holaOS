@@ -9367,6 +9367,14 @@ async function retryAfterSessionAuth(
   if (unauthorizedResponse.status !== 401 || !desktopAuthClient) {
     return unauthorizedResponse;
   }
+  // Don't auto-launch sign-in when the user has explicitly signed out (no
+  // cookie). The retry is for *expired* sessions; for an intentional
+  // sign-out, 401 is the expected result and pulling the user to the login
+  // page surprises them ("clicked Settings, browser opened to sign-in").
+  // The caller will surface the 401 as a normal "not authenticated" error.
+  if (!authCookieHeader()) {
+    return unauthorizedResponse;
+  }
   try {
     if (!pendingGatewayAuthRetry) {
       const authComplete = waitForAuthCallback();
@@ -22281,6 +22289,25 @@ app.whenReady().then(async () => {
     ["main"],
     async (_event, workspaceId: string, keepFiles?: boolean) =>
       localWorkspaceControlPlane.deleteWorkspace(workspaceId, keepFiles),
+  );
+  handleTrustedIpc(
+    "workspace:updateAppearance",
+    ["main"],
+    async (
+      _event,
+      workspaceId: string,
+      payload: { icon: string | null; iconColor: string | null },
+    ) => {
+      const safeId = String(workspaceId ?? "").trim();
+      if (!safeId) {
+        throw new Error("workspaceId is required");
+      }
+      const response = await runtimeClient.workspaces.update(safeId, {
+        icon: payload?.icon ?? null,
+        icon_color: payload?.iconColor ?? null,
+      });
+      return response;
+    },
   );
   handleTrustedIpc(
     "workspace:listCronjobs",

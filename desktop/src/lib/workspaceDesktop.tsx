@@ -175,6 +175,10 @@ interface WorkspaceDesktopContextValue {
   chooseTemplateFolder: () => Promise<void>;
   createWorkspace: () => Promise<void>;
   deleteWorkspace: (workspaceId: string) => Promise<void>;
+  updateWorkspaceAppearance: (
+    workspaceId: string,
+    payload: { icon: string | null; iconColor: string | null },
+  ) => Promise<void>;
   removeInstalledApp: (appId: string) => Promise<void>;
   selectedApps: Set<string>;
   setSelectedApps: (value: Set<string> | ((prev: Set<string>) => Set<string>)) => void;
@@ -873,6 +877,48 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     }
   }
 
+  async function updateWorkspaceAppearance(
+    workspaceId: string,
+    payload: { icon: string | null; iconColor: string | null },
+  ) {
+    const trimmedWorkspaceId = workspaceId.trim();
+    if (!trimmedWorkspaceId) {
+      throw new Error("workspaceId is required");
+    }
+    const optimistic = {
+      icon: payload.icon,
+      icon_color: payload.iconColor,
+    };
+    setWorkspaces((current) =>
+      current.map((workspace) =>
+        workspace.id === trimmedWorkspaceId
+          ? { ...workspace, ...optimistic }
+          : workspace,
+      ),
+    );
+    try {
+      const response = await window.electronAPI.workspace.updateAppearance(
+        trimmedWorkspaceId,
+        payload,
+      );
+      const updated = response?.workspace;
+      if (updated) {
+        setWorkspaces((current) =>
+          current.map((workspace) =>
+            workspace.id === trimmedWorkspaceId ? updated : workspace,
+          ),
+        );
+      }
+    } catch (error) {
+      // Revert by re-fetching the authoritative list. Surface the error
+      // through the standard channel so the caller / surrounding chrome
+      // can render it.
+      await loadWorkspaceData({ preserveSelection: true, allowEmpty: true });
+      setWorkspaceErrorMessage(normalizeErrorMessage(error));
+      throw error;
+    }
+  }
+
   async function removeInstalledApp(appId: string) {
     if (!selectedWorkspaceId) {
       return;
@@ -1195,6 +1241,16 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
   useEffect(() => {
     let cancelled = false;
     async function loadMarketplaceTemplates() {
+      // Skip the fetch when there's no usable session — the BFF will 401
+      // anyway, and a 401 elsewhere in the stack can trigger an unwanted
+      // auto sign-in browser popup. Just clear local state.
+      if (!canUseMarketplaceTemplates) {
+        setMarketplaceTemplates([]);
+        setSelectedMarketplaceTemplateName("");
+        setMarketplaceTemplatesError("");
+        setIsLoadingMarketplaceTemplates(false);
+        return;
+      }
       setIsLoadingMarketplaceTemplates(true);
       setMarketplaceTemplatesError("");
       try {
@@ -1617,6 +1673,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       chooseTemplateFolder,
       createWorkspace,
       deleteWorkspace,
+      updateWorkspaceAppearance,
       removeInstalledApp,
       selectedApps,
       setSelectedApps,
@@ -1687,6 +1744,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       activateWorkspace,
       createWorkspace,
       deleteWorkspace,
+      updateWorkspaceAppearance,
       removeInstalledApp,
       selectedApps,
       pendingIntegrations,

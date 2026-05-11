@@ -555,6 +555,70 @@ test("relayTsRunnerEvent clears persisted harness session ids after run_failed",
   );
 });
 
+test("relayTsRunnerEvent skips harness-session-state writes for ephemeral harness runs", async () => {
+  const workspaceDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "hb-ts-runner-relay-ephemeral-"),
+  );
+
+  await relayTsRunnerEvent({
+    harness: "pi",
+    workspaceDir,
+    persistHarnessSessionState: false,
+    event: {
+      session_id: "session-1",
+      input_id: "input-1",
+      sequence: 4,
+      event_type: "run_completed",
+      timestamp: new Date().toISOString(),
+      payload: {
+        status: "success",
+        harness_session_id: "snapshot-session",
+      },
+    },
+    emitEvent: async () => {},
+  });
+
+  assert.equal(
+    readWorkspaceHarnessSessionId({ workspaceDir, harness: "pi" }),
+    null,
+  );
+});
+
+test("relayTsRunnerEvent skips harness-session-state clears for ephemeral harness runs", async () => {
+  const workspaceDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "hb-ts-runner-relay-ephemeral-failed-"),
+  );
+  persistWorkspaceHarnessSessionId({
+    workspaceDir,
+    harness: "pi",
+    sessionId: "live-session",
+  });
+
+  await relayTsRunnerEvent({
+    harness: "pi",
+    workspaceDir,
+    persistHarnessSessionState: false,
+    event: {
+      session_id: "session-1",
+      input_id: "input-1",
+      sequence: 4,
+      event_type: "run_failed",
+      timestamp: new Date().toISOString(),
+      payload: {
+        type: "OpenCodeSessionError",
+        message: "boom",
+        harness_session_id: "snapshot-session",
+      },
+    },
+    emitEvent: async () => {},
+  });
+
+  assert.equal(
+    readWorkspaceHarnessSessionId({ workspaceDir, harness: "pi" }),
+    "live-session",
+  );
+});
+
 test("runTsRunnerCli relays harness-host events after run_claimed", async () => {
   const sandboxRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "hb-ts-runner-success-"),

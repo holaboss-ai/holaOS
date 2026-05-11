@@ -86,6 +86,7 @@ const CONTROL_CENTER_CARDS_PER_ROW_STORAGE_KEY =
   "holaboss-control-center-cards-per-row-v1";
 const CONTROL_CENTER_WORKSPACE_CARD_ORDER_STORAGE_KEY =
   "holaboss-control-center-workspace-card-order-v1";
+const LAST_SHELL_VIEW_STORAGE_KEY = "holaboss-last-shell-view-v1";
 const THEMES = [
   "holaos-dark",
   "holaos-light",
@@ -874,6 +875,25 @@ function loadControlCenterCardsPerRow(): ControlCenterCardsPerRow {
   return 3;
 }
 
+/**
+ * Restore the user's last "landing view" — either control center or
+ * a specific workspace ("space"). The workspace itself is already
+ * persisted by useWorkspaceSelection, so we only need to remember
+ * which surface they were last in. New users (no saved value) get
+ * "space" so onboarding lands directly in their first workspace.
+ */
+function loadLastShellView(): ShellView {
+  try {
+    const raw = localStorage.getItem(LAST_SHELL_VIEW_STORAGE_KEY);
+    if (raw === "control_center" || raw === "space") {
+      return raw;
+    }
+  } catch {
+    // ignore invalid persisted shell-view state
+  }
+  return "space";
+}
+
 function loadControlCenterWorkspaceCardOrder(): string[] {
   try {
     const raw = localStorage.getItem(
@@ -1455,7 +1475,19 @@ function AppShellContent() {
     setCreateWorkspacePanelAnchorWorkspaceId,
   ] = useState("");
   const [activeShellView, setActiveShellView] =
-    useState<ShellView>("space");
+    useState<ShellView>(() => loadLastShellView());
+  // Persist the landing view so the next launch restores wherever the
+  // user last was — control center if they were surveying the fleet,
+  // or "space" (in-workspace) which combines with useWorkspaceSelection's
+  // own persistence to drop them back into the exact workspace they
+  // were using.
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAST_SHELL_VIEW_STORAGE_KEY, activeShellView);
+    } catch {
+      // ignore quota / private-mode failures
+    }
+  }, [activeShellView]);
   const [agentView, setAgentView] = useState<AgentView>({ type: "chat" });
   const [chatFocusRequestKey, setChatFocusRequestKey] = useState(1);
   const [chatSessionJumpRequest, setChatSessionJumpRequest] = useState<{
@@ -1603,6 +1635,9 @@ function AppShellContent() {
     {},
   );
   const startupWorkspaceSelectionHandledRef = useRef(false);
+  const seenWorkspaceIdsRef = useRef<Set<string>>(new Set());
+  const newlyCreatedWorkspaceIdsRef = useRef<Set<string>>(new Set());
+  const workspaceListInitializedRef = useRef(false);
   const lastRestorableSpaceFileDisplayViewByWorkspaceRef = useRef<
     Record<string, RestorableSpaceFileDisplayView>
   >({});
@@ -3692,6 +3727,40 @@ function AppShellContent() {
     workspaces,
   ]);
 
+  // Flag any workspace IDs that show up *after* the initial hydration as
+  // "freshly created in this session". Hydration itself never marks
+  // anything new — existing workspaces from a prior session land in seen
+  // before initialised flips true, so reload doesn't re-trigger expand.
+  useEffect(() => {
+    if (!hasHydratedWorkspaceList) {
+      return;
+    }
+    for (const workspace of workspaces) {
+      if (
+        workspaceListInitializedRef.current &&
+        !seenWorkspaceIdsRef.current.has(workspace.id)
+      ) {
+        newlyCreatedWorkspaceIdsRef.current.add(workspace.id);
+      }
+      seenWorkspaceIdsRef.current.add(workspace.id);
+    }
+    workspaceListInitializedRef.current = true;
+  }, [workspaces, hasHydratedWorkspaceList]);
+
+  // First time selectedWorkspaceId points at a freshly-created workspace,
+  // expand the explorer panel so the user lands on a fully-revealed
+  // surface. Consumed once — subsequent visits respect persisted state.
+  useEffect(() => {
+    const workspaceId = selectedWorkspaceId?.trim();
+    if (!workspaceId) {
+      return;
+    }
+    if (newlyCreatedWorkspaceIdsRef.current.has(workspaceId)) {
+      newlyCreatedWorkspaceIdsRef.current.delete(workspaceId);
+      setSpaceWorkspacePanelCollapsed(false);
+    }
+  }, [selectedWorkspaceId]);
+
   const handleChatComposerDraftTextChange = useCallback(
     (text: string) => {
       const workspaceId = selectedWorkspaceId?.trim() || "";
@@ -4750,7 +4819,7 @@ function AppShellContent() {
     deleteWorkspace,
   ]);
 
-  const spaceDisplayLayoutSyncKey = `${spaceExplorerMode}:${spaceBrowserSpace}:${filesPaneWidth}:${spaceAgentPaneWidth}`;
+  const spaceDisplayLayoutSyncKey = `${spaceExplorerMode}:${spaceBrowserSpace}:${filesPaneWidth}:${spaceAgentPaneWidth}:${spaceBrowserFullscreen ? "fs" : "split"}`;
   const spaceDisplayContent = useMemo(() => {
     if (!hasSelectedWorkspace) {
       return <EmptyWorkspacePane />;
@@ -5283,12 +5352,12 @@ function AppShellContent() {
                     <section
                       id="space-workspace-panel"
                       className={`flex min-h-0 min-w-0 ${
-                        effectiveSpaceWorkspacePanelCollapsed
-                          ? "mr-1.5 shrink-0"
-                          : "flex-1"
-                      } overflow-hidden rounded-xl border border-border bg-card shadow-md ${
-                        spaceBrowserFullscreen ? "" : "backdrop-blur-sm"
-                      } transition-[margin] duration-200 ease-out`}
+                        spaceBrowserFullscreen
+                          ? "flex-1"
+                          : effectiveSpaceWorkspacePanelCollapsed
+                            ? "mr-1.5 shrink-0"
+                            : "flex-1"
+                      } overflow-hidden rounded-xl border border-border bg-card shadow-md backdrop-blur-sm transition-[margin] duration-200 ease-out`}
                     >
                       <div
                         className="shrink-0 overflow-hidden border-r border-border bg-card"
@@ -5507,18 +5576,16 @@ function AppShellContent() {
                       </div>
 
                       <div
-                        className={
+                        className={`min-h-0 min-w-0 overflow-hidden transition-all duration-200 ease-out ${
                           spaceBrowserFullscreen
-                            ? "fixed inset-0 z-40 overflow-hidden bg-background"
-                            : `min-h-0 min-w-0 overflow-hidden transition-all duration-200 ease-out ${
-                                effectiveSpaceWorkspacePanelCollapsed
-                                  ? "w-0 flex-none"
-                                  : "flex-1"
-                              }`
-                        }
+                            ? "flex-1"
+                            : effectiveSpaceWorkspacePanelCollapsed
+                              ? "w-0 flex-none"
+                              : "flex-1"
+                        }`}
                         style={
                           spaceBrowserFullscreen
-                            ? undefined
+                            ? { minWidth: 0 }
                             : effectiveSpaceWorkspacePanelCollapsed
                               ? { minWidth: 0 }
                               : { minWidth: `${SPACE_DISPLAY_MIN_WIDTH}px` }
@@ -5528,7 +5595,8 @@ function AppShellContent() {
                       </div>
                     </section>
 
-                    {!effectiveSpaceWorkspacePanelCollapsed ? (
+                    {!effectiveSpaceWorkspacePanelCollapsed &&
+                    !spaceBrowserFullscreen ? (
                       <div
                         role="separator"
                         aria-label="Resize display pane"
@@ -5542,18 +5610,23 @@ function AppShellContent() {
 
                     <div
                       className={`min-h-0 rounded-xl transition-all duration-200 ease-out ${
-                        effectiveSpaceWorkspacePanelCollapsed
-                          ? "flex-1"
-                          : "shrink-0"
+                        spaceBrowserFullscreen
+                          ? "w-0 shrink-0 overflow-hidden"
+                          : effectiveSpaceWorkspacePanelCollapsed
+                            ? "flex-1"
+                            : "shrink-0"
                       }`}
                       style={
-                        effectiveSpaceWorkspacePanelCollapsed
-                          ? { minWidth: `${MIN_AGENT_CONTENT_WIDTH}px` }
-                          : {
-                              width: `${spaceAgentPaneWidth}px`,
-                              minWidth: `${MIN_AGENT_CONTENT_WIDTH}px`,
-                            }
+                        spaceBrowserFullscreen
+                          ? { width: 0, minWidth: 0 }
+                          : effectiveSpaceWorkspacePanelCollapsed
+                            ? { minWidth: `${MIN_AGENT_CONTENT_WIDTH}px` }
+                            : {
+                                width: `${spaceAgentPaneWidth}px`,
+                                minWidth: `${MIN_AGENT_CONTENT_WIDTH}px`,
+                              }
                       }
+                      aria-hidden={spaceBrowserFullscreen}
                     >
                       {agentContent}
                     </div>

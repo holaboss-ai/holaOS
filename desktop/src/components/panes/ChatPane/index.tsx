@@ -155,6 +155,7 @@ import {
   CHAT_AUTO_SCROLL_THRESHOLD_PX,
   CHAT_HISTORY_PAGE_SIZE,
   CHAT_HISTORY_TOP_LOAD_THRESHOLD_PX,
+  SKELETON_MIN_DISPLAY_MS,
   COMPOSER_FOOTER_GAP_PX,
   COMPOSER_FULL_MODEL_CONTROL_WIDTH_PX,
   COMPOSER_FULL_THINKING_CONTROL_WIDTH_PX,
@@ -2781,6 +2782,9 @@ export function ChatPane({
   const liveAssistantFlushFrameRef = useRef<number | null>(null);
   const liveExecutionItemsRef = useRef<ChatExecutionTimelineItem[]>([]);
   const historyViewportGenerationRef = useRef(0);
+  const skeletonMinDisplayTimeoutRef = useRef<number | null>(null);
+  const skeletonStartedAtRef = useRef(0);
+  const skeletonGenerationRef = useRef(0);
   const [activeSessionId, setActiveSessionId] = useState("");
   const effectiveSessionOpenRequest =
     sessionOpenRequest ?? localSessionOpenRequest;
@@ -3007,6 +3011,36 @@ export function ChatPane({
   function cancelHistoryViewportRestore() {
     historyViewportGenerationRef.current += 1;
     setIsHistoryViewportPending(false);
+  }
+
+  function beginHistoryLoadSkeleton(): number {
+    if (skeletonMinDisplayTimeoutRef.current !== null) {
+      clearTimeout(skeletonMinDisplayTimeoutRef.current);
+      skeletonMinDisplayTimeoutRef.current = null;
+    }
+    skeletonGenerationRef.current += 1;
+    const generation = skeletonGenerationRef.current;
+    skeletonStartedAtRef.current = performance.now();
+    setIsLoadingHistory(true);
+    return generation;
+  }
+
+  function endHistoryLoadSkeleton(generation: number) {
+    if (generation !== skeletonGenerationRef.current) {
+      return;
+    }
+    const elapsed = performance.now() - skeletonStartedAtRef.current;
+    const remaining = SKELETON_MIN_DISPLAY_MS - elapsed;
+    if (remaining <= 0) {
+      setIsLoadingHistory(false);
+      return;
+    }
+    skeletonMinDisplayTimeoutRef.current = window.setTimeout(() => {
+      skeletonMinDisplayTimeoutRef.current = null;
+      if (generation === skeletonGenerationRef.current) {
+        setIsLoadingHistory(false);
+      }
+    }, remaining);
   }
 
   function setIsLoadingOlderHistoryState(nextValue: boolean) {
@@ -3983,6 +4017,16 @@ export function ChatPane({
     setLiveExecutionItemsState(next);
   }
 
+  useEffect(
+    () => () => {
+      if (skeletonMinDisplayTimeoutRef.current !== null) {
+        clearTimeout(skeletonMinDisplayTimeoutRef.current);
+        skeletonMinDisplayTimeoutRef.current = null;
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     const container = messagesRef.current;
     if (
@@ -4350,7 +4394,7 @@ export function ChatPane({
     async function loadHistory() {
       let historyLoaded = false;
       beginHistoryViewportRestore();
-      setIsLoadingHistory(true);
+      const skeletonGeneration = beginHistoryLoadSkeleton();
       setChatErrorMessage("");
 
       try {
@@ -4412,7 +4456,7 @@ export function ChatPane({
           if (!historyLoaded) {
             cancelHistoryViewportRestore();
           }
-          setIsLoadingHistory(false);
+          endHistoryLoadSkeleton(skeletonGeneration);
         }
       }
     }
@@ -4460,7 +4504,7 @@ export function ChatPane({
 
       let historyLoaded = false;
       beginHistoryViewportRestore();
-      setIsLoadingHistory(true);
+      const skeletonGeneration = beginHistoryLoadSkeleton();
       setChatErrorMessage("");
       pendingInputIdRef.current = null;
       activeAssistantMessageIdRef.current = null;
@@ -4531,7 +4575,7 @@ export function ChatPane({
           if (!historyLoaded) {
             cancelHistoryViewportRestore();
           }
-          setIsLoadingHistory(false);
+          endHistoryLoadSkeleton(skeletonGeneration);
           consumeSessionOpenRequest(requestKey);
         }
       }
@@ -7251,7 +7295,7 @@ export function ChatPane({
 
         <div className="relative flex min-h-0 flex-1 flex-col">
           {!isOnboardingVariant && !isReadOnlyInspectionSession ? (
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
+            <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-4">
               <div className="pointer-events-auto">
                 <BackgroundTasksPane
                   workspaceId={selectedWorkspaceId}
@@ -7291,7 +7335,7 @@ export function ChatPane({
                   void loadOlderSessionHistory();
                 }
               }}
-              className={`chat-scrollbar-thin h-full min-h-0 overflow-x-hidden overflow-y-auto ${hasMessages ? "" : "flex items-center justify-center"}`}
+              className="chat-scrollbar-thin h-full min-h-0 overflow-x-hidden overflow-y-auto"
             >
               {hasMessages ? (
                 <div
@@ -7373,7 +7417,7 @@ export function ChatPane({
                 </div>
               ) : (
                 <div
-                  className={`w-full px-4 pb-10 pt-10 sm:px-5 ${
+                  className={`mx-auto flex min-h-full w-full ${CHAT_LAYOUT.contentMaxWidth} flex-col justify-center px-4 pb-10 pt-10 sm:px-5 ${
                     showHistoryRestoreScreen ? "invisible" : ""
                   }`}
                 >

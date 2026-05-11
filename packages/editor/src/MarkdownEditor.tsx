@@ -116,7 +116,7 @@ export const MarkdownEditor = forwardRef<
         // Disable StarterKit's plain code block — we replace it with the
         // lowlight-powered version below for syntax highlighting.
         codeBlock: false,
-        heading: { levels: [1, 2, 3] },
+        heading: { levels: [1, 2, 3, 4, 5, 6] },
         link: {
           openOnClick: false,
           autolink: true,
@@ -133,16 +133,10 @@ export const MarkdownEditor = forwardRef<
         HTMLAttributes: { class: "hb-md-code" },
       }),
       Placeholder.configure({
-        placeholder: ({ editor, node }) => {
-          // Show a "press / for commands" hint on empty paragraphs to teach
-          // the slash menu without needing a separate onboarding step.
-          if (node.type.name === "paragraph" && editor.isFocused) {
-            return "Press / for commands…";
-          }
-          return placeholder ?? "Start writing…";
-        },
-        showOnlyCurrent: true,
-        emptyEditorClass: "hb-md-empty",
+        placeholder: ({ node }) =>
+          node.type.name === "paragraph"
+            ? (placeholder ?? "Press / for commands…")
+            : "",
       }),
       TaskList,
       TaskItem.configure({ nested: true }),
