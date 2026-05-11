@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import fs from "node:fs";
 
 import * as Sentry from "@sentry/node";
 
@@ -15,6 +16,15 @@ type HarnessHostCliDeps = {
 };
 
 export function readRequestBase64(args: string[]) {
+  // Support --request-base64-file <path> to avoid Windows command-line length limits
+  const fileFlag = args.findIndex((arg) => arg === "--request-base64-file");
+  if (fileFlag !== -1) {
+    const filePath = args[fileFlag + 1];
+    if (!filePath) {
+      throw new Error("missing value for --request-base64-file");
+    }
+    return fs.readFileSync(filePath, "utf8").trim();
+  }
   const flagIndex = args.findIndex((arg) => arg === "--request-base64");
   if (flagIndex === -1) {
     throw new Error("missing required argument --request-base64");

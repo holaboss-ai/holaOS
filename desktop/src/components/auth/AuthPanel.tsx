@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import anthropicLogoMarkup from "@/assets/providers/anthropic.svg?raw";
 import geminiLogoMarkup from "@/assets/providers/gemini.svg?raw";
 import minimaxLogoMarkup from "@/assets/providers/minimax.svg?raw";
+import lmstudioLogoMarkup from "@/assets/providers/lmstudio.svg?raw";
 import ollamaLogoMarkup from "@/assets/providers/ollama.svg?raw";
 import openaiLogoMarkup from "@/assets/providers/openai.svg?raw";
 import openrouterLogoMarkup from "@/assets/providers/openrouter.svg?raw";
@@ -71,8 +72,15 @@ const KNOWN_PROVIDER_ORDER = [
   "openrouter_direct",
   "gemini_direct",
   "ollama_direct",
+  "lmstudio_direct",
   "minimax_direct",
 ] as const;
+
+// Local inference providers whose API keys are not validated by the server
+const LOCAL_PROVIDER_IDS: ReadonlySet<KnownProviderId> = new Set([
+  "ollama_direct",
+  "lmstudio_direct",
+]);
 const SUBAGENT_MODEL_FOLLOW_COMPOSER = "__subagent_follow_composer__";
 type KnownProviderId = (typeof KNOWN_PROVIDER_ORDER)[number];
 const LEGACY_DIRECT_PROVIDER_MODEL_ALIASES: Record<
@@ -160,6 +168,7 @@ const RECALL_EMBEDDING_PROVIDER_IDS = [
   "openrouter_direct",
   "gemini_direct",
   "ollama_direct",
+  "lmstudio_direct",
   "minimax_direct",
 ] as const;
 
@@ -335,6 +344,19 @@ const KNOWN_PROVIDER_TEMPLATES: Record<KnownProviderId, KnownProviderTemplate> =
       imageModelSuggestions: [],
       apiKeyPlaceholder: "sk-your-minimax-api-key",
     },
+    lmstudio_direct: {
+      id: "lmstudio_direct",
+      label: "LM Studio",
+      description:
+        "Local LM Studio OpenAI-compatible endpoint. No API key required.",
+      kind: "openai_compatible",
+      defaultBaseUrl: "http://localhost:1234/v1",
+      defaultModels: ["qwen/qwen3.6-27b"],
+      defaultBackgroundModel: null,
+      defaultImageModel: null,
+      imageModelSuggestions: [],
+      apiKeyPlaceholder: "Optional — defaults to 'lmstudio' if left empty.",
+    },
   };
 
 const RECALL_EMBEDDING_MODEL_DEFAULTS: Record<
@@ -346,6 +368,7 @@ const RECALL_EMBEDDING_MODEL_DEFAULTS: Record<
   openrouter_direct: "openai/text-embedding-3-small",
   gemini_direct: null,
   ollama_direct: null,
+  lmstudio_direct: "text-embedding-nomic-embed-text-v1.5",
   minimax_direct: null,
 };
 
@@ -361,6 +384,10 @@ const RECALL_EMBEDDING_MODEL_SUGGESTIONS: Record<
   ],
   gemini_direct: [],
   ollama_direct: [],
+  lmstudio_direct: [
+    "text-embedding-nomic-embed-text-v1.5",
+    "text-embedding-nomic-embed-text-v1.5@q4_k_m",
+  ],
   minimax_direct: [],
 };
 
@@ -478,6 +505,13 @@ function createDefaultProviderDrafts(): ProviderDraftMap {
       apiKey: "",
       modelsText:
         KNOWN_PROVIDER_TEMPLATES.minimax_direct.defaultModels.join(", "),
+    },
+    lmstudio_direct: {
+      enabled: false,
+      baseUrl: KNOWN_PROVIDER_TEMPLATES.lmstudio_direct.defaultBaseUrl,
+      apiKey: "",
+      modelsText:
+        KNOWN_PROVIDER_TEMPLATES.lmstudio_direct.defaultModels.join(", "),
     },
   };
 }
@@ -715,6 +749,16 @@ function directProviderRequiresManualFields(
   return providerId !== "holaboss" && providerId !== "openai_codex";
 }
 
+function providerApiKeyIsOptional(providerId: KnownProviderId): boolean {
+  return LOCAL_PROVIDER_IDS.has(providerId);
+}
+
+function defaultApiKeyForLocalProvider(providerId: KnownProviderId): string {
+  if (providerId === "ollama_direct") return "ollama";
+  if (providerId === "lmstudio_direct") return "lmstudio";
+  return "";
+}
+
 function providerBrandIconMarkup(providerId: KnownProviderId): string | null {
   if (providerId === "openai_direct" || providerId === "openai_codex") {
     return openaiLogoMarkup;
@@ -730,6 +774,9 @@ function providerBrandIconMarkup(providerId: KnownProviderId): string | null {
   }
   if (providerId === "ollama_direct") {
     return ollamaLogoMarkup;
+  }
+  if (providerId === "lmstudio_direct") {
+    return lmstudioLogoMarkup;
   }
   if (providerId === "minimax_direct") {
     return minimaxLogoMarkup;
@@ -2353,7 +2400,9 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
     if (!draft.baseUrl.trim()) {
       return `${label} requires a base URL before it can be connected.`;
     }
-    if (!draft.apiKey.trim()) {
+    // Local providers (Ollama, LM Studio) don't enforce an API key — they use a
+    // default placeholder value on save instead.
+    if (!draft.apiKey.trim() && !providerApiKeyIsOptional(providerId)) {
       return `${label} requires an API key before it can be connected.`;
     }
     return "";
@@ -2474,6 +2523,11 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
             existingProviderPayload.auth_token as string | undefined,
             existingProviderOptions.api_key as string | undefined,
             existingProviderOptions.apiKey as string | undefined,
+            // For local providers (Ollama, LM Studio) fill a placeholder so the
+            // runtime's api_key check doesn't reject an otherwise valid setup.
+            providerApiKeyIsOptional(providerId)
+              ? defaultApiKeyForLocalProvider(providerId)
+              : "",
           );
           if (normalizedBaseUrl) {
             providerPayload.base_url = normalizedBaseUrl;

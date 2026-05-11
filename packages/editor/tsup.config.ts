@@ -1,4 +1,5 @@
 import { defineConfig } from "tsup";
+import { cpSync } from "node:fs";
 
 export default defineConfig({
   entry: ["src/index.ts"],
@@ -9,5 +10,7 @@ export default defineConfig({
   external: ["react", "react-dom"],
   loader: { ".css": "copy" },
   publicDir: false,
-  onSuccess: "cp src/styles.css dist/styles.css",
+  onSuccess: async () => {
+    cpSync("src/styles.css", "dist/styles.css");
+  },
 });

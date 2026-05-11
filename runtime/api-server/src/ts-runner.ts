@@ -1680,6 +1680,11 @@ async function defaultRunHarnessHost(params: {
     "utf8",
   ).toString("base64");
 
+  // Write the payload to a temp file to avoid Windows command-line length limits
+  // (ENAMETOOLONG when requestBase64 exceeds ~32k chars).
+  const requestTmpFile = path.join(os.tmpdir(), `holaboss-harness-req-${Date.now()}-${Math.random().toString(36).slice(2)}.b64`);
+  fs.writeFileSync(requestTmpFile, requestBase64, "utf8");
+
   let child;
   const harnessCommand = requireRuntimeHarnessAdapter(
     params.harness,
@@ -1691,8 +1696,8 @@ async function defaultRunHarnessHost(params: {
         ...argsPrefix,
         entryPath,
         harnessCommand,
-        "--request-base64",
-        requestBase64,
+        "--request-base64-file",
+        requestTmpFile,
       ],
       {
         cwd: runtimeRootDir(),
@@ -1701,6 +1706,7 @@ async function defaultRunHarnessHost(params: {
       },
     );
   } catch (error) {
+    try { fs.unlinkSync(requestTmpFile); } catch { /* ignore */ }
     return {
       exitCode: 1,
       stderr: "",
@@ -1710,6 +1716,8 @@ async function defaultRunHarnessHost(params: {
       spawnError: errorMessage(error),
     };
   }
+  // Clean up temp file once the child process exits
+  child.once("close", () => { try { fs.unlinkSync(requestTmpFile); } catch { /* ignore */ } });
 
   let stderr = "";
   child.stderr?.setEncoding("utf8");

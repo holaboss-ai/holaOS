@@ -73,4 +73,16 @@ if ((stageRuntime.status ?? 1) !== 0) {
   process.exit(stageRuntime.status ?? 1);
 }
 
+// Apply post-stage patches (e.g. extend HTTP timeout for local providers)
+const patchScript = path.join(repoRoot, "scripts", "patch-local-provider-timeout.mjs");
+if (existsSync(patchScript)) {
+  const applyPatch = spawnSync(process.execPath, [patchScript], {
+    stdio: "inherit",
+    env: process.env,
+  });
+  if ((applyPatch.status ?? 1) !== 0) {
+    process.exit(applyPatch.status ?? 1);
+  }
+}
+
 console.log(`[prepare-runtime:local] staged local runtime into out/runtime-${runtimePlatform}`);

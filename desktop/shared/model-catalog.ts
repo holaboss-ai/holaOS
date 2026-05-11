@@ -267,6 +267,18 @@ export const PROVIDER_MODEL_CATALOG: ProviderModelCatalog = {
       },
     ],
   },
+  lmstudio_direct: {
+    source: "local",
+    models: [
+      {
+        model_id: "qwen/qwen3.6-27b",
+        label: "Qwen 3.6 27B",
+        reasoning: false,
+        thinking_values: [],
+        input_modalities: ["text"],
+      },
+    ],
+  },
 };
 
 function normalizeProviderId(providerId: string): string {

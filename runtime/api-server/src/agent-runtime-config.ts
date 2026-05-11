@@ -453,10 +453,10 @@ function modelProxyProviderForConfiguredProvider(
 
 function providerRequiresUnscopedModelId(kind: string): boolean {
   const normalizedKind = kind.trim().toLowerCase();
-  return (
-    normalizedKind === PROVIDER_KIND_OPENAI_COMPATIBLE ||
-    normalizedKind === PROVIDER_KIND_ANTHROPIC_NATIVE
-  );
+  // Only Anthropic native requires a bare model ID (e.g. "claude-3-5-sonnet-20241022").
+  // OpenAI-compatible providers can have namespaced model IDs like "qwen/qwen3.6-27b"
+  // (used by LM Studio, Hugging Face, etc.) so we do not enforce the restriction there.
+  return normalizedKind === PROVIDER_KIND_ANTHROPIC_NATIVE;
 }
 
 function assertCanonicalConfiguredModelId(
