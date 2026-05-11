@@ -4394,14 +4394,31 @@ function AppShellContent() {
     const previousWorkspaceId =
       reportedOperatorSurfaceWorkspaceIdRef.current?.trim() || "";
     const nextWorkspaceId = selectedWorkspaceId?.trim() || "";
+    const switchedWorkspaces =
+      previousWorkspaceId.length > 0 &&
+      previousWorkspaceId !== nextWorkspaceId;
 
     async function syncReportedOperatorSurfaceContext() {
       try {
-        if (previousWorkspaceId && previousWorkspaceId !== nextWorkspaceId) {
+        if (switchedWorkspaces) {
+          // Clear the destination workspace first so a just-switched shell
+          // never reports the previous workspace's surface context under the
+          // new workspace id during the transition render.
           await window.electronAPI.workspace.setOperatorSurfaceContext(
             previousWorkspaceId,
             null,
           );
+          if (nextWorkspaceId) {
+            await window.electronAPI.workspace.setOperatorSurfaceContext(
+              nextWorkspaceId,
+              null,
+            );
+          }
+          if (!cancelled) {
+            reportedOperatorSurfaceWorkspaceIdRef.current =
+              nextWorkspaceId || null;
+          }
+          return;
         }
         if (nextWorkspaceId) {
           await window.electronAPI.workspace.setOperatorSurfaceContext(
