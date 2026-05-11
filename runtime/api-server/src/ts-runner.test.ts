@@ -154,7 +154,7 @@ function baseRequest(): TsRunnerRequest {
   return {
     workspace_id: "workspace-1",
     session_id: "session-1",
-    session_kind: "workspace_session",
+    session_kind: "main_session",
     input_id: "input-1",
     instruction: "hello world",
     context: {},
@@ -953,7 +953,7 @@ test("runTsRunnerCli only advertises structured output when the selected harness
   let capturedRequestPayload: Record<string, unknown> | null = null;
   const capabilityManifest = buildAgentCapabilityManifest({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     defaultTools: ["read"],
     extraTools: [],
     workspaceSkillIds: [],
@@ -2586,7 +2586,7 @@ test("runTsRunnerCli loads pending user memory proposals into prompt context for
   store.ensureSession({
     workspaceId: "workspace-1",
     sessionId: "session-1",
-    kind: "main",
+    kind: "main_session",
     title: "Main",
   });
   store.createMemoryUpdateProposal({
@@ -2693,7 +2693,7 @@ test("runTsRunnerCli does not load legacy session history exports into main-sess
         {
           session_id: "session-older",
           title: "Earlier planning chat",
-          kind: "workspace_session",
+          kind: "main_session",
           archived_at: "2026-04-24T06:52:27.419Z",
           message_count: 14,
           output_count: 1,

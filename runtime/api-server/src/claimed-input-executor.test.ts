@@ -275,7 +275,7 @@ function createSubagentRunFixture(params: {
   params.store.ensureSession({
     workspaceId: params.workspaceId,
     sessionId: mainSessionId,
-    kind: "workspace_session",
+    kind: "main_session",
   });
   params.store.ensureSession({
     workspaceId: params.workspaceId,
@@ -804,7 +804,7 @@ test("claimed input creates a completion notification for successful cronjob ses
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
     title: "Main Session",
     createdBy: "workspace_user",
   });
@@ -980,7 +980,7 @@ test("claimed input creates a completion notification for completed main-session
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
     title: "Main Session",
     createdBy: "workspace_user",
   });
@@ -1589,7 +1589,7 @@ test("claimed input delivers materialized main-session event batches without ins
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
   });
   const event = store.enqueueMainSessionEvent({
     workspaceId: workspace.id,
@@ -1690,7 +1690,7 @@ test("claimed input requeues materialized main-session event batches when the re
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
   });
   const event = store.enqueueMainSessionEvent({
     workspaceId: workspace.id,
@@ -1758,7 +1758,7 @@ test("claimed input requeues paused materialized main-session event batches with
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
   });
   const event = store.enqueueMainSessionEvent({
     workspaceId: workspace.id,
@@ -1854,7 +1854,7 @@ test("claimed input runs main-session followups on the bound session snapshot ev
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
   });
   const workspaceDir = store.workspaceDir(workspace.id);
   const { sessionManager, sessionFile: liveSessionFile } = createPiSessionFile({
@@ -2029,7 +2029,7 @@ test("claimed input folds attached background updates into a normal user turn", 
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
   });
   const event = store.enqueueMainSessionEvent({
     workspaceId: workspace.id,

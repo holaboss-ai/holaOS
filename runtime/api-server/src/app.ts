@@ -1279,29 +1279,26 @@ function inferredSessionKind(workspace: WorkspaceRecord, sessionId: string): str
   if (onboardingSessionId && onboardingSessionId === trimmedSessionId && sessionSelectionUsesOnboarding(workspace)) {
     return "onboarding";
   }
-  return "workspace_session";
+  return "main_session";
+}
+
+function normalizedPrimaryChatSessionKind(kind: string | null | undefined): string {
+  const normalized = (kind ?? "").trim().toLowerCase() || "main_session";
+  return normalized === "workspace_session" || normalized === "main"
+    ? "main_session"
+    : normalized;
 }
 
 function isPrimaryChatSessionKind(kind: string | null | undefined): boolean {
-  const normalized = (kind ?? "").trim().toLowerCase();
-  return (
-    !normalized ||
-    normalized === "workspace_session" ||
-    normalized === "main" ||
-    normalized === "onboarding"
-  );
+  const normalized = normalizedPrimaryChatSessionKind(kind);
+  return normalized === "main_session" || normalized === "onboarding";
 }
 
 function canInlineBackgroundUpdatesIntoSessionKind(
   kind: string | null | undefined,
 ): boolean {
-  const normalized = (kind ?? "").trim().toLowerCase();
-  return (
-    !normalized ||
-    normalized === "workspace_session" ||
-    normalized === "main" ||
-    normalized === "onboarding"
-  );
+  const normalized = normalizedPrimaryChatSessionKind(kind);
+  return normalized === "main_session" || normalized === "onboarding";
 }
 
 function groupedMainSessionEventsPayload(
@@ -1325,8 +1322,8 @@ function preferredWorkspaceSessionId(params: {
   const desktopBinding = params.store.getConversationBindingByConversation({
     workspaceId: params.workspace.id,
     channel: "desktop",
-    conversationKey: "workspace-main",
-    role: "main",
+    conversationKey: "main_session",
+    role: "main_session",
   });
   if (desktopBinding) {
     const boundSession = params.store.getSession({
@@ -1401,7 +1398,7 @@ function renderLegacySessionHistoryMarkdown(params: {
     "",
     `- Workspace: ${params.workspace.name.trim() || params.workspace.id}`,
     `- Session ID: ${params.session.sessionId}`,
-    `- Kind: ${(params.session.kind || "workspace_session").trim() || "workspace_session"}`,
+    `- Kind: ${(params.session.kind || "main_session").trim() || "main_session"}`,
     `- Exported At: ${params.exportedAt}`,
     `- Archived At: ${params.archivedAt}`,
   ];
@@ -1606,7 +1603,7 @@ function resolveOrCreateWorkspaceMainSession(params: {
     params.store.ensureSession({
       workspaceId: params.workspace.id,
       sessionId: `main-${randomUUID()}`,
-      kind: "main",
+      kind: "main_session",
       title: params.workspace.name.trim() || "Main Session",
       createdBy: "system",
     });
@@ -1614,9 +1611,9 @@ function resolveOrCreateWorkspaceMainSession(params: {
   params.store.upsertConversationBinding({
     workspaceId: params.workspace.id,
     channel: "desktop",
-    conversationKey: "workspace-main",
+    conversationKey: "main_session",
     sessionId: session.sessionId,
-    role: "main",
+    role: "main_session",
     isActive: true,
     metadata: {},
     lastActiveAt: utcNowIso(),

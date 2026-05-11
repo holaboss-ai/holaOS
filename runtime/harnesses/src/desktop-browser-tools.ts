@@ -36,7 +36,7 @@ export interface DesktopBrowserToolDefinition {
   id: DesktopBrowserToolId;
   description: string;
   policy: "inspect" | "mutate";
-  session_scope: "all_sessions" | "workspace_session_only";
+  session_scope: "all_sessions" | "subagent_only";
   input_schema: Record<string, unknown>;
 }
 
@@ -46,7 +46,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Navigate the desktop browser to a URL for direct inspection or interaction on a specific live site when search results are not enough.",
     policy: "mutate",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -61,7 +61,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Open a URL in a new desktop browser tab so you can inspect or compare specific live pages without losing the current page state.",
     policy: "mutate",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -77,7 +77,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Switch the active desktop browser tab using a tab id from browser_list_tabs so subsequent browser tools operate on the intended tab.",
     policy: "mutate",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -92,7 +92,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Close a desktop browser tab using a tab id from browser_list_tabs and return the updated tab state.",
     policy: "mutate",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -107,7 +107,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Read the current desktop browser page, visible interactive elements, visible media such as images, and optional screenshot artifact. Prefer this as the DOM-first browser inspection tool for actions and structured extraction. By default it returns a compact state snapshot; use detail=standard when you need a broader page inventory, use mode/scope/max_nodes to narrow large pages, set include_page_text=true only when you need the current page text, and set include_screenshot=true when visual appearance, layout, prominence, overlays, canvas/chart/PDF content, or user-visible confirmation matters, or when DOM signals are ambiguous or unreliable. Every state snapshot carries a stable revision. Use since_revision with changed_only=true to avoid paying for a full snapshot when nothing changed. Screenshots are returned as artifact handles when workspace storage is available, not inline base64.",
     policy: "inspect",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -131,7 +131,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Find visible browser elements across the page by text, accessible label, placeholder, role, CSS selector, XPath, or a combination of those signals. Use this when browser_get_state is truncated, when a visible control is missing from the compact snapshot, or before acting on ambiguous page UI. Search is independent of browser_get_state max_nodes and returns stable refs plus bounding boxes for follow-up browser_act calls.",
     policy: "inspect",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -157,7 +157,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Perform a general browser action on a ref returned by browser_find, a CSS/XPath selector, or a locator described by text/label/placeholder/role. Supports click, double_click, hover, focus, fill, type, press, select, check, uncheck, and scroll_into_view. Pointer and text actions use real browser input when available so rich editors can update their internal state. Prefer this over brittle index-based clicks when the target may be outside browser_get_state or represented by nested generic DOM nodes. Use wait_for and post_state to stabilize page-changing actions without a separate browser_wait call.",
     policy: "mutate",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -259,7 +259,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Wait for browser state to settle: page load or load_state, URL match, visible/hidden element, text presence, DOM mutation/change, a JavaScript predicate, or browser download lifecycle changes. Use after navigation, clicks, form submits, menu opens, SPA transitions, and download-triggering actions before inspecting or acting again.",
     policy: "inspect",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -309,7 +309,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Evaluate JavaScript in the active browser page and return the structured result. Use for general inspection or controlled page automation when built-in browser actions are insufficient. Prefer read-only expressions by default; set allow_mutation=true only when intentionally changing page state.",
     policy: "mutate",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -326,7 +326,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Return compact browser diagnostics for clickability and page-state problems: current page, ready state, active element, dialogs, iframes, viewport, scroll, and elementFromPoint hit-test data. Use when an element is visible but not found, clicks do nothing, overlays block interaction, or a page appears stuck.",
     policy: "inspect",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -342,7 +342,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Click an interactive element from browser_get_state by index to follow links, apply filters, reveal hidden data, paginate, or continue a live browser workflow. Use wait_for and post_state to stabilize page-changing clicks without a separate browser_wait call.",
     policy: "mutate",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -425,7 +425,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Open the native browser context menu on an interactive element or visible media item from browser_get_state by index. Use target=`media` for images and other visible media content.",
     policy: "mutate",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -441,7 +441,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Type text into an interactive element from browser_get_state by index to search, filter, fill inputs, or continue a live browser workflow. Use wait_for and post_state when typing triggers page updates or submit flows.",
     policy: "mutate",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -527,7 +527,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Send a keyboard key to the currently focused element to submit forms, confirm dialogs, or continue keyboard-driven browser interaction.",
     policy: "mutate",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -542,7 +542,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Scroll the current page vertically to load, inspect, or reach additional live content that is not yet visible.",
     policy: "mutate",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -557,7 +557,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     id: "browser_back",
     description: "Go back in the active browser tab history while preserving the live browser session state.",
     policy: "mutate",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -568,7 +568,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     id: "browser_forward",
     description: "Go forward in the active browser tab history while preserving the live browser session state.",
     policy: "mutate",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -579,7 +579,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     id: "browser_reload",
     description: "Reload the active browser tab to refresh live page state before re-checking exact details.",
     policy: "mutate",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -591,7 +591,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Capture a screenshot artifact of the active browser tab when visual verification or interpretation is needed. Do not use it by default for routine navigation or straightforward structured extraction when DOM and text state already suffice. Screenshots are returned as artifact handles when workspace storage is available, not inline base64.",
     policy: "inspect",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -605,7 +605,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     id: "browser_list_tabs",
     description: "List open browser tabs and the active tab id so you can manage multi-tab browser workflows.",
     policy: "inspect",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -617,7 +617,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "List recent browser downloads and their status so you can confirm a download completed before using the file in the workspace.",
     policy: "inspect",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -629,7 +629,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Read a compact recent slice of browser console output for the active tab. Use this when a page appears broken, a UI action silently fails, or you need recent warnings/errors without opening a full browser trace.",
     policy: "inspect",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -647,7 +647,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Read recent page, runtime, or network failures for the active browser tab. Use this to quickly distinguish product failures from locator or wait issues.",
     policy: "inspect",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -665,7 +665,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "List a small recent window of browser requests for the active tab, with compact status and timing fields. Use this to identify failed API calls or redirects without capturing a full network trace.",
     policy: "inspect",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -681,7 +681,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Read detailed metadata for one recent browser request from browser_list_requests, including headers, status, timing, and body metadata when available.",
     policy: "inspect",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -696,7 +696,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Read localStorage or sessionStorage entries from the active browser page without taking a full DOM snapshot. Use targeted keys or a prefix to keep the result small.",
     policy: "inspect",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -719,7 +719,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Set or remove a localStorage or sessionStorage entry in the active browser page without using a broad page evaluation.",
     policy: "mutate",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -737,7 +737,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Read cookies for the current browser session, scoped to the active page URL by default. Prefer targeted names or domains to keep the result compact.",
     policy: "inspect",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -760,7 +760,7 @@ export const DESKTOP_BROWSER_TOOL_DEFINITIONS: DesktopBrowserToolDefinition[] = 
     description:
       "Set a cookie in the current browser session. Use this for lightweight auth or session-state repair when a full browser login loop is unnecessary.",
     policy: "mutate",
-    session_scope: "workspace_session_only",
+    session_scope: "subagent_only",
     input_schema: {
       type: "object",
       additionalProperties: false,

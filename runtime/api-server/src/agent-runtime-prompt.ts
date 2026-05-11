@@ -144,17 +144,16 @@ function linesSection(lines: string[]): string {
 }
 
 function normalizeSessionKind(value: string | null | undefined): string {
-  return nonEmptyText(value).toLowerCase();
+  const normalized = nonEmptyText(value).toLowerCase();
+  if (!normalized || normalized === "workspace_session" || normalized === "main") {
+    return "main_session";
+  }
+  return normalized;
 }
 
 function isMainSessionKind(value: string | null | undefined): boolean {
   const normalized = normalizeSessionKind(value);
-  return (
-    normalized === "" ||
-    normalized === "workspace_session" ||
-    normalized === "main" ||
-    normalized === "onboarding"
-  );
+  return normalized === "main_session" || normalized === "onboarding";
 }
 
 function addAvailableToolName(available: Set<string>, value: string | null | undefined): void {
@@ -205,11 +204,6 @@ function sessionPolicyPromptSection(request: ComposeBaseAgentPromptRequest): str
   }
 
   switch (normalizedKind) {
-    case "main":
-      lines.push(
-        "This is a legacy main workspace session. Treat it like a broad workspace session for scope, but do not assume browser tooling is available unless the capability manifest exposes it."
-      );
-      break;
     case "onboarding":
       lines.push(
         "This is an onboarding session. Prioritize onboarding progress, use onboarding-specific runtime tools when available, keep the conversation anchored to setup and confirmation work, and do not assume browser tooling is available."
@@ -232,7 +226,7 @@ function sessionPolicyPromptSection(request: ComposeBaseAgentPromptRequest): str
         "For browser tasks, if you reach a login or access wall, leave the browser where it is, ask the user to complete the required step, and wait for the main session to resume you."
       );
       break;
-    case "workspace_session":
+    case "main_session":
       lines.push(
         "This is a front-of-house workspace session. Stay conversational, handle clarification and user-visible updates, prefer delegating long-running or execution-heavy work to subagents, and do not assume browser tooling is available unless the capability manifest exposes it."
       );

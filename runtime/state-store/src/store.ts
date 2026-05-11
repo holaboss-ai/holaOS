@@ -30,6 +30,9 @@ const WORKSPACE_IDENTITY_LOCK_RETRY_DELAY_MS = 25;
 const WORKSPACE_IDENTITY_LOCK_STALE_MS = 30_000;
 const WORKSPACE_RUNTIME_LEGACY_BACKFILL_MARKER_KEY =
   "legacy_workspace_backfill_v1_complete";
+const MAIN_SESSION_KIND = "main_session";
+const MAIN_SESSION_BINDING_ROLE = "main_session";
+const MAIN_SESSION_CONVERSATION_KEY = "main_session";
 const WORKSPACE_SCOPED_LEGACY_BACKFILL_TABLES = [
   "agent_sessions",
   "agent_runtime_sessions",
@@ -1998,7 +2001,7 @@ export class RuntimeStateStore {
     const createdAt = params.createdAt ?? now;
     const role = this.normalizedConversationBindingRole(params.role);
     const channel = this.requiredNormalizedText(params.channel, "channel");
-    const conversationKey = this.requiredNormalizedText(params.conversationKey, "conversationKey");
+    const conversationKey = this.normalizedConversationBindingKey(params.conversationKey);
     const bindingId = params.bindingId ?? randomUUID();
     const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
 
@@ -2074,7 +2077,7 @@ export class RuntimeStateStore {
     const values: string[] = [
       params.workspaceId,
       this.requiredNormalizedText(params.channel, "channel"),
-      this.requiredNormalizedText(params.conversationKey, "conversationKey"),
+      this.normalizedConversationBindingKey(params.conversationKey),
     ];
     if (role !== undefined) {
       query += " AND role = ?";
@@ -7851,7 +7854,7 @@ export class RuntimeStateStore {
       CREATE TABLE IF NOT EXISTS agent_sessions (
           workspace_id TEXT NOT NULL,
           session_id TEXT NOT NULL,
-          kind TEXT NOT NULL DEFAULT 'workspace_session',
+          kind TEXT NOT NULL DEFAULT 'main_session',
           title TEXT,
           parent_session_id TEXT,
           source_proposal_id TEXT,
@@ -7886,7 +7889,7 @@ export class RuntimeStateStore {
           channel TEXT NOT NULL,
           conversation_key TEXT NOT NULL,
           session_id TEXT NOT NULL,
-          role TEXT NOT NULL DEFAULT 'main',
+          role TEXT NOT NULL DEFAULT 'main_session',
           is_active INTEGER NOT NULL DEFAULT 1,
           metadata TEXT NOT NULL DEFAULT '{}',
           last_active_at TEXT,
@@ -7996,7 +7999,7 @@ export class RuntimeStateStore {
           PRIMARY KEY (workspace_id, session_id)
       );
 
-      CREATE INDEX IF NOT EXISTS session_runtime_state_workspace_session_idx
+      CREATE INDEX IF NOT EXISTS session_runtime_state_main_session_idx
           ON session_runtime_state (workspace_id, session_id);
 
       CREATE INDEX IF NOT EXISTS session_runtime_state_session_id_idx
@@ -8011,7 +8014,7 @@ export class RuntimeStateStore {
           created_at TEXT NOT NULL
       );
 
-      CREATE INDEX IF NOT EXISTS idx_session_messages_workspace_session_created
+      CREATE INDEX IF NOT EXISTS idx_session_messages_main_session_created
           ON session_messages (workspace_id, session_id, created_at ASC);
 
       CREATE TABLE IF NOT EXISTS session_output_events (
@@ -8028,7 +8031,7 @@ export class RuntimeStateStore {
       CREATE INDEX IF NOT EXISTS idx_session_output_events_session_input_sequence
           ON session_output_events (session_id, input_id, sequence ASC);
 
-      CREATE INDEX IF NOT EXISTS idx_session_output_events_workspace_session_created
+      CREATE INDEX IF NOT EXISTS idx_session_output_events_main_session_created
           ON session_output_events (workspace_id, session_id, created_at ASC);
 
       CREATE TABLE IF NOT EXISTS terminal_sessions (
@@ -8097,7 +8100,7 @@ export class RuntimeStateStore {
           updated_at TEXT NOT NULL
       );
 
-      CREATE INDEX IF NOT EXISTS idx_turn_results_workspace_session_completed
+      CREATE INDEX IF NOT EXISTS idx_turn_results_main_session_completed
           ON turn_results (workspace_id, session_id, completed_at DESC, started_at DESC);
 
       CREATE INDEX IF NOT EXISTS idx_turn_results_session_input
@@ -8359,6 +8362,7 @@ export class RuntimeStateStore {
     this.ensureMemoryEntriesTableSchema(db);
     this.ensureMemoryEmbeddingIndexSchema(db);
     this.ensureConversationBindingsTableSchema(db);
+    this.migrateLegacyMainSessionLabels(db);
     this.ensureSubagentRunsTableSchema(db);
     this.ensureSessionRuntimeStateTableSchema(db);
     this.ensureTurnArtifactsSchema(db);
@@ -8426,6 +8430,40 @@ export class RuntimeStateStore {
       CREATE INDEX IF NOT EXISTS idx_conversation_bindings_channel_key_active
           ON conversation_bindings (channel, conversation_key, is_active);
     `);
+  }
+
+  private migrateLegacyMainSessionLabels(db: Database.Database): void {
+    const tableNames = new Set<string>(
+      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
+        (row) => row.name,
+      ),
+    );
+    const now = utcNowIso();
+    const migrate = db.transaction(() => {
+      if (tableNames.has("agent_sessions")) {
+        db.prepare(
+          `
+            UPDATE agent_sessions
+            SET kind = ?,
+                updated_at = ?
+            WHERE lower(kind) IN ('workspace_session', 'main')
+          `,
+        ).run(MAIN_SESSION_KIND, now);
+      }
+      if (tableNames.has("conversation_bindings")) {
+        db.prepare(
+          `
+            UPDATE conversation_bindings
+            SET role = ?,
+                conversation_key = ?,
+                updated_at = ?
+            WHERE lower(role) = 'main'
+               OR lower(conversation_key) = 'main_session'
+          `,
+        ).run(MAIN_SESSION_BINDING_ROLE, MAIN_SESSION_CONVERSATION_KEY, now);
+      }
+    });
+    migrate();
   }
 
   private ensureSubagentRunsTableSchema(db: Database.Database): void {
@@ -8581,7 +8619,7 @@ export class RuntimeStateStore {
 
       DROP TABLE session_runtime_state_legacy_no_paused;
 
-      CREATE INDEX IF NOT EXISTS session_runtime_state_workspace_session_idx
+      CREATE INDEX IF NOT EXISTS session_runtime_state_main_session_idx
           ON session_runtime_state (workspace_id, session_id);
 
       CREATE INDEX IF NOT EXISTS session_runtime_state_session_id_idx
@@ -8974,7 +9012,7 @@ export class RuntimeStateStore {
 
       DROP TABLE turn_results_legacy_with_removed_columns;
 
-      CREATE INDEX IF NOT EXISTS idx_turn_results_workspace_session_completed
+      CREATE INDEX IF NOT EXISTS idx_turn_results_main_session_completed
           ON turn_results (workspace_id, session_id, completed_at DESC, started_at DESC);
 
       CREATE INDEX IF NOT EXISTS idx_turn_results_session_input
@@ -9046,7 +9084,7 @@ export class RuntimeStateStore {
           updated_at TEXT NOT NULL
       );
 
-      CREATE INDEX IF NOT EXISTS idx_turn_request_snapshots_workspace_session_updated
+      CREATE INDEX IF NOT EXISTS idx_turn_request_snapshots_main_session_updated
           ON turn_request_snapshots (workspace_id, session_id, updated_at DESC, created_at DESC);
     `);
   }
@@ -10358,11 +10396,27 @@ export class RuntimeStateStore {
   }
 
   private normalizedConversationBindingRole(value: string | null | undefined): string {
-    return this.normalizedNullableText(value) ?? "main";
+    const normalized = this.normalizedNullableText(value)?.toLowerCase();
+    if (!normalized || normalized === "main") {
+      return MAIN_SESSION_BINDING_ROLE;
+    }
+    return normalized;
+  }
+
+  private normalizedConversationBindingKey(value: string | null | undefined): string {
+    const normalized = this.requiredNormalizedText(value, "conversationKey").toLowerCase();
+    if (normalized === "workspace-main") {
+      return MAIN_SESSION_CONVERSATION_KEY;
+    }
+    return normalized;
   }
 
   private normalizedSessionKind(value: string | null | undefined): string {
-    return this.normalizedNullableText(value) ?? "workspace_session";
+    const normalized = this.normalizedNullableText(value)?.toLowerCase();
+    if (!normalized || normalized === "workspace_session" || normalized === "main") {
+      return MAIN_SESSION_KIND;
+    }
+    return normalized;
   }
 
   private normalizedNotificationLevel(value: string | null | undefined): RuntimeNotificationLevel {

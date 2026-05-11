@@ -377,7 +377,7 @@ const RUNTIME_TOOL_DEFINITIONS = new Map<string, ToolCapabilityDefinition>(
 );
 
 function browserToolSessionKinds(): string[] {
-  return ["workspace_session", "subagent", "task_proposal"];
+  return ["subagent"];
 }
 
 const BROWSER_TOOL_DEFINITIONS = new Map<string, ToolCapabilityDefinition>(
@@ -390,7 +390,7 @@ const BROWSER_TOOL_DEFINITIONS = new Map<string, ToolCapabilityDefinition>(
       description: toolDef.description,
       availability: {
         sessionKinds:
-          toolDef.session_scope === "workspace_session_only"
+          toolDef.session_scope === "subagent_only"
             ? browserToolSessionKinds()
             : undefined,
       },
@@ -1440,8 +1440,7 @@ export function renderCapabilityAvailabilityContextPromptSection(
     lines.push("Connected MCP access: none.");
   }
   if (
-    (normalizedSessionKind === "workspace_session" ||
-      normalizedSessionKind === "main") &&
+    normalizedSessionKind === "main_session" &&
     manifest.runtime_tools.some((capability) => capability.id === "holaboss_delegate_task")
   ) {
     lines.push(

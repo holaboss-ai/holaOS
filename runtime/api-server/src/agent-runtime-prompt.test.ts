@@ -32,7 +32,7 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
         tool_name: "lookup",
       },
     ],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     harnessId: "pi",
     capabilityManifest,
@@ -252,7 +252,7 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
         tool_name: "lookup",
       },
     ],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     harnessId: "pi",
     capabilityManifest,
@@ -459,7 +459,7 @@ test("composeAgentPrompt can inject a run-specific routing recovery override for
     extraTools: ["holaboss_delegate_task"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     harnessId: "pi",
     capabilityManifest,
@@ -491,7 +491,7 @@ test("composeAgentPrompt can inject a run-specific routing recovery override for
     extraTools: ["holaboss_delegate_task"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     harnessId: "pi",
     capabilityManifest,
@@ -523,7 +523,7 @@ test("composeAgentPrompt instructs main sessions to record durable workspace kno
     extraTools: ["holaboss_update_workspace_instructions"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     harnessId: "pi",
     capabilityManifest,
@@ -558,7 +558,7 @@ test("composeBaseAgentPrompt instructs direct sessions to record durable workspa
     extraTools: ["holaboss_update_workspace_instructions"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     harnessId: "pi",
     capabilityManifest,
@@ -593,7 +593,7 @@ test("composeAgentPrompt keeps main sessions free of todo doctrine even if todo 
     extraTools: ["holaboss_delegate_task"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     harnessId: "pi",
     capabilityManifest,
@@ -669,7 +669,7 @@ test("composeBaseAgentPrompt includes shared todo continuity policy when todo to
     extraTools: [],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     capabilityManifest,
   });
@@ -734,7 +734,7 @@ test("composeBaseAgentPrompt promotes scratchpad as working memory even before a
     extraTools: [],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     capabilityManifest,
   });
@@ -779,7 +779,7 @@ test("composeBaseAgentPrompt exposes existing scratchpad metadata without collap
     extraTools: [],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     capabilityManifest,
     scratchpadContext: {
@@ -808,7 +808,7 @@ test("composeBaseAgentPrompt exposes existing scratchpad metadata without collap
 test("composeBaseAgentPrompt keeps the cacheable fingerprint stable across runtime-only context changes", () => {
   const capabilityManifest = buildAgentCapabilityManifest({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     defaultTools: ["read"],
     extraTools: [],
     workspaceSkillIds: [],
@@ -820,7 +820,7 @@ test("composeBaseAgentPrompt keeps the cacheable fingerprint stable across runti
     extraTools: [],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     capabilityManifest,
   });
@@ -830,7 +830,7 @@ test("composeBaseAgentPrompt keeps the cacheable fingerprint stable across runti
     extraTools: [],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     capabilityManifest,
     operatorSurfaceContext: {
@@ -873,7 +873,7 @@ test("composeBaseAgentPrompt includes current user context when provided", () =>
     extraTools: [],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     currentUserContext: {
       profile_id: "default",
@@ -904,7 +904,7 @@ test("composeBaseAgentPrompt includes operator surface context when provided", (
     extraTools: [],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     operatorSurfaceContext: {
       active_surface_id: "browser:user",
@@ -957,7 +957,7 @@ test("composeBaseAgentPrompt includes pending user memory context when provided"
     extraTools: [],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     pendingUserMemoryContext: {
       entries: [
@@ -1035,7 +1035,7 @@ test("composeBaseAgentPrompt includes recalled durable memory as context message
     extraTools: [],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     recalledMemoryContext: {
       entries: [
@@ -1090,7 +1090,7 @@ test("composeBaseAgentPrompt includes cronjob delivery routing guidance when cro
     extraTools: ["holaboss_cronjobs_create"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     harnessId: "pi",
   });
 
@@ -1099,7 +1099,7 @@ test("composeBaseAgentPrompt includes cronjob delivery routing guidance when cro
     extraTools: ["holaboss_cronjobs_create"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     harnessId: "pi",
     capabilityManifest,
@@ -1118,7 +1118,7 @@ test("composeBaseAgentPrompt includes background terminal guidance when terminal
     extraTools: ["terminal_session_start", "terminal_session_wait", "terminal_session_read"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     harnessId: "pi",
   });
 
@@ -1127,7 +1127,7 @@ test("composeBaseAgentPrompt includes background terminal guidance when terminal
     extraTools: ["terminal_session_start", "terminal_session_wait", "terminal_session_read"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     harnessId: "pi",
     capabilityManifest,
@@ -1142,7 +1142,7 @@ test("composeBaseAgentPrompt includes background terminal guidance when terminal
 test("composeBaseAgentPrompt requires proactive fallback when partial retrieval cannot satisfy required facts", () => {
   const capabilityManifest = buildAgentCapabilityManifest({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     browserToolsAvailable: true,
     browserToolIds: ["browser_get_state"],
     defaultTools: ["read"],
@@ -1156,7 +1156,7 @@ test("composeBaseAgentPrompt requires proactive fallback when partial retrieval 
     extraTools: ["browser_get_state", "web_search"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     sessionMode: "code",
     harnessId: "pi",
     capabilityManifest,

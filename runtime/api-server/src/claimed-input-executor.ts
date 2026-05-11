@@ -1173,7 +1173,7 @@ function inferSessionKind(params: {
   ) {
     return "onboarding";
   }
-  return "workspace_session";
+  return "main_session";
 }
 
 function payloadForEvent(event: RunnerEvent): Record<string, unknown> {
@@ -2001,13 +2001,12 @@ function cronjobContainerTitle(job: {
 }
 
 function isCronjobMainSessionKind(kind: string | null | undefined): boolean {
-  const normalized = optionalString(kind)?.toLowerCase() ?? "";
-  return (
-    normalized === "" ||
-    normalized === "workspace_session" ||
-    normalized === "main" ||
-    normalized === "onboarding"
-  );
+  const normalized = optionalString(kind)?.toLowerCase() ?? "main_session";
+  const canonical =
+    normalized === "workspace_session" || normalized === "main"
+      ? "main_session"
+      : normalized;
+  return canonical === "main_session" || canonical === "onboarding";
 }
 
 function preferredCronjobOwnerMainSessionId(params: {
@@ -2032,8 +2031,8 @@ function preferredCronjobOwnerMainSessionId(params: {
   const desktopBinding = params.store.getConversationBindingByConversation({
     workspaceId: params.workspace.id,
     channel: "desktop",
-    conversationKey: "workspace-main",
-    role: "main",
+    conversationKey: "main_session",
+    role: "main_session",
   });
   if (desktopBinding) {
     return desktopBinding.sessionId;
@@ -2272,7 +2271,7 @@ function maybeCreateMainSessionCompletionNotification(params: {
     workspaceId: params.record.workspaceId,
     sessionId: params.record.sessionId,
   });
-  if (optionalString(session?.kind)?.toLowerCase() !== "workspace_session") {
+  if (optionalString(session?.kind)?.toLowerCase() !== "main_session") {
     return;
   }
 

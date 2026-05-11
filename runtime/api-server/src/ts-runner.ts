@@ -1013,26 +1013,21 @@ function defaultExtraTools(harnessId?: string | null): string[] {
 }
 
 function normalizedSessionKindValue(value: string | null | undefined): string {
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!normalized || normalized === "workspace_session" || normalized === "main") {
+    return "main_session";
+  }
+  return normalized;
 }
 
 function isFrontSessionKind(value: string | null | undefined): boolean {
   const normalized = normalizedSessionKindValue(value);
-  return (
-    normalized === "" ||
-    normalized === "workspace_session" ||
-    normalized === "main" ||
-    normalized === "onboarding"
-  );
+  return normalized === "main_session" || normalized === "onboarding";
 }
 
 function isDelegatingFrontSessionKind(value: string | null | undefined): boolean {
   const normalized = normalizedSessionKindValue(value);
-  return (
-    normalized === "" ||
-    normalized === "workspace_session" ||
-    normalized === "main"
-  );
+  return normalized === "main_session";
 }
 
 function allowedRuntimeToolIdsForFrontSession(
@@ -1048,7 +1043,7 @@ function projectBrowserToolIdsForSession(params: {
   browserToolIds: string[];
 }): string[] {
   const normalized = normalizedSessionKindValue(params.sessionKind);
-  if (normalized === "subagent" || normalized === "task_proposal") {
+  if (normalized === "subagent") {
     return [...params.browserToolIds];
   }
   return [];

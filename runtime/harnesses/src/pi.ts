@@ -4,7 +4,7 @@ function browserToolsEnabledForSessionKind(
   sessionKind: string | null | undefined,
 ): boolean {
   const normalized = String(sessionKind ?? "").trim().toLowerCase();
-  return normalized === "subagent" || normalized === "task_proposal";
+  return normalized === "subagent";
 }
 
 export const piHarnessDefinition: HarnessDefinition = {

@@ -204,17 +204,16 @@ const LEGACY_DIRECT_PROVIDER_MODEL_ALIASES: Record<
 };
 
 function normalizedSessionKindValue(value: string | null | undefined): string {
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!normalized || normalized === "workspace_session" || normalized === "main") {
+    return "main_session";
+  }
+  return normalized;
 }
 
 function directMcpDisabledForSession(value: string | null | undefined): boolean {
   const normalized = normalizedSessionKindValue(value);
-  return (
-    normalized === "" ||
-    normalized === "workspace_session" ||
-    normalized === "main" ||
-    normalized === "onboarding"
-  );
+  return normalized === "main_session" || normalized === "onboarding";
 }
 
 function directResolvedMcpToolRefsForSession(

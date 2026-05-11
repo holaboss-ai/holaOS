@@ -1188,7 +1188,7 @@ test("binding round trip upserts and reloads persisted session binding", () => {
   assert.equal(updated.harnessSessionId, "harness-2");
   const session = store.getSession({ workspaceId: "workspace-1", sessionId: "session-main" });
   assert.ok(session);
-  assert.equal(session.kind, "workspace_session");
+  assert.equal(session.kind, "main_session");
   assert.equal(session.title, null);
   assert.equal(session.parentSessionId, null);
   assert.equal(session.sourceProposalId, null);
@@ -1248,9 +1248,9 @@ test("conversation bindings round trip across channels and session ownership", (
   const desktop = store.upsertConversationBinding({
     workspaceId: "workspace-1",
     channel: "desktop",
-    conversationKey: "workspace-main",
+    conversationKey: "main_session",
     sessionId: "session-desktop-main",
-    role: "main",
+    role: "main_session",
     metadata: { surface: "desktop" }
   });
   const telegram = store.upsertConversationBinding({
@@ -1258,7 +1258,7 @@ test("conversation bindings round trip across channels and session ownership", (
     channel: "telegram",
     conversationKey: "chat-123",
     sessionId: "session-telegram-main",
-    role: "main",
+    role: "main_session",
     metadata: { chat_id: "chat-123" }
   });
   const touched = store.touchConversationBinding({
@@ -1274,7 +1274,7 @@ test("conversation bindings round trip across channels and session ownership", (
 
   assert.ok(touched);
   assert.ok(inactive);
-  assert.equal(desktop.role, "main");
+  assert.equal(desktop.role, "main_session");
   assert.equal(telegram.channel, "telegram");
   assert.equal(touched?.lastActiveAt, "2026-04-24T12:00:00.000Z");
   assert.equal(inactive?.isActive, false);
@@ -1282,8 +1282,8 @@ test("conversation bindings round trip across channels and session ownership", (
     store.getConversationBindingByConversation({
       workspaceId: "workspace-1",
       channel: "desktop",
-      conversationKey: "workspace-main",
-      role: "main"
+      conversationKey: "main_session",
+      role: "main_session"
     }),
     touched
   );
@@ -1291,7 +1291,7 @@ test("conversation bindings round trip across channels and session ownership", (
     store.getConversationBindingBySession({
       workspaceId: "workspace-1",
       sessionId: "session-telegram-main",
-      role: "main"
+      role: "main_session"
     }),
     inactive
   );
@@ -3741,14 +3741,14 @@ test("listSessions preserves millisecond ordering for latest session selection",
   store.ensureSession({
     workspaceId: "workspace-1",
     sessionId: "session-older",
-    kind: "workspace_session",
+    kind: "main_session",
     title: "Older"
   });
   await sleep(5);
   store.ensureSession({
     workspaceId: "workspace-1",
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
     title: "Main"
   });
 
@@ -3793,7 +3793,7 @@ test("evolve skill candidates round trip supports create, list, lookup, and upda
   store.ensureSession({
     workspaceId: "workspace-1",
     sessionId: "session-main",
-    kind: "main",
+    kind: "main_session",
     title: "Main"
   });
 
@@ -3871,7 +3871,7 @@ test("memory update proposals round trip supports create list filter get and acc
   store.ensureSession({
     workspaceId: "workspace-1",
     sessionId: "session-main",
-    kind: "main",
+    kind: "main_session",
     title: "Main"
   });
   const created = store.createMemoryUpdateProposal({
