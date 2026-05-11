@@ -41,7 +41,16 @@ function pickGradient(seed: string) {
 
 export function UserAvatar({ user, className = "" }: UserAvatarProps) {
   if (!user || (!user.id && !user.image && !user.email)) {
-    return <User2 className={className || undefined} />;
+    // Empty fallback: fill the parent + center an appropriately-sized
+    // icon so callers that wrap us in a 28-40px circle don't get a tiny
+    // 24px lucide default sitting top-left of an empty disk.
+    return (
+      <div
+        className={`flex size-full items-center justify-center text-muted-foreground ${className}`.trim()}
+      >
+        <User2 className="size-1/2" />
+      </div>
+    );
   }
 
   if (user.image) {

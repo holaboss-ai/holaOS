@@ -52,6 +52,7 @@ import { StoplightProvider } from "@/lib/StoplightContext";
 import { holabossLogoUrl } from "@/lib/assetPaths";
 import { type ExplorerAttachmentDragPayload } from "@/lib/attachmentDrag";
 import { CHAT_LAYOUT } from "@/lib/chatLayout";
+import { useEscapeToClose } from "@/lib/useEscapeToClose";
 import { DesktopBillingProvider } from "@/lib/billing/useDesktopBilling";
 import {
   pushRendererSentryActivity,
@@ -4323,6 +4324,17 @@ function AppShellContent() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [toggleSpaceBrowserFullscreen]);
 
+  // ESC-to-close for the custom full-screen panels. Each panel owns its
+  // own escape binding via useEscapeToClose; Radix-based dialogs
+  // (WorkspaceAppsDialog, PublishScreen) own their own ESC handling, and
+  // the hook's defaultPrevented guard makes sure we don't fight them.
+  useEscapeToClose(createWorkspacePanelOpen, handleCloseCreateWorkspacePanel);
+  const handleCloseSettingsViaEscape = useCallback(() => {
+    setSettingsDialogOpen(false);
+    setSubmissionsFocusId(null);
+  }, []);
+  useEscapeToClose(settingsDialogOpen, handleCloseSettingsViaEscape);
+
   useEffect(() => {
     if (!selectedWorkspaceId) {
       setSpaceExplorerMode("browser");
@@ -5456,6 +5468,7 @@ function AppShellContent() {
               handleMarkControlCenterWorkspaceComposerSubmission
             }
             onWorkspaceCompletion={handleControlCenterWorkspaceCompletion}
+            onCreateWorkspace={handleOpenCreateWorkspacePanel}
           />
         ) : (
           <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
