@@ -1327,15 +1327,29 @@ function sortDelegatedOnlyCapabilities(
 export function renderCapabilityPolicyCorePromptSection(
   manifest: AgentCapabilityManifest,
 ): string {
+  const normalizedSessionKind = normalizeOptionalToken(
+    manifest.context.session_kind,
+  );
   const lines = [
     "Capability policy for this run:",
     `Harness: ${manifest.context.harness_id ?? "unknown"}.`,
     `Session kind: ${manifest.context.session_kind ?? "unknown"}.`,
+  ];
+  if (normalizedSessionKind === "main_session" || normalizedSessionKind === "onboarding") {
+    lines.push(
+      "Use surfaced capabilities to inspect, route, or verify before making claims about workspace, app, browser, or runtime state whenever possible.",
+      "If state-changing work happens in this run or through a delegated child, verify the result before claiming success or completion.",
+      "Use coordination capabilities to track progress, consult available skills, route execution, or ask for clarification instead of keeping hidden state.",
+      "If a capability is not surfaced in the runtime context for this run, do not assume it is available.",
+    );
+    return lines.join("\n");
+  }
+  lines.push(
     "Use inspection capabilities to gather context before mutating workspace, app, browser, or runtime state whenever possible.",
     "After edits, shell commands, browser actions, MCP mutations, or runtime mutations, run a follow-up inspection or verification step before claiming success.",
     "Use coordination capabilities to track progress, consult available skills, or ask for clarification instead of keeping hidden state.",
     "If a capability is not surfaced in the runtime context for this run, do not assume it is available.",
-  ];
+  );
   return lines.join("\n");
 }
 

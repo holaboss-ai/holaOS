@@ -102,10 +102,6 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
   assert.match(prompt.systemPrompt, /Response delivery policy:/);
   assert.match(
     prompt.systemPrompt,
-    /Treat local git as an internal recovery tool\./
-  );
-  assert.match(
-    prompt.systemPrompt,
     /Inspect before mutating workspace, app, browser, runtime state, or external systems when possible\./
   );
   assert.match(
@@ -292,8 +288,11 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /Keep replies tight\. Do not blabber, wander, or repeat yourself\./);
   assert.match(prompt.systemPrompt, /When the user request is ambiguous, ask a short clarifying question instead of guessing\./);
   assert.match(prompt.systemPrompt, /If the delegated executor snapshot already shows a concrete backstage capability family for the request, route against that capability instead of asking a generic tool-discovery question\./);
-  assert.match(prompt.systemPrompt, /read\/query requests inline when appropriate\./);
   assert.match(prompt.systemPrompt, /route direct file edits, terminal execution, browser execution, and other state-changing implementation work to subagents\./);
+  assert.match(prompt.systemPrompt, /Use this session to understand the request, choose the right route, brief delegated work clearly, and translate results back to the user\./);
+  assert.match(prompt.systemPrompt, /Use surfaced capabilities to inspect, ground routing decisions, or verify claims when they are more reliable than reasoning alone\./);
+  assert.match(prompt.systemPrompt, /Treat explicit user requirements, verification targets, and deliverable shape as completion criteria for delegated work, not optional detail\./);
+  assert.match(prompt.systemPrompt, /Do not report work as done, verified, or already satisfied unless direct inspection or grounded child results confirm it\./);
   assert.match(prompt.systemPrompt, /continue, transform, save, summarize, compare, or report on a previous child result, continue the relevant child session instead of spawning a brand-new child task\./);
   assert.match(prompt.systemPrompt, /If multiple child sessions could match a continuation request, ask which one the user means before continuing\./);
   assert.match(prompt.systemPrompt, /When the user answers a background-work blocker such as logging in, authorizing, confirming, or providing missing context, resume the waiting child session instead of starting a new task\./);
@@ -315,7 +314,7 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /If the user asks for a report, brief, memo, digest, recap, write-up, or other deliverable that would be longer than a short chat reply, prefer producing it as an artifact through delegated background work/i);
   assert.match(prompt.systemPrompt, /When the user asks for a report-style deliverable, prefer delegating it so the result comes back as an artifact/i);
   assert.match(prompt.systemPrompt, /Acknowledge what matters in the user's message before diving into execution or results\./);
-  assert.match(prompt.systemPrompt, /Lead with the answer, reaction, or next useful step instead of process narration/);
+  assert.match(prompt.systemPrompt, /Lead with the answer, reaction, instead of process narration/);
   assert.match(prompt.systemPrompt, /Prefer short sentences and plain language; use headings or numbered lists only when structure genuinely helps\./);
   assert.match(prompt.systemPrompt, /Use contractions and natural transitions when they fit\./);
   assert.match(prompt.systemPrompt, /Avoid repetitive canned phrasing or stiff assistant boilerplate/);
@@ -340,6 +339,9 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /Do not satisfy a fresh task by resurfacing a previous artifact, previous child output, or remembered result unless the user explicitly asked to reuse, continue, transform, summarize, compare, or save that exact prior result\./);
   assert.match(prompt.systemPrompt, /Before claiming the work is already done or that an existing artifact satisfies the current request, verify it through direct inspection or a grounded child result\./);
   assert.match(prompt.systemPrompt, /Do not paste long document, HTML, markdown, or report bodies into chat\./);
+  assert.doesNotMatch(prompt.systemPrompt, /Inspect before mutating workspace, app, or runtime state when possible\./);
+  assert.doesNotMatch(prompt.systemPrompt, /After edits or other state-changing tool calls, verify the result with the most direct inspection path available\./);
+  assert.doesNotMatch(prompt.systemPrompt, /Use available tools, skills, and MCP integrations when they are more reliable than reasoning alone\./);
   assert.ok(
     prompt.promptSections.some(
       (section) => section.id === "delegated_capability_availability_context",

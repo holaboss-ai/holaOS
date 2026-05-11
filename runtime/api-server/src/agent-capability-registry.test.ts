@@ -638,6 +638,9 @@ test("renderCapabilityPolicyPromptSection summarizes grouped capabilities", () =
   assert.match(section, /Workspace commands: available \(1 enabled\)\./);
   assert.match(section, /Workspace skills: available \(1 enabled\)\./);
   assert.match(section, /Browser tools: none\./);
+  assert.match(section, /Use surfaced capabilities to inspect, route, or verify before making claims about workspace, app, browser, or runtime state whenever possible\./);
+  assert.match(section, /If state-changing work happens in this run or through a delegated child, verify the result before claiming success or completion\./);
+  assert.match(section, /Use coordination capabilities to track progress, consult available skills, route execution, or ask for clarification instead of keeping hidden state\./);
   assert.match(section, /Connected MCP access: available\./);
   assert.match(section, /Use surfaced MCP tools when relevant/);
   assert.match(
