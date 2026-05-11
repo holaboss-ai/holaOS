@@ -4318,28 +4318,21 @@ function AppShellContent() {
     });
   }, []);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "\\") return;
-      const meta = event.metaKey || event.ctrlKey;
-      if (!meta || event.altKey || event.shiftKey) return;
-      const target = event.target;
-      if (target instanceof HTMLElement) {
-        const tag = target.tagName;
-        if (
-          tag === "INPUT" ||
-          tag === "TEXTAREA" ||
-          target.isContentEditable
-        ) {
-          return;
-        }
+  const applyLayoutMode = useCallback(
+    (mode: "split" | "focus_chat" | "focus_work") => {
+      if (mode === "split") {
+        setSpaceBrowserFullscreen(false);
+        setSpaceWorkspacePanelCollapsed(false);
+      } else if (mode === "focus_chat") {
+        setSpaceBrowserFullscreen(false);
+        setSpaceWorkspacePanelCollapsed(true);
+      } else {
+        setSpaceWorkspacePanelCollapsed(false);
+        setSpaceBrowserFullscreen(true);
       }
-      event.preventDefault();
-      toggleSpaceBrowserFullscreen();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [toggleSpaceBrowserFullscreen]);
+    },
+    [],
+  );
 
   // ESC-to-close for the custom full-screen panels. Each panel owns its
   // own escape binding via useEscapeToClose; Radix-based dialogs
@@ -4621,6 +4614,49 @@ function AppShellContent() {
 
   const controlCenterMode = activeShellView === "control_center";
   const spaceMode = activeShellView === "space";
+
+  // ⌘1 / ⌘2 / ⌘3 jump directly to a layout mode. Mirrors the macOS
+  // Finder / browser view-mode convention; users learn the trio once
+  // from the layout picker dropdown. Suppressed inside text inputs
+  // and outside space mode so it doesn't fight typing or fire when
+  // the user is in the control center.
+  useEffect(() => {
+    if (!spaceMode || controlCenterMode) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const meta = event.metaKey || event.ctrlKey;
+      if (!meta || event.altKey || event.shiftKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+      switch (event.key) {
+        case "1":
+          event.preventDefault();
+          applyLayoutMode("split");
+          break;
+        case "2":
+          event.preventDefault();
+          applyLayoutMode("focus_chat");
+          break;
+        case "3":
+          event.preventDefault();
+          applyLayoutMode("focus_work");
+          break;
+        default:
+          return;
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [applyLayoutMode, controlCenterMode, spaceMode]);
+
   const activeAppId =
     agentView.type === "app"
       ? agentView.appId
@@ -5532,9 +5568,6 @@ function AppShellContent() {
               desktopPlatform={desktopPlatform}
               runtimeStatus={runtimeStatus}
               controlCenterActive={controlCenterMode}
-              chatPanelHidden={spaceBrowserFullscreen}
-              showChatPanelToggle={spaceMode && !controlCenterMode}
-              onToggleChatPanel={toggleSpaceBrowserFullscreen}
               inboxNotifications={inboxNotifications}
               inboxWorkspacesById={inboxWorkspacesById}
               onActivateInboxNotification={(id) =>
@@ -5563,13 +5596,15 @@ function AppShellContent() {
               }}
               onOpenExternalUrl={handleOpenExternalUrl}
               onPublish={() => setPublishOpen(true)}
-              showWorkspacePanelToggle={
-                spaceMode && !controlCenterMode && !spaceBrowserFullscreen
+              showLayoutPicker={spaceMode && !controlCenterMode}
+              layoutMode={
+                spaceBrowserFullscreen
+                  ? "focus_work"
+                  : effectiveSpaceWorkspacePanelCollapsed
+                    ? "focus_chat"
+                    : "split"
               }
-              workspacePanelCollapsed={effectiveSpaceWorkspacePanelCollapsed}
-              onToggleWorkspacePanel={() =>
-                setSpaceWorkspacePanelCollapsed((prev) => !prev)
-              }
+              onLayoutModeChange={applyLayoutMode}
             />
           </div>
         ) : null}
