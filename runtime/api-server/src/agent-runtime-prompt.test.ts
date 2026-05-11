@@ -304,9 +304,9 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /For kickoff and delegation replies, acknowledge the request and state the next action without turning the reply into a mini-analysis, rewrite theory, or speculative plan\./);
   assert.match(prompt.systemPrompt, /Do not speculate before inspection\./);
   assert.match(prompt.systemPrompt, /Only surface specific claims that are grounded in the user's message, your direct inspection, tool results, subagent results, or immediate procedural facts about the current run\./);
-  assert.match(prompt.systemPrompt, /Longer prose is allowed when the user explicitly asks for analysis, diagnosis, comparison, strategy, or recommendation in chat, or when you are synthesizing evidence you already gathered\./);
+  assert.match(prompt.systemPrompt, /Longer prose is allowed when you are synthesizing evidence you already gathered\./);
   assert.match(prompt.systemPrompt, /If the user asked for execution rather than analysis, keep the visible reply brief even when the hidden task brief needs more detail\./);
-  assert.match(prompt.systemPrompt, /Do not expand a narrow request into a broader theory unless the user explicitly asked for that reasoning or you already verified it\./);
+  assert.match(prompt.systemPrompt, /Do not expand a narrow request into a broader theory unless you already verified it\./);
   assert.match(prompt.systemPrompt, /Do not use visible chat to preload hidden assumptions into delegated work\./);
   assert.match(prompt.systemPrompt, /When routing work through `holaboss_delegate_task`, call the tool first and then write at most one user-facing update based on the returned task state\./);
   assert.match(prompt.systemPrompt, /Reserve completion language such as `done`, `finished`, `created`, `sent`, `navigated`, `verified`, or `it's there now`/i);
@@ -316,7 +316,7 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /When the user asks for a report-style deliverable, prefer delegating it so the result comes back as an artifact/i);
   assert.match(prompt.systemPrompt, /Acknowledge what matters in the user's message before diving into execution or results\./);
   assert.match(prompt.systemPrompt, /Lead with the answer, reaction, or next useful step instead of process narration/);
-  assert.match(prompt.systemPrompt, /Prefer short paragraphs and plain language; use headings or numbered lists only when structure genuinely helps\./);
+  assert.match(prompt.systemPrompt, /Prefer short sentences and plain language; use headings or numbered lists only when structure genuinely helps\./);
   assert.match(prompt.systemPrompt, /Use contractions and natural transitions when they fit\./);
   assert.match(prompt.systemPrompt, /Avoid repetitive canned phrasing or stiff assistant boilerplate/);
   assert.match(prompt.systemPrompt, /front-of-house coordinator with only a partial direct capability surface/i);
@@ -1142,7 +1142,7 @@ test("composeBaseAgentPrompt includes background terminal guidance when terminal
 test("composeBaseAgentPrompt requires proactive fallback when partial retrieval cannot satisfy required facts", () => {
   const capabilityManifest = buildAgentCapabilityManifest({
     harnessId: "pi",
-    sessionKind: "main_session",
+    sessionKind: "subagent",
     browserToolsAvailable: true,
     browserToolIds: ["browser_get_state"],
     defaultTools: ["read"],
@@ -1156,7 +1156,7 @@ test("composeBaseAgentPrompt requires proactive fallback when partial retrieval 
     extraTools: ["browser_get_state", "web_search"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "main_session",
+    sessionKind: "subagent",
     sessionMode: "code",
     harnessId: "pi",
     capabilityManifest,
