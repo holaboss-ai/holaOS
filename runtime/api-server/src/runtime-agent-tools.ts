@@ -4292,6 +4292,13 @@ export class RuntimeAgentToolsService {
       return a.app_id.localeCompare(b.app_id);
     });
 
+    const catalogEmpty =
+      catalogEntries.length === 0 && (source === "all" || source === "marketplace" || source === "local");
+    const hint =
+      catalogEmpty && results.length === 0
+        ? "Catalog is empty. The user can populate it by opening the Marketplace tab in the desktop app once, which syncs the latest entries from the marketplace. After that, retry `workspace_apps_find`."
+        : null;
+
     return {
       workspace_id: params.workspaceId,
       query: query || null,
@@ -4307,6 +4314,7 @@ export class RuntimeAgentToolsService {
         archive_url: row.archive_url,
       })),
       count: results.length,
+      ...(hint ? { hint } : {}),
     };
   }
 
