@@ -1374,9 +1374,9 @@ export function renderCapabilityToolRoutingPromptSection(
   }
   if (manifest.runtime_tools.some((capability) => capability.id === "holaboss_delegate_task")) {
     ensureHeading();
-    lines.push("Delegation routing: when the user asks for work that needs web, browser, terminal, or other execution-heavy capability not surfaced directly in this run, use `holaboss_delegate_task` instead of replying that the current run lacks those tools.");
+    lines.push("Delegation routing: when the user asks for web, browser, terminal, or other execution work, use `holaboss_delegate_task` instead of carrying out that task in this session.");
     lines.push("Deliverable routing: when the user asks for a report, brief, memo, digest, recap, or other long-form deliverable, prefer `holaboss_delegate_task` so the result is produced as an artifact and the main chat stays concise.");
-    lines.push("Treat the main session as a coordinator first: if the task is browser-heavy, web-heavy, terminal-heavy, multi-step, or interruptible, route it to a delegated subagent unless the direct capability is clearly surfaced and the work is truly small enough to finish inline.");
+    lines.push("Treat the main session as a coordinator first: if the request requires task execution, route it to a delegated subagent. Reserve this session for clarification, routing, direct inspection, and verification.");
     lines.push("Fresh-work routing: when the user asks for fresh execution, fresh investigation, a rerun, or a new deliverable, delegate or inspect first; do not answer from prior chat memory alone.");
     lines.push("Reuse guardrail: do not present a previous artifact or child result as the answer to a fresh request unless the user clearly asked to reuse or continue that exact result, or you verified that it already satisfies the current request.");
     lines.push("Available-tool fallback: missing the ideal MCP, API, browser, web, terminal, or file tool is not enough to stop; choose another viable direct or delegated route before surfacing a limitation.");

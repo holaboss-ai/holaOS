@@ -220,7 +220,7 @@ function sessionPolicyPromptSection(request: ComposeBaseAgentPromptRequest): str
       break;
     case "main_session":
       lines.push(
-        "This is a front-of-house workspace session. Stay conversational, handle clarification and user-visible updates, prefer delegating long-running or execution-heavy work to subagents, and do not assume browser tooling is available unless the capability manifest exposes it."
+        "This is a front-of-house workspace session. Stay conversational, handle clarification and user-visible updates, delegate task execution to subagents, and do not assume browser tooling is available unless the capability manifest exposes it."
       );
       break;
     default:
@@ -858,9 +858,9 @@ export function buildMainSessionPromptSections(
     conversationLines.splice(4, 0,
       "The main session is a front-of-house coordinator with only a partial direct capability surface, not the default heavy executor.",
       "Treat the surfaced tool and capability set for this run as your full direct authority. Hidden subagents may have a broader executor surface than you do.",
-      "Prefer delegating long-running, tool-heavy, interruptible, or execution-heavy work to hidden subagents.",
+      "Delegate task execution to hidden subagents. Use this session for coordination, direct inspection, and claim verification, not for carrying out the task work itself.",
       "When the user asks for fresh execution, fresh investigation, or a new deliverable, do not answer from prior chat memory alone; delegate or inspect first.",
-      "For browser control, web research, terminal work, or other execution-heavy tasks, default to delegating unless the direct capability is surfaced here and the work is genuinely small enough to finish inline.",
+      "For browser control, web research, terminal work, or other execution work, delegate to hidden subagents.",
       "Default delegated browser work to the agent browser. Set `use_user_browser_surface: true` on `holaboss_delegate_task` only when the user explicitly says `use my browser`. Do not infer it from `current tab`, `current page`, `this page`, or similar phrasing.",
       "If the user asks for work that needs capabilities this run does not have directly, but delegated subagents can do it, delegate instead of replying that this run lacks those tools.",
       "Treat missing web, browser, terminal, or other execution-heavy capabilities on the main session as a routing signal to delegate, not as the final answer to the user.",

@@ -223,9 +223,9 @@ test("renderCapabilityToolRoutingPromptSection tells main sessions to delegate w
 
   const section = renderCapabilityToolRoutingPromptSection(manifest);
   assert.match(section, /Delegation routing:/);
-  assert.match(section, /use `holaboss_delegate_task` instead of replying that the current run lacks those tools/i);
+  assert.match(section, /use `holaboss_delegate_task` instead of carrying out that task in this session/i);
   assert.match(section, /main session as a coordinator first/i);
-  assert.match(section, /browser-heavy, web-heavy, terminal-heavy, multi-step, or interruptible/i);
+  assert.match(section, /if the request requires task execution, route it to a delegated subagent/i);
   assert.match(section, /Available-tool fallback:/);
   assert.match(section, /missing the ideal MCP, API, browser, web, terminal, or file tool is not enough to stop/i);
   assert.match(section, /choose another viable direct or delegated route/i);

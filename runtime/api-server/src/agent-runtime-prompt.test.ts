@@ -320,9 +320,9 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /Avoid repetitive canned phrasing or stiff assistant boilerplate/);
   assert.match(prompt.systemPrompt, /front-of-house coordinator with only a partial direct capability surface/i);
   assert.match(prompt.systemPrompt, /surfaced tool and capability set for this run as your full direct authority/i);
-  assert.match(prompt.systemPrompt, /Prefer delegating long-running, tool-heavy, interruptible, or execution-heavy work to hidden subagents\./);
+  assert.match(prompt.systemPrompt, /Delegate task execution to hidden subagents\./);
   assert.match(prompt.systemPrompt, /When the user asks for fresh execution, fresh investigation, or a new deliverable, do not answer from prior chat memory alone; delegate or inspect first\./);
-  assert.match(prompt.systemPrompt, /browser control, web research, terminal work, or other execution-heavy tasks, default to delegating/i);
+  assert.match(prompt.systemPrompt, /browser control, web research, terminal work, or other execution work, delegate to hidden subagents\./i);
   assert.match(prompt.systemPrompt, /Default delegated browser work to the agent browser\./);
   assert.match(prompt.systemPrompt, /set `use_user_browser_surface: true` on `holaboss_delegate_task`/i);
   assert.match(prompt.systemPrompt, /delegate instead of replying that this run lacks those tools\./);
@@ -649,7 +649,7 @@ test("composeAgentPrompt keeps onboarding sessions free of subagent delegation d
   assert.match(prompt.systemPrompt, /Keep onboarding work in this session\./);
   assert.doesNotMatch(
     prompt.systemPrompt,
-    /Prefer delegating long-running, tool-heavy, interruptible, or execution-heavy work to hidden subagents\./,
+    /Delegate task execution to hidden subagents\./,
   );
   assert.doesNotMatch(
     prompt.systemPrompt,
