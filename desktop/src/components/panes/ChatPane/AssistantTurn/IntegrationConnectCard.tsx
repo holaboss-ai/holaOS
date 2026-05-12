@@ -131,8 +131,6 @@ function IntegrationConnectCard({
           });
           return;
         }
-        // binding pointed at a connection that no longer exists / inactive —
-        // fall through to picker so the user re-binds.
       }
       setState({ kind: "needs_binding", connections: activeConnections });
     } catch (error) {
@@ -151,9 +149,6 @@ function IntegrationConnectCard({
     setErrorMessage("");
     try {
       await connectIntegrationProvider({ provider, appId });
-      // composio's id and the workspace-side connection_id differ — re-fetch
-      // and bind the freshest active connection on this provider, matching
-      // the pattern doInstallApp uses for the marketplace path.
       const { connections } =
         await window.electronAPI.workspace.listIntegrationConnections();
       const candidate = connections

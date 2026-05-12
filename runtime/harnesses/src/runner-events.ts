@@ -191,10 +191,6 @@ export function noteHarnessWaitingForUserOnToolCompletion(params: {
     params.state.waitingForUser = true;
     return;
   }
-  // Tools that mutated MCP topology (installed/registered a new server) flag
-  // requires_session_refresh on their result so the turn ends here. The next
-  // user message spawns a fresh ts-runner that re-reads workspace.yaml and
-  // attaches the new MCP servers — see plans/.../agent-autonomous-app-management.
   if (isSessionRefreshRequiredResult(params.result)) {
     params.state.waitingForUser = true;
   }

@@ -309,13 +309,6 @@ export class RuntimeMainSessionEventWorker
           eventIds,
           materializedInputId: input.inputId,
         });
-        // The prompt builder runs the batch payload through an allowlist
-        // sanitizer that drops structured side-channel fields (notably
-        // pending_integrations). For chat-UI affordances that need the
-        // structured form (the in-conversation Connect card), emit a
-        // separate output event carrying the raw lifecycle payload so the
-        // chat parser can find it without scraping the natural-language
-        // assistant reply.
         appendSubagentLifecycleOutputEvents({
           store: this.#store,
           workspaceId: workspace.id,

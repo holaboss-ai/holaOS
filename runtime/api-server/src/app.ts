@@ -2737,10 +2737,6 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         return await stopManagedWorkspaceApp(workspaceId, appId);
       },
       installFromArchive: async ({ workspaceId, appId, archiveUrl, archivePath }) => {
-        // Reuse the existing /api/v1/apps/install-archive route via in-process
-        // injection rather than refactoring its 300-line handler. Fastify's
-        // .inject runs the same middleware/route stack without going through
-        // the network, so all auth/lock/cleanup logic is preserved.
         const payload: Record<string, unknown> = {
           workspace_id: workspaceId,
           app_id: appId,

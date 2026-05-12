@@ -5933,10 +5933,6 @@ export function ChatPane({
     }
   }
 
-  // M4 Half B: when the user binds an integration via the in-conversation
-  // Connect card, queue a "continue" message into the active session so the
-  // main agent picks up where the blocked subagent left off, without making
-  // the user type it themselves.
   async function handleAfterIntegrationBind() {
     const sessionId = activeSessionIdRef.current || activeSessionId;
     if (!selectedWorkspaceId || !sessionId) return;
@@ -5952,7 +5948,7 @@ export function ChatPane({
         thinking_value: effectiveThinkingValue,
       });
     } catch {
-      // Non-fatal — user can still type "continue" manually.
+      /* non-fatal */
     }
   }
 

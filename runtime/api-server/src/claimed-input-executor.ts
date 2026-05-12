@@ -2076,10 +2076,6 @@ function maybeCreateBackgroundIntegrationNotification(params: {
     level: "info",
     priority: "normal",
     metadata: {
-      // session_id is what the desktop notification click handler reads to
-      // jump the user into a chat — point at the owner main session so the
-      // M3 subagent_lifecycle_update event is in scope and the Connect card
-      // renders right where they land.
       session_id: run.ownerMainSessionId,
       subagent_id: run.subagentId,
       child_session_id: run.childSessionId,

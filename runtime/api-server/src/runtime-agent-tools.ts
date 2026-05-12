@@ -4332,8 +4332,6 @@ export class RuntimeAgentToolsService {
     }
     const appId = sanitizeWorkspaceAppId(params.appId);
 
-    // Look up the catalog entry to get the archive_url. Marketplace wins over
-    // local when both exist (matches the desktop UI's install flow).
     const allEntries = this.store.listAppCatalogEntries();
     const candidates = allEntries.filter((entry) => entry.appId === appId);
     if (candidates.length === 0) {
@@ -4379,11 +4377,6 @@ export class RuntimeAgentToolsService {
       appId,
     });
 
-    // If the catalog entry declares a provider, surface it as a pending
-    // integration. The runtime can't check whether the user already has an
-    // active connection (composio lives desktop-side), so we always emit the
-    // signal and let the frontend filter / render the Connect card. When no
-    // provider is declared, omit the field entirely.
     const pendingIntegrations =
       entry.providerId
         ? [

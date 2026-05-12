@@ -126,13 +126,6 @@ interface WorkspaceDesktopContextValue {
   clearPendingAppInstall: () => void;
   connectAndInstallApp: () => Promise<void>;
   isConnectingAppIntegration: boolean;
-  /**
-   * Run the composio OAuth dance for `provider`, optionally binding the new
-   * connection to `appId`. Returns the new connection id on success.
-   * Used by the chat IntegrationConnectCard surfaced when an agent install
-   * created an app whose provider has no active connection. Throws on
-   * timeout or composio error so the caller can surface the message.
-   */
   connectIntegrationProvider: (params: {
     provider: string;
     appId?: string | null;
@@ -1090,9 +1083,6 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     setAppCatalogError("");
     try {
       await connectIntegrationProvider({ provider, appId });
-      // First-time connect → no requested connectionId; doInstallApp falls
-      // through to its "auto-pick first active" path which now sees the
-      // freshly-stored connection.
       await doInstallApp(appId, null);
     } catch (error) {
       setAppCatalogError(normalizeErrorMessage(error));
