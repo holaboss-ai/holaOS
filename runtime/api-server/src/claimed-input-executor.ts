@@ -25,6 +25,7 @@ import type {
   BackendAgentRunEventType,
   BackendAgentRunStartRequest,
 } from "./backend-agent-runs-contract.js";
+import { resolveRuntimeModelClient } from "./agent-runtime-config.js";
 import { resolveProductRuntimeConfig } from "./runtime-config.js";
 import {
   normalizeHarnessId,
@@ -40,11 +41,16 @@ import {
 import type { MemoryServiceLike } from "./memory.js";
 import { createBackgroundTaskMemoryModelClient } from "./background-task-model.js";
 import {
+  evaluatePreRunSessionCompaction,
   enqueueSessionCheckpointJob,
+  forceCompactSessionWithSnapshotMerge,
   normalizePiContextUsage,
   shouldQueueSessionCheckpoint,
   waitForSessionCheckpointCompletion,
+  type PiCompactionCommandResult,
+  type PreRunSessionCompactionDecision,
   type PiContextUsage,
+  type SessionCheckpointSessionOps,
 } from "./session-checkpoint.js";
 import type { TurnMemoryWritebackModelContext } from "./turn-memory-writeback.js";
 import { runEvolveTasks } from "./evolve-tasks.js";
@@ -99,6 +105,34 @@ const PI_SESSION_MANAGER_MODULE_PATH = path.join(
   "session-manager.js",
 );
 const PI_SESSION_DIR_RELATIVE = path.join(".holaboss", "pi-sessions");
+const CONTEXT_OVERFLOW_PATTERNS = [
+  /prompt is too long/i,
+  /request_too_large/i,
+  /input is too long for requested model/i,
+  /exceeds the context window/i,
+  /input token count.*exceeds the maximum/i,
+  /maximum prompt length is \d+/i,
+  /reduce the length of the messages/i,
+  /maximum context length is \d+ tokens/i,
+  /exceeds the limit of \d+/i,
+  /exceeds the available context size/i,
+  /greater than the context length/i,
+  /context window exceeds limit/i,
+  /exceeded model token limit/i,
+  /too large for model with \d+ maximum context length/i,
+  /model_context_window_exceeded/i,
+  /prompt too long; exceeded (?:max )?context length/i,
+  /context[_ ]length[_ ]exceeded/i,
+  /too many tokens/i,
+  /token limit exceeded/i,
+  /^4(?:00|13)\s*(?:status code)?\s*\(no body\)/i,
+];
+const NON_CONTEXT_OVERFLOW_PATTERNS = [
+  /throttling error/i,
+  /service unavailable/i,
+  /rate limit/i,
+  /too many requests/i,
+];
 
 interface SessionInputAttachment {
   id: string;
@@ -169,6 +203,34 @@ interface TurnContextBudgetTelemetry {
   browserFindCalls: number;
   browserScreenshotCalls: number;
   browserPageTextChars: number;
+}
+
+interface PreRunCompactionTelemetryRecord {
+  initial_decision: PreRunSessionCompactionDecision["decision"];
+  final_decision: PreRunSessionCompactionDecision["decision"];
+  trigger_reason: string | null;
+  previous_selected_model: string | null;
+  target_selected_model: string | null;
+  previous_context_window: number | null;
+  target_context_window: number | null;
+  before_session_tokens: number | null;
+  after_session_tokens: number | null;
+  estimated_request_tokens: number | null;
+  projected_total_tokens: number | null;
+  compaction_attempted: boolean;
+  compaction_changed_branch: boolean;
+  reset_required: boolean;
+}
+
+interface OverflowRecoveryTelemetryRecord {
+  trigger_reason: string | null;
+  initial_error_type: string | null;
+  initial_error_message: string | null;
+  compaction_attempted: boolean;
+  compaction_changed_branch: boolean;
+  retry_attempted: boolean;
+  recovered: boolean;
+  reset_required: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1449,6 +1511,133 @@ function contextUsagePayload(contextUsage: PiContextUsage | null): Record<string
   };
 }
 
+function latestPriorTurnCompactionContext(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  sessionId: string;
+  currentInputId: string;
+}): {
+  previousSelectedModel: string | null;
+  previousContextUsage: PiContextUsage | null;
+} {
+  const recentTurns = params.store.listTurnResults({
+    workspaceId: params.workspaceId,
+    sessionId: params.sessionId,
+    limit: 10,
+    offset: 0,
+  });
+  for (const turn of recentTurns) {
+    if (turn.inputId === params.currentInputId) {
+      continue;
+    }
+    const previousInput = params.store.getInput({
+      workspaceId: params.workspaceId,
+      inputId: turn.inputId,
+    });
+    const contextBudgetDecisions = isRecord(turn.contextBudgetDecisions)
+      ? turn.contextBudgetDecisions
+      : null;
+    return {
+      previousSelectedModel:
+        typeof previousInput?.payload.model === "string"
+          ? previousInput.payload.model.trim() || null
+          : null,
+      previousContextUsage: normalizePiContextUsage(
+        contextBudgetDecisions?.context_usage,
+      ),
+    };
+  }
+  return {
+    previousSelectedModel: null,
+    previousContextUsage: null,
+  };
+}
+
+function preRunCompactionPayload(
+  value: PreRunCompactionTelemetryRecord | null,
+): Record<string, unknown> | null {
+  if (!value) {
+    return null;
+  }
+  return {
+    ...value,
+  };
+}
+
+function overflowRecoveryPayload(
+  value: OverflowRecoveryTelemetryRecord | null,
+): Record<string, unknown> | null {
+  if (!value) {
+    return null;
+  }
+  return {
+    ...value,
+  };
+}
+
+function contextOverflowFailureText(payload: Record<string, unknown>): string {
+  const candidates = [
+    optionalString(payload.message),
+    optionalString(payload.error_message),
+    optionalString(payload.type),
+  ].filter((value): value is string => Boolean(value));
+  try {
+    const serialized = JSON.stringify(payload);
+    if (serialized) {
+      candidates.push(serialized);
+    }
+  } catch {
+    // Ignore serialization failures and fall back to the direct fields.
+  }
+  return candidates.join("\n");
+}
+
+function isContextOverflowFailurePayload(
+  payload: Record<string, unknown> | null,
+): boolean {
+  if (!payload) {
+    return false;
+  }
+  const text = contextOverflowFailureText(payload);
+  if (!text) {
+    return false;
+  }
+  if (NON_CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(text))) {
+    return false;
+  }
+  return CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function runnerEventWithSequenceOffset(
+  event: RunnerEvent,
+  sequenceOffset: number,
+): RunnerEvent {
+  if (!Number.isFinite(sequenceOffset) || sequenceOffset <= 0) {
+    return event;
+  }
+  const baseSequence =
+    typeof event.sequence === "number" && Number.isFinite(event.sequence)
+      ? event.sequence
+      : 0;
+  return {
+    ...event,
+    sequence: baseSequence + sequenceOffset,
+  };
+}
+
+class SessionResetRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SessionResetRequiredError";
+  }
+}
+
+function executorFailureStopReason(error: unknown): string {
+  return error instanceof SessionResetRequiredError
+    ? "session_reset_required"
+    : "executor_error";
+}
+
 function promptCacheStableCandidate(promptCacheProfile: Record<string, unknown> | null): boolean {
   if (!promptCacheProfile) {
     return false;
@@ -1565,6 +1754,8 @@ function buildContextBudgetObservabilityPayload(params: {
   telemetry: TurnContextBudgetTelemetry;
   toolCallCount: number;
   checkpointQueued: boolean;
+  preRunCompaction?: PreRunCompactionTelemetryRecord | null;
+  overflowRecovery?: OverflowRecoveryTelemetryRecord | null;
 }): Record<string, unknown> {
   const inputTokens =
     firstFiniteUsageNumber(params.tokenUsage, ["input_tokens", "prompt_tokens"]);
@@ -1614,6 +1805,12 @@ function buildContextBudgetObservabilityPayload(params: {
     reason_codes: [],
     context_usage: contextUsagePayload(params.contextUsage),
     model_context_window: params.contextUsage?.contextWindow ?? null,
+    ...(params.preRunCompaction
+      ? { pre_run_compaction: preRunCompactionPayload(params.preRunCompaction) }
+      : {}),
+    ...(params.overflowRecovery
+      ? { overflow_recovery: overflowRecoveryPayload(params.overflowRecovery) }
+      : {}),
     input_budget_total: null,
     metrics: {
       status,
@@ -1659,6 +1856,8 @@ function buildMergedContextBudgetPayload(params: {
   toolReplayTrimmed: boolean;
   retrievalClipped?: boolean;
   checkpointQueued: boolean;
+  preRunCompaction?: PreRunCompactionTelemetryRecord | null;
+  overflowRecovery?: OverflowRecoveryTelemetryRecord | null;
 }): Record<string, unknown> {
   return {
     ...buildContextBudgetObservabilityPayload({
@@ -1672,6 +1871,8 @@ function buildMergedContextBudgetPayload(params: {
       telemetry: params.telemetry,
       toolCallCount: params.toolCallCount,
       checkpointQueued: params.checkpointQueued,
+      preRunCompaction: params.preRunCompaction,
+      overflowRecovery: params.overflowRecovery,
     }),
     ...buildContextBudgetDecisions({
       promptCacheProfile: params.promptCacheProfile,
@@ -3149,10 +3350,15 @@ export async function processClaimedInput(params: {
   onEvolveTaskError?: (taskName: string, error: unknown) => void;
   executeRunnerRequestFn?: typeof executeRunnerRequest;
   resolveProductRuntimeConfigFn?: typeof resolveProductRuntimeConfig;
+  resolveRuntimeModelClientFn?: typeof resolveRuntimeModelClient;
   registerRunStartedFn?: typeof registerWorkspaceAgentRunStarted;
   relayRunEventFn?: typeof registerWorkspaceAgentRunEvent;
   enqueueSessionCheckpointJobFn?: typeof enqueueSessionCheckpointJob;
   waitForSessionCheckpointCompletionFn?: typeof waitForSessionCheckpointCompletion;
+  runPiSessionCompactionFn?: (
+    requestPayload: Record<string, unknown>,
+  ) => Promise<PiCompactionCommandResult>;
+  sessionCheckpointSessionOps?: SessionCheckpointSessionOps;
   captureRuntimeExceptionFn?: typeof captureRuntimeException;
   abortSignal?: AbortSignal;
 }): Promise<void> {
@@ -3614,6 +3820,8 @@ export async function processClaimedInput(params: {
     let requestSnapshotFingerprint: string | null = null;
     let promptCacheProfile: Record<string, unknown> | null = null;
     let toolReplayTrimmed = false;
+    let preRunCompaction: PreRunCompactionTelemetryRecord | null = null;
+    let overflowRecovery: OverflowRecoveryTelemetryRecord | null = null;
     const toolCallsById = new Map<
       string,
       {
@@ -3731,418 +3939,579 @@ export async function processClaimedInput(params: {
     };
 
     try {
+      const snapshotRecord = store.getTurnRequestSnapshot({
+        workspaceId: record.workspaceId,
+        inputId: record.inputId,
+      });
+      const snapshotPayload = isRecord(snapshotRecord?.payload)
+        ? snapshotRecord.payload
+        : null;
+      const { previousSelectedModel, previousContextUsage } =
+        latestPriorTurnCompactionContext({
+          store,
+          workspaceId: record.workspaceId,
+          sessionId: record.sessionId,
+          currentInputId: record.inputId,
+        });
+      const initialPreRunDecision = evaluatePreRunSessionCompaction({
+        liveSessionFile: checkpointHarnessSessionId,
+        snapshotPayload,
+        selectedModel,
+        previousSelectedModel,
+        previousContextUsage,
+      });
+      if (initialPreRunDecision.decision !== "fit") {
+        const initialPreRunCompaction: PreRunCompactionTelemetryRecord = {
+          initial_decision: initialPreRunDecision.decision,
+          final_decision: initialPreRunDecision.decision,
+          trigger_reason: initialPreRunDecision.reason,
+          previous_selected_model: initialPreRunDecision.previousSelectedModel,
+          target_selected_model: initialPreRunDecision.targetSelectedModel,
+          previous_context_window: initialPreRunDecision.previousContextWindow,
+          target_context_window: initialPreRunDecision.targetContextWindow,
+          before_session_tokens: initialPreRunDecision.currentSessionTokens,
+          after_session_tokens: null,
+          estimated_request_tokens: initialPreRunDecision.estimatedRequestTokens,
+          projected_total_tokens: initialPreRunDecision.projectedTotalTokens,
+          compaction_attempted: true,
+          compaction_changed_branch: false,
+          reset_required: false,
+        };
+        preRunCompaction = initialPreRunCompaction;
+        const liveSessionState =
+          params.sessionCheckpointSessionOps?.currentLeafCheckpointState(
+            checkpointHarnessSessionId,
+          ) ?? currentPiSessionLeafState(checkpointHarnessSessionId);
+        const compactionResult = await forceCompactSessionWithSnapshotMerge({
+          store,
+          workspaceId: record.workspaceId,
+          sessionId: record.sessionId,
+          inputId: record.inputId,
+          harnessSessionId: checkpointHarnessSessionId,
+          baseLeafId: liveSessionState.leafId,
+          baseLatestCompactionId: liveSessionState.latestCompactionId,
+          runPiSessionCompactionFn: params.runPiSessionCompactionFn,
+          resolveRuntimeModelClientFn: params.resolveRuntimeModelClientFn,
+          sessionOps: params.sessionCheckpointSessionOps,
+        });
+        const finalPreRunDecision = evaluatePreRunSessionCompaction({
+          liveSessionFile: checkpointHarnessSessionId,
+          snapshotPayload,
+          selectedModel,
+          previousSelectedModel,
+          previousContextUsage: null,
+        });
+        const currentPreRunCompaction =
+          preRunCompaction ?? initialPreRunCompaction;
+        preRunCompaction = {
+          ...currentPreRunCompaction,
+          final_decision: finalPreRunDecision.decision,
+          after_session_tokens: finalPreRunDecision.currentSessionTokens,
+          estimated_request_tokens:
+            finalPreRunDecision.estimatedRequestTokens ??
+            currentPreRunCompaction.estimated_request_tokens,
+          projected_total_tokens:
+            finalPreRunDecision.projectedTotalTokens ??
+            currentPreRunCompaction.projected_total_tokens,
+          compaction_changed_branch: compactionResult.merged,
+        };
+        if (finalPreRunDecision.decision !== "fit") {
+          preRunCompaction = {
+            ...preRunCompaction,
+            final_decision: "reset_required",
+            reset_required: true,
+          };
+          throw new SessionResetRequiredError(
+            `pre-run session compaction could not make the next prompt fit ${selectedModel ?? "the selected model"}; session reset required`,
+          );
+        }
+      }
       const executeRunner =
         params.executeRunnerRequestFn ?? executeRunnerRequest;
-      const execution = await executeRunner(payload, {
-        signal: executionAbortController.signal,
-        onHeartbeat: () => {
-          renewClaimLease("heartbeat");
-        },
-        onEvent: async (event) => {
-          if (!renewClaimLease("event")) {
-            return;
+      let terminalEventToRelay:
+        | {
+            eventType: "run_completed" | "run_failed";
+            sequence: number;
+            payload: Record<string, unknown>;
+            createdAt: string;
           }
-          const sequence =
-            typeof event.sequence === "number" ? event.sequence : 0;
-          lastSequence = Math.max(lastSequence, sequence);
-          let eventPayload = payloadForEvent(event);
-          if (useEphemeralHarnessSession) {
-            eventPayload = sanitizeEphemeralHarnessSessionPayload({
-              payload: eventPayload,
-              liveSessionFile: ephemeralPiFollowupRun?.liveSessionFile ?? null,
-            });
-          }
-          const eventTimestamp = eventTimestampOrNow(event);
-          const eventType =
-            typeof event.event_type === "string" ? event.event_type : "unknown";
-          updateTurnContextBudgetTelemetryFromEvent(
-            contextBudgetTelemetry,
-            eventType,
-            eventPayload,
-          );
-          recentRunnerEvents.push(
-            summarizeRunnerEventForSentry({
-              sequence,
-              eventType,
-              timestamp: eventTimestamp,
-              payload: eventPayload,
-            }),
-          );
-          if (recentRunnerEvents.length > CLAIMED_INPUT_SENTRY_RECENT_EVENT_LIMIT) {
-            recentRunnerEvents.splice(
-              0,
-              recentRunnerEvents.length - CLAIMED_INPUT_SENTRY_RECENT_EVENT_LIMIT,
+        | null = null;
+      let runnerSequenceOffset = 0;
+
+      for (let runnerAttempt = 1; runnerAttempt <= 2; runnerAttempt += 1) {
+        const execution = await executeRunner(payload, {
+          signal: executionAbortController.signal,
+          onHeartbeat: () => {
+            renewClaimLease("heartbeat");
+          },
+          onEvent: async (rawEvent) => {
+            if (!renewClaimLease("event")) {
+              return;
+            }
+            const event = runnerEventWithSequenceOffset(
+              rawEvent,
+              runnerSequenceOffset,
             );
-          }
+            const sequence =
+              typeof event.sequence === "number" ? event.sequence : 0;
+            lastSequence = Math.max(lastSequence, sequence);
+            let eventPayload = payloadForEvent(event);
+            if (useEphemeralHarnessSession) {
+              eventPayload = sanitizeEphemeralHarnessSessionPayload({
+                payload: eventPayload,
+                liveSessionFile: ephemeralPiFollowupRun?.liveSessionFile ?? null,
+              });
+            }
+            const eventTimestamp = eventTimestampOrNow(event);
+            const eventType =
+              typeof event.event_type === "string"
+                ? event.event_type
+                : "unknown";
+            updateTurnContextBudgetTelemetryFromEvent(
+              contextBudgetTelemetry,
+              eventType,
+              eventPayload,
+            );
+            recentRunnerEvents.push(
+              summarizeRunnerEventForSentry({
+                sequence,
+                eventType,
+                timestamp: eventTimestamp,
+                payload: eventPayload,
+              }),
+            );
+            if (
+              recentRunnerEvents.length > CLAIMED_INPUT_SENTRY_RECENT_EVENT_LIMIT
+            ) {
+              recentRunnerEvents.splice(
+                0,
+                recentRunnerEvents.length -
+                  CLAIMED_INPUT_SENTRY_RECENT_EVENT_LIMIT,
+              );
+            }
+            const terminalHarnessSessionId = nonEmptyString(
+              eventPayload.harness_session_id,
+            );
+            if (terminalHarnessSessionId) {
+              checkpointHarnessSessionId = terminalHarnessSessionId;
+            }
+            if (eventType === "pi_native_event") {
+              capturedPiAssistantMessage =
+                assistantMessageFromPiNativeEventPayload(eventPayload) ??
+                capturedPiAssistantMessage;
+            }
+            if (eventType === "run_completed" || eventType === "run_failed") {
+              deferredTerminalEvent = {
+                eventType,
+                payload: eventPayload,
+                createdAt: eventTimestamp,
+              };
+            } else {
+              store.appendOutputEvent({
+                workspaceId: record.workspaceId,
+                sessionId: record.sessionId,
+                inputId: record.inputId,
+                sequence,
+                eventType,
+                payload: eventPayload,
+                createdAt: eventTimestamp,
+              });
+            }
+            maybePersistHarnessSessionId({
+              store,
+              workspaceId: record.workspaceId,
+              sessionId: record.sessionId,
+              harness,
+              eventType,
+              payload: eventPayload,
+              allowBindingPersistence: !useEphemeralHarnessSession,
+            });
+            if (
+              event.event_type === "output_delta" &&
+              typeof eventPayload.delta === "string"
+            ) {
+              assistantParts.push(eventPayload.delta);
+              if (
+                pendingOutputDeltaPayload &&
+                canMergeOutputDeltaRelayPayload(
+                  pendingOutputDeltaPayload,
+                  eventPayload,
+                ) &&
+                String(pendingOutputDeltaPayload.delta ?? "").length +
+                  eventPayload.delta.length <=
+                  BACKEND_OUTPUT_DELTA_RELAY_FLUSH_CHARS
+              ) {
+                pendingOutputDeltaPayload = mergeOutputDeltaRelayPayload(
+                  pendingOutputDeltaPayload,
+                  eventPayload,
+                );
+              } else {
+                await flushPendingOutputDelta();
+                pendingOutputDeltaPayload = { ...eventPayload };
+              }
+              pendingOutputDeltaSequence = Math.max(sequence, 1);
+              pendingOutputDeltaTimestamp = eventTimestamp;
+            }
+            if (event.event_type === "run_started") {
+              promptSectionIds = stringList(eventPayload.prompt_section_ids);
+              capabilityManifestFingerprint =
+                typeof eventPayload.capability_manifest_fingerprint ===
+                  "string" && eventPayload.capability_manifest_fingerprint.trim()
+                  ? eventPayload.capability_manifest_fingerprint.trim()
+                  : capabilityManifestFingerprint;
+              requestSnapshotFingerprint =
+                typeof eventPayload.request_snapshot_fingerprint === "string" &&
+                eventPayload.request_snapshot_fingerprint.trim()
+                  ? eventPayload.request_snapshot_fingerprint.trim()
+                  : requestSnapshotFingerprint;
+              promptCacheProfile =
+                jsonRecord(eventPayload.prompt_cache_profile) ??
+                promptCacheProfile;
+            }
+            if (event.event_type === "tool_call") {
+              const callId =
+                typeof eventPayload.call_id === "string" &&
+                eventPayload.call_id.trim()
+                  ? eventPayload.call_id.trim()
+                  : `sequence:${sequence}`;
+              const existingCall = toolCallsById.get(callId);
+              const toolName =
+                typeof eventPayload.tool_name === "string" &&
+                eventPayload.tool_name.trim()
+                  ? eventPayload.tool_name.trim()
+                  : (existingCall?.toolName ?? "unknown");
+              const toolId =
+                typeof eventPayload.tool_id === "string" &&
+                eventPayload.tool_id.trim()
+                  ? eventPayload.tool_id.trim()
+                  : (existingCall?.toolId ?? null);
+              const completed =
+                eventPayload.phase === "completed" ||
+                existingCall?.completed === true;
+              const errored =
+                eventPayload.error === true || existingCall?.error === true;
+              const browserUsage =
+                browserUsageFromToolResult(eventPayload.result) ??
+                existingCall?.browserUsage ??
+                null;
+              toolCallsById.set(callId, {
+                toolName,
+                toolId,
+                completed,
+                error: errored,
+                browserUsage,
+              });
+              if (eventPayload.phase === "completed") {
+                toolReplayTrimmed =
+                  toolReplayTrimmed ||
+                  toolReplayTrimmedFromToolResult(eventPayload.result);
+              }
+              const denial = permissionDenialFromEventPayload(eventPayload);
+              if (denial) {
+                permissionDenials.push(denial);
+              }
+            }
+            if (
+              event.event_type === "skill_invocation" ||
+              event.event_type === "tool_call"
+            ) {
+              const callId =
+                typeof eventPayload.call_id === "string" &&
+                eventPayload.call_id.trim()
+                  ? eventPayload.call_id.trim()
+                  : `sequence:${sequence}`;
+              const toolName = optionalString(eventPayload.tool_name);
+              const isSkillInvocation =
+                event.event_type === "skill_invocation" ||
+                (toolName !== null && toolName.toLowerCase() === "skill");
+              if (isSkillInvocation) {
+                const existingInvocation = skillInvocationsById.get(callId);
+                const toolArgs = jsonRecord(eventPayload.tool_args);
+                const skillName =
+                  optionalString(eventPayload.skill_name) ??
+                  optionalString(eventPayload.requested_name) ??
+                  optionalString(toolArgs?.name) ??
+                  existingInvocation?.skillName ??
+                  "unknown";
+                const skillId =
+                  optionalString(eventPayload.skill_id) ??
+                  existingInvocation?.skillId ??
+                  null;
+                const completed =
+                  eventPayload.phase === "completed" ||
+                  existingInvocation?.completed === true;
+                const error =
+                  eventPayload.error === true ||
+                  existingInvocation?.error === true;
+                skillInvocationsById.set(callId, {
+                  skillName,
+                  skillId,
+                  completed,
+                  error,
+                });
+              }
+            }
+            if (event.event_type === "skill_invocation") {
+              const scope = optionalString(eventPayload.widening_scope);
+              if (scope) {
+                wideningAudit.scope = scope;
+              }
+              if (
+                typeof eventPayload.workspace_boundary_override === "boolean"
+              ) {
+                wideningAudit.workspaceBoundaryOverride =
+                  eventPayload.workspace_boundary_override;
+              }
+              for (const toolName of stringList(eventPayload.managed_tools)) {
+                wideningAudit.managedTools.add(toolName);
+              }
+              const grantedTools = stringList(eventPayload.granted_tools);
+              for (const toolName of grantedTools) {
+                wideningAudit.grantedTools.add(toolName);
+              }
+              for (const toolName of stringList(
+                eventPayload.active_granted_tools,
+              )) {
+                wideningAudit.activeGrantedTools.add(toolName);
+              }
+              for (const commandId of stringList(eventPayload.managed_commands)) {
+                wideningAudit.managedCommands.add(commandId);
+              }
+              const grantedCommands = stringList(eventPayload.granted_commands);
+              for (const commandId of grantedCommands) {
+                wideningAudit.grantedCommands.add(commandId);
+              }
+              for (const commandId of stringList(
+                eventPayload.active_granted_commands,
+              )) {
+                wideningAudit.activeGrantedCommands.add(commandId);
+              }
+              if (
+                eventPayload.phase === "completed" &&
+                (grantedTools.length > 0 || grantedCommands.length > 0)
+              ) {
+                wideningAudit.activationCount += 1;
+              }
+            }
+            if (
+              event.event_type === "tool_call" &&
+              isSkillPolicyDeniedPayload(eventPayload)
+            ) {
+              wideningAudit.deniedCalls += 1;
+              const toolName = optionalString(eventPayload.tool_name);
+              if (toolName) {
+                wideningAudit.deniedToolNames.add(toolName);
+              }
+            }
+            if (event.event_type === "run_completed") {
+              terminalStatus = terminalStatusForCompletedPayload(
+                eventPayload,
+                harnessSupportsWaitingUser,
+              );
+              completedAt = eventTimestamp;
+              stopReason = stopReasonForTerminalEvent({
+                eventType: "run_completed",
+                payload: eventPayload,
+                terminalStatus,
+              });
+              tokenUsage = tokenUsageFromPayload(eventPayload) ?? tokenUsage;
+              contextUsage =
+                contextUsageFromPayload(eventPayload) ?? contextUsage;
+            }
+            if (event.event_type === "run_failed") {
+              terminalStatus = "ERROR";
+              lastError = eventPayload;
+              completedAt = eventTimestamp;
+              stopReason = stopReasonForTerminalEvent({
+                eventType: "run_failed",
+                payload: eventPayload,
+                terminalStatus,
+              });
+              tokenUsage = tokenUsageFromPayload(eventPayload) ?? tokenUsage;
+              contextUsage =
+                contextUsageFromPayload(eventPayload) ?? contextUsage;
+            }
+            if (event.event_type === "tool_call") {
+              await flushPendingOutputDelta();
+              await relayBackendRunEvent({
+                eventType: "tool_call",
+                payload: eventPayload,
+                timestamp: eventTimestamp,
+                preferredSequence: Math.max(sequence, 1),
+              });
+            }
+            if (event.event_type === "skill_invocation") {
+              await flushPendingOutputDelta();
+              await relayBackendRunEvent({
+                eventType: "skill_invocation",
+                payload: eventPayload,
+                timestamp: eventTimestamp,
+                preferredSequence: Math.max(sequence, 1),
+              });
+            }
+          },
+        });
+        if (claimOwnershipLost || !claimStillOwned()) {
+          return;
+        }
+        await flushPendingOutputDelta();
+
+        const persistedTerminalEvent = latestPersistedTerminalOutputEvent({
+          store,
+          workspaceId: record.workspaceId,
+          sessionId: record.sessionId,
+          inputId: record.inputId,
+        });
+
+        if (persistedTerminalEvent) {
+          const persistedPayload = persistedTerminalEvent.payload;
           const terminalHarnessSessionId = nonEmptyString(
-            eventPayload.harness_session_id,
+            persistedPayload.harness_session_id,
           );
           if (terminalHarnessSessionId) {
             checkpointHarnessSessionId = terminalHarnessSessionId;
           }
-          if (eventType === "pi_native_event") {
-            capturedPiAssistantMessage =
-              assistantMessageFromPiNativeEventPayload(eventPayload) ??
-              capturedPiAssistantMessage;
-          }
-          if (eventType === "run_completed" || eventType === "run_failed") {
-            deferredTerminalEvent = {
-              eventType,
-              payload: eventPayload,
-              createdAt: eventTimestamp,
-            };
-          } else {
-            store.appendOutputEvent({
-              workspaceId: record.workspaceId,
-              sessionId: record.sessionId,
-              inputId: record.inputId,
-              sequence,
-              eventType,
-              payload: eventPayload,
-              createdAt: eventTimestamp,
-            });
-          }
-          maybePersistHarnessSessionId({
-            store,
-            workspaceId: record.workspaceId,
-            sessionId: record.sessionId,
-            harness,
-            eventType,
-            payload: eventPayload,
-            allowBindingPersistence: !useEphemeralHarnessSession,
-          });
-          if (
-            event.event_type === "output_delta" &&
-            typeof eventPayload.delta === "string"
-          ) {
-            assistantParts.push(eventPayload.delta);
-            if (
-              pendingOutputDeltaPayload &&
-              canMergeOutputDeltaRelayPayload(
-                pendingOutputDeltaPayload,
-                eventPayload,
-              ) &&
-              String(pendingOutputDeltaPayload.delta ?? "").length +
-                eventPayload.delta.length <=
-                BACKEND_OUTPUT_DELTA_RELAY_FLUSH_CHARS
-            ) {
-              pendingOutputDeltaPayload = mergeOutputDeltaRelayPayload(
-                pendingOutputDeltaPayload,
-                eventPayload,
-              );
-            } else {
-              await flushPendingOutputDelta();
-              pendingOutputDeltaPayload = { ...eventPayload };
-            }
-            pendingOutputDeltaSequence = Math.max(sequence, 1);
-            pendingOutputDeltaTimestamp = eventTimestamp;
-          }
-          if (event.event_type === "run_started") {
-            promptSectionIds = stringList(eventPayload.prompt_section_ids);
-            capabilityManifestFingerprint =
-              typeof eventPayload.capability_manifest_fingerprint ===
-                "string" && eventPayload.capability_manifest_fingerprint.trim()
-                ? eventPayload.capability_manifest_fingerprint.trim()
-                : capabilityManifestFingerprint;
-            requestSnapshotFingerprint =
-              typeof eventPayload.request_snapshot_fingerprint === "string" &&
-              eventPayload.request_snapshot_fingerprint.trim()
-                ? eventPayload.request_snapshot_fingerprint.trim()
-                : requestSnapshotFingerprint;
-            promptCacheProfile =
-              jsonRecord(eventPayload.prompt_cache_profile) ??
-              promptCacheProfile;
-          }
-          if (event.event_type === "tool_call") {
-            const callId =
-              typeof eventPayload.call_id === "string" &&
-              eventPayload.call_id.trim()
-                ? eventPayload.call_id.trim()
-                : `sequence:${sequence}`;
-            const existingCall = toolCallsById.get(callId);
-            const toolName =
-              typeof eventPayload.tool_name === "string" &&
-              eventPayload.tool_name.trim()
-                ? eventPayload.tool_name.trim()
-                : (existingCall?.toolName ?? "unknown");
-            const toolId =
-              typeof eventPayload.tool_id === "string" &&
-              eventPayload.tool_id.trim()
-                ? eventPayload.tool_id.trim()
-                : (existingCall?.toolId ?? null);
-            const completed =
-              eventPayload.phase === "completed" ||
-              existingCall?.completed === true;
-            const errored =
-              eventPayload.error === true || existingCall?.error === true;
-            const browserUsage =
-              browserUsageFromToolResult(eventPayload.result) ??
-              existingCall?.browserUsage ??
-              null;
-            toolCallsById.set(callId, {
-              toolName,
-              toolId,
-              completed,
-              error: errored,
-              browserUsage,
-            });
-            if (eventPayload.phase === "completed") {
-              toolReplayTrimmed =
-                toolReplayTrimmed ||
-                toolReplayTrimmedFromToolResult(eventPayload.result);
-            }
-            const denial = permissionDenialFromEventPayload(eventPayload);
-            if (denial) {
-              permissionDenials.push(denial);
-            }
-          }
-          if (
-            event.event_type === "skill_invocation" ||
-            event.event_type === "tool_call"
-          ) {
-            const callId =
-              typeof eventPayload.call_id === "string" &&
-              eventPayload.call_id.trim()
-                ? eventPayload.call_id.trim()
-                : `sequence:${sequence}`;
-            const toolName = optionalString(eventPayload.tool_name);
-            const isSkillInvocation =
-              event.event_type === "skill_invocation" ||
-              (toolName !== null && toolName.toLowerCase() === "skill");
-            if (isSkillInvocation) {
-              const existingInvocation = skillInvocationsById.get(callId);
-              const toolArgs = jsonRecord(eventPayload.tool_args);
-              const skillName =
-                optionalString(eventPayload.skill_name) ??
-                optionalString(eventPayload.requested_name) ??
-                optionalString(toolArgs?.name) ??
-                existingInvocation?.skillName ??
-                "unknown";
-              const skillId =
-                optionalString(eventPayload.skill_id) ??
-                existingInvocation?.skillId ??
-                null;
-              const completed =
-                eventPayload.phase === "completed" ||
-                existingInvocation?.completed === true;
-              const error =
-                eventPayload.error === true ||
-                existingInvocation?.error === true;
-              skillInvocationsById.set(callId, {
-                skillName,
-                skillId,
-                completed,
-                error,
-              });
-            }
-          }
-          if (event.event_type === "skill_invocation") {
-            const scope = optionalString(eventPayload.widening_scope);
-            if (scope) {
-              wideningAudit.scope = scope;
-            }
-            if (typeof eventPayload.workspace_boundary_override === "boolean") {
-              wideningAudit.workspaceBoundaryOverride =
-                eventPayload.workspace_boundary_override;
-            }
-            for (const toolName of stringList(eventPayload.managed_tools)) {
-              wideningAudit.managedTools.add(toolName);
-            }
-            const grantedTools = stringList(eventPayload.granted_tools);
-            for (const toolName of grantedTools) {
-              wideningAudit.grantedTools.add(toolName);
-            }
-            for (const toolName of stringList(
-              eventPayload.active_granted_tools,
-            )) {
-              wideningAudit.activeGrantedTools.add(toolName);
-            }
-            for (const commandId of stringList(eventPayload.managed_commands)) {
-              wideningAudit.managedCommands.add(commandId);
-            }
-            const grantedCommands = stringList(eventPayload.granted_commands);
-            for (const commandId of grantedCommands) {
-              wideningAudit.grantedCommands.add(commandId);
-            }
-            for (const commandId of stringList(
-              eventPayload.active_granted_commands,
-            )) {
-              wideningAudit.activeGrantedCommands.add(commandId);
-            }
-            if (
-              eventPayload.phase === "completed" &&
-              (grantedTools.length > 0 || grantedCommands.length > 0)
-            ) {
-              wideningAudit.activationCount += 1;
-            }
-          }
-          if (
-            event.event_type === "tool_call" &&
-            isSkillPolicyDeniedPayload(eventPayload)
-          ) {
-            wideningAudit.deniedCalls += 1;
-            const toolName = optionalString(eventPayload.tool_name);
-            if (toolName) {
-              wideningAudit.deniedToolNames.add(toolName);
-            }
-          }
-          if (event.event_type === "run_completed") {
+          deferredTerminalEvent = null;
+          if (persistedTerminalEvent.eventType === "run_completed") {
             terminalStatus = terminalStatusForCompletedPayload(
-              eventPayload,
+              persistedPayload,
               harnessSupportsWaitingUser,
             );
-            completedAt = eventTimestamp;
+            lastError = null;
+            completedAt = persistedTerminalEvent.createdAt;
             stopReason = stopReasonForTerminalEvent({
               eventType: "run_completed",
-              payload: eventPayload,
+              payload: persistedPayload,
               terminalStatus,
             });
-            tokenUsage = tokenUsageFromPayload(eventPayload) ?? tokenUsage;
-            contextUsage = contextUsageFromPayload(eventPayload) ?? contextUsage;
-          }
-          if (event.event_type === "run_failed") {
+            tokenUsage = tokenUsageFromPayload(persistedPayload) ?? tokenUsage;
+            contextUsage =
+              contextUsageFromPayload(persistedPayload) ?? contextUsage;
+          } else {
             terminalStatus = "ERROR";
-            lastError = eventPayload;
-            completedAt = eventTimestamp;
+            lastError = persistedPayload;
+            completedAt = persistedTerminalEvent.createdAt;
             stopReason = stopReasonForTerminalEvent({
               eventType: "run_failed",
-              payload: eventPayload,
+              payload: persistedPayload,
               terminalStatus,
             });
-            tokenUsage = tokenUsageFromPayload(eventPayload) ?? tokenUsage;
-            contextUsage = contextUsageFromPayload(eventPayload) ?? contextUsage;
-            if (!terminalFailureCaptured) {
-              terminalFailureCaptured = true;
-              captureClaimedInputFailure(
-                terminalFailureKindFromPayload(eventPayload),
-                optionalString(eventPayload.message) ??
-                  optionalString(eventPayload.type) ??
-                  "runner emitted run_failed",
-                {
-                  failure_source: "terminal_event",
-                  terminal_status: "ERROR",
-                  terminal_stop_reason: stopReason,
-                  terminal_payload: sanitizeRuntimeSentryValue(eventPayload),
-                  event_sequence: sequence,
-                  event_timestamp: eventTimestamp,
-                },
-              );
-            }
+            tokenUsage = tokenUsageFromPayload(persistedPayload) ?? tokenUsage;
+            contextUsage =
+              contextUsageFromPayload(persistedPayload) ?? contextUsage;
           }
-          if (event.event_type === "tool_call") {
-            await flushPendingOutputDelta();
-            await relayBackendRunEvent({
-              eventType: "tool_call",
-              payload: eventPayload,
-              timestamp: eventTimestamp,
-              preferredSequence: Math.max(sequence, 1),
+        } else if (execution.aborted && !execution.sawTerminal) {
+          if (execution.abortReason === "user_requested_pause") {
+            const pausedAt = new Date().toISOString();
+            const completed = buildRunCompletedEvent({
+              sessionId: record.sessionId,
+              inputId: record.inputId,
+              sequence: lastSequence + 1,
+              payload: {
+                status: "paused",
+                stop_reason: "paused",
+                message: "Run paused by user request",
+              },
+            });
+            const completedPayload = payloadForEvent(completed);
+            lastSequence = Math.max(
+              lastSequence,
+              typeof completed.sequence === "number"
+                ? completed.sequence
+                : lastSequence + 1,
+            );
+            deferredTerminalEvent = {
+              eventType: "run_completed",
+              payload: completedPayload,
+              createdAt: pausedAt,
+            };
+            terminalStatus = "PAUSED";
+            lastError = null;
+            completedAt = pausedAt;
+            stopReason = stopReasonForTerminalEvent({
+              eventType: "run_completed",
+              payload: completedPayload,
+              terminalStatus,
+            });
+          } else {
+            const failedAt = new Date().toISOString();
+            const failure = buildRunFailedEvent({
+              sessionId: record.sessionId,
+              inputId: record.inputId,
+              sequence: lastSequence + 1,
+              message:
+                execution.abortReason === "claim_expired"
+                  ? "claimed input lease expired before the runner emitted a terminal event"
+                  : execution.stderr.trim() ||
+                    (execution.abortReason
+                      ? `runner aborted before terminal event: ${execution.abortReason}`
+                      : "runner aborted before terminal event"),
+              errorType: "RuntimeError",
+            });
+            const failurePayload = payloadForEvent(failure);
+            lastSequence = Math.max(
+              lastSequence,
+              typeof failure.sequence === "number"
+                ? failure.sequence
+                : lastSequence + 1,
+            );
+            deferredTerminalEvent = {
+              eventType: "run_failed",
+              payload: failurePayload,
+              createdAt: failedAt,
+            };
+            captureClaimedInputFailure(
+              execution.abortReason === "claim_expired"
+                ? "claim_expired"
+                : "runner_aborted",
+              String(
+                failurePayload.message ?? "runner aborted before terminal event",
+              ),
+              {
+                failure_source: "synthetic_terminal_event",
+                terminal_status: "ERROR",
+                terminal_stop_reason: stopReasonForTerminalEvent({
+                  eventType: "run_failed",
+                  payload: failurePayload,
+                  terminalStatus: "ERROR",
+                }),
+                terminal_payload: sanitizeRuntimeSentryValue(failurePayload),
+                abort_reason: execution.abortReason,
+                return_code: execution.returnCode,
+                stderr: execution.stderr,
+                saw_terminal: execution.sawTerminal,
+                skipped_lines: execution.skippedLines.slice(0, 5),
+              },
+            );
+            terminalFailureCaptured = true;
+            terminalStatus = "ERROR";
+            lastError = failurePayload;
+            completedAt = failedAt;
+            stopReason = stopReasonForTerminalEvent({
+              eventType: "run_failed",
+              payload: failurePayload,
+              terminalStatus,
             });
           }
-          if (event.event_type === "skill_invocation") {
-            await flushPendingOutputDelta();
-            await relayBackendRunEvent({
-              eventType: "skill_invocation",
-              payload: eventPayload,
-              timestamp: eventTimestamp,
-              preferredSequence: Math.max(sequence, 1),
-            });
-          }
-        },
-      });
-      if (claimOwnershipLost || !claimStillOwned()) {
-        return;
-      }
-      await flushPendingOutputDelta();
-
-      const persistedTerminalEvent = latestPersistedTerminalOutputEvent({
-        store,
-        workspaceId: record.workspaceId,
-        sessionId: record.sessionId,
-        inputId: record.inputId,
-      });
-
-      if (persistedTerminalEvent) {
-        const persistedPayload = persistedTerminalEvent.payload;
-        const terminalHarnessSessionId = nonEmptyString(
-          persistedPayload.harness_session_id,
-        );
-        if (terminalHarnessSessionId) {
-          checkpointHarnessSessionId = terminalHarnessSessionId;
-        }
-        deferredTerminalEvent = null;
-        if (persistedTerminalEvent.eventType === "run_completed") {
-          terminalStatus = terminalStatusForCompletedPayload(
-            persistedPayload,
-            harnessSupportsWaitingUser,
-          );
-          lastError = null;
-          completedAt = persistedTerminalEvent.createdAt;
-          stopReason = stopReasonForTerminalEvent({
-            eventType: "run_completed",
-            payload: persistedPayload,
-            terminalStatus,
-          });
-          tokenUsage = tokenUsageFromPayload(persistedPayload) ?? tokenUsage;
-          contextUsage = contextUsageFromPayload(persistedPayload) ?? contextUsage;
-        } else {
-          terminalStatus = "ERROR";
-          lastError = persistedPayload;
-          completedAt = persistedTerminalEvent.createdAt;
-          stopReason = stopReasonForTerminalEvent({
-            eventType: "run_failed",
-            payload: persistedPayload,
-            terminalStatus,
-          });
-          tokenUsage = tokenUsageFromPayload(persistedPayload) ?? tokenUsage;
-          contextUsage = contextUsageFromPayload(persistedPayload) ?? contextUsage;
-        }
-      } else if (execution.aborted && !execution.sawTerminal) {
-        if (execution.abortReason === "user_requested_pause") {
-          const pausedAt = new Date().toISOString();
-          const completed = buildRunCompletedEvent({
-            sessionId: record.sessionId,
-            inputId: record.inputId,
-            sequence: lastSequence + 1,
-            payload: {
-              status: "paused",
-              stop_reason: "paused",
-              message: "Run paused by user request",
-            },
-          });
-          const completedPayload = payloadForEvent(completed);
-          lastSequence = Math.max(
-            lastSequence,
-            typeof completed.sequence === "number"
-              ? completed.sequence
-              : lastSequence + 1,
-          );
-          deferredTerminalEvent = {
-            eventType: "run_completed",
-            payload: completedPayload,
-            createdAt: pausedAt,
-          };
-          terminalStatus = "PAUSED";
-          lastError = null;
-          completedAt = pausedAt;
-          stopReason = stopReasonForTerminalEvent({
-            eventType: "run_completed",
-            payload: completedPayload,
-            terminalStatus,
-          });
-        } else {
-          const failedAt = new Date().toISOString();
+        } else if (!execution.sawTerminal) {
+          const details =
+            execution.skippedLines.length > 0
+              ? execution.skippedLines.slice(0, 3).join("; ")
+              : "";
+          const suffix = details ? ` (skipped output: ${details})` : "";
           const failure = buildRunFailedEvent({
             sessionId: record.sessionId,
             inputId: record.inputId,
             sequence: lastSequence + 1,
             message:
-              execution.abortReason === "claim_expired"
-                ? "claimed input lease expired before the runner emitted a terminal event"
-                : execution.stderr.trim() ||
-                  (execution.abortReason
-                    ? `runner aborted before terminal event: ${execution.abortReason}`
-                    : "runner aborted before terminal event"),
-            errorType: "RuntimeError",
+              execution.returnCode !== 0
+                ? execution.stderr.trim() ||
+                  `runner command failed with exit_code=${execution.returnCode}`
+                : `runner ended before terminal event${suffix}`,
+            errorType:
+              execution.returnCode !== 0
+                ? "RunnerCommandError"
+                : "RuntimeError",
           });
           const failurePayload = payloadForEvent(failure);
           lastSequence = Math.max(
@@ -4154,13 +4523,17 @@ export async function processClaimedInput(params: {
           deferredTerminalEvent = {
             eventType: "run_failed",
             payload: failurePayload,
-            createdAt: failedAt,
+            createdAt: new Date().toISOString(),
           };
           captureClaimedInputFailure(
-            execution.abortReason === "claim_expired"
-              ? "claim_expired"
-              : "runner_aborted",
-            String(failurePayload.message ?? "runner aborted before terminal event"),
+            execution.returnCode !== 0
+              ? execution.stderr.trim() === "runner command timed out"
+                ? "runner_timeout"
+                : execution.stderr.includes("became idle")
+                  ? "runner_idle_timeout"
+                  : "runner_command_error"
+              : "runner_missing_terminal",
+            String(failurePayload.message ?? "runner ended before terminal event"),
             {
               failure_source: "synthetic_terminal_event",
               terminal_status: "ERROR",
@@ -4170,101 +4543,146 @@ export async function processClaimedInput(params: {
                 terminalStatus: "ERROR",
               }),
               terminal_payload: sanitizeRuntimeSentryValue(failurePayload),
-              abort_reason: execution.abortReason,
               return_code: execution.returnCode,
               stderr: execution.stderr,
               saw_terminal: execution.sawTerminal,
               skipped_lines: execution.skippedLines.slice(0, 5),
             },
           );
+          terminalFailureCaptured = true;
           terminalStatus = "ERROR";
           lastError = failurePayload;
-          completedAt = failedAt;
+          completedAt = new Date().toISOString();
           stopReason = stopReasonForTerminalEvent({
             eventType: "run_failed",
             payload: failurePayload,
             terminalStatus,
           });
         }
-      } else if (!execution.sawTerminal) {
-        const details =
-          execution.skippedLines.length > 0
-            ? execution.skippedLines.slice(0, 3).join("; ")
-            : "";
-        const suffix = details ? ` (skipped output: ${details})` : "";
-        const failure = buildRunFailedEvent({
-          sessionId: record.sessionId,
-          inputId: record.inputId,
-          sequence: lastSequence + 1,
-          message:
-            execution.returnCode !== 0
-              ? execution.stderr.trim() ||
-                `runner command failed with exit_code=${execution.returnCode}`
-              : `runner ended before terminal event${suffix}`,
-          errorType:
-            execution.returnCode !== 0 ? "RunnerCommandError" : "RuntimeError",
-        });
-        const failurePayload = payloadForEvent(failure);
-        lastSequence = Math.max(
-          lastSequence,
-          typeof failure.sequence === "number"
-            ? failure.sequence
-            : lastSequence + 1,
-        );
-        deferredTerminalEvent = {
-          eventType: "run_failed",
-          payload: failurePayload,
-          createdAt: new Date().toISOString(),
-        };
-        captureClaimedInputFailure(
-          execution.returnCode !== 0
-            ? execution.stderr.trim() === "runner command timed out"
-              ? "runner_timeout"
-              : execution.stderr.includes("became idle")
-                ? "runner_idle_timeout"
-                : "runner_command_error"
-            : "runner_missing_terminal",
-          String(failurePayload.message ?? "runner ended before terminal event"),
-          {
-            failure_source: "synthetic_terminal_event",
-            terminal_status: "ERROR",
-            terminal_stop_reason: stopReasonForTerminalEvent({
-              eventType: "run_failed",
-              payload: failurePayload,
-              terminalStatus: "ERROR",
-            }),
-            terminal_payload: sanitizeRuntimeSentryValue(failurePayload),
-            return_code: execution.returnCode,
-            stderr: execution.stderr,
-            saw_terminal: execution.sawTerminal,
-            skipped_lines: execution.skippedLines.slice(0, 5),
-          },
-        );
-        terminalStatus = "ERROR";
-        lastError = failurePayload;
-        completedAt = new Date().toISOString();
-        stopReason = stopReasonForTerminalEvent({
-          eventType: "run_failed",
-          payload: failurePayload,
-          terminalStatus,
-        });
-      }
 
-      let terminalEventToRelay = persistedTerminalEvent
-        ? {
-            eventType: persistedTerminalEvent.eventType,
-            sequence: persistedTerminalEvent.sequence,
-            payload: persistedTerminalEvent.payload,
-            createdAt: persistedTerminalEvent.createdAt,
-          }
-        : deferredTerminalEvent
+        terminalEventToRelay = persistedTerminalEvent
           ? {
-              eventType: deferredTerminalEvent.eventType,
-              sequence: lastSequence + 1,
-              payload: deferredTerminalEvent.payload,
-              createdAt: deferredTerminalEvent.createdAt,
+              eventType:
+                persistedTerminalEvent.eventType === "run_completed"
+                  ? "run_completed"
+                  : "run_failed",
+              sequence: persistedTerminalEvent.sequence,
+              payload: persistedTerminalEvent.payload,
+              createdAt: persistedTerminalEvent.createdAt,
             }
-          : null;
+          : deferredTerminalEvent
+            ? {
+                eventType: deferredTerminalEvent.eventType,
+                sequence: lastSequence + 1,
+                payload: deferredTerminalEvent.payload,
+                createdAt: deferredTerminalEvent.createdAt,
+              }
+            : null;
+
+        const terminalFailurePayload =
+          terminalEventToRelay?.eventType === "run_failed"
+            ? terminalEventToRelay.payload
+            : null;
+        if (isContextOverflowFailurePayload(terminalFailurePayload)) {
+          if (runnerAttempt >= 2) {
+            overflowRecovery = {
+              ...(overflowRecovery ?? {
+                trigger_reason: "provider_context_overflow",
+                initial_error_type:
+                  optionalString(terminalFailurePayload?.type) ?? null,
+                initial_error_message:
+                  optionalString(terminalFailurePayload?.message) ?? null,
+                compaction_attempted: false,
+                compaction_changed_branch: false,
+                retry_attempted: true,
+                recovered: false,
+                reset_required: false,
+              }),
+              retry_attempted: true,
+              recovered: false,
+              reset_required: true,
+            };
+            throw new SessionResetRequiredError(
+              `overflow recovery could not make the next prompt fit ${selectedModel ?? "the selected model"}; session reset required`,
+            );
+          }
+          overflowRecovery = {
+            trigger_reason: "provider_context_overflow",
+            initial_error_type: optionalString(terminalFailurePayload?.type),
+            initial_error_message: optionalString(
+              terminalFailurePayload?.message,
+            ),
+            compaction_attempted: true,
+            compaction_changed_branch: false,
+            retry_attempted: false,
+            recovered: false,
+            reset_required: false,
+          };
+          const liveSessionState =
+            params.sessionCheckpointSessionOps?.currentLeafCheckpointState(
+              checkpointHarnessSessionId,
+            ) ?? currentPiSessionLeafState(checkpointHarnessSessionId);
+          const compactionResult = await forceCompactSessionWithSnapshotMerge({
+            store,
+            workspaceId: record.workspaceId,
+            sessionId: record.sessionId,
+            inputId: record.inputId,
+            harnessSessionId: checkpointHarnessSessionId,
+            baseLeafId: liveSessionState.leafId,
+            baseLatestCompactionId: liveSessionState.latestCompactionId,
+            runPiSessionCompactionFn: params.runPiSessionCompactionFn,
+            resolveRuntimeModelClientFn: params.resolveRuntimeModelClientFn,
+            sessionOps: params.sessionCheckpointSessionOps,
+          });
+          overflowRecovery = {
+            ...overflowRecovery,
+            compaction_changed_branch: compactionResult.merged,
+            retry_attempted: compactionResult.merged,
+          };
+          if (!compactionResult.merged) {
+            overflowRecovery = {
+              ...overflowRecovery,
+              reset_required: true,
+            };
+            throw new SessionResetRequiredError(
+              `overflow recovery compaction could not make the next prompt fit ${selectedModel ?? "the selected model"}; session reset required`,
+            );
+          }
+          runnerSequenceOffset = Math.max(runnerSequenceOffset, lastSequence);
+          assistantParts.length = 0;
+          capturedPiAssistantMessage = null;
+          terminalStatus = "IDLE";
+          lastError = null;
+          completedAt = null;
+          stopReason = null;
+          tokenUsage = null;
+          contextUsage = null;
+          promptSectionIds = [];
+          capabilityManifestFingerprint = null;
+          requestSnapshotFingerprint = null;
+          promptCacheProfile = null;
+          toolReplayTrimmed = false;
+          deferredTerminalEvent = null;
+          pendingOutputDeltaPayload = null;
+          pendingOutputDeltaSequence = 0;
+          pendingOutputDeltaTimestamp = null;
+          toolCallsById.clear();
+          skillInvocationsById.clear();
+          permissionDenials.length = 0;
+          continue;
+        }
+        if (
+          runnerAttempt > 1 &&
+          overflowRecovery?.retry_attempted &&
+          terminalEventToRelay?.eventType === "run_completed"
+        ) {
+          overflowRecovery = {
+            ...overflowRecovery,
+            recovered: true,
+          };
+        }
+        break;
+      }
       const assistantText = assistantParts.join("").trim();
       if (
         useEphemeralHarnessSession &&
@@ -4407,6 +4825,8 @@ export async function processClaimedInput(params: {
         toolCallCount: toolCallsById.size,
         toolReplayTrimmed,
         checkpointQueued: Boolean(checkpointJob),
+        preRunCompaction,
+        overflowRecovery,
       });
       if (deferredTerminalEvent) {
         deferredTerminalEvent.payload.context_budget_decisions =
@@ -4426,6 +4846,28 @@ export async function processClaimedInput(params: {
           createdAt: deferredTerminalEvent.createdAt,
         };
         deferredTerminalEvent = null;
+      }
+      if (
+        terminalEventToRelay?.eventType === "run_failed" &&
+        !terminalFailureCaptured
+      ) {
+        terminalFailureCaptured = true;
+        captureClaimedInputFailure(
+          terminalFailureKindFromPayload(terminalEventToRelay.payload),
+          optionalString(terminalEventToRelay.payload.message) ??
+            optionalString(terminalEventToRelay.payload.type) ??
+            "runner emitted run_failed",
+          {
+            failure_source: "terminal_event",
+            terminal_status: "ERROR",
+            terminal_stop_reason: stopReason,
+            terminal_payload: sanitizeRuntimeSentryValue(
+              terminalEventToRelay.payload,
+            ),
+            event_sequence: terminalEventToRelay.sequence,
+            event_timestamp: terminalEventToRelay.createdAt,
+          },
+        );
       }
 
       store.updateInput({
@@ -4635,6 +5077,7 @@ export async function processClaimedInput(params: {
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
+      const errorStopReason = executorFailureStopReason(error);
       store.updateInput({
         workspaceId: record.workspaceId,
         inputId: record.inputId,
@@ -4652,11 +5095,16 @@ export async function processClaimedInput(params: {
         eventType: "run_failed",
         payload: {
           message,
+          ...(errorStopReason === "session_reset_required" &&
+          error instanceof Error &&
+          error.name
+            ? { error_type: error.name }
+            : {}),
           context_budget_decisions: buildMergedContextBudgetPayload({
             startedAt: turnStartedAt,
             completedAt: new Date().toISOString(),
             terminalStatus: "ERROR",
-            stopReason: "executor_error",
+            stopReason: errorStopReason,
             tokenUsage: null,
             contextUsage,
             promptCacheProfile,
@@ -4664,6 +5112,8 @@ export async function processClaimedInput(params: {
             toolCallCount: toolCallsById.size,
             toolReplayTrimmed,
             checkpointQueued: false,
+            preRunCompaction,
+            overflowRecovery,
           }),
         },
       });
@@ -4675,7 +5125,12 @@ export async function processClaimedInput(params: {
         currentWorkerId: null,
         leaseUntil: null,
         heartbeatAt: null,
-        lastError: { message },
+        lastError:
+          errorStopReason === "session_reset_required" &&
+          error instanceof Error &&
+          error.name
+            ? { message, error_type: error.name }
+            : { message },
       });
       const errorCompletedAt = new Date().toISOString();
       const turnResult = persistTurnResult({
@@ -4684,7 +5139,7 @@ export async function processClaimedInput(params: {
         startedAt: turnStartedAt,
         completedAt: errorCompletedAt,
         terminalStatus: "ERROR",
-        stopReason: "executor_error",
+        stopReason: errorStopReason,
         assistantText: "",
         toolUsageSummary: summarizeToolCalls(new Map()),
         permissionDenials: [],
@@ -4696,7 +5151,7 @@ export async function processClaimedInput(params: {
           startedAt: turnStartedAt,
           completedAt: errorCompletedAt,
           terminalStatus: "ERROR",
-          stopReason: "executor_error",
+          stopReason: errorStopReason,
           tokenUsage: null,
           contextUsage,
           promptCacheProfile,
@@ -4704,6 +5159,8 @@ export async function processClaimedInput(params: {
           toolCallCount: toolCallsById.size,
           toolReplayTrimmed,
           checkpointQueued: false,
+          preRunCompaction,
+          overflowRecovery,
         }),
         tokenUsage: null,
       });
