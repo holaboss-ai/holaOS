@@ -116,6 +116,7 @@ export function AppSurfacePane({
   const [frameError, setFrameError] = useState("");
   const [paneWidth, setPaneWidth] = useState(0);
   const paneRef = useRef<HTMLDivElement | null>(null);
+  const readyActivationAttemptRef = useRef("");
 
   // Mirrors BrowserPane's compaction thresholds so toolbar density stays
   // consistent across panes.
@@ -145,6 +146,27 @@ export function AppSurfacePane({
     () => resolveAppSurfacePath({ path, resourceId, view }),
     [path, resourceId, view],
   );
+
+  useEffect(() => {
+    const isInstalledApp = app && "ready" in app;
+    if (!selectedWorkspaceId || !isInstalledApp || app.ready) {
+      readyActivationAttemptRef.current = "";
+      return;
+    }
+    const attemptKey = `${selectedWorkspaceId}:${appId}`;
+    if (readyActivationAttemptRef.current === attemptKey) {
+      return;
+    }
+    readyActivationAttemptRef.current = attemptKey;
+    void window.electronAPI.workspace
+      .activateWorkspace(selectedWorkspaceId)
+      .then(() => {
+        void refreshInstalledApps();
+      })
+      .catch(() => {
+        void refreshInstalledApps();
+      });
+  }, [app, appId, refreshInstalledApps, selectedWorkspaceId]);
 
   // Per-app integration binding: which user-global account this workspace's
   // copy of the app should use. Connections are user-global; the binding

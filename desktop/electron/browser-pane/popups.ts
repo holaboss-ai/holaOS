@@ -1128,4 +1128,3 @@ export function createBrowserPanePopups(
     classifyWindow,
   };
 }
-

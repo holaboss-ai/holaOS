@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -706,6 +707,7 @@ export interface RuntimeStateStoreOptions {
   workspaceRoot?: string;
   sandboxRoot?: string;
   sandboxAgentHarness?: string;
+  portInUseProbe?: (port: number) => boolean;
   /**
    * Optional structured log hook for schema migrations. Wire to pino/Sentry
    * in api-server; tests can pass a recorder. Receives events shaped like
@@ -1049,6 +1051,56 @@ function decodeDeletedWorkspacePathTombstone(
   }
 }
 
+function defaultPortInUseProbe(port: number): boolean {
+  const normalizedPort = Math.trunc(port);
+  if (!Number.isInteger(normalizedPort) || normalizedPort <= 0) {
+    return false;
+  }
+
+  if (process.platform === "win32") {
+    try {
+      const command = [
+        `$port = ${normalizedPort};`,
+        "$conn = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue;",
+        "if ($conn) { exit 0 }",
+        "exit 1",
+      ].join(" ");
+      const result = spawnSync(
+        "powershell.exe",
+        [
+          "-NoLogo",
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-Command",
+          command,
+        ],
+        {
+          stdio: ["ignore", "ignore", "ignore"],
+          windowsHide: true,
+        },
+      );
+      return result.status === 0;
+    } catch {
+      return false;
+    }
+  }
+
+  try {
+    const result = spawnSync(
+      "lsof",
+      ["-nP", `-iTCP:${normalizedPort}`, "-sTCP:LISTEN", "-t"],
+      {
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
+    return (result.stdout?.toString("utf8").trim() ?? "").length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export class RuntimeStateStore {
   readonly dbPath: string;
   readonly legacyDbPath: string;
@@ -1057,6 +1109,7 @@ export class RuntimeStateStore {
   readonly workspaceRoot: string;
   readonly sandboxAgentHarness: string | null;
   readonly #onMigrationEvent: ((event: MigrationLogEvent) => void) | undefined;
+  readonly #portInUseProbe: (port: number) => boolean;
   #db: Database.Database | null = null;
   #controlPlaneDb: Database.Database | null = null;
   #workspaceRuntimeDbs: Map<string, { dbPath: string; db: Database.Database }> = new Map();
@@ -1071,6 +1124,7 @@ export class RuntimeStateStore {
     this.workspaceRoot = path.resolve(options.workspaceRoot ?? path.join(os.tmpdir(), "workspace-root"));
     this.#onMigrationEvent = options.onMigrationEvent;
     this.sandboxAgentHarness = (options.sandboxAgentHarness ?? process.env.SANDBOX_AGENT_HARNESS ?? "").trim() || null;
+    this.#portInUseProbe = options.portInUseProbe ?? defaultPortInUseProbe;
   }
 
   close(): void {
@@ -6247,7 +6301,7 @@ export class RuntimeStateStore {
     const allocated = new Set(this.listAllAppPorts().map((record) => record.port));
 
     for (let port = BASE_PORT; port <= MAX_PORT; port++) {
-      if (!allocated.has(port)) {
+      if (!allocated.has(port) && !this.#portInUseProbe(port)) {
         return port;
       }
     }

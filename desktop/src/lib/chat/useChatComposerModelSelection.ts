@@ -3,6 +3,7 @@ import {
   CHAT_MODEL_PRESETS,
   CHAT_MODEL_STORAGE_KEY,
   CHAT_MODEL_USE_RUNTIME_DEFAULT,
+  CHAT_THINKING_STORAGE_KEY,
   DEPRECATED_CHAT_MODELS,
   LEGACY_UNAVAILABLE_CHAT_MODELS,
   RUNTIME_MODEL_CAPABILITY_ALIASES,
@@ -14,6 +15,7 @@ import type {
 } from "@/components/panes/ChatPane/types";
 import { DEFAULT_RUNTIME_MODEL, useDesktopAuthSession } from "@/lib/auth/authClient";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import * as modelCatalog from "../../../shared/model-catalog";
 
 function sessionUserId(
   session: { user?: { id?: string | null } | null } | null | undefined,
@@ -92,6 +94,56 @@ function normalizeStoredChatModelPreference(value: string | null | undefined) {
   return stored;
 }
 
+function isStringRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeStoredChatThinkingPreferences(
+  value: string | null | undefined,
+): Record<string, string> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    if (!isStringRecord(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string",
+        )
+        .map(([key, raw]) => [key.trim(), raw.trim()])
+        .filter(([key, raw]) => Boolean(key) && Boolean(raw)),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function loadStoredChatThinkingPreferences(): Record<string, string> {
+  try {
+    return normalizeStoredChatThinkingPreferences(
+      localStorage.getItem(CHAT_THINKING_STORAGE_KEY),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function runtimeModelThinkingValues(
+  model: RuntimeProviderModelPayload,
+): string[] {
+  if (!Array.isArray(model.thinkingValues)) return [];
+  const seen = new Set<string>();
+  const values: string[] = [];
+  for (const value of model.thinkingValues) {
+    if (typeof value !== "string") continue;
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    values.push(normalized);
+  }
+  return values;
+}
+
 function loadStoredChatModelPreference() {
   try {
     return normalizeStoredChatModelPreference(
@@ -117,6 +169,12 @@ export interface ChatComposerModelSelection {
   modelSelectionUnavailableReason: string;
   requiresModelProviderSetup: boolean;
   hasConfiguredProviderCatalog: boolean;
+  selectedModelSupportsReasoning: boolean;
+  selectedThinkingValues: string[];
+  selectedDefaultThinkingValue: string | null;
+  chatThinkingPreferences: Record<string, string>;
+  setSelectedThinkingValue: (value: string | null) => void;
+  effectiveThinkingValue: string | null;
 }
 
 export function useChatComposerModelSelection(): ChatComposerModelSelection {
@@ -145,6 +203,21 @@ export function useChatComposerModelSelection(): ChatComposerModelSelection {
   const setChatModelPreference = useCallback((value: string) => {
     setChatModelPreferenceRaw(value);
   }, []);
+
+  const [chatThinkingPreferences, setChatThinkingPreferences] = useState(
+    loadStoredChatThinkingPreferences,
+  );
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        CHAT_THINKING_STORAGE_KEY,
+        JSON.stringify(chatThinkingPreferences),
+      );
+    } catch {
+      // ignore persistence failures
+    }
+  }, [chatThinkingPreferences]);
 
   const isSignedIn = Boolean(sessionUserId(authSessionState.data));
   const holabossProxyModelsAvailable =
@@ -307,6 +380,58 @@ export function useChatComposerModelSelection(): ChatComposerModelSelection {
         ? "Managed models are finishing setup. Refresh runtime binding or use another provider."
         : "No models available. Configure a provider to start chatting.";
 
+  const selectedConfiguredModel = resolvedChatModel
+    ? (visibleConfiguredProviderModelGroups
+        .flatMap((providerGroup) => providerGroup.models)
+        .find((model) => model.token === resolvedChatModel) ?? null)
+    : null;
+  const selectedFallbackModelMetadata =
+    !selectedConfiguredModel &&
+    !hasConfiguredProviderCatalog &&
+    holabossProxyModelsAvailable &&
+    resolvedChatModel
+      ? modelCatalog.catalogMetadataForProviderModel(
+          "holaboss_model_proxy",
+          resolvedChatModel,
+        )
+      : null;
+  const selectedModelSupportsReasoning = selectedConfiguredModel
+    ? selectedConfiguredModel.reasoning === true
+    : Boolean(selectedFallbackModelMetadata?.reasoning);
+  const selectedThinkingValues = selectedConfiguredModel
+    ? runtimeModelThinkingValues(selectedConfiguredModel)
+    : (selectedFallbackModelMetadata?.thinkingValues ?? []);
+  const selectedDefaultThinkingValue = selectedConfiguredModel
+    ? selectedConfiguredModel.defaultThinkingValue?.trim() || null
+    : (selectedFallbackModelMetadata?.defaultThinkingValue ?? null);
+  const selectedStoredThinkingValue = resolvedChatModel
+    ? (chatThinkingPreferences[resolvedChatModel] ?? "").trim()
+    : "";
+  const effectiveThinkingValue =
+    !selectedModelSupportsReasoning || selectedThinkingValues.length === 0
+      ? null
+      : selectedThinkingValues.includes(selectedStoredThinkingValue)
+        ? selectedStoredThinkingValue
+        : selectedThinkingValues.includes("medium")
+          ? "medium"
+          : selectedDefaultThinkingValue &&
+              selectedThinkingValues.includes(selectedDefaultThinkingValue)
+            ? selectedDefaultThinkingValue
+            : (selectedThinkingValues[0] ?? null);
+
+  const setSelectedThinkingValue = useCallback(
+    (value: string | null) => {
+      if (!resolvedChatModel) return;
+      const normalized = value?.trim() ?? "";
+      if (!normalized) return;
+      setChatThinkingPreferences((current) => ({
+        ...current,
+        [resolvedChatModel]: normalized,
+      }));
+    },
+    [resolvedChatModel],
+  );
+
   return {
     isSignedIn,
     chatModelPreference,
@@ -322,5 +447,11 @@ export function useChatComposerModelSelection(): ChatComposerModelSelection {
     modelSelectionUnavailableReason,
     requiresModelProviderSetup,
     hasConfiguredProviderCatalog,
+    selectedModelSupportsReasoning,
+    selectedThinkingValues,
+    selectedDefaultThinkingValue,
+    chatThinkingPreferences,
+    setSelectedThinkingValue,
+    effectiveThinkingValue,
   };
 }

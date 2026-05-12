@@ -70,12 +70,11 @@ export function workspaceDataDbPath(workspaceDir: string): string {
  *  and a `_workspace_meta` row anchoring the schema version.
  *
  *  data.db used to be created lazily by the first module app to call
- *  getDb() — which left a window where workspace-level tools like
- *  list_data_tables / create_dashboard saw "data.db does not exist
- *  yet" even though the workspace had been provisioned and apps were
- *  installed. The data layer is a workspace-level resource, so its
- *  existence is the runtime's responsibility, not any individual
- *  app's.
+ *  getDb() — which left a window where workspace-level data tools saw
+ *  "data.db does not exist yet" even though the workspace had been
+ *  provisioned and apps were installed. The data layer is a
+ *  workspace-level resource, so its existence is the runtime's
+ *  responsibility, not any individual app's.
  *
  *  Idempotent: runs CREATE TABLE IF NOT EXISTS and INSERT OR IGNORE,
  *  so calling it on every workspace boot or app start is a no-op
