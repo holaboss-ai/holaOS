@@ -11,6 +11,10 @@ import type {
 import { AssistantTurnActionsMenu } from "./ActionsMenu";
 import { AssistantTurnMemoryProposals } from "./MemoryProposals";
 import { AssistantTurnOutputs } from "./Outputs";
+import {
+  AssistantTurnIntegrationConnects,
+  type AssistantTurnPendingIntegration,
+} from "./IntegrationConnectCard";
 import { TraceStepGroup } from "./TraceStepGroup";
 import { LiveStatusLine } from "./status";
 
@@ -47,6 +51,7 @@ export const AssistantTurn = memo(AssistantTurnComponent, (prev, next) =>
   prev.executionItems === next.executionItems &&
   prev.memoryProposals === next.memoryProposals &&
   prev.outputs === next.outputs &&
+  prev.pendingIntegrations === next.pendingIntegrations &&
   prev.memoryProposalAction === next.memoryProposalAction &&
   prev.editingMemoryProposalId === next.editingMemoryProposalId &&
   prev.memoryProposalDrafts === next.memoryProposalDrafts &&
@@ -68,6 +73,8 @@ function AssistantTurnComponent({
   executionItems,
   memoryProposals,
   outputs,
+  pendingIntegrations = [],
+  onAfterIntegrationBind,
   memoryProposalAction,
   editingMemoryProposalId,
   memoryProposalDrafts,
@@ -99,6 +106,8 @@ function AssistantTurnComponent({
   executionItems: ChatExecutionTimelineItem[];
   memoryProposals: MemoryUpdateProposalRecordPayload[];
   outputs: WorkspaceOutputRecordPayload[];
+  pendingIntegrations?: AssistantTurnPendingIntegration[];
+  onAfterIntegrationBind?: () => void;
   memoryProposalAction: {
     proposalId: string;
     action: "accept" | "dismiss";
@@ -309,6 +318,13 @@ function AssistantTurnComponent({
             outputs={outputs}
             onOpenOutput={onOpenOutput}
             onOpenAllArtifacts={onOpenAllArtifacts}
+          />
+        ) : null}
+
+        {pendingIntegrations.length > 0 ? (
+          <AssistantTurnIntegrationConnects
+            pendingIntegrations={pendingIntegrations}
+            onAfterBind={onAfterIntegrationBind}
           />
         ) : null}
       </article>

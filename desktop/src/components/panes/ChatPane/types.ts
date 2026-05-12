@@ -25,6 +25,13 @@ export interface ChatMessage {
   executionItems?: ChatExecutionTimelineItem[];
   outputs?: WorkspaceOutputRecordPayload[];
   memoryProposals?: MemoryUpdateProposalRecordPayload[];
+  pendingIntegrations?: ChatPendingIntegration[];
+}
+
+export interface ChatPendingIntegration {
+  app_id: string;
+  provider_id: string;
+  credential_source?: string | null;
 }
 
 export type QueuedSessionInputStatus = "queued" | "sending";

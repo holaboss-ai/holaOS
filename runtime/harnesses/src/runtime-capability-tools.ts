@@ -662,7 +662,208 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         required: ["terminal_id"],
         additionalProperties: false,
       };
-    case "list_data_tables":
+    case "workspace_apps_find":
+      return {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "Optional case-insensitive substring filter applied to app id, name, and description.",
+          },
+          source: {
+            type: "string",
+            enum: ["marketplace", "local", "installed", "all"],
+            description:
+              "Optional source filter. `marketplace` and `local` only return catalog candidates from those sources. `installed` only returns apps already in `workspace.yaml`. `all` (default) merges everything and dedupes by app_id.",
+          },
+        },
+        additionalProperties: false,
+      };
+    case "workspace_apps_install":
+      return {
+        type: "object",
+        properties: {
+          app_id: {
+            type: "string",
+            description:
+              "Catalog app id to install. Must exist in the marketplace or local catalog (call `workspace_apps_find` first if unsure).",
+          },
+        },
+        required: ["app_id"],
+        additionalProperties: false,
+      };
+    case "workspace_apps_scaffold":
+      return {
+        type: "object",
+        properties: {
+          app_id: {
+            type: "string",
+            description:
+              "Workspace app id. The scaffold is created under `apps/<app_id>/` and the manifest `app_id` must match.",
+          },
+          name: {
+            type: "string",
+            description: "Optional human-readable app name used in the generated manifest and starter UI.",
+          },
+          overwrite: {
+            type: "boolean",
+            description:
+              "Overwrite the managed starter files if the app directory already exists. Default false.",
+          },
+        },
+        required: ["app_id"],
+        additionalProperties: false,
+      };
+    case "workspace_apps_register":
+      return {
+        type: "object",
+        properties: {
+          app_id: {
+            type: "string",
+            description: "Workspace app id to register in `workspace.yaml`.",
+          },
+          config_path: {
+            type: "string",
+            description:
+              "Optional workspace-relative path to the app manifest. Defaults to `apps/<app_id>/app.runtime.yaml`.",
+          },
+        },
+        required: ["app_id"],
+        additionalProperties: false,
+      };
+    case "workspace_apps_build":
+      return {
+        type: "object",
+        properties: {
+          app_id: {
+            type: "string",
+            description: "Registered workspace app id to build from its app directory.",
+          },
+          timeout_ms: {
+            type: "integer",
+            description:
+              "Optional build timeout in milliseconds. Defaults to a reasonable managed-app build timeout.",
+            minimum: 1,
+          },
+        },
+        required: ["app_id"],
+        additionalProperties: false,
+      };
+    case "workspace_apps_ensure_running":
+      return {
+        type: "object",
+        properties: {
+          app_ids: {
+            type: "array",
+            description:
+              "Optional subset of registered app ids to start. Omit to ensure all registered workspace apps are running.",
+            items: { type: "string" },
+          },
+        },
+        additionalProperties: false,
+      };
+    case "workspace_apps_restart":
+      return {
+        type: "object",
+        properties: {
+          app_id: { type: "string", description: "Registered workspace app id to restart." },
+        },
+        required: ["app_id"],
+        additionalProperties: false,
+      };
+    case "workspace_apps_restart_and_wait_ready":
+      return {
+        type: "object",
+        properties: {
+          app_id: {
+            type: "string",
+            description: "Registered workspace app id to restart and wait on.",
+          },
+          timeout_ms: {
+            type: "integer",
+            description: "Maximum time to wait before returning with `timed_out=true`.",
+            minimum: 1,
+          },
+          poll_interval_ms: {
+            type: "integer",
+            description: "Polling interval between status checks while waiting for readiness.",
+            minimum: 1,
+          },
+        },
+        required: ["app_id"],
+        additionalProperties: false,
+      };
+    case "workspace_apps_wait_until_ready":
+      return {
+        type: "object",
+        properties: {
+          app_id: { type: "string", description: "Registered workspace app id to wait on." },
+          timeout_ms: {
+            type: "integer",
+            description: "Maximum time to wait before returning with `timed_out=true`.",
+            minimum: 1,
+          },
+          poll_interval_ms: {
+            type: "integer",
+            description: "Polling interval between status checks while waiting for readiness.",
+            minimum: 1,
+          },
+        },
+        required: ["app_id"],
+        additionalProperties: false,
+      };
+    case "workspace_apps_get_status":
+      return {
+        type: "object",
+        properties: {
+          app_id: {
+            type: "string",
+            description:
+              "Optional registered workspace app id. Omit to list status for every registered app. This is the primary inspection surface for readiness, ports, runtime contract, and revision hints.",
+          },
+        },
+        additionalProperties: false,
+      };
+    case "workspace_apps_get_ports":
+      return {
+        type: "object",
+        properties: {
+          app_id: {
+            type: "string",
+            description:
+              "Optional registered workspace app id. Legacy helper: prefer `workspace_apps_get_status`, which already returns deterministic HTTP and MCP ports.",
+          },
+        },
+        additionalProperties: false,
+      };
+    case "workspace_apps_probe_endpoints":
+      return {
+        type: "object",
+        properties: {
+          app_id: {
+            type: "string",
+            description: "Registered workspace app id whose managed endpoints should be probed.",
+          },
+          checks: {
+            type: "array",
+            description:
+              "Optional subset of deterministic endpoint checks. Defaults to `ui`, `mcp_health`, `mcp_initialize`, and `mcp_tools_list`.",
+            items: {
+              type: "string",
+              enum: ["ui", "mcp_health", "mcp_initialize", "mcp_tools_list"],
+            },
+          },
+          timeout_ms: {
+            type: "integer",
+            description: "Per-request timeout in milliseconds for each endpoint probe.",
+            minimum: 1,
+          },
+        },
+        required: ["app_id"],
+        additionalProperties: false,
+      };
+    case "workspace_data_list_tables":
       return {
         type: "object",
         properties: {
@@ -674,109 +875,67 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         },
         additionalProperties: false,
       };
-    case "create_data_table":
+    case "workspace_data_describe_table":
       return {
         type: "object",
         properties: {
-          name: {
+          table_name: {
             type: "string",
-            description:
-              "SQL-safe table name to create inside the shared workspace DB at `.holaboss/state/data.db`.",
-          },
-          columns: {
-            type: "array",
-            minItems: 1,
-            description:
-              "Ordered column definitions. Use SQLite affinity names such as `TEXT`, `INTEGER`, or `REAL`.",
-            items: {
-              type: "object",
-              properties: {
-                name: { type: "string", description: "Column name." },
-                type: { type: "string", description: "SQLite column type." },
-                not_null: { type: "boolean", description: "Whether the column rejects NULL values." },
-                primary_key: { type: "boolean", description: "Whether the column is the table primary key." },
-              },
-              required: ["name", "type"],
-              additionalProperties: false,
-            },
-          },
-          rows: {
-            type: "array",
-            description:
-              "Optional rows to insert immediately after table creation. Each row is an object keyed by column name.",
-            items: {
-              type: "object",
-              additionalProperties: {
-                anyOf: [
-                  { type: "string" },
-                  { type: "number" },
-                  { type: "boolean" },
-                  { type: "null" },
-                ],
-              },
-            },
-          },
-          replace_existing: {
-            type: "boolean",
-            description:
-              "When true, drop an existing table with the same name before recreating it. Default false.",
+            description: "Exact table name in `.holaboss/state/data.db` to describe.",
           },
         },
-        required: ["name", "columns"],
+        required: ["table_name"],
         additionalProperties: false,
       };
-    case "create_dashboard":
+    case "workspace_data_sample_rows":
       return {
         type: "object",
         properties: {
-          name: {
+          table_name: {
             type: "string",
-            description:
-              "Filesystem-safe slug for the file (no extension). Becomes <name>.dashboard under workspace/files/dashboards/.",
+            description: "Exact table name in `.holaboss/state/data.db` to sample.",
           },
-          title: { type: "string", description: "Dashboard title shown at the top." },
-          description: {
-            type: "string",
-            description: "Optional one-line description shown under the title.",
+          limit: {
+            type: "integer",
+            description: "Maximum number of rows to return. Defaults to 5 and is capped to a small safe value.",
+            minimum: 1,
           },
-          panels: {
-            type: "array",
-            minItems: 1,
-            description:
-              "Ordered list of panels. Each panel is either a `kpi` (single-value SELECT) or a `data_view` (one SELECT shared across one or more views).",
-            items: {
-              type: "object",
-              properties: {
-                type: { type: "string", enum: ["kpi", "data_view"] },
-                title: { type: "string" },
-                query: {
-                  type: "string",
-                  description:
-                    "Read-only SQL against the shared workspace DB at `.holaboss/state/data.db`. For kpi, prefer aliasing the answer as `value`.",
-                },
-                views: {
-                  type: "array",
-                  description:
-                    "Required when type is `data_view`. Each entry is `{ type: \"table\", columns?: string[] }` or `{ type: \"board\", group_by, card_title, card_subtitle? }`.",
-                  items: {
-                    type: "object",
-                    properties: {
-                      type: { type: "string", enum: ["table", "board"] },
-                      columns: { type: "array", items: { type: "string" } },
-                      group_by: { type: "string" },
-                      card_title: { type: "string" },
-                      card_subtitle: { type: "string" },
-                    },
-                    required: ["type"],
-                  },
-                },
-                default_view: { type: "string", enum: ["table", "board"] },
-              },
-              required: ["type", "title", "query"],
-            },
+          offset: {
+            type: "integer",
+            description: "Optional row offset for paginating through a table sample.",
+            minimum: 0,
           },
         },
-        required: ["name", "title", "panels"],
+        required: ["table_name"],
+        additionalProperties: false,
+      };
+    case "workspace_data_query":
+      return {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "Single read-only SQL query to run against the workspace shared SQLite. Only SELECT and WITH ... SELECT queries are allowed.",
+          },
+          limit: {
+            type: "integer",
+            description: "Maximum rows to return. Defaults to 100 and is capped to a safe value.",
+            minimum: 1,
+          },
+          offset: {
+            type: "integer",
+            description: "Optional row offset applied to the returned result set.",
+            minimum: 0,
+          },
+          timeout_ms: {
+            type: "integer",
+            description:
+              "Optional advisory timeout in milliseconds for lock waits and deterministic query shaping.",
+            minimum: 1,
+          },
+        },
+        required: ["query"],
         additionalProperties: false,
       };
   }
