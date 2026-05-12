@@ -354,13 +354,19 @@
   --destructive: oklch(0.55 0.24 18);
 
   /* Foreground colours for tonal CTAs (text/icon on a solid tone-bg
-     button or chip). Defaults picked by tone luminance: white-ish on
-     the darker reds/greens/blues, near-black on the light amber.
-     Themes may override per-tone if their hue differs. */
-  --destructive-foreground: oklch(0.98 0 0);
-  --success-foreground: oklch(0.98 0 0);
+     button or chip). Default to `var(--background)` so contrast
+     auto-adapts to theme mode: light themes (bg ≈ white) end up
+     with white text — which reads against the typically-darker
+     light-mode tones; dark themes (bg ≈ near-black) get dark text,
+     which reads against the typically-lighter dark-mode pastels
+     most themes ship (catppuccin / nord / one-dark-pro et al.).
+     Warning stays anchored dark because amber/yellow is usually
+     light in both modes and never plays well with white text.
+     Themes that have unusual tones can still override per-tone. */
+  --destructive-foreground: var(--background);
+  --success-foreground: var(--background);
   --warning-foreground: oklch(0.18 0 0);
-  --info-foreground: oklch(0.98 0 0);
+  --info-foreground: var(--background);
 
   --hairline-alpha: 0.05;
   --shadow-alpha: 0.07;
