@@ -411,6 +411,7 @@ test("app shell keeps desktop updates separate from runtime notification state",
 
   assert.match(source, /function appUpdateChangelogUrl\(/);
   assert.match(source, /const handleDismissUpdate = useCallback\(/);
+  assert.match(source, /window\.electronAPI\.appUpdate[\s\S]*\.checkNow\(\)/);
   assert.match(source, /void window\.electronAPI\.appUpdate\.dismiss\(/);
   assert.match(source, /void window\.electronAPI\.ui\.openExternalUrl\(changelogUrl\);/);
   assert.doesNotMatch(source, /combinedNotifications/);

@@ -2310,17 +2310,23 @@ function AppShellContent() {
     }
 
     let mounted = true;
-    void window.electronAPI.appUpdate.getStatus().then((status) => {
+    const applyAppUpdateStatus = (status: AppUpdateStatusPayload) => {
       if (mounted) {
         setAppUpdateStatus(status);
       }
-    });
+    };
 
-    const unsubscribe = window.electronAPI.appUpdate.onStateChange((status) => {
-      if (mounted) {
-        setAppUpdateStatus(status);
-      }
-    });
+    const unsubscribe =
+      window.electronAPI.appUpdate.onStateChange(applyAppUpdateStatus);
+
+    void window.electronAPI.appUpdate
+      .getStatus()
+      .then(applyAppUpdateStatus)
+      .catch(() => undefined);
+    void window.electronAPI.appUpdate
+      .checkNow()
+      .then(applyAppUpdateStatus)
+      .catch(() => undefined);
 
     return () => {
       mounted = false;
