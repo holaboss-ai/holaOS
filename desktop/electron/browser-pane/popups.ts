@@ -460,21 +460,15 @@ function createOverflowPopupHtml(themeCss: string): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>More</title>
     <style>
-      :root { color-scheme: dark; }
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        font-family: "Exo 2", "Segoe UI Variable", sans-serif;
         background: transparent;
-        color: #deeee6;
       }
       .panel {
         margin: 10px;
-        border-radius: 16px;
-        border: 1px solid rgba(87, 255, 173, 0.24);
-        background: linear-gradient(180deg, rgba(9, 16, 13, 0.98), rgba(5, 9, 7, 0.98));
-        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.45);
-        padding: 8px;
+        border-radius: 12px;
+        padding: 4px;
       }
       .item {
         display: flex;
@@ -482,31 +476,43 @@ function createOverflowPopupHtml(themeCss: string): string {
         align-items: center;
         gap: 10px;
         border: 0;
-        border-radius: 12px;
+        border-radius: 8px;
         background: transparent;
-        color: rgba(222, 238, 230, 0.88);
-        padding: 10px 12px;
-        font-size: 13px;
+        padding: 7px 10px;
+        font-size: 12.5px;
+        text-align: left;
         cursor: pointer;
       }
-      .item:hover {
-        background: rgba(255,255,255,0.05);
-        color: #57ffad;
-      }
       .icon {
-        width: 18px;
-        text-align: center;
+        width: 14px;
+        height: 14px;
         flex: 0 0 auto;
-        color: rgba(222,238,230,0.66);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--popup-text-subtle);
+      }
+      .icon svg {
+        width: 100%;
+        height: 100%;
       }
       ${themeCss}
     </style>
   </head>
   <body>
     <div class="panel">
-      <button class="item" id="downloads"><span class="icon">⭳</span><span>Downloads</span></button>
-      <button class="item" id="history"><span class="icon">🕘</span><span>History</span></button>
-      <button class="item" id="chrome-import"><span class="icon">⇪</span><span>Import Chrome</span></button>
+      <button class="item" id="downloads">
+        <span class="icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg></span>
+        <span>Downloads</span>
+      </button>
+      <button class="item" id="history">
+        <span class="icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
+        <span>History</span>
+      </button>
+      <button class="item" id="chrome-import">
+        <span class="icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/></svg></span>
+        <span>Import Chrome</span>
+      </button>
     </div>
     <script>
       document.getElementById("downloads").addEventListener("click", () => window.overflowPopup.openDownloads());
@@ -532,32 +538,56 @@ function createAddressSuggestionsPopupHtml(themeCss: string): string {
       }
       .panel {
         margin: 6px 0 0;
-        border-radius: 14px;
+        border-radius: 12px;
         overflow: hidden;
       }
       .list {
         max-height: 100%;
         overflow-y: auto;
+        padding: 4px;
       }
       .item {
+        position: relative;
         display: flex;
         width: 100%;
         align-items: center;
         gap: 10px;
         border: 0;
-        border-bottom: 1px solid var(--popup-border-soft);
+        border-radius: 8px;
         background: transparent;
-        padding: 10px 12px;
+        padding: 7px 10px;
         text-align: left;
         cursor: pointer;
       }
-      .item:last-child { border-bottom: 0; }
+      .item.active::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 6px;
+        bottom: 6px;
+        width: 2px;
+        border-radius: 2px;
+        background: var(--popup-accent);
+      }
       .icon {
         width: 14px;
         height: 14px;
         flex: 0 0 auto;
-        border-radius: 4px;
-        opacity: 0.74;
+        border-radius: 3px;
+        opacity: 0.82;
+      }
+      .icon-fallback {
+        width: 14px;
+        height: 14px;
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--popup-text-subtle);
+      }
+      .icon-fallback svg {
+        width: 100%;
+        height: 100%;
       }
       .meta {
         min-width: 0;
@@ -567,22 +597,18 @@ function createAddressSuggestionsPopupHtml(themeCss: string): string {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-size: 12px;
-        font-weight: 600;
+        font-size: 12.5px;
+        font-weight: 500;
+        line-height: 1.35;
       }
       .url {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        margin-top: 2px;
-        font-size: 10px;
+        margin-top: 1px;
+        font-size: 11px;
+        line-height: 1.3;
         color: var(--popup-text-subtle);
-      }
-      .clock {
-        width: 14px;
-        text-align: center;
-        flex: 0 0 auto;
-        font-size: 12px;
       }
       ${themeCss}
     </style>
@@ -594,13 +620,15 @@ function createAddressSuggestionsPopupHtml(themeCss: string): string {
     <script>
       const list = document.getElementById("list");
 
+      const FALLBACK_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>';
+
       const render = (payload) => {
         const suggestions = payload?.suggestions ?? [];
         const selectedIndex = payload?.selectedIndex ?? -1;
         list.innerHTML = suggestions.map((entry, index) => {
           const icon = entry.faviconUrl
             ? '<img class="icon" src="' + entry.faviconUrl + '" alt="" />'
-            : '<span class="clock">🕘</span>';
+            : '<span class="icon-fallback" aria-hidden="true">' + FALLBACK_ICON_SVG + '</span>';
 
           return \`
             <button class="item \${index === selectedIndex ? "active" : ""}" data-index="\${index}">
