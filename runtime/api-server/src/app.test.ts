@@ -794,6 +794,36 @@ test("runtime tools capability routes expose local onboarding and cronjob action
         .json()
         .tools.some((tool: { id: string }) => tool.id === "skill")
     );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "workspace_apps_scaffold")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "workspace_apps_build")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "workspace_apps_restart_and_wait_ready")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "workspace_apps_wait_until_ready")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "workspace_apps_probe_endpoints")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "workspace_data_describe_table")
+    );
 
     const onboardingStatus = await app.inject({
       method: "GET",
@@ -892,6 +922,338 @@ test("runtime onboarding completion returns 409 workspace_folder_missing when th
     assert.equal(path.resolve(resp.json().workspace_path), path.resolve(workspaceDir));
     assert.equal(fs.existsSync(workspaceDir), false);
   } finally {
+    await app.close();
+    store.close();
+  }
+});
+
+test("workspace app capability routes scaffold, register, and inspect a managed app starter", async () => {
+  const root = makeTempDir("hb-runtime-api-workspace-app-tools-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  try {
+    const scaffold = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/scaffold",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {
+        app_id: "demo-app",
+        name: "Demo App",
+      },
+    });
+    assert.equal(scaffold.statusCode, 200);
+    assert.equal(scaffold.json().app_id, "demo-app");
+
+    const register = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/register",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {
+        app_id: "demo-app",
+      },
+    });
+    assert.equal(register.statusCode, 200);
+    assert.equal(register.json().registered, true);
+    assert.equal(register.json().config_path, "apps/demo-app/app.runtime.yaml");
+
+    fs.writeFileSync(
+      path.join(workspaceRoot, "workspace-1", "apps", "demo-app", "package.json"),
+      `${JSON.stringify(
+        {
+          name: "demo-app",
+          version: "0.1.0",
+          private: true,
+          scripts: {
+            build: "node -e \"process.stdout.write('route-build-ok')\"",
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const build = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/demo-app/build",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {},
+    });
+    assert.equal(build.statusCode, 200);
+    assert.equal(build.json().ok, true);
+    assert.match(String(build.json().stdout ?? ""), /route-build-ok/);
+
+    const status = await app.inject({
+      method: "GET",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/demo-app/status",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+    });
+    assert.equal(status.statusCode, 200);
+    assert.equal(status.json().app_id, "demo-app");
+    assert.equal(status.json().build_status, "pending");
+    assert.equal(status.json().ready, false);
+    assert.equal(status.json().runtime_contract?.mcp?.sse_path, "/mcp/sse");
+    assert.equal(status.json().runtime_contract?.mcp?.message_path, "/mcp/messages");
+    assert.equal(status.json().runtime_contract?.healthcheck?.path, "/mcp/health");
+    assert.equal(typeof status.json().revision?.source_updated_at, "string");
+
+    const ports = await app.inject({
+      method: "GET",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/demo-app/ports",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+    });
+    assert.equal(ports.statusCode, 200);
+    assert.equal(typeof ports.json().ports.http, "number");
+    assert.equal(typeof ports.json().ports.mcp, "number");
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
+test("workspace app capability routes restart-and-wait and probe managed endpoints", async () => {
+  const root = makeTempDir("hb-runtime-api-workspace-app-restart-probe-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const lifecycleCalls: string[] = [];
+  const app = buildTestRuntimeApiServer({
+    store,
+    appLifecycleExecutor: {
+      startApp: async (params) => {
+        lifecycleCalls.push(`start:${params.workspaceId}:${params.appId}`);
+        return {
+          app_id: params.appId,
+          status: "started",
+          detail: "started",
+          ports: {
+            http: params.httpPort ?? 0,
+            mcp: params.mcpPort ?? 0,
+          },
+        };
+      },
+      stopApp: async (params) => {
+        lifecycleCalls.push(`stop:${params.workspaceId}:${params.appId}`);
+        return {
+          app_id: params.appId,
+          status: "stopped",
+          detail: "stopped",
+          ports: {},
+        };
+      },
+      shutdownAll: async () => ({ stopped: [], failed: [] }),
+    },
+  });
+
+  let uiServer: { close: () => Promise<void> } | null = null;
+  let mcpServer: { close: () => Promise<void> } | null = null;
+  try {
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/scaffold",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {
+        app_id: "demo-app",
+        name: "Demo App",
+      },
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/register",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {
+        app_id: "demo-app",
+      },
+    });
+    fs.writeFileSync(
+      path.join(workspaceRoot, "workspace-1", "apps", "demo-app", "app.runtime.yaml"),
+      `app_id: demo-app
+name: Demo App
+slug: demo-app
+lifecycle:
+  setup: npm install
+  start: npm run start
+healthchecks:
+  api:
+    path: /ready
+    timeout_s: 30
+    interval_s: 5
+mcp:
+  transport: http-sse
+  port: 13100
+  path: /transport/sse
+  tools:
+    - demo_tool
+env_contract:
+  - HOLABOSS_WORKSPACE_ID
+`,
+      "utf8",
+    );
+
+    store.upsertAppBuild({
+      workspaceId: "workspace-1",
+      appId: "demo-app",
+      status: "stopped",
+    });
+
+    const restarted = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/demo-app/restart-and-wait-ready",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {
+        timeout_ms: 1000,
+        poll_interval_ms: 10,
+      },
+    });
+    assert.equal(restarted.statusCode, 200);
+    assert.equal(restarted.json().restarted, true);
+    assert.equal(restarted.json().ready, true);
+    assert.equal(
+      lifecycleCalls.includes("stop:workspace-1:demo-app"),
+      true,
+    );
+    assert.equal(
+      lifecycleCalls.every(
+        (entry) =>
+          entry === "stop:workspace-1:demo-app" ||
+          entry === "start:workspace-1:demo-app"
+      ),
+      true,
+    );
+
+    const resolved = resolveWorkspaceAppRuntime(
+      path.join(workspaceRoot, "workspace-1"),
+      "demo-app",
+      { store, workspaceId: "workspace-1", allocatePorts: true },
+    );
+
+    uiServer = await startStaticHttpServer((request, response) => {
+      if (request.url === "/") {
+        response.statusCode = 200;
+        response.setHeader("content-type", "text/html; charset=utf-8");
+        response.end("<html><body>route probe</body></html>");
+        return;
+      }
+      if (request.url === "/ready") {
+        response.statusCode = 200;
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ ok: true, message_path: "/transport/messages" }));
+        return;
+      }
+      response.statusCode = 404;
+      response.end("not found");
+    }, { port: resolved.ports.http });
+
+    mcpServer = await startStaticHttpServer((request, response) => {
+      if (request.method === "POST" && request.url === "/transport/messages") {
+        const chunks: Buffer[] = [];
+        request.on("data", (chunk) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
+        request.on("end", () => {
+          const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+            id?: string | number | null;
+            method?: string;
+          };
+          response.statusCode = 200;
+          response.setHeader("content-type", "application/json");
+          if (payload.method === "initialize") {
+            response.end(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: payload.id ?? null,
+                result: {
+                  protocolVersion: "2025-03-26",
+                  capabilities: { tools: { listChanged: false } },
+                  serverInfo: { name: "demo-app", version: "0.1.0" },
+                },
+              }),
+            );
+            return;
+          }
+          if (payload.method === "tools/list") {
+            response.end(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: payload.id ?? null,
+                result: {
+                  tools: [{ name: "demo_tool" }, { name: "demo_tool_2" }],
+                },
+              }),
+            );
+            return;
+          }
+          response.statusCode = 400;
+          response.end(JSON.stringify({ error: "unexpected method" }));
+        });
+        return;
+      }
+      response.statusCode = 404;
+      response.end("not found");
+    }, { port: resolved.ports.mcp });
+
+    const probed = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/workspace-apps/demo-app/probe-endpoints",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {},
+    });
+    assert.equal(probed.statusCode, 200);
+    assert.equal(probed.json().all_ok, true);
+    assert.equal(probed.json().count, 4);
+    assert.equal(
+      probed.json().checks.find((entry: { check: string }) => entry.check === "mcp_tools_list")
+        ?.tool_count,
+      2,
+    );
+    assert.equal(
+      probed.json().checks.find((entry: { check: string }) => entry.check === "mcp_health")?.url,
+      `http://127.0.0.1:${resolved.ports.http}/ready`,
+    );
+    assert.equal(
+      probed.json().checks.find((entry: { check: string }) => entry.check === "mcp_initialize")?.url,
+      `http://127.0.0.1:${resolved.ports.mcp}/transport/messages`,
+    );
+  } finally {
+    await uiServer?.close();
+    await mcpServer?.close();
     await app.close();
     store.close();
   }
@@ -5677,6 +6039,7 @@ test("auto-start on ready reuses a healthy untracked shell-managed app", async (
     });
     assert.equal(resolved.ports.http, httpPort);
     assert.equal(resolved.ports.mcp, mcpPort);
+    store.upsertAppBuild({ workspaceId: workspace.id, appId: "app-a", status: "running" });
 
     await app.ready();
     await sleep(150);
@@ -5690,6 +6053,176 @@ test("auto-start on ready reuses a healthy untracked shell-managed app", async (
         mcpPort
       }
     ]);
+    assert.equal(store.getAppBuild({ workspaceId: workspace.id, appId: "app-a" })?.status, "running");
+  } finally {
+    if (httpServer) {
+      await httpServer.close();
+    }
+    if (mcpServer) {
+      await mcpServer.close();
+    }
+    patchedStore.allocateAppPort = originalAllocateAppPort;
+    patchedStore.getAppPort = originalGetAppPort;
+    if (previousEmbeddedRuntime === undefined) {
+      delete process.env.HOLABOSS_EMBEDDED_RUNTIME;
+    } else {
+      process.env.HOLABOSS_EMBEDDED_RUNTIME = previousEmbeddedRuntime;
+    }
+    await app.close();
+    store.close();
+  }
+});
+
+test("auto-start on ready does not reuse a healthy untracked shell-managed app without prior running state", async () => {
+  const previousEmbeddedRuntime = process.env.HOLABOSS_EMBEDDED_RUNTIME;
+  process.env.HOLABOSS_EMBEDDED_RUNTIME = "1";
+  const root = makeTempDir("hb-runtime-api-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-2",
+    name: "Workspace Apps",
+    harness: "pi",
+    status: "active"
+  });
+  const workspaceDir = path.join(workspaceRoot, workspace.id);
+  const appDir = path.join(workspaceDir, "apps", "app-a");
+  fs.mkdirSync(appDir, { recursive: true });
+
+  fs.writeFileSync(
+    path.join(appDir, "app.runtime.yaml"),
+    [
+      "app_id: app-a",
+      "name: App A",
+      "mcp:",
+      "  transport: http-sse",
+      "  port: 13100",
+      "  path: /mcp",
+      "healthchecks:",
+      "  http:",
+      "    path: /health",
+      "    timeout_s: 1",
+      "  mcp:",
+      "    path: /health",
+      "    timeout_s: 1",
+      "lifecycle:",
+      "  setup: ''",
+      "  start: npm run start"
+    ].join("\n"),
+    "utf8"
+  );
+  fs.writeFileSync(
+    path.join(workspaceDir, "workspace.yaml"),
+    [
+      "applications:",
+      "  - app_id: app-a",
+      "    config_path: apps/app-a/app.runtime.yaml"
+    ].join("\n"),
+    "utf8"
+  );
+
+  let httpServer: { url: string; close: () => Promise<void> } | undefined;
+  let mcpServer: { url: string; close: () => Promise<void> } | undefined;
+  const patchedStore = store as RuntimeStateStore & {
+    allocateAppPort: RuntimeStateStore["allocateAppPort"];
+    getAppPort: RuntimeStateStore["getAppPort"];
+  };
+  const originalAllocateAppPort = store.allocateAppPort.bind(store);
+  const originalGetAppPort = store.getAppPort.bind(store);
+  const lifecycleCalls: Array<Record<string, unknown>> = [];
+  const rememberedPorts: Array<Record<string, unknown>> = [];
+  let httpPort = 0;
+  let mcpPort = 0;
+  const app = buildRuntimeApiServer({
+    store,
+    queueWorker: null,
+    durableMemoryWorker: null,
+    cronWorker: null,
+    bridgeWorker: null,
+    recallEmbeddingBackfillWorker: null,
+    enableAppHealthMonitor: false,
+    startAppsOnReady: true,
+    appLifecycleExecutor: {
+      async startApp(params) {
+        lifecycleCalls.push({ action: "start", ...params });
+        return {
+          app_id: params.appId,
+          status: "started",
+          detail: "app started with lifecycle manager",
+          ports: { http: params.httpPort ?? 18080, mcp: params.mcpPort ?? 13100 }
+        };
+      },
+      async stopApp() {
+        throw new Error("not used");
+      },
+      async shutdownAll() {
+        throw new Error("not used");
+      },
+      isTrackingApp() {
+        return false;
+      },
+      rememberAppPorts(params) {
+        rememberedPorts.push(params);
+      }
+    }
+  });
+
+  try {
+    httpServer = await startStaticHttpServer(
+      (_request, response) => {
+        response.statusCode = 200;
+        response.end("ok");
+      },
+      { port: 0 },
+    );
+    mcpServer = await startStaticHttpServer(
+      (_request, response) => {
+        response.statusCode = 200;
+        response.end("ok");
+      },
+      { port: 0 },
+    );
+    httpPort = Number(new URL(httpServer.url).port);
+    mcpPort = Number(new URL(mcpServer.url).port);
+    const portMap = new Map<string, number>([
+      ["app-a__http", httpPort],
+      ["app-a__mcp", mcpPort]
+    ]);
+    patchedStore.allocateAppPort = ((params) => {
+      const port = portMap.get(params.appId);
+      if (port !== undefined) {
+        return {
+          workspaceId: params.workspaceId,
+          appId: params.appId,
+          port,
+          createdAt: "test-created-at",
+          updatedAt: "test-updated-at"
+        };
+      }
+      return originalAllocateAppPort(params);
+    }) as RuntimeStateStore["allocateAppPort"];
+    patchedStore.getAppPort = ((params) => {
+      const port = portMap.get(params.appId);
+      if (port !== undefined) {
+        return {
+          workspaceId: params.workspaceId,
+          appId: params.appId,
+          port,
+          createdAt: "test-created-at",
+          updatedAt: "test-updated-at"
+        };
+      }
+      return originalGetAppPort(params);
+    }) as RuntimeStateStore["getAppPort"];
+
+    await app.ready();
+    await sleep(150);
+
+    assert.equal(lifecycleCalls.length, 1);
+    assert.equal(rememberedPorts.length, 0);
     assert.equal(store.getAppBuild({ workspaceId: workspace.id, appId: "app-a" })?.status, "running");
   } finally {
     if (httpServer) {

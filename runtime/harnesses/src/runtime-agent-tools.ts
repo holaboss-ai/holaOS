@@ -172,22 +172,94 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     policy: "mutate"
   },
   {
-    id: "list_data_tables",
+    id: "workspace_apps_find",
     description:
-      "List the user-facing tables in the workspace's shared SQLite at `.holaboss/state/data.db` so you can compose SQL for `create_dashboard`. The runtime already provisions that DB file; if this returns count=0, the DB exists but no user-facing tables have been created yet. Each row reports a table's name, its columns with types, and approximate row count. Module apps write app-namespaced tables (e.g. twitter_posts, linkedin_posts, twitter_post_metrics) — read across them freely; never create a separate root `./data.db` yourself. App-internal tables (publish queues, scheduler logs, api usage counters, settings flags) are hidden by default — pass include_system=true if you actually need them, but they're rarely useful for dashboards.",
+      "Discover apps the user could install in the current workspace. Returns deduped candidates from the marketplace catalog and any locally synced sources, plus apps already installed in this workspace. Use the optional `query` to filter by app id, name, or description (case-insensitive substring). Use this BEFORE `workspace_apps_install` to confirm an `app_id` exists in the catalog.",
     policy: "inspect"
   },
   {
-    id: "create_data_table",
+    id: "workspace_apps_install",
     description:
-      "Create a user-facing table in the workspace's shared SQLite at `.holaboss/state/data.db`, optionally inserting rows at the same time. Use this when you need sample or lightweight structured data before calling `create_dashboard`. The runtime already provisions the shared DB file, so write through this tool instead of creating a separate root `./data.db`.",
+      "Install a marketplace or local-catalog app into the current workspace. Downloads the archive, extracts under `apps/<app_id>/`, registers it in `workspace.yaml`, and starts the managed app process so its MCP tools become available. The result will include `requires_session_refresh: true` along with `new_mcp_servers: [...]` — when that happens, finish your current message without invoking the new tools (they will become callable starting from the next user message). The result also surfaces `provider_id` and `credential_source`; if the app needs an external account, mention that in your message so the user can authorize it.",
     policy: "mutate"
   },
   {
-    id: "create_dashboard",
+    id: "workspace_apps_scaffold",
     description:
-      "Author a `.dashboard` file for the current workspace from a structured spec (title, optional description, list of panels). Panels are either `kpi` (single-value SELECT, prefer aliasing the answer as `value`) or `data_view` (one SELECT shared across one or more views — `table` or read-only `board`; for board, set `group_by` to a low-cardinality enum-like column like status/category). Each query is validated against the shared workspace DB at `.holaboss/state/data.db` before the file is written. Use `list_data_tables` first to discover what's queryable, or `create_data_table` first when you need sample data.",
+      "Create the minimum valid holaOS app skeleton under `apps/<app_id>/` for the current workspace using the canonical runtime-managed Node/TypeScript/Express starter files.",
     policy: "mutate"
+  },
+  {
+    id: "workspace_apps_register",
+    description:
+      "Register or update one app entry in `workspace.yaml` for the current workspace after validating the target `app.runtime.yaml` file.",
+    policy: "mutate"
+  },
+  {
+    id: "workspace_apps_build",
+    description:
+      "Run a deterministic managed build step for one registered workspace app by invoking its `package.json` build script from the app directory and returning structured stdout, stderr, and exit status.",
+    policy: "mutate"
+  },
+  {
+    id: "workspace_apps_ensure_running",
+    description:
+      "Start all registered workspace apps, or a selected subset, through the managed holaOS runtime lifecycle instead of using an unmanaged preview server. If this call brings up a NEW MCP server (one not visible at the start of this turn), the result will include `requires_session_refresh: true` and `new_mcp_servers: [...]`. When that happens, finish your current message without invoking the new tools — they will become callable starting from the next user message. The result also surfaces `pending_integrations` for any of the started apps that declared a required `integrations:` entry; the chat UI renders a Connect card automatically — do not call any extra tool, just mention the Connect button in your reply.",
+    policy: "mutate"
+  },
+  {
+    id: "workspace_apps_restart",
+    description:
+      "Restart one managed workspace app through the holaOS runtime after code or config changes so the managed app surface serves fresh code.",
+    policy: "mutate"
+  },
+  {
+    id: "workspace_apps_restart_and_wait_ready",
+    description:
+      "Restart one managed workspace app and then wait until runtime truth reports `ready: true`, returning the final structured managed status in one deterministic step.",
+    policy: "mutate"
+  },
+  {
+    id: "workspace_apps_wait_until_ready",
+    description:
+      "Poll one managed workspace app until the runtime reports `ready: true`, or return the latest structured status on timeout or failure.",
+    policy: "inspect"
+  },
+  {
+    id: "workspace_apps_get_status",
+    description:
+      "Read runtime truth for one registered workspace app, or list all registered apps, including build status, readiness, ports, runtime contract details, revision hints, config path, and current error state.",
+    policy: "inspect"
+  },
+  {
+    id: "workspace_apps_get_ports",
+    description:
+      "Legacy helper for reading runtime-managed HTTP and MCP ports. Prefer `workspace_apps_get_status`, which already includes ports along with readiness, revision, and runtime contract details.",
+    policy: "inspect"
+  },
+  {
+    id: "workspace_apps_probe_endpoints",
+    description:
+      "Probe the managed UI and MCP endpoints for one registered workspace app using deterministic fetches instead of ad hoc curl or browser verification. Supports `ui`, `mcp_health`, `mcp_initialize`, and `mcp_tools_list` checks.",
+    policy: "inspect"
+  },
+  {
+    id: "workspace_data_list_tables",
+    description:
+      "List the user-facing tables in the workspace's shared SQLite at `.holaboss/state/data.db`. Prefer this deterministic workspace-data surface when discovering existing sources of truth.",
+    policy: "inspect"
+  },
+  {
+    id: "workspace_data_describe_table",
+    description:
+      "Describe one table in the workspace's shared SQLite by returning its columns, types, and approximate row count.",
+    policy: "inspect"
+  },
+  {
+    id: "workspace_data_sample_rows",
+    description:
+      "Return a small sample of rows from one table in the workspace's shared SQLite so you can shape UI and queries against real data.",
+    policy: "inspect"
   }
 ] as const;
 

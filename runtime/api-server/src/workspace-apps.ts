@@ -189,6 +189,13 @@ export function listWorkspaceApplications(workspaceDir: string): Array<Record<st
   return Array.isArray(document.applications) ? document.applications.filter(isRecord) : [];
 }
 
+export function readWorkspaceMcpRegistryServerNames(workspaceDir: string): Set<string> {
+  const document = readWorkspaceYamlDocument(workspaceDir);
+  const registry = isRecord(document.mcp_registry) ? document.mcp_registry : {};
+  const servers = isRecord(registry.servers) ? registry.servers : {};
+  return new Set(Object.keys(servers));
+}
+
 export function parseInstalledAppRuntime(
   rawYaml: string,
   declaredAppId: string,

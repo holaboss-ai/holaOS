@@ -165,12 +165,33 @@ export function summarizeHarnessQuestionPrompt(args: unknown, result: unknown): 
   return null;
 }
 
+function isSessionRefreshRequiredResult(result: unknown): boolean {
+  if (!isRecord(result)) {
+    return false;
+  }
+  if (result.requires_session_refresh === true) {
+    return true;
+  }
+  if (isRecord(result.details) && result.details.requires_session_refresh === true) {
+    return true;
+  }
+  return false;
+}
+
 export function noteHarnessWaitingForUserOnToolCompletion(params: {
   toolName: unknown;
   isError: boolean;
   state: HarnessRunnerWaitState;
+  result?: unknown;
 }): void {
-  if (!params.isError && isHarnessQuestionToolName(params.toolName)) {
+  if (params.isError) {
+    return;
+  }
+  if (isHarnessQuestionToolName(params.toolName)) {
+    params.state.waitingForUser = true;
+    return;
+  }
+  if (isSessionRefreshRequiredResult(params.result)) {
     params.state.waitingForUser = true;
   }
 }

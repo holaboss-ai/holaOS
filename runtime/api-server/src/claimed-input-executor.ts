@@ -2463,6 +2463,75 @@ function maybeCreateCronjobCompletionNotification(params: {
   });
 }
 
+function maybeCreateBackgroundIntegrationNotification(params: {
+  store: RuntimeStateStore;
+  record: SessionInputRecord;
+  turnResult: TurnResultRecord;
+}): void {
+  if (params.turnResult.status !== "waiting_user") {
+    return;
+  }
+  const session = params.store.getSession({
+    workspaceId: params.record.workspaceId,
+    sessionId: params.record.sessionId,
+  });
+  if (optionalString(session?.kind)?.toLowerCase() !== "subagent") {
+    return;
+  }
+  const run = params.store.getSubagentRunByChildSession({
+    workspaceId: params.record.workspaceId,
+    childSessionId: params.record.sessionId,
+  });
+  if (!run) return;
+  const blockingPayload = isRecord(run.blockingPayload) ? run.blockingPayload : null;
+  const pendingList = blockingPayload && Array.isArray(blockingPayload.pending_integrations)
+    ? blockingPayload.pending_integrations
+    : [];
+  if (pendingList.length === 0) return;
+  const providers = [
+    ...new Set(
+      pendingList
+        .map((entry) => (isRecord(entry) ? optionalString(entry.provider_id) : null))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+  const apps = [
+    ...new Set(
+      pendingList
+        .map((entry) => (isRecord(entry) ? optionalString(entry.app_id) : null))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+  if (providers.length === 0 || apps.length === 0) return;
+
+  const workspace = params.store.getWorkspace(params.record.workspaceId);
+  if (!workspace) return;
+  const workspaceName = workspace.name.trim() || "Workspace";
+  const providerLabel = providers.length === 1 ? providers[0] : `${providers.length} integrations`;
+  const appLabel = apps.length === 1 ? apps[0] : `${apps.length} apps`;
+
+  params.store.createRuntimeNotification({
+    workspaceId: params.record.workspaceId,
+    sourceType: "background_integration",
+    sourceLabel: workspaceName,
+    title: `${workspaceName} — Connect ${providerLabel}`,
+    message: `${appLabel} needs your ${providerLabel} account to continue. Open the workspace to authorize.`,
+    level: "info",
+    priority: "normal",
+    metadata: {
+      session_id: run.ownerMainSessionId,
+      subagent_id: run.subagentId,
+      child_session_id: run.childSessionId,
+      origin_main_session_id: run.originMainSessionId,
+      owner_main_session_id: run.ownerMainSessionId,
+      pending_integrations: pendingList,
+      providers,
+      apps,
+      activation_state: "pending",
+    },
+  });
+}
+
 function maybeCreateMainSessionCompletionNotification(params: {
   store: RuntimeStateStore;
   record: SessionInputRecord;
@@ -2773,6 +2842,82 @@ function plusMillisecondsIso(
   return new Date(base + milliseconds).toISOString();
 }
 
+type SubagentPendingIntegration = {
+  app_id: string;
+  provider_id: string;
+  credential_source: string | null;
+};
+
+function parseSubagentPendingIntegrationsFromText(text: string): SubagentPendingIntegration[] {
+  if (!text.includes("pending_integrations")) {
+    return [];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  if (!isRecord(parsed)) {
+    return [];
+  }
+  const list = Array.isArray(parsed.pending_integrations) ? parsed.pending_integrations : [];
+  const out: SubagentPendingIntegration[] = [];
+  for (const entry of list) {
+    if (!isRecord(entry)) continue;
+    const appId = typeof entry.app_id === "string" ? entry.app_id.trim() : "";
+    const provider = typeof entry.provider_id === "string" ? entry.provider_id.trim() : "";
+    if (!appId || !provider) continue;
+    out.push({
+      app_id: appId,
+      provider_id: provider,
+      credential_source:
+        typeof entry.credential_source === "string" ? entry.credential_source : null,
+    });
+  }
+  return out;
+}
+
+const PENDING_INTEGRATION_EMITTING_TOOLS = new Set([
+  "workspace_apps_install",
+  "workspace_apps_ensure_running",
+  "workspace_apps_restart",
+  "workspace_apps_restart_and_wait_ready",
+]);
+
+function subagentPendingIntegrations(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  childSessionId: string;
+}): SubagentPendingIntegration[] {
+  const events = params.store.listOutputEvents({
+    workspaceId: params.workspaceId,
+    sessionId: params.childSessionId,
+    includeHistory: true,
+  });
+  const seen = new Set<string>();
+  const out: SubagentPendingIntegration[] = [];
+  for (const event of events) {
+    if (event.eventType !== "tool_call") continue;
+    const payload = isRecord(event.payload) ? event.payload : {};
+    const toolName = typeof payload.tool_name === "string" ? payload.tool_name : "";
+    if (!PENDING_INTEGRATION_EMITTING_TOOLS.has(toolName)) continue;
+    if (payload.phase !== "completed" || payload.error === true) continue;
+    const result = isRecord(payload.result) ? payload.result : null;
+    if (!result || !Array.isArray(result.content)) continue;
+    for (const part of result.content) {
+      if (!isRecord(part) || part.type !== "text" || typeof part.text !== "string") continue;
+      for (const integration of parseSubagentPendingIntegrationsFromText(part.text)) {
+        const key = integration.provider_id.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(integration);
+      }
+    }
+  }
+  return out;
+}
+
 function subagentForwardableDeliverables(
   outputs: OutputRecord[],
 ): Array<Record<string, unknown>> {
@@ -2799,6 +2944,7 @@ function subagentForwardableDeliverables(
 function subagentLifecycleStatusFromTurnResult(params: {
   run: SubagentRunRecord;
   turnResult: TurnResultRecord;
+  pendingIntegrationCount?: number;
 }): "completed" | "failed" | "waiting_on_user" | "cancelled" | null {
   if (params.run.cancelledAt || params.run.status === "cancelled") {
     return "cancelled";
@@ -2806,7 +2952,10 @@ function subagentLifecycleStatusFromTurnResult(params: {
   if (params.turnResult.status === "waiting_user") {
     return "waiting_on_user";
   }
-  if (inferredRecoverableUserBlockerQuestion(params.turnResult)) {
+  if (
+    (params.pendingIntegrationCount ?? 0) === 0 &&
+    inferredRecoverableUserBlockerQuestion(params.turnResult)
+  ) {
     return "waiting_on_user";
   }
   if (params.turnResult.status === "failed") {
@@ -2877,6 +3026,7 @@ function subagentLifecycleSummary(params: {
 }
 
 function subagentLifecyclePayload(params: {
+  store: RuntimeStateStore;
   run: SubagentRunRecord;
   turnResult: TurnResultRecord;
   status: "completed" | "failed" | "waiting_on_user" | "cancelled";
@@ -2885,6 +3035,11 @@ function subagentLifecyclePayload(params: {
   record: SessionInputRecord;
 }): Record<string, unknown> {
   const forwardableDeliverables = subagentForwardableDeliverables(params.outputs);
+  const pendingIntegrations = subagentPendingIntegrations({
+    store: params.store,
+    workspaceId: params.run.workspaceId,
+    childSessionId: params.run.childSessionId,
+  });
   const assistantText = optionalString(params.turnResult.assistantText);
   const payload: Record<string, unknown> = {
     subagent_id: params.run.subagentId,
@@ -2907,6 +3062,9 @@ function subagentLifecyclePayload(params: {
   }
   if (forwardableDeliverables.length > 0) {
     payload.forwardable_deliverables = forwardableDeliverables;
+  }
+  if (pendingIntegrations.length > 0) {
+    payload.pending_integrations = pendingIntegrations;
   }
   if (params.status === "waiting_on_user") {
     payload.blocking_question =
@@ -2967,9 +3125,15 @@ function updateSubagentRunFromTurnResult(params: {
     return null;
   }
 
+  const pendingIntegrationCount = subagentPendingIntegrations({
+    store: params.store,
+    workspaceId: run.workspaceId,
+    childSessionId: run.childSessionId,
+  }).length;
   const status = subagentLifecycleStatusFromTurnResult({
     run,
     turnResult: params.turnResult,
+    pendingIntegrationCount,
   });
   const outputs = params.store.listOutputs({
     workspaceId: params.record.workspaceId,
@@ -3006,6 +3170,7 @@ function updateSubagentRunFromTurnResult(params: {
     status,
   });
   const payload = subagentLifecyclePayload({
+    store: params.store,
     run,
     turnResult: params.turnResult,
     status,
@@ -5063,6 +5228,11 @@ export async function processClaimedInput(params: {
         record,
         turnResult,
       });
+      maybeCreateBackgroundIntegrationNotification({
+        store,
+        record,
+        turnResult,
+      });
       maybeQueueCronjobCompletionFollowup({
         store,
         record,
@@ -5189,6 +5359,11 @@ export async function processClaimedInput(params: {
         turnResult,
       });
       maybeCreateMainSessionCompletionNotification({
+        store,
+        record,
+        turnResult,
+      });
+      maybeCreateBackgroundIntegrationNotification({
         store,
         record,
         turnResult,

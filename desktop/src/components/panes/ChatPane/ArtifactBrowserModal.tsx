@@ -5,7 +5,6 @@ import {
   FileText,
   FileType,
   Image as ImageIcon,
-  LayoutDashboard,
   Link2,
   Waypoints,
   X,
@@ -24,10 +23,7 @@ type OutputVisualKind =
   | "image"
   | "link"
   | "app"
-  | "dashboard"
   | "file";
-
-const DASHBOARD_EXTENSIONS = new Set(["dashboard"]);
 
 const SPREADSHEET_EXTENSIONS = new Set([
   "xlsx",
@@ -154,12 +150,6 @@ export function outputBrowserFilterForOutput(
 }
 
 export function outputKindLabel(output: WorkspaceOutputRecordPayload) {
-  // .dashboard files outrank generic origin/category labels — they're
-  // a first-class artifact type with their own renderer.
-  const ext = outputFileExtensionFromTitle(output);
-  if (ext === "dashboard") {
-    return "Dashboard";
-  }
   if (
     outputMetadataString(output, "origin_type") === "app" ||
     output.module_id
@@ -355,9 +345,6 @@ function outputVisualKind(
 
   const extension = outputFileExtension(output);
   if (extension) {
-    if (DASHBOARD_EXTENSIONS.has(extension)) {
-      return "dashboard";
-    }
     if (SPREADSHEET_EXTENSIONS.has(extension)) {
       return "spreadsheet";
     }
@@ -430,12 +417,6 @@ function outputVisualTheme(kind: OutputVisualKind): {
     case "app":
       return {
         Icon: Waypoints,
-        tileClass: "bg-primary/12 ring-1 ring-inset ring-primary/20",
-        iconClass: "text-primary",
-      };
-    case "dashboard":
-      return {
-        Icon: LayoutDashboard,
         tileClass: "bg-primary/12 ring-1 ring-inset ring-primary/20",
         iconClass: "text-primary",
       };

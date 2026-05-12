@@ -384,9 +384,9 @@ function buildShellLifecycleEnv(
     try {
       // ensureWorkspaceDataDb() materializes the file with WAL + the
       // _workspace_meta anchor row before the app process spawns. This
-      // closes the race where workspace-level tools (list_data_tables,
-      // create_dashboard) ran before any app had called getDb() and
-      // saw a missing file even though the app was about to write.
+      // closes the race where workspace-level data tools ran before
+      // any app had called getDb() and saw a missing file even though
+      // the app was about to write.
       const dataDbPath = ensureWorkspaceDataDb(workspaceDirForId(params.workspaceId));
       env.WORKSPACE_DB_PATH = dataDbPath;
       maybeApplyAppSchema(params.resolvedApp, dataDbPath);

@@ -35,6 +35,7 @@ export function ConversationTurns<Message extends ChatMessage>({
   assistantFooterAccessory = null,
   getMessageWrapperClassName,
   liveAssistantTurn = null,
+  onAfterIntegrationBind,
 }: {
   messages: Message[];
   assistantLabel: string;
@@ -73,6 +74,7 @@ export function ConversationTurns<Message extends ChatMessage>({
     statusAccessory?: ReactNode;
     footerAccessory?: ReactNode;
   } | null;
+  onAfterIntegrationBind?: () => void;
 }) {
   return (
     <>
@@ -109,6 +111,8 @@ export function ConversationTurns<Message extends ChatMessage>({
               executionItems={message.executionItems ?? []}
               memoryProposals={message.memoryProposals ?? []}
               outputs={message.outputs ?? []}
+              pendingIntegrations={message.pendingIntegrations ?? []}
+              onAfterIntegrationBind={onAfterIntegrationBind}
               memoryProposalAction={memoryProposalAction}
               editingMemoryProposalId={editingMemoryProposalId}
               memoryProposalDrafts={memoryProposalDrafts}
