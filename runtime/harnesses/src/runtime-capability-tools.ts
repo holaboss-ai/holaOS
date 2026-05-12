@@ -878,6 +878,35 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         required: ["table_name"],
         additionalProperties: false,
       };
+    case "workspace_data_query":
+      return {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "Single read-only SQL query to run against the workspace shared SQLite. Only SELECT and WITH ... SELECT queries are allowed.",
+          },
+          limit: {
+            type: "integer",
+            description: "Maximum rows to return. Defaults to 100 and is capped to a safe value.",
+            minimum: 1,
+          },
+          offset: {
+            type: "integer",
+            description: "Optional row offset applied to the returned result set.",
+            minimum: 0,
+          },
+          timeout_ms: {
+            type: "integer",
+            description:
+              "Optional advisory timeout in milliseconds for lock waits and deterministic query shaping.",
+            minimum: 1,
+          },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      };
   }
 }
 

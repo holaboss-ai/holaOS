@@ -36,6 +36,7 @@ When these runtime tools are surfaced for the current run, prefer them over hand
 - `workspace_apps_get_ports` only when a legacy caller needs ports alone
 - `workspace_apps_probe_endpoints` for deterministic managed UI/MCP endpoint checks instead of raw `curl`
 - `workspace_data_list_tables`, `workspace_data_describe_table`, and `workspace_data_sample_rows` for shared data discovery
+- `workspace_data_query` for deterministic read-only joins, aggregations, and mixed-source previews against shared workspace data
 
 These tools are for workspace-contract operations. Keep app-specific UI, workflows, and domain logic model-driven.
 

@@ -10,6 +10,7 @@ import { afterEach, test } from "node:test";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 
+import Database from "better-sqlite3";
 import { RuntimeStateStore } from "@holaboss/runtime-state-store";
 import yazl from "yazl";
 import * as tar from "tar";
@@ -66,6 +67,38 @@ function makeTempDir(prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
+}
+
+function seedWorkspaceDataForQuery(dbPath: string): void {
+  const db = new Database(dbPath);
+  db.pragma("journal_mode = WAL");
+  db.exec(`
+    CREATE TABLE twitter_posts (
+      id TEXT PRIMARY KEY,
+      campaign_key TEXT,
+      status TEXT NOT NULL
+    );
+    CREATE TABLE campaign_plans (
+      campaign_key TEXT PRIMARY KEY,
+      owner TEXT NOT NULL
+    );
+  `);
+  db.prepare(
+    "INSERT INTO twitter_posts (id, campaign_key, status) VALUES (?, ?, ?)",
+  ).run("p1", "launch-a", "draft");
+  db.prepare(
+    "INSERT INTO twitter_posts (id, campaign_key, status) VALUES (?, ?, ?)",
+  ).run("p2", "launch-a", "draft");
+  db.prepare(
+    "INSERT INTO twitter_posts (id, campaign_key, status) VALUES (?, ?, ?)",
+  ).run("p3", "launch-b", "published");
+  db.prepare(
+    "INSERT INTO campaign_plans (campaign_key, owner) VALUES (?, ?)",
+  ).run("launch-a", "alice");
+  db.prepare(
+    "INSERT INTO campaign_plans (campaign_key, owner) VALUES (?, ?)",
+  ).run("launch-b", "bob");
+  db.close();
 }
 
 function writeRuntimeConfig(root: string, document: Record<string, unknown>): void {
@@ -824,6 +857,11 @@ test("runtime tools capability routes expose local onboarding and cronjob action
         .json()
         .tools.some((tool: { id: string }) => tool.id === "workspace_data_describe_table")
     );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "workspace_data_query")
+    );
 
     const onboardingStatus = await app.inject({
       method: "GET",
@@ -921,6 +959,64 @@ test("runtime onboarding completion returns 409 workspace_folder_missing when th
     assert.equal(resp.json().code, "workspace_folder_missing");
     assert.equal(path.resolve(resp.json().workspace_path), path.resolve(workspaceDir));
     assert.equal(fs.existsSync(workspaceDir), false);
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
+test("workspace data query route previews mixed-source joins deterministically", async () => {
+  const root = makeTempDir("hb-runtime-api-workspace-data-query-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const dataDbPath = path.join(
+    workspaceRoot,
+    "workspace-1",
+    ".holaboss",
+    "state",
+    "data.db",
+  );
+  fs.mkdirSync(path.dirname(dataDbPath), { recursive: true });
+  seedWorkspaceDataForQuery(dataDbPath);
+  const app = buildTestRuntimeApiServer({ store });
+
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/workspace-data/query",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {
+        query: `
+          SELECT plans.owner, COUNT(*) AS post_count
+          FROM twitter_posts AS posts
+          JOIN campaign_plans AS plans
+            ON plans.campaign_key = posts.campaign_key
+          GROUP BY plans.owner
+          ORDER BY plans.owner
+        `,
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(
+      response.json().rows,
+      [
+        { owner: "alice", post_count: 2 },
+        { owner: "bob", post_count: 1 },
+      ],
+    );
+    assert.equal(response.json().truncated, false);
   } finally {
     await app.close();
     store.close();

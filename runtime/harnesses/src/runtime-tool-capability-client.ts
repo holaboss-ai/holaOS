@@ -25,6 +25,7 @@ const RUNTIME_TOOLS_TERMINAL_SESSIONS_PATH = "/api/v1/capabilities/runtime-tools
 const RUNTIME_TOOLS_WORKSPACE_APPS_PATH = "/api/v1/capabilities/runtime-tools/workspace-apps";
 const RUNTIME_TOOLS_WORKSPACE_APPS_PORTS_PATH = "/api/v1/capabilities/runtime-tools/workspace-apps/ports";
 const RUNTIME_TOOLS_WORKSPACE_DATA_TABLES_PATH = "/api/v1/capabilities/runtime-tools/workspace-data/tables";
+const RUNTIME_TOOLS_WORKSPACE_DATA_QUERY_PATH = "/api/v1/capabilities/runtime-tools/workspace-data/query";
 const DEFAULT_RUNTIME_TOOL_TIMEOUT_MS = 30000;
 const IMAGE_GENERATE_RUNTIME_TOOL_TIMEOUT_MS = 180000;
 const DOWNLOAD_URL_RUNTIME_TOOL_TIMEOUT_MS = 120000;
@@ -472,6 +473,16 @@ function createWorkspaceDataSampleRowsBody(toolParams: unknown): Record<string, 
   };
 }
 
+function createWorkspaceDataQueryBody(toolParams: unknown): Record<string, unknown> {
+  const params = isRecord(toolParams) ? toolParams : {};
+  return {
+    query: String(params.query ?? ""),
+    ...(typeof params.limit === "number" ? { limit: params.limit } : {}),
+    ...(typeof params.offset === "number" ? { offset: params.offset } : {}),
+    ...(typeof params.timeout_ms === "number" ? { timeout_ms: params.timeout_ms } : {}),
+  };
+}
+
 export function runtimeToolHeaders(params: {
   workspaceId?: string | null;
   sessionId?: string | null;
@@ -758,6 +769,12 @@ function requestPlan(
         method: "POST",
         requestPath: `${workspaceDataTablePath(isRecord(toolParams) ? toolParams.table_name : undefined)}/sample`,
         body: createWorkspaceDataSampleRowsBody(toolParams),
+      };
+    case "workspace_data_query":
+      return {
+        method: "POST",
+        requestPath: RUNTIME_TOOLS_WORKSPACE_DATA_QUERY_PATH,
+        body: createWorkspaceDataQueryBody(toolParams),
       };
   }
   throw new Error(`Unsupported runtime tool: ${toolId}`);

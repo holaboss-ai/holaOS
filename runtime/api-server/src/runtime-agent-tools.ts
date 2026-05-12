@@ -66,6 +66,11 @@ const SUBAGENT_CANCEL_SETTLE_TIMEOUT_MS = 8_000;
 const SUBAGENT_CANCEL_SETTLE_POLL_INTERVAL_MS = 50;
 const WORKSPACE_APP_BUILD_TIMEOUT_MS = 180_000;
 const WORKSPACE_APP_PROBE_TIMEOUT_MS = 5_000;
+const WORKSPACE_DATA_QUERY_DEFAULT_LIMIT = 100;
+const WORKSPACE_DATA_QUERY_MAX_LIMIT = 500;
+const WORKSPACE_DATA_QUERY_MAX_OFFSET = 10_000;
+const WORKSPACE_DATA_QUERY_DEFAULT_TIMEOUT_MS = 2_000;
+const WORKSPACE_DATA_QUERY_MAX_TIMEOUT_MS = 10_000;
 const WORKSPACE_APP_ENDPOINT_PROBE_CHECKS = [
   "ui",
   "mcp_health",
@@ -332,6 +337,14 @@ export interface RuntimeAgentToolsSampleDataTableRowsParams {
   tableName: string;
   limit?: number | null;
   offset?: number | null;
+}
+
+export interface RuntimeAgentToolsQueryWorkspaceDataParams {
+  workspaceId: string;
+  query: string;
+  limit?: number | null;
+  offset?: number | null;
+  timeoutMs?: number | null;
 }
 
 // Suffixes that mark a table as app-internal under the cross-platform
@@ -1106,6 +1119,12 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS: RuntimeAgentToolDefinition[] = [
     method: "POST",
     path: "/api/v1/capabilities/runtime-tools/workspace-data/tables/:tableName/sample",
     description: runtimeToolBaseDefinition("workspace_data_sample_rows").description
+  },
+  {
+    id: runtimeToolBaseDefinition("workspace_data_query").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/workspace-data/query",
+    description: runtimeToolBaseDefinition("workspace_data_query").description
   },
 ];
 
@@ -4859,6 +4878,90 @@ export class RuntimeAgentToolsService {
     }
   }
 
+  queryWorkspaceData(
+    params: RuntimeAgentToolsQueryWorkspaceDataParams,
+  ): JsonObject {
+    this.requireWorkspace(params.workspaceId);
+    const query = normalizeWorkspaceDataQuery(params.query);
+    const limit = normalizedInteger(
+      params.limit ?? WORKSPACE_DATA_QUERY_DEFAULT_LIMIT,
+      WORKSPACE_DATA_QUERY_DEFAULT_LIMIT,
+      1,
+      WORKSPACE_DATA_QUERY_MAX_LIMIT,
+    );
+    const offset = normalizedInteger(
+      params.offset ?? 0,
+      0,
+      0,
+      WORKSPACE_DATA_QUERY_MAX_OFFSET,
+    );
+    const timeoutMs = normalizedInteger(
+      params.timeoutMs ?? WORKSPACE_DATA_QUERY_DEFAULT_TIMEOUT_MS,
+      WORKSPACE_DATA_QUERY_DEFAULT_TIMEOUT_MS,
+      1,
+      WORKSPACE_DATA_QUERY_MAX_TIMEOUT_MS,
+    );
+    const dbPath = ensureWorkspaceDataDb(
+      path.join(this.options.workspaceRoot, params.workspaceId),
+    );
+
+    let db: Database.Database | null = null;
+    try {
+      db = new Database(dbPath, { readonly: true, fileMustExist: true });
+      db.pragma("query_only = ON");
+      db.pragma(`busy_timeout = ${timeoutMs}`);
+
+      const prepared = db.prepare(query);
+      const columnMetadata = prepared.columns() as Array<{
+        name?: string | null;
+        type?: string | null;
+      }>;
+      const wrapped = db.prepare(
+        `SELECT * FROM (${query}) AS workspace_data_query_result LIMIT ${limit + 1} OFFSET ${offset}`,
+      );
+      const startedAt = Date.now();
+      const rawRows = wrapped.all() as Array<Record<string, unknown>>;
+      const elapsedMs = Date.now() - startedAt;
+      const truncated = rawRows.length > limit;
+      const rows = rawRows
+        .slice(0, limit)
+        .map((row) => workspaceDataQueryRowToJson(row));
+
+      return {
+        workspace_id: params.workspaceId,
+        query,
+        limit,
+        offset,
+        timeout_ms: timeoutMs,
+        elapsed_ms: elapsedMs,
+        row_count: rows.length,
+        truncated,
+        columns: columnMetadata.map((column) => ({
+          name: typeof column.name === "string" && column.name.trim() ? column.name : "column",
+          type: typeof column.type === "string" && column.type.trim() ? column.type : "UNKNOWN",
+        })),
+        rows,
+      };
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        throw error;
+      }
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "workspace_data_query_failed",
+        error instanceof Error ? error.message : "Failed to query workspace data",
+      );
+    } finally {
+      if (db) {
+        try {
+          db.close();
+        } catch {
+          /* best effort */
+        }
+      }
+    }
+  }
+
   // Introspects the workspace's shared SQLite (data.db) and returns the
   // tables module apps have created. Shared by the deterministic
   // workspace-data inspection routes so agents can discover real sources
@@ -4940,4 +5043,197 @@ export class RuntimeAgentToolsService {
 
 function quoteSqlIdentifier(value: string): string {
   return `"${value.replace(/"/g, "\"\"")}"`;
+}
+
+function normalizeWorkspaceDataQuery(value: string): string {
+  const trimmed = normalizedString(value);
+  if (!trimmed) {
+    throw new RuntimeAgentToolsServiceError(
+      400,
+      "workspace_data_query_required",
+      "query is required",
+    );
+  }
+
+  const withoutTrailingSemicolon = trimmed.replace(/;\s*$/, "").trim();
+  const surface = stripSqlStringsAndComments(withoutTrailingSemicolon).trim();
+  if (!surface) {
+    throw new RuntimeAgentToolsServiceError(
+      400,
+      "workspace_data_query_required",
+      "query is required",
+    );
+  }
+  if (surface.includes(";")) {
+    throw new RuntimeAgentToolsServiceError(
+      400,
+      "workspace_data_query_multiple_statements",
+      "only a single SQL statement is allowed",
+    );
+  }
+
+  const firstToken = surface.match(/^([a-z]+)/i)?.[1]?.toLowerCase() ?? "";
+  if (firstToken !== "select" && firstToken !== "with") {
+    throw new RuntimeAgentToolsServiceError(
+      400,
+      "workspace_data_query_unsafe",
+      "only read-only SELECT queries are allowed",
+    );
+  }
+
+  if (
+    /\b(insert|update|delete|alter|drop|create|attach|detach|pragma|vacuum|reindex|analyze|replace|upsert|merge|begin|commit|rollback)\b/i
+      .test(surface)
+  ) {
+    throw new RuntimeAgentToolsServiceError(
+      400,
+      "workspace_data_query_unsafe",
+      "query contains non-read-only SQL",
+    );
+  }
+
+  return withoutTrailingSemicolon;
+}
+
+function stripSqlStringsAndComments(value: string): string {
+  let out = "";
+  let mode:
+    | "normal"
+    | "single_quote"
+    | "double_quote"
+    | "backtick"
+    | "line_comment"
+    | "block_comment" = "normal";
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    const next = value[index + 1] ?? "";
+
+    if (mode === "normal") {
+      if (char === "'" ) {
+        mode = "single_quote";
+        out += " ";
+        continue;
+      }
+      if (char === "\"") {
+        mode = "double_quote";
+        out += " ";
+        continue;
+      }
+      if (char === "`") {
+        mode = "backtick";
+        out += " ";
+        continue;
+      }
+      if (char === "-" && next === "-") {
+        mode = "line_comment";
+        out += "  ";
+        index += 1;
+        continue;
+      }
+      if (char === "/" && next === "*") {
+        mode = "block_comment";
+        out += "  ";
+        index += 1;
+        continue;
+      }
+      out += char;
+      continue;
+    }
+
+    if (mode === "single_quote") {
+      if (char === "'" && next === "'") {
+        out += "  ";
+        index += 1;
+        continue;
+      }
+      if (char === "'") {
+        mode = "normal";
+      }
+      out += char === "\n" ? "\n" : " ";
+      continue;
+    }
+
+    if (mode === "double_quote") {
+      if (char === "\"" && next === "\"") {
+        out += "  ";
+        index += 1;
+        continue;
+      }
+      if (char === "\"") {
+        mode = "normal";
+      }
+      out += char === "\n" ? "\n" : " ";
+      continue;
+    }
+
+    if (mode === "backtick") {
+      if (char === "`" && next === "`") {
+        out += "  ";
+        index += 1;
+        continue;
+      }
+      if (char === "`") {
+        mode = "normal";
+      }
+      out += char === "\n" ? "\n" : " ";
+      continue;
+    }
+
+    if (mode === "line_comment") {
+      if (char === "\n") {
+        mode = "normal";
+        out += "\n";
+        continue;
+      }
+      out += " ";
+      continue;
+    }
+
+    if (char === "*" && next === "/") {
+      mode = "normal";
+      out += "  ";
+      index += 1;
+      continue;
+    }
+    out += char === "\n" ? "\n" : " ";
+  }
+
+  return out;
+}
+
+function workspaceDataQueryValueToJson(value: unknown): JsonValue {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+  if (Buffer.isBuffer(value)) {
+    return value.toString("base64");
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => workspaceDataQueryValueToJson(entry));
+  }
+  if (typeof value === "object" && value !== null) {
+    const objectValue: Record<string, JsonValue> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      objectValue[key] = workspaceDataQueryValueToJson(entry);
+    }
+    return objectValue;
+  }
+  return String(value);
+}
+
+function workspaceDataQueryRowToJson(row: Record<string, unknown>): Record<string, JsonValue> {
+  const normalizedRow: Record<string, JsonValue> = {};
+  for (const [key, value] of Object.entries(row)) {
+    normalizedRow[key] = workspaceDataQueryValueToJson(value);
+  }
+  return normalizedRow;
 }

@@ -1314,17 +1314,36 @@ function seedTwitterPosts(dbPath: string) {
     CREATE TABLE twitter_posts (
       id TEXT PRIMARY KEY,
       content TEXT NOT NULL,
+      campaign_key TEXT,
       status TEXT NOT NULL DEFAULT 'draft',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX idx_twitter_posts_status ON twitter_posts(status);
   `);
   const insert = db.prepare(
-    "INSERT INTO twitter_posts (id, content, status, created_at) VALUES (?, ?, ?, ?)",
+    "INSERT INTO twitter_posts (id, content, campaign_key, status, created_at) VALUES (?, ?, ?, ?, ?)",
   );
-  insert.run("p1", "First draft", "draft", "2026-04-28T00:00:00Z");
-  insert.run("p2", "Second draft", "draft", "2026-04-28T00:00:01Z");
-  insert.run("p3", "Published one", "published", "2026-04-28T00:00:02Z");
+  insert.run("p1", "First draft", "launch-a", "draft", "2026-04-28T00:00:00Z");
+  insert.run("p2", "Second draft", "launch-a", "draft", "2026-04-28T00:00:01Z");
+  insert.run("p3", "Published one", "launch-b", "published", "2026-04-28T00:00:02Z");
+  db.close();
+}
+
+function seedCampaignPlans(dbPath: string) {
+  const db = new Database(dbPath);
+  db.pragma("journal_mode = WAL");
+  db.exec(`
+    CREATE TABLE campaign_plans (
+      campaign_key TEXT PRIMARY KEY,
+      channel TEXT NOT NULL,
+      owner TEXT NOT NULL
+    );
+  `);
+  const insert = db.prepare(
+    "INSERT INTO campaign_plans (campaign_key, channel, owner) VALUES (?, ?, ?)",
+  );
+  insert.run("launch-a", "twitter", "alice");
+  insert.run("launch-b", "twitter", "bob");
   db.close();
 }
 
@@ -1790,7 +1809,7 @@ test("listDataTables introspects tables, columns, and row counts", () => {
   assert.equal(posts.name, "twitter_posts");
   assert.equal(posts.row_count, 3);
   const colNames = posts.columns.map((c) => c.name);
-  assert.deepEqual(colNames.slice(0, 4), ["id", "content", "status", "created_at"]);
+  assert.deepEqual(colNames.slice(0, 5), ["id", "content", "campaign_key", "status", "created_at"]);
 });
 
 test("describeDataTable and sampleDataTableRows inspect shared workspace data deterministically", () => {
@@ -1808,8 +1827,8 @@ test("describeDataTable and sampleDataTableRows inspect shared workspace data de
   assert.equal(description.table_name, "twitter_posts");
   assert.equal(description.row_count, 3);
   assert.deepEqual(
-    description.columns.map((column) => column.name).slice(0, 4),
-    ["id", "content", "status", "created_at"],
+    description.columns.map((column) => column.name).slice(0, 5),
+    ["id", "content", "campaign_key", "status", "created_at"],
   );
 
   const sample = harness.service.sampleDataTableRows({
@@ -1824,6 +1843,57 @@ test("describeDataTable and sampleDataTableRows inspect shared workspace data de
   assert.equal(sample.row_count, 2);
   assert.deepEqual(sample.rows.map((row) => row.id), ["p1", "p2"]);
   assert.deepEqual(sample.rows.map((row) => row.status), ["draft", "draft"]);
+});
+
+test("queryWorkspaceData previews mixed-source joins deterministically", () => {
+  seedTwitterPosts(harness.dataDbPath);
+  seedCampaignPlans(harness.dataDbPath);
+
+  const result = harness.service.queryWorkspaceData({
+    workspaceId: harness.workspaceId,
+    query: `
+      SELECT
+        plans.owner,
+        COUNT(*) AS post_count
+      FROM twitter_posts AS posts
+      JOIN campaign_plans AS plans
+        ON plans.campaign_key = posts.campaign_key
+      GROUP BY plans.owner
+      ORDER BY plans.owner
+    `,
+    limit: 10,
+  }) as {
+    row_count: number;
+    truncated: boolean;
+    columns: Array<{ name: string }>;
+    rows: Array<{ owner: string; post_count: number }>;
+  };
+
+  assert.equal(result.row_count, 2);
+  assert.equal(result.truncated, false);
+  assert.deepEqual(
+    result.columns.map((column) => column.name),
+    ["owner", "post_count"],
+  );
+  assert.deepEqual(result.rows, [
+    { owner: "alice", post_count: 2 },
+    { owner: "bob", post_count: 1 },
+  ]);
+});
+
+test("queryWorkspaceData rejects unsafe SQL", () => {
+  seedTwitterPosts(harness.dataDbPath);
+
+  assert.throws(
+    () =>
+      harness.service.queryWorkspaceData({
+        workspaceId: harness.workspaceId,
+        query: "DELETE FROM twitter_posts",
+      }),
+    (error: unknown) =>
+      error instanceof RuntimeAgentToolsServiceError &&
+      error.code === "workspace_data_query_unsafe",
+  );
 });
 
 test("listDataTables hides app-internal tables by default; includeSystem reveals them", () => {

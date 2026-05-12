@@ -5784,6 +5784,34 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     },
   );
 
+  app.post(
+    "/api/v1/capabilities/runtime-tools/workspace-data/query",
+    async (request, reply) => {
+      const body = isRecord(request.body) ? request.body : {};
+      try {
+        return runtimeAgentToolsService.queryWorkspaceData({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }),
+          query: requiredString(body.query, "query"),
+          limit: typeof body.limit === "number" ? body.limit : undefined,
+          offset: typeof body.offset === "number" ? body.offset : undefined,
+          timeoutMs: typeof body.timeout_ms === "number" ? body.timeout_ms : undefined,
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_data_query failed",
+        );
+      }
+    },
+  );
+
   app.post("/api/v1/lifecycle/shutdown", async (request, reply) => {
     void request;
     try {

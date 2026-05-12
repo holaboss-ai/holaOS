@@ -248,6 +248,12 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     description:
       "Return a small sample of rows from one table in the workspace's shared SQLite so you can shape UI and queries against real data.",
     policy: "inspect"
+  },
+  {
+    id: "workspace_data_query",
+    description:
+      "Run a deterministic read-only SQL query against the workspace's shared SQLite so you can preview joins, aggregations, and mixed-source data before generating app logic.",
+    policy: "inspect"
   }
 ] as const;
 
