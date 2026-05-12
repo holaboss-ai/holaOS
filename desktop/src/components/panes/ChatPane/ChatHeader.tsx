@@ -1,4 +1,4 @@
-import { Clock3, FileStack, Inbox, MessageCircle } from "lucide-react";
+import { Boxes, Clock3, Inbox, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -18,7 +18,7 @@ interface ChatHeaderProps {
   onOpenInbox?: () => void;
   inboxUnreadCount: number;
   onOpenAutomations?: () => void;
-  onViewAllArtifacts?: () => void;
+  onOpenArtifacts?: () => void;
 }
 
 export function ChatHeader({
@@ -30,7 +30,7 @@ export function ChatHeader({
   onOpenInbox,
   inboxUnreadCount,
   onOpenAutomations,
-  onViewAllArtifacts,
+  onOpenArtifacts,
 }: ChatHeaderProps) {
   const seed = workspace?.id ?? agentName ?? "default";
 
@@ -119,7 +119,7 @@ export function ChatHeader({
             </Tooltip>
           ) : null}
 
-          {onViewAllArtifacts ? (
+          {onOpenArtifacts ? (
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -127,15 +127,15 @@ export function ChatHeader({
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    onClick={() => onViewAllArtifacts()}
-                    aria-label="View all artifacts"
+                    onClick={() => onOpenArtifacts()}
+                    aria-label="Artifacts"
                     className="text-muted-foreground hover:text-foreground"
                   >
-                    <FileStack className="size-4" />
+                    <Boxes className="size-4" />
                   </Button>
                 }
               />
-              <TooltipContent>All artifacts</TooltipContent>
+              <TooltipContent>Artifacts</TooltipContent>
             </Tooltip>
           ) : null}
         </div>
