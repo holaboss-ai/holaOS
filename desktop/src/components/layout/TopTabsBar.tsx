@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   BookText,
+  Check,
   ChevronDown,
   CircleUserRound,
   Copy,
@@ -9,8 +10,6 @@ import {
   LayoutGrid,
   Loader2,
   Minus,
-  PanelRight,
-  PanelRightDashed,
   Plus,
   Search,
   Settings,
@@ -20,6 +19,15 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import {
+  LayoutModeIcon,
+  type LayoutMode,
+} from "@/components/icons/pane-toggle-icons";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   type MouseEvent,
   useCallback,
@@ -69,9 +77,6 @@ interface TopTabsBarProps {
   desktopPlatform?: string | null;
   runtimeStatus?: RuntimeStatusPayload | null;
   controlCenterActive?: boolean;
-  chatPanelHidden?: boolean;
-  showChatPanelToggle?: boolean;
-  onToggleChatPanel?: () => void;
   inboxNotifications?: RuntimeNotificationRecordPayload[];
   inboxWorkspacesById?: Map<string, WorkspaceRecordPayload>;
   onActivateInboxNotification?: (notificationId: string) => void;
@@ -85,16 +90,29 @@ interface TopTabsBarProps {
   onOpenBilling?: () => void;
   onOpenExternalUrl?: (url: string) => void;
   onPublish?: () => void;
+  /** Single layout-mode picker replacing the previous two pane
+   *  toggles. Renders a popover with split / focus-chat / focus-work
+   *  options previewed as mini layout illustrations. */
+  showLayoutPicker?: boolean;
+  layoutMode?: LayoutMode;
+  onLayoutModeChange?: (mode: LayoutMode) => void;
 }
+
+const LAYOUT_PICKER_OPTIONS: ReadonlyArray<{
+  mode: LayoutMode;
+  label: string;
+  shortcutKey: string;
+}> = [
+  { mode: "split", label: "Split view", shortcutKey: "1" },
+  { mode: "focus_chat", label: "Focus chat", shortcutKey: "2" },
+  { mode: "focus_work", label: "Focus workspace", shortcutKey: "3" },
+];
 
 export function TopTabsBar({
   integratedTitleBar = false,
   desktopPlatform = null,
   runtimeStatus = null,
   controlCenterActive = false,
-  chatPanelHidden = false,
-  showChatPanelToggle = false,
-  onToggleChatPanel,
   inboxNotifications,
   inboxWorkspacesById,
   onActivateInboxNotification,
@@ -108,7 +126,11 @@ export function TopTabsBar({
   onOpenBilling,
   onOpenExternalUrl,
   onPublish,
+  showLayoutPicker = false,
+  layoutMode = "split",
+  onLayoutModeChange,
 }: TopTabsBarProps) {
+  const [layoutPickerOpen, setLayoutPickerOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   // Mac stoplight compensation now flows through StoplightContext (set in
   // AppShell); the hook returns true only on darwin AND when the provider
@@ -336,36 +358,88 @@ export function TopTabsBar({
       className={headerClassName}
     >
       <div className={headerGridClassName} style={headerGridStyle}>
-        {/* LEFT: layout controls — VSCode-style panel toggle anchors the
-            top-left corner; future view-mode toggles slot in here too. */}
         <div
           className={`${integratedTitleBar ? "window-no-drag " : ""}hidden min-w-0 items-center gap-1.5 lg:flex`}
         >
-          {showChatPanelToggle && onToggleChatPanel ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={
-                      chatPanelHidden ? "Show chat panel" : "Hide chat panel"
-                    }
-                    aria-pressed={chatPanelHidden}
-                    onClick={() => onToggleChatPanel()}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    {chatPanelHidden ? <PanelRightDashed /> : <PanelRight />}
-                  </Button>
-                }
-              />
-              <TooltipContent side="bottom">
-                {chatPanelHidden ? "Show chat panel" : "Hide chat panel"}
-                <span className="ml-1.5 text-muted-foreground">
-                  {desktopPlatform === "darwin" ? "⌘\\" : "Ctrl+\\"}
-                </span>
-              </TooltipContent>
-            </Tooltip>
+          {showLayoutPicker && onLayoutModeChange ? (
+            <Popover
+              open={layoutPickerOpen}
+              onOpenChange={setLayoutPickerOpen}
+            >
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <PopoverTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label="Switch workspace layout"
+                          aria-haspopup="menu"
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <LayoutModeIcon mode={layoutMode} />
+                        </Button>
+                      }
+                    />
+                  }
+                />
+                <TooltipContent side="bottom">
+                  Switch layout
+                  <span className="ml-1.5 text-muted-foreground">
+                    {desktopPlatform === "darwin"
+                      ? "⌘1 / ⌘2 / ⌘3"
+                      : "Ctrl+1 / Ctrl+2 / Ctrl+3"}
+                  </span>
+                </TooltipContent>
+              </Tooltip>
+              <PopoverContent
+                align="start"
+                side="bottom"
+                sideOffset={6}
+                className="w-56 p-1"
+              >
+                <div className="px-2 pt-1.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Layout
+                </div>
+                {LAYOUT_PICKER_OPTIONS.map((option) => {
+                  const active = option.mode === layoutMode;
+                  const shortcutPrefix =
+                    desktopPlatform === "darwin" ? "⌘" : "Ctrl+";
+                  return (
+                    <button
+                      key={option.mode}
+                      type="button"
+                      onClick={() => {
+                        onLayoutModeChange(option.mode);
+                        setLayoutPickerOpen(false);
+                      }}
+                      className={cn(
+                        "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
+                        active
+                          ? "bg-accent text-foreground"
+                          : "text-foreground hover:bg-accent/60",
+                      )}
+                    >
+                      <LayoutModeIcon
+                        mode={option.mode}
+                        className="size-5 shrink-0 text-muted-foreground"
+                      />
+                      <span className="min-w-0 flex-1 truncate font-medium">
+                        {option.label}
+                      </span>
+                      <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                        {shortcutPrefix}
+                        {option.shortcutKey}
+                      </span>
+                      {active ? (
+                        <Check className="size-3.5 shrink-0 text-foreground" />
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </PopoverContent>
+            </Popover>
           ) : null}
         </div>
 
