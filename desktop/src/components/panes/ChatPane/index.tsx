@@ -2515,6 +2515,7 @@ interface ChatPaneProps {
   onOpenInbox?: () => void;
   inboxUnreadCount?: number;
   onOpenAutomations?: () => void;
+  onOpenArtifacts?: () => void;
   composerDraftText?: string;
   onComposerDraftTextChange?: (text: string) => void;
   /** Schedule the user is currently editing — when set, ChatPane shows a
@@ -2555,6 +2556,7 @@ export function ChatPane({
   onOpenInbox,
   inboxUnreadCount = 0,
   onOpenAutomations,
+  onOpenArtifacts,
   composerDraftText = "",
   onComposerDraftTextChange,
   scheduleEditContext = null,
@@ -7270,8 +7272,7 @@ export function ChatPane({
               inboxUnreadCount={inboxUnreadCount}
               onOpenSessions={onOpenSessions}
               onOpenAutomations={onOpenAutomations}
-              sessionOutputs={sessionOutputs}
-              onOpenOutput={onOpenOutput}
+              onOpenArtifacts={onOpenArtifacts}
             />
           </div>
         ) : null}

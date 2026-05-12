@@ -1,4 +1,4 @@
-import { Clock3, Inbox, MessageCircle } from "lucide-react";
+import { Boxes, Clock3, Inbox, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -8,7 +8,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ArtifactBrowserPopover } from "./ArtifactBrowserPopover";
 
 interface ChatHeaderProps {
   agentName: string;
@@ -19,10 +18,7 @@ interface ChatHeaderProps {
   onOpenInbox?: () => void;
   inboxUnreadCount: number;
   onOpenAutomations?: () => void;
-  /** Session-wide outputs. When provided alongside `onOpenOutput`,
-   *  ChatHeader renders the artifact-browser popover button. */
-  sessionOutputs?: WorkspaceOutputRecordPayload[];
-  onOpenOutput?: (output: WorkspaceOutputRecordPayload) => void;
+  onOpenArtifacts?: () => void;
 }
 
 export function ChatHeader({
@@ -34,8 +30,7 @@ export function ChatHeader({
   onOpenInbox,
   inboxUnreadCount,
   onOpenAutomations,
-  sessionOutputs,
-  onOpenOutput,
+  onOpenArtifacts,
 }: ChatHeaderProps) {
   const seed = workspace?.id ?? agentName ?? "default";
 
@@ -124,11 +119,24 @@ export function ChatHeader({
             </Tooltip>
           ) : null}
 
-          {sessionOutputs ? (
-            <ArtifactBrowserPopover
-              outputs={sessionOutputs}
-              onOpenOutput={onOpenOutput}
-            />
+          {onOpenArtifacts ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => onOpenArtifacts()}
+                    aria-label="Artifacts"
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <Boxes className="size-4" />
+                  </Button>
+                }
+              />
+              <TooltipContent>Artifacts</TooltipContent>
+            </Tooltip>
           ) : null}
         </div>
       </TooltipProvider>

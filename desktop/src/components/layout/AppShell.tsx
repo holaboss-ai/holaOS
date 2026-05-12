@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Boxes,
   Clock3,
   Folder,
   Globe,
@@ -31,6 +32,7 @@ import { WorkspaceAppsDialog } from "@/components/layout/WorkspaceAppsDialog";
 import { FirstWorkspacePane } from "@/components/onboarding";
 import { AppSurfacePane } from "@/components/panes/AppSurfacePane";
 import { BrowserPane } from "@/components/panes/BrowserPane";
+import { ArtifactsPane } from "@/components/panes/ArtifactsPane";
 import { AutomationsPane } from "@/components/panes/AutomationsPane";
 import { ChatPane } from "@/components/panes/ChatPane";
 import {
@@ -240,6 +242,7 @@ type AgentView =
   | { type: "sessions" }
   | { type: "inbox" }
   | { type: "automations" }
+  | { type: "artifacts" }
   | {
       type: "app";
       appId: string;
@@ -3630,6 +3633,15 @@ function AppShellContent() {
     setAgentView({ type: "automations" });
   }, []);
 
+  const handleOpenArtifactsPane = useCallback(() => {
+    setActiveShellView("space");
+    setSpaceVisibility((previous) => ({
+      ...previous,
+      agent: true,
+    }));
+    setAgentView({ type: "artifacts" });
+  }, []);
+
   const handleReturnToChatPane = useCallback(() => {
     setAgentView({ type: "chat" });
     setChatFocusRequestKey((current) => current + 1);
@@ -4869,6 +4881,37 @@ function AppShellContent() {
       );
     }
 
+    if (agentView.type === "artifacts") {
+      return (
+        <section className="flex h-full min-h-0 min-w-0 animate-in fade-in-0 slide-in-from-right-3 flex-col overflow-hidden rounded-xl bg-card shadow-md backdrop-blur-sm duration-200 ease-out">
+          <div className="shrink-0 border-b border-border px-4 py-2.5 sm:px-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="inline-flex min-w-0 items-center gap-2 text-base font-semibold text-foreground">
+                <Boxes size={14} className="shrink-0 text-muted-foreground" />
+                <span className="truncate">Artifacts</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={handleReturnToChatPane}
+                aria-label="Return to chat"
+              >
+                <ArrowLeft size={15} />
+              </Button>
+            </div>
+          </div>
+          <div
+            className={`mx-auto w-full ${CHAT_LAYOUT.contentMaxWidth} min-h-0 flex-1 overflow-hidden`}
+          >
+            <ArtifactsPane
+              workspaceId={selectedWorkspaceId}
+              onOpenOutput={(output) => handleOpenWorkspaceOutput(output)}
+            />
+          </div>
+        </section>
+      );
+    }
+
     if (agentView.type === "chat") {
       if (selectedWorkspace && selectedWorkspace.folder_state === "missing") {
         return (
@@ -4921,6 +4964,7 @@ function AppShellContent() {
           onOpenInbox={handleOpenInboxPane}
           inboxUnreadCount={unreadTaskProposalCount}
           onOpenAutomations={handleOpenAutomationsPane}
+          onOpenArtifacts={handleOpenArtifactsPane}
           composerDraftText={
             selectedWorkspaceId
               ? (chatComposerDraftTextByWorkspace[selectedWorkspaceId] ?? "")
@@ -4985,6 +5029,7 @@ function AppShellContent() {
     handleOpenInboxPane,
     handleOpenSessionsPane,
     handleOpenAutomationsPane,
+    handleOpenArtifactsPane,
     handleOpenAutomationRunSession,
     handleCreateScheduleInChat,
     handleEditScheduleInChat,
