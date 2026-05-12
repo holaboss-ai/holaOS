@@ -2493,6 +2493,7 @@ function subagentForwardableDeliverables(
 function subagentLifecycleStatusFromTurnResult(params: {
   run: SubagentRunRecord;
   turnResult: TurnResultRecord;
+  pendingIntegrationCount?: number;
 }): "completed" | "failed" | "waiting_on_user" | "cancelled" | null {
   if (params.run.cancelledAt || params.run.status === "cancelled") {
     return "cancelled";
@@ -2500,7 +2501,10 @@ function subagentLifecycleStatusFromTurnResult(params: {
   if (params.turnResult.status === "waiting_user") {
     return "waiting_on_user";
   }
-  if (inferredRecoverableUserBlockerQuestion(params.turnResult)) {
+  if (
+    (params.pendingIntegrationCount ?? 0) === 0 &&
+    inferredRecoverableUserBlockerQuestion(params.turnResult)
+  ) {
     return "waiting_on_user";
   }
   if (params.turnResult.status === "failed") {
@@ -2670,9 +2674,15 @@ function updateSubagentRunFromTurnResult(params: {
     return null;
   }
 
+  const pendingIntegrationCount = subagentPendingIntegrations({
+    store: params.store,
+    workspaceId: run.workspaceId,
+    childSessionId: run.childSessionId,
+  }).length;
   const status = subagentLifecycleStatusFromTurnResult({
     run,
     turnResult: params.turnResult,
+    pendingIntegrationCount,
   });
   const outputs = params.store.listOutputs({
     workspaceId: params.record.workspaceId,
