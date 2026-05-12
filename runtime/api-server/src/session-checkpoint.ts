@@ -14,6 +14,8 @@ import { captureRuntimeException } from "./runtime-sentry.js";
 export const SESSION_CHECKPOINT_JOB_TYPE = "session_checkpoint";
 const PI_COMPACTION_CONTEXT_RESERVE_RATIO = 0.7;
 const SESSION_CHECKPOINT_WAIT_POLL_INTERVAL_MS = 100;
+const DEFAULT_PRE_RUN_CONTEXT_WINDOW = 65_536;
+const ESTIMATED_BYTES_PER_TOKEN = 2;
 
 export interface PiContextUsage {
   tokens: number | null;
@@ -30,7 +32,7 @@ interface SessionCheckpointJobPayload {
   context_usage: PiContextUsage;
 }
 
-interface PiCompactionCommandResult {
+export interface PiCompactionCommandResult {
   compacted: boolean;
   session_file: string;
   result?: Record<string, unknown> | null;
@@ -62,7 +64,7 @@ interface SessionCheckpointResultRecord {
   compaction?: SessionCheckpointCompactionRecord | null;
 }
 
-interface SessionCheckpointCompactionRecord {
+export interface SessionCheckpointCompactionRecord {
   session_file: string | null;
   reason: string | null;
   diagnostics: Record<string, unknown> | null;
@@ -90,6 +92,9 @@ interface PiSessionManagerInstance {
   getLeafId(): string | null;
   getEntries(): PiSessionBranchEntry[];
   getSessionFile(): string | undefined;
+  buildSessionContext?(): {
+    messages?: unknown[];
+  };
   appendCompaction(
     summary: string,
     firstKeptEntryId: string,
@@ -121,6 +126,34 @@ export interface SessionCheckpointSessionOps {
     liveSessionFile: string;
     snapshotSessionFile: string;
   }): boolean;
+}
+
+export interface PreRunSessionCompactionDecision {
+  decision: "fit" | "threshold_exceeded" | "would_overflow" | "reset_required";
+  reason: string | null;
+  previousSelectedModel: string | null;
+  targetSelectedModel: string | null;
+  previousContextWindow: number | null;
+  targetContextWindow: number | null;
+  currentSessionTokens: number | null;
+  estimatedRequestTokens: number | null;
+  projectedTotalTokens: number | null;
+  modelDownshift: boolean;
+}
+
+export interface ForceSessionCompactionResult {
+  outcome:
+    | "not_compacted"
+    | "binding_changed"
+    | "session_missing"
+    | "merge_guard_failed"
+    | "merge_failed"
+    | "merged_without_boundary";
+  detail?: string | null;
+  reason?: string | null;
+  merged: boolean;
+  boundaryWritten: boolean;
+  compaction: SessionCheckpointCompactionRecord | null;
 }
 
 const require = createRequire(import.meta.url);
@@ -191,6 +224,34 @@ function finiteNumberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function jsonByteLength(value: unknown): number {
+  try {
+    const text = JSON.stringify(value);
+    return typeof text === "string" ? Buffer.byteLength(text, "utf8") : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function estimateJsonTokens(value: unknown): number | null {
+  const bytes = jsonByteLength(value);
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return null;
+  }
+  return Math.ceil(bytes / ESTIMATED_BYTES_PER_TOKEN);
+}
+
+function maxFiniteNumber(...values: Array<number | null | undefined>): number | null {
+  let max: number | null = null;
+  for (const value of values) {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      continue;
+    }
+    max = max === null ? value : Math.max(max, value);
+  }
+  return max;
+}
+
 function runtimeRootDir(): string {
   const configured = (process.env.HOLABOSS_RUNTIME_ROOT ?? "").trim();
   if (configured) {
@@ -239,6 +300,140 @@ function currentLeafCheckpointState(sessionFile: string): {
   };
 }
 
+function checkpointSnapshotRuntimeConfig(
+  snapshotPayload: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  return snapshotPayload && isRecord(snapshotPayload.runtime_config)
+    ? snapshotPayload.runtime_config
+    : null;
+}
+
+function checkpointModelProxyProvider(
+  snapshotPayload: Record<string, unknown> | null | undefined,
+): string | null {
+  const runtimeConfig = checkpointSnapshotRuntimeConfig(snapshotPayload);
+  const modelClient = runtimeConfig && isRecord(runtimeConfig.model_client)
+    ? runtimeConfig.model_client
+    : null;
+  return nonEmptyString(modelClient?.model_proxy_provider);
+}
+
+function normalizeHarnessModelId(modelId: string): string {
+  const normalized = modelId.trim().toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  if (normalized.startsWith("openai/")) {
+    return normalized.slice("openai/".length);
+  }
+  if (normalized.startsWith("holaboss_model_proxy/")) {
+    return normalized.slice("holaboss_model_proxy/".length);
+  }
+  return normalized;
+}
+
+function selectedModelParts(
+  selectedModel: string | null,
+): { providerId: string; modelId: string } | null {
+  const normalized = nonEmptyString(selectedModel);
+  if (!normalized) {
+    return null;
+  }
+  const slashIndex = normalized.indexOf("/");
+  if (slashIndex <= 0 || slashIndex === normalized.length - 1) {
+    return null;
+  }
+  return {
+    providerId: normalized.slice(0, slashIndex),
+    modelId: normalized.slice(slashIndex + 1),
+  };
+}
+
+function isOpenAiGpt5Model(modelId: string): boolean {
+  return /^gpt-5(?:[.-]|$)/.test(modelId);
+}
+
+function targetModelContextWindow(params: {
+  snapshotPayload: Record<string, unknown> | null;
+  selectedModel: string | null;
+  fallbackContextWindow?: number | null;
+}): number {
+  const selectedFromSnapshot = params.snapshotPayload
+    ? checkpointSelectedModel({
+        snapshotPayload: params.snapshotPayload,
+        harnessRequest: isRecord(params.snapshotPayload.harness_request)
+          ? params.snapshotPayload.harness_request
+          : {},
+      })
+    : null;
+  const selectedParts =
+    selectedFromSnapshot ??
+    selectedModelParts(params.selectedModel);
+  const modelProxyProvider = checkpointModelProxyProvider(params.snapshotPayload);
+  if (selectedParts) {
+    const providerId = selectedParts.providerId.trim().toLowerCase();
+    const normalizedModelId = normalizeHarnessModelId(selectedParts.modelId);
+    const openAiCompat =
+      modelProxyProvider?.trim().toLowerCase() === "openai_compatible";
+    if (openAiCompat && providerId === "openai_codex") {
+      switch (normalizedModelId) {
+        case "gpt-5.5":
+        case "gpt-5.3-codex":
+          return 400_000;
+        case "gpt-5.4":
+        case "gpt-5.4-pro":
+          return 1_000_000;
+        default:
+          break;
+      }
+    }
+    if (
+      openAiCompat &&
+      isOpenAiGpt5Model(normalizedModelId) &&
+      (providerId === "openai_direct" ||
+        providerId === "openai" ||
+        providerId === "holaboss_model_proxy" ||
+        providerId === "holaboss")
+    ) {
+      switch (normalizedModelId) {
+        case "gpt-5.4":
+        case "gpt-5.4-pro":
+          return 1_000_000;
+        case "gpt-5.4-mini":
+          return 1_050_000;
+        case "gpt-5.5":
+        case "gpt-5.2":
+          return 400_000;
+        default:
+          break;
+      }
+    }
+  }
+  const fallback = finiteNumberOrNull(params.fallbackContextWindow);
+  if (fallback !== null && fallback > 0) {
+    return fallback;
+  }
+  return DEFAULT_PRE_RUN_CONTEXT_WINDOW;
+}
+
+function estimateSessionContextTokens(sessionFile: string): number | null {
+  const sessionManager = openSessionManager(sessionFile);
+  const sessionContext = sessionManager.buildSessionContext?.();
+  const messages = Array.isArray(sessionContext?.messages)
+    ? sessionContext.messages
+    : null;
+  return messages ? estimateJsonTokens(messages) : null;
+}
+
+function estimateSnapshotRequestTokens(
+  snapshotPayload: Record<string, unknown> | null | undefined,
+): number | null {
+  if (!snapshotPayload || !isRecord(snapshotPayload.harness_request)) {
+    return null;
+  }
+  return estimateJsonTokens(snapshotPayload.harness_request);
+}
+
 function normalizePiContextUsage(value: unknown): PiContextUsage | null {
   if (!isRecord(value)) {
     return null;
@@ -265,6 +460,18 @@ function normalizePiContextUsage(value: unknown): PiContextUsage | null {
     contextWindow,
     percent,
   };
+}
+
+export function sessionCheckpointThresholdTokens(
+  contextWindow: number,
+): number | null {
+  if (!Number.isFinite(contextWindow) || contextWindow <= 0) {
+    return null;
+  }
+  const reserveTokens = Math.ceil(
+    contextWindow * PI_COMPACTION_CONTEXT_RESERVE_RATIO,
+  );
+  return Math.max(0, contextWindow - reserveTokens);
 }
 
 function recordSessionCheckpointResult(params: {
@@ -312,10 +519,70 @@ export function shouldQueueSessionCheckpoint(contextUsage: PiContextUsage | null
   ) {
     return false;
   }
-  const reserveTokens = Math.ceil(
-    contextUsage.contextWindow * PI_COMPACTION_CONTEXT_RESERVE_RATIO,
+  const thresholdTokens = sessionCheckpointThresholdTokens(
+    contextUsage.contextWindow,
   );
-  return contextUsage.tokens > contextUsage.contextWindow - reserveTokens;
+  return thresholdTokens !== null && contextUsage.tokens > thresholdTokens;
+}
+
+export function evaluatePreRunSessionCompaction(params: {
+  liveSessionFile: string;
+  snapshotPayload: Record<string, unknown> | null;
+  selectedModel: string | null;
+  previousSelectedModel: string | null;
+  previousContextUsage: PiContextUsage | null;
+}): PreRunSessionCompactionDecision {
+  const previousContextWindow =
+    finiteNumberOrNull(params.previousContextUsage?.contextWindow) ?? null;
+  const targetContextWindow = targetModelContextWindow({
+    snapshotPayload: params.snapshotPayload,
+    selectedModel: params.selectedModel,
+    fallbackContextWindow: previousContextWindow,
+  });
+  const currentSessionTokens = maxFiniteNumber(
+    finiteNumberOrNull(params.previousContextUsage?.tokens),
+    estimateSessionContextTokens(params.liveSessionFile),
+  );
+  const estimatedRequestTokens = estimateSnapshotRequestTokens(params.snapshotPayload);
+  const projectedTotalTokens =
+    currentSessionTokens !== null && estimatedRequestTokens !== null
+      ? currentSessionTokens + estimatedRequestTokens
+      : currentSessionTokens;
+  const thresholdTokens = sessionCheckpointThresholdTokens(targetContextWindow);
+  const modelDownshift =
+    previousContextWindow !== null && targetContextWindow < previousContextWindow;
+  let decision: PreRunSessionCompactionDecision["decision"] = "fit";
+  let reason: string | null = null;
+  if (
+    projectedTotalTokens !== null &&
+    projectedTotalTokens > targetContextWindow
+  ) {
+    decision = "would_overflow";
+    reason = modelDownshift
+      ? "model_downshift_projected_overflow"
+      : "projected_overflow";
+  } else if (
+    thresholdTokens !== null &&
+    currentSessionTokens !== null &&
+    currentSessionTokens > thresholdTokens
+  ) {
+    decision = "threshold_exceeded";
+    reason = modelDownshift
+      ? "model_downshift_above_threshold"
+      : "above_threshold";
+  }
+  return {
+    decision,
+    reason,
+    previousSelectedModel: nonEmptyString(params.previousSelectedModel),
+    targetSelectedModel: nonEmptyString(params.selectedModel),
+    previousContextWindow,
+    targetContextWindow,
+    currentSessionTokens,
+    estimatedRequestTokens,
+    projectedTotalTokens,
+    modelDownshift,
+  };
 }
 
 export function listInFlightSessionCheckpointJobs(params: {
@@ -743,8 +1010,177 @@ function withResolvedCheckpointModelClient(params: {
       ...resolved.modelClient,
       default_headers:
         Object.keys(mergedHeaders).length > 0 ? mergedHeaders : null,
-    },
+      },
   };
+}
+
+const sessionCompactionLocks = new Map<string, Promise<void>>();
+
+async function withSessionCompactionLock<T>(
+  key: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const prior = sessionCompactionLocks.get(key) ?? Promise.resolve();
+  let releaseCurrent: (() => void) | undefined;
+  const current = new Promise<void>((resolve) => {
+    releaseCurrent = resolve;
+  });
+  sessionCompactionLocks.set(
+    key,
+    prior.then(
+      () => current,
+      () => current,
+    ),
+  );
+  await prior.catch(() => {});
+  try {
+    return await operation();
+  } finally {
+    if (releaseCurrent) {
+      releaseCurrent();
+    }
+    if (sessionCompactionLocks.get(key) === current) {
+      sessionCompactionLocks.delete(key);
+    }
+  }
+}
+
+function sessionCompactionLockKey(params: {
+  workspaceId: string;
+  sessionId: string;
+}): string {
+  return `${params.workspaceId}:${params.sessionId}`;
+}
+
+export async function forceCompactSessionWithSnapshotMerge(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  sessionId: string;
+  inputId: string;
+  harnessSessionId: string;
+  baseLeafId: string | null;
+  baseLatestCompactionId: string | null;
+  runPiSessionCompactionFn?: (
+    requestPayload: Record<string, unknown>,
+  ) => Promise<PiCompactionCommandResult>;
+  resolveRuntimeModelClientFn?: ResolveRuntimeModelClientFn;
+  sessionOps?: SessionCheckpointSessionOps;
+}): Promise<ForceSessionCompactionResult> {
+  return await withSessionCompactionLock(
+    sessionCompactionLockKey({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+    }),
+    async () => {
+      const sessionOps = params.sessionOps ?? defaultSessionCheckpointSessionOps;
+      const snapshot = params.store.getTurnRequestSnapshot({
+        workspaceId: params.workspaceId,
+        inputId: params.inputId,
+      });
+      if (!snapshot) {
+        throw new Error(`turn request snapshot not found for ${params.inputId}`);
+      }
+      const snapshotPayload = requiredRecord(
+        snapshot.payload,
+        "turn request snapshot payload",
+      );
+      const harnessRequest = withResolvedCheckpointModelClient({
+        snapshotPayload,
+        harnessRequest: requiredRecord(
+          snapshotPayload.harness_request,
+          "turn request snapshot harness_request",
+        ),
+        workspaceId: params.workspaceId,
+        sessionId: params.sessionId,
+        inputId: params.inputId,
+        resolveRuntimeModelClientFn: params.resolveRuntimeModelClientFn,
+      });
+      const liveSessionPath = params.harnessSessionId;
+      const compactedSessionPath = snapshotSessionPath(liveSessionPath);
+      fs.copyFileSync(liveSessionPath, compactedSessionPath);
+      try {
+        const result = await (params.runPiSessionCompactionFn ?? runPiSessionCompaction)(
+          {
+            ...harnessRequest,
+            force_compaction: true,
+            harness_session_id: compactedSessionPath,
+            persisted_harness_session_id: compactedSessionPath,
+            timeout_seconds: 0,
+          },
+        );
+        const compaction = summarizeCheckpointCompactionResult(result);
+        if (!result.compacted) {
+          return {
+            outcome: "not_compacted",
+            reason: result.reason ?? null,
+            merged: false,
+            boundaryWritten: false,
+            compaction,
+          };
+        }
+        const latestHarnessSessionId =
+          params.store.getBinding({
+            workspaceId: params.workspaceId,
+            sessionId: params.sessionId,
+          })?.harnessSessionId ?? null;
+        if (latestHarnessSessionId !== params.harnessSessionId) {
+          return {
+            outcome: "binding_changed",
+            detail: "live binding changed before checkpoint merge",
+            merged: false,
+            boundaryWritten: false,
+            compaction,
+          };
+        }
+        if (!fs.existsSync(liveSessionPath)) {
+          return {
+            outcome: "session_missing",
+            detail: "live harness session file disappeared before checkpoint merge",
+            merged: false,
+            boundaryWritten: false,
+            compaction,
+          };
+        }
+        if (
+          !sessionOps.canMergeCheckpointIntoLiveSession({
+            sessionFile: liveSessionPath,
+            baseLeafId: params.baseLeafId,
+            baseLatestCompactionId: params.baseLatestCompactionId,
+          })
+        ) {
+          return {
+            outcome: "merge_guard_failed",
+            detail: "live session changed before checkpoint merge",
+            merged: false,
+            boundaryWritten: false,
+            compaction,
+          };
+        }
+        const merged = sessionOps.appendSnapshotCompactionToLiveSession({
+          liveSessionFile: liveSessionPath,
+          snapshotSessionFile: result.session_file || compactedSessionPath,
+        });
+        if (!merged) {
+          return {
+            outcome: "merge_failed",
+            detail:
+              "snapshot compaction could not be appended to the live session branch",
+            merged: false,
+            boundaryWritten: false,
+            compaction,
+          };
+        }
+        return {
+          outcome: "merged_without_boundary",
+          merged: true,
+          boundaryWritten: false,
+          compaction,
+        };
+      } finally {
+        maybeDeleteFile(compactedSessionPath);
+      }
+    },
+  );
 }
 
 export async function processSessionCheckpointJob(params: {
@@ -821,113 +1257,31 @@ export async function processSessionCheckpointJob(params: {
     return;
   }
 
-  const snapshot = params.store.getTurnRequestSnapshot({
-    workspaceId: params.record.workspaceId,
-    inputId: params.record.inputId,
-  });
-  if (!snapshot) {
-    throw new Error(`turn request snapshot not found for ${params.record.inputId}`);
-  }
-  const snapshotPayload = requiredRecord(snapshot.payload, "turn request snapshot payload");
-  const harnessRequest = withResolvedCheckpointModelClient({
-    snapshotPayload,
-    harnessRequest: requiredRecord(
-      snapshotPayload.harness_request,
-      "turn request snapshot harness_request",
-    ),
-    workspaceId: params.record.workspaceId,
-    sessionId: params.record.sessionId,
-    inputId: params.record.inputId,
-    resolveRuntimeModelClientFn: params.resolveRuntimeModelClientFn,
-  });
-  const liveSessionPath = payload.base_harness_session_id;
-  const compactedSessionPath = snapshotSessionPath(liveSessionPath);
-  fs.copyFileSync(liveSessionPath, compactedSessionPath);
-
   try {
-    const result = await (params.runPiSessionCompactionFn ?? runPiSessionCompaction)({
-      ...harnessRequest,
-      force_compaction: true,
-      harness_session_id: compactedSessionPath,
-      persisted_harness_session_id: compactedSessionPath,
-      timeout_seconds: 0,
-    });
-    const compaction = summarizeCheckpointCompactionResult(result);
-    if (!result.compacted) {
-      maybeDeleteFile(compactedSessionPath);
-      recordSessionCheckpointResult({
-        store: params.store,
-        record: params.record,
-        outcome: "not_compacted",
-        reason: result.reason ?? null,
-        compaction,
-      });
-      return;
-    }
-
-    const latestHarnessSessionId =
-      params.store.getBinding({
-        workspaceId: params.record.workspaceId,
-        sessionId: params.record.sessionId,
-      })?.harnessSessionId ?? null;
-    if (latestHarnessSessionId !== payload.base_harness_session_id) {
-      maybeDeleteFile(compactedSessionPath);
-      recordSessionCheckpointResult({
-        store: params.store,
-        record: params.record,
-        outcome: "binding_changed",
-        detail: "live binding changed before checkpoint merge",
-      });
-      return;
-    }
-    if (!fs.existsSync(liveSessionPath)) {
-      maybeDeleteFile(compactedSessionPath);
-      recordSessionCheckpointResult({
-        store: params.store,
-        record: params.record,
-        outcome: "session_missing",
-        detail: "live harness session file disappeared before checkpoint merge",
-      });
-      return;
-    }
-    if (!sessionOps.canMergeCheckpointIntoLiveSession({
-      sessionFile: liveSessionPath,
+    const compactionResult = await forceCompactSessionWithSnapshotMerge({
+      store: params.store,
+      workspaceId: params.record.workspaceId,
+      sessionId: params.record.sessionId,
+      inputId: params.record.inputId,
+      harnessSessionId: payload.base_harness_session_id,
       baseLeafId: payload.base_leaf_id,
       baseLatestCompactionId: payload.base_latest_compaction_id,
-    })) {
-      maybeDeleteFile(compactedSessionPath);
-      recordSessionCheckpointResult({
-        store: params.store,
-        record: params.record,
-        outcome: "merge_guard_failed",
-        detail: "live session changed before checkpoint merge",
-      });
-      return;
-    }
-    const merged = sessionOps.appendSnapshotCompactionToLiveSession({
-      liveSessionFile: liveSessionPath,
-      snapshotSessionFile: result.session_file || compactedSessionPath,
+      runPiSessionCompactionFn: params.runPiSessionCompactionFn,
+      resolveRuntimeModelClientFn: params.resolveRuntimeModelClientFn,
+      sessionOps,
     });
-    maybeDeleteFile(compactedSessionPath);
-    if (!merged) {
-      recordSessionCheckpointResult({
-        store: params.store,
-        record: params.record,
-        outcome: "merge_failed",
-        detail: "snapshot compaction could not be appended to the live session branch",
-      });
-      return;
-    }
     recordSessionCheckpointResult({
       store: params.store,
       record: params.record,
-      outcome: "merged_without_boundary",
-      merged: true,
-      boundaryWritten: false,
-      compaction,
+      outcome: compactionResult.outcome,
+      detail: compactionResult.detail ?? null,
+      reason: compactionResult.reason ?? null,
+      merged: compactionResult.merged,
+      boundaryWritten: compactionResult.boundaryWritten,
+      compaction: compactionResult.compaction,
     });
+    return;
   } catch (error) {
-    maybeDeleteFile(compactedSessionPath);
     const compaction = summarizeCheckpointCompactionResult(
       compactionResultFromError(error),
     );
