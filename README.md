@@ -29,6 +29,10 @@
 
 # holaOS
 
+<p align="center">
+  <img src="docs/images/control-panel.png" alt="holaOS control panel screenshot" width="1280" />
+</p>
+
 holaOS turns recurring, context-heavy work into running AI work-streams.
 
 Create a workspace for the work you keep restarting in chat — weekly research, content production, customer feedback, launch planning, or client delivery. Kickoff turns that work into goals, context, rules, sources, a first artifact, and the next run. When you review the output and correct it, those corrections become visible rules so the next run starts smarter than the last.
@@ -48,6 +52,11 @@ Use it for work that unfolds over time: research that changes every week, conten
 <p align="center">
   <img src="docs/images/desktop-workspace.png" alt="holaOS desktop workspace screenshot" width="1280" />
 </p>
+<p align="center">
+  <em>Inside the workspace: apps, files, a completely customizable dashboard, and agent chat live side by side while a single user-facing agent manager coordinates sub agents in the background.</em>
+</p>
+
+
 
 ## Examples
 
