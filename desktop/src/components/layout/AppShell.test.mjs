@@ -891,7 +891,9 @@ test("app shell reports active non-browser operator surfaces back to Electron", 
   assert.match(source, /surface_type: "app_surface"/);
   assert.match(source, /const reportedOperatorSurfaceWorkspaceIdRef = useRef<string \| null>\(null\);/);
   assert.match(source, /const reportedOperatorSurfaceContext = useMemo\(/);
+  assert.match(source, /const switchedWorkspaces =[\s\S]*previousWorkspaceId !== nextWorkspaceId;/);
   assert.match(source, /window\.electronAPI\.workspace\.setOperatorSurfaceContext\(\s*previousWorkspaceId,\s*null,\s*\)/);
+  assert.match(source, /window\.electronAPI\.workspace\.setOperatorSurfaceContext\(\s*nextWorkspaceId,\s*null,\s*\)/);
   assert.match(source, /window\.electronAPI\.workspace\.setOperatorSurfaceContext\(\s*nextWorkspaceId,\s*reportedOperatorSurfaceContext,\s*\)/);
 });
 

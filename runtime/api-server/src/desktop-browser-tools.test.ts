@@ -877,12 +877,42 @@ test("desktop browser tool service exposes general find, act, wait, evaluate, an
     }
     if (request.url === "/api/v1/browser/mouse") {
       mouseBodies.push(body);
-      response.end(JSON.stringify({ ok: true, tabId: "tab-1", action: "click", x: 370, y: 104 }));
+      response.end(
+        JSON.stringify({
+          ok: true,
+          tabId: "tab-1",
+          action: "click",
+          x: 370,
+          y: 104,
+          resolved_action: {
+            ok: true,
+            action: "click",
+            target: { ref: "css:#new-button", text: "New" },
+            result: { x: 370, y: 104 },
+          },
+        }),
+      );
       return;
     }
     if (request.url === "/api/v1/browser/keyboard") {
       keyboardBodies.push(body);
-      response.end(JSON.stringify({ ok: true, tabId: "tab-1", action: "insert_text", text_length: 14, clear: true, submit: false }));
+      response.end(
+        JSON.stringify({
+          ok: true,
+          tabId: "tab-1",
+          action: "insert_text",
+          text_length: 14,
+          clear: true,
+          submit: false,
+          resolved_action: {
+            ok: true,
+            action: "fill",
+            target: { ref: "css:#editor", text: "" },
+            action_target: { ref: "css:#editor", role: "textbox", editable: true },
+            result: { focused: true },
+          },
+        }),
+      );
       return;
     }
     if (request.url === "/api/v1/browser/evaluate") {
@@ -908,35 +938,6 @@ test("desktop browser tool service exposes general find, act, wait, evaluate, an
                   bounding_box: { x: 292, y: 72, width: 156, height: 64 },
                 },
               ],
-            },
-          }),
-        );
-        return;
-      }
-      if (expression.includes('const action = "click"')) {
-        response.end(
-          JSON.stringify({
-            tabId: "tab-1",
-            result: {
-              ok: true,
-              action: "click",
-              target: { ref: "css:#new-button", text: "New" },
-              result: { x: 370, y: 104 },
-            },
-          }),
-        );
-        return;
-      }
-      if (expression.includes('const action = "fill"')) {
-        response.end(
-          JSON.stringify({
-            tabId: "tab-1",
-            result: {
-              ok: true,
-              action: "fill",
-              target: { ref: "css:#editor", text: "" },
-              action_target: { ref: "css:#editor", role: "textbox", editable: true },
-              result: { focused: true },
             },
           }),
         );
@@ -1075,7 +1076,11 @@ test("desktop browser tool service exposes general find, act, wait, evaluate, an
     );
     assert.deepEqual(actResult.page, { tabId: "tab-1", url: "https://example.com/app", title: "Example App" });
     assert.equal((actResult.browser_usage as { tool_id?: string }).tool_id, "browser_act");
-    assert.deepEqual(mouseBodies, [JSON.stringify({ action: "click", x: 370, y: 104 })]);
+    assert.equal(mouseBodies.length, 1);
+    const clickMouseBody = JSON.parse(mouseBodies[0]) as Record<string, unknown>;
+    assert.equal(clickMouseBody.action, "click");
+    assert.equal(typeof clickMouseBody.expression, "string");
+    assert.match(String(clickMouseBody.expression), /const action = "click"/);
 
     const fillResult = await service.execute("browser_act", {
       action: "fill",
@@ -1089,9 +1094,14 @@ test("desktop browser tool service exposes general find, act, wait, evaluate, an
       { ok: true, tabId: "tab-1", action: "insert_text", text_length: 14, clear: true, submit: false },
     );
     assert.equal((fillResult.browser_usage as { tool_id?: string }).tool_id, "browser_act");
-    assert.deepEqual(keyboardBodies, [
-      JSON.stringify({ action: "insert_text", text: "Robotics notes", clear: true, submit: false }),
-    ]);
+    assert.equal(keyboardBodies.length, 1);
+    const fillKeyboardBody = JSON.parse(keyboardBodies[0]) as Record<string, unknown>;
+    assert.equal(fillKeyboardBody.action, "insert_text");
+    assert.equal(fillKeyboardBody.text, "Robotics notes");
+    assert.equal(fillKeyboardBody.clear, true);
+    assert.equal(fillKeyboardBody.submit, false);
+    assert.equal(typeof fillKeyboardBody.expression, "string");
+    assert.match(String(fillKeyboardBody.expression), /const action = "fill"/);
 
     const checkResult = await service.execute("browser_act", {
       action: "check",
@@ -1134,8 +1144,6 @@ test("desktop browser tool service exposes general find, act, wait, evaluate, an
     const expressions = evaluateBodies.map((body) => String((JSON.parse(body) as { expression?: string }).expression ?? ""));
     const findExpression = expressions.find((expression) => expression.includes('"text":"New"')) ?? "";
     assert.match(findExpression, /"role":"button"/);
-    assert.ok(expressions.some((expression) => /const action = "click"/.test(expression)));
-    assert.ok(expressions.some((expression) => /const action = "fill"/.test(expression)));
     assert.ok(expressions.some((expression) => /const action = "check"/.test(expression)));
     assert.ok(expressions.some((expression) => /const condition = "element"/.test(expression)));
   } finally {
@@ -1360,7 +1368,6 @@ test("desktop browser tool service waits for browser downloads to start and comp
 test("desktop browser tool service supports inline wait_for and post_state on browser_type", async () => {
   const requests: string[] = [];
   const bodies: string[] = [];
-  let evaluateCount = 0;
   const browserServer = await startBrowserServer(async (request, response) => {
     requests.push(request.url ?? "");
     const chunks: Buffer[] = [];
@@ -1377,17 +1384,7 @@ test("desktop browser tool service supports inline wait_for and post_state on br
       return;
     }
     if (request.url === "/api/v1/browser/evaluate") {
-      evaluateCount += 1;
       const expression = String((JSON.parse(body) as { expression?: string }).expression ?? "");
-      if (evaluateCount === 1) {
-        response.end(
-          JSON.stringify({
-            tabId: "tab-1",
-            result: { ok: true, index: 1, tag_name: "input", role: "textbox", editable: true },
-          }),
-        );
-        return;
-      }
       if (expression.includes('const condition = "function"')) {
         response.end(
           JSON.stringify({
@@ -1437,6 +1434,10 @@ test("desktop browser tool service supports inline wait_for and post_state on br
           ok: true,
           tabId: "tab-1",
           action: "insert_text",
+          index: 1,
+          tag_name: "input",
+          role: "textbox",
+          editable: true,
           text_length: 12,
           clear: true,
           submit: false,
@@ -1501,7 +1502,6 @@ test("desktop browser tool service supports inline wait_for and post_state on br
     assert.equal((result.browser_usage as { wait_condition?: string }).wait_condition, "function");
     assert.equal((result.browser_usage as { detail?: string }).detail, "compact");
     assert.deepEqual(requests, [
-      "/api/v1/browser/evaluate",
       "/api/v1/browser/keyboard",
       "/api/v1/browser/evaluate",
       "/api/v1/browser/page",
@@ -1528,21 +1528,16 @@ test("desktop browser tool service avoids refetching page summaries for browser_
     }
     bodies.push(Buffer.concat(chunks).toString("utf8"));
     response.setHeader("content-type", "application/json; charset=utf-8");
-    if (request.url === "/api/v1/browser/evaluate") {
-      response.end(
-        JSON.stringify({
-          tabId: "tab-1",
-          result: { ok: true, index: 1, tag_name: "div", role: "textbox", editable: true }
-        })
-      );
-      return;
-    }
     if (request.url === "/api/v1/browser/keyboard") {
       response.end(
         JSON.stringify({
           ok: true,
           tabId: "tab-1",
           action: "insert_text",
+          index: 1,
+          tag_name: "div",
+          role: "textbox",
+          editable: true,
           text_length: 12,
           clear: true,
           submit: false,
@@ -1602,8 +1597,11 @@ test("desktop browser tool service avoids refetching page summaries for browser_
       }
     });
     assert.equal((typeBrowserUsage as { tool_id?: string }).tool_id, "browser_type");
-    assert.deepEqual(requests, ["/api/v1/browser/evaluate", "/api/v1/browser/keyboard"]);
-    assert.equal(bodies[1], JSON.stringify({ action: "insert_text", text: "search terms", clear: true, submit: false }));
+    assert.deepEqual(requests, ["/api/v1/browser/keyboard"]);
+    assert.equal(
+      bodies[0],
+      JSON.stringify({ action: "insert_text", index: 1, text: "search terms", clear: true, submit: false }),
+    );
   } finally {
     await browserServer.close();
   }

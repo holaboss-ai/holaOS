@@ -32,7 +32,6 @@ import {
 import type {
   AgentCurrentUserContext,
   AgentEvolveCandidateContext,
-  AgentLegacySessionHistoryContext,
   AgentOperatorSurfaceMutability,
   AgentOperatorSurfaceOwner,
   AgentOperatorSurfaceContext,
@@ -63,10 +62,6 @@ import {
   readWorkspaceHarnessSessionId,
   workspaceDirForId,
 } from "./ts-runner-session-state.js";
-import {
-  migrateLegacyWorkspaceStatePath,
-  workspaceStateRelativePath,
-} from "./workspace-bundle-paths.js";
 import {
   prepareInstructionWithQuotedWorkspaceSkills,
   resolveWorkspaceSkills,
@@ -440,6 +435,14 @@ function runtimeExecContextString(
     return null;
   }
   return firstNonEmptyString(value[key]);
+}
+
+function runtimeExecContextBoolean(
+  request: TsRunnerRequest,
+  key: string,
+): boolean {
+  const value = request.context[RUNTIME_EXEC_CONTEXT_KEY];
+  return isRecord(value) && value[key] === true;
 }
 
 function evolveCandidateContext(
@@ -877,92 +880,6 @@ function loadRecentRuntimeContext(params: {
   return { lines };
 }
 
-function workspaceRelativePath(params: {
-  workspaceDir: string;
-  filePath: string | null | undefined;
-}): string | null {
-  const filePath = firstNonEmptyString(params.filePath);
-  if (!filePath) {
-    return null;
-  }
-  const resolvedPath = path.isAbsolute(filePath)
-    ? path.resolve(filePath)
-    : path.resolve(params.workspaceDir, filePath);
-  const relativePath = path.relative(params.workspaceDir, resolvedPath);
-  if (!relativePath || relativePath.startsWith("..")) {
-    return filePath.replace(/\\/g, "/");
-  }
-  return relativePath.replace(/\\/g, "/");
-}
-
-async function loadLegacySessionHistoryContext(params: {
-  workspaceDir: string;
-  logger?: LoggerLike;
-}): Promise<AgentLegacySessionHistoryContext | null> {
-  const legacySessionHistoryDir = migrateLegacyWorkspaceStatePath({
-    workspaceDir: params.workspaceDir,
-    relativeSegments: ["legacy-session-histories"],
-    legacyRelativeSegments: [".holaboss", "legacy-session-histories"],
-  });
-  const manifestPath = path.join(legacySessionHistoryDir, "index.json");
-  try {
-    const raw = await fs.promises.readFile(manifestPath, "utf8");
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return null;
-    }
-    const entries = parsed
-      .filter((item): item is Record<string, unknown> => isRecord(item))
-      .flatMap((item) => {
-        const sessionId = firstNonEmptyString(item.session_id);
-        if (!sessionId) {
-          return [];
-        }
-        return [{
-          session_id: sessionId,
-          title: firstNonEmptyString(item.title) ?? null,
-          kind: firstNonEmptyString(item.kind) ?? null,
-          archived_at: firstNonEmptyString(item.archived_at) ?? null,
-          message_count:
-            typeof item.message_count === "number" && Number.isFinite(item.message_count)
-              ? Math.max(0, Math.trunc(item.message_count))
-              : null,
-          output_count:
-            typeof item.output_count === "number" && Number.isFinite(item.output_count)
-              ? Math.max(0, Math.trunc(item.output_count))
-              : null,
-          json_path: workspaceRelativePath({
-            workspaceDir: params.workspaceDir,
-            filePath: firstNonEmptyString(item.json_path) ?? null,
-          }),
-          markdown_path: workspaceRelativePath({
-            workspaceDir: params.workspaceDir,
-            filePath: firstNonEmptyString(item.markdown_path) ?? null,
-          }),
-        }];
-      });
-    if (entries.length === 0) {
-      return null;
-    }
-    return {
-      manifest_path:
-        workspaceRelativePath({
-          workspaceDir: params.workspaceDir,
-          filePath: manifestPath,
-        }) ?? workspaceStateRelativePath("legacy-session-histories", "index.json"),
-      legacy_session_count: entries.length,
-      entries: entries.slice(0, 25),
-    };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException | null)?.code !== "ENOENT") {
-      params.logger?.warn?.(
-        `Failed to load legacy session history context from ${manifestPath}: ${errorMessage(error)}`,
-      );
-    }
-    return null;
-  }
-}
-
 function normalizeRuntimeApiHost(value: string): string {
   const trimmed = value.trim();
   if (!trimmed || trimmed === "0.0.0.0" || trimmed === "::") {
@@ -1096,26 +1013,21 @@ function defaultExtraTools(harnessId?: string | null): string[] {
 }
 
 function normalizedSessionKindValue(value: string | null | undefined): string {
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!normalized || normalized === "workspace_session" || normalized === "main") {
+    return "main_session";
+  }
+  return normalized;
 }
 
 function isFrontSessionKind(value: string | null | undefined): boolean {
   const normalized = normalizedSessionKindValue(value);
-  return (
-    normalized === "" ||
-    normalized === "workspace_session" ||
-    normalized === "main" ||
-    normalized === "onboarding"
-  );
+  return normalized === "main_session" || normalized === "onboarding";
 }
 
 function isDelegatingFrontSessionKind(value: string | null | undefined): boolean {
   const normalized = normalizedSessionKindValue(value);
-  return (
-    normalized === "" ||
-    normalized === "workspace_session" ||
-    normalized === "main"
-  );
+  return normalized === "main_session";
 }
 
 function allowedRuntimeToolIdsForFrontSession(
@@ -1131,7 +1043,7 @@ function projectBrowserToolIdsForSession(params: {
   browserToolIds: string[];
 }): string[] {
   const normalized = normalizedSessionKindValue(params.sessionKind);
-  if (normalized === "subagent" || normalized === "task_proposal") {
+  if (normalized === "subagent") {
     return [...params.browserToolIds];
   }
   return [];
@@ -1412,7 +1324,6 @@ function buildAgentRuntimeConfigRequest(params: {
   operatorSurfaceContext?: AgentOperatorSurfaceContext | null;
   pendingUserMemoryContext?: AgentPendingUserMemoryContext | null;
   recentRuntimeContext?: AgentRecentRuntimeContext | null;
-  legacySessionHistoryContext?: AgentLegacySessionHistoryContext | null;
   sessionScratchpadContext?: AgentScratchpadContext | null;
   evolveCandidateContext?: AgentEvolveCandidateContext | null;
 }): AgentRuntimeConfigCliRequest {
@@ -1489,7 +1400,6 @@ function buildAgentRuntimeConfigRequest(params: {
     operator_surface_context: params.operatorSurfaceContext ?? undefined,
     pending_user_memory_context: params.pendingUserMemoryContext ?? undefined,
     recent_runtime_context: params.recentRuntimeContext ?? undefined,
-    legacy_session_history_context: params.legacySessionHistoryContext ?? undefined,
     evolve_candidate_context: params.evolveCandidateContext ?? undefined,
     selected_model: firstNonEmptyString(params.request.model) ?? undefined,
     default_provider_id: defaultProviderId(),
@@ -1950,9 +1860,13 @@ export async function relayTsRunnerEvent(params: {
   event: TsRunnerEvent;
   harness: string;
   workspaceDir: string;
+  persistHarnessSessionState?: boolean;
   logger?: LoggerLike;
 }): Promise<void> {
   await params.emitEvent(params.event);
+  if (params.persistHarnessSessionState === false) {
+    return;
+  }
   const sessionId = terminalHarnessSessionId(params.event);
   if (params.event.event_type === "run_failed") {
     clearWorkspaceHarnessSessionId({
@@ -1984,6 +1898,10 @@ export async function executeTsRunnerRequest(
   const logger = options.logger ?? console;
   const deps = { ...defaultExecutionDeps(), ...options.deps };
   const bootstrap = resolveTsRunnerBootstrapState(request, { logger });
+  const persistHarnessSessionState = !runtimeExecContextBoolean(
+    request,
+    "ephemeral_harness_session",
+  );
   const harnessPlugin = deps.resolveHarnessPlugin(bootstrap.harness);
   const harnessAdapter = harnessPlugin.adapter;
   const bootstrapStartedAtMs = Date.now();
@@ -1995,6 +1913,7 @@ export async function executeTsRunnerRequest(
     emitEvent: options.emitEvent,
     harness: bootstrap.harness,
     workspaceDir: bootstrap.workspaceDir,
+    persistHarnessSessionState,
     logger,
     event: buildTsRunnerEvent({
       sessionId: request.session_id,
@@ -2247,18 +2166,6 @@ export async function executeTsRunnerRequest(
           logger,
         }),
     );
-    const legacySessionHistoryContext = await measureBootstrapStageAsync(
-      bootstrapStageTimingsMs,
-      "load_legacy_session_history_context",
-      async () =>
-        isFrontSessionKind(request.session_kind)
-          ? await loadLegacySessionHistoryContext({
-              workspaceDir: bootstrap.workspaceDir,
-              logger,
-            })
-          : null,
-    );
-
     const runtimeConfig = measureBootstrapStage(
       bootstrapStageTimingsMs,
       "project_runtime_config",
@@ -2298,7 +2205,6 @@ export async function executeTsRunnerRequest(
             operatorSurfaceContext,
             pendingUserMemoryContext,
             recentRuntimeContext,
-            legacySessionHistoryContext,
             sessionScratchpadContext,
             evolveCandidateContext: evolveCandidateContext(request),
           }),
@@ -2453,6 +2359,7 @@ export async function executeTsRunnerRequest(
               event,
               harness: bootstrap.harness,
               workspaceDir: bootstrap.workspaceDir,
+              persistHarnessSessionState,
               logger,
             });
           },
@@ -2467,6 +2374,7 @@ export async function executeTsRunnerRequest(
       emitEvent: options.emitEvent,
       harness: bootstrap.harness,
       workspaceDir: bootstrap.workspaceDir,
+      persistHarnessSessionState,
       logger,
       event: buildTsRunnerFailureEvent({
         sessionId: request.session_id,
@@ -2481,6 +2389,7 @@ export async function executeTsRunnerRequest(
       emitEvent: options.emitEvent,
       harness: bootstrap.harness,
       workspaceDir: bootstrap.workspaceDir,
+      persistHarnessSessionState,
       logger,
       event: buildTsRunnerFailureEvent({
         sessionId: request.session_id,

@@ -7,7 +7,12 @@
  *
  * Extracted from `electron/main.ts` (BP-P2a). Behaviour is unchanged.
  */
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+const SECURITY_PROMPT_TIMEOUT_MS = 90_000;
 import {
   createDecipheriv,
   createHash,
@@ -599,41 +604,42 @@ export function chromeEncryptedCookieVersion(encryptedValue: Buffer) {
   return /^v\d\d$/.test(prefix) ? prefix : null;
 }
 
-function readChromeSafeStoragePasswordMac() {
+async function runSecurityFindGenericPassword(args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("security", args, {
+    encoding: "utf8",
+    timeout: SECURITY_PROMPT_TIMEOUT_MS,
+  });
+  return stdout.trim();
+}
+
+async function readChromeSafeStoragePasswordMac(): Promise<string> {
   for (const serviceName of CHROME_COOKIE_SAFE_STORAGE_SERVICE_NAMES) {
     for (const accountName of CHROME_COOKIE_SAFE_STORAGE_ACCOUNT_NAMES) {
       try {
-        const password = execFileSync(
-          "security",
-          [
-            "find-generic-password",
-            "-w",
-            "-s",
-            serviceName,
-            "-a",
-            accountName,
-          ],
-          { encoding: "utf8" },
-        ).trim();
-        if (password) {
-          return password;
-        }
+        const password = await runSecurityFindGenericPassword([
+          "find-generic-password",
+          "-w",
+          "-s",
+          serviceName,
+          "-a",
+          accountName,
+        ]);
+        if (password) return password;
       } catch {
-        // Try the next service/account pair.
+        // try next pair
       }
     }
 
     try {
-      const password = execFileSync(
-        "security",
-        ["find-generic-password", "-w", "-s", serviceName],
-        { encoding: "utf8" },
-      ).trim();
-      if (password) {
-        return password;
-      }
+      const password = await runSecurityFindGenericPassword([
+        "find-generic-password",
+        "-w",
+        "-s",
+        serviceName,
+      ]);
+      if (password) return password;
     } catch {
-      // Try the next service name.
+      // try next service name
     }
   }
 
@@ -671,12 +677,12 @@ export function readChromeWindowsEncryptedKey(userDataDir: string) {
   return encryptedKeyWithHeader.subarray(header.length);
 }
 
-function runPowerShellScriptSync(command: string) {
+async function runPowerShellScript(command: string): Promise<string> {
   const shells = ["powershell.exe", "powershell"];
   let lastError: unknown = null;
   for (const shellName of shells) {
     try {
-      return execFileSync(
+      const { stdout } = await execFileAsync(
         shellName,
         [
           "-NoProfile",
@@ -687,7 +693,8 @@ function runPowerShellScriptSync(command: string) {
           command,
         ],
         { encoding: "utf8" },
-      ).trim();
+      );
+      return stdout.trim();
     } catch (error) {
       lastError = error;
     }
@@ -697,7 +704,7 @@ function runPowerShellScriptSync(command: string) {
     : new Error("PowerShell was not available.");
 }
 
-function decryptWindowsDpapi(input: Buffer) {
+async function decryptWindowsDpapi(input: Buffer): Promise<Buffer> {
   const base64Input = input.toString("base64");
   const command = [
     "$ErrorActionPreference='Stop'",
@@ -706,7 +713,7 @@ function decryptWindowsDpapi(input: Buffer) {
     `$plaintext=[System.Security.Cryptography.ProtectedData]::Unprotect($bytes,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser)`,
     `[Convert]::ToBase64String($plaintext)`,
   ].join(";");
-  const output = runPowerShellScriptSync(command);
+  const output = await runPowerShellScript(command);
   if (!output) {
     throw new Error("Windows DPAPI decryption returned an empty result.");
   }
@@ -1017,7 +1024,7 @@ export async function importChromiumFamilyCookiesIntoWorkspaceSession(
   let windowsEncryptionKey: Buffer | null = null;
   if (process.platform === "darwin") {
     try {
-      safeStoragePassword = readChromeSafeStoragePasswordMac();
+      safeStoragePassword = await readChromeSafeStoragePasswordMac();
     } catch (error) {
       return {
         importedCount: 0,
@@ -1032,7 +1039,7 @@ export async function importChromiumFamilyCookiesIntoWorkspaceSession(
   } else if (process.platform === "win32") {
     try {
       const encryptedKey = readChromeWindowsEncryptedKey(path.dirname(profileDir));
-      windowsEncryptionKey = decryptWindowsDpapi(encryptedKey);
+      windowsEncryptionKey = await decryptWindowsDpapi(encryptedKey);
     } catch (error) {
       return {
         importedCount: 0,

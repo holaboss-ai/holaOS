@@ -1107,6 +1107,7 @@ let appUpdateCheckTimer: NodeJS.Timeout | null = null;
 let appUpdateCheckPromise: Promise<AppUpdateStatusPayload> | null = null;
 let appUpdateEventsConfigured = false;
 let appUpdatePreferences: AppUpdatePreferencesPayload = {};
+let notificationPreferences: { enabled: boolean } = { enabled: true };
 let codexOauthRefreshTimer: NodeJS.Timeout | null = null;
 let codexOauthRefreshPromise: Promise<boolean> | null = null;
 let runtimeModelCatalogState: RuntimeModelCatalogPayload = {
@@ -1729,6 +1730,37 @@ async function persistAppUpdatePreferences() {
   );
 }
 
+function notificationPreferencesPath() {
+  return path.join(app.getPath("userData"), "notification-preferences.json");
+}
+
+function loadNotificationPreferences(): { enabled: boolean } {
+  const preferencesPath = notificationPreferencesPath();
+  try {
+    if (!existsSync(preferencesPath)) {
+      return { enabled: true };
+    }
+    const parsed = JSON.parse(readFileSync(preferencesPath, "utf8")) as unknown;
+    if (parsed && typeof parsed === "object" && "enabled" in parsed) {
+      return { enabled: (parsed as { enabled: unknown }).enabled !== false };
+    }
+    return { enabled: true };
+  } catch {
+    return { enabled: true };
+  }
+}
+
+async function persistNotificationPreferences() {
+  await fs.mkdir(path.dirname(notificationPreferencesPath()), {
+    recursive: true,
+  });
+  await fs.writeFile(
+    notificationPreferencesPath(),
+    `${JSON.stringify(notificationPreferences, null, 2)}\n`,
+    "utf8",
+  );
+}
+
 function serviceBaseUrlFromControlPlane(
   controlPlaneBaseUrl: string,
   port: number,
@@ -2193,6 +2225,7 @@ configureStableUserDataPath();
 resolvedRuntimeApiPort = resolveRuntimeApiPort();
 persistDevLaunchContext();
 appUpdatePreferences = loadAppUpdatePreferences();
+notificationPreferences = loadNotificationPreferences();
 runtimeModelCatalogState = loadRuntimeModelCatalogCache();
 appUpdateStatus = {
   ...appUpdateStatus,
@@ -2270,196 +2303,52 @@ interface PopupThemePalette {
   error: string;
 }
 
+function isLightAppTheme(theme: string): boolean {
+  return theme.endsWith("-light") || theme === "holaboss" || theme === "sepia" || theme === "paper";
+}
+
 function getPopupThemePalette(theme: string): PopupThemePalette {
-  switch (theme) {
-    case "holaboss":
-      return {
-        fontFamily: '"IBM Plex Sans", "Aptos", "Segoe UI Variable", sans-serif',
-        text: "rgba(33, 38, 49, 0.94)",
-        textMuted: "rgba(109, 117, 131, 0.84)",
-        textSubtle: "rgba(109, 117, 131, 0.68)",
-        accent: "rgb(247, 90, 84)",
-        accentStrong: "rgb(233, 117, 109)",
-        border: "rgba(224, 228, 236, 0.78)",
-        borderSoft: "rgba(224, 228, 236, 0.42)",
-        hover: "rgba(247, 90, 84, 0.08)",
-        panelBg: "rgba(255, 255, 255, 0.98)",
-        panelBgAlt: "rgba(248, 249, 252, 0.98)",
-        controlBg: "rgba(248, 250, 253, 0.94)",
-        shadow: "0 12px 30px rgba(25, 33, 53, 0.08)",
-        emptyBg: "rgba(250, 245, 244, 0.92)",
-        error: "rgba(184, 67, 67, 0.94)",
-      };
-    case "sepia":
-      return {
-        fontFamily: '"IBM Plex Sans", "Aptos", "Segoe UI Variable", sans-serif',
-        text: "rgba(74, 54, 39, 0.94)",
-        textMuted: "rgba(133, 108, 87, 0.84)",
-        textSubtle: "rgba(133, 108, 87, 0.68)",
-        accent: "rgb(183, 139, 98)",
-        accentStrong: "rgb(160, 124, 92)",
-        border: "rgba(203, 186, 165, 0.7)",
-        borderSoft: "rgba(203, 186, 165, 0.34)",
-        hover: "rgba(93, 70, 46, 0.05)",
-        panelBg: "rgba(255, 251, 246, 0.98)",
-        panelBgAlt: "rgba(246, 240, 232, 0.98)",
-        controlBg: "rgba(245, 241, 234, 0.94)",
-        shadow: "0 10px 28px rgba(93, 70, 46, 0.12)",
-        emptyBg: "rgba(251, 248, 242, 0.92)",
-        error: "rgba(181, 72, 72, 0.92)",
-      };
-    case "paper":
-      return {
-        fontFamily: '"IBM Plex Sans", "Aptos", "Segoe UI Variable", sans-serif',
-        text: "rgba(78, 64, 52, 0.94)",
-        textMuted: "rgba(138, 119, 103, 0.84)",
-        textSubtle: "rgba(138, 119, 103, 0.68)",
-        accent: "rgb(143, 115, 90)",
-        accentStrong: "rgb(114, 90, 70)",
-        border: "rgba(216, 203, 185, 0.72)",
-        borderSoft: "rgba(216, 203, 185, 0.34)",
-        hover: "rgba(93, 70, 46, 0.045)",
-        panelBg: "rgba(255, 253, 249, 0.98)",
-        panelBgAlt: "rgba(245, 241, 234, 0.98)",
-        controlBg: "rgba(245, 241, 234, 0.92)",
-        shadow: "0 10px 28px rgba(93, 70, 46, 0.1)",
-        emptyBg: "rgba(251, 248, 243, 0.92)",
-        error: "rgba(181, 72, 72, 0.92)",
-      };
-    case "slate":
-      return {
-        fontFamily: '"IBM Plex Sans", "Aptos", "Segoe UI Variable", sans-serif',
-        text: "rgba(232, 236, 242, 0.94)",
-        textMuted: "rgba(156, 168, 184, 0.84)",
-        textSubtle: "rgba(156, 168, 184, 0.68)",
-        accent: "rgb(124, 146, 184)",
-        accentStrong: "rgb(95, 120, 163)",
-        border: "rgba(67, 81, 102, 0.62)",
-        borderSoft: "rgba(67, 81, 102, 0.28)",
-        hover: "rgba(255, 255, 255, 0.04)",
-        panelBg: "rgba(21, 26, 34, 0.98)",
-        panelBgAlt: "rgba(14, 17, 22, 0.98)",
-        controlBg: "rgba(14, 17, 22, 0.94)",
-        shadow: "0 14px 32px rgba(0, 0, 0, 0.28)",
-        emptyBg: "rgba(21, 26, 34, 0.92)",
-        error: "rgba(255, 185, 185, 0.92)",
-      };
-    case "graphite":
-      return {
-        fontFamily: '"IBM Plex Sans", "Aptos", "Segoe UI Variable", sans-serif',
-        text: "rgba(236, 239, 243, 0.94)",
-        textMuted: "rgba(160, 167, 176, 0.84)",
-        textSubtle: "rgba(160, 167, 176, 0.68)",
-        accent: "rgb(139, 148, 158)",
-        accentStrong: "rgb(111, 119, 128)",
-        border: "rgba(79, 86, 94, 0.64)",
-        borderSoft: "rgba(79, 86, 94, 0.28)",
-        hover: "rgba(255, 255, 255, 0.035)",
-        panelBg: "rgba(23, 25, 28, 0.98)",
-        panelBgAlt: "rgba(17, 18, 20, 0.98)",
-        controlBg: "rgba(17, 18, 20, 0.95)",
-        shadow: "0 12px 26px rgba(0, 0, 0, 0.24)",
-        emptyBg: "rgba(23, 25, 28, 0.92)",
-        error: "rgba(255, 185, 185, 0.92)",
-      };
-    case "cobalt":
-      return {
-        fontFamily: '"Exo 2", "Bahnschrift", "Segoe UI Variable", sans-serif',
-        text: "rgba(231, 241, 255, 0.94)",
-        textMuted: "rgba(177, 194, 221, 0.84)",
-        textSubtle: "rgba(177, 194, 221, 0.68)",
-        accent: "rgb(111, 188, 255)",
-        accentStrong: "rgb(72, 145, 255)",
-        border: "rgba(111, 188, 255, 0.28)",
-        borderSoft: "rgba(111, 188, 255, 0.14)",
-        hover: "rgba(255, 255, 255, 0.05)",
-        panelBg: "rgba(12, 19, 31, 0.98)",
-        panelBgAlt: "rgba(7, 10, 16, 0.98)",
-        controlBg: "rgba(7, 10, 16, 0.94)",
-        shadow: "0 18px 42px rgba(0, 0, 0, 0.42)",
-        emptyBg: "rgba(16, 24, 40, 0.92)",
-        error: "rgba(255, 185, 185, 0.92)",
-      };
-    case "ember":
-      return {
-        fontFamily: '"Exo 2", "Bahnschrift", "Segoe UI Variable", sans-serif',
-        text: "rgba(255, 236, 225, 0.94)",
-        textMuted: "rgba(219, 187, 167, 0.84)",
-        textSubtle: "rgba(219, 187, 167, 0.68)",
-        accent: "rgb(255, 151, 94)",
-        accentStrong: "rgb(227, 102, 57)",
-        border: "rgba(255, 151, 94, 0.28)",
-        borderSoft: "rgba(255, 151, 94, 0.14)",
-        hover: "rgba(255, 255, 255, 0.05)",
-        panelBg: "rgba(30, 16, 12, 0.98)",
-        panelBgAlt: "rgba(16, 9, 7, 0.98)",
-        controlBg: "rgba(16, 9, 7, 0.94)",
-        shadow: "0 18px 42px rgba(0, 0, 0, 0.42)",
-        emptyBg: "rgba(40, 21, 16, 0.92)",
-        error: "rgba(255, 185, 185, 0.92)",
-      };
-    case "glacier":
-      return {
-        fontFamily: '"Exo 2", "Bahnschrift", "Segoe UI Variable", sans-serif',
-        text: "rgba(236, 249, 252, 0.94)",
-        textMuted: "rgba(183, 209, 216, 0.84)",
-        textSubtle: "rgba(183, 209, 216, 0.68)",
-        accent: "rgb(139, 233, 255)",
-        accentStrong: "rgb(95, 189, 214)",
-        border: "rgba(139, 233, 255, 0.28)",
-        borderSoft: "rgba(139, 233, 255, 0.14)",
-        hover: "rgba(255, 255, 255, 0.05)",
-        panelBg: "rgba(16, 24, 29, 0.98)",
-        panelBgAlt: "rgba(8, 12, 15, 0.98)",
-        controlBg: "rgba(8, 12, 15, 0.94)",
-        shadow: "0 18px 42px rgba(0, 0, 0, 0.42)",
-        emptyBg: "rgba(23, 34, 39, 0.92)",
-        error: "rgba(255, 185, 185, 0.92)",
-      };
-    case "mono":
-      return {
-        fontFamily: '"Exo 2", "Bahnschrift", "Segoe UI Variable", sans-serif',
-        text: "rgba(240, 240, 240, 0.94)",
-        textMuted: "rgba(184, 184, 184, 0.84)",
-        textSubtle: "rgba(184, 184, 184, 0.68)",
-        accent: "rgb(208, 208, 208)",
-        accentStrong: "rgb(153, 153, 153)",
-        border: "rgba(208, 208, 208, 0.24)",
-        borderSoft: "rgba(208, 208, 208, 0.12)",
-        hover: "rgba(255, 255, 255, 0.05)",
-        panelBg: "rgba(20, 20, 20, 0.98)",
-        panelBgAlt: "rgba(10, 10, 10, 0.98)",
-        controlBg: "rgba(10, 10, 10, 0.94)",
-        shadow: "0 18px 42px rgba(0, 0, 0, 0.42)",
-        emptyBg: "rgba(28, 28, 28, 0.92)",
-        error: "rgba(255, 185, 185, 0.92)",
-      };
-    case "emerald":
-    default:
-      return {
-        fontFamily: '"Exo 2", "Bahnschrift", "Segoe UI Variable", sans-serif',
-        text: "rgba(222, 238, 230, 0.94)",
-        textMuted: "rgba(174, 201, 188, 0.84)",
-        textSubtle: "rgba(174, 201, 188, 0.68)",
-        accent: "rgb(87, 255, 173)",
-        accentStrong: "rgb(62, 201, 137)",
-        border: "rgba(87, 255, 173, 0.24)",
-        borderSoft: "rgba(87, 255, 173, 0.14)",
-        hover: "rgba(255, 255, 255, 0.05)",
-        panelBg: "rgba(9, 16, 13, 0.98)",
-        panelBgAlt: "rgba(5, 9, 7, 0.98)",
-        controlBg: "rgba(6, 9, 8, 0.94)",
-        shadow: "0 18px 42px rgba(0, 0, 0, 0.45)",
-        emptyBg: "rgba(13, 21, 18, 0.92)",
-        error: "rgba(255, 185, 185, 0.92)",
-      };
+  if (isLightAppTheme(theme)) {
+    return {
+      fontFamily: '"IBM Plex Sans", "Aptos", "Segoe UI Variable", sans-serif',
+      text: "rgba(33, 38, 49, 0.94)",
+      textMuted: "rgba(96, 102, 114, 0.82)",
+      textSubtle: "rgba(120, 128, 142, 0.66)",
+      accent: "rgb(245, 132, 25)",
+      accentStrong: "rgb(214, 95, 18)",
+      border: "rgba(214, 220, 230, 0.7)",
+      borderSoft: "rgba(214, 220, 230, 0.38)",
+      hover: "rgba(245, 132, 25, 0.08)",
+      panelBg: "rgba(255, 255, 255, 0.98)",
+      panelBgAlt: "rgba(249, 250, 252, 0.98)",
+      controlBg: "rgba(248, 250, 253, 0.94)",
+      shadow: "0 10px 28px rgba(20, 28, 48, 0.10)",
+      emptyBg: "rgba(250, 250, 251, 0.92)",
+      error: "rgba(184, 67, 67, 0.94)",
+    };
   }
+  return {
+    fontFamily: '"IBM Plex Sans", "Aptos", "Segoe UI Variable", sans-serif',
+    text: "rgba(232, 234, 238, 0.94)",
+    textMuted: "rgba(168, 174, 184, 0.84)",
+    textSubtle: "rgba(146, 152, 162, 0.66)",
+    accent: "rgb(245, 132, 25)",
+    accentStrong: "rgb(255, 158, 76)",
+    border: "rgba(255, 255, 255, 0.08)",
+    borderSoft: "rgba(255, 255, 255, 0.05)",
+    hover: "rgba(245, 132, 25, 0.10)",
+    panelBg: "rgba(24, 26, 30, 0.98)",
+    panelBgAlt: "rgba(20, 22, 26, 0.98)",
+    controlBg: "rgba(28, 30, 34, 0.94)",
+    shadow: "0 10px 28px rgba(0, 0, 0, 0.28)",
+    emptyBg: "rgba(28, 30, 34, 0.92)",
+    error: "rgba(255, 145, 145, 0.92)",
+  };
 }
 
 function popupThemeCss(theme = currentTheme) {
   const palette = getPopupThemePalette(theme);
-  const isLightTheme =
-    theme === "holaboss" || theme === "sepia" || theme === "paper";
+  const isLightTheme = isLightAppTheme(theme);
   const surfaceSoft = `color-mix(in srgb, ${palette.controlBg} 72%, ${palette.panelBgAlt} 28%)`;
   const surfaceSubtle = `color-mix(in srgb, ${palette.controlBg} 52%, ${palette.panelBgAlt} 48%)`;
   return `
@@ -4211,6 +4100,12 @@ async function exportDesktopDiagnosticsBundle(
 ) {
   const workspace = resolveDiagnosticsWorkspace(payload?.workspaceId ?? null);
   const workspaceSummary = diagnosticsWorkspaceSummary(workspace);
+  const workspaceRuntimeDbPath = workspace
+    ? workspaceRuntimeDbPathForStartupCheck(
+        workspace.id,
+        workspace.workspace_path ?? null,
+      )
+    : null;
   const downloadsDir = app.getPath("downloads");
   const bundlePath = path.join(
     downloadsDir,
@@ -4222,6 +4117,7 @@ async function exportDesktopDiagnosticsBundle(
     runtimeLogPath: runtimeLogsPath(),
     runtimeDbPath: runtimeDatabasePath(),
     runtimeConfigPath: runtimeConfigPath(),
+    workspaceRuntimeDbPath,
     workspaceId: workspace?.id ?? null,
     workspaceSummary,
     summary: {
@@ -9360,6 +9256,14 @@ async function retryAfterSessionAuth(
   if (unauthorizedResponse.status !== 401 || !desktopAuthClient) {
     return unauthorizedResponse;
   }
+  // Don't auto-launch sign-in when the user has explicitly signed out (no
+  // cookie). The retry is for *expired* sessions; for an intentional
+  // sign-out, 401 is the expected result and pulling the user to the login
+  // page surprises them ("clicked Settings, browser opened to sign-in").
+  // The caller will surface the 401 as a normal "not authenticated" error.
+  if (!authCookieHeader()) {
+    return unauthorizedResponse;
+  }
   try {
     if (!pendingGatewayAuthRetry) {
       const authComplete = waitForAuthCallback();
@@ -14496,7 +14400,13 @@ async function createWorkspace(
       }
     }
 
-    await ensureWorkspaceGitRepo(workspaceDir);
+    const workspaceGit = await ensureWorkspaceGitRepo(workspaceDir);
+    if (!workspaceGit.available) {
+      stageLog("workspace_git.skipped", {
+        workspaceId,
+        reason: workspaceGit.skippedReason ?? "git unavailable",
+      });
+    }
 
     let onboardingStatus = "NOT_REQUIRED";
     let onboardingSessionId: string | null = null;
@@ -17244,6 +17154,8 @@ const consumeBrowserDownloadOverride =
 const browserContextSuggestedFilename =
   browserPaneTabState.browserContextSuggestedFilename;
 const browserPagePayload = browserPaneTabState.browserPagePayload;
+const withTemporarilyRenderedBrowserTab =
+  browserPaneTabState.withTemporarilyRenderedBrowserTab;
 const setActiveBrowserTabInner = browserPaneTabState.setActiveBrowserTab;
 const closeBrowserTabInner = browserPaneTabState.closeBrowserTab;
 
@@ -17353,6 +17265,12 @@ const browserHttpService: BrowserHttpService = createBrowserHttpService({
     operatorSurfaceContextPayload(workspaceId),
   browserPagePayload: (tab) =>
     browserPagePayload(tab as unknown as BrowserTabRecord),
+  withTemporarilyRenderedBrowserTab: (tab, callback, options) =>
+    withTemporarilyRenderedBrowserTab(
+      tab as unknown as BrowserTabRecord,
+      callback,
+      options,
+    ),
   withProgrammaticBrowserInput: (webContents, callback) =>
     withProgrammaticBrowserInput(webContents, callback),
   sendBrowserKeyPress: (webContents, keyCode, modifiers) =>
@@ -21121,6 +21039,15 @@ function showNativeDesktopNotification(
     });
     return Promise.resolve(false);
   }
+  if (!notificationPreferences.enabled) {
+    logNativeDesktopNotificationEvent("skipped", {
+      title,
+      body,
+      force: payload.force,
+      detail: "User disabled desktop notifications.",
+    });
+    return Promise.resolve(false);
+  }
   if (!payload.force && !shouldShowNativeDesktopNotification()) {
     logNativeDesktopNotificationEvent("skipped", {
       title,
@@ -21213,6 +21140,30 @@ function showNativeDesktopNotification(
         app.focus();
       }
       focusOrCreateMainWindow();
+      const workspaceId = (payload.workspaceId ?? "").trim();
+      const sessionId = (payload.sessionId ?? "").trim();
+      if (!workspaceId) return;
+      const target = mainWindow;
+      if (!target || target.isDestroyed() || target.webContents.isDestroyed()) {
+        return;
+      }
+      const send = () => {
+        if (target.isDestroyed() || target.webContents.isDestroyed()) return;
+        target.webContents.send("ui:notificationActivated", {
+          workspaceId,
+          sessionId: sessionId || null,
+        });
+      };
+      // Cold-start case: window was just created by focusOrCreateMainWindow,
+      // renderer hasn't registered the IPC listener yet. Defer until the page
+      // finishes loading (and one extra tick so React effects can run).
+      if (target.webContents.isLoading()) {
+        target.webContents.once("did-finish-load", () => {
+          setTimeout(send, 200);
+        });
+      } else {
+        send();
+      }
     });
     notification.on("close", () => {
       logNativeDesktopNotificationEvent("closed", {
@@ -21948,6 +21899,59 @@ app.whenReady().then(async () => {
     },
   );
   handleTrustedIpc(
+    "ui:setBadgeCount",
+    ["main"],
+    async (_event, count: unknown) => {
+      const numeric = typeof count === "number" ? count : Number(count);
+      const safe = Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : 0;
+      try {
+        app.setBadgeCount(safe);
+      } catch {
+        // app.setBadgeCount is a no-op on platforms that don't support it
+        // (Windows without setOverlayIcon, headless Linux). Swallow rather
+        // than surface platform support as a renderer error.
+      }
+    },
+  );
+  handleTrustedIpc(
+    "ui:getNotificationsEnabled",
+    ["main"],
+    async () => notificationPreferences.enabled,
+  );
+  handleTrustedIpc(
+    "ui:setNotificationsEnabled",
+    ["main"],
+    async (_event, enabled: unknown) => {
+      const next = enabled !== false;
+      const wasEnabled = notificationPreferences.enabled;
+      notificationPreferences = { enabled: next };
+      try {
+        await persistNotificationPreferences();
+      } catch (error) {
+        void appendRuntimeLog(
+          `[notifications] failed to persist preference: ${error instanceof Error ? error.message : String(error)}\n`,
+        );
+      }
+      // Confirmation ping when turning notifications on — proves to the
+      // user the OS permission is granted and the new setting took effect.
+      if (next && !wasEnabled) {
+        void showNativeDesktopNotification({
+          title: "Desktop notifications enabled",
+          body: "You'll get reminded when scheduled tasks fire.",
+          force: true,
+        });
+      }
+      if (!next) {
+        try {
+          app.setBadgeCount(0);
+        } catch {
+          // ignore — see ui:setBadgeCount handler
+        }
+      }
+      return next;
+    },
+  );
+  handleTrustedIpc(
     "appUpdate:getStatus",
     ["main"],
     async () => appUpdateStatus,
@@ -22199,6 +22203,25 @@ app.whenReady().then(async () => {
     ["main"],
     async (_event, workspaceId: string, keepFiles?: boolean) =>
       localWorkspaceControlPlane.deleteWorkspace(workspaceId, keepFiles),
+  );
+  handleTrustedIpc(
+    "workspace:updateAppearance",
+    ["main"],
+    async (
+      _event,
+      workspaceId: string,
+      payload: { icon: string | null; iconColor: string | null },
+    ) => {
+      const safeId = String(workspaceId ?? "").trim();
+      if (!safeId) {
+        throw new Error("workspaceId is required");
+      }
+      const response = await runtimeClient.workspaces.update(safeId, {
+        icon: payload?.icon ?? null,
+        icon_color: payload?.iconColor ?? null,
+      });
+      return response;
+    },
   );
   handleTrustedIpc(
     "workspace:listCronjobs",

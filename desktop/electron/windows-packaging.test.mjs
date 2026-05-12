@@ -52,6 +52,7 @@ test("windows packaging config and CI workflow support optional signing and NSIS
   assert.match(workflowSource, /runs-on: windows-latest/);
   assert.match(workflowSource, /release_tag must match holaOS-YYYY\.MDD\.R/);
   assert.match(workflowSource, /DESKTOP_RELEASE_ASSET_NAME: holaOS-windows-x64-setup\.exe/);
+  assert.match(workflowSource, /- name: Prepare desktop \(build SDK \+ install desktop deps\)\n\s+env:\n\s+ELECTRON_SKIP_BINARY_DOWNLOAD: "1"\n\s+run: npm run desktop:prepare/);
   assert.match(workflowSource, /CSC_LINK: \$\{\{ env\.WINDOWS_CERTIFICATE \}\}/);
   assert.match(workflowSource, /npm run dist:win:local/);
   assert.match(workflowSource, /generated_installer_path=/);

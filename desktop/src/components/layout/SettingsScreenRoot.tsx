@@ -295,6 +295,8 @@ export interface SettingsScreenRootProps {
   onThemeVariantChange: (variant: ThemeVariant) => void;
   workspaceCardsPerRow: ControlCenterCardsPerRow;
   onWorkspaceCardsPerRowChange: (value: ControlCenterCardsPerRow) => void;
+  desktopNotificationsEnabled: boolean;
+  onDesktopNotificationsChange: (enabled: boolean) => void;
   onOpenExternalUrl: (url: string) => void;
   /** When set, opens Submissions panel pre-expanded on this submission. */
   submissionsFocusId?: string | null;
@@ -312,6 +314,8 @@ export function SettingsScreenRoot({
   onThemeVariantChange,
   workspaceCardsPerRow,
   onWorkspaceCardsPerRowChange,
+  desktopNotificationsEnabled,
+  onDesktopNotificationsChange,
   onOpenExternalUrl,
   submissionsFocusId = null,
 }: SettingsScreenRootProps) {
@@ -646,6 +650,17 @@ export function SettingsScreenRoot({
                     void handleSetBetaChannel(checked);
                   }}
                   disabled={appUpdateChannelPending || appUpdateChannelUnavailable}
+                />
+              </SettingsCard>
+            </SettingsSection>
+
+            <SettingsSection title="Notifications">
+              <SettingsCard>
+                <SettingsToggle
+                  label="Desktop notifications"
+                  description="Get system alerts when reminders fire and tasks complete. Click an alert to jump to the workspace."
+                  checked={desktopNotificationsEnabled}
+                  onCheckedChange={onDesktopNotificationsChange}
                 />
               </SettingsCard>
             </SettingsSection>

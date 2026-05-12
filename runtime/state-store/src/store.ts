@@ -23,8 +23,17 @@ const WORKSPACE_RUNTIME_DB_FILENAME = "runtime.db";
 const WORKSPACE_IDENTITY_FILENAME = "workspace_id";
 const LEGACY_WORKSPACE_METADATA_FILENAME = "workspace.json";
 const DELETED_WORKSPACE_PATH_TOMBSTONE_PREFIX = "__deleted__";
+const WORKSPACE_IDENTITY_LOCK_FILENAME = `${WORKSPACE_IDENTITY_FILENAME}.lock`;
+const WORKSPACE_IDENTITY_WRITE_RETRY_ATTEMPTS = 3;
+const WORKSPACE_IDENTITY_WRITE_RETRY_DELAY_MS = 25;
+const WORKSPACE_IDENTITY_LOCK_RETRY_ATTEMPTS = 20;
+const WORKSPACE_IDENTITY_LOCK_RETRY_DELAY_MS = 25;
+const WORKSPACE_IDENTITY_LOCK_STALE_MS = 30_000;
 const WORKSPACE_RUNTIME_LEGACY_BACKFILL_MARKER_KEY =
   "legacy_workspace_backfill_v1_complete";
+const MAIN_SESSION_KIND = "main_session";
+const MAIN_SESSION_BINDING_ROLE = "main_session";
+const MAIN_SESSION_CONVERSATION_KEY = "main_session";
 const WORKSPACE_SCOPED_LEGACY_BACKFILL_TABLES = [
   "agent_sessions",
   "agent_runtime_sessions",
@@ -52,6 +61,49 @@ const WORKSPACE_SCOPED_LEGACY_BACKFILL_TABLES = [
   "cronjobs",
   "runtime_notifications",
 ] as const;
+const SYNC_SLEEP_BUFFER = new Int32Array(new SharedArrayBuffer(4));
+
+type RuntimeStateStoreWorkspaceErrorCode =
+  | "workspace_folder_missing"
+  | "workspace_identity_write_busy"
+  | "workspace_identity_write_failed";
+
+type RuntimeStateStoreWorkspaceError = Error & {
+  code?: RuntimeStateStoreWorkspaceErrorCode;
+  workspacePath?: string;
+  cause?: unknown;
+};
+
+function sleepSync(ms: number): void {
+  if (ms <= 0) {
+    return;
+  }
+  Atomics.wait(SYNC_SLEEP_BUFFER, 0, 0, ms);
+}
+
+function createWorkspaceFolderMissingError(workspacePath: string): RuntimeStateStoreWorkspaceError {
+  const err = new Error(
+    `workspace folder is missing at ${workspacePath}. Relocate the workspace or delete the record.`,
+  ) as RuntimeStateStoreWorkspaceError;
+  err.code = "workspace_folder_missing";
+  err.workspacePath = workspacePath;
+  return err;
+}
+
+function createWorkspaceIdentityWriteError(params: {
+  workspacePath: string;
+  detail: string;
+  code?: RuntimeStateStoreWorkspaceErrorCode;
+  cause?: unknown;
+}): RuntimeStateStoreWorkspaceError {
+  const err = new Error(
+    `failed to persist workspace identity file under ${params.workspacePath}: ${params.detail}`,
+  ) as RuntimeStateStoreWorkspaceError;
+  err.code = params.code ?? "workspace_identity_write_failed";
+  err.workspacePath = params.workspacePath;
+  err.cause = params.cause;
+  return err;
+}
 
 export interface WorkspaceRecord {
   id: string;
@@ -68,6 +120,8 @@ export interface WorkspaceRecord {
   createdAt: string | null;
   updatedAt: string | null;
   deletedAtUtc: string | null;
+  icon: string | null;
+  iconColor: string | null;
 }
 
 export interface AgentSessionRecord {
@@ -672,6 +726,8 @@ type WorkspaceUpdateFields = Partial<{
   onboardingCompletionSummary: string | null;
   onboardingRequestedAt: string | null;
   onboardingRequestedBy: string | null;
+  icon: string | null;
+  iconColor: string | null;
 }>;
 
 type AgentSessionUpdateFields = Partial<{
@@ -824,6 +880,8 @@ type WorkspaceRow = {
   created_at: string | null;
   updated_at: string | null;
   deleted_at_utc: string | null;
+  icon: string | null;
+  icon_color: string | null;
 };
 
 const TASK_PROPOSAL_SOURCES = new Set<TaskProposalSource>(["proactive", "evolve"]);
@@ -1170,6 +1228,26 @@ export class RuntimeStateStore {
     );
   }
 
+  private workspacePathState(workspacePath: string): "healthy" | "missing" {
+    const resolvedWorkspacePath = path.resolve(workspacePath);
+    try {
+      if (fs.existsSync(resolvedWorkspacePath) && fs.statSync(resolvedWorkspacePath).isDirectory()) {
+        return "healthy";
+      }
+    } catch {
+      // Fall through — any stat error means we can't trust the folder.
+    }
+    return "missing";
+  }
+
+  private assertWorkspacePathHealthy(workspacePath: string): string {
+    const resolvedWorkspacePath = path.resolve(workspacePath);
+    if (this.workspacePathState(resolvedWorkspacePath) === "healthy") {
+      return resolvedWorkspacePath;
+    }
+    throw createWorkspaceFolderMissingError(resolvedWorkspacePath);
+  }
+
   /**
    * Classifies the on-disk folder as "healthy" or "missing". Missing covers
    * all "can't use this folder right now" conditions (deleted, moved,
@@ -1179,15 +1257,7 @@ export class RuntimeStateStore {
    * one-time activation check (see activateWorkspaceFolder).
    */
   workspaceFolderState(workspaceId: string): "healthy" | "missing" {
-    const dir = this.workspaceDir(workspaceId);
-    try {
-      if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
-        return "healthy";
-      }
-    } catch {
-      // Fall through — any stat error means we can't trust the folder.
-    }
-    return "missing";
+    return this.workspacePathState(this.workspaceDir(workspaceId));
   }
 
   /**
@@ -1201,12 +1271,7 @@ export class RuntimeStateStore {
     if (this.workspaceFolderState(workspaceId) === "healthy") {
       return dir;
     }
-    const err = new Error(
-      `workspace folder is missing at ${dir}. Relocate the workspace or delete the record.`,
-    ) as Error & { code?: string; workspacePath?: string };
-    err.code = "workspace_folder_missing";
-    err.workspacePath = dir;
-    throw err;
+    throw createWorkspaceFolderMissingError(dir);
   }
 
   listWorkspaces(options: { includeDeleted?: boolean } = {}): WorkspaceRecord[] {
@@ -1216,7 +1281,7 @@ export class RuntimeStateStore {
         SELECT id, workspace_path, name, status, harness, error_message,
                onboarding_status, onboarding_session_id, onboarding_completed_at,
                onboarding_completion_summary, onboarding_requested_at, onboarding_requested_by,
-               created_at, updated_at, deleted_at_utc
+               created_at, updated_at, deleted_at_utc, icon, icon_color
         FROM workspaces
         ORDER BY updated_at DESC, created_at DESC, id DESC
       `)
@@ -1236,7 +1301,7 @@ export class RuntimeStateStore {
         SELECT id, workspace_path, name, status, harness, error_message,
                onboarding_status, onboarding_session_id, onboarding_completed_at,
                onboarding_completion_summary, onboarding_requested_at, onboarding_requested_by,
-               created_at, updated_at, deleted_at_utc
+               created_at, updated_at, deleted_at_utc, icon, icon_color
         FROM workspaces
         WHERE id = ?
         LIMIT 1
@@ -1281,7 +1346,9 @@ export class RuntimeStateStore {
       onboardingRequestedBy: null,
       createdAt: now,
       updatedAt: now,
-      deletedAtUtc: null
+      deletedAtUtc: null,
+      icon: null,
+      iconColor: null
     };
 
     const workspacePath = this.resolveCreateWorkspacePath(params.workspacePath, workspaceId);
@@ -1509,13 +1576,22 @@ export class RuntimeStateStore {
         case "onboardingRequestedBy":
           next.onboardingRequestedBy = value as string | null;
           break;
+        case "icon":
+          next.icon = value as string | null;
+          break;
+        case "iconColor":
+          next.iconColor = value as string | null;
+          break;
         default:
           throw new Error(`unsupported workspace update field: ${typedKey}`);
       }
     }
     next.updatedAt = utcNowIso();
-    this.upsertWorkspaceRow(next, this.workspaceDir(workspaceId));
-    this.writeWorkspaceIdentityFile(this.workspaceDir(workspaceId), workspaceId);
+    const workspacePath = this.workspaceDir(workspaceId);
+    if (!next.deletedAtUtc) {
+      this.writeWorkspaceIdentityFile(workspacePath, workspaceId);
+    }
+    this.upsertWorkspaceRow(next, workspacePath);
     return next;
   }
 
@@ -1993,7 +2069,7 @@ export class RuntimeStateStore {
     const createdAt = params.createdAt ?? now;
     const role = this.normalizedConversationBindingRole(params.role);
     const channel = this.requiredNormalizedText(params.channel, "channel");
-    const conversationKey = this.requiredNormalizedText(params.conversationKey, "conversationKey");
+    const conversationKey = this.normalizedConversationBindingKey(params.conversationKey);
     const bindingId = params.bindingId ?? randomUUID();
     const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
 
@@ -2069,7 +2145,7 @@ export class RuntimeStateStore {
     const values: string[] = [
       params.workspaceId,
       this.requiredNormalizedText(params.channel, "channel"),
-      this.requiredNormalizedText(params.conversationKey, "conversationKey"),
+      this.normalizedConversationBindingKey(params.conversationKey),
     ];
     if (role !== undefined) {
       query += " AND role = ?";
@@ -7173,8 +7249,10 @@ export class RuntimeStateStore {
           onboarding_requested_by,
           created_at,
           updated_at,
-          deleted_at_utc
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          deleted_at_utc,
+          icon,
+          icon_color
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const row of rows) {
         statement.run(
@@ -7192,7 +7270,9 @@ export class RuntimeStateStore {
           row.onboarding_requested_by ?? null,
           row.created_at ?? null,
           row.updated_at ?? null,
-          row.deleted_at_utc ?? null
+          row.deleted_at_utc ?? null,
+          row.icon ?? null,
+          row.icon_color ?? null
         );
       }
     }
@@ -7846,7 +7926,7 @@ export class RuntimeStateStore {
       CREATE TABLE IF NOT EXISTS agent_sessions (
           workspace_id TEXT NOT NULL,
           session_id TEXT NOT NULL,
-          kind TEXT NOT NULL DEFAULT 'workspace_session',
+          kind TEXT NOT NULL DEFAULT 'main_session',
           title TEXT,
           parent_session_id TEXT,
           source_proposal_id TEXT,
@@ -7881,7 +7961,7 @@ export class RuntimeStateStore {
           channel TEXT NOT NULL,
           conversation_key TEXT NOT NULL,
           session_id TEXT NOT NULL,
-          role TEXT NOT NULL DEFAULT 'main',
+          role TEXT NOT NULL DEFAULT 'main_session',
           is_active INTEGER NOT NULL DEFAULT 1,
           metadata TEXT NOT NULL DEFAULT '{}',
           last_active_at TEXT,
@@ -7991,7 +8071,7 @@ export class RuntimeStateStore {
           PRIMARY KEY (workspace_id, session_id)
       );
 
-      CREATE INDEX IF NOT EXISTS session_runtime_state_workspace_session_idx
+      CREATE INDEX IF NOT EXISTS session_runtime_state_main_session_idx
           ON session_runtime_state (workspace_id, session_id);
 
       CREATE INDEX IF NOT EXISTS session_runtime_state_session_id_idx
@@ -8006,7 +8086,7 @@ export class RuntimeStateStore {
           created_at TEXT NOT NULL
       );
 
-      CREATE INDEX IF NOT EXISTS idx_session_messages_workspace_session_created
+      CREATE INDEX IF NOT EXISTS idx_session_messages_main_session_created
           ON session_messages (workspace_id, session_id, created_at ASC);
 
       CREATE TABLE IF NOT EXISTS session_output_events (
@@ -8023,7 +8103,7 @@ export class RuntimeStateStore {
       CREATE INDEX IF NOT EXISTS idx_session_output_events_session_input_sequence
           ON session_output_events (session_id, input_id, sequence ASC);
 
-      CREATE INDEX IF NOT EXISTS idx_session_output_events_workspace_session_created
+      CREATE INDEX IF NOT EXISTS idx_session_output_events_main_session_created
           ON session_output_events (workspace_id, session_id, created_at ASC);
 
       CREATE TABLE IF NOT EXISTS terminal_sessions (
@@ -8092,7 +8172,7 @@ export class RuntimeStateStore {
           updated_at TEXT NOT NULL
       );
 
-      CREATE INDEX IF NOT EXISTS idx_turn_results_workspace_session_completed
+      CREATE INDEX IF NOT EXISTS idx_turn_results_main_session_completed
           ON turn_results (workspace_id, session_id, completed_at DESC, started_at DESC);
 
       CREATE INDEX IF NOT EXISTS idx_turn_results_session_input
@@ -8354,6 +8434,7 @@ export class RuntimeStateStore {
     this.ensureMemoryEntriesTableSchema(db);
     this.ensureMemoryEmbeddingIndexSchema(db);
     this.ensureConversationBindingsTableSchema(db);
+    this.migrateLegacyMainSessionLabels(db);
     this.ensureSubagentRunsTableSchema(db);
     this.ensureSessionRuntimeStateTableSchema(db);
     this.ensureTurnArtifactsSchema(db);
@@ -8386,7 +8467,9 @@ export class RuntimeStateStore {
           onboarding_requested_by TEXT,
           created_at TEXT,
           updated_at TEXT,
-          deleted_at_utc TEXT
+          deleted_at_utc TEXT,
+          icon TEXT,
+          icon_color TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_workspaces_updated
@@ -8421,6 +8504,40 @@ export class RuntimeStateStore {
       CREATE INDEX IF NOT EXISTS idx_conversation_bindings_channel_key_active
           ON conversation_bindings (channel, conversation_key, is_active);
     `);
+  }
+
+  private migrateLegacyMainSessionLabels(db: Database.Database): void {
+    const tableNames = new Set<string>(
+      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
+        (row) => row.name,
+      ),
+    );
+    const now = utcNowIso();
+    const migrate = db.transaction(() => {
+      if (tableNames.has("agent_sessions")) {
+        db.prepare(
+          `
+            UPDATE agent_sessions
+            SET kind = ?,
+                updated_at = ?
+            WHERE lower(kind) IN ('workspace_session', 'main')
+          `,
+        ).run(MAIN_SESSION_KIND, now);
+      }
+      if (tableNames.has("conversation_bindings")) {
+        db.prepare(
+          `
+            UPDATE conversation_bindings
+            SET role = ?,
+                conversation_key = ?,
+                updated_at = ?
+            WHERE lower(role) = 'main'
+               OR lower(conversation_key) = 'main_session'
+          `,
+        ).run(MAIN_SESSION_BINDING_ROLE, MAIN_SESSION_CONVERSATION_KEY, now);
+      }
+    });
+    migrate();
   }
 
   private ensureSubagentRunsTableSchema(db: Database.Database): void {
@@ -8576,7 +8693,7 @@ export class RuntimeStateStore {
 
       DROP TABLE session_runtime_state_legacy_no_paused;
 
-      CREATE INDEX IF NOT EXISTS session_runtime_state_workspace_session_idx
+      CREATE INDEX IF NOT EXISTS session_runtime_state_main_session_idx
           ON session_runtime_state (workspace_id, session_id);
 
       CREATE INDEX IF NOT EXISTS session_runtime_state_session_id_idx
@@ -8969,7 +9086,7 @@ export class RuntimeStateStore {
 
       DROP TABLE turn_results_legacy_with_removed_columns;
 
-      CREATE INDEX IF NOT EXISTS idx_turn_results_workspace_session_completed
+      CREATE INDEX IF NOT EXISTS idx_turn_results_main_session_completed
           ON turn_results (workspace_id, session_id, completed_at DESC, started_at DESC);
 
       CREATE INDEX IF NOT EXISTS idx_turn_results_session_input
@@ -9041,7 +9158,7 @@ export class RuntimeStateStore {
           updated_at TEXT NOT NULL
       );
 
-      CREATE INDEX IF NOT EXISTS idx_turn_request_snapshots_workspace_session_updated
+      CREATE INDEX IF NOT EXISTS idx_turn_request_snapshots_main_session_updated
           ON turn_request_snapshots (workspace_id, session_id, updated_at DESC, created_at DESC);
     `);
   }
@@ -9081,7 +9198,9 @@ export class RuntimeStateStore {
           onboarding_requested_by TEXT,
           created_at TEXT,
           updated_at TEXT,
-          deleted_at_utc TEXT
+          deleted_at_utc TEXT,
+          icon TEXT,
+          icon_color TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_workspaces_updated
@@ -9226,7 +9345,22 @@ export class RuntimeStateStore {
       `);
     }
 
+    this.addWorkspaceIconColumns(db);
     this.migrateWorkspacesTable(db);
+  }
+
+  private addWorkspaceIconColumns(db: Database.Database): void {
+    const columns = new Set<string>(
+      (db.prepare("PRAGMA table_info(workspaces)").all() as Array<{ name: string }>).map(
+        (row) => row.name
+      )
+    );
+    if (!columns.has("icon")) {
+      db.exec("ALTER TABLE workspaces ADD COLUMN icon TEXT;");
+    }
+    if (!columns.has("icon_color")) {
+      db.exec("ALTER TABLE workspaces ADD COLUMN icon_color TEXT;");
+    }
   }
 
   private migrateWorkspacesTable(db: Database.Database): void {
@@ -9257,12 +9391,18 @@ export class RuntimeStateStore {
           }
           continue;
         }
+        const discoveredPath = this.discoverWorkspacePath(row.id);
         const resolvedPath =
           workspacePath && fs.existsSync(workspacePath) && fs.statSync(workspacePath).isDirectory()
             ? workspacePath
-            : this.discoverWorkspacePath(row.id) ?? this.defaultWorkspaceDir(row.id);
+            : discoveredPath ?? this.defaultWorkspaceDir(row.id);
         db.prepare("UPDATE workspaces SET workspace_path = ? WHERE id = ?").run(resolvedPath, row.id);
-        this.writeWorkspaceIdentityFile(resolvedPath, row.id);
+        if (!workspacePath && !discoveredPath && this.isWithinManagedRoot(resolvedPath)) {
+          fs.mkdirSync(resolvedPath, { recursive: true });
+          this.writeWorkspaceIdentityFile(resolvedPath, row.id);
+          continue;
+        }
+        this.maybeWriteWorkspaceIdentityFile(resolvedPath, row.id);
       }
     }
 
@@ -9294,11 +9434,12 @@ export class RuntimeStateStore {
             existingLegacyWorkspaceDir = null;
           }
         }
+        const discoveredPath = this.discoverWorkspacePath(record.id);
         const workspacePath = record.deletedAtUtc
           ? (
               (() => {
                 const preservedPath = this.workspacePathMatchesIdentity(
-                  this.discoverWorkspacePath(record.id),
+                  discoveredPath,
                   record.id,
                 ) ?? this.workspacePathMatchesIdentity(
                   legacyWorkspacePath?.startsWith(`${DELETED_WORKSPACE_PATH_TOMBSTONE_PREFIX}/`)
@@ -9313,12 +9454,17 @@ export class RuntimeStateStore {
             )
           : (
               existingLegacyWorkspaceDir ??
-              this.discoverWorkspacePath(record.id) ??
+              discoveredPath ??
               this.defaultWorkspaceDir(record.id)
             );
         this.upsertWorkspaceRowInDb(record, workspacePath, db);
         if (!record.deletedAtUtc) {
-          this.writeWorkspaceIdentityFile(workspacePath, record.id);
+          if (!existingLegacyWorkspaceDir && !discoveredPath && !legacyWorkspacePath && this.isWithinManagedRoot(workspacePath)) {
+            fs.mkdirSync(workspacePath, { recursive: true });
+            this.writeWorkspaceIdentityFile(workspacePath, record.id);
+            continue;
+          }
+          this.maybeWriteWorkspaceIdentityFile(workspacePath, record.id);
         }
       }
       db.exec("DROP TABLE workspaces_legacy_with_owner; DROP INDEX IF EXISTS idx_workspaces_user_updated;");
@@ -9366,7 +9512,9 @@ export class RuntimeStateStore {
       onboardingRequestedBy: row.onboarding_requested_by == null ? null : String(row.onboarding_requested_by),
       createdAt: row.created_at == null ? null : String(row.created_at),
       updatedAt: row.updated_at == null ? null : String(row.updated_at),
-      deletedAtUtc: row.deleted_at_utc == null ? null : String(row.deleted_at_utc)
+      deletedAtUtc: row.deleted_at_utc == null ? null : String(row.deleted_at_utc),
+      icon: row.icon == null ? null : String(row.icon),
+      iconColor: row.icon_color == null ? null : String(row.icon_color)
     };
   }
 
@@ -9386,7 +9534,9 @@ export class RuntimeStateStore {
       onboardingRequestedBy: data.onboarding_requested_by == null ? null : String(data.onboarding_requested_by),
       createdAt: data.created_at == null ? null : String(data.created_at),
       updatedAt: data.updated_at == null ? null : String(data.updated_at),
-      deletedAtUtc: data.deleted_at_utc == null ? null : String(data.deleted_at_utc)
+      deletedAtUtc: data.deleted_at_utc == null ? null : String(data.deleted_at_utc),
+      icon: data.icon == null ? null : String(data.icon),
+      iconColor: data.icon_color == null ? null : String(data.icon_color)
     };
   }
 
@@ -9407,8 +9557,8 @@ export class RuntimeStateStore {
           id, workspace_path, name, status, harness, error_message,
           onboarding_status, onboarding_session_id, onboarding_completed_at,
           onboarding_completion_summary, onboarding_requested_at, onboarding_requested_by,
-          created_at, updated_at, deleted_at_utc
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          created_at, updated_at, deleted_at_utc, icon, icon_color
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
           workspace_path = excluded.workspace_path,
           name = excluded.name,
@@ -9423,7 +9573,9 @@ export class RuntimeStateStore {
           onboarding_requested_by = excluded.onboarding_requested_by,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
-          deleted_at_utc = excluded.deleted_at_utc
+          deleted_at_utc = excluded.deleted_at_utc,
+          icon = excluded.icon,
+          icon_color = excluded.icon_color
     `).run(
       record.id,
       workspacePath,
@@ -9439,7 +9591,9 @@ export class RuntimeStateStore {
       record.onboardingRequestedBy,
       record.createdAt,
       record.updatedAt,
-      record.deletedAtUtc
+      record.deletedAtUtc,
+      record.icon,
+      record.iconColor
     );
   }
 
@@ -9451,11 +9605,176 @@ export class RuntimeStateStore {
   }
 
   private writeWorkspaceIdentityFile(workspacePath: string, workspaceId: string): void {
-    const identityPath = currentWorkspaceIdentityPath(workspacePath);
-    fs.mkdirSync(path.dirname(identityPath), { recursive: true });
-    const tempPath = `${identityPath}.tmp`;
-    fs.writeFileSync(tempPath, `${workspaceId}\n`, "utf-8");
-    fs.renameSync(tempPath, identityPath);
+    const resolvedWorkspacePath = path.resolve(workspacePath);
+    const usesManagedWriteLock = this.isWithinManagedRoot(resolvedWorkspacePath);
+    const maxAttempts = usesManagedWriteLock ? WORKSPACE_IDENTITY_WRITE_RETRY_ATTEMPTS : 1;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const tempPath = `${currentWorkspaceIdentityPath(resolvedWorkspacePath)}.${process.pid}.${attempt}.${randomUUID()}.tmp`;
+      try {
+        const writeOnce = () => {
+          const stateDir = this.ensureWorkspaceIdentityStateDir(resolvedWorkspacePath);
+          const identityPath = path.join(stateDir, WORKSPACE_IDENTITY_FILENAME);
+          fs.writeFileSync(tempPath, `${workspaceId}\n`, "utf-8");
+          fs.renameSync(tempPath, identityPath);
+        };
+        if (usesManagedWriteLock) {
+          this.withManagedWorkspaceIdentityWriteLock(resolvedWorkspacePath, writeOnce);
+        } else {
+          writeOnce();
+        }
+        return;
+      } catch (error) {
+        try {
+          fs.rmSync(tempPath, { force: true });
+        } catch {
+          // Best-effort cleanup only.
+        }
+        const normalized = this.normalizeWorkspaceIdentityWriteError(resolvedWorkspacePath, error);
+        if (
+          attempt < maxAttempts &&
+          this.shouldRetryWorkspaceIdentityWrite(resolvedWorkspacePath, normalized)
+        ) {
+          sleepSync(WORKSPACE_IDENTITY_WRITE_RETRY_DELAY_MS * attempt);
+          continue;
+        }
+        throw normalized;
+      }
+    }
+  }
+
+  private maybeWriteWorkspaceIdentityFile(workspacePath: string, workspaceId: string): void {
+    if (this.workspacePathState(workspacePath) !== "healthy") {
+      return;
+    }
+    this.writeWorkspaceIdentityFile(workspacePath, workspaceId);
+  }
+
+  private ensureWorkspaceIdentityStateDir(workspacePath: string): string {
+    const resolvedWorkspacePath = this.assertWorkspacePathHealthy(workspacePath);
+    const runtimeDir = path.join(resolvedWorkspacePath, WORKSPACE_RUNTIME_DIRNAME);
+    const stateDir = path.join(runtimeDir, WORKSPACE_STATE_DIRNAME);
+    this.ensureWorkspaceIdentityDir(runtimeDir, resolvedWorkspacePath);
+    this.ensureWorkspaceIdentityDir(stateDir, resolvedWorkspacePath);
+    return stateDir;
+  }
+
+  private ensureWorkspaceIdentityDir(dirPath: string, workspacePath: string): void {
+    try {
+      fs.mkdirSync(dirPath);
+      return;
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === "EEXIST") {
+        try {
+          if (fs.statSync(dirPath).isDirectory()) {
+            return;
+          }
+        } catch {
+          // Fall through to the normalized error below.
+        }
+      }
+      throw this.normalizeWorkspaceIdentityWriteError(workspacePath, error);
+    }
+  }
+
+  private withManagedWorkspaceIdentityWriteLock<T>(workspacePath: string, fn: () => T): T {
+    const resolvedWorkspacePath = path.resolve(workspacePath);
+    if (!this.isWithinManagedRoot(resolvedWorkspacePath)) {
+      return fn();
+    }
+    const stateDir = this.ensureWorkspaceIdentityStateDir(resolvedWorkspacePath);
+    const lockPath = path.join(stateDir, WORKSPACE_IDENTITY_LOCK_FILENAME);
+    for (let attempt = 1; attempt <= WORKSPACE_IDENTITY_LOCK_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        fs.writeFileSync(lockPath, `${process.pid}\n${Date.now()}\n`, { flag: "wx" });
+        try {
+          return fn();
+        } finally {
+          try {
+            fs.rmSync(lockPath, { force: true });
+          } catch {
+            // Best-effort cleanup only.
+          }
+        }
+      } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        if (err.code === "EEXIST") {
+          if (this.tryClearStaleWorkspaceIdentityWriteLock(lockPath)) {
+            continue;
+          }
+          if (attempt < WORKSPACE_IDENTITY_LOCK_RETRY_ATTEMPTS) {
+            sleepSync(WORKSPACE_IDENTITY_LOCK_RETRY_DELAY_MS);
+            continue;
+          }
+          throw createWorkspaceIdentityWriteError({
+            workspacePath: resolvedWorkspacePath,
+            detail: "workspace identity write lock remained busy after retries",
+            code: "workspace_identity_write_busy",
+            cause: error,
+          });
+        }
+        throw this.normalizeWorkspaceIdentityWriteError(resolvedWorkspacePath, error);
+      }
+    }
+    throw createWorkspaceIdentityWriteError({
+      workspacePath: resolvedWorkspacePath,
+      detail: "workspace identity write lock remained busy after retries",
+      code: "workspace_identity_write_busy",
+    });
+  }
+
+  private tryClearStaleWorkspaceIdentityWriteLock(lockPath: string): boolean {
+    try {
+      const stat = fs.statSync(lockPath);
+      if (Date.now() - stat.mtimeMs < WORKSPACE_IDENTITY_LOCK_STALE_MS) {
+        return false;
+      }
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      return err.code === "ENOENT";
+    }
+    try {
+      fs.rmSync(lockPath, { force: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private shouldRetryWorkspaceIdentityWrite(workspacePath: string, error: unknown): boolean {
+    if (!this.isWithinManagedRoot(workspacePath)) {
+      return false;
+    }
+    const code =
+      typeof error === "object" && error && "code" in error
+        ? String((error as { code?: unknown }).code ?? "")
+        : "";
+    return ["ENOENT", "EBUSY", "EPERM", "workspace_folder_missing", "workspace_identity_write_busy"].includes(code);
+  }
+
+  private normalizeWorkspaceIdentityWriteError(
+    workspacePath: string,
+    error: unknown,
+  ): RuntimeStateStoreWorkspaceError {
+    const resolvedWorkspacePath = path.resolve(workspacePath);
+    const existing = error as RuntimeStateStoreWorkspaceError;
+    if (
+      existing?.code === "workspace_folder_missing" ||
+      existing?.code === "workspace_identity_write_busy" ||
+      existing?.code === "workspace_identity_write_failed"
+    ) {
+      existing.workspacePath ??= resolvedWorkspacePath;
+      return existing;
+    }
+    if (this.workspacePathState(resolvedWorkspacePath) !== "healthy") {
+      return createWorkspaceFolderMissingError(resolvedWorkspacePath);
+    }
+    return createWorkspaceIdentityWriteError({
+      workspacePath: resolvedWorkspacePath,
+      detail: error instanceof Error ? error.message : String(error),
+      cause: error,
+    });
   }
 
   private discoverWorkspacePath(workspaceId: string): string | null {
@@ -9539,7 +9858,9 @@ export class RuntimeStateStore {
       onboardingRequestedBy: null,
       createdAt: now,
       updatedAt: now,
-      deletedAtUtc: null
+      deletedAtUtc: null,
+      icon: null,
+      iconColor: null
     };
     this.upsertWorkspaceRow(record, discovered);
     return record;
@@ -10176,11 +10497,27 @@ export class RuntimeStateStore {
   }
 
   private normalizedConversationBindingRole(value: string | null | undefined): string {
-    return this.normalizedNullableText(value) ?? "main";
+    const normalized = this.normalizedNullableText(value)?.toLowerCase();
+    if (!normalized || normalized === "main") {
+      return MAIN_SESSION_BINDING_ROLE;
+    }
+    return normalized;
+  }
+
+  private normalizedConversationBindingKey(value: string | null | undefined): string {
+    const normalized = this.requiredNormalizedText(value, "conversationKey").toLowerCase();
+    if (normalized === "workspace-main") {
+      return MAIN_SESSION_CONVERSATION_KEY;
+    }
+    return normalized;
   }
 
   private normalizedSessionKind(value: string | null | undefined): string {
-    return this.normalizedNullableText(value) ?? "workspace_session";
+    const normalized = this.normalizedNullableText(value)?.toLowerCase();
+    if (!normalized || normalized === "workspace_session" || normalized === "main") {
+      return MAIN_SESSION_KIND;
+    }
+    return normalized;
   }
 
   private normalizedNotificationLevel(value: string | null | undefined): RuntimeNotificationLevel {

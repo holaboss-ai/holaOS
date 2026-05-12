@@ -155,6 +155,7 @@ import {
   CHAT_AUTO_SCROLL_THRESHOLD_PX,
   CHAT_HISTORY_PAGE_SIZE,
   CHAT_HISTORY_TOP_LOAD_THRESHOLD_PX,
+  SKELETON_MIN_DISPLAY_MS,
   COMPOSER_FOOTER_GAP_PX,
   COMPOSER_FULL_MODEL_CONTROL_WIDTH_PX,
   COMPOSER_FULL_THINKING_CONTROL_WIDTH_PX,
@@ -2401,6 +2402,52 @@ function hasActiveChatSelection(container: HTMLDivElement | null) {
   );
 }
 
+function ChatScheduleEditContextCard({
+  job,
+  onDismiss,
+}: {
+  job: CronjobRecordPayload;
+  onDismiss?: () => void;
+}) {
+  const title = job.name?.trim() || job.description?.trim() || "Schedule";
+  const instruction = job.instruction?.trim() ?? "";
+  return (
+    <div className="flex items-start gap-2 rounded-xl bg-fg-2/60 px-3 py-2 text-sm">
+      <Clock3 className="mt-1 size-3.5 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-xs text-muted-foreground">Editing</span>
+          <span className="truncate text-sm font-medium text-foreground">
+            {title}
+          </span>
+          {!job.enabled ? (
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              · paused
+            </span>
+          ) : null}
+        </div>
+        {instruction ? (
+          <div className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-muted-foreground">
+            {instruction}
+          </div>
+        ) : null}
+      </div>
+      {onDismiss ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Dismiss schedule context"
+          onClick={onDismiss}
+          className="-mr-1 -mt-0.5 size-5 text-muted-foreground/60 hover:text-foreground"
+        >
+          <X size={12} />
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 interface ChatPaneSessionOpenRequest {
   sessionId: string;
   requestKey: number;
@@ -2468,8 +2515,19 @@ interface ChatPaneProps {
   onOpenInbox?: () => void;
   inboxUnreadCount?: number;
   onOpenAutomations?: () => void;
+  onOpenArtifacts?: () => void;
   composerDraftText?: string;
   onComposerDraftTextChange?: (text: string) => void;
+  /** Schedule the user is currently editing — when set, ChatPane shows a
+   *  context card above the composer with the schedule's full details
+   *  (cron, instruction, description). Cleared on send / dismiss. */
+  scheduleEditContext?: CronjobRecordPayload | null;
+  onScheduleEditContextDismiss?: () => void;
+  /** True while the outer pane is mid-width-transition. When set,
+   *  ChatPane freezes its inner content column to its pre-transition
+   *  width so message text doesn't re-wrap during the animation —
+   *  re-wrap is the source of the "messages drift up" motion. */
+  isPaneAnimating?: boolean;
 }
 
 export function ChatPane({
@@ -2498,8 +2556,12 @@ export function ChatPane({
   onOpenInbox,
   inboxUnreadCount = 0,
   onOpenAutomations,
+  onOpenArtifacts,
   composerDraftText = "",
   onComposerDraftTextChange,
+  scheduleEditContext = null,
+  onScheduleEditContextDismiss,
+  isPaneAnimating = false,
 }: ChatPaneProps) {
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const authSessionState = useDesktopAuthSession();
@@ -2714,6 +2776,13 @@ export function ChatPane({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerBlockRef = useRef<HTMLDivElement>(null);
+  // When the outer pane is mid-width-transition, freeze the inner
+  // content column to its pre-transition pixel width so message text
+  // doesn't re-wrap mid-animation. Re-wrap is what makes messages
+  // appear to drift up as content height shrinks under a wider column.
+  const [frozenColumnWidth, setFrozenColumnWidth] = useState<number | null>(
+    null,
+  );
   const composerIsComposingRef = useRef(false);
   const shouldAutoScrollRef = useRef(true);
   // When a prefill arrives (e.g. routing back from Automations), the
@@ -2781,6 +2850,9 @@ export function ChatPane({
   const liveAssistantFlushFrameRef = useRef<number | null>(null);
   const liveExecutionItemsRef = useRef<ChatExecutionTimelineItem[]>([]);
   const historyViewportGenerationRef = useRef(0);
+  const skeletonMinDisplayTimeoutRef = useRef<number | null>(null);
+  const skeletonStartedAtRef = useRef(0);
+  const skeletonGenerationRef = useRef(0);
   const [activeSessionId, setActiveSessionId] = useState("");
   const effectiveSessionOpenRequest =
     sessionOpenRequest ?? localSessionOpenRequest;
@@ -3007,6 +3079,36 @@ export function ChatPane({
   function cancelHistoryViewportRestore() {
     historyViewportGenerationRef.current += 1;
     setIsHistoryViewportPending(false);
+  }
+
+  function beginHistoryLoadSkeleton(): number {
+    if (skeletonMinDisplayTimeoutRef.current !== null) {
+      clearTimeout(skeletonMinDisplayTimeoutRef.current);
+      skeletonMinDisplayTimeoutRef.current = null;
+    }
+    skeletonGenerationRef.current += 1;
+    const generation = skeletonGenerationRef.current;
+    skeletonStartedAtRef.current = performance.now();
+    setIsLoadingHistory(true);
+    return generation;
+  }
+
+  function endHistoryLoadSkeleton(generation: number) {
+    if (generation !== skeletonGenerationRef.current) {
+      return;
+    }
+    const elapsed = performance.now() - skeletonStartedAtRef.current;
+    const remaining = SKELETON_MIN_DISPLAY_MS - elapsed;
+    if (remaining <= 0) {
+      setIsLoadingHistory(false);
+      return;
+    }
+    skeletonMinDisplayTimeoutRef.current = window.setTimeout(() => {
+      skeletonMinDisplayTimeoutRef.current = null;
+      if (generation === skeletonGenerationRef.current) {
+        setIsLoadingHistory(false);
+      }
+    }, remaining);
   }
 
   function setIsLoadingOlderHistoryState(nextValue: boolean) {
@@ -3983,6 +4085,16 @@ export function ChatPane({
     setLiveExecutionItemsState(next);
   }
 
+  useEffect(
+    () => () => {
+      if (skeletonMinDisplayTimeoutRef.current !== null) {
+        clearTimeout(skeletonMinDisplayTimeoutRef.current);
+        skeletonMinDisplayTimeoutRef.current = null;
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     const container = messagesRef.current;
     if (
@@ -4350,7 +4462,7 @@ export function ChatPane({
     async function loadHistory() {
       let historyLoaded = false;
       beginHistoryViewportRestore();
-      setIsLoadingHistory(true);
+      const skeletonGeneration = beginHistoryLoadSkeleton();
       setChatErrorMessage("");
 
       try {
@@ -4412,7 +4524,7 @@ export function ChatPane({
           if (!historyLoaded) {
             cancelHistoryViewportRestore();
           }
-          setIsLoadingHistory(false);
+          endHistoryLoadSkeleton(skeletonGeneration);
         }
       }
     }
@@ -4460,7 +4572,7 @@ export function ChatPane({
 
       let historyLoaded = false;
       beginHistoryViewportRestore();
-      setIsLoadingHistory(true);
+      const skeletonGeneration = beginHistoryLoadSkeleton();
       setChatErrorMessage("");
       pendingInputIdRef.current = null;
       activeAssistantMessageIdRef.current = null;
@@ -4531,7 +4643,7 @@ export function ChatPane({
           if (!historyLoaded) {
             cancelHistoryViewportRestore();
           }
-          setIsLoadingHistory(false);
+          endHistoryLoadSkeleton(skeletonGeneration);
           consumeSessionOpenRequest(requestKey);
         }
       }
@@ -6085,6 +6197,12 @@ export function ChatPane({
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     void sendMessage(input);
+    // Schedule-edit context is one-shot: keep it visible while the user is
+    // composing the edit, but clear it once they actually send so the next
+    // message in the same session isn't anchored to a stale schedule.
+    if (scheduleEditContext) {
+      onScheduleEditContextDismiss?.();
+    }
   };
 
   const jumpToSessionBrowser = () => {
@@ -7026,6 +7144,31 @@ export function ChatPane({
     : "Ask anything";
   const showHistoryRestoreScreen = isLoadingHistory || isHistoryViewportPending;
 
+  // Sample the current column width synchronously when the outer pane
+  // starts animating, hold that value as inline width while the
+  // animation runs, then release. Reading bounding rect once per
+  // transition (not per frame) keeps the freeze cheap.
+  useLayoutEffect(() => {
+    if (!isPaneAnimating) {
+      setFrozenColumnWidth(null);
+      return;
+    }
+    const source = messagesContentRef.current ?? composerBlockRef.current;
+    if (!source) return;
+    const width = Math.round(source.getBoundingClientRect().width);
+    if (width > 0) {
+      setFrozenColumnWidth(width);
+    }
+  }, [isPaneAnimating]);
+
+  const frozenColumnStyle = useMemo(
+    () =>
+      frozenColumnWidth !== null
+        ? ({ width: `${frozenColumnWidth}px`, maxWidth: "none" } as const)
+        : undefined,
+    [frozenColumnWidth],
+  );
+
   useEffect(() => {
     if (!hasMessages) {
       setComposerBlockHeight(0);
@@ -7037,18 +7180,41 @@ export function ChatPane({
       return;
     }
 
-    const updateComposerBlockHeight = () => {
-      setComposerBlockHeight(
-        Math.round(composerBlock.getBoundingClientRect().height),
-      );
+    // Coalesce observations into one rAF-bucketed update and bail on
+    // identical heights. Outer-pane width transitions fire this observer
+    // every frame; without dedup we re-render the entire chat tree
+    // ~12 times per 200ms, which is the main source of jank during the
+    // ChatPane ↔ WorkPane expand/collapse animation.
+    let frame: number | null = null;
+    const flush = (next: number) => {
+      setComposerBlockHeight((prev) => (prev === next ? prev : next));
     };
 
-    updateComposerBlockHeight();
-    const resizeObserver = new ResizeObserver(() => {
-      updateComposerBlockHeight();
+    const initialHeight = Math.round(
+      composerBlock.getBoundingClientRect().height,
+    );
+    flush(initialHeight);
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      // contentRect comes from the observer's cached layout — reading
+      // it doesn't force a sync reflow the way getBoundingClientRect()
+      // does inside the listener.
+      const next = Math.round(entry.contentRect.height);
+      if (frame !== null) {
+        cancelAnimationFrame(frame);
+      }
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        flush(next);
+      });
     });
     resizeObserver.observe(composerBlock);
     return () => {
+      if (frame !== null) {
+        cancelAnimationFrame(frame);
+      }
       resizeObserver.disconnect();
     };
   }, [hasMessages]);
@@ -7106,12 +7272,7 @@ export function ChatPane({
               inboxUnreadCount={inboxUnreadCount}
               onOpenSessions={onOpenSessions}
               onOpenAutomations={onOpenAutomations}
-              onViewAllArtifacts={() => {
-                setArtifactBrowserFilter("all");
-                setArtifactBrowserScopedOutputs(null);
-                setArtifactBrowserScope("session");
-                setArtifactBrowserOpen(true);
-              }}
+              onOpenArtifacts={onOpenArtifacts}
             />
           </div>
         ) : null}
@@ -7251,7 +7412,7 @@ export function ChatPane({
 
         <div className="relative flex min-h-0 flex-1 flex-col">
           {!isOnboardingVariant && !isReadOnlyInspectionSession ? (
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
+            <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-4">
               <div className="pointer-events-auto">
                 <BackgroundTasksPane
                   workspaceId={selectedWorkspaceId}
@@ -7291,7 +7452,7 @@ export function ChatPane({
                   void loadOlderSessionHistory();
                 }
               }}
-              className={`chat-scrollbar-thin h-full min-h-0 overflow-x-hidden overflow-y-auto ${hasMessages ? "" : "flex items-center justify-center"}`}
+              className="chat-scrollbar-thin h-full min-h-0 overflow-x-hidden overflow-y-auto"
             >
               {hasMessages ? (
                 <div
@@ -7299,6 +7460,7 @@ export function ChatPane({
                   className={`mx-auto flex min-w-0 w-full ${CHAT_LAYOUT.contentMaxWidth} flex-col gap-2 pl-4 pr-7 pb-3 pt-5 ${
                     showHistoryRestoreScreen ? "invisible" : ""
                   }`}
+                  style={frozenColumnStyle}
                 >
                   {hasLoaderHeader ? (
                     <div className="flex justify-center">
@@ -7373,7 +7535,7 @@ export function ChatPane({
                 </div>
               ) : (
                 <div
-                  className={`w-full px-4 pb-10 pt-10 sm:px-5 ${
+                  className={`mx-auto flex min-h-full w-full ${CHAT_LAYOUT.contentMaxWidth} flex-col justify-center px-4 pb-10 pt-10 sm:px-5 ${
                     showHistoryRestoreScreen ? "invisible" : ""
                   }`}
                 >
@@ -7400,6 +7562,12 @@ export function ChatPane({
                   </div>
                   <form onSubmit={onSubmit} className="w-full">
                     <div className="space-y-3">
+                    {scheduleEditContext ? (
+                      <ChatScheduleEditContextCard
+                        job={scheduleEditContext}
+                        onDismiss={onScheduleEditContextDismiss}
+                      />
+                    ) : null}
                     <QueuedSessionInputRail
                       items={displayedQueuedSessionInputs}
                       onEditItem={
@@ -7501,9 +7669,16 @@ export function ChatPane({
               className={`mx-auto w-full shrink-0 ${CHAT_LAYOUT.contentMaxWidth} ${CHAT_LAYOUT.contentPaddingX} pb-6 pt-3 ${
                 showHistoryRestoreScreen ? "invisible" : ""
               }`}
+              style={frozenColumnStyle}
             >
               <form onSubmit={onSubmit} className="w-full">
                 <div className="space-y-3">
+                  {scheduleEditContext ? (
+                    <ChatScheduleEditContextCard
+                      job={scheduleEditContext}
+                      onDismiss={onScheduleEditContextDismiss}
+                    />
+                  ) : null}
                   <QueuedSessionInputRail
                     items={displayedQueuedSessionInputs}
                     onEditItem={

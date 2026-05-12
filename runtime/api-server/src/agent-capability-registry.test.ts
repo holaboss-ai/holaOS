@@ -13,7 +13,7 @@ import {
 test("buildAgentCapabilityManifest classifies tools, skills, and MCP aliases", () => {
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "subagent",
     browserToolsAvailable: true,
     browserToolIds: ["browser_get_state"],
     runtimeToolIds: ["holaboss_onboarding_complete", "todoread", "todowrite"],
@@ -32,7 +32,7 @@ test("buildAgentCapabilityManifest classifies tools, skills, and MCP aliases", (
 
   assert.deepEqual(manifest.context, {
     harness_id: "pi",
-    session_kind: "workspace_session",
+    session_kind: "subagent",
     browser_tools_available: true,
     browser_tool_ids: ["browser_get_state"],
     runtime_tool_ids: ["holaboss_onboarding_complete", "todoread", "todowrite"],
@@ -126,8 +126,8 @@ test("buildAgentCapabilityManifest filters browser tools when policy context doe
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
     sessionKind: "task_proposal",
-    browserToolsAvailable: false,
-    browserToolIds: [],
+    browserToolsAvailable: true,
+    browserToolIds: ["browser_get_state"],
     runtimeToolIds: ["holaboss_onboarding_complete"],
     defaultTools: ["read"],
     extraTools: ["browser_get_state", "holaboss_onboarding_complete"],
@@ -138,8 +138,8 @@ test("buildAgentCapabilityManifest filters browser tools when policy context doe
   assert.deepEqual(manifest.context, {
     harness_id: "pi",
     session_kind: "task_proposal",
-    browser_tools_available: false,
-    browser_tool_ids: [],
+    browser_tools_available: true,
+    browser_tool_ids: ["browser_get_state"],
     runtime_tool_ids: ["holaboss_onboarding_complete"],
     workspace_command_ids: [],
     workspace_commands_available: false,
@@ -189,7 +189,7 @@ test("buildAgentCapabilityManifest excludes browser tools for onboarding session
 test("buildAgentCapabilityManifest includes native web search as a runtime tool", () => {
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     browserToolsAvailable: false,
     browserToolIds: [],
     runtimeToolIds: ["web_search"],
@@ -211,7 +211,7 @@ test("buildAgentCapabilityManifest includes native web search as a runtime tool"
 test("renderCapabilityToolRoutingPromptSection tells main sessions to delegate when direct capability is missing", () => {
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     browserToolsAvailable: false,
     browserToolIds: [],
     runtimeToolIds: ["holaboss_delegate_task", "holaboss_continue_subagent"],
@@ -223,9 +223,9 @@ test("renderCapabilityToolRoutingPromptSection tells main sessions to delegate w
 
   const section = renderCapabilityToolRoutingPromptSection(manifest);
   assert.match(section, /Delegation routing:/);
-  assert.match(section, /use `holaboss_delegate_task` instead of replying that the current run lacks those tools/i);
+  assert.match(section, /use `holaboss_delegate_task` instead of carrying out that task in this session/i);
   assert.match(section, /main session as a coordinator first/i);
-  assert.match(section, /browser-heavy, web-heavy, terminal-heavy, multi-step, or interruptible/i);
+  assert.match(section, /if the request requires task execution, route it to a delegated subagent/i);
   assert.match(section, /Available-tool fallback:/);
   assert.match(section, /missing the ideal MCP, API, browser, web, terminal, or file tool is not enough to stop/i);
   assert.match(section, /choose another viable direct or delegated route/i);
@@ -265,7 +265,7 @@ test("renderCapabilityToolRoutingPromptSection prefers surfaced MCP tools before
 test("renderDelegatedCapabilityAvailabilityContextPromptSection exposes backstage tools without expanding direct authority", () => {
   const directManifest = buildAgentCapabilityManifest({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     defaultTools: ["read", "question"],
     extraTools: ["holaboss_delegate_task"],
     runtimeToolIds: ["holaboss_delegate_task"],
@@ -359,7 +359,7 @@ test("buildAgentCapabilityManifest suppresses unknown staged runtime tools from 
 test("renderDelegatedCapabilityAvailabilityContextPromptSection keeps delegated MCP detail even when front session has direct MCP", () => {
   const directManifest = buildAgentCapabilityManifest({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     defaultTools: ["read", "question"],
     extraTools: ["holaboss_delegate_task"],
     runtimeToolIds: ["holaboss_delegate_task"],
@@ -401,7 +401,7 @@ test("renderDelegatedCapabilityAvailabilityContextPromptSection keeps delegated 
 test("buildAgentCapabilityManifest marks connected MCP servers as available without pre-enumerated tool refs", () => {
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     defaultTools: ["read"],
     extraTools: [],
     workspaceSkillIds: [],
@@ -411,7 +411,7 @@ test("buildAgentCapabilityManifest marks connected MCP servers as available with
 
   assert.deepEqual(manifest.context, {
     harness_id: "pi",
-    session_kind: "workspace_session",
+    session_kind: "main_session",
     browser_tools_available: false,
     browser_tool_ids: [],
     runtime_tool_ids: [],
@@ -432,7 +432,7 @@ test("buildAgentCapabilityManifest marks connected MCP servers as available with
 test("buildAgentCapabilityManifest carries browser tool descriptions that emphasize live verification", () => {
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "subagent",
     browserToolsAvailable: true,
     browserToolIds: ["browser_get_state"],
     runtimeToolIds: [],
@@ -453,7 +453,7 @@ test("buildAgentCapabilityManifest carries browser tool descriptions that emphas
 test("evaluateAgentCapabilities keeps command and skill surfaces while excluding non-staged browser tools", () => {
   const evaluation = evaluateAgentCapabilities({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "subagent",
     browserToolsAvailable: true,
     browserToolIds: [],
     runtimeToolIds: ["holaboss_onboarding_complete"],
@@ -519,7 +519,7 @@ test("evaluateAgentCapabilities keeps command and skill surfaces while excluding
 test("evaluateAgentCapabilities includes richer execution and authority metadata", () => {
   const evaluation = evaluateAgentCapabilities({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "subagent",
     browserToolsAvailable: true,
     browserToolIds: ["browser_get_state"],
     runtimeToolIds: ["holaboss_onboarding_complete"],
@@ -580,7 +580,7 @@ test("evaluateAgentCapabilities includes richer execution and authority metadata
 test("runtime download capability advertises network and filesystem authority", () => {
   const evaluation = evaluateAgentCapabilities({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     browserToolsAvailable: false,
     browserToolIds: [],
     runtimeToolIds: ["download_url"],
@@ -602,7 +602,7 @@ test("runtime download capability advertises network and filesystem authority", 
 
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     runtimeToolIds: ["download_url"],
     defaultTools: ["read"],
     extraTools: ["download_url"],
@@ -616,7 +616,7 @@ test("runtime download capability advertises network and filesystem authority", 
 test("evaluateAgentCapabilities fingerprints the run snapshot", () => {
   const base = evaluateAgentCapabilities({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "subagent",
     browserToolsAvailable: true,
     browserToolIds: ["browser_get_state"],
     runtimeToolIds: ["holaboss_onboarding_complete"],
@@ -628,7 +628,7 @@ test("evaluateAgentCapabilities fingerprints the run snapshot", () => {
   });
   const same = evaluateAgentCapabilities({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "subagent",
     browserToolsAvailable: true,
     browserToolIds: ["browser_get_state"],
     runtimeToolIds: ["holaboss_onboarding_complete"],
@@ -640,7 +640,7 @@ test("evaluateAgentCapabilities fingerprints the run snapshot", () => {
   });
   const changed = evaluateAgentCapabilities({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "subagent",
     browserToolsAvailable: true,
     browserToolIds: ["browser_get_state"],
     runtimeToolIds: ["holaboss_onboarding_complete"],
@@ -658,7 +658,7 @@ test("evaluateAgentCapabilities fingerprints the run snapshot", () => {
 test("renderCapabilityPolicyPromptSection summarizes grouped capabilities", () => {
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     browserToolsAvailable: false,
     runtimeToolIds: ["holaboss_onboarding_complete"],
     workspaceCommandIds: ["hello"],
@@ -677,7 +677,7 @@ test("renderCapabilityPolicyPromptSection summarizes grouped capabilities", () =
   const section = renderCapabilityPolicyPromptSection(manifest);
   assert.match(section, /Capability policy for this run:/);
   assert.match(section, /Harness: pi\./);
-  assert.match(section, /Session kind: workspace_session\./);
+  assert.match(section, /Session kind: main_session\./);
   assert.match(section, /Inspect tools: available \(2 enabled\)\./);
   assert.match(section, /Mutating tools: available \(2 enabled\)\./);
   assert.match(section, /Coordination tools: available \(3 enabled\)\./);
@@ -685,6 +685,9 @@ test("renderCapabilityPolicyPromptSection summarizes grouped capabilities", () =
   assert.match(section, /Workspace commands: available \(1 enabled\)\./);
   assert.match(section, /Workspace skills: available \(1 enabled\)\./);
   assert.match(section, /Browser tools: none\./);
+  assert.match(section, /Use surfaced capabilities to inspect, route, or verify before making claims about workspace, app, browser, or runtime state whenever possible\./);
+  assert.match(section, /If state-changing work happens in this run or through a delegated child, verify the result before claiming success or completion\./);
+  assert.match(section, /Use coordination capabilities to track progress, consult available skills, route execution, or ask for clarification instead of keeping hidden state\./);
   assert.match(section, /Connected MCP access: available\./);
   assert.match(section, /Use surfaced MCP tools when relevant/);
   assert.match(
@@ -703,7 +706,7 @@ test("renderCapabilityPolicyPromptSection summarizes grouped capabilities", () =
 test("renderCapabilityPolicyPromptSection surfaces front-session delegation semantics", () => {
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
-    sessionKind: "workspace_session",
+    sessionKind: "main_session",
     browserToolsAvailable: false,
     browserToolIds: [],
     runtimeToolIds: ["holaboss_delegate_task"],

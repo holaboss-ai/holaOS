@@ -2879,32 +2879,36 @@ export class DesktopBrowserToolService implements DesktopBrowserToolServiceLike 
             "key is required for press actions"
           );
         }
-        let result = await this.#evaluate(
-          config,
-          isNativePointerAction(options.action)
-            ? browserPointerTargetExpression(options)
-            : isNativeTextAction(options.action)
-              ? browserKeyboardTargetExpression(options, { requireEditable: true })
-              : options.action === "press"
-                ? browserKeyboardTargetExpression(options, { requireEditable: false })
-                : browserActExpression(options),
-          context,
-        );
+        let result = isNativePointerAction(options.action) ||
+          isNativeTextAction(options.action) ||
+          options.action === "press"
+          ? {}
+          : await this.#evaluate(
+              config,
+              browserActExpression(options),
+              context,
+            );
         if (isNativePointerAction(options.action)) {
-          const point = asRecord(result.result);
-          const x = requiredNonNegativeInteger(point?.x, "x");
-          const y = requiredNonNegativeInteger(point?.y, "y");
           const nativeInput = await this.#browserFetch(config, {
             method: "POST",
             path: "/mouse",
-            body: { action: options.action, x, y },
+            body: {
+              action: options.action,
+              expression: browserPointerTargetExpression(options),
+            },
             workspaceId: context.workspaceId,
             sessionId: context.sessionId,
             space: context.space,
           });
+          const nativeInputResult = { ...nativeInput };
+          const resolvedAction = asRecord(nativeInputResult.resolved_action) ?? {};
+          delete nativeInputResult.resolved_action;
           result = {
-            ...result,
-            result: { ...(asRecord(result.result) ?? {}), native_input: nativeInput },
+            ...resolvedAction,
+            result: {
+              ...(asRecord(resolvedAction.result) ?? {}),
+              native_input: nativeInputResult,
+            },
           };
         } else if (isNativeTextAction(options.action)) {
           const nativeInput = await this.#browserFetch(config, {
@@ -2912,6 +2916,7 @@ export class DesktopBrowserToolService implements DesktopBrowserToolServiceLike 
             path: "/keyboard",
             body: {
               action: "insert_text",
+              expression: browserKeyboardTargetExpression(options, { requireEditable: true }),
               text: options.value ?? "",
               clear: options.clear === null ? options.action === "fill" : options.clear,
               submit: options.submit,
@@ -2920,29 +2925,39 @@ export class DesktopBrowserToolService implements DesktopBrowserToolServiceLike 
             sessionId: context.sessionId,
             space: context.space,
           });
+          const nativeInputResult = { ...nativeInput };
+          const resolvedAction = asRecord(nativeInputResult.resolved_action) ?? {};
+          delete nativeInputResult.resolved_action;
           result = {
-            ...result,
+            ...resolvedAction,
             result: {
-              ...(asRecord(result.result) ?? {}),
+              ...(asRecord(resolvedAction.result) ?? {}),
               value: options.value ?? "",
-              native_input: nativeInput,
+              native_input: nativeInputResult,
             },
           };
         } else if (options.action === "press") {
           const nativeInput = await this.#browserFetch(config, {
             method: "POST",
             path: "/keyboard",
-            body: { action: "press", key: options.key ?? "" },
+            body: {
+              action: "press",
+              expression: browserKeyboardTargetExpression(options, { requireEditable: false }),
+              key: options.key ?? "",
+            },
             workspaceId: context.workspaceId,
             sessionId: context.sessionId,
             space: context.space,
           });
+          const nativeInputResult = { ...nativeInput };
+          const resolvedAction = asRecord(nativeInputResult.resolved_action) ?? {};
+          delete nativeInputResult.resolved_action;
           result = {
-            ...result,
+            ...resolvedAction,
             result: {
-              ...(asRecord(result.result) ?? {}),
+              ...(asRecord(resolvedAction.result) ?? {}),
               key: options.key ?? "",
-              native_input: nativeInput,
+              native_input: nativeInputResult,
             },
           };
         }
@@ -3110,15 +3125,30 @@ export class DesktopBrowserToolService implements DesktopBrowserToolServiceLike 
         const text = requiredString(args.text, "text");
         const clear = optionalBoolean(args.clear, true);
         const submit = optionalBoolean(args.submit, false);
-        const result = await this.#evaluate(config, indexedKeyboardTargetExpression(index), context);
         const nativeInput = await this.#browserFetch(config, {
           method: "POST",
           path: "/keyboard",
-          body: { action: "insert_text", text, clear, submit },
+          body: { action: "insert_text", index, text, clear, submit },
           workspaceId: context.workspaceId,
           sessionId: context.sessionId,
           space: context.space,
         });
+        const nativeInputResult = { ...nativeInput };
+        delete nativeInputResult.index;
+        delete nativeInputResult.tag_name;
+        delete nativeInputResult.role;
+        delete nativeInputResult.editable;
+        const actionResult = {
+          ok: true,
+          index,
+          ...(typeof nativeInput.tag_name === "string"
+            ? { tag_name: nativeInput.tag_name }
+            : {}),
+          ...(typeof nativeInput.role === "string"
+            ? { role: nativeInput.role }
+            : {}),
+          ...(nativeInput.editable === true ? { editable: true } : {}),
+        };
         const wait =
           postAction.waitFor
             ? await this.#waitForBrowserCondition(config, context, postAction.waitFor)
@@ -3131,11 +3161,10 @@ export class DesktopBrowserToolService implements DesktopBrowserToolServiceLike 
         return {
           ok: true,
           action: {
-            ...result,
+            ...actionResult,
             result: {
-              ...(asRecord(result.result) ?? {}),
               value: text,
-              native_input: nativeInput,
+              native_input: nativeInputResult,
             },
           },
           ...(wait ? { wait } : {}),

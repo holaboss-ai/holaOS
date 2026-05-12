@@ -1263,6 +1263,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
       force?: boolean;
     }) =>
       ipcRenderer.invoke("ui:showNativeNotification", payload) as Promise<boolean>,
+    setBadgeCount: (count: number) =>
+      ipcRenderer.invoke("ui:setBadgeCount", count) as Promise<void>,
+    getNotificationsEnabled: () =>
+      ipcRenderer.invoke("ui:getNotificationsEnabled") as Promise<boolean>,
+    setNotificationsEnabled: (enabled: boolean) =>
+      ipcRenderer.invoke("ui:setNotificationsEnabled", enabled) as Promise<boolean>,
     openSettingsPane: (section?: UiSettingsPaneSection) => ipcRenderer.invoke("ui:openSettingsPane", section) as Promise<void>,
     openExternalUrl: (url: string) => ipcRenderer.invoke("ui:openExternalUrl", url) as Promise<void>,
     onWindowStateChange: (listener: (state: DesktopWindowStatePayload) => void) => {
@@ -1279,7 +1285,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
       const wrapped = (_event: Electron.IpcRendererEvent, section: UiSettingsPaneSection) => listener(section);
       ipcRenderer.on("ui:openSettingsPane", wrapped);
       return () => ipcRenderer.removeListener("ui:openSettingsPane", wrapped);
-    }
+    },
+    onNotificationActivated: (
+      listener: (payload: { workspaceId: string; sessionId: string | null }) => void,
+    ) => {
+      const wrapped = (
+        _event: Electron.IpcRendererEvent,
+        payload: { workspaceId: string; sessionId: string | null },
+      ) => listener(payload);
+      ipcRenderer.on("ui:notificationActivated", wrapped);
+      return () => ipcRenderer.removeListener("ui:notificationActivated", wrapped);
+    },
   },
   clipboard: {
     readImage: () =>
@@ -1377,6 +1393,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("workspace:createWorkspace", payload) as Promise<WorkspaceResponsePayload>,
     deleteWorkspace: (workspaceId: string, keepFiles?: boolean) =>
       ipcRenderer.invoke("workspace:deleteWorkspace", workspaceId, keepFiles) as Promise<WorkspaceResponsePayload>,
+    updateAppearance: (
+      workspaceId: string,
+      payload: { icon: string | null; iconColor: string | null },
+    ) =>
+      ipcRenderer.invoke(
+        "workspace:updateAppearance",
+        workspaceId,
+        payload,
+      ) as Promise<WorkspaceResponsePayload>,
     listCronjobs: (workspaceId: string, enabledOnly?: boolean) =>
       ipcRenderer.invoke("workspace:listCronjobs", workspaceId, enabledOnly) as Promise<CronjobListResponsePayload>,
     runCronjobNow: (workspaceId: string, jobId: string, payload?: CronjobRunNowPayload) =>

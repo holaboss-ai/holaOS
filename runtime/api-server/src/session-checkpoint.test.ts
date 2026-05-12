@@ -70,36 +70,36 @@ function appendFakeMessage(
   return id;
 }
 
-test("session checkpoint queues only after PI context crosses the 50 percent reserve", () => {
+test("session checkpoint queues only after PI context crosses the 70 percent reserve", () => {
   assert.equal(
     shouldQueueSessionCheckpoint({
-      tokens: 525_000,
+      tokens: 315_000,
       contextWindow: 1_050_000,
-      percent: 50,
+      percent: 30,
     }),
     false,
   );
   assert.equal(
     shouldQueueSessionCheckpoint({
-      tokens: 525_001,
+      tokens: 315_001,
       contextWindow: 1_050_000,
-      percent: 50.1,
+      percent: 30.1,
     }),
     true,
   );
   assert.equal(
     shouldQueueSessionCheckpoint({
-      tokens: 32_768,
+      tokens: 19_660,
       contextWindow: 65_536,
-      percent: 50,
+      percent: 30,
     }),
     false,
   );
   assert.equal(
     shouldQueueSessionCheckpoint({
-      tokens: 32_769,
+      tokens: 19_661,
       contextWindow: 65_536,
-      percent: 50.1,
+      percent: 30.1,
     }),
     true,
   );
@@ -597,11 +597,14 @@ test("session checkpoint records not_compacted when PI reports a compaction no-o
       store,
       record: queued!,
       sessionOps,
-      runPiSessionCompactionFn: async (requestPayload) => ({
-        compacted: false,
-        session_file: String(requestPayload.harness_session_id),
-        reason: "already_compacted",
-      }),
+      runPiSessionCompactionFn: async (requestPayload) => {
+        assert.equal(requestPayload.force_compaction, true);
+        return {
+          compacted: false,
+          session_file: String(requestPayload.harness_session_id),
+          reason: "already_compacted",
+        };
+      },
     });
 
     const updatedJob = store.getPostRunJob({ workspaceId: workspace.id, jobId: queued!.jobId });

@@ -548,6 +548,95 @@ test("assertWorkspaceFolderHealthy throws a structured error when missing", () =
   store.close();
 });
 
+test("updateWorkspace throws a structured error and does not recreate a missing managed folder", () => {
+  const root = makeTempDir("hb-state-store-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  store.createWorkspace({
+    workspaceId: "ws-managed",
+    name: "Managed",
+    harness: "pi"
+  });
+  const workspaceDir = path.join(workspaceRoot, "ws-managed");
+  fs.rmSync(workspaceDir, { recursive: true, force: true });
+
+  let caught: unknown;
+  try {
+    store.updateWorkspace("ws-managed", {
+      onboardingRequestedBy: "workspace_agent"
+    });
+  } catch (error) {
+    caught = error;
+  }
+
+  const err = caught as Error & { code?: string; workspacePath?: string };
+  assert.ok(err instanceof Error);
+  assert.equal(err.code, "workspace_folder_missing");
+  assert.equal(path.resolve(err.workspacePath ?? ""), path.resolve(workspaceDir));
+  assert.equal(fs.existsSync(workspaceDir), false);
+  assert.equal(store.getWorkspace("ws-managed")?.onboardingRequestedBy ?? null, null);
+  store.close();
+});
+
+test("updateWorkspace clears a stale managed identity write lock before persisting identity", () => {
+  const root = makeTempDir("hb-state-store-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  store.createWorkspace({
+    workspaceId: "ws-managed",
+    name: "Managed",
+    harness: "pi"
+  });
+  const workspaceDir = path.join(workspaceRoot, "ws-managed");
+  const stateDir = path.join(workspaceDir, ".holaboss", "state");
+  const lockPath = path.join(stateDir, "workspace_id.lock");
+  fs.writeFileSync(lockPath, "stale-lock\n", "utf-8");
+  const staleAt = new Date(Date.now() - 60_000);
+  fs.utimesSync(lockPath, staleAt, staleAt);
+
+  const updated = store.updateWorkspace("ws-managed", {
+    onboardingRequestedBy: "workspace_agent"
+  });
+
+  assert.equal(updated.onboardingRequestedBy, "workspace_agent");
+  assert.equal(fs.existsSync(lockPath), false);
+  assert.equal(
+    fs.readFileSync(path.join(stateDir, "workspace_id"), "utf-8").trim(),
+    "ws-managed",
+  );
+  store.close();
+});
+
+test("deleteWorkspace still succeeds when a managed folder is already missing", () => {
+  const root = makeTempDir("hb-state-store-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  store.createWorkspace({
+    workspaceId: "ws-managed",
+    name: "Managed",
+    harness: "pi"
+  });
+  fs.rmSync(path.join(workspaceRoot, "ws-managed"), { recursive: true, force: true });
+
+  const deleted = store.deleteWorkspace("ws-managed");
+
+  assert.ok(deleted.deletedAtUtc);
+  assert.equal(
+    store.getWorkspace("ws-managed", { includeDeleted: true })?.deletedAtUtc,
+    deleted.deletedAtUtc,
+  );
+  store.close();
+});
+
 test("createWorkspace rejects the managed workspace root as a custom path", () => {
   const root = makeTempDir("hb-state-store-");
   const workspaceRoot = path.join(root, "workspace");
@@ -1099,7 +1188,7 @@ test("binding round trip upserts and reloads persisted session binding", () => {
   assert.equal(updated.harnessSessionId, "harness-2");
   const session = store.getSession({ workspaceId: "workspace-1", sessionId: "session-main" });
   assert.ok(session);
-  assert.equal(session.kind, "workspace_session");
+  assert.equal(session.kind, "main_session");
   assert.equal(session.title, null);
   assert.equal(session.parentSessionId, null);
   assert.equal(session.sourceProposalId, null);
@@ -1159,9 +1248,9 @@ test("conversation bindings round trip across channels and session ownership", (
   const desktop = store.upsertConversationBinding({
     workspaceId: "workspace-1",
     channel: "desktop",
-    conversationKey: "workspace-main",
+    conversationKey: "main_session",
     sessionId: "session-desktop-main",
-    role: "main",
+    role: "main_session",
     metadata: { surface: "desktop" }
   });
   const telegram = store.upsertConversationBinding({
@@ -1169,7 +1258,7 @@ test("conversation bindings round trip across channels and session ownership", (
     channel: "telegram",
     conversationKey: "chat-123",
     sessionId: "session-telegram-main",
-    role: "main",
+    role: "main_session",
     metadata: { chat_id: "chat-123" }
   });
   const touched = store.touchConversationBinding({
@@ -1185,7 +1274,7 @@ test("conversation bindings round trip across channels and session ownership", (
 
   assert.ok(touched);
   assert.ok(inactive);
-  assert.equal(desktop.role, "main");
+  assert.equal(desktop.role, "main_session");
   assert.equal(telegram.channel, "telegram");
   assert.equal(touched?.lastActiveAt, "2026-04-24T12:00:00.000Z");
   assert.equal(inactive?.isActive, false);
@@ -1193,8 +1282,8 @@ test("conversation bindings round trip across channels and session ownership", (
     store.getConversationBindingByConversation({
       workspaceId: "workspace-1",
       channel: "desktop",
-      conversationKey: "workspace-main",
-      role: "main"
+      conversationKey: "main_session",
+      role: "main_session"
     }),
     touched
   );
@@ -1202,7 +1291,7 @@ test("conversation bindings round trip across channels and session ownership", (
     store.getConversationBindingBySession({
       workspaceId: "workspace-1",
       sessionId: "session-telegram-main",
-      role: "main"
+      role: "main_session"
     }),
     inactive
   );
@@ -3652,14 +3741,14 @@ test("listSessions preserves millisecond ordering for latest session selection",
   store.ensureSession({
     workspaceId: "workspace-1",
     sessionId: "session-older",
-    kind: "workspace_session",
+    kind: "main_session",
     title: "Older"
   });
   await sleep(5);
   store.ensureSession({
     workspaceId: "workspace-1",
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
     title: "Main"
   });
 
@@ -3704,7 +3793,7 @@ test("evolve skill candidates round trip supports create, list, lookup, and upda
   store.ensureSession({
     workspaceId: "workspace-1",
     sessionId: "session-main",
-    kind: "main",
+    kind: "main_session",
     title: "Main"
   });
 
@@ -3782,7 +3871,7 @@ test("memory update proposals round trip supports create list filter get and acc
   store.ensureSession({
     workspaceId: "workspace-1",
     sessionId: "session-main",
-    kind: "main",
+    kind: "main_session",
     title: "Main"
   });
   const created = store.createMemoryUpdateProposal({

@@ -48,7 +48,7 @@ function seedMainSession(store: RuntimeStateStore) {
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
   });
   store.ensureRuntimeState({
     workspaceId: workspace.id,

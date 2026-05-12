@@ -105,7 +105,8 @@ test("desktop browser import flow discovers a Chrome profile and imports bookmar
   );
 
   // Cookie decryption helpers (mac keychain + Windows DPAPI + AES).
-  assert.match(chromiumSource, /execFileSync\(\s*"security",/);
+  assert.match(chromiumSource, /execFileAsync\(\s*"security",/);
+  assert.doesNotMatch(chromiumSource, /execFileSync\(\s*"security",/);
   assert.match(chromiumSource, /pbkdf2Sync\(\s*safeStoragePassword,/);
   assert.match(
     chromiumSource,

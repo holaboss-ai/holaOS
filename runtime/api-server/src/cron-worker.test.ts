@@ -116,14 +116,14 @@ test("runtime cron worker queues due session_run cronjobs as hidden subagents an
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
   });
   store.upsertConversationBinding({
     workspaceId: workspace.id,
     channel: "desktop",
-    conversationKey: "workspace-main",
+    conversationKey: "main_session",
     sessionId: "session-main",
-    role: "main",
+    role: "main_session",
   });
   const job = store.createCronjob({
     workspaceId: workspace.id,
@@ -259,14 +259,14 @@ test("runtime cron worker inherits the latest non-batch main-session model when 
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
   });
   store.upsertConversationBinding({
     workspaceId: workspace.id,
     channel: "desktop",
-    conversationKey: "workspace-main",
+    conversationKey: "main_session",
     sessionId: "session-main",
-    role: "main",
+    role: "main_session",
   });
   store.enqueueInput({
     workspaceId: workspace.id,
@@ -363,19 +363,19 @@ test("runtime cron worker prefers the current desktop main-session binding over 
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-old",
-    kind: "workspace_session",
+    kind: "main_session",
   });
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-current",
-    kind: "workspace_session",
+    kind: "main_session",
   });
   store.upsertConversationBinding({
     workspaceId: workspace.id,
     channel: "desktop",
-    conversationKey: "workspace-main",
+    conversationKey: "main_session",
     sessionId: "session-current",
-    role: "main",
+    role: "main_session",
   });
   store.enqueueInput({
     workspaceId: workspace.id,
@@ -476,14 +476,14 @@ test("runtime cron worker ignores the configured global subagent model and follo
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
   });
   store.upsertConversationBinding({
     workspaceId: workspace.id,
     channel: "desktop",
-    conversationKey: "workspace-main",
+    conversationKey: "main_session",
     sessionId: "session-main",
-    role: "main",
+    role: "main_session",
   });
   store.enqueueInput({
     workspaceId: workspace.id,
@@ -737,14 +737,14 @@ test("cronjob run-now route follows the current composer model override", async 
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
   });
   store.upsertConversationBinding({
     workspaceId: workspace.id,
     channel: "desktop",
-    conversationKey: "workspace-main",
+    conversationKey: "main_session",
     sessionId: "session-main",
-    role: "main",
+    role: "main_session",
   });
   const job = store.createCronjob({
     workspaceId: workspace.id,
@@ -809,14 +809,14 @@ test("runtime cron worker does not execute a newly created cronjob before next_r
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
   });
   store.upsertConversationBinding({
     workspaceId: workspace.id,
     channel: "desktop",
-    conversationKey: "workspace-main",
+    conversationKey: "main_session",
     sessionId: "session-main",
-    role: "main",
+    role: "main_session",
   });
   const job = store.createCronjob({
     workspaceId: workspace.id,

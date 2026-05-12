@@ -23,10 +23,19 @@ const WORKSPACE_GIT_EXCLUDE_PATTERNS = [
 ];
 
 export interface WorkspaceGitBootstrapResult {
+  available: boolean;
   initialized: boolean;
   initialCommitCreated: boolean;
   branch: string;
   gitDir: string;
+  skippedReason?: string;
+}
+
+export interface WorkspaceGitBootstrapOptions {
+  runGitCommand?: (
+    workspaceDir: string,
+    args: string[],
+  ) => Promise<{ stdout: string; stderr: string }>;
 }
 
 async function pathExists(target: string): Promise<boolean> {
@@ -56,6 +65,27 @@ function normalizeCommandError(
       : "";
   const detail = stderr || stdout || error.message;
   return new Error(`git ${args.join(" ")} failed: ${detail}`);
+}
+
+function isGitUnavailableError(error: unknown): boolean {
+  const code =
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof (error as { code?: string }).code === "string"
+      ? (error as { code?: string }).code?.toUpperCase()
+      : "";
+  if (code === "ENOENT") {
+    return true;
+  }
+
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return (
+    message.includes("xcode-select: note: no developer tools were found") ||
+    message.includes("xcode-select: error: invalid active developer path") ||
+    message.includes('xcrun: error: unable to find utility "git"') ||
+    message.includes("spawn git enoent")
+  );
 }
 
 async function runGit(
@@ -90,10 +120,13 @@ async function hasStagedChanges(workspaceDir: string): Promise<boolean> {
 
 export async function ensureWorkspaceGitRepo(
   workspaceDir: string,
+  options: WorkspaceGitBootstrapOptions = {},
 ): Promise<WorkspaceGitBootstrapResult> {
+  const gitRunner = options.runGitCommand ?? runGit;
   const gitDir = path.join(workspaceDir, ".git");
   if (await pathExists(gitDir)) {
     return {
+      available: true,
       initialized: false,
       initialCommitCreated: false,
       branch: WORKSPACE_GIT_BRANCH,
@@ -102,15 +135,31 @@ export async function ensureWorkspaceGitRepo(
   }
 
   await fs.mkdir(workspaceDir, { recursive: true });
-  await runGit(workspaceDir, ["init", "--initial-branch", WORKSPACE_GIT_BRANCH]);
-  await runGit(workspaceDir, ["config", "user.name", WORKSPACE_GIT_USER_NAME]);
-  await runGit(workspaceDir, ["config", "user.email", WORKSPACE_GIT_USER_EMAIL]);
+  try {
+    await gitRunner(workspaceDir, ["init", "--initial-branch", WORKSPACE_GIT_BRANCH]);
+  } catch (error) {
+    if (isGitUnavailableError(error)) {
+      return {
+        available: false,
+        initialized: false,
+        initialCommitCreated: false,
+        branch: WORKSPACE_GIT_BRANCH,
+        gitDir,
+        skippedReason:
+          error instanceof Error ? error.message : "git is unavailable on this system.",
+      };
+    }
+    throw error;
+  }
+
+  await gitRunner(workspaceDir, ["config", "user.name", WORKSPACE_GIT_USER_NAME]);
+  await gitRunner(workspaceDir, ["config", "user.email", WORKSPACE_GIT_USER_EMAIL]);
   await writeWorkspaceGitExcludeFile(workspaceDir);
-  await runGit(workspaceDir, ["add", "-A"]);
+  await gitRunner(workspaceDir, ["add", "-A"]);
 
   let initialCommitCreated = false;
   if (await hasStagedChanges(workspaceDir)) {
-    await runGit(workspaceDir, [
+    await gitRunner(workspaceDir, [
       "commit",
       "-m",
       WORKSPACE_GIT_INITIAL_COMMIT_MESSAGE,
@@ -119,6 +168,7 @@ export async function ensureWorkspaceGitRepo(
   }
 
   return {
+    available: true,
     initialized: true,
     initialCommitCreated,
     branch: WORKSPACE_GIT_BRANCH,
