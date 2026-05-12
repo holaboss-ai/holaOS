@@ -112,6 +112,8 @@ export function BrowserProfileImportButton({
   const [statusTone, setStatusTone] =
     useState<BrowserImportStatusTone>("info");
   const [resultWarnings, setResultWarnings] = useState<string[]>([]);
+  const [lastSucceededImportSignature, setLastSucceededImportSignature] =
+    useState<string | null>(null);
   const open = controlledOpen ?? internalOpen;
 
   const setOpen = (nextOpen: boolean) => {
@@ -123,6 +125,7 @@ export function BrowserProfileImportButton({
 
   useEffect(() => {
     if (!open) {
+      setLastSucceededImportSignature(null);
       return;
     }
     setStatusMessage("");
@@ -277,8 +280,23 @@ export function BrowserProfileImportButton({
       ) ?? null,
     [copySourceWorkspaceId, copySourceWorkspaces],
   );
+  const currentImportSignature = useMemo(() => {
+    if (profileSetupMode === "copy_workspace") {
+      return `copy:${trimmedWorkspaceId}:${copySourceWorkspaceId.trim()}`;
+    }
+    return `import:${trimmedWorkspaceId}:${browserImportSource}:${browserImportProfileDir.trim()}`;
+  }, [
+    browserImportProfileDir,
+    browserImportSource,
+    copySourceWorkspaceId,
+    profileSetupMode,
+    trimmedWorkspaceId,
+  ]);
+  const isRepeatOfLastSucceeded =
+    lastSucceededImportSignature !== null &&
+    lastSucceededImportSignature === currentImportSignature;
   const canImport = useMemo(() => {
-    if (!trimmedWorkspaceId || importPending) {
+    if (!trimmedWorkspaceId || importPending || isRepeatOfLastSucceeded) {
       return false;
     }
     if (profileSetupMode === "copy_workspace") {
@@ -296,6 +314,7 @@ export function BrowserProfileImportButton({
     browserImportSource,
     copySourceWorkspaceId,
     importPending,
+    isRepeatOfLastSucceeded,
     profileSelectionDeferredToImportDialog,
     profileSetupMode,
     trimmedWorkspaceId,
@@ -326,6 +345,7 @@ export function BrowserProfileImportButton({
           }),
         );
         setResultWarnings(summary.warnings);
+        setLastSucceededImportSignature(currentImportSignature);
         return;
       }
       const summary = await window.electronAPI.workspace.importBrowserProfile({
@@ -345,6 +365,7 @@ export function BrowserProfileImportButton({
       setStatusTone(summary.warnings.length > 0 ? "info" : "success");
       setStatusMessage(importSummaryMessage(summary));
       setResultWarnings(summary.warnings);
+      setLastSucceededImportSignature(currentImportSignature);
     } catch (error) {
       setStatusTone("error");
       setStatusMessage(normalizeErrorMessage(error));
@@ -659,6 +680,12 @@ export function BrowserProfileImportButton({
                           : "Importing…"}
                       </span>
                     </>
+                  ) : isRepeatOfLastSucceeded ? (
+                    <span>
+                      {profileSetupMode === "copy_workspace"
+                        ? "Copied"
+                        : "Imported"}
+                    </span>
                   ) : (
                     <span>
                       {profileSetupMode === "copy_workspace"
