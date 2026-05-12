@@ -547,7 +547,6 @@ function createAddressSuggestionsPopupHtml(themeCss: string): string {
         padding: 4px;
       }
       .item {
-        position: relative;
         display: flex;
         width: 100%;
         align-items: center;
@@ -558,16 +557,6 @@ function createAddressSuggestionsPopupHtml(themeCss: string): string {
         padding: 7px 10px;
         text-align: left;
         cursor: pointer;
-      }
-      .item.active::before {
-        content: "";
-        position: absolute;
-        left: 0;
-        top: 6px;
-        bottom: 6px;
-        width: 2px;
-        border-radius: 2px;
-        background: var(--popup-accent);
       }
       .icon {
         width: 14px;
