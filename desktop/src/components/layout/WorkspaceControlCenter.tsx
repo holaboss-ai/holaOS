@@ -1332,6 +1332,7 @@ function WorkspaceCommandBar({
     setChatModelPreference,
     requiresModelProviderSetup,
     modelSelectionUnavailableReason,
+    effectiveThinkingValue,
   } = useChatComposerModelSelection();
 
   const noAvailableModels =
@@ -1409,6 +1410,7 @@ function WorkspaceCommandBar({
         session_id: ensured.session.session_id,
         priority: 0,
         model: resolvedChatModel || null,
+        thinking_value: effectiveThinkingValue,
       });
       void queued;
       setText("");
