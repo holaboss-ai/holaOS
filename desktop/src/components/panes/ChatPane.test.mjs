@@ -1019,7 +1019,7 @@ test("chat pane syncs the shared file display from live file-oriented tool calls
   assert.match(source, /if \(toolName === "edit"\) \{/);
   assert.match(
     source,
-    /if \(eventType === "tool_call"\) \{\s*const fileDisplayTarget =\s*fileDisplaySyncTargetFromToolPayload\(eventPayload\);[\s\S]*onSyncFileDisplayFromAgentOperation\?\.\(fileDisplayTarget\);/,
+    /if \(eventType === "tool_call"\) \{\s*const fileDisplayTarget =\s*fileDisplaySyncTargetFromToolPayload\(eventPayload\);[\s\S]*if \(fileDisplayTarget && !activeSessionReadOnlyRef\.current\) \{/,
   );
 });
 

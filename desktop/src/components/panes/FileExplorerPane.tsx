@@ -40,7 +40,6 @@ import { Icon as IconifyIcon, addCollection } from "@iconify/react";
 import catppuccinCollection from "@iconify-json/catppuccin/icons.json";
 
 addCollection(catppuccinCollection as Parameters<typeof addCollection>[0]);
-import { DashboardRenderer } from "@/components/dashboard/DashboardRenderer";
 import { SimpleMarkdown } from "@/components/marketplace/SimpleMarkdown";
 import { PresentationPreview } from "@/components/panes/PresentationPreview";
 import {
@@ -556,8 +555,6 @@ function getExplorerIconDescriptor(
     case ".mdx":
     case ".markdown":
       return { name: "markdown" };
-    case ".dashboard":
-      return { name: "database" };
     case ".yml":
     case ".yaml":
       return { name: "yaml" };
@@ -3583,13 +3580,6 @@ export function FileExplorerPane({
               </div>
             </div>
           </div>
-        ) : preview?.kind === "text" &&
-          preview.extension === ".dashboard" &&
-          selectedWorkspaceId ? (
-          <DashboardRenderer
-            workspaceId={selectedWorkspaceId}
-            content={previewDraft}
-          />
         ) : preview?.kind === "text" ? (
           isMarkdownPreview && textPreviewMode === "preview" ? (
             <div className="h-full overflow-auto">

@@ -3943,7 +3943,8 @@ test("allocateAppPort assigns sequential ports starting from 38080", () => {
   const root = makeTempDir("hb-store-ports-");
   const store = new RuntimeStateStore({
     dbPath: path.join(root, "test.db"),
-    workspaceRoot: path.join(root, "workspace")
+    workspaceRoot: path.join(root, "workspace"),
+    portInUseProbe: () => false,
   });
 
   const p1 = store.allocateAppPort({ workspaceId: "ws-1", appId: "gmail" });
@@ -3961,7 +3962,8 @@ test("allocateAppPort reuses existing port for same app", () => {
   const root = makeTempDir("hb-store-ports-reuse-");
   const store = new RuntimeStateStore({
     dbPath: path.join(root, "test.db"),
-    workspaceRoot: path.join(root, "workspace")
+    workspaceRoot: path.join(root, "workspace"),
+    portInUseProbe: () => false,
   });
 
   const p1 = store.allocateAppPort({ workspaceId: "ws-1", appId: "gmail" });
@@ -3976,7 +3978,8 @@ test("listAppPorts returns all ports for workspace", () => {
   const root = makeTempDir("hb-store-ports-list-");
   const store = new RuntimeStateStore({
     dbPath: path.join(root, "test.db"),
-    workspaceRoot: path.join(root, "workspace")
+    workspaceRoot: path.join(root, "workspace"),
+    portInUseProbe: () => false,
   });
 
   store.allocateAppPort({ workspaceId: "ws-1", appId: "gmail" });
@@ -3996,7 +3999,8 @@ test("deleteAppPort removes port and frees it for reuse", () => {
   const root = makeTempDir("hb-store-ports-delete-");
   const store = new RuntimeStateStore({
     dbPath: path.join(root, "test.db"),
-    workspaceRoot: path.join(root, "workspace")
+    workspaceRoot: path.join(root, "workspace"),
+    portInUseProbe: () => false,
   });
 
   const p1 = store.allocateAppPort({ workspaceId: "ws-1", appId: "gmail" });
@@ -4019,7 +4023,7 @@ test("listAllAppPorts keeps preserved deleted workspace ports visible after rest
   const dbPath = path.join(root, "test.db");
   const workspaceRoot = path.join(root, "workspace");
 
-  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot, portInUseProbe: () => false });
   store.createWorkspace({
     workspaceId: "ws-deleted",
     name: "Deleted",
@@ -4033,7 +4037,7 @@ test("listAllAppPorts keeps preserved deleted workspace ports visible after rest
   store.deleteWorkspace("ws-deleted");
   store.close();
 
-  const reopened = new RuntimeStateStore({ dbPath, workspaceRoot });
+  const reopened = new RuntimeStateStore({ dbPath, workspaceRoot, portInUseProbe: () => false });
   const preservedPorts = reopened.listAllAppPorts();
   assert.deepEqual(
     preservedPorts.map((record) => ({
@@ -4061,6 +4065,23 @@ test("listAllAppPorts keeps preserved deleted workspace ports visible after rest
   });
   assert.equal(nextPort.port, deletedPort.port + 1);
   reopened.close();
+});
+
+test("allocateAppPort skips ports that are already listening according to the probe", () => {
+  const root = makeTempDir("hb-store-ports-skip-listening-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "test.db"),
+    workspaceRoot: path.join(root, "workspace"),
+    portInUseProbe: (port) => port === 38080,
+  });
+
+  const first = store.allocateAppPort({ workspaceId: "ws-1", appId: "gmail" });
+  const second = store.allocateAppPort({ workspaceId: "ws-1", appId: "sheets" });
+
+  assert.equal(first.port, 38081);
+  assert.equal(second.port, 38082);
+
+  store.close();
 });
 
 test("app_catalog upserts and lists entries for a given source", () => {

@@ -14003,68 +14003,6 @@ async function pickAndInstallAppFromArchiveFile(params: {
   });
 }
 
-interface DashboardQueryRowsResult {
-  ok: true;
-  columns: string[];
-  rows: unknown[][];
-}
-
-interface DashboardQueryErrorResult {
-  ok: false;
-  error: string;
-}
-
-type DashboardQueryResult = DashboardQueryRowsResult | DashboardQueryErrorResult;
-
-// Read-only SQL execution against the workspace's shared data.db. Used by
-// the dashboard renderer to populate kpi cards, tables, and board panels.
-// Each call opens its own short-lived handle so a panel-level query error
-// can't leak into a long-lived cache, and so the file isn't held open if
-// the renderer is torn down without explicit cleanup.
-async function runDashboardQuery(params: {
-  workspaceId: string;
-  sql: string;
-}): Promise<DashboardQueryResult> {
-  const workspaceId = assertSafeWorkspaceId(params.workspaceId);
-  const sql = (params.sql ?? "").trim();
-  if (!sql) {
-    return { ok: false, error: "Query is empty." };
-  }
-  const workspaceDir = await resolveWorkspaceDir(workspaceId);
-  const dbPath = path.join(workspaceDir, ".holaboss", "state", "data.db");
-  if (!existsSync(dbPath)) {
-    return {
-      ok: false,
-      error: `Workspace data.db not found at ${dbPath}. Has any app written data yet?`,
-    };
-  }
-  let db: Database.Database | null = null;
-  try {
-    db = new Database(dbPath, { readonly: true, fileMustExist: true });
-    db.pragma("query_only = ON");
-    const stmt = db.prepare(sql);
-    // raw() returns rows as arrays in column order; columns() gives the
-    // order we hand back, so the renderer can zip them by index without
-    // worrying about object-key ordering surprises.
-    const cols = stmt.columns().map((c) => c.name);
-    const rows = (stmt.raw().all() as unknown[][]).slice(0, 5_000);
-    return { ok: true, columns: cols, rows };
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  } finally {
-    if (db) {
-      try {
-        db.close();
-      } catch {
-        // best effort
-      }
-    }
-  }
-}
-
 async function listInstalledApps(
   workspaceId: string,
 ): Promise<InstalledWorkspaceAppListResponsePayload> {
@@ -17851,7 +17789,6 @@ const TEXT_FILE_EXTENSIONS = new Set([
   ".php",
   ".sql",
   ".log",
-  ".dashboard",
 ]);
 
 const TABLE_FILE_EXTENSIONS = new Set([".csv", ".xlsx", ".xls"]);
@@ -22665,12 +22602,6 @@ app.whenReady().then(async () => {
     ["main"],
     async (_event, params: { workspaceId: string }) =>
       pickAndInstallAppFromArchiveFile({ workspaceId: params.workspaceId }),
-  );
-  handleTrustedIpc(
-    "dashboard:runQuery",
-    ["main"],
-    async (_event, params: { workspaceId: string; sql: string }) =>
-      runDashboardQuery(params),
   );
   handleTrustedIpc(
     "appSurface:navigate",
