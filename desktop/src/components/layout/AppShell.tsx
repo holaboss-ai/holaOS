@@ -2492,11 +2492,19 @@ function AppShellContent() {
   ]);
 
   useEffect(() => {
-    const activeNotificationIds = new Set(
-      notifications.map((notification) => notification.id),
+    // Drop toasts whose underlying notification (a) was deleted from
+    // the store entirely OR (b) is no longer in the `unread` state.
+    // Without the state check, notifications auto-marked "read" by
+    // other UI paths (the inbox popover, server-side activation,
+    // direct session view) would stay visible at the top even though
+    // the inbox already removed them.
+    const activeUnreadIds = new Set(
+      notifications
+        .filter((notification) => notification.state === "unread")
+        .map((notification) => notification.id),
     );
     setToastNotifications((current) => {
-      const next = current.filter((item) => activeNotificationIds.has(item.id));
+      const next = current.filter((item) => activeUnreadIds.has(item.id));
       return next.length === current.length ? current : next;
     });
   }, [notifications]);
