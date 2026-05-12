@@ -1,7 +1,6 @@
 import { useState, type CSSProperties } from "react";
 import {
   ArrowUpRight,
-  Bell,
   CircleCheck,
   Info,
   TriangleAlert,
@@ -37,14 +36,19 @@ function toneTokenName(
   return "info";
 }
 
-/** Soft tone-tinted left → fading-to-card gradient, mirrors the design
- *  reference. color-mix in oklch keeps the tint perceptually consistent
- *  in both light and dark themes; goes opaque (no opacity hack on a
- *  semantic token). */
+/** Soft tone-tinted left → fading-to-card gradient. The gradient is a
+ *  translucent overlay of the actual tone colour on top of a solid
+ *  card background, rather than a blended mix. This decouples tint
+ *  visibility from the tone's intrinsic lightness — important for
+ *  `warning` (oklch L=0.82), whose old 9% blend with a near-white
+ *  card produced no perceptible amber. With a fixed-alpha overlay
+ *  every level renders at the same effective tint strength while
+ *  faithfully showing its own hue. */
 function toastGradientStyle(level: RuntimeNotificationLevel): CSSProperties {
   const tone = toneTokenName(level);
   return {
-    backgroundImage: `linear-gradient(to right, color-mix(in oklch, var(--${tone}) 9%, var(--card)) 0%, var(--card) 65%)`,
+    backgroundColor: "var(--card)",
+    backgroundImage: `linear-gradient(to right, color-mix(in srgb, var(--${tone}) 14%, transparent) 0%, transparent 60%)`,
   };
 }
 
@@ -59,22 +63,26 @@ function toastIcon(level: RuntimeNotificationLevel): React.ReactNode {
   if (level === "success") return <CircleCheck className="size-3.5" />;
   if (level === "warning") return <TriangleAlert className="size-3.5" />;
   if (level === "error") return <TriangleAlert className="size-3.5" />;
-  if (level === "info") return <Info className="size-3.5" />;
-  return <Bell className="size-3.5" />;
+  return <Info className="size-3.5" />;
 }
 
-/** Action-button colour per tone. Error / info get their tone colour;
- *  success / warning get the foreground/background swap because their
- *  hues are too soft to support text legibility on the bg as a CTA.
- *  Mirrors the design reference. */
+/** Action-button colour per tone. Every variant now uses its own
+ *  tonal background paired with a luminance-appropriate foreground
+ *  token (defined in tokens.css). Keeps button colour aligned with
+ *  the card's gradient tint across all four levels. Classes are
+ *  spelled out (not built via template) so Tailwind's JIT can pick
+ *  them up at build time. */
 function toastButtonClassName(level: RuntimeNotificationLevel): string {
   if (level === "error") {
     return "bg-destructive text-destructive-foreground hover:bg-destructive/90";
   }
-  if (level === "info") {
-    return "bg-info text-white hover:bg-info/90";
+  if (level === "success") {
+    return "bg-success text-success-foreground hover:bg-success/90";
   }
-  return "bg-foreground text-background hover:bg-foreground/90";
+  if (level === "warning") {
+    return "bg-warning text-warning-foreground hover:bg-warning/90";
+  }
+  return "bg-info text-info-foreground hover:bg-info/90";
 }
 
 function notificationTargetSessionId(
@@ -161,7 +169,12 @@ export function NotificationToastStack({
               <div
                 key={notification.id}
                 className={cn(
-                  "overflow-hidden rounded-2xl border border-border animate-in fade-in-0 slide-in-from-top-2 transition-[margin,transform,opacity,max-height] duration-200 ease-out",
+                  // No explicit border: `--shadow-md` / `--shadow-lg`
+                  // already bake a `0 0 0 1px` hairline ring into the
+                  // shadow stack (see tokens.css), so layering another
+                  // `border-border` on top was producing a doubled
+                  // outline. Shadow does both jobs at once now.
+                  "overflow-hidden rounded-2xl animate-in fade-in-0 slide-in-from-top-2 transition-[margin,transform,opacity,max-height] duration-200 ease-out",
                   isCollapsedBackgroundToast
                     ? "pointer-events-none shadow-md"
                     : "shadow-lg",

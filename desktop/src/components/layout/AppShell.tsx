@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Boxes,
   Clock3,
   Folder,
   Globe,
@@ -7,8 +8,6 @@ import {
   LayoutGrid,
   Loader2,
   MessageCircle,
-  PanelRightClose,
-  PanelRightOpen,
 } from "lucide-react";
 import {
   type PointerEvent as ReactPointerEvent,
@@ -33,6 +32,7 @@ import { WorkspaceAppsDialog } from "@/components/layout/WorkspaceAppsDialog";
 import { FirstWorkspacePane } from "@/components/onboarding";
 import { AppSurfacePane } from "@/components/panes/AppSurfacePane";
 import { BrowserPane } from "@/components/panes/BrowserPane";
+import { ArtifactsPane } from "@/components/panes/ArtifactsPane";
 import { AutomationsPane } from "@/components/panes/AutomationsPane";
 import { ChatPane } from "@/components/panes/ChatPane";
 import {
@@ -242,6 +242,7 @@ type AgentView =
   | { type: "sessions" }
   | { type: "inbox" }
   | { type: "automations" }
+  | { type: "artifacts" }
   | {
       type: "app";
       appId: string;
@@ -748,12 +749,12 @@ function notificationBelongsToSelectedWorkspace(
 
 function shouldShowNativeRuntimeNotification(
   notification: RuntimeNotificationRecordPayload,
-  isWindowMinimized: boolean,
+  isWindowAway: boolean,
 ): boolean {
   if (isSystemCronjobNotification(notification)) {
     return true;
   }
-  if (!isWindowMinimized) {
+  if (!isWindowAway) {
     return false;
   }
   return notification.source_type === "main_session";
@@ -777,15 +778,30 @@ function shouldDismissVisibleRuntimeNotification(
 
 function shouldToastVisibleRuntimeNotification(
   notification: RuntimeNotificationRecordPayload,
-  selectedWorkspaceId: string | null,
+  context: {
+    selectedWorkspaceId: string | null;
+    /** Session the user is currently viewing in the chat pane (null
+     *  when they're elsewhere). If this matches the notification's
+     *  target session, the user is already looking at the event —
+     *  suppress the toast regardless of source type. */
+    viewingChatSessionId: string | null;
+  },
 ): boolean {
+  const notifSessionId = notificationTargetSessionId(notification);
+  if (
+    context.viewingChatSessionId &&
+    notifSessionId &&
+    notifSessionId === context.viewingChatSessionId
+  ) {
+    return false;
+  }
   if (
     notification.source_type === "main_session" ||
     isSystemCronjobNotification(notification)
   ) {
     return !notificationBelongsToSelectedWorkspace(
       notification,
-      selectedWorkspaceId,
+      context.selectedWorkspaceId,
     );
   }
   return true;
@@ -1523,6 +1539,20 @@ function AppShellContent() {
   const [spaceWorkspacePanelCollapsed, setSpaceWorkspacePanelCollapsed] =
     useState(loadSpaceWorkspacePanelCollapsed);
   const [spaceBrowserFullscreen, setSpaceBrowserFullscreen] = useState(false);
+  const [windowFocused, setWindowFocused] = useState<boolean>(() =>
+    typeof document !== "undefined" ? document.hasFocus() : true,
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleFocus = () => setWindowFocused(true);
+    const handleBlur = () => setWindowFocused(false);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
   const [spaceBrowserSpace, setSpaceBrowserSpace] =
     useState<BrowserSpaceId>("user");
   const [spaceDisplayView, setSpaceDisplayView] = useState<SpaceDisplayView>({
@@ -2342,6 +2372,16 @@ function AppShellContent() {
     void window.electronAPI.ui.setTheme(theme);
   }, [theme, colorScheme, themeVariant]);
 
+  // Non-null only when the user is in the chat pane AND the window
+  // is focused — tabbed-away counts as "not seeing it".
+  const viewingChatSessionId =
+    windowFocused &&
+    activeShellView === "space" &&
+    !spaceBrowserFullscreen &&
+    agentView.type === "chat"
+      ? (activeChatSessionId || "").trim() || null
+      : null;
+
   const dismissNotificationToast = useCallback((notificationId: string) => {
     setToastNotifications((current) =>
       current.filter((item) => item.id !== notificationId),
@@ -2373,7 +2413,8 @@ function AppShellContent() {
         return;
       }
 
-      const isWindowMinimized = windowState?.isMinimized === true;
+      const isWindowAway =
+        windowState?.isMinimized === true || !windowFocused;
       for (const item of shellNotifications) {
         if (
           item.state !== "unread" ||
@@ -2402,9 +2443,7 @@ function AppShellContent() {
           );
         };
 
-        if (
-          shouldShowNativeRuntimeNotification(item, isWindowMinimized)
-        ) {
+        if (shouldShowNativeRuntimeNotification(item, isWindowAway)) {
           const lastAttemptAt =
             nativeRuntimeNotificationAttemptedAtRef.current.get(item.id) ?? 0;
           if (Date.now() - lastAttemptAt < 15_000) {
@@ -2468,7 +2507,12 @@ function AppShellContent() {
           continue;
         }
 
-        if (!shouldToastVisibleRuntimeNotification(item, selectedWorkspaceId)) {
+        if (
+          !shouldToastVisibleRuntimeNotification(item, {
+            selectedWorkspaceId,
+            viewingChatSessionId: viewingChatSessionId,
+          })
+        ) {
           continue;
         }
 
@@ -2488,17 +2532,71 @@ function AppShellContent() {
     activeShellView,
     controlCenterVisibleWorkspaceIdSet,
     selectedWorkspaceId,
+    viewingChatSessionId,
   ]);
 
   useEffect(() => {
-    const activeNotificationIds = new Set(
-      notifications.map((notification) => notification.id),
+    // Drop toasts whose underlying notification (a) was deleted from
+    // the store entirely OR (b) is no longer in the `unread` state.
+    // Without the state check, notifications auto-marked "read" by
+    // other UI paths (the inbox popover, server-side activation,
+    // direct session view) would stay visible at the top even though
+    // the inbox already removed them.
+    const activeUnreadIds = new Set(
+      notifications
+        .filter((notification) => notification.state === "unread")
+        .map((notification) => notification.id),
     );
     setToastNotifications((current) => {
-      const next = current.filter((item) => activeNotificationIds.has(item.id));
+      const next = current.filter((item) => activeUnreadIds.has(item.id));
       return next.length === current.length ? current : next;
     });
   }, [notifications]);
+
+  // Auto-mark unread notifications as read when the user is actively
+  // viewing the chat session they reference. "Opened the session" is
+  // the strongest possible read-receipt signal — the user is looking
+  // at the conversation, anything that landed there has been seen by
+  // definition. Without this, notifications keep piling up in the
+  // inbox / toast stack even though the user already read the event.
+  const autoReadAttemptedNotificationIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!viewingChatSessionId || !window.electronAPI) {
+      // Reset the dedupe set on session change so the next session
+      // start fresh — same notification id could only appear under
+      // one session anyway, but better to be defensive.
+      autoReadAttemptedNotificationIdsRef.current = new Set();
+      return;
+    }
+    const attempted = autoReadAttemptedNotificationIdsRef.current;
+    const candidates = notifications.filter((notification) => {
+      if (notification.state !== "unread") return false;
+      if (attempted.has(notification.id)) return false;
+      const notifSessionId = notificationTargetSessionId(notification);
+      return notifSessionId === viewingChatSessionId;
+    });
+    if (candidates.length === 0) return;
+    for (const notification of candidates) {
+      attempted.add(notification.id);
+      dismissNotificationToast(notification.id);
+      window.electronAPI.workspace
+        .updateNotification(notification.workspace_id, notification.id, {
+          state: "read",
+        })
+        .catch(() => {
+          // Network blip — let the next render retry by clearing the
+          // attempted marker. The notification will still be unread
+          // server-side and re-surface on the next refresh.
+          attempted.delete(notification.id);
+        });
+    }
+    void refreshNotifications();
+  }, [
+    dismissNotificationToast,
+    notifications,
+    refreshNotifications,
+    viewingChatSessionId,
+  ]);
 
   const handleActivateNotification = useCallback(
     async (notificationId: string) => {
@@ -3632,6 +3730,15 @@ function AppShellContent() {
     setAgentView({ type: "automations" });
   }, []);
 
+  const handleOpenArtifactsPane = useCallback(() => {
+    setActiveShellView("space");
+    setSpaceVisibility((previous) => ({
+      ...previous,
+      agent: true,
+    }));
+    setAgentView({ type: "artifacts" });
+  }, []);
+
   const handleReturnToChatPane = useCallback(() => {
     setAgentView({ type: "chat" });
     setChatFocusRequestKey((current) => current + 1);
@@ -4320,28 +4427,21 @@ function AppShellContent() {
     });
   }, []);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "\\") return;
-      const meta = event.metaKey || event.ctrlKey;
-      if (!meta || event.altKey || event.shiftKey) return;
-      const target = event.target;
-      if (target instanceof HTMLElement) {
-        const tag = target.tagName;
-        if (
-          tag === "INPUT" ||
-          tag === "TEXTAREA" ||
-          target.isContentEditable
-        ) {
-          return;
-        }
+  const applyLayoutMode = useCallback(
+    (mode: "split" | "focus_chat" | "focus_work") => {
+      if (mode === "split") {
+        setSpaceBrowserFullscreen(false);
+        setSpaceWorkspacePanelCollapsed(false);
+      } else if (mode === "focus_chat") {
+        setSpaceBrowserFullscreen(false);
+        setSpaceWorkspacePanelCollapsed(true);
+      } else {
+        setSpaceWorkspacePanelCollapsed(false);
+        setSpaceBrowserFullscreen(true);
       }
-      event.preventDefault();
-      toggleSpaceBrowserFullscreen();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [toggleSpaceBrowserFullscreen]);
+    },
+    [],
+  );
 
   // ESC-to-close for the custom full-screen panels. Each panel owns its
   // own escape binding via useEscapeToClose; Radix-based dialogs
@@ -4623,6 +4723,49 @@ function AppShellContent() {
 
   const controlCenterMode = activeShellView === "control_center";
   const spaceMode = activeShellView === "space";
+
+  // ⌘1 / ⌘2 / ⌘3 jump directly to a layout mode. Mirrors the macOS
+  // Finder / browser view-mode convention; users learn the trio once
+  // from the layout picker dropdown. Suppressed inside text inputs
+  // and outside space mode so it doesn't fight typing or fire when
+  // the user is in the control center.
+  useEffect(() => {
+    if (!spaceMode || controlCenterMode) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const meta = event.metaKey || event.ctrlKey;
+      if (!meta || event.altKey || event.shiftKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+      switch (event.key) {
+        case "1":
+          event.preventDefault();
+          applyLayoutMode("split");
+          break;
+        case "2":
+          event.preventDefault();
+          applyLayoutMode("focus_chat");
+          break;
+        case "3":
+          event.preventDefault();
+          applyLayoutMode("focus_work");
+          break;
+        default:
+          return;
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [applyLayoutMode, controlCenterMode, spaceMode]);
+
   const activeAppId =
     agentView.type === "app"
       ? agentView.appId
@@ -4835,6 +4978,37 @@ function AppShellContent() {
       );
     }
 
+    if (agentView.type === "artifacts") {
+      return (
+        <section className="flex h-full min-h-0 min-w-0 animate-in fade-in-0 slide-in-from-right-3 flex-col overflow-hidden rounded-xl bg-card shadow-md backdrop-blur-sm duration-200 ease-out">
+          <div className="shrink-0 border-b border-border px-4 py-2.5 sm:px-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="inline-flex min-w-0 items-center gap-2 text-base font-semibold text-foreground">
+                <Boxes size={14} className="shrink-0 text-muted-foreground" />
+                <span className="truncate">Artifacts</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={handleReturnToChatPane}
+                aria-label="Return to chat"
+              >
+                <ArrowLeft size={15} />
+              </Button>
+            </div>
+          </div>
+          <div
+            className={`mx-auto w-full ${CHAT_LAYOUT.contentMaxWidth} min-h-0 flex-1 overflow-hidden`}
+          >
+            <ArtifactsPane
+              workspaceId={selectedWorkspaceId}
+              onOpenOutput={(output) => handleOpenWorkspaceOutput(output)}
+            />
+          </div>
+        </section>
+      );
+    }
+
     if (agentView.type === "chat") {
       if (selectedWorkspace && selectedWorkspace.folder_state === "missing") {
         return (
@@ -4887,6 +5061,7 @@ function AppShellContent() {
           onOpenInbox={handleOpenInboxPane}
           inboxUnreadCount={unreadTaskProposalCount}
           onOpenAutomations={handleOpenAutomationsPane}
+          onOpenArtifacts={handleOpenArtifactsPane}
           composerDraftText={
             selectedWorkspaceId
               ? (chatComposerDraftTextByWorkspace[selectedWorkspaceId] ?? "")
@@ -4951,6 +5126,7 @@ function AppShellContent() {
     handleOpenInboxPane,
     handleOpenSessionsPane,
     handleOpenAutomationsPane,
+    handleOpenArtifactsPane,
     handleOpenAutomationRunSession,
     handleCreateScheduleInChat,
     handleEditScheduleInChat,
@@ -5534,9 +5710,6 @@ function AppShellContent() {
               desktopPlatform={desktopPlatform}
               runtimeStatus={runtimeStatus}
               controlCenterActive={controlCenterMode}
-              chatPanelHidden={spaceBrowserFullscreen}
-              showChatPanelToggle={spaceMode && !controlCenterMode}
-              onToggleChatPanel={toggleSpaceBrowserFullscreen}
               inboxNotifications={inboxNotifications}
               inboxWorkspacesById={inboxWorkspacesById}
               onActivateInboxNotification={(id) =>
@@ -5565,6 +5738,15 @@ function AppShellContent() {
               }}
               onOpenExternalUrl={handleOpenExternalUrl}
               onPublish={() => setPublishOpen(true)}
+              showLayoutPicker={spaceMode && !controlCenterMode}
+              layoutMode={
+                spaceBrowserFullscreen
+                  ? "focus_work"
+                  : effectiveSpaceWorkspacePanelCollapsed
+                    ? "focus_chat"
+                    : "split"
+              }
+              onLayoutModeChange={applyLayoutMode}
             />
           </div>
         ) : null}
@@ -5691,43 +5873,6 @@ function AppShellContent() {
                               </Tooltip>
                             );
                           })}
-                          <div className="flex-1" />
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() =>
-                                    setSpaceWorkspacePanelCollapsed(
-                                      (prev) => !prev,
-                                    )
-                                  }
-                                  aria-label={
-                                    effectiveSpaceWorkspacePanelCollapsed
-                                      ? "Show preview"
-                                      : "Hide preview"
-                                  }
-                                  className="text-muted-foreground hover:bg-accent hover:text-foreground"
-                                >
-                                  {effectiveSpaceWorkspacePanelCollapsed ? (
-                                    <PanelRightOpen />
-                                  ) : (
-                                    <PanelRightClose />
-                                  )}
-                                </Button>
-                              }
-                            />
-                            <TooltipContent
-                              side="right"
-                              align="center"
-                              className="py-1"
-                            >
-                              {effectiveSpaceWorkspacePanelCollapsed
-                                ? "Show preview"
-                                : "Hide preview"}
-                            </TooltipContent>
-                          </Tooltip>
                         </nav>
                       </div>
 
