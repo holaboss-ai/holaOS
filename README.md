@@ -2,7 +2,7 @@
   <img src="docs/images/banner.png" alt="Holaboss logo" />
 </p>
 
-<p align="center"><strong>An Open Agent Computer for ANY digital work.</strong></p>
+<p align="center"><strong>Turn repeat work into running AI work-streams.</strong></p>
 
 <p align="center">
   <a href="https://github.com/holaboss-ai/holaOS/actions/workflows/ci.yml"><img src="https://github.com/holaboss-ai/holaOS/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
@@ -29,13 +29,35 @@
 
 # holaOS
 
-holaOS is an open agent computer for any digital work. It reimagines the computer as a shared environment where humans and AI agents operate side by side—with full access to the same browser, files, and apps, like collaborating with a powerful teammate that continuously learns how to work better with you. Instead of working across disconnected tools and contexts, everything lives in one place where memory, execution, and goals remain coherent, so work doesn’t reset or lose state. Agents operate continuously within this environment, evolving over time while remaining fully inspectable, and can be shaped by you through roles and templates to support consistent, repeatable ways of working.
+holaOS turns recurring, context-heavy work into running AI work-streams.
+
+Create a workspace for the work you keep restarting in chat — weekly research, content production, customer feedback, launch planning, or client delivery. Kickoff turns that work into goals, context, rules, sources, a first artifact, and the next run. When you review the output and correct it, those corrections become visible rules so the next run starts smarter than the last.
+
+Under the hood, holaOS is an open agent computer: a shared environment where agents can use the same browser, files, apps, tools, and runtime state you do. The difference in Beta 0.1 is the product loop. Instead of giving an agent one disposable session, you give each recurring work-stream a living workspace with its own memory, history, outputs, and control surface.
+
+Use it for work that unfolds over time: research that changes every week, content that needs your voice, feedback that should become product decisions, launches with many moving parts, and client work that needs isolated context. The first win is not configuring a blank agent. The first win is seeing a workspace created from a real recurring job, with a reviewable output and a next run already set up.
+
+**What changed in Beta 0.1**
+
+- **Multi Workspaces** keep each long-running work-stream in its own context, rules, tools, files, history, and next run.
+- **Sub Agents** help complex work move forward in parallel — research, drafting, verification, synthesis — without manually juggling chats.
+- **Dashboards** for active visualization that you and your agent maintain
+
 
 
 <p align="center">
   <img src="docs/images/desktop-workspace.png" alt="holaOS desktop workspace screenshot" width="1280" />
 </p>
 
+## Examples
+
+Try holaOS with one recurring job you keep restarting:
+
+- **Research Radar** — track competitors, market shifts, funding news, and customer signals; ship a weekly brief with sources and deltas.
+- **Content Engine** — turn founder notes into X posts, newsletter drafts, and video hooks while saving edits as style rules.
+- **Customer Voice** — group feedback from calls, support, Discord, and X into a product action board.
+- **Launch / Campaign Workstream** — generate a campaign calendar, channel briefs, asset gaps, daily metrics, and retrospective.
+- **Client Delivery Loop** — create an isolated workspace for each client while reusing your delivery playbook.
 
 
 

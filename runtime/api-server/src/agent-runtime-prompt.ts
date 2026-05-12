@@ -190,6 +190,11 @@ function hasWorkspaceInstructionUpdateTool(request: ComposeBaseAgentPromptReques
   return available.has("holaboss_update_workspace_instructions");
 }
 
+function hasWorkspaceAppCatalogInstallTools(request: ComposeBaseAgentPromptRequest): boolean {
+  const available = collectAvailableToolNames(request);
+  return available.has("workspace_apps_find") && available.has("workspace_apps_install");
+}
+
 function sessionPolicyPromptSection(request: ComposeBaseAgentPromptRequest): string {
   const lines = ["Session policy:"];
   const normalizedMode = nonEmptyText(request.sessionMode).toLowerCase();
@@ -213,10 +218,17 @@ function sessionPolicyPromptSection(request: ComposeBaseAgentPromptRequest): str
         "Do not rely on intermediate tool steps, hidden reasoning, or `see above` references for essential context.",
         "When the task finds multiple items, options, or takeaways, include the actual items in the final output or deliverable instead of only a one-line lead summary.",
         "When surfaced MCP/app tools match the task or a provided system URL, use them first instead of defaulting to bash, file inspection, or browser exploration.",
+        "In workspace tasks, treat requests to `install`, `add`, or `use` an app as workspace-app requests by default, not native desktop-app installs, unless the task or user explicitly asks for the OS client.",
         "Do not inspect workspace files or app config just to prove an integration exists when the current surfaced capability set already exposes the relevant tools; invoke the relevant surfaced tool first, then inspect config only if the direct route fails or the user explicitly asked for environment inspection.",
         "If the task is blocked by a recoverable user action such as login, authorization, MFA, CAPTCHA, permission, account selection, confirmation, credentials, or missing context, use the `question` tool with the exact unblock request instead of finishing with a limitation.",
         "For browser tasks, if you reach a login or access wall, leave the browser where it is, ask the user to complete the required step, and wait for the main session to resume you."
       );
+      if (hasWorkspaceAppCatalogInstallTools(request)) {
+        lines.push(
+          "When `workspace_apps_find` and `workspace_apps_install` are surfaced and the task could match an existing workspace app, call `workspace_apps_find` before scaffolding a new app, downloading a native installer, or doing manual marketplace inspection.",
+          "If `workspace_apps_find` returns an exact or clearly suitable catalog match, prefer `workspace_apps_install`; only scaffold a new workspace app or install a native desktop app when no suitable catalog app exists, the install route fails, or the user explicitly asked for a custom app or OS-level client."
+        );
+      }
       break;
     case "main_session":
       lines.push(
@@ -926,6 +938,8 @@ export function buildMainSessionPromptSections(
       "Treat the surfaced tool and capability set for this run as your full direct authority. Hidden subagents may have a broader executor surface than you do.",
       "Delegate task execution to hidden subagents. Use this session for coordination, direct inspection, and claim verification, not for carrying out the task work itself.",
       "When the user asks for fresh execution, fresh investigation, or a new deliverable, do not answer from prior chat memory alone; delegate or inspect first.",
+      "In a workspace conversation, treat requests to `install`, `add`, or `use` an app as workspace-app requests by default, not native desktop-app installs, unless the user explicitly asks for the Mac app, desktop app, browser extension, mobile app, or another OS-level client.",
+      "If the current surfaced capability set or delegated executor snapshot includes `workspace_apps_find` and `workspace_apps_install`, check the workspace app catalog first and prefer catalog install over scaffolding a custom app or downloading a native app. Only build a new workspace app when no suitable catalog app exists, the install route fails, or the user explicitly asks for a custom app.",
       "For browser control, web research, terminal work, or other execution work, delegate to hidden subagents.",
       "Default delegated browser work to the agent browser. Set `use_user_browser_surface: true` on `holaboss_delegate_task` only when the user explicitly says `use my browser`. Do not infer it from `current tab`, `current page`, `this page`, or similar phrasing.",
       "If the user asks for work that needs capabilities this run does not have directly, but delegated subagents can do it, delegate instead of replying that this run lacks those tools.",

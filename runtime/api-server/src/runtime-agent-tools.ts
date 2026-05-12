@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -55,9 +55,59 @@ import {
   listWorkspaceApplicationPorts,
   listWorkspaceApplications,
   parseInstalledAppRuntime,
+  parseResolvedAppRuntime,
+  readWorkspaceMcpRegistryServerNames,
   resolveWorkspaceAppRuntime,
   updateWorkspaceApplications,
 } from "./workspace-apps.js";
+
+const SESSION_REFRESH_NOTE =
+  "New MCP servers became available in this turn. Their tools will be visible to you starting from the next user message — please end this turn (do not call the new tools yet) and let the user trigger the next one.";
+
+function buildSessionRefreshFields(newMcpServers: string[]): JsonObject {
+  if (newMcpServers.length === 0) {
+    return {};
+  }
+  return {
+    requires_session_refresh: true,
+    new_mcp_servers: [...newMcpServers],
+    session_refresh_note: SESSION_REFRESH_NOTE,
+  };
+}
+
+function pendingIntegrationsFromAppManifests(params: {
+  workspaceDir: string;
+  appIds: string[];
+}): JsonObject[] {
+  const seen = new Set<string>();
+  const out: JsonObject[] = [];
+  for (const appId of params.appIds) {
+    const manifestPath = path.join(params.workspaceDir, "apps", appId, "app.runtime.yaml");
+    if (!existsSync(manifestPath)) continue;
+    let parsed;
+    try {
+      parsed = parseResolvedAppRuntime(
+        readFileSync(manifestPath, "utf8"),
+        appId,
+        `apps/${appId}/app.runtime.yaml`,
+      );
+    } catch {
+      continue;
+    }
+    for (const integration of parsed.integrations ?? []) {
+      if (!integration.required) continue;
+      const key = `${appId}|${integration.provider.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        app_id: appId,
+        provider_id: integration.provider,
+        credential_source: integration.credentialSource,
+      });
+    }
+  }
+  return out;
+}
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 type JsonObject = { [key: string]: JsonValue };
@@ -97,6 +147,26 @@ interface RuntimeAgentToolAppLifecycleCallbacks {
   ensureAppRunning?: ((workspaceId: string, appId: string) => Promise<void>) | null;
   ensureAllAppsRunning?: ((workspaceId: string) => Promise<unknown>) | null;
   stopApp?: ((workspaceId: string, appId: string) => Promise<unknown>) | null;
+  /**
+   * Install an app archive (download + extract + register + start). Provided
+   * by app.ts which delegates to the existing /api/v1/apps/install-archive
+   * pipeline. Returning ok:false propagates the runtime error to the agent
+   * tool result so the model can retry or surface the failure to the user.
+   */
+  installFromArchive?:
+    | ((params: {
+        workspaceId: string;
+        appId: string;
+        archiveUrl?: string | null;
+        archivePath?: string | null;
+      }) => Promise<{
+        ok: boolean;
+        ready: boolean;
+        detail: string;
+        error: string | null;
+        statusCode?: number;
+      }>)
+    | null;
 }
 
 export interface RuntimeAgentToolsCreateCronjobParams {
@@ -292,6 +362,17 @@ export interface RuntimeAgentToolsEnsureWorkspaceAppsRunningParams {
 }
 
 export interface RuntimeAgentToolsRestartWorkspaceAppParams {
+  workspaceId: string;
+  appId: string;
+}
+
+export interface RuntimeAgentToolsFindWorkspaceAppsParams {
+  workspaceId: string;
+  query?: string | null;
+  source?: "marketplace" | "local" | "installed" | "all" | null;
+}
+
+export interface RuntimeAgentToolsInstallWorkspaceAppParams {
   workspaceId: string;
   appId: string;
 }
@@ -1041,6 +1122,18 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS: RuntimeAgentToolDefinition[] = [
     method: "POST",
     path: "/api/v1/capabilities/runtime-tools/terminal-sessions/:terminalId/close",
     description: runtimeToolBaseDefinition("terminal_session_close").description
+  },
+  {
+    id: runtimeToolBaseDefinition("workspace_apps_find").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/workspace-apps/find",
+    description: runtimeToolBaseDefinition("workspace_apps_find").description
+  },
+  {
+    id: runtimeToolBaseDefinition("workspace_apps_install").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/workspace-apps/install",
+    description: runtimeToolBaseDefinition("workspace_apps_install").description
   },
   {
     id: runtimeToolBaseDefinition("workspace_apps_scaffold").id,
@@ -4157,6 +4250,220 @@ export class RuntimeAgentToolsService {
     };
   }
 
+  async findWorkspaceApps(
+    params: RuntimeAgentToolsFindWorkspaceAppsParams,
+  ): Promise<JsonObject> {
+    this.requireWorkspace(params.workspaceId);
+    const requestedSource = normalizedString(params.source) || "all";
+    const source = requestedSource === "marketplace" || requestedSource === "local" || requestedSource === "installed" || requestedSource === "all"
+      ? requestedSource
+      : "all";
+    const query = normalizedString(params.query).toLowerCase();
+
+    const installedEntries = this.listRegisteredWorkspaceAppEntries(params.workspaceId);
+    const installedAppIds = new Set(
+      installedEntries
+        .map((entry) => (typeof entry.app_id === "string" ? entry.app_id : ""))
+        .filter((id) => id.length > 0),
+    );
+
+    const catalogEntries =
+      source === "installed"
+        ? []
+        : source === "marketplace" || source === "local"
+          ? this.store.listAppCatalogEntries({ source })
+          : this.store.listAppCatalogEntries();
+
+    type ResultRow = {
+      app_id: string;
+      name: string;
+      description: string | null;
+      source: "marketplace" | "local" | "installed";
+      installed: boolean;
+      provider_id: string | null;
+      credential_source: string | null;
+      archive_url: string | null;
+    };
+    const byAppId = new Map<string, ResultRow>();
+
+    for (const entry of catalogEntries) {
+      byAppId.set(entry.appId, {
+        app_id: entry.appId,
+        name: entry.name,
+        description: entry.description,
+        source: entry.source,
+        installed: installedAppIds.has(entry.appId),
+        provider_id: entry.providerId,
+        credential_source: entry.credentialSource,
+        archive_url: entry.archiveUrl,
+      });
+    }
+
+    if (source === "installed" || source === "all") {
+      for (const installed of installedEntries) {
+        const appId = typeof installed.app_id === "string" ? installed.app_id : "";
+        if (!appId) {
+          continue;
+        }
+        const existing = byAppId.get(appId);
+        if (existing) {
+          existing.installed = true;
+          // When source filter is "installed", surface as installed regardless
+          // of the catalog row's original marketplace/local source.
+          if (source === "installed") {
+            existing.source = "installed";
+          }
+          continue;
+        }
+        byAppId.set(appId, {
+          app_id: appId,
+          name: appId,
+          description: null,
+          source: "installed",
+          installed: true,
+          provider_id: null,
+          credential_source: null,
+          archive_url: null,
+        });
+      }
+    }
+
+    let results = [...byAppId.values()];
+    if (query) {
+      results = results.filter((row) => {
+        const haystack = `${row.app_id} ${row.name} ${row.description ?? ""}`.toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+    results.sort((a, b) => {
+      // Installed first, then catalog source order, then alpha.
+      if (a.installed !== b.installed) {
+        return a.installed ? -1 : 1;
+      }
+      if (a.source !== b.source) {
+        return a.source.localeCompare(b.source);
+      }
+      return a.app_id.localeCompare(b.app_id);
+    });
+
+    const catalogEmpty =
+      catalogEntries.length === 0 && (source === "all" || source === "marketplace" || source === "local");
+    const hint =
+      catalogEmpty && results.length === 0
+        ? "Catalog is empty. The user can populate it by opening the Marketplace tab in the desktop app once, which syncs the latest entries from the marketplace. After that, retry `workspace_apps_find`."
+        : null;
+
+    return {
+      workspace_id: params.workspaceId,
+      query: query || null,
+      source,
+      results: results.map((row) => ({
+        app_id: row.app_id,
+        name: row.name,
+        description: row.description,
+        source: row.source as string,
+        installed: row.installed,
+        provider_id: row.provider_id,
+        credential_source: row.credential_source,
+        archive_url: row.archive_url,
+      })),
+      count: results.length,
+      ...(hint ? { hint } : {}),
+    };
+  }
+
+  async installWorkspaceApp(
+    params: RuntimeAgentToolsInstallWorkspaceAppParams,
+  ): Promise<JsonObject> {
+    this.requireWorkspace(params.workspaceId);
+    const lifecycle = this.requireWorkspaceAppLifecycle();
+    if (!lifecycle.installFromArchive) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "workspace_app_install_unavailable",
+        "managed app install is not available in this runtime",
+      );
+    }
+    const appId = sanitizeWorkspaceAppId(params.appId);
+
+    const allEntries = this.store.listAppCatalogEntries();
+    const candidates = allEntries.filter((entry) => entry.appId === appId);
+    if (candidates.length === 0) {
+      throw new RuntimeAgentToolsServiceError(
+        404,
+        "workspace_app_catalog_entry_not_found",
+        `no catalog entry found for app '${appId}' — call workspace_apps_find first`,
+      );
+    }
+    candidates.sort((a, b) => (a.source === "marketplace" ? -1 : b.source === "marketplace" ? 1 : 0));
+    const entry = candidates[0]!;
+    if (!entry.archiveUrl && !entry.archivePath) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "workspace_app_catalog_entry_no_archive",
+        `catalog entry for '${appId}' has no archive_url or archive_path`,
+      );
+    }
+
+    const workspaceDir = path.join(this.options.workspaceRoot, params.workspaceId);
+    const mcpServersBefore = readWorkspaceMcpRegistryServerNames(workspaceDir);
+
+    const installResult = await lifecycle.installFromArchive({
+      workspaceId: params.workspaceId,
+      appId,
+      archiveUrl: entry.archiveUrl,
+      archivePath: entry.archivePath,
+    });
+
+    const mcpServersAfter = readWorkspaceMcpRegistryServerNames(workspaceDir);
+    const newMcpServers = [...mcpServersAfter].filter((name) => !mcpServersBefore.has(name));
+
+    if (!installResult.ok) {
+      throw new RuntimeAgentToolsServiceError(
+        installResult.statusCode ?? 500,
+        "workspace_app_install_failed",
+        installResult.error || installResult.detail || "install failed",
+      );
+    }
+
+    const status = this.getWorkspaceAppStatus({
+      workspaceId: params.workspaceId,
+      appId,
+    });
+
+    const pendingIntegrations =
+      entry.providerId
+        ? [
+            {
+              app_id: appId,
+              provider_id: entry.providerId,
+              credential_source: entry.credentialSource,
+            },
+          ]
+        : [];
+    const integrationNote =
+      pendingIntegrations.length > 0
+        ? `This app needs a connected ${entry.providerId} account. Tell the user a Connect button is shown below your message — they can click it to authorize. Do not try to call the app's tools until they confirm the connection.`
+        : null;
+
+    return {
+      workspace_id: params.workspaceId,
+      app_id: appId,
+      source: entry.source,
+      catalog_name: entry.name,
+      provider_id: entry.providerId,
+      credential_source: entry.credentialSource,
+      ready: installResult.ready,
+      detail: installResult.detail,
+      error: installResult.error,
+      status,
+      ...buildSessionRefreshFields(newMcpServers),
+      ...(pendingIntegrations.length > 0
+        ? { pending_integrations: pendingIntegrations, integration_note: integrationNote }
+        : {}),
+    };
+  }
+
   async scaffoldWorkspaceApp(
     params: RuntimeAgentToolsScaffoldWorkspaceAppParams,
   ): Promise<JsonObject> {
@@ -4467,6 +4774,9 @@ export class RuntimeAgentToolsService {
       this.requireRegisteredWorkspaceApp({ workspaceId: params.workspaceId, appId });
     }
 
+    const workspaceDir = path.join(this.options.workspaceRoot, params.workspaceId);
+    const mcpServersBefore = readWorkspaceMcpRegistryServerNames(workspaceDir);
+
     if (requestedAppIds.length === 0 && lifecycle.ensureAllAppsRunning) {
       await lifecycle.ensureAllAppsRunning(params.workspaceId);
     } else if (lifecycle.ensureAppRunning) {
@@ -4481,6 +4791,13 @@ export class RuntimeAgentToolsService {
       );
     }
 
+    const mcpServersAfter = readWorkspaceMcpRegistryServerNames(workspaceDir);
+    const newMcpServers = [...mcpServersAfter].filter((name) => !mcpServersBefore.has(name));
+    const pendingIntegrations = pendingIntegrationsFromAppManifests({
+      workspaceDir,
+      appIds: targetAppIds,
+    });
+
     const statusResult = this.getWorkspaceAppStatus({
       workspaceId: params.workspaceId,
     });
@@ -4489,6 +4806,8 @@ export class RuntimeAgentToolsService {
       app_ids: targetAppIds,
       count: targetAppIds.length,
       status: statusResult,
+      ...buildSessionRefreshFields(newMcpServers),
+      ...(pendingIntegrations.length > 0 ? { pending_integrations: pendingIntegrations } : {}),
     };
   }
 

@@ -39,6 +39,45 @@ function groupedEventPayload(events: MainSessionEventQueueRecord[]) {
   return events.map((event) => queuedMainSessionEventPromptEntry(event));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function appendSubagentLifecycleOutputEvents(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  sessionId: string;
+  inputId: string;
+  batch: MainSessionEventQueueRecord[];
+  createdAt: string;
+}): void {
+  let sequence = params.store.latestOutputEventId({
+    workspaceId: params.workspaceId,
+    sessionId: params.sessionId,
+    inputId: params.inputId,
+  });
+  for (const event of params.batch) {
+    const payload = isRecord(event.payload) ? event.payload : {};
+    sequence += 1;
+    params.store.appendOutputEvent({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+      inputId: params.inputId,
+      sequence,
+      eventType: "subagent_lifecycle_update",
+      payload: {
+        event_id: event.eventId,
+        event_type: event.eventType,
+        delivery_bucket: event.deliveryBucket,
+        status: event.status,
+        subagent_id: event.subagentId,
+        subagent_payload: payload,
+      },
+      createdAt: params.createdAt,
+    });
+  }
+}
+
 function mainSessionEventBatchIdempotencyKey(
   events: MainSessionEventQueueRecord[],
 ): string {
@@ -269,6 +308,14 @@ export class RuntimeMainSessionEventWorker
           workspaceId: workspace.id,
           eventIds,
           materializedInputId: input.inputId,
+        });
+        appendSubagentLifecycleOutputEvents({
+          store: this.#store,
+          workspaceId: workspace.id,
+          sessionId: ownerMainSessionId,
+          inputId: input.inputId,
+          batch,
+          createdAt: now,
         });
         materialized += batch.length;
         this.#queueWorker?.wake();

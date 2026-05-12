@@ -1354,6 +1354,7 @@ env_contract:
     store.close();
   }
 });
+
 test("runtime subagent capability routes create and cancel hidden background tasks", async () => {
   const root = makeTempDir("hb-runtime-api-subagents-");
   const workspaceRoot = path.join(root, "workspace");

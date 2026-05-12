@@ -172,6 +172,18 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     policy: "mutate"
   },
   {
+    id: "workspace_apps_find",
+    description:
+      "Discover apps the user could install in the current workspace. Returns deduped candidates from the marketplace catalog and any locally synced sources, plus apps already installed in this workspace. Use the optional `query` to filter by app id, name, or description (case-insensitive substring). Use this BEFORE `workspace_apps_install` to confirm an `app_id` exists in the catalog.",
+    policy: "inspect"
+  },
+  {
+    id: "workspace_apps_install",
+    description:
+      "Install a marketplace or local-catalog app into the current workspace. Downloads the archive, extracts under `apps/<app_id>/`, registers it in `workspace.yaml`, and starts the managed app process so its MCP tools become available. The result will include `requires_session_refresh: true` along with `new_mcp_servers: [...]` — when that happens, finish your current message without invoking the new tools (they will become callable starting from the next user message). The result also surfaces `provider_id` and `credential_source`; if the app needs an external account, mention that in your message so the user can authorize it.",
+    policy: "mutate"
+  },
+  {
     id: "workspace_apps_scaffold",
     description:
       "Create the minimum valid holaOS app skeleton under `apps/<app_id>/` for the current workspace using the canonical runtime-managed Node/TypeScript/Express starter files.",
@@ -192,7 +204,7 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
   {
     id: "workspace_apps_ensure_running",
     description:
-      "Start all registered workspace apps, or a selected subset, through the managed holaOS runtime lifecycle instead of using an unmanaged preview server.",
+      "Start all registered workspace apps, or a selected subset, through the managed holaOS runtime lifecycle instead of using an unmanaged preview server. If this call brings up a NEW MCP server (one not visible at the start of this turn), the result will include `requires_session_refresh: true` and `new_mcp_servers: [...]`. When that happens, finish your current message without invoking the new tools — they will become callable starting from the next user message. The result also surfaces `pending_integrations` for any of the started apps that declared a required `integrations:` entry; the chat UI renders a Connect card automatically — do not call any extra tool, just mention the Connect button in your reply.",
     policy: "mutate"
   },
   {

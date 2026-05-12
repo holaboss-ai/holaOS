@@ -2786,6 +2786,47 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       stopApp: async (workspaceId: string, appId: string) => {
         return await stopManagedWorkspaceApp(workspaceId, appId);
       },
+      installFromArchive: async ({ workspaceId, appId, archiveUrl, archivePath }) => {
+        const payload: Record<string, unknown> = {
+          workspace_id: workspaceId,
+          app_id: appId,
+        };
+        if (archiveUrl) payload.archive_url = archiveUrl;
+        else if (archivePath) payload.archive_path = archivePath;
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/apps/install-archive",
+          payload,
+        });
+        const body = (() => {
+          try {
+            return JSON.parse(response.body) as Record<string, unknown>;
+          } catch {
+            return null;
+          }
+        })();
+        if (response.statusCode >= 200 && response.statusCode < 300 && isRecord(body)) {
+          return {
+            ok: true,
+            ready: body.ready === true,
+            detail: typeof body.detail === "string" ? body.detail : "installed",
+            error: typeof body.error === "string" ? body.error : null,
+          };
+        }
+        const errorMessage =
+          isRecord(body) && typeof body.error === "string"
+            ? body.error
+            : isRecord(body) && typeof body.message === "string"
+              ? body.message
+              : `install-archive returned status ${response.statusCode}`;
+        return {
+          ok: false,
+          ready: false,
+          detail: errorMessage,
+          error: errorMessage,
+          statusCode: response.statusCode,
+        };
+      },
     },
   });
   async function maybeShapeCapabilityToolResult(params: {
@@ -5371,6 +5412,65 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           error instanceof Error
             ? error.message
             : "background task archive failed",
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/v1/capabilities/runtime-tools/workspace-apps/find",
+    async (request, reply) => {
+      const body = isRecord(request.body) ? request.body : {};
+      try {
+        const sourceRaw = nullableString(body.source);
+        const source =
+          sourceRaw === "marketplace" || sourceRaw === "local" || sourceRaw === "installed" || sourceRaw === "all"
+            ? sourceRaw
+            : null;
+        return await runtimeAgentToolsService.findWorkspaceApps({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }),
+          query: nullableString(body.query),
+          source,
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_apps_find failed",
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/v1/capabilities/runtime-tools/workspace-apps/install",
+    async (request, reply) => {
+      if (!isRecord(request.body)) {
+        return sendError(reply, 400, "request body must be an object");
+      }
+      try {
+        const body = request.body;
+        return await runtimeAgentToolsService.installWorkspaceApp({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }),
+          appId: requiredString(body.app_id, "app_id"),
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_apps_install failed",
         );
       }
     },

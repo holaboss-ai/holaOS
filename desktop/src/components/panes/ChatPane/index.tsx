@@ -128,6 +128,7 @@ import {
   type ChatTraceStepStatus,
   type ChatTraceStep,
   type ChatExecutionTimelineItem,
+  type ChatPendingIntegration,
   type PendingLocalAttachmentFile,
   type PendingExplorerAttachmentFile,
   type PendingAttachment,
@@ -728,6 +729,9 @@ export function chatMessagesFromSessionState(params: {
           if (turnOutputs.length > 0) {
             nextMessage.outputs = turnOutputs;
           }
+          if (restoredAssistantState.pendingIntegrations) {
+            nextMessage.pendingIntegrations = restoredAssistantState.pendingIntegrations;
+          }
         }
       }
 
@@ -769,6 +773,7 @@ export function chatMessagesFromSessionState(params: {
           outputs: turnOutputs.length > 0 ? turnOutputs : undefined,
           memoryProposals:
             turnMemoryProposals.length > 0 ? turnMemoryProposals : undefined,
+          pendingIntegrations: restoredAssistantState.pendingIntegrations,
         };
         if (
           hasRenderableAssistantTurn(syntheticAssistantMessage, {
@@ -2219,6 +2224,117 @@ function isTerminalSessionOutputEventType(eventType: string) {
   return eventType === "run_completed" || eventType === "run_failed";
 }
 
+function parsePendingIntegrationsList(value: unknown): ChatPendingIntegration[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry): ChatPendingIntegration | null => {
+      if (!isRecord(entry)) return null;
+      const appId = typeof entry.app_id === "string" ? entry.app_id.trim() : "";
+      const provider = typeof entry.provider_id === "string" ? entry.provider_id.trim() : "";
+      if (!appId || !provider) return null;
+      return {
+        app_id: appId,
+        provider_id: provider,
+        credential_source:
+          typeof entry.credential_source === "string"
+            ? entry.credential_source
+            : null,
+      };
+    })
+    .filter((entry): entry is ChatPendingIntegration => Boolean(entry));
+}
+
+function pendingIntegrationsFromSubagentLifecycle(
+  payload: Record<string, unknown>,
+): ChatPendingIntegration[] {
+  const subagentPayload = isRecord(payload.subagent_payload)
+    ? payload.subagent_payload
+    : null;
+  if (!subagentPayload) return [];
+  return parsePendingIntegrationsList(subagentPayload.pending_integrations);
+}
+
+const PENDING_INTEGRATION_TOOL_NAMES = new Set([
+  "workspace_apps_install",
+  "workspace_apps_ensure_running",
+  "workspace_apps_restart",
+  "workspace_apps_restart_and_wait_ready",
+  "holaboss_delegate_task",
+  "holaboss_resume_subagent",
+  "holaboss_continue_subagent",
+  "holaboss_get_subagent",
+]);
+
+function pendingIntegrationsFromToolResult(
+  payload: Record<string, unknown>,
+): ChatPendingIntegration[] {
+  const toolName =
+    typeof payload.tool_name === "string" ? payload.tool_name.trim() : "";
+  if (!PENDING_INTEGRATION_TOOL_NAMES.has(toolName)) {
+    return [];
+  }
+  const phase =
+    typeof payload.phase === "string" ? payload.phase.trim().toLowerCase() : "";
+  if (phase !== "completed" || payload.error === true) {
+    return [];
+  }
+  const result = isRecord(payload.result) ? payload.result : null;
+  if (!result) {
+    return [];
+  }
+  const direct = parsePendingIntegrationsList(result.pending_integrations);
+  if (direct.length > 0) return direct;
+  if (isRecord(result.details)) {
+    const detailsDirect = parsePendingIntegrationsList(result.details.pending_integrations);
+    if (detailsDirect.length > 0) return detailsDirect;
+    if (isRecord(result.details.raw)) {
+      const fromRaw = parsePendingIntegrationsList(result.details.raw.pending_integrations);
+      if (fromRaw.length > 0) return fromRaw;
+    }
+  }
+  if (Array.isArray(result.content)) {
+    for (const part of result.content) {
+      if (
+        isRecord(part) &&
+        part.type === "text" &&
+        typeof part.text === "string" &&
+        part.text.includes("pending_integrations")
+      ) {
+        const fromText = pendingIntegrationsFromTextBlob(part.text);
+        if (fromText.length > 0) return fromText;
+      }
+    }
+  }
+  return [];
+}
+
+function pendingIntegrationsFromTextBlob(text: string): ChatPendingIntegration[] {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (!isRecord(parsed)) return [];
+    const direct = parsePendingIntegrationsList(parsed.pending_integrations);
+    if (direct.length > 0) return direct;
+    // Subagent metadata wraps the lifecycle payload under various nesting
+    // keys depending on which orchestration tool returned it. Walk a few
+    // known shells before giving up.
+    const candidates = [
+      parsed.result_payload,
+      parsed.blocking_payload,
+      parsed.error_payload,
+      parsed.latest_progress_payload,
+      ...(Array.isArray(parsed.tasks) ? parsed.tasks : []),
+    ];
+    for (const candidate of candidates) {
+      if (!isRecord(candidate)) continue;
+      const list = parsePendingIntegrationsList(candidate.pending_integrations);
+      if (list.length > 0) return list;
+    }
+  } catch {
+    // not JSON — caller decides whether to try other content parts
+  }
+  return [];
+}
+
 function assistantHistoryStateFromOutputEvents(
   outputEvents: SessionOutputEventPayload[],
 ) {
@@ -2232,6 +2348,7 @@ function assistantHistoryStateFromOutputEvents(
   let encounteredTerminalEvent = false;
   let failureText = "";
   let terminalCreatedAt = "";
+  const pendingIntegrations: ChatPendingIntegration[] = [];
 
   const flushExecutionSegment = () => {
     if (executionItems.length === 0) {
@@ -2315,6 +2432,24 @@ function assistantHistoryStateFromOutputEvents(
       }
     }
 
+    if (event.event_type === "tool_call") {
+      for (const integration of pendingIntegrationsFromToolResult(eventPayload)) {
+        const key = integration.provider_id.trim().toLowerCase();
+        if (!pendingIntegrations.some((existing) => existing.provider_id.trim().toLowerCase() === key)) {
+          pendingIntegrations.push(integration);
+        }
+      }
+    }
+
+    if (event.event_type === "subagent_lifecycle_update") {
+      for (const integration of pendingIntegrationsFromSubagentLifecycle(eventPayload)) {
+        const key = integration.provider_id.trim().toLowerCase();
+        if (!pendingIntegrations.some((existing) => existing.provider_id.trim().toLowerCase() === key)) {
+          pendingIntegrations.push(integration);
+        }
+      }
+    }
+
     if (event.event_type === "output_delta") {
       flushExecutionSegment();
       const delta =
@@ -2367,6 +2502,7 @@ function assistantHistoryStateFromOutputEvents(
     executionItems: executionItems.length > 0 ? executionItems : undefined,
     failureText: failureText || undefined,
     terminalCreatedAt: terminalCreatedAt || undefined,
+    pendingIntegrations: pendingIntegrations.length > 0 ? pendingIntegrations : undefined,
   };
 }
 
@@ -5912,6 +6048,25 @@ export function ChatPane({
     }
   }
 
+  async function handleAfterIntegrationBind() {
+    const sessionId = activeSessionIdRef.current || activeSessionId;
+    if (!selectedWorkspaceId || !sessionId) return;
+    try {
+      await window.electronAPI.workspace.queueSessionInput({
+        workspace_id: selectedWorkspaceId,
+        session_id: sessionId,
+        text: "continue",
+        image_urls: null,
+        attachments: [],
+        priority: 0,
+        model: resolvedChatModel || null,
+        thinking_value: effectiveThinkingValue,
+      });
+    } catch {
+      /* non-fatal */
+    }
+  }
+
   async function pauseCurrentRun() {
     const sessionId = activeSessionIdRef.current || activeSessionId;
     if (!selectedWorkspaceId || !sessionId || isPausePending) {
@@ -7531,6 +7686,7 @@ export function ChatPane({
                           }
                         : null
                     }
+                    onAfterIntegrationBind={handleAfterIntegrationBind}
                   />
                 </div>
               ) : (
