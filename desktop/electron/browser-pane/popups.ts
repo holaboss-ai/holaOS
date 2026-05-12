@@ -525,20 +525,14 @@ function createAddressSuggestionsPopupHtml(themeCss: string): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Suggestions</title>
     <style>
-      :root { color-scheme: dark; }
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        font-family: "IBM Plex Sans", "Segoe UI Variable", sans-serif;
         background: transparent;
-        color: #deeee6;
       }
       .panel {
         margin: 6px 0 0;
         border-radius: 14px;
-        border: 1px solid rgba(87, 255, 173, 0.18);
-        background: linear-gradient(180deg, rgba(17, 19, 22, 0.98), rgba(12, 15, 18, 0.98));
-        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.36);
         overflow: hidden;
       }
       .list {
@@ -551,18 +545,13 @@ function createAddressSuggestionsPopupHtml(themeCss: string): string {
         align-items: center;
         gap: 10px;
         border: 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        border-bottom: 1px solid var(--popup-border-soft);
         background: transparent;
-        color: rgba(222, 238, 230, 0.84);
         padding: 10px 12px;
         text-align: left;
         cursor: pointer;
       }
       .item:last-child { border-bottom: 0; }
-      .item:hover,
-      .item.active {
-        background: rgba(124, 146, 184, 0.12);
-      }
       .icon {
         width: 14px;
         height: 14px;
@@ -580,7 +569,6 @@ function createAddressSuggestionsPopupHtml(themeCss: string): string {
         white-space: nowrap;
         font-size: 12px;
         font-weight: 600;
-        color: rgba(236, 239, 243, 0.92);
       }
       .url {
         overflow: hidden;
@@ -588,13 +576,12 @@ function createAddressSuggestionsPopupHtml(themeCss: string): string {
         white-space: nowrap;
         margin-top: 2px;
         font-size: 10px;
-        color: rgba(160, 167, 176, 0.72);
+        color: var(--popup-text-subtle);
       }
       .clock {
         width: 14px;
         text-align: center;
         flex: 0 0 auto;
-        color: rgba(160, 167, 176, 0.55);
         font-size: 12px;
       }
       ${themeCss}
