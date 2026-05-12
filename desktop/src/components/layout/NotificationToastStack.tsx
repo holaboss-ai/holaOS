@@ -36,14 +36,19 @@ function toneTokenName(
   return "info";
 }
 
-/** Soft tone-tinted left → fading-to-card gradient, mirrors the design
- *  reference. color-mix in oklch keeps the tint perceptually consistent
- *  in both light and dark themes; goes opaque (no opacity hack on a
- *  semantic token). */
+/** Soft tone-tinted left → fading-to-card gradient. The gradient is a
+ *  translucent overlay of the actual tone colour on top of a solid
+ *  card background, rather than a blended mix. This decouples tint
+ *  visibility from the tone's intrinsic lightness — important for
+ *  `warning` (oklch L=0.82), whose old 9% blend with a near-white
+ *  card produced no perceptible amber. With a fixed-alpha overlay
+ *  every level renders at the same effective tint strength while
+ *  faithfully showing its own hue. */
 function toastGradientStyle(level: RuntimeNotificationLevel): CSSProperties {
   const tone = toneTokenName(level);
   return {
-    backgroundImage: `linear-gradient(to right, color-mix(in oklch, var(--${tone}) 9%, var(--card)) 0%, var(--card) 65%)`,
+    backgroundColor: "var(--card)",
+    backgroundImage: `linear-gradient(to right, color-mix(in srgb, var(--${tone}) 14%, transparent) 0%, transparent 60%)`,
   };
 }
 
@@ -164,7 +169,12 @@ export function NotificationToastStack({
               <div
                 key={notification.id}
                 className={cn(
-                  "overflow-hidden rounded-2xl border border-border animate-in fade-in-0 slide-in-from-top-2 transition-[margin,transform,opacity,max-height] duration-200 ease-out",
+                  // No explicit border: `--shadow-md` / `--shadow-lg`
+                  // already bake a `0 0 0 1px` hairline ring into the
+                  // shadow stack (see tokens.css), so layering another
+                  // `border-border` on top was producing a doubled
+                  // outline. Shadow does both jobs at once now.
+                  "overflow-hidden rounded-2xl animate-in fade-in-0 slide-in-from-top-2 transition-[margin,transform,opacity,max-height] duration-200 ease-out",
                   isCollapsedBackgroundToast
                     ? "pointer-events-none shadow-md"
                     : "shadow-lg",
