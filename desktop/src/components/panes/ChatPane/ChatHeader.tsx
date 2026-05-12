@@ -1,4 +1,4 @@
-import { Clock3, FileStack, Inbox, MessageCircle } from "lucide-react";
+import { Clock3, Inbox, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -8,6 +8,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ArtifactBrowserPopover } from "./ArtifactBrowserPopover";
 
 interface ChatHeaderProps {
   agentName: string;
@@ -18,7 +19,10 @@ interface ChatHeaderProps {
   onOpenInbox?: () => void;
   inboxUnreadCount: number;
   onOpenAutomations?: () => void;
-  onViewAllArtifacts?: () => void;
+  /** Session-wide outputs. When provided alongside `onOpenOutput`,
+   *  ChatHeader renders the artifact-browser popover button. */
+  sessionOutputs?: WorkspaceOutputRecordPayload[];
+  onOpenOutput?: (output: WorkspaceOutputRecordPayload) => void;
 }
 
 export function ChatHeader({
@@ -30,7 +34,8 @@ export function ChatHeader({
   onOpenInbox,
   inboxUnreadCount,
   onOpenAutomations,
-  onViewAllArtifacts,
+  sessionOutputs,
+  onOpenOutput,
 }: ChatHeaderProps) {
   const seed = workspace?.id ?? agentName ?? "default";
 
@@ -119,24 +124,11 @@ export function ChatHeader({
             </Tooltip>
           ) : null}
 
-          {onViewAllArtifacts ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => onViewAllArtifacts()}
-                    aria-label="View all artifacts"
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <FileStack className="size-4" />
-                  </Button>
-                }
-              />
-              <TooltipContent>All artifacts</TooltipContent>
-            </Tooltip>
+          {sessionOutputs ? (
+            <ArtifactBrowserPopover
+              outputs={sessionOutputs}
+              onOpenOutput={onOpenOutput}
+            />
           ) : null}
         </div>
       </TooltipProvider>
