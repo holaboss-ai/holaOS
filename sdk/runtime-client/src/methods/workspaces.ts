@@ -15,6 +15,8 @@ export type WorkspaceRecord = {
   created_at: string | null;
   updated_at: string | null;
   deleted_at_utc: string | null;
+  icon?: string | null;
+  icon_color?: string | null;
   workspace_path?: string | null;
   folder_state?: "healthy" | "missing" | null;
 };

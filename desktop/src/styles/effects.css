@@ -49,13 +49,13 @@ html[data-platform="win32"] body {
   background: color-mix(in oklch, var(--background) 60%, transparent);
 }
 
-/* Dark mode: lower the tint floor (15% vs light's 60%) so OS vibrancy
-   actually shows through near-black backgrounds. */
+/* Dark mode: lower the tint floor (40% vs light's 60%) so OS vibrancy
+   shows through near-black backgrounds while keeping the canvas readable. */
 html[data-platform="darwin"][data-theme$="-dark"],
 html[data-platform="darwin"][data-theme$="-dark"] body,
 html[data-platform="win32"][data-theme$="-dark"],
 html[data-platform="win32"][data-theme$="-dark"] body {
-  background: color-mix(in oklch, var(--background) 15%, transparent);
+  background: color-mix(in oklch, var(--background) 40%, transparent);
 }
 
 /* Dark pane surfaces: 78% solid lets OS vibrancy bleed through PaneCard's

@@ -888,6 +888,45 @@ test("runtime tools capability routes expose local onboarding and cronjob action
   }
 });
 
+test("runtime onboarding completion returns 409 workspace_folder_missing when the managed folder is gone", async () => {
+  const root = makeTempDir("hb-runtime-api-onboarding-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    onboardingStatus: "pending",
+    onboardingSessionId: "session-1",
+  });
+  const workspaceDir = path.join(workspaceRoot, "workspace-1");
+  fs.rmSync(workspaceDir, { recursive: true, force: true });
+  const app = buildTestRuntimeApiServer({ store });
+  try {
+    const resp = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/onboarding/complete",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1"
+      },
+      payload: {
+        summary: "ready to work"
+      }
+    });
+
+    assert.equal(resp.statusCode, 409);
+    assert.equal(resp.json().code, "workspace_folder_missing");
+    assert.equal(path.resolve(resp.json().workspace_path), path.resolve(workspaceDir));
+    assert.equal(fs.existsSync(workspaceDir), false);
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
 test("workspace app capability routes scaffold, register, and inspect a managed app starter", async () => {
   const root = makeTempDir("hb-runtime-api-workspace-app-tools-");
   const workspaceRoot = path.join(root, "workspace");
@@ -1236,7 +1275,7 @@ test("runtime subagent capability routes create and cancel hidden background tas
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
     title: "Workspace 1",
   });
   store.upsertBinding({
@@ -1466,7 +1505,7 @@ test("delegated subagents use the configured global subagent model instead of re
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
   });
   const app = buildTestRuntimeApiServer({ store });
 
@@ -3292,7 +3331,7 @@ test("ensure-main-session binds one desktop main session and exports legacy fron
   const older = store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-older",
-    kind: "workspace_session",
+    kind: "main_session",
     title: "Older conversation",
     createdBy: "workspace_user",
   });
@@ -3307,7 +3346,7 @@ test("ensure-main-session binds one desktop main session and exports legacy fron
   const newer = store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-newer",
-    kind: "workspace_session",
+    kind: "main_session",
     title: "Main conversation",
     createdBy: "workspace_user",
   });
@@ -3329,8 +3368,8 @@ test("ensure-main-session binds one desktop main session and exports legacy fron
   const binding = store.getConversationBindingByConversation({
     workspaceId: workspace.id,
     channel: "desktop",
-    conversationKey: "workspace-main",
-    role: "main",
+    conversationKey: "main_session",
+    role: "main_session",
   });
   assert.ok(binding);
   assert.equal(binding?.sessionId, newer.sessionId);
@@ -3465,6 +3504,38 @@ test("PATCH workspace_path still accepts a folder with the legacy identity path"
     fs.readFileSync(path.join(movedPath, ".holaboss", "state", "workspace_id"), "utf-8").trim(),
     workspaceId,
   );
+
+  await app.close();
+  store.close();
+});
+
+test("PATCH workspace metadata returns 409 workspace_folder_missing when a managed folder is gone", async () => {
+  const root = makeTempDir("hb-runtime-api-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  const app = buildTestRuntimeApiServer({ store });
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/v1/workspaces",
+    payload: { name: "Managed", harness: "pi" }
+  });
+  const workspaceId = (created.json().workspace as { id: string }).id;
+  const workspaceDir = path.join(workspaceRoot, workspaceId);
+  fs.rmSync(workspaceDir, { recursive: true, force: true });
+
+  const resp = await app.inject({
+    method: "PATCH",
+    url: `/api/v1/workspaces/${workspaceId}`,
+    payload: { onboarding_requested_by: "workspace_agent" }
+  });
+
+  assert.equal(resp.statusCode, 409);
+  assert.equal(resp.json().code, "workspace_folder_missing");
+  assert.equal(path.resolve(resp.json().workspace_path), path.resolve(workspaceDir));
+  assert.equal(fs.existsSync(workspaceDir), false);
 
   await app.close();
   store.close();
@@ -4338,12 +4409,12 @@ test("history endpoint returns stored messages even after runtime harness owners
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-old",
-    kind: "workspace_session"
+    kind: "main_session"
   });
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-new",
-    kind: "workspace_session"
+    kind: "main_session"
   });
   store.insertSessionMessage({
     workspaceId: workspace.id,
@@ -4657,7 +4728,7 @@ test("cronjobs, task proposals, and session state routes preserve local payload 
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
     title: "Workspace 1",
   });
   store.upsertBinding({
@@ -4820,7 +4891,7 @@ test("cronjobs, task proposals, and session state routes preserve local payload 
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "main",
+    kind: "main_session",
     title: "Main"
   });
   store.createMemoryUpdateProposal({
@@ -5001,6 +5072,121 @@ test("workspace template, file, and snapshot routes preserve local payload shape
   store.close();
 });
 
+test("PUT files requires explicit approval before blanking a non-empty file", async () => {
+  const root = makeTempDir("hb-runtime-api-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/v1/workspaces",
+    payload: {
+      name: "Workspace File Guardrails",
+      harness: "pi",
+      status: "active"
+    }
+  });
+  const workspace = created.json().workspace as { id: string };
+  const targetPath = path.join(workspaceRoot, workspace.id, "docs", "note.txt");
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, "keep me\n", "utf8");
+
+  const blocked = await app.inject({
+    method: "PUT",
+    url: `/api/v1/workspaces/${workspace.id}/files/docs/note.txt`,
+    payload: {
+      content_base64: Buffer.from("\n \n", "utf8").toString("base64")
+    }
+  });
+  assert.equal(blocked.statusCode, 409);
+  assert.equal(blocked.json().code, "destructive_write_requires_explicit_approval");
+  assert.match(blocked.json().detail, /would clear a non-empty file/i);
+  assert.equal(fs.readFileSync(targetPath, "utf8"), "keep me\n");
+
+  const allowed = await app.inject({
+    method: "PUT",
+    url: `/api/v1/workspaces/${workspace.id}/files/docs/note.txt`,
+    payload: {
+      content_base64: Buffer.from("\n \n", "utf8").toString("base64"),
+      allow_destructive_write: true
+    }
+  });
+  assert.equal(allowed.statusCode, 200);
+  assert.equal(allowed.json().path, "docs/note.txt");
+  assert.equal(fs.readFileSync(targetPath, "utf8"), "\n \n");
+
+  await app.close();
+  store.close();
+});
+
+test("apply-template requires explicit approval before replace_existing deletes workspace files", async () => {
+  const root = makeTempDir("hb-runtime-api-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/v1/workspaces",
+    payload: {
+      name: "Workspace Template Guardrails",
+      harness: "pi",
+      status: "active"
+    }
+  });
+  const workspace = created.json().workspace as { id: string };
+  const workspaceDir = path.join(workspaceRoot, workspace.id);
+  fs.writeFileSync(path.join(workspaceDir, "stale.txt"), "stale\n", "utf8");
+
+  const blocked = await app.inject({
+    method: "POST",
+    url: `/api/v1/workspaces/${workspace.id}/apply-template`,
+    payload: {
+      replace_existing: true,
+      files: [
+        {
+          path: "README.md",
+          content_base64: Buffer.from("# Fresh\n", "utf8").toString("base64")
+        }
+      ]
+    }
+  });
+  assert.equal(blocked.statusCode, 409);
+  assert.equal(blocked.json().code, "destructive_write_requires_explicit_approval");
+  assert.match(blocked.json().detail, /replace_existing would delete existing workspace files/i);
+  assert.equal(fs.existsSync(path.join(workspaceDir, "stale.txt")), true);
+  assert.equal(fs.existsSync(path.join(workspaceDir, "README.md")), false);
+
+  const allowed = await app.inject({
+    method: "POST",
+    url: `/api/v1/workspaces/${workspace.id}/apply-template`,
+    payload: {
+      replace_existing: true,
+      allow_destructive_write: true,
+      files: [
+        {
+          path: "README.md",
+          content_base64: Buffer.from("# Fresh\n", "utf8").toString("base64")
+        }
+      ]
+    }
+  });
+  assert.equal(allowed.statusCode, 200);
+  assert.equal(allowed.json().files_written, 1);
+  assert.equal(fs.existsSync(path.join(workspaceDir, "stale.txt")), false);
+  assert.equal(fs.readFileSync(path.join(workspaceDir, "README.md"), "utf8"), "# Fresh\n");
+
+  await app.close();
+  store.close();
+});
+
 test("workspace apply-template-from-url downloads and extracts a zip archive", async () => {
   const root = makeTempDir("hb-runtime-api-");
   const workspaceRoot = path.join(root, "workspace");
@@ -5041,7 +5227,8 @@ test("workspace apply-template-from-url downloads and extracts a zip archive", a
       payload: {
         url: `${server.url}/template.zip`,
         api_key: "template-key",
-        replace_existing: true
+        replace_existing: true,
+        allow_destructive_write: true
       }
     });
 
@@ -5058,6 +5245,56 @@ test("workspace apply-template-from-url downloads and extracts a zip archive", a
       "echo remote\n"
     );
     assert.notEqual(fs.statSync(path.join(workspaceDir, "scripts", "run.sh")).mode & 0o111, 0);
+  } finally {
+    await server.close();
+    await app.close();
+    store.close();
+  }
+});
+
+test("workspace apply-template-from-url requires explicit approval before replace_existing deletes workspace files", async () => {
+  const root = makeTempDir("hb-runtime-api-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/v1/workspaces",
+    payload: {
+      name: "Workspace Template URL Guardrails",
+      harness: "pi",
+      status: "active"
+    }
+  });
+  const workspace = created.json().workspace as { id: string };
+  const workspaceDir = path.join(workspaceRoot, workspace.id);
+  fs.writeFileSync(path.join(workspaceDir, "stale.txt"), "stale\n", "utf8");
+
+  const zipArchive = await createZipBuffer([{ path: "README.md", content: "# Remote Template\n" }]);
+  const server = await startStaticHttpServer((_request, response) => {
+    response.writeHead(200, { "content-type": "application/zip" });
+    response.end(zipArchive);
+  });
+
+  try {
+    const blocked = await app.inject({
+      method: "POST",
+      url: `/api/v1/workspaces/${workspace.id}/apply-template-from-url`,
+      payload: {
+        url: `${server.url}/template.zip`,
+        replace_existing: true
+      }
+    });
+
+    assert.equal(blocked.statusCode, 409);
+    assert.equal(blocked.json().code, "destructive_write_requires_explicit_approval");
+    assert.match(blocked.json().detail, /replace_existing would delete existing workspace files/i);
+    assert.equal(fs.existsSync(path.join(workspaceDir, "stale.txt")), true);
+    assert.equal(fs.existsSync(path.join(workspaceDir, "README.md")), false);
   } finally {
     await server.close();
     await app.close();
@@ -6928,7 +7165,7 @@ test("queue route persists input and runtime state without writing session histo
 
   const session = store.getSession({ workspaceId: workspace.id, sessionId });
   assert.ok(session);
-  assert.equal(session.kind, "workspace_session");
+  assert.equal(session.kind, "main_session");
   assert.equal(session.title, "hello world");
 
   const binding = store.getBinding({ workspaceId: workspace.id, sessionId });
@@ -6997,7 +7234,7 @@ test("queue route preserves the active claimed input while adding later queued w
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
   });
   store.upsertBinding({
     workspaceId: workspace.id,
@@ -7093,7 +7330,7 @@ test("queue route folds pending background updates into the next main-session in
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
   });
   store.upsertBinding({
     workspaceId: workspace.id,
@@ -7183,7 +7420,7 @@ test("queue route preserves an existing explicit session title", async () => {
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "workspace_session",
+    kind: "main_session",
     title: "Pinned title",
   });
 
@@ -7660,7 +7897,7 @@ test("accepting and dismissing evolve task proposals updates linked skill candid
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "session-main",
-    kind: "main",
+    kind: "main_session",
     title: "Main"
   });
   store.upsertBinding({

@@ -4,8 +4,6 @@ import {
   ChevronRight,
   Globe,
   Loader2,
-  Maximize2,
-  Minimize2,
   RefreshCcw,
   Star,
   X,
@@ -67,7 +65,6 @@ interface SpaceBrowserDisplayPaneProps {
   layoutSyncKey?: string;
   embedded?: boolean;
   fullscreen?: boolean;
-  onToggleFullscreen?: () => void;
 }
 
 export function SpaceBrowserDisplayPane({
@@ -76,7 +73,6 @@ export function SpaceBrowserDisplayPane({
   layoutSyncKey = "",
   embedded = false,
   fullscreen = false,
-  onToggleFullscreen,
 }: SpaceBrowserDisplayPaneProps) {
   const [browserProfileImportDialogOpen, setBrowserProfileImportDialogOpen] =
     useState(false);
@@ -466,18 +462,6 @@ export function SpaceBrowserDisplayPane({
               <Camera size={13} />
             )}
           </Button>
-          {onToggleFullscreen ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-              title={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-              onClick={onToggleFullscreen}
-            >
-              {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-            </Button>
-          ) : null}
         </div>
         <BrowserCaptureStatusToast message={actionStatus} />
       </div>

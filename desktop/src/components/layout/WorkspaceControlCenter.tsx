@@ -2,13 +2,17 @@ import {
   ArrowUpRight,
   GripVertical,
   Loader2,
+  Plus,
   SendHorizontal,
   TriangleAlert,
+  Waypoints,
+  X,
 } from "lucide-react";
 import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -25,6 +29,7 @@ import {
   turnInputIdsFromHistoryMessages,
   type ChatMessage,
 } from "@/components/panes/ChatPane";
+import { ModelCombobox } from "@/components/panes/ChatPane/Composer/ModelCombobox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +39,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
+import { useChatComposerModelSelection } from "@/lib/chat/useChatComposerModelSelection";
 import { cn } from "@/lib/utils";
 
 const PREVIEW_HISTORY_LIMIT = 18;
@@ -55,7 +61,6 @@ interface WorkspaceControlCenterProps {
   workspaces: WorkspaceRecordPayload[];
   selectedWorkspaceId: string | null;
   cardsPerRow: number;
-  composerModel: string | null;
   orderedWorkspaceIds: readonly string[];
   highlightedWorkspaceIds: readonly string[];
   onSelectWorkspace: (workspaceId: string) => void;
@@ -68,6 +73,7 @@ interface WorkspaceControlCenterProps {
   onVisibleWorkspaceIdsChange: (workspaceIds: string[]) => void;
   onCardComposerSubmit: (workspaceId: string) => void;
   onWorkspaceCompletion: (workspaceId: string) => void;
+  onCreateWorkspace?: () => void;
 }
 
 interface WorkspaceCardProps {
@@ -247,6 +253,54 @@ function statusAccentClassName(state: RuntimeCardState) {
   }
 }
 
+function statusStripeClassName(state: RuntimeCardState) {
+  switch (state) {
+    case "error":
+      return "bg-destructive";
+    case "queued":
+    case "waiting":
+      return "bg-warning";
+    case "working":
+      return "bg-primary";
+    default:
+      return "bg-transparent";
+  }
+}
+
+/** Bucket recent message timestamps into `slotCount` equal time slices
+ *  spanning the most-recent ~30 minutes, returning each slice's
+ *  intensity normalised against the busiest slice. Powers the tiny
+ *  activity-density bar in each tile's footer — Grafana-flavoured
+ *  signal that something is alive without spelling out exact counts. */
+function buildRecentEventDensity(
+  messages: PreviewChatMessage[],
+  slotCount: number,
+): number[] {
+  if (slotCount <= 0) {
+    return [];
+  }
+  const windowMs = 30 * 60 * 1000;
+  const now = Date.now();
+  const buckets = new Array<number>(slotCount).fill(0);
+  for (const message of messages) {
+    const timestamp = Date.parse(message.createdAt || "");
+    if (!Number.isFinite(timestamp)) continue;
+    const ageMs = now - timestamp;
+    if (ageMs < 0 || ageMs > windowMs) continue;
+    const slotIndex = Math.min(
+      slotCount - 1,
+      slotCount - 1 - Math.floor((ageMs / windowMs) * slotCount),
+    );
+    if (slotIndex < 0) continue;
+    buckets[slotIndex] += 1;
+  }
+  const peak = Math.max(...buckets, 0);
+  if (peak === 0) {
+    return buckets;
+  }
+  return buckets.map((value) => value / peak);
+}
+
 function isNearBottom(container: HTMLDivElement) {
   const remaining =
     container.scrollHeight - container.scrollTop - container.clientHeight;
@@ -363,9 +417,6 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
     [messages, workspaceFallbackActivityAt],
   );
 
-  // Bubble runtime state changes up so the parent can compute the
-  // aggregate strip ("3 working · 1 needs attention …") without
-  // re-fetching every workspace's runtime state itself.
   useEffect(() => {
     onRuntimeStateChange(workspaceId, runtimeCardState);
   }, [onRuntimeStateChange, runtimeCardState, workspaceId]);
@@ -1003,7 +1054,7 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
     workspaceUnavailable,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const scroller = previewScrollerRef.current;
     if (!scroller || !shouldStickToBottomRef.current) {
       return;
@@ -1032,6 +1083,15 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
   const showPreviewConversation =
     messages.length > 0 || Boolean(liveAssistantTurn);
 
+  const userMessageCount = useMemo(
+    () => messages.filter((message) => message.role === "user").length,
+    [messages],
+  );
+  const recentEventDensity = useMemo(
+    () => buildRecentEventDensity(messages, 8),
+    [messages],
+  );
+
   return (
     <Card
       size="sm"
@@ -1044,80 +1104,87 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
         "relative h-full min-h-0 min-w-0 gap-0 overflow-hidden bg-card py-0 transition-colors",
         isDragging && "cursor-grabbing opacity-70",
         isDragTarget && "ring-2 ring-primary ring-inset",
-        hasUnreadCompletionHighlight
-          ? "ring-1 ring-primary/40 ring-inset"
-          : isSelected && "ring-1 ring-border ring-inset",
+        // Selected tile gets a primary ring (binds visually to the
+        // floating composer at the bottom). Unread-completion highlight
+        // only applies when the tile is *not* selected, so the two
+        // signals don't fight.
+        isSelected
+          ? "ring-1 ring-primary/50 ring-inset"
+          : hasUnreadCompletionHighlight
+            ? "ring-1 ring-primary/40 ring-inset"
+            : "ring-1 ring-border ring-inset",
       )}
     >
-      <CardHeader className="gap-0 border-b border-border px-3 py-2">
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="flex min-w-0 flex-1 items-center gap-2 text-sm">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              draggable
-              aria-label={`Reorder ${workspace.name}`}
-              onDragStart={(event) => onDragStartWorkspace(event, workspaceId)}
-              onDragEnd={onDragEndWorkspace}
-              className="h-6 w-6 shrink-0 cursor-grab rounded-md text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing"
-            >
-              <GripVertical className="size-3.5" />
-            </Button>
-            <WorkspaceIcon workspace={workspace} size="md" />
-            <span className="truncate">{workspace.name}</span>
+      <span
+        aria-hidden="true"
+        className={cn(
+          "absolute inset-x-0 top-0 h-[2px] transition-colors",
+          statusStripeClassName(runtimeCardState),
+          runtimeCardState === "working" && "hb-tile-stripe-working",
+        )}
+      />
+      <CardHeader className="gap-0 border-b border-border px-2.5 py-1.5">
+        <div className="flex items-center gap-1.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            draggable
+            aria-label={`Reorder ${workspace.name}`}
+            onDragStart={(event) => onDragStartWorkspace(event, workspaceId)}
+            onDragEnd={onDragEndWorkspace}
+            className="h-5 w-5 shrink-0 cursor-grab rounded text-muted-foreground/60 hover:text-foreground active:cursor-grabbing"
+          >
+            <GripVertical className="size-3" />
+          </Button>
+          <WorkspaceIcon workspace={workspace} size="sm" />
+          <CardTitle className="min-w-0 flex-1 truncate text-[13px] font-medium">
+            {workspace.name}
+          </CardTitle>
+          <Badge
+            variant={previewStatusVariant(runtimeCardState)}
+            className="h-4 shrink-0 gap-1 rounded-full px-1.5 text-[10px] font-medium uppercase tracking-wide"
+          >
             <span
               aria-hidden="true"
               className={cn(
-                "inline-flex h-2 w-2 shrink-0 rounded-full",
+                "inline-flex h-1.5 w-1.5 rounded-full",
                 statusAccentClassName(runtimeCardState),
               )}
             />
-            {workspace.folder_state === "missing" ? (
-              <span className="inline-flex items-center gap-1 text-xs text-warning">
-                <TriangleAlert className="size-3.5" />
-                Missing folder
-              </span>
-            ) : null}
-          </CardTitle>
-          <div className="flex shrink-0 items-center gap-2">
-            <span className="text-[11px] tabular-nums text-muted-foreground">
-              {formatLastActivityLabel(lastActivityAt)}
-            </span>
-            {runtimeCardState === "waiting" || runtimeCardState === "error" ? (
-              <Badge
-                variant={previewStatusVariant(runtimeCardState)}
-                className="h-5 rounded-full px-1.5 text-[10px]"
-              >
-                {previewStatusLabel(runtimeCardState)}
-              </Badge>
-            ) : null}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleEnterWorkspace}
-              className="h-6 rounded-full px-2.5 text-xs hover:bg-accent"
-            >
-              Enter
-              <ArrowUpRight className="size-3.5" />
-            </Button>
-          </div>
+            {previewStatusLabel(runtimeCardState)}
+          </Badge>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Enter ${workspace.name}`}
+            onClick={handleEnterWorkspace}
+            className="h-5 w-5 shrink-0 rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <ArrowUpRight className="size-3.5" />
+          </Button>
         </div>
+        {workspace.folder_state === "missing" ? (
+          <div className="mt-1 inline-flex items-center gap-1 text-[10px] text-warning">
+            <TriangleAlert className="size-3" />
+            Folder missing
+          </div>
+        ) : null}
       </CardHeader>
 
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-0 px-0 pb-0 pt-0">
+      <CardContent className="relative flex min-h-0 flex-1 flex-col gap-0 px-0 pb-0 pt-0">
         <div
           ref={previewScrollerRef}
           onScroll={handlePreviewScroll}
-          className="min-h-0 flex-1 overflow-y-auto px-3 py-2"
+          className="relative min-h-0 flex-1 overflow-y-auto px-2.5 py-1.5 [contain:paint] [overflow-anchor:none]"
         >
           {isLoading ? (
-            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-              <Loader2 className="mr-2 size-3.5 animate-spin" />
-              Loading main session
+            <div className="flex h-full items-center justify-center text-[11px] text-muted-foreground">
+              <Loader2 className="mr-1.5 size-3 animate-spin" />
+              Loading
             </div>
           ) : showPreviewConversation ? (
-            <div className="space-y-2.5">
+            <div className="space-y-1.5 text-[12px]">
               <ConversationTurns
                 messages={messages}
                 assistantLabel={workspace.name}
@@ -1146,18 +1213,83 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
               />
             </div>
           ) : (
-            <div className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
-              No activity yet — message this workspace from the command bar
-              below.
+            <div className="relative flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0"
+                style={{
+                  backgroundImage:
+                    "radial-gradient(circle, var(--color-fg-8) 1px, transparent 1px)",
+                  backgroundSize: "16px 16px",
+                  maskImage:
+                    "radial-gradient(ellipse at center, black 0%, transparent 70%)",
+                  WebkitMaskImage:
+                    "radial-gradient(ellipse at center, black 0%, transparent 70%)",
+                }}
+              />
+              <WorkspaceIcon
+                workspace={workspace}
+                size="xl"
+                className="relative shadow-sm"
+              />
+              <div className="relative flex flex-col items-center gap-0.5">
+                <span className="text-[12px] font-medium text-foreground/80">
+                  Ready when you are
+                </span>
+                <span className="text-[10px] text-muted-foreground/70">
+                  Click to open the chat composer
+                </span>
+              </div>
             </div>
           )}
         </div>
 
         {errorMessage ? (
-          <div className="theme-chat-system-bubble mx-3 mb-2 rounded-md border px-3 py-2 text-xs">
+          <div className="mx-2.5 mb-1.5 line-clamp-2 rounded border border-destructive/30 bg-destructive/5 px-2 py-1 text-[10px] text-destructive">
             {errorMessage}
           </div>
         ) : null}
+
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border bg-fg-2 px-2.5 py-1 text-[10px] tabular-nums text-muted-foreground">
+          <span className="truncate">
+            {userMessageCount > 0
+              ? `${userMessageCount} ${userMessageCount === 1 ? "msg" : "msgs"}`
+              : "no msgs"}
+            <span className="mx-1.5 text-muted-foreground/40">·</span>
+            {formatLastActivityLabel(lastActivityAt)}
+          </span>
+          <span
+            aria-hidden="true"
+            className="flex shrink-0 items-end gap-[2px]"
+            title="Recent activity"
+          >
+            {recentEventDensity.map((intensity, index) => {
+              const lit = [
+                intensity >= 0.05,
+                intensity >= 0.4,
+                intensity >= 0.75,
+              ];
+              return (
+                <span
+                  // biome-ignore lint/suspicious/noArrayIndexKey: positional column
+                  key={index}
+                  className="flex flex-col-reverse gap-[1.5px]"
+                >
+                  {lit.map((isLit, dotIndex) => (
+                    <span
+                      // biome-ignore lint/suspicious/noArrayIndexKey: positional dot
+                      key={dotIndex}
+                      className={cn(
+                        "block size-[2px] rounded-full",
+                        isLit ? "bg-foreground/55" : "bg-foreground/10",
+                      )}
+                    />
+                  ))}
+                </span>
+              );
+            })}
+          </span>
+        </div>
       </CardContent>
       <ArtifactBrowserModal
         open={artifactBrowserOpen}
@@ -1175,19 +1307,58 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
 
 interface WorkspaceCommandBarProps {
   selectedWorkspace: WorkspaceRecordPayload | null;
-  composerModel: string | null;
   onSubmitted: (workspaceId: string) => void;
+  onDismiss: () => void;
 }
 
 function WorkspaceCommandBar({
   selectedWorkspace,
-  composerModel,
   onSubmitted,
+  onDismiss,
 }: WorkspaceCommandBarProps) {
   const [text, setText] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const {
+    effectiveChatModelPreference,
+    resolvedChatModel,
+    resolvedModelLabel,
+    runtimeDefaultModelLabel,
+    runtimeDefaultModelAvailable,
+    availableChatModelOptions,
+    availableChatModelOptionGroups,
+    setChatModelPreference,
+    requiresModelProviderSetup,
+    modelSelectionUnavailableReason,
+  } = useChatComposerModelSelection();
+
+  const noAvailableModels =
+    requiresModelProviderSetup || availableChatModelOptions.length === 0;
+
+  const visibleModelOptions = useMemo(
+    () => availableChatModelOptionGroups.flatMap((group) => group.options),
+    [availableChatModelOptionGroups],
+  );
+  const selectedModelOptionLabel =
+    visibleModelOptions.find(
+      (option) => option.value === effectiveChatModelPreference,
+    )?.selectedLabel ??
+    visibleModelOptions.find(
+      (option) => option.value === effectiveChatModelPreference,
+    )?.label ??
+    availableChatModelOptions.find(
+      (option) => option.value === effectiveChatModelPreference,
+    )?.selectedLabel ??
+    availableChatModelOptions.find(
+      (option) => option.value === effectiveChatModelPreference,
+    )?.label ??
+    resolvedModelLabel;
+
+  const openProviderSettings = useCallback(() => {
+    void window.electronAPI.ui.openSettingsPane("providers");
+  }, []);
 
   // Clear errors when the user switches to a different workspace —
   // the previous error was about the previous target.
@@ -1195,14 +1366,30 @@ function WorkspaceCommandBar({
     setErrorMessage("");
   }, [selectedWorkspace?.id]);
 
+  // Auto-focus when the floating composer mounts or the target
+  // workspace changes — clicking a tile shouldn't require a second
+  // click into the textarea.
+  useEffect(() => {
+    if (!selectedWorkspace) return;
+    const frameId = requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frameId);
+  }, [selectedWorkspace?.id, selectedWorkspace]);
+
   const workspaceId = selectedWorkspace?.id ?? null;
   const workspaceUnavailable =
     selectedWorkspace?.folder_state === "missing";
   const disabled =
-    !workspaceId || workspaceUnavailable || isSubmitting;
+    !workspaceId || workspaceUnavailable || isSubmitting || noAvailableModels;
 
   const handleSubmit = async () => {
-    if (!workspaceId || workspaceUnavailable || isSubmitting) {
+    if (
+      !workspaceId ||
+      workspaceUnavailable ||
+      isSubmitting ||
+      noAvailableModels
+    ) {
       return;
     }
     const trimmed = text.trim();
@@ -1221,7 +1408,7 @@ function WorkspaceCommandBar({
         attachments: null,
         session_id: ensured.session.session_id,
         priority: 0,
-        model: composerModel,
+        model: resolvedChatModel || null,
       });
       void queued;
       setText("");
@@ -1247,29 +1434,34 @@ function WorkspaceCommandBar({
   };
 
   const placeholder = !workspaceId
-    ? "Select a workspace card above to message it…"
+    ? "Select a workspace to message it…"
     : workspaceUnavailable
       ? "Workspace folder is missing."
-      : `Message ${selectedWorkspace?.name ?? "workspace"}…`;
+      : noAvailableModels
+        ? modelSelectionUnavailableReason || "Set up a model provider to chat."
+        : "Type a message…";
 
   return (
-    <div className="shrink-0 border-t border-border bg-fg-2 px-4 py-3">
-      <div className="mx-auto flex max-w-3xl flex-col gap-2">
-        {selectedWorkspace ? (
-          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-            <span>Sending to</span>
-            <WorkspaceIcon workspace={selectedWorkspace} size="sm" />
-            <span className="truncate font-medium text-foreground">
-              {selectedWorkspace.name}
-            </span>
-          </div>
-        ) : null}
-        {errorMessage ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs text-destructive">
-            {errorMessage}
-          </div>
-        ) : null}
-        <div className="flex items-end gap-2">
+    <div
+      role="dialog"
+      aria-label={
+        selectedWorkspace
+          ? `Send a message to ${selectedWorkspace.name}`
+          : "Send a message"
+      }
+      className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4"
+    >
+      <div className="pointer-events-auto w-full max-w-2xl animate-in fade-in-0 slide-in-from-bottom-4 rounded-2xl border border-border/60 bg-card shadow-md duration-200 ease-out">
+        <div className="flex items-center gap-2 px-2.5 py-1.5">
+          {selectedWorkspace ? (
+            <>
+              <WorkspaceIcon workspace={selectedWorkspace} size="sm" />
+              <span
+                aria-hidden="true"
+                className="block h-4 w-px shrink-0 bg-border"
+              />
+            </>
+          ) : null}
           <textarea
             ref={textareaRef}
             value={text}
@@ -1278,25 +1470,56 @@ function WorkspaceCommandBar({
             rows={1}
             disabled={disabled}
             placeholder={placeholder}
-            className="min-h-[40px] max-h-[160px] flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-sm leading-5 outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="min-h-5 max-h-[140px] flex-1 resize-none bg-transparent py-0 text-sm leading-5 outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60"
           />
+          {noAvailableModels ? (
+            <button
+              type="button"
+              onClick={openProviderSettings}
+              aria-label="Configure model providers"
+              className="flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Waypoints className="size-3" />
+              <span className="truncate">Set up</span>
+            </button>
+          ) : (
+            <div className="max-w-[160px] shrink-0">
+              <ModelCombobox
+                selectedModel={effectiveChatModelPreference}
+                selectedModelLabel={selectedModelOptionLabel}
+                runtimeDefaultModelLabel={runtimeDefaultModelLabel}
+                runtimeDefaultModelAvailable={runtimeDefaultModelAvailable}
+                modelOptions={availableChatModelOptions}
+                modelOptionGroups={availableChatModelOptionGroups}
+                disabled={!workspaceId || workspaceUnavailable || isSubmitting}
+                compact
+                onModelChange={setChatModelPreference}
+              />
+            </div>
+          )}
           <Button
+            type="button"
             variant="default"
-            size="sm"
+            size="icon-sm"
+            aria-label="Send"
             onClick={() => {
               void handleSubmit();
             }}
             disabled={disabled || !text.trim()}
-            className="h-10 shrink-0 rounded-md px-3"
+            className="shrink-0"
           >
             {isSubmitting ? (
               <Loader2 className="size-3.5 animate-spin" />
             ) : (
               <SendHorizontal className="size-3.5" />
             )}
-            Send
           </Button>
         </div>
+        {errorMessage ? (
+          <div className="border-t border-destructive/20 bg-destructive/5 px-3 py-1 text-[11px] text-destructive">
+            {errorMessage}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -1374,11 +1597,77 @@ function AggregateStrip({ counts }: { counts: AggregateCounts }) {
   );
 }
 
+/** Visual sizing tier for the gallery grid. Cards intentionally grow when
+ *  there are few workspaces so the canvas doesn't feel stranded. Falls back
+ *  to the original dense grid once there are 4+ tiles. */
+function adaptiveGalleryLayout(workspaceCount: number): {
+  rowHeight: number;
+  minColWidth: number;
+  maxCols: number | null;
+  maxWidth: string | undefined;
+} {
+  if (workspaceCount <= 1) {
+    return {
+      rowHeight: 480,
+      minColWidth: 540,
+      maxCols: 2,
+      maxWidth: "1100px",
+    };
+  }
+  if (workspaceCount === 2) {
+    return {
+      rowHeight: 420,
+      minColWidth: 460,
+      maxCols: 3,
+      maxWidth: "1280px",
+    };
+  }
+  if (workspaceCount === 3) {
+    return {
+      rowHeight: 380,
+      minColWidth: 420,
+      maxCols: 4,
+      maxWidth: "1380px",
+    };
+  }
+  return {
+    rowHeight: 340,
+    minColWidth: WORKSPACE_CARD_MIN_WIDTH,
+    maxCols: null,
+    maxWidth: "1400px",
+  };
+}
+
+/** Trailing "+ Create workspace" tile. Always last in the grid; matches the
+ *  size and rhythm of the workspace cards but stays visually quiet (dashed
+ *  border, no fill) so it reads as an affordance, not a peer. */
+function CreateWorkspaceCard({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Create new workspace"
+      className="group/create-tile relative flex h-full w-full min-h-0 min-w-0 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-transparent text-muted-foreground transition-colors hover:border-primary/40 hover:bg-fg-2 hover:text-foreground"
+    >
+      <div className="grid size-10 place-items-center rounded-full bg-fg-6 text-foreground transition-colors group-hover/create-tile:bg-primary/10 group-hover/create-tile:text-primary">
+        <Plus className="size-5" />
+      </div>
+      <div className="flex flex-col items-center gap-0.5">
+        <span className="text-[13px] font-medium text-foreground">
+          New workspace
+        </span>
+        <span className="text-[11px] text-muted-foreground">
+          Start from a template or blank
+        </span>
+      </div>
+    </button>
+  );
+}
+
 export function WorkspaceControlCenter({
   workspaces,
   selectedWorkspaceId,
   cardsPerRow,
-  composerModel,
   orderedWorkspaceIds,
   highlightedWorkspaceIds,
   onSelectWorkspace,
@@ -1388,6 +1677,7 @@ export function WorkspaceControlCenter({
   onVisibleWorkspaceIdsChange,
   onCardComposerSubmit,
   onWorkspaceCompletion,
+  onCreateWorkspace,
 }: WorkspaceControlCenterProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const cardNodesRef = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -1399,6 +1689,60 @@ export function WorkspaceControlCenter({
   const [runtimeStateByWorkspaceId, setRuntimeStateByWorkspaceId] = useState<
     Record<string, RuntimeCardState>
   >({});
+  // Composer visibility is intent-driven: clicking any tile opens it
+  // (even re-clicking the already-selected tile re-opens after a
+  // dismissal); Esc / ✕ / click-on-the-gallery-gutter closes it.
+  // Track this locally so dismissal doesn't have to clear the parent's
+  // selectedWorkspaceId — selection itself is independent.
+  const [composerOpen, setComposerOpen] = useState(false);
+
+  const handleSelectWorkspaceWithComposer = useCallback(
+    (workspaceId: string) => {
+      setComposerOpen(true);
+      onSelectWorkspace(workspaceId);
+      // Anchor the selected tile above the floating composer. Wait two
+      // frames so the composer's slide-in + the gallery's
+      // padding-bottom transition have started laying out, then check
+      // if the tile's bottom edge sits below the composer's top —
+      // scroll only enough to bring it above. No-op when the tile is
+      // already comfortably above the bar (e.g., user picked a tile
+      // near the top of the gallery).
+      const id = workspaceId.trim();
+      if (!id) return;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const viewport = viewportRef.current;
+          const node = cardNodesRef.current.get(id);
+          if (!viewport || !node) return;
+          const viewportRect = viewport.getBoundingClientRect();
+          const nodeRect = node.getBoundingClientRect();
+          // Reserve ~140px at the bottom for the composer. If the
+          // tile's bottom edge is already above this line, leave alone.
+          const composerReservedPx = 140;
+          const bottomLimit = viewportRect.bottom - composerReservedPx;
+          if (nodeRect.bottom <= bottomLimit) return;
+          const delta = nodeRect.bottom - bottomLimit;
+          viewport.scrollBy({ top: delta, behavior: "smooth" });
+        });
+      });
+    },
+    [onSelectWorkspace],
+  );
+
+  const handleDismissComposer = useCallback(() => {
+    setComposerOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!composerOpen) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setComposerOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [composerOpen]);
 
   const sortedWorkspaces = useMemo(() => {
     return [...workspaces].sort((left, right) => {
@@ -1634,15 +1978,25 @@ export function WorkspaceControlCenter({
     [draggedWorkspaceId, onWorkspaceOrderChange, orderedWorkspaces],
   );
 
-  // Honor `cardsPerRow` when explicitly set (>0); otherwise fall back
-  // to a responsive auto-fill grid based on a target tile width. The
-  // gallery view stays dense at narrow widths and breathes at wide
-  // ones without forcing a fixed column count.
-  const gridStyle =
+  // Adaptive grid: when there are few workspaces, scale tiles up so the
+  // canvas reads as "presented" instead of "stranded". The trailing
+  // CreateWorkspaceCard counts toward the slot total so the layout treats
+  // it as a peer when picking a tier.
+  const showCreateTile = Boolean(onCreateWorkspace);
+  const galleryTier = adaptiveGalleryLayout(
+    orderedWorkspaces.length + (showCreateTile ? 1 : 0),
+  );
+
+  // Honor `cardsPerRow` when explicitly set (>0); otherwise use the
+  // adaptive auto-fit grid. `auto-fit` collapses empty trailing columns
+  // so the row stretches to fill width instead of leaving phantom slots.
+  const gridStyle: React.CSSProperties =
     cardsPerRow > 0
       ? { gridTemplateColumns: `repeat(${cardsPerRow}, minmax(0, 1fr))` }
       : {
-          gridTemplateColumns: `repeat(auto-fill, minmax(${WORKSPACE_CARD_MIN_WIDTH}px, 1fr))`,
+          gridTemplateColumns: `repeat(auto-fit, minmax(${galleryTier.minColWidth}px, 1fr))`,
+          maxWidth: galleryTier.maxWidth,
+          width: "100%",
         };
 
   return (
@@ -1650,11 +2004,37 @@ export function WorkspaceControlCenter({
       <AggregateStrip counts={aggregateCounts} />
       <div
         ref={viewportRef}
-        className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3"
+        onClick={(event) => {
+          // Click on the gallery gutter (not on a tile) dismisses the
+          // floating composer. Tile clicks bubble up but with a child
+          // as event.target, so the strict identity check filters them
+          // out.
+          if (event.target === event.currentTarget) {
+            handleDismissComposer();
+          }
+        }}
+        className={cn(
+          "min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pt-3 transition-[padding] duration-200 ease-out",
+          // Reserve scroll space when the composer is open so the
+          // bar can't obscure the bottom row of tiles. The composer
+          // floats at `bottom-4` with ~80–110px of intrinsic height,
+          // so 140px of bottom-padding leaves a comfortable gutter
+          // when the user scrolls a tile up against the bar.
+          composerOpen ? "pb-[140px]" : "pb-3",
+        )}
       >
         <div
-          className="grid auto-rows-[minmax(220px,1fr)] gap-3"
-          style={gridStyle}
+          className="mx-auto grid gap-2.5"
+          style={{
+            ...gridStyle,
+            gridAutoRows: `${galleryTier.rowHeight}px`,
+            alignContent: "start",
+          }}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              handleDismissComposer();
+            }
+          }}
         >
           {orderedWorkspaces.map((workspace) => {
             const id = workspace.id.trim();
@@ -1663,7 +2043,7 @@ export function WorkspaceControlCenter({
                 key={workspace.id}
                 ref={(node) => attachCardNode(id, node)}
                 data-workspace-id={id}
-                className="min-h-0 min-w-0"
+                className="group/control-tile min-h-0 min-w-0"
               >
                 <WorkspaceControlCenterCard
                   workspace={workspace}
@@ -1675,7 +2055,7 @@ export function WorkspaceControlCenter({
                     draggedWorkspaceId !== id
                   }
                   hasUnreadCompletionHighlight={highlightedWorkspaceIdSet.has(id)}
-                  onSelectWorkspace={onSelectWorkspace}
+                  onSelectWorkspace={handleSelectWorkspaceWithComposer}
                   onEnterWorkspace={onEnterWorkspace}
                   onOpenOutput={onOpenOutput}
                   onDragStartWorkspace={handleDragStartWorkspace}
@@ -1689,13 +2069,20 @@ export function WorkspaceControlCenter({
               </div>
             );
           })}
+          {showCreateTile && onCreateWorkspace ? (
+            <div className="min-h-0 min-w-0">
+              <CreateWorkspaceCard onClick={onCreateWorkspace} />
+            </div>
+          ) : null}
         </div>
       </div>
-      <WorkspaceCommandBar
-        selectedWorkspace={selectedWorkspace}
-        composerModel={composerModel}
-        onSubmitted={onCardComposerSubmit}
-      />
+      {composerOpen && selectedWorkspace ? (
+        <WorkspaceCommandBar
+          selectedWorkspace={selectedWorkspace}
+          onSubmitted={onCardComposerSubmit}
+          onDismiss={handleDismissComposer}
+        />
+      ) : null}
     </section>
   );
 }

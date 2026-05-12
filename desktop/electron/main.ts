@@ -1107,6 +1107,7 @@ let appUpdateCheckTimer: NodeJS.Timeout | null = null;
 let appUpdateCheckPromise: Promise<AppUpdateStatusPayload> | null = null;
 let appUpdateEventsConfigured = false;
 let appUpdatePreferences: AppUpdatePreferencesPayload = {};
+let notificationPreferences: { enabled: boolean } = { enabled: true };
 let codexOauthRefreshTimer: NodeJS.Timeout | null = null;
 let codexOauthRefreshPromise: Promise<boolean> | null = null;
 let runtimeModelCatalogState: RuntimeModelCatalogPayload = {
@@ -1729,6 +1730,37 @@ async function persistAppUpdatePreferences() {
   );
 }
 
+function notificationPreferencesPath() {
+  return path.join(app.getPath("userData"), "notification-preferences.json");
+}
+
+function loadNotificationPreferences(): { enabled: boolean } {
+  const preferencesPath = notificationPreferencesPath();
+  try {
+    if (!existsSync(preferencesPath)) {
+      return { enabled: true };
+    }
+    const parsed = JSON.parse(readFileSync(preferencesPath, "utf8")) as unknown;
+    if (parsed && typeof parsed === "object" && "enabled" in parsed) {
+      return { enabled: (parsed as { enabled: unknown }).enabled !== false };
+    }
+    return { enabled: true };
+  } catch {
+    return { enabled: true };
+  }
+}
+
+async function persistNotificationPreferences() {
+  await fs.mkdir(path.dirname(notificationPreferencesPath()), {
+    recursive: true,
+  });
+  await fs.writeFile(
+    notificationPreferencesPath(),
+    `${JSON.stringify(notificationPreferences, null, 2)}\n`,
+    "utf8",
+  );
+}
+
 function serviceBaseUrlFromControlPlane(
   controlPlaneBaseUrl: string,
   port: number,
@@ -2193,6 +2225,7 @@ configureStableUserDataPath();
 resolvedRuntimeApiPort = resolveRuntimeApiPort();
 persistDevLaunchContext();
 appUpdatePreferences = loadAppUpdatePreferences();
+notificationPreferences = loadNotificationPreferences();
 runtimeModelCatalogState = loadRuntimeModelCatalogCache();
 appUpdateStatus = {
   ...appUpdateStatus,
@@ -4211,6 +4244,12 @@ async function exportDesktopDiagnosticsBundle(
 ) {
   const workspace = resolveDiagnosticsWorkspace(payload?.workspaceId ?? null);
   const workspaceSummary = diagnosticsWorkspaceSummary(workspace);
+  const workspaceRuntimeDbPath = workspace
+    ? workspaceRuntimeDbPathForStartupCheck(
+        workspace.id,
+        workspace.workspace_path ?? null,
+      )
+    : null;
   const downloadsDir = app.getPath("downloads");
   const bundlePath = path.join(
     downloadsDir,
@@ -4222,6 +4261,7 @@ async function exportDesktopDiagnosticsBundle(
     runtimeLogPath: runtimeLogsPath(),
     runtimeDbPath: runtimeDatabasePath(),
     runtimeConfigPath: runtimeConfigPath(),
+    workspaceRuntimeDbPath,
     workspaceId: workspace?.id ?? null,
     workspaceSummary,
     summary: {
@@ -9360,6 +9400,14 @@ async function retryAfterSessionAuth(
   if (unauthorizedResponse.status !== 401 || !desktopAuthClient) {
     return unauthorizedResponse;
   }
+  // Don't auto-launch sign-in when the user has explicitly signed out (no
+  // cookie). The retry is for *expired* sessions; for an intentional
+  // sign-out, 401 is the expected result and pulling the user to the login
+  // page surprises them ("clicked Settings, browser opened to sign-in").
+  // The caller will surface the 401 as a normal "not authenticated" error.
+  if (!authCookieHeader()) {
+    return unauthorizedResponse;
+  }
   try {
     if (!pendingGatewayAuthRetry) {
       const authComplete = waitForAuthCallback();
@@ -14496,7 +14544,13 @@ async function createWorkspace(
       }
     }
 
-    await ensureWorkspaceGitRepo(workspaceDir);
+    const workspaceGit = await ensureWorkspaceGitRepo(workspaceDir);
+    if (!workspaceGit.available) {
+      stageLog("workspace_git.skipped", {
+        workspaceId,
+        reason: workspaceGit.skippedReason ?? "git unavailable",
+      });
+    }
 
     let onboardingStatus = "NOT_REQUIRED";
     let onboardingSessionId: string | null = null;
@@ -17244,6 +17298,8 @@ const consumeBrowserDownloadOverride =
 const browserContextSuggestedFilename =
   browserPaneTabState.browserContextSuggestedFilename;
 const browserPagePayload = browserPaneTabState.browserPagePayload;
+const withTemporarilyRenderedBrowserTab =
+  browserPaneTabState.withTemporarilyRenderedBrowserTab;
 const setActiveBrowserTabInner = browserPaneTabState.setActiveBrowserTab;
 const closeBrowserTabInner = browserPaneTabState.closeBrowserTab;
 
@@ -17353,6 +17409,12 @@ const browserHttpService: BrowserHttpService = createBrowserHttpService({
     operatorSurfaceContextPayload(workspaceId),
   browserPagePayload: (tab) =>
     browserPagePayload(tab as unknown as BrowserTabRecord),
+  withTemporarilyRenderedBrowserTab: (tab, callback, options) =>
+    withTemporarilyRenderedBrowserTab(
+      tab as unknown as BrowserTabRecord,
+      callback,
+      options,
+    ),
   withProgrammaticBrowserInput: (webContents, callback) =>
     withProgrammaticBrowserInput(webContents, callback),
   sendBrowserKeyPress: (webContents, keyCode, modifiers) =>
@@ -21121,6 +21183,15 @@ function showNativeDesktopNotification(
     });
     return Promise.resolve(false);
   }
+  if (!notificationPreferences.enabled) {
+    logNativeDesktopNotificationEvent("skipped", {
+      title,
+      body,
+      force: payload.force,
+      detail: "User disabled desktop notifications.",
+    });
+    return Promise.resolve(false);
+  }
   if (!payload.force && !shouldShowNativeDesktopNotification()) {
     logNativeDesktopNotificationEvent("skipped", {
       title,
@@ -21213,6 +21284,30 @@ function showNativeDesktopNotification(
         app.focus();
       }
       focusOrCreateMainWindow();
+      const workspaceId = (payload.workspaceId ?? "").trim();
+      const sessionId = (payload.sessionId ?? "").trim();
+      if (!workspaceId) return;
+      const target = mainWindow;
+      if (!target || target.isDestroyed() || target.webContents.isDestroyed()) {
+        return;
+      }
+      const send = () => {
+        if (target.isDestroyed() || target.webContents.isDestroyed()) return;
+        target.webContents.send("ui:notificationActivated", {
+          workspaceId,
+          sessionId: sessionId || null,
+        });
+      };
+      // Cold-start case: window was just created by focusOrCreateMainWindow,
+      // renderer hasn't registered the IPC listener yet. Defer until the page
+      // finishes loading (and one extra tick so React effects can run).
+      if (target.webContents.isLoading()) {
+        target.webContents.once("did-finish-load", () => {
+          setTimeout(send, 200);
+        });
+      } else {
+        send();
+      }
     });
     notification.on("close", () => {
       logNativeDesktopNotificationEvent("closed", {
@@ -21948,6 +22043,59 @@ app.whenReady().then(async () => {
     },
   );
   handleTrustedIpc(
+    "ui:setBadgeCount",
+    ["main"],
+    async (_event, count: unknown) => {
+      const numeric = typeof count === "number" ? count : Number(count);
+      const safe = Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : 0;
+      try {
+        app.setBadgeCount(safe);
+      } catch {
+        // app.setBadgeCount is a no-op on platforms that don't support it
+        // (Windows without setOverlayIcon, headless Linux). Swallow rather
+        // than surface platform support as a renderer error.
+      }
+    },
+  );
+  handleTrustedIpc(
+    "ui:getNotificationsEnabled",
+    ["main"],
+    async () => notificationPreferences.enabled,
+  );
+  handleTrustedIpc(
+    "ui:setNotificationsEnabled",
+    ["main"],
+    async (_event, enabled: unknown) => {
+      const next = enabled !== false;
+      const wasEnabled = notificationPreferences.enabled;
+      notificationPreferences = { enabled: next };
+      try {
+        await persistNotificationPreferences();
+      } catch (error) {
+        void appendRuntimeLog(
+          `[notifications] failed to persist preference: ${error instanceof Error ? error.message : String(error)}\n`,
+        );
+      }
+      // Confirmation ping when turning notifications on — proves to the
+      // user the OS permission is granted and the new setting took effect.
+      if (next && !wasEnabled) {
+        void showNativeDesktopNotification({
+          title: "Desktop notifications enabled",
+          body: "You'll get reminded when scheduled tasks fire.",
+          force: true,
+        });
+      }
+      if (!next) {
+        try {
+          app.setBadgeCount(0);
+        } catch {
+          // ignore — see ui:setBadgeCount handler
+        }
+      }
+      return next;
+    },
+  );
+  handleTrustedIpc(
     "appUpdate:getStatus",
     ["main"],
     async () => appUpdateStatus,
@@ -22199,6 +22347,25 @@ app.whenReady().then(async () => {
     ["main"],
     async (_event, workspaceId: string, keepFiles?: boolean) =>
       localWorkspaceControlPlane.deleteWorkspace(workspaceId, keepFiles),
+  );
+  handleTrustedIpc(
+    "workspace:updateAppearance",
+    ["main"],
+    async (
+      _event,
+      workspaceId: string,
+      payload: { icon: string | null; iconColor: string | null },
+    ) => {
+      const safeId = String(workspaceId ?? "").trim();
+      if (!safeId) {
+        throw new Error("workspaceId is required");
+      }
+      const response = await runtimeClient.workspaces.update(safeId, {
+        icon: payload?.icon ?? null,
+        icon_color: payload?.iconColor ?? null,
+      });
+      return response;
+    },
   );
   handleTrustedIpc(
     "workspace:listCronjobs",

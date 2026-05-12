@@ -320,6 +320,8 @@ jobs:
             runtime/api-server/dist
 
       - name: Prepare desktop (build SDK + install desktop deps)
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
         run: npm run desktop:prepare
 
       - name: Require mac signing and notarization credentials
@@ -599,6 +601,8 @@ jobs:
             desktop/package-lock.json
 
       - name: Prepare desktop (build SDK + install desktop deps)
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
         run: npm run desktop:prepare
 
       - name: Build Windows desktop installer
@@ -746,6 +750,7 @@ jobs:
       - name: Publish validated GitHub release
         env:
           GH_TOKEN: ${{ secrets.HOLABOSS_RELEASES_REPO_TOKEN }}
+          SOURCE_GH_TOKEN: ${{ github.token }}
         run: |
           notes_path="$(mktemp)"
           trap 'rm -f "${notes_path}"' EXIT
@@ -765,7 +770,7 @@ jobs:
             exit 1
           fi
 
-          gh api "repos/${SOURCE_GH_REPO}/releases/generate-notes" \
+          GH_TOKEN="${SOURCE_GH_TOKEN}" gh api "repos/${SOURCE_GH_REPO}/releases/generate-notes" \
             --method POST \
             -f "tag_name=${RELEASE_TAG}" \
             -f "target_commitish=${RELEASE_SHA}" \

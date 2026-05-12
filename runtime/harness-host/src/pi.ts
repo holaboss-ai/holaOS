@@ -189,7 +189,7 @@ const PI_REQUEST_TOOL_NAME_ALIASES: Record<string, string> = {
 const PI_MCP_DISCOVERY_RETRY_INTERVAL_MS = 250;
 const PI_FALLBACK_CONTEXT_WINDOW = 65_536;
 const PI_FALLBACK_MAX_TOKENS = 8_192;
-const PI_COMPACTION_CONTEXT_RESERVE_RATIO = 0.5;
+const PI_COMPACTION_CONTEXT_RESERVE_RATIO = 0.7;
 const PI_WORKSPACE_SKILLS_RELATIVE_PATH = "skills";
 
 const PI_MODEL_CATALOG = MODELS as Record<string, Record<string, HarnessCatalogModelEntry>>;
@@ -2591,6 +2591,7 @@ export async function compactPiSession(
 ): Promise<PiCompactionCommandResult> {
   const handle = await deps.createSession(request);
   const session = handle.session as unknown as PiSnapshotPostRunCompactionSession;
+  const forceCompaction = request.force_compaction === true;
   const diagnostics = await collectPiCompactionDiagnostics(session);
   let compactionStart: JsonObject | null = null;
   let compactionEnd: JsonObject | null = null;
@@ -2631,33 +2632,69 @@ export async function compactPiSession(
     },
     async (span) => {
       try {
-        const maintenanceResult = await runSnapshotPostRunMaintenanceCompaction(session);
-        applyHarnessGenAiUsageMetrics(span, aggregatedUsage);
-        if (maintenanceResult.kind === "compacted") {
-          span.setAttribute("holaboss.compaction_result", "compacted");
-          span.setStatus({ code: 1, message: "ok" });
-          return {
-            compacted: true,
-            session_file: handle.sessionFile,
-            result: maintenanceResult.result,
-            reason: null,
-            diagnostics: withCompactionEventDiagnostics(
-              diagnostics,
-              compactionStart,
-              compactionEnd,
-            ),
-            error: null,
-          };
-        }
-        if (maintenanceResult.kind === "not_compacted") {
-          const compactionErrorMessage = compactionEnd
-            ? optionalTrimmedString(compactionEnd["error_message"])
-            : null;
-          if (compactionErrorMessage) {
-            const error = new Error(compactionErrorMessage);
-            error.name = "PiSnapshotCompactionError";
+        if (!forceCompaction) {
+          const maintenanceResult =
+            await runSnapshotPostRunMaintenanceCompaction(session);
+          applyHarnessGenAiUsageMetrics(span, aggregatedUsage);
+          if (maintenanceResult.kind === "compacted") {
+            span.setAttribute("holaboss.compaction_result", "compacted");
+            span.setStatus({ code: 1, message: "ok" });
+            return {
+              compacted: true,
+              session_file: handle.sessionFile,
+              result: maintenanceResult.result,
+              reason: null,
+              diagnostics: withCompactionEventDiagnostics(
+                diagnostics,
+                compactionStart,
+                compactionEnd,
+              ),
+              error: null,
+            };
+          }
+          if (maintenanceResult.kind === "not_compacted") {
+            const compactionErrorMessage = compactionEnd
+              ? optionalTrimmedString(compactionEnd["error_message"])
+              : null;
+            if (compactionErrorMessage) {
+              const error = new Error(compactionErrorMessage);
+              error.name = "PiSnapshotCompactionError";
+              span.setAttribute("holaboss.compaction_result", "error");
+              span.setStatus({ code: 2, message: error.name });
+              return {
+                compacted: false,
+                session_file: handle.sessionFile,
+                result: null,
+                reason: null,
+                diagnostics: withCompactionEventDiagnostics(
+                  diagnostics,
+                  compactionStart,
+                  compactionEnd,
+                ),
+                error: summarizePiCompactionError(error, compactionEnd),
+              };
+            }
+            span.setAttribute(
+              "holaboss.compaction_result",
+              maintenanceResult.reason ?? "not_compacted",
+            );
+            span.setStatus({ code: 1, message: "ok" });
+            return {
+              compacted: false,
+              session_file: handle.sessionFile,
+              result: null,
+              reason: maintenanceResult.reason,
+              diagnostics: withCompactionEventDiagnostics(
+                diagnostics,
+                compactionStart,
+                compactionEnd,
+              ),
+              error: null,
+            };
+          }
+          if (maintenanceResult.kind === "error") {
             span.setAttribute("holaboss.compaction_result", "error");
-            span.setStatus({ code: 2, message: error.name });
+            span.setStatus({ code: 2, message: "internal_error" });
             return {
               compacted: false,
               session_file: handle.sessionFile,
@@ -2668,42 +2705,12 @@ export async function compactPiSession(
                 compactionStart,
                 compactionEnd,
               ),
-              error: summarizePiCompactionError(error, compactionEnd),
+              error: summarizePiCompactionError(
+                maintenanceResult.error,
+                compactionEnd,
+              ),
             };
           }
-          span.setAttribute(
-            "holaboss.compaction_result",
-            maintenanceResult.reason ?? "not_compacted",
-          );
-          span.setStatus({ code: 1, message: "ok" });
-          return {
-            compacted: false,
-            session_file: handle.sessionFile,
-            result: null,
-            reason: maintenanceResult.reason,
-            diagnostics: withCompactionEventDiagnostics(
-              diagnostics,
-              compactionStart,
-              compactionEnd,
-            ),
-            error: null,
-          };
-        }
-        if (maintenanceResult.kind === "error") {
-          span.setAttribute("holaboss.compaction_result", "error");
-          span.setStatus({ code: 2, message: "internal_error" });
-          return {
-            compacted: false,
-            session_file: handle.sessionFile,
-            result: null,
-            reason: null,
-            diagnostics: withCompactionEventDiagnostics(
-              diagnostics,
-              compactionStart,
-              compactionEnd,
-            ),
-            error: summarizePiCompactionError(maintenanceResult.error, compactionEnd),
-          };
         }
         const result = await handle.session.compact();
         applyHarnessGenAiUsageMetrics(span, aggregatedUsage);

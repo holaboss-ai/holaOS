@@ -1,18 +1,23 @@
 import {
-  BookOpen,
+  AlertTriangle,
+  BookText,
   ChevronDown,
+  CircleUserRound,
   Copy,
   FolderKanban,
-  Home,
+  House,
+  LayoutGrid,
   Loader2,
   Minus,
+  PanelRight,
+  PanelRightDashed,
   Plus,
   Search,
   Settings,
+  Sparkles,
   Square,
   Trash2,
   Upload,
-  User2,
   X,
 } from "lucide-react";
 import {
@@ -24,12 +29,16 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { CreditsPill } from "@/components/billing/CreditsPill";
-import { RuntimeStatusIndicator } from "@/components/layout/RuntimeStatusIndicator";
+import { NotificationInbox } from "@/components/layout/NotificationInbox";
+import {
+  RuntimeStatusIndicator,
+  runtimeStatusVisual,
+} from "@/components/layout/RuntimeStatusIndicator";
 import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/components/ui/status-dot";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
+import { WorkspaceIconPicker } from "@/components/ui/workspace-icon-picker";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -60,6 +69,14 @@ interface TopTabsBarProps {
   desktopPlatform?: string | null;
   runtimeStatus?: RuntimeStatusPayload | null;
   controlCenterActive?: boolean;
+  chatPanelHidden?: boolean;
+  showChatPanelToggle?: boolean;
+  onToggleChatPanel?: () => void;
+  inboxNotifications?: RuntimeNotificationRecordPayload[];
+  inboxWorkspacesById?: Map<string, WorkspaceRecordPayload>;
+  onActivateInboxNotification?: (notificationId: string) => void;
+  onDismissInboxNotification?: (notificationId: string) => void;
+  onMarkAllInboxNotificationsRead?: () => void;
   onOpenControlCenter?: () => void;
   onWorkspaceSwitcherVisibilityChange?: (open: boolean) => void;
   onOpenWorkspaceCreatePanel?: () => void;
@@ -75,6 +92,14 @@ export function TopTabsBar({
   desktopPlatform = null,
   runtimeStatus = null,
   controlCenterActive = false,
+  chatPanelHidden = false,
+  showChatPanelToggle = false,
+  onToggleChatPanel,
+  inboxNotifications,
+  inboxWorkspacesById,
+  onActivateInboxNotification,
+  onDismissInboxNotification,
+  onMarkAllInboxNotificationsRead,
   onOpenControlCenter,
   onWorkspaceSwitcherVisibilityChange,
   onOpenWorkspaceCreatePanel,
@@ -84,6 +109,7 @@ export function TopTabsBar({
   onOpenExternalUrl,
   onPublish,
 }: TopTabsBarProps) {
+  const [inboxOpen, setInboxOpen] = useState(false);
   // Mac stoplight compensation now flows through StoplightContext (set in
   // AppShell); the hook returns true only on darwin AND when the provider
   // says we have an integrated title bar. We still keep the platform prop
@@ -124,6 +150,7 @@ export function TopTabsBar({
     deletingWorkspaceId,
     workspaceErrorMessage,
     deleteWorkspace,
+    updateWorkspaceAppearance,
   } = useWorkspaceDesktop();
 
   const onDeleteWorkspace = async (workspace: WorkspaceRecordPayload) => {
@@ -309,11 +336,43 @@ export function TopTabsBar({
       className={headerClassName}
     >
       <div className={headerGridClassName} style={headerGridStyle}>
-        <div className="hidden lg:block" />
+        {/* LEFT: layout controls — VSCode-style panel toggle anchors the
+            top-left corner; future view-mode toggles slot in here too. */}
+        <div
+          className={`${integratedTitleBar ? "window-no-drag " : ""}hidden min-w-0 items-center gap-1.5 lg:flex`}
+        >
+          {showChatPanelToggle && onToggleChatPanel ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={
+                      chatPanelHidden ? "Show chat panel" : "Hide chat panel"
+                    }
+                    aria-pressed={chatPanelHidden}
+                    onClick={() => onToggleChatPanel()}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    {chatPanelHidden ? <PanelRightDashed /> : <PanelRight />}
+                  </Button>
+                }
+              />
+              <TooltipContent side="bottom">
+                {chatPanelHidden ? "Show chat panel" : "Hide chat panel"}
+                <span className="ml-1.5 text-muted-foreground">
+                  {desktopPlatform === "darwin" ? "⌘\\" : "Ctrl+\\"}
+                </span>
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
+        </div>
 
         <div
           className={`${integratedTitleBar ? "window-no-drag " : ""}flex min-w-0 items-center justify-self-end gap-1.5`}
         >
+          {/* Workspace navigation: control center toggle + workspace switcher */}
           {!controlCenterActive ? (
             <Tooltip>
               <TooltipTrigger
@@ -321,14 +380,14 @@ export function TopTabsBar({
                   <Button
                     variant="bordered"
                     size="icon-sm"
-                    aria-label="Show all workspaces"
+                    aria-label="Open control center"
                     onClick={() => onOpenControlCenter?.()}
                   >
-                    <Home />
+                    <LayoutGrid />
                   </Button>
                 }
               />
-              <TooltipContent side="bottom">Show all workspaces</TooltipContent>
+              <TooltipContent side="bottom">Control center</TooltipContent>
             </Tooltip>
           ) : (
             <Tooltip>
@@ -386,15 +445,30 @@ export function TopTabsBar({
               </Button>
             </div>
           ) : null}
-          {isBillingAvailable ? (
-            <CreditsPill
-              balance={overview?.creditsBalance ?? 0}
-              isLoading={isBillingLoading}
-              isLowBalance={isLowBalance}
-              onClick={() => onOpenBilling?.()}
+          {/* Runtime indicator self-hides when status === "running"; only
+              shows when there's something the user might need to react to. */}
+          <RuntimeStatusIndicator status={runtimeStatus} />
+          {inboxNotifications &&
+          inboxWorkspacesById &&
+          onActivateInboxNotification &&
+          onDismissInboxNotification &&
+          onMarkAllInboxNotificationsRead ? (
+            <NotificationInbox
+              open={inboxOpen}
+              onOpenChange={setInboxOpen}
+              notifications={inboxNotifications}
+              workspacesById={inboxWorkspacesById}
+              onActivate={(id) => {
+                setInboxOpen(false);
+                onActivateInboxNotification(id);
+              }}
+              onDismiss={onDismissInboxNotification}
+              onMarkAllRead={() => {
+                onMarkAllInboxNotificationsRead();
+                setInboxOpen(false);
+              }}
             />
           ) : null}
-          <RuntimeStatusIndicator status={runtimeStatus} />
           <DropdownMenu>
             <DropdownMenuTrigger
               ref={userButtonRef}
@@ -409,10 +483,73 @@ export function TopTabsBar({
             >
               <UserAvatar user={currentUser} />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={8} className="w-52">
+            <DropdownMenuContent align="end" sideOffset={8} className="w-72 p-1">
+              {/* Profile header — identity on the left, status badges on the
+                  right (credits acts like a PRO/plan chip in the reference).
+                  items-center keeps the avatar visually centered against
+                  whatever number of text rows we end up rendering. */}
+              <div className="flex items-center gap-3 px-2 pt-2 pb-2.5">
+                <div className="size-9 shrink-0 overflow-hidden rounded-full border border-border bg-fg-6">
+                  <UserAvatar user={currentUser} />
+                </div>
+                <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    {currentUser?.name?.trim() ||
+                    currentUser?.email?.split("@")[0] ? (
+                      <div className="truncate text-[13px] font-semibold leading-tight text-foreground">
+                        {currentUser?.name?.trim() ||
+                          currentUser?.email?.split("@")[0]}
+                      </div>
+                    ) : (
+                      <div className="truncate text-[13px] font-semibold leading-tight text-foreground">
+                        Not signed in
+                      </div>
+                    )}
+                    {currentUser?.email ? (
+                      <div className="mt-1 truncate text-[11px] leading-tight text-muted-foreground">
+                        {currentUser.email}
+                      </div>
+                    ) : !currentUser ? (
+                      <div className="mt-1 truncate text-[11px] leading-tight text-muted-foreground">
+                        Open Account to sign in
+                      </div>
+                    ) : null}
+                  </div>
+                  {isBillingAvailable ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenBilling?.()}
+                      aria-label={
+                        isLowBalance
+                          ? "Credits balance low — open billing"
+                          : "Open billing"
+                      }
+                      className={cn(
+                        "shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums transition-colors",
+                        isLowBalance
+                          ? "bg-warning/10 text-warning hover:bg-warning/15"
+                          : "bg-fg-6 text-foreground hover:bg-fg-12",
+                      )}
+                    >
+                      {isLowBalance ? (
+                        <AlertTriangle className="size-3" />
+                      ) : (
+                        <Sparkles className="size-3 opacity-70" />
+                      )}
+                      {isBillingLoading ? (
+                        <span className="h-2.5 w-8 animate-pulse rounded bg-muted" />
+                      ) : (
+                        (overview?.creditsBalance ?? 0).toLocaleString()
+                      )}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              <DropdownMenuSeparator />
               <DropdownMenuGroup>
                 <DropdownMenuItem onClick={() => onOpenAccount?.()}>
-                  <User2 className="opacity-60 size-3.5" />
+                  <CircleUserRound className="opacity-60 size-3.5" />
                   Account
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onOpenSettings?.()}>
@@ -425,7 +562,7 @@ export function TopTabsBar({
                 <DropdownMenuItem
                   onClick={() => onOpenExternalUrl?.("https://www.holaos.ai")}
                 >
-                  <Home className="opacity-60 size-3.5" />
+                  <House className="opacity-60 size-3.5" />
                   Homepage
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -433,10 +570,28 @@ export function TopTabsBar({
                     onOpenExternalUrl?.("https://www.holaboss.ai/docs")
                   }
                 >
-                  <BookOpen className="opacity-60 size-3.5" />
+                  <BookText className="opacity-60 size-3.5" />
                   Docs
                 </DropdownMenuItem>
               </DropdownMenuGroup>
+
+              {/* Footer: passive runtime status — always visible here even
+                  when the bar button auto-hides during healthy state */}
+              {runtimeStatus ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <div className="flex items-center gap-1.5 px-2.5 pt-1.5 pb-1 text-[10px] text-muted-foreground/80">
+                    <StatusDot
+                      variant={
+                        runtimeStatusVisual(runtimeStatus.status).dotVariant
+                      }
+                      pulse={runtimeStatusVisual(runtimeStatus.status).dotPulse}
+                      size="sm"
+                    />
+                    <span>{runtimeStatusVisual(runtimeStatus.status).label}</span>
+                  </div>
+                </>
+              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
           {isWindowsIntegratedTitleBar ? (
@@ -534,6 +689,17 @@ export function TopTabsBar({
                             isDeleting && "opacity-50",
                           )}
                         >
+                          <WorkspaceIconPicker
+                            workspace={workspace}
+                            size="md"
+                            disabled={isDeleting}
+                            onChange={({ icon, iconColor }) => {
+                              void updateWorkspaceAppearance(workspace.id, {
+                                icon,
+                                iconColor,
+                              });
+                            }}
+                          />
                           <button
                             type="button"
                             disabled={isDeleting}
@@ -543,7 +709,6 @@ export function TopTabsBar({
                             }}
                             className="flex min-w-0 flex-1 items-center gap-2 px-1 text-left text-sm font-medium disabled:cursor-not-allowed"
                           >
-                            <WorkspaceIcon workspace={workspace} size="md" />
                             <span className="truncate">{workspace.name}</span>
                             {folderMissing ? (
                               <StatusDot

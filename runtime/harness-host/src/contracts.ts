@@ -70,6 +70,7 @@ export interface HarnessHostPiRequest {
   session_id: string;
   browser_tools_enabled?: boolean;
   browser_space?: "agent" | "user" | null;
+  force_compaction?: boolean;
   input_id: string;
   instruction: string;
   context_messages?: string[];
@@ -389,6 +390,7 @@ export function decodeHarnessHostPiRequestBase64(encoded: string): HarnessHostPi
     session_id: requiredString(parsed.session_id, "session_id"),
     browser_tools_enabled: optionalBoolean(parsed.browser_tools_enabled, false),
     browser_space: optionalBrowserSpace(parsed.browser_space),
+    force_compaction: optionalBoolean(parsed.force_compaction, false),
     input_id: requiredString(parsed.input_id, "input_id"),
     instruction: requiredString(parsed.instruction, "instruction"),
     context_messages: stringArray(parsed.context_messages),

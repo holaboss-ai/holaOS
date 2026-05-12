@@ -1809,10 +1809,10 @@ test("buildPiProviderConfig uses OpenAI Responses API for managed Holaboss GPT-5
   assert.equal(providerConfig.models[0]?.maxTokens, 128_000);
 });
 
-test("pi compaction reserves 50 percent of the model context window", () => {
-  assert.equal(piCompactionReserveTokens(1_050_000), 525_000);
-  assert.equal(piCompactionReserveTokens(65_536), 32_768);
-  assert.equal(piCompactionReserveTokens(65_535), 32_768);
+test("pi compaction reserves 70 percent of the model context window", () => {
+  assert.equal(piCompactionReserveTokens(1_050_000), 735_000);
+  assert.equal(piCompactionReserveTokens(65_536), 45_876);
+  assert.equal(piCompactionReserveTokens(65_535), 45_875);
   assert.equal(piCompactionReserveTokens(0), 0);
 });
 
@@ -3011,6 +3011,65 @@ test("compactPiSession prefers native post-run maintenance compaction when avail
   assert.equal(manualCompactCalls, 0);
   assert.equal(continueCalls, 0);
   assert.equal(disposed, true);
+});
+
+test("compactPiSession bypasses native post-run maintenance when force_compaction is true", async () => {
+  let manualCompactCalls = 0;
+  let maintenanceCalls = 0;
+  const result = await compactPiSession(
+    {
+      ...baseRequest(),
+      force_compaction: true,
+    },
+    {
+      createSession: async () => ({
+        session: {
+          messages: [
+            {
+              role: "assistant",
+            },
+          ],
+          agent: {
+            continue: async () => {},
+            hasQueuedMessages: () => true,
+          },
+          sessionManager: {
+            getBranch: () => [],
+            getLeafId: () => null,
+          },
+          subscribe() {
+            return () => {};
+          },
+          async _checkCompaction() {
+            maintenanceCalls += 1;
+          },
+          async compact() {
+            manualCompactCalls += 1;
+            return {
+              summary: "Forced compaction summary.",
+              firstKeptEntryId: "entry-7",
+              tokensBefore: 54321,
+            };
+          },
+        } as never,
+        sessionFile: "/tmp/pi-session.jsonl",
+        mcpToolMetadata: new Map(),
+        skillMetadataByAlias: new Map(),
+        dispose: async () => {},
+      }),
+    },
+  );
+
+  assert.equal(result.compacted, true);
+  assert.equal(result.reason, null);
+  assert.equal(result.error, null);
+  assert.deepEqual(result.result, {
+    summary: "Forced compaction summary.",
+    firstKeptEntryId: "entry-7",
+    tokensBefore: 54321,
+  });
+  assert.equal(maintenanceCalls, 0);
+  assert.equal(manualCompactCalls, 1);
 });
 
 test("compactPiSession surfaces native post-run maintenance failures without manual fallback", async () => {

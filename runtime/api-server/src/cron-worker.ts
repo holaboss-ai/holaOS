@@ -73,13 +73,12 @@ function cronjobNotificationPriority(metadata: Record<string, unknown>): Runtime
 }
 
 function isCronjobMainSessionKind(value: string | null | undefined): boolean {
-  const normalized = normalizedString(value).toLowerCase();
-  return (
-    normalized === "" ||
-    normalized === "workspace_session" ||
-    normalized === "main" ||
-    normalized === "onboarding"
-  );
+  const normalized = normalizedString(value).toLowerCase() || "main_session";
+  const canonical =
+    normalized === "workspace_session" || normalized === "main"
+      ? "main_session"
+      : normalized;
+  return canonical === "main_session" || canonical === "onboarding";
 }
 
 function preferredCronjobMainSessionId(params: {
@@ -90,8 +89,8 @@ function preferredCronjobMainSessionId(params: {
   const desktopBinding = params.store.getConversationBindingByConversation({
     workspaceId: params.workspace.id,
     channel: "desktop",
-    conversationKey: "workspace-main",
-    role: "main",
+    conversationKey: "main_session",
+    role: "main_session",
   });
   if (desktopBinding) {
     const boundSession = params.store.getSession({
@@ -152,9 +151,9 @@ function resolveCronjobMainSession(params: {
     params.store.upsertConversationBinding({
       workspaceId: params.workspace.id,
       channel: "desktop",
-      conversationKey: "workspace-main",
+      conversationKey: "main_session",
       sessionId: existing,
-      role: "main",
+      role: "main_session",
       isActive: true,
       metadata: {},
       lastActiveAt: utcNowIso(),
@@ -166,16 +165,16 @@ function resolveCronjobMainSession(params: {
   params.store.ensureSession({
     workspaceId: params.workspace.id,
     sessionId,
-    kind: "workspace_session",
+    kind: "main_session",
     title: params.workspace.name.trim() || "Main Session",
     createdBy: "cronjob",
   });
   params.store.upsertConversationBinding({
     workspaceId: params.workspace.id,
     channel: "desktop",
-    conversationKey: "workspace-main",
+    conversationKey: "main_session",
     sessionId,
-    role: "main",
+    role: "main_session",
     isActive: true,
     metadata: {},
     lastActiveAt: utcNowIso(),

@@ -382,6 +382,22 @@
     var(--foreground)
   );
   --info-text: color-mix(in oklab, var(--info) 45%, var(--foreground));
+
+  /* Workspace identity tint — neutral gray composed with --background /
+     --foreground via color-mix, so dark mode adapts automatically without
+     a separate theme override. */
+  --workspace-color-gray: oklch(0.55 0.005 270);
+
+  --workspace-color-gray-bg: color-mix(
+    in srgb,
+    var(--workspace-color-gray) 14%,
+    var(--background)
+  );
+  --workspace-color-gray-fg: color-mix(
+    in oklab,
+    var(--workspace-color-gray) 65%,
+    var(--foreground)
+  );
 }
 
 .dark {

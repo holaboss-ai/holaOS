@@ -1,11 +1,12 @@
-import { ArrowUpRight, Folder } from "lucide-react";
+import { ArrowUpRight, ChevronDown, Folder } from "lucide-react";
+import { useState } from "react";
 import {
   OutputArtifactIcon,
   dedupeOutputsForDisplay,
   outputSecondaryLabel,
 } from "../ArtifactBrowserModal";
 
-const MAX_VISIBLE_OUTPUTS = 3;
+const INLINE_OUTPUT_COLLAPSE_THRESHOLD = 3;
 
 export function AssistantTurnOutputs({
   outputs,
@@ -17,11 +18,16 @@ export function AssistantTurnOutputs({
   onOpenAllArtifacts: (outputs: WorkspaceOutputRecordPayload[]) => void;
 }) {
   const displayOutputs = dedupeOutputsForDisplay(outputs);
+  const [expanded, setExpanded] = useState(false);
   if (displayOutputs.length === 0) {
     return null;
   }
-  const visibleOutputs = displayOutputs.slice(0, MAX_VISIBLE_OUTPUTS);
-  const overflowCount = displayOutputs.length - visibleOutputs.length;
+  const shouldCollapse =
+    displayOutputs.length > INLINE_OUTPUT_COLLAPSE_THRESHOLD;
+  const visibleOutputs =
+    shouldCollapse && !expanded
+      ? displayOutputs.slice(0, INLINE_OUTPUT_COLLAPSE_THRESHOLD)
+      : displayOutputs;
   return (
     <div className="mt-3 flex flex-col gap-2">
       {visibleOutputs.map((output) => (
@@ -45,7 +51,26 @@ export function AssistantTurnOutputs({
         </button>
       ))}
 
-      {displayOutputs.length > 1 ? (
+      {shouldCollapse ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          className="flex max-w-[380px] items-center gap-3 rounded-xl border border-dashed border-border px-3 py-2 text-left text-muted-foreground transition-colors hover:border-border hover:bg-accent/40 hover:text-foreground"
+        >
+          <div className="grid size-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+            <Folder className="size-3.5" />
+          </div>
+          <span className="flex-1 text-xs">
+            {expanded
+              ? "Show less"
+              : `Show ${displayOutputs.length - INLINE_OUTPUT_COLLAPSE_THRESHOLD} more`}
+          </span>
+          <ChevronDown
+            className={`size-3.5 shrink-0 transition-transform ${expanded ? "rotate-180" : "rotate-0"}`}
+          />
+        </button>
+      ) : displayOutputs.length > 1 ? (
         <button
           type="button"
           onClick={() => onOpenAllArtifacts(displayOutputs)}
@@ -55,9 +80,7 @@ export function AssistantTurnOutputs({
             <Folder className="size-3.5" />
           </div>
           <span className="text-xs">
-            {overflowCount > 0
-              ? `View all ${displayOutputs.length} artifacts (+${overflowCount} more)`
-              : `View artifacts in this reply (${displayOutputs.length})`}
+            View artifacts in this reply ({displayOutputs.length})
           </span>
         </button>
       ) : null}

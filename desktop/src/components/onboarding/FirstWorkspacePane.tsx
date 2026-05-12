@@ -1,506 +1,303 @@
-import { X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Folder, FolderOpen, Plug, Sparkles, X, Zap } from "lucide-react";
+import { useEffect, useState } from "react";
 import { firstWorkspacePaneSectionClassName } from "@/components/layout/firstWorkspacePaneLayout";
 import { Button } from "@/components/ui/button";
-import { KitDetail } from "@/components/marketplace/KitDetail";
-import { MarketplaceGallery } from "@/components/marketplace/MarketplaceGallery";
+import { Input } from "@/components/ui/input";
+import { holabossLogoUrl } from "@/lib/assetPaths";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
-import { BrowserProfileStep } from "./BrowserProfileStep";
-import { ConfigureStep } from "./ConfigureStep";
-import { ConnectIntegrationsStep } from "./ConnectIntegrationsStep";
+import { cn } from "@/lib/utils";
 import { CreatingView } from "./CreatingView";
-import { OnboardingUserButton } from "./OnboardingUserButton";
-import { PROVIDER_DISPLAY_NAMES } from "./constants";
-import { SelectAppsStep } from "./SelectAppsStep";
+import { OnboardingShell } from "./OnboardingShell";
+import {
+  WizardField,
+  WorkspaceWizardLayout,
+} from "./WorkspaceWizardLayout";
 
-type OnboardingStep =
-  | "gallery"
-  | "detail"
-  | "select_apps"
-  | "configure"
-  | "browser_profile"
-  | "connect_integrations";
-
-const IMPORT_PROFILE_LIST_HANDLER_MISSING_MESSAGE =
-  "No handler registered for 'workspace:listImportBrowserProfiles'";
+type SimpleStep = "welcome" | "name" | "folder";
+type FolderChoice = "default" | "custom";
 
 interface FirstWorkspacePaneProps {
   variant?: "full" | "panel";
   onClose?: () => void;
 }
 
-/**
- * Wizard-step ordering. Marketplace flows with optional apps add a
- * `select_apps` step at the front; everything else starts on `configure`.
- * `connect_integrations` is a side path off `configure` and shares the final
- * step slot when surfaced.
- */
-function buildWizardSteps(
-  hasOptionalApps: boolean,
-): Array<"select_apps" | "configure" | "browser_profile"> {
-  return hasOptionalApps
-    ? ["select_apps", "configure", "browser_profile"]
-    : ["configure", "browser_profile"];
-}
+// Step index + total are variant-aware: panel variant skips Welcome and so
+// the visible flow is 2 steps (name → folder) starting at 1, while the full
+// takeover is 3 steps (welcome → name → folder) starting at 1.
+const STEP_INDEX_FULL: Record<SimpleStep, number> = {
+  welcome: 1,
+  name: 2,
+  folder: 3,
+};
+const STEP_INDEX_PANEL: Record<SimpleStep, number> = {
+  welcome: 0, // unreachable in panel variant
+  name: 1,
+  folder: 2,
+};
 
+/**
+ * Simplified workspace creation: name → folder choice → create. Templates and
+ * remote-server selection are intentionally skipped — every workspace is
+ * local. Marketplace browsing components remain in the codebase but are no
+ * longer reachable from this entry.
+ */
 export function FirstWorkspacePane({
   variant = "full",
   onClose,
 }: FirstWorkspacePaneProps) {
   const {
-    templateSourceMode,
-    setTemplateSourceMode,
-    selectedTemplateFolder,
-    marketplaceTemplates,
-    selectedMarketplaceTemplate,
-    selectMarketplaceTemplate,
-    workspaces,
     newWorkspaceName,
     setNewWorkspaceName,
-    browserBootstrapMode,
+    setTemplateSourceMode,
     setBrowserBootstrapMode,
-    browserBootstrapSourceWorkspaceId,
-    setBrowserBootstrapSourceWorkspaceId,
-    browserImportSource,
-    setBrowserImportSource,
-    browserImportProfileDir,
-    setBrowserImportProfileDir,
-    workspaceCreatePhase,
-    isCreatingWorkspace,
-    isLoadingMarketplaceTemplates,
-    canUseMarketplaceTemplates,
-    marketplaceTemplatesError,
-    retryMarketplaceTemplates,
-    workspaceErrorMessage,
-    chooseTemplateFolder,
     selectedWorkspaceFolder,
     chooseWorkspaceFolder,
     clearSelectedWorkspaceFolder,
     runtimeStatus,
+    workspaceCreatePhase,
+    isCreatingWorkspace,
+    workspaceErrorMessage,
     createWorkspace,
-    selectedApps,
-    setSelectedApps,
-    pendingIntegrations,
-    isResolvingIntegrations,
-    resolveIntegrationsBeforeCreate,
-    clearPendingIntegrations,
   } = useWorkspaceDesktop();
 
-  const [step, setStep] = useState<OnboardingStep>("gallery");
-  const [connectingProvider, setConnectingProvider] = useState<string | null>(
-    null,
+  // Welcome lands first when launched as the full takeover (no workspaces
+  // yet); the panel variant skips it since the user is already inside a
+  // signed-in session and is creating an additional workspace.
+  const [step, setStep] = useState<SimpleStep>(
+    variant === "panel" ? "name" : "welcome",
   );
-  const [connectStatus, setConnectStatus] = useState("");
-  const [detailKit, setDetailKit] = useState<TemplateMetadataPayload | null>(
-    null,
+  const [folderChoice, setFolderChoice] = useState<FolderChoice>(() =>
+    selectedWorkspaceFolder?.rootPath ? "custom" : "default",
   );
-  const [importProfiles, setImportProfiles] = useState<
-    BrowserImportProfileOptionPayload[]
-  >([]);
-  const [importProfilesLoading, setImportProfilesLoading] = useState(false);
-  const [importProfilesError, setImportProfilesError] = useState("");
-
   const isPanelVariant = variant === "panel";
+  const totalSteps = isPanelVariant ? 2 : 3;
+  const stepIndexMap = isPanelVariant ? STEP_INDEX_PANEL : STEP_INDEX_FULL;
 
-  const configureStepActive = step === "configure";
-  const prevConfigureRef = useRef(false);
+  // Pin defaults on mount so any prior session's marketplace/copy state can't
+  // leak into the create call. Use plain "empty" — "empty_onboarding" triggers
+  // the chat-based ONBOARD.md takeover which has no script to run for an
+  // empty workspace and would just throw the agent into a quota error loop.
   useEffect(() => {
-    if (configureStepActive && !prevConfigureRef.current) {
-      void resolveIntegrationsBeforeCreate();
-    }
-    prevConfigureRef.current = configureStepActive;
-  }, [configureStepActive, resolveIntegrationsBeforeCreate]);
-
-  useEffect(() => {
-    if (browserBootstrapMode !== "import_browser") {
-      setImportProfiles([]);
-      setImportProfilesLoading(false);
-      setImportProfilesError("");
-      return;
-    }
-
-    if (browserImportSource === "safari") {
-      setImportProfiles([]);
-      setImportProfilesLoading(false);
-      setImportProfilesError("");
-      setBrowserImportProfileDir("");
-      return;
-    }
-
-    if (step !== "browser_profile") {
-      return;
-    }
-
-    let cancelled = false;
-    setImportProfilesLoading(true);
-    setImportProfilesError("");
-    void window.electronAPI.workspace
-      .listImportBrowserProfiles(browserImportSource)
-      .then((profiles) => {
-        if (cancelled) {
-          return;
-        }
-        setImportProfiles(profiles);
-        if (
-          profiles.length > 0 &&
-          !profiles.some(
-            (profile) => profile.profileDir === browserImportProfileDir,
-          )
-        ) {
-          setBrowserImportProfileDir(profiles[0]?.profileDir ?? "");
-        }
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return;
-        }
-        const message = error instanceof Error ? error.message : String(error);
-        if (message.includes(IMPORT_PROFILE_LIST_HANDLER_MISSING_MESSAGE)) {
-          setImportProfiles([]);
-          setImportProfilesError(
-            "Profile list is unavailable in this desktop session. Continue to create the workspace and choose the profile in the import dialog.",
-          );
-          return;
-        }
-        setImportProfiles([]);
-        setImportProfilesError(
-          error instanceof Error
-            ? error.message
-            : "Could not load browser profiles.",
-        );
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setImportProfilesLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [step, browserBootstrapMode, browserImportSource]);
-
-  const hasUnconnectedIntegrations = pendingIntegrations
-    ? pendingIntegrations.missing_providers.length > 0
-    : false;
-
-  async function handleConnectProvider(provider: string) {
-    setConnectingProvider(provider);
-    setConnectStatus("Complete authorization in your browser…");
-    try {
-      const runtimeConfig = await window.electronAPI.runtime.getConfig();
-      const userId = runtimeConfig.userId ?? "local";
-      let beforeIds = new Set<string>();
-      try {
-        const before =
-          await window.electronAPI.workspace.composioListConnections();
-        beforeIds = new Set(before.connections.map((c) => c.id));
-      } catch {
-        // tolerate snapshot failure
-      }
-
-      const link = await window.electronAPI.workspace.composioConnect({
-        provider,
-        owner_user_id: userId,
-      });
-      await window.electronAPI.ui.openExternalUrl(link.redirect_url);
-
-      let consecutiveErrors = 0;
-      const MAX_CONSECUTIVE_ERRORS = 20;
-      for (let i = 0; i < 100; i += 1) {
-        await new Promise((r) => setTimeout(r, 3000));
-        let current;
-        try {
-          current =
-            await window.electronAPI.workspace.composioListConnections();
-          consecutiveErrors = 0;
-        } catch (pollError) {
-          consecutiveErrors += 1;
-          if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-            throw pollError;
-          }
-          continue;
-        }
-        const newConnection = current.connections.find(
-          (c) =>
-            !beforeIds.has(c.id) &&
-            c.toolkitSlug.toLowerCase() === provider.toLowerCase(),
-        );
-        if (newConnection) {
-          await window.electronAPI.workspace.composioFinalize({
-            connected_account_id: newConnection.id,
-            provider,
-            owner_user_id: userId,
-            account_label: `${PROVIDER_DISPLAY_NAMES[provider] ?? provider} (Managed)`,
-          });
-          setConnectStatus("");
-          setConnectingProvider(null);
-          void resolveIntegrationsBeforeCreate();
-          return;
-        }
-      }
-      setConnectStatus("Connection timed out. Please try again.");
-    } catch (error) {
-      setConnectStatus(error instanceof Error ? error.message : String(error));
-    } finally {
-      setConnectingProvider(null);
-    }
-  }
-
-  const sectionClassName = firstWorkspacePaneSectionClassName(step);
-  const creatingViaMarketplace =
-    templateSourceMode === "marketplace" && canUseMarketplaceTemplates;
-
-  const openAuthPopup = () => {
-    void window.electronAPI.auth.requestAuth();
-  };
-
-  function handleSelectKitFromGallery(template: TemplateMetadataPayload) {
-    setDetailKit(template);
-    setStep("detail");
-  }
-
-  function handleUseKit(template: TemplateMetadataPayload) {
-    selectMarketplaceTemplate(template.name);
-    setTemplateSourceMode("marketplace");
-    if (!newWorkspaceName.trim()) {
-      setNewWorkspaceName(template.name);
-    }
-    const hasOptional = template.apps.some((a) => !a.required);
-    setStep(hasOptional ? "select_apps" : "configure");
-  }
-
-  function handleStartFromScratch() {
     setTemplateSourceMode("empty");
-    setStep("configure");
+    setBrowserBootstrapMode("fresh");
+  }, [setTemplateSourceMode, setBrowserBootstrapMode]);
+
+  const trimmedName = newWorkspaceName.trim();
+  const sectionClassName = firstWorkspacePaneSectionClassName("configure");
+  const defaultRoot = runtimeStatus?.sandboxRoot?.trim() || "";
+  const customPath = selectedWorkspaceFolder?.rootPath?.trim() || "";
+
+  function handleContinueFromName() {
+    if (!trimmedName) {
+      return;
+    }
+    setStep("folder");
   }
 
-  function handleUseLocalTemplate() {
-    void chooseTemplateFolder().then(() => {
-      setStep("configure");
+  function handleSignInThenContinue() {
+    void window.electronAPI.auth.requestAuth();
+    setStep("name");
+  }
+
+  function handleSelectDefault() {
+    setFolderChoice("default");
+    clearSelectedWorkspaceFolder();
+  }
+
+  function handleSelectCustom() {
+    setFolderChoice("custom");
+    if (!customPath) {
+      void chooseWorkspaceFolder();
+    }
+  }
+
+  function handleCreate() {
+    void createWorkspace().then(() => {
+      if (isPanelVariant) {
+        onClose?.();
+      }
     });
   }
 
-  // Wizard step counter — derived per render so the indicator stays correct
-  // when the user backs out and switches templates.
-  const hasOptionalApps =
-    templateSourceMode === "marketplace" && selectedMarketplaceTemplate
-      ? selectedMarketplaceTemplate.apps.some((a) => !a.required)
-      : false;
-  const wizardSteps = useMemo(
-    () => buildWizardSteps(hasOptionalApps),
-    [hasOptionalApps],
-  );
-  const wizardStepTotal = wizardSteps.length;
-  const wizardStepIndex = (id: "select_apps" | "configure" | "browser_profile") =>
-    Math.max(1, wizardSteps.indexOf(id) + 1);
+  const createDisabled =
+    !trimmedName || (folderChoice === "custom" && !customPath);
 
-  const configureContinueDisabled =
-    !newWorkspaceName.trim() ||
-    (templateSourceMode === "marketplace" &&
-      (!canUseMarketplaceTemplates || !selectedMarketplaceTemplate));
+  const shellOnBack =
+    step === "folder"
+      ? () => setStep("name")
+      : step === "name" && !isPanelVariant
+        ? () => setStep("welcome")
+        : undefined;
+  const showCloseButton = isPanelVariant && step === "name";
 
-  const browserStepCreateDisabled =
-    !newWorkspaceName.trim() ||
-    hasUnconnectedIntegrations ||
-    isResolvingIntegrations ||
-    connectingProvider !== null ||
-    (browserBootstrapMode === "copy_workspace" &&
-      !browserBootstrapSourceWorkspaceId.trim()) ||
-    (browserBootstrapMode === "import_browser" &&
-      browserImportSource !== "safari" &&
-      !browserImportProfileDir.trim() &&
-      !importProfilesError.includes("Profile list is unavailable")) ||
-    (templateSourceMode === "marketplace" &&
-      (!canUseMarketplaceTemplates || !selectedMarketplaceTemplate));
-
-  // KitDetail surfaces its own "Back to templates" link, and wizard steps own
-  // their action bar back button — so the slim header just carries workspace
-  // identity (matches PublishScreen).
-  const stepLabel = (() => {
-    if (isCreatingWorkspace) {
-      return "Creating workspace";
-    }
-    if (step === "gallery") {
-      return "Pick a template";
-    }
-    if (step === "detail") {
-      return "Template detail";
-    }
-    if (step === "connect_integrations") {
-      return "Connect integrations";
-    }
-    return `New workspace`;
-  })();
-
-  const isWide = step === "gallery" || step === "detail";
-
-  const content = isCreatingWorkspace ? (
-    <CreatingView
-      browserBootstrapMode={browserBootstrapMode}
-      creatingViaMarketplace={creatingViaMarketplace}
-      panelVariant={isPanelVariant}
-      sectionClassName={sectionClassName}
-      showUserButton={!isPanelVariant}
-      workspaceCreatePhase={workspaceCreatePhase}
-    />
+  const innerContent = isCreatingWorkspace ? (
+    <OnboardingShell onClose={isPanelVariant ? onClose : undefined}>
+      <CreatingView
+        browserBootstrapMode="fresh"
+        creatingViaMarketplace={false}
+        panelVariant={isPanelVariant}
+        sectionClassName={sectionClassName}
+        workspaceCreatePhase={workspaceCreatePhase}
+      />
+    </OnboardingShell>
   ) : (
-    <section className={sectionClassName}>
-      {isWide ? (
-        // Gallery + detail keep their own width; the canvas just provides
-        // padding and scroll.
-        <div className="mx-auto w-full max-w-6xl flex-1 px-5 pb-8">
-          <div className="rounded-2xl bg-background px-7 py-7 shadow-xs sm:px-9 sm:py-8">
-            {step === "gallery" ? (
-              <MarketplaceGallery
-                authenticated={canUseMarketplaceTemplates}
-                error={marketplaceTemplatesError || undefined}
-                isLoading={isLoadingMarketplaceTemplates}
-                mode="pick"
-                onRetry={retryMarketplaceTemplates}
-                onSelectKit={handleSelectKitFromGallery}
-                onSignIn={openAuthPopup}
-                onStartFromScratch={handleStartFromScratch}
-                onUseLocalTemplate={handleUseLocalTemplate}
-                templates={marketplaceTemplates}
+    <OnboardingShell
+      onBack={shellOnBack}
+      onClose={showCloseButton ? onClose : undefined}
+    >
+      <section className={sectionClassName}>
+        {step === "welcome" ? (
+          <WorkspaceWizardLayout
+            aboveTitle={<WelcomeHero />}
+            description="Local AI workspace. Connect to sync, or stay offline."
+            primary={{
+              label: "Connect holaOS",
+              onClick: handleSignInThenContinue,
+            }}
+            stepIndex={stepIndexMap.welcome}
+            stepTotal={totalSteps}
+            tertiary={{
+              label: "Skip",
+              onClick: () => setStep("name"),
+            }}
+            title="Welcome to holaOS"
+            width="md"
+          >
+            <div className="grid grid-cols-3 gap-3">
+              <FeatureCard
+                art={<Sparkles strokeWidth={1.25} />}
+                caption="Run end-to-end."
+                delayMs={120}
+                title="Agents"
               />
-            ) : step === "detail" && detailKit ? (
-              <KitDetail
-                onBack={() => setStep("gallery")}
-                onSelect={handleUseKit}
-                onSignIn={openAuthPopup}
-                selectDisabled={!canUseMarketplaceTemplates}
-                selectDisabledReason="Sign in required"
-                template={detailKit}
+              <FeatureCard
+                art={<Plug strokeWidth={1.25} />}
+                caption="Wired in."
+                delayMs={220}
+                title="Apps"
               />
-            ) : null}
-          </div>
-        </div>
-      ) : step === "select_apps" && selectedMarketplaceTemplate ? (
-        <SelectAppsStep
-          onBack={() => setStep("detail")}
-          onContinue={() => setStep("configure")}
-          onToggleApp={(appName) => {
-            const app = selectedMarketplaceTemplate.apps.find(
-              (a) => a.name === appName,
-            );
-            if (app?.required) {
-              return;
+              <FeatureCard
+                art={<Zap strokeWidth={1.25} />}
+                caption="Yours forever."
+                delayMs={320}
+                title="Local"
+              />
+            </div>
+          </WorkspaceWizardLayout>
+        ) : step === "name" ? (
+          <WorkspaceWizardLayout
+            description="Pick a name for your workspace. You can rename it later from settings."
+            errorMessage={workspaceErrorMessage || null}
+            primary={{
+              label: "Continue",
+              onClick: handleContinueFromName,
+              disabled: !trimmedName,
+            }}
+            stepIndex={stepIndexMap.name}
+            stepTotal={totalSteps}
+            tertiary={
+              isPanelVariant
+                ? { label: "Cancel", onClick: () => onClose?.() }
+                : undefined
             }
-            setSelectedApps((prev) => {
-              const next = new Set(prev);
-              if (next.has(appName)) {
-                next.delete(appName);
-              } else {
-                next.add(appName);
-              }
-              return next;
-            });
-          }}
-          selectedApps={selectedApps}
-          stepIndex={wizardStepIndex("select_apps")}
-          stepTotal={wizardStepTotal}
-          template={selectedMarketplaceTemplate}
-        />
-      ) : step === "configure" ? (
-        <ConfigureStep
-          connectStatus={connectStatus}
-          connectingProvider={connectingProvider}
-          continueDisabled={configureContinueDisabled}
-          defaultWorkspaceRoot={runtimeStatus?.sandboxRoot ?? null}
-          hasUnconnectedIntegrations={hasUnconnectedIntegrations}
-          isResolvingIntegrations={isResolvingIntegrations}
-          newWorkspaceName={newWorkspaceName}
-          onCancel={() => setStep("gallery")}
-          onChangeFolder={() => void chooseTemplateFolder()}
-          onChangeKit={() => setStep("gallery")}
-          onChooseWorkspaceFolder={() => void chooseWorkspaceFolder()}
-          onClearWorkspaceFolder={clearSelectedWorkspaceFolder}
-          onConnect={(provider) => void handleConnectProvider(provider)}
-          onContinue={() => setStep("browser_profile")}
-          pendingIntegrations={pendingIntegrations}
-          selectedMarketplaceTemplate={selectedMarketplaceTemplate}
-          selectedTemplateFolder={selectedTemplateFolder}
-          selectedWorkspaceFolder={selectedWorkspaceFolder}
-          setNewWorkspaceName={setNewWorkspaceName}
-          stepIndex={wizardStepIndex("configure")}
-          stepTotal={wizardStepTotal}
-          templateSourceMode={templateSourceMode}
-          workspaceErrorMessage={workspaceErrorMessage}
-        />
-      ) : step === "browser_profile" ? (
-        <BrowserProfileStep
-          browserBootstrapMode={browserBootstrapMode}
-          browserBootstrapSourceWorkspaceId={browserBootstrapSourceWorkspaceId}
-          browserImportProfileDir={browserImportProfileDir}
-          browserImportSource={browserImportSource}
-          copySourceWorkspaces={workspaces}
-          createDisabled={browserStepCreateDisabled}
-          importProfiles={importProfiles}
-          importProfilesError={importProfilesError}
-          importProfilesLoading={importProfilesLoading}
-          onBack={() => setStep("configure")}
-          onCancel={() => setStep("gallery")}
-          onCreate={() => void createWorkspace()}
-          setBrowserBootstrapMode={setBrowserBootstrapMode}
-          setBrowserBootstrapSourceWorkspaceId={
-            setBrowserBootstrapSourceWorkspaceId
-          }
-          setBrowserImportProfileDir={setBrowserImportProfileDir}
-          setBrowserImportSource={setBrowserImportSource}
-          stepIndex={wizardStepIndex("browser_profile")}
-          stepTotal={wizardStepTotal}
-          workspaceErrorMessage={workspaceErrorMessage}
-        />
-      ) : step === "connect_integrations" && pendingIntegrations ? (
-        <ConnectIntegrationsStep
-          connectStatus={connectStatus}
-          connectingProvider={connectingProvider}
-          onBack={() => {
-            clearPendingIntegrations();
-            setStep("configure");
-          }}
-          onConnect={(provider) => void handleConnectProvider(provider)}
-          pendingIntegrations={pendingIntegrations}
-          stepIndex={wizardStepIndex("configure")}
-          stepTotal={wizardStepTotal}
-        />
-      ) : null}
-    </section>
-  );
+            title="Name your workspace"
+            width="md"
+          >
+            <WizardField htmlFor="workspace-name" label="Workspace name" required>
+              <div className="rounded-lg bg-fg-2 shadow-2xs transition-colors focus-within:bg-background focus-within:shadow-xs">
+                <Input
+                  autoFocus
+                  className="h-10 border-0 bg-transparent shadow-none focus-visible:ring-0"
+                  id="workspace-name"
+                  onChange={(e) => setNewWorkspaceName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && trimmedName) {
+                      e.preventDefault();
+                      handleContinueFromName();
+                    }
+                  }}
+                  placeholder="My first workspace"
+                  value={newWorkspaceName}
+                />
+              </div>
+            </WizardField>
+          </WorkspaceWizardLayout>
+        ) : (
+          <WorkspaceWizardLayout
+            description="Files run locally on this machine. Use the default location or pick a folder you control."
+            errorMessage={workspaceErrorMessage || null}
+            primary={{
+              label: "Create workspace",
+              onClick: handleCreate,
+              disabled: createDisabled,
+            }}
+            secondary={{
+              label: "Back",
+              onClick: () => setStep("name"),
+            }}
+            stepIndex={stepIndexMap.folder}
+            stepTotal={totalSteps}
+            title="Where should it live?"
+            width="md"
+          >
+            <div className="space-y-3">
+              <FolderOption
+                active={folderChoice === "default"}
+                description={
+                  defaultRoot
+                    ? `Files live in ${defaultRoot}/workspace/<id>.`
+                    : "Holaboss-managed location on this machine."
+                }
+                icon={<Folder />}
+                onSelect={handleSelectDefault}
+                title="Use the default folder"
+              />
 
-  // ---------------------------------------------------------------------------
-  // Outer chrome: full-screen bg-fg-2 canvas with macOS title bar + slim header.
-  // ---------------------------------------------------------------------------
-  const shellInner = (
-    <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-      <div className="titlebar-drag-region pointer-events-none fixed top-0 right-0 left-0 z-10 h-[38px]" />
+              <FolderOption
+                active={folderChoice === "custom"}
+                description="Keep the workspace files on a drive or folder you control."
+                icon={<FolderOpen />}
+                onSelect={handleSelectCustom}
+                title="Choose a custom folder"
+              />
 
-      <header className="relative z-20 flex shrink-0 items-center justify-between gap-3 px-5 pt-[44px] pb-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-xs text-muted-foreground">
-            {stepLabel}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          {isPanelVariant ? (
-            <Button
-              aria-label="Close create workspace"
-              onClick={onClose}
-              size="icon"
-              type="button"
-              variant="ghost"
-            >
-              <X />
-            </Button>
-          ) : (
-            <OnboardingUserButton />
-          )}
-        </div>
-      </header>
-
-      {content}
-    </div>
+              {folderChoice === "custom" ? (
+                customPath ? (
+                  <div className="flex items-center gap-2 rounded-lg bg-fg-2 px-3 py-2 shadow-2xs">
+                    <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span
+                      className="flex-1 truncate font-mono text-[11px]"
+                      title={customPath}
+                    >
+                      {customPath}
+                    </span>
+                    <Button
+                      aria-label="Clear workspace folder"
+                      onClick={clearSelectedWorkspaceFolder}
+                      size="icon-xs"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <X />
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    onClick={() => void chooseWorkspaceFolder()}
+                    size="sm"
+                    type="button"
+                    variant="bordered"
+                  >
+                    <Folder />
+                    Choose folder…
+                  </Button>
+                )
+              ) : null}
+            </div>
+          </WorkspaceWizardLayout>
+        )}
+      </section>
+    </OnboardingShell>
   );
 
   if (isPanelVariant) {
@@ -512,16 +309,123 @@ export function FirstWorkspacePane({
           onClick={onClose}
           type="button"
         />
-        <div className="pointer-events-auto absolute inset-0 flex min-h-0 flex-col bg-fg-2">
-          {shellInner}
+        <div className="pointer-events-auto absolute inset-0 flex min-h-0 flex-col">
+          {innerContent}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 z-30 flex min-h-0 flex-col bg-fg-2">
-      {shellInner}
+    <div className="fixed inset-0 z-30 flex min-h-0 flex-col">
+      {innerContent}
     </div>
+  );
+}
+
+/**
+ * Brand mark with three static halo rings fading outward. Each ring sits a
+ * little further from the logo and at a lower opacity, so the eye reads
+ * "ambient brand presence" rather than a literal target. No animation.
+ */
+function WelcomeHero() {
+  return (
+    <div className="flex justify-center">
+      <div className="relative flex size-16 items-center justify-center">
+        {/* Outermost — most faint. */}
+        <span
+          aria-hidden
+          className="absolute inset-0 -m-5 rounded-full border border-primary/8"
+        />
+        {/* Middle. */}
+        <span
+          aria-hidden
+          className="absolute inset-0 -m-3 rounded-full border border-primary/16"
+        />
+        {/* Innermost — closest to the logo. */}
+        <span
+          aria-hidden
+          className="absolute inset-0 -m-1 rounded-full border border-primary/26"
+        />
+        {/* Brand mark. */}
+        <img
+          alt=""
+          aria-hidden
+          className="size-12 object-contain"
+          src={holabossLogoUrl}
+        />
+      </div>
+    </div>
+  );
+}
+
+interface FeatureCardProps {
+  /** Inline SVG line art. */
+  art: React.ReactNode;
+  title: string;
+  caption: string;
+  /** Stagger entrance — animation delay in ms. */
+  delayMs?: number;
+}
+
+/**
+ * Vertical feature card used in the Welcome grid: line-art SVG on top,
+ * single-word title, terse caption underneath. Stagger entrance on mount.
+ */
+function FeatureCard({ art, title, caption, delayMs = 0 }: FeatureCardProps) {
+  const animated = delayMs > 0;
+  return (
+    <div
+      className={cn(
+        "flex flex-col items-center rounded-xl bg-fg-2 px-3 pt-5 pb-4 text-center",
+        animated && "opacity-0 animate-fade-in-once",
+      )}
+      style={animated ? { animationDelay: `${delayMs}ms` } : undefined}
+    >
+      <div className="mt-1 mb-1 text-foreground/70 [&>svg]:size-10">{art}</div>
+      <p className="mt-3 text-sm font-medium text-foreground">{title}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{caption}</p>
+    </div>
+  );
+}
+
+
+interface FolderOptionProps {
+  active: boolean;
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  onSelect: () => void;
+}
+
+function FolderOption({
+  active,
+  title,
+  description,
+  icon,
+  onSelect,
+}: FolderOptionProps) {
+  return (
+    <button
+      aria-pressed={active}
+      className={cn(
+        "flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left transition-colors",
+        active ? "bg-background shadow-2xs" : "bg-fg-2 hover:bg-fg-4",
+      )}
+      onClick={onSelect}
+      type="button"
+    >
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background text-muted-foreground shadow-2xs [&_svg]:size-4">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-foreground">
+          {title}
+        </span>
+        <span className="mt-0.5 block text-xs text-muted-foreground">
+          {description}
+        </span>
+      </span>
+    </button>
   );
 }
