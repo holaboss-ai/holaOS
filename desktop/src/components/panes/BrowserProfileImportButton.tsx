@@ -112,6 +112,8 @@ export function BrowserProfileImportButton({
   const [statusTone, setStatusTone] =
     useState<BrowserImportStatusTone>("info");
   const [resultWarnings, setResultWarnings] = useState<string[]>([]);
+  const [lastSucceededImportSignature, setLastSucceededImportSignature] =
+    useState<string | null>(null);
   const open = controlledOpen ?? internalOpen;
 
   const setOpen = (nextOpen: boolean) => {
@@ -123,6 +125,7 @@ export function BrowserProfileImportButton({
 
   useEffect(() => {
     if (!open) {
+      setLastSucceededImportSignature(null);
       return;
     }
     setStatusMessage("");
@@ -277,8 +280,23 @@ export function BrowserProfileImportButton({
       ) ?? null,
     [copySourceWorkspaceId, copySourceWorkspaces],
   );
+  const currentImportSignature = useMemo(() => {
+    if (profileSetupMode === "copy_workspace") {
+      return `copy:${trimmedWorkspaceId}:${copySourceWorkspaceId.trim()}`;
+    }
+    return `import:${trimmedWorkspaceId}:${browserImportSource}:${browserImportProfileDir.trim()}`;
+  }, [
+    browserImportProfileDir,
+    browserImportSource,
+    copySourceWorkspaceId,
+    profileSetupMode,
+    trimmedWorkspaceId,
+  ]);
+  const isRepeatOfLastSucceeded =
+    lastSucceededImportSignature !== null &&
+    lastSucceededImportSignature === currentImportSignature;
   const canImport = useMemo(() => {
-    if (!trimmedWorkspaceId || importPending) {
+    if (!trimmedWorkspaceId || importPending || isRepeatOfLastSucceeded) {
       return false;
     }
     if (profileSetupMode === "copy_workspace") {
@@ -296,6 +314,7 @@ export function BrowserProfileImportButton({
     browserImportSource,
     copySourceWorkspaceId,
     importPending,
+    isRepeatOfLastSucceeded,
     profileSelectionDeferredToImportDialog,
     profileSetupMode,
     trimmedWorkspaceId,
@@ -326,6 +345,7 @@ export function BrowserProfileImportButton({
           }),
         );
         setResultWarnings(summary.warnings);
+        setLastSucceededImportSignature(currentImportSignature);
         return;
       }
       const summary = await window.electronAPI.workspace.importBrowserProfile({
@@ -345,6 +365,7 @@ export function BrowserProfileImportButton({
       setStatusTone(summary.warnings.length > 0 ? "info" : "success");
       setStatusMessage(importSummaryMessage(summary));
       setResultWarnings(summary.warnings);
+      setLastSucceededImportSignature(currentImportSignature);
     } catch (error) {
       setStatusTone("error");
       setStatusMessage(normalizeErrorMessage(error));
@@ -374,7 +395,7 @@ export function BrowserProfileImportButton({
       <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
         <DialogPrimitive.Portal>
           <DialogPrimitive.Backdrop className="fixed inset-0 z-[120] bg-scrim backdrop-blur-sm data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 duration-200" />
-          <DialogPrimitive.Popup className="fixed top-1/2 left-1/2 z-[121] flex max-h-[min(780px,calc(100vh-32px))] w-[min(720px,calc(100vw-32px))] min-w-0 -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-3xl border border-border bg-background shadow-xs outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.97] data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[0.98] duration-200 ease-out">
+          <DialogPrimitive.Popup className="fixed top-1/2 left-1/2 z-[121] flex max-h-[min(780px,calc(100vh-32px))] w-[min(720px,calc(100vw-32px))] min-w-0 -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-3xl border border-border bg-background shadow-xl outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.97] data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[0.98] duration-200 ease-out">
             <header className="flex items-start justify-between gap-4 border-b border-border px-6 py-5">
               <div className="min-w-0">
                 <DialogPrimitive.Title className="text-[20px] font-semibold text-foreground">
@@ -404,7 +425,7 @@ export function BrowserProfileImportButton({
 
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 [scrollbar-gutter:stable]">
               <div className="space-y-5">
-                <div className="rounded-xl bg-fg-2 px-4 py-3 text-sm leading-relaxed text-muted-foreground shadow-2xs">
+                <div className="rounded-xl bg-fg-2 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
                   Current workspace cookies are replaced before import so stale
                   login state does not linger. Sites that rely on app-bound
                   encryption or non-cookie storage may still ask you to sign in
@@ -421,14 +442,14 @@ export function BrowserProfileImportButton({
                         type="button"
                         aria-pressed={active}
                         className={cn(
-                          "flex items-start gap-3 rounded-lg px-3.5 py-3 text-left transition-colors shadow-2xs focus-visible:[box-shadow:none!important]",
+                          "flex items-start gap-3 rounded-lg px-3.5 py-3 text-left transition-colors focus-visible:[box-shadow:none!important]",
                           active
                             ? "bg-primary/[0.06] ring-1 ring-primary/30"
                             : "bg-fg-2 hover:bg-fg-4",
                         )}
                         onClick={() => setProfileSetupMode(option.value)}
                       >
-                        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-background shadow-2xs">
+                        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-background">
                           <OptionIcon className="size-4 text-muted-foreground" />
                         </div>
                         <div className="min-w-0 flex-1">
@@ -458,7 +479,7 @@ export function BrowserProfileImportButton({
                     <label className="text-sm font-medium text-foreground">
                       Source workspace
                     </label>
-                    <div className="overflow-hidden rounded-lg bg-fg-2 shadow-2xs">
+                    <div className="overflow-hidden rounded-lg bg-fg-2">
                       {copySourceWorkspacesLoading ? (
                         <p className="px-3 py-2.5 text-sm text-muted-foreground">
                           Loading workspaces…
@@ -516,7 +537,7 @@ export function BrowserProfileImportButton({
                       <span className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-foreground">
                         Source
                       </span>
-                      <div className="rounded-lg bg-fg-2 shadow-2xs transition-colors focus-within:bg-background focus-within:shadow-xs">
+                      <div className="rounded-lg bg-fg-2 transition-colors focus-within:bg-background">
                         <select
                           className="h-10 w-full rounded-lg border-0 bg-transparent px-3 text-sm text-foreground outline-none focus-visible:ring-0"
                           onChange={(event) =>
@@ -536,7 +557,7 @@ export function BrowserProfileImportButton({
                     </label>
 
                     {browserImportSource === "safari" ? (
-                      <p className="rounded-lg bg-fg-2 px-3 py-2.5 text-sm text-muted-foreground shadow-2xs">
+                      <p className="rounded-lg bg-fg-2 px-3 py-2.5 text-sm text-muted-foreground">
                         Safari import opens a file picker for a Safari export
                         zip and only brings in bookmarks and history.
                       </p>
@@ -551,7 +572,7 @@ export function BrowserProfileImportButton({
                             {importProfilesError}
                           </p>
                         ) : null}
-                        <div className="overflow-hidden rounded-lg bg-fg-2 shadow-2xs">
+                        <div className="overflow-hidden rounded-lg bg-fg-2">
                           {importProfilesLoading ? (
                             <p className="px-3 py-2.5 text-sm text-muted-foreground">
                               Loading profiles…
@@ -616,12 +637,12 @@ export function BrowserProfileImportButton({
               {statusMessage ? (
                 <div
                   className={cn(
-                    "mb-3 rounded-lg border px-3 py-2 text-xs leading-5",
+                    "mb-3 rounded-lg px-3 py-2 text-xs leading-5",
                     statusTone === "error"
-                      ? "border-destructive/25 bg-destructive/5 text-destructive"
+                      ? "bg-destructive/8 text-destructive"
                       : statusTone === "success"
-                        ? "border-emerald-500/20 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
-                        : "border-border bg-muted/30 text-foreground",
+                        ? "bg-success/10 text-success"
+                        : "bg-fg-2 text-foreground",
                   )}
                 >
                   <p>{statusMessage}</p>
@@ -659,6 +680,12 @@ export function BrowserProfileImportButton({
                           : "Importing…"}
                       </span>
                     </>
+                  ) : isRepeatOfLastSucceeded ? (
+                    <span>
+                      {profileSetupMode === "copy_workspace"
+                        ? "Copied"
+                        : "Imported"}
+                    </span>
                   ) : (
                     <span>
                       {profileSetupMode === "copy_workspace"
