@@ -26,6 +26,21 @@ import {
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 
+export interface SlashItemCommandCtx {
+  editor: Editor;
+  range: Range;
+  /** Populated when the item has a `picker` and the user committed via it. */
+  picker?: { rows: number; cols: number };
+}
+
+export type SlashItemPicker = {
+  kind: "grid";
+  maxRows: number;
+  maxCols: number;
+  initialRows: number;
+  initialCols: number;
+};
+
 export interface SlashItem {
   /** Stable id, used as React key. */
   id: string;
@@ -42,7 +57,9 @@ export interface SlashItem {
   /** Optional keyboard shortcut hint shown at the right. */
   shortcut?: string;
   /** Action invoked when this item is selected. */
-  command: (ctx: { editor: Editor; range: Range }) => void;
+  command: (ctx: SlashItemCommandCtx) => void;
+  /** Optional grid picker shown beside the menu when this item is active. */
+  picker?: SlashItemPicker;
 }
 
 export interface SlashMenuListProps {
@@ -63,6 +80,8 @@ export interface SlashMenuListHandle {
 export const SlashMenuList = forwardRef<SlashMenuListHandle, SlashMenuListProps>(
   function SlashMenuList({ items, command }, ref) {
     const [activeIndex, setActiveIndex] = useState(0);
+    const [pickerMode, setPickerMode] = useState(false);
+    const [pickerDims, setPickerDims] = useState({ rows: 0, cols: 0 });
     const containerRef = useRef<HTMLDivElement>(null);
     const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
@@ -82,22 +101,91 @@ export const SlashMenuList = forwardRef<SlashMenuListHandle, SlashMenuListProps>
       setActiveIndex(0);
     }, [items]);
 
+    const activeItem = items[activeIndex];
+    const activePicker = activeItem?.picker ?? null;
+
+    useEffect(() => {
+      setPickerMode(false);
+      if (activePicker) {
+        setPickerDims({
+          rows: activePicker.initialRows,
+          cols: activePicker.initialCols,
+        });
+      }
+    }, [
+      activeIndex,
+      activePicker?.kind,
+      activePicker?.initialRows,
+      activePicker?.initialCols,
+    ]);
+
     // Keep the active item visible inside the scroll container.
     useLayoutEffect(() => {
       const el = itemRefs.current[activeIndex];
       el?.scrollIntoView({ block: "nearest" });
     }, [activeIndex]);
 
-    const select = (index: number) => {
+    const commit = (index: number, picker?: { rows: number; cols: number }) => {
       const item = items[index];
       if (!item) return;
-      command(item);
+      if (item.picker && picker && picker.rows > 0 && picker.cols > 0) {
+        const wrapped: SlashItem = {
+          ...item,
+          command: (ctx) => item.command({ ...ctx, picker }),
+        };
+        command(wrapped);
+      } else {
+        command(item);
+      }
     };
 
     useImperativeHandle(
       ref,
       (): SlashMenuListHandle => ({
         onKeyDown: (event) => {
+          if (event.key === "Escape" && pickerMode) {
+            event.preventDefault();
+            setPickerMode(false);
+            return true;
+          }
+          if (pickerMode && activePicker) {
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setPickerDims((d) => ({ ...d, rows: Math.max(1, d.rows - 1) }));
+              return true;
+            }
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setPickerDims((d) => ({
+                ...d,
+                rows: Math.min(activePicker.maxRows, d.rows + 1),
+              }));
+              return true;
+            }
+            if (event.key === "ArrowLeft") {
+              event.preventDefault();
+              if (pickerDims.cols <= 1) {
+                setPickerMode(false);
+              } else {
+                setPickerDims((d) => ({ ...d, cols: d.cols - 1 }));
+              }
+              return true;
+            }
+            if (event.key === "ArrowRight") {
+              event.preventDefault();
+              setPickerDims((d) => ({
+                ...d,
+                cols: Math.min(activePicker.maxCols, d.cols + 1),
+              }));
+              return true;
+            }
+            if (event.key === "Enter" || event.key === "Tab") {
+              event.preventDefault();
+              commit(activeIndex, pickerDims);
+              return true;
+            }
+            return false;
+          }
           if (event.key === "ArrowUp") {
             event.preventDefault();
             setActiveIndex((i) => (i + items.length - 1) % Math.max(items.length, 1));
@@ -108,74 +196,161 @@ export const SlashMenuList = forwardRef<SlashMenuListHandle, SlashMenuListProps>
             setActiveIndex((i) => (i + 1) % Math.max(items.length, 1));
             return true;
           }
+          if (event.key === "ArrowRight" && activePicker) {
+            event.preventDefault();
+            if (pickerDims.rows === 0 || pickerDims.cols === 0) {
+              setPickerDims({
+                rows: activePicker.initialRows,
+                cols: activePicker.initialCols,
+              });
+            }
+            setPickerMode(true);
+            return true;
+          }
           if (event.key === "Enter" || event.key === "Tab") {
             event.preventDefault();
-            select(activeIndex);
+            commit(activeIndex);
             return true;
           }
           return false;
         },
       }),
-      [activeIndex, items],
+      [activeIndex, activePicker, items, pickerDims, pickerMode],
     );
 
     if (items.length === 0) {
       return (
-        <div ref={containerRef} className="hb-slash hb-slash--empty">
-          <div className="hb-slash__empty-title">No matches</div>
-          <div className="hb-slash__empty-hint">Try a different word.</div>
+        <div className="hb-slash-shell">
+          <div ref={containerRef} className="hb-slash hb-slash--empty">
+            <div className="hb-slash__empty-title">No matches</div>
+            <div className="hb-slash__empty-hint">Try a different word.</div>
+          </div>
         </div>
       );
     }
 
     let runningIndex = 0;
     return (
-      <div ref={containerRef} className="hb-slash" role="listbox">
-        {groups.map((group) => (
-          <div key={group.section} className="hb-slash__group">
-            <div className="hb-slash__section">{group.section}</div>
-            {group.items.map((item) => {
-              const index = runningIndex++;
-              const Icon = item.icon;
-              const active = index === activeIndex;
-              return (
-                <button
-                  key={item.id}
-                  ref={(el) => {
-                    itemRefs.current[index] = el;
-                  }}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  data-active={active || undefined}
-                  className="hb-slash__item"
-                  onMouseEnter={() => setActiveIndex(index)}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    select(index);
-                  }}
-                >
-                  <span className="hb-slash__icon-wrap" aria-hidden="true">
-                    <Icon className="hb-slash__icon" />
-                  </span>
-                  <span className="hb-slash__body">
-                    <span className="hb-slash__title">{item.title}</span>
-                    {item.subtitle ? (
-                      <span className="hb-slash__subtitle">{item.subtitle}</span>
+      <div className="hb-slash-shell">
+        <div ref={containerRef} className="hb-slash" role="listbox">
+          {groups.map((group) => (
+            <div key={group.section} className="hb-slash__group">
+              <div className="hb-slash__section">{group.section}</div>
+              {group.items.map((item) => {
+                const index = runningIndex++;
+                const Icon = item.icon;
+                const active = index === activeIndex;
+                return (
+                  <button
+                    key={item.id}
+                    ref={(el) => {
+                      itemRefs.current[index] = el;
+                    }}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    data-active={active || undefined}
+                    className="hb-slash__item"
+                    onMouseEnter={() => {
+                      setActiveIndex(index);
+                      setPickerMode(false);
+                    }}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      commit(index);
+                    }}
+                  >
+                    <span className="hb-slash__icon-wrap" aria-hidden="true">
+                      <Icon className="hb-slash__icon" />
+                    </span>
+                    <span className="hb-slash__body">
+                      <span className="hb-slash__title">{item.title}</span>
+                      {item.subtitle ? (
+                        <span className="hb-slash__subtitle">{item.subtitle}</span>
+                      ) : null}
+                    </span>
+                    {item.shortcut ? (
+                      <span className="hb-slash__shortcut">{item.shortcut}</span>
                     ) : null}
-                  </span>
-                  {item.shortcut ? (
-                    <span className="hb-slash__shortcut">{item.shortcut}</span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-        ))}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+        {activePicker ? (
+          <GridPicker
+            maxRows={activePicker.maxRows}
+            maxCols={activePicker.maxCols}
+            rows={pickerDims.rows}
+            cols={pickerDims.cols}
+            onHover={(rows, cols) => setPickerDims({ rows, cols })}
+            onCommit={(rows, cols) => commit(activeIndex, { rows, cols })}
+          />
+        ) : null}
       </div>
     );
   },
 );
+
+interface GridPickerProps {
+  maxRows: number;
+  maxCols: number;
+  rows: number;
+  cols: number;
+  onHover: (rows: number, cols: number) => void;
+  onCommit: (rows: number, cols: number) => void;
+}
+
+function GridPicker({
+  maxRows,
+  maxCols,
+  rows,
+  cols,
+  onHover,
+  onCommit,
+}: GridPickerProps) {
+  const cells = useMemo(() => {
+    const out: Array<{ row: number; col: number }> = [];
+    for (let r = 1; r <= maxRows; r += 1) {
+      for (let c = 1; c <= maxCols; c += 1) {
+        out.push({ row: r, col: c });
+      }
+    }
+    return out;
+  }, [maxRows, maxCols]);
+
+  return (
+    <div className="hb-slash-picker" role="group" aria-label="Table size">
+      <div className="hb-slash-picker__label">
+        {rows > 0 && cols > 0 ? `${cols} × ${rows}` : "Choose size"}
+      </div>
+      <div
+        className="hb-slash-picker__grid"
+        style={{ gridTemplateColumns: `repeat(${maxCols}, 1fr)` }}
+        onMouseLeave={() => onHover(0, 0)}
+      >
+        {cells.map(({ row, col }) => {
+          const selected = row <= rows && col <= cols;
+          return (
+            <button
+              key={`${row}-${col}`}
+              type="button"
+              className="hb-slash-picker__cell"
+              data-selected={selected || undefined}
+              aria-label={`${col} columns by ${row} rows`}
+              onMouseEnter={() => onHover(row, col)}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                onCommit(row, col);
+              }}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 // Default command catalogue. Order matters — items appear in this order
 // within their section. Sections render in the order their first item
@@ -284,16 +459,26 @@ export function defaultSlashItems(): SlashItem[] {
       id: "table",
       section: "Other",
       title: "Table",
-      subtitle: "3×3 grid, columns resize",
+      subtitle: "Pick a grid size, columns resize after",
       keywords: ["table", "grid", "rows", "cols"],
       icon: IconTable,
-      command: ({ editor, range }) =>
+      picker: {
+        kind: "grid",
+        maxRows: 8,
+        maxCols: 10,
+        initialRows: 3,
+        initialCols: 3,
+      },
+      command: ({ editor, range, picker }) => {
+        const rows = picker?.rows ?? 3;
+        const cols = picker?.cols ?? 3;
         editor
           .chain()
           .focus(undefined, { scrollIntoView: false })
           .deleteRange(range)
-          .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
-          .run(),
+          .insertTable({ rows, cols, withHeaderRow: true })
+          .run();
+      },
     },
     {
       id: "divider",

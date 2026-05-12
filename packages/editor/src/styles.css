@@ -482,6 +482,72 @@
   background: color-mix(in oklab, currentColor 5%, transparent);
 }
 
+.hb-slash-shell {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+  width: max-content;
+  max-width: 100%;
+}
+
+.hb-slash-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.5rem;
+  border-radius: var(--hb-radius);
+  background: var(--hb-popup-bg, #ffffff);
+  color: var(--hb-popup-fg, #0f172a);
+  border: 1px solid var(--hb-popup-border, rgba(15, 23, 42, 0.1));
+  box-shadow: var(--hb-shadow-popup);
+  animation: hb-pop-in 100ms ease-out;
+}
+@media (prefers-color-scheme: dark) {
+  .hb-slash-picker {
+    background: var(--hb-popup-bg, #18181b);
+    color: var(--hb-popup-fg, #fafafa);
+    border-color: var(--hb-popup-border, rgba(255, 255, 255, 0.08));
+  }
+}
+.dark .hb-slash-picker {
+  background: var(--hb-popup-bg, #18181b);
+  color: var(--hb-popup-fg, #fafafa);
+  border-color: var(--hb-popup-border, rgba(255, 255, 255, 0.08));
+}
+
+.hb-slash-picker__label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, currentColor 55%, transparent);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.hb-slash-picker__grid {
+  display: grid;
+  gap: 3px;
+}
+
+.hb-slash-picker__cell {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border-radius: 2px;
+  border: 1px solid color-mix(in oklab, currentColor 18%, transparent);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 60ms ease, border-color 60ms ease;
+}
+.hb-slash-picker__cell:hover {
+  border-color: color-mix(in oklab, currentColor 35%, transparent);
+}
+.hb-slash-picker__cell[data-selected] {
+  background: color-mix(in oklab, var(--hb-accent, #f58419) 22%, transparent);
+  border-color: color-mix(in oklab, var(--hb-accent, #f58419) 55%, transparent);
+}
+
 /* Tippy strips its wrapper styling so our menus own the visual chrome.
  * We DON'T import tippy.css — own classes cover what we need. */
 .tippy-box[data-theme~="hb-slash"] {
