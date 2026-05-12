@@ -778,15 +778,30 @@ function shouldDismissVisibleRuntimeNotification(
 
 function shouldToastVisibleRuntimeNotification(
   notification: RuntimeNotificationRecordPayload,
-  selectedWorkspaceId: string | null,
+  context: {
+    selectedWorkspaceId: string | null;
+    /** Session the user is currently viewing in the chat pane (null
+     *  when they're elsewhere). If this matches the notification's
+     *  target session, the user is already looking at the event —
+     *  suppress the toast regardless of source type. */
+    viewingChatSessionId: string | null;
+  },
 ): boolean {
+  const notifSessionId = notificationTargetSessionId(notification);
+  if (
+    context.viewingChatSessionId &&
+    notifSessionId &&
+    notifSessionId === context.viewingChatSessionId
+  ) {
+    return false;
+  }
   if (
     notification.source_type === "main_session" ||
     isSystemCronjobNotification(notification)
   ) {
     return !notificationBelongsToSelectedWorkspace(
       notification,
-      selectedWorkspaceId,
+      context.selectedWorkspaceId,
     );
   }
   return true;
@@ -2343,6 +2358,19 @@ function AppShellContent() {
     void window.electronAPI.ui.setTheme(theme);
   }, [theme, colorScheme, themeVariant]);
 
+  // The chat session the user is *actively* viewing right now. Null
+  // when they're not in the chat pane (control center, sessions pane,
+  // browser-fullscreen, etc.). Notifications whose `session_id`
+  // matches this should never toast, and unread inbox entries for it
+  // should auto-mark read on arrival — the user already sees the
+  // event in the chat itself.
+  const viewingChatSessionId =
+    activeShellView === "space" &&
+    !spaceBrowserFullscreen &&
+    agentView.type === "chat"
+      ? (activeChatSessionId || "").trim() || null
+      : null;
+
   const dismissNotificationToast = useCallback((notificationId: string) => {
     setToastNotifications((current) =>
       current.filter((item) => item.id !== notificationId),
@@ -2469,7 +2497,12 @@ function AppShellContent() {
           continue;
         }
 
-        if (!shouldToastVisibleRuntimeNotification(item, selectedWorkspaceId)) {
+        if (
+          !shouldToastVisibleRuntimeNotification(item, {
+            selectedWorkspaceId,
+            viewingChatSessionId: viewingChatSessionId,
+          })
+        ) {
           continue;
         }
 
@@ -2489,6 +2522,7 @@ function AppShellContent() {
     activeShellView,
     controlCenterVisibleWorkspaceIdSet,
     selectedWorkspaceId,
+    viewingChatSessionId,
   ]);
 
   useEffect(() => {
@@ -2508,6 +2542,51 @@ function AppShellContent() {
       return next.length === current.length ? current : next;
     });
   }, [notifications]);
+
+  // Auto-mark unread notifications as read when the user is actively
+  // viewing the chat session they reference. "Opened the session" is
+  // the strongest possible read-receipt signal — the user is looking
+  // at the conversation, anything that landed there has been seen by
+  // definition. Without this, notifications keep piling up in the
+  // inbox / toast stack even though the user already read the event.
+  const autoReadAttemptedNotificationIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!viewingChatSessionId || !window.electronAPI) {
+      // Reset the dedupe set on session change so the next session
+      // start fresh — same notification id could only appear under
+      // one session anyway, but better to be defensive.
+      autoReadAttemptedNotificationIdsRef.current = new Set();
+      return;
+    }
+    const attempted = autoReadAttemptedNotificationIdsRef.current;
+    const candidates = notifications.filter((notification) => {
+      if (notification.state !== "unread") return false;
+      if (attempted.has(notification.id)) return false;
+      const notifSessionId = notificationTargetSessionId(notification);
+      return notifSessionId === viewingChatSessionId;
+    });
+    if (candidates.length === 0) return;
+    for (const notification of candidates) {
+      attempted.add(notification.id);
+      dismissNotificationToast(notification.id);
+      window.electronAPI.workspace
+        .updateNotification(notification.workspace_id, notification.id, {
+          state: "read",
+        })
+        .catch(() => {
+          // Network blip — let the next render retry by clearing the
+          // attempted marker. The notification will still be unread
+          // server-side and re-surface on the next refresh.
+          attempted.delete(notification.id);
+        });
+    }
+    void refreshNotifications();
+  }, [
+    dismissNotificationToast,
+    notifications,
+    refreshNotifications,
+    viewingChatSessionId,
+  ]);
 
   const handleActivateNotification = useCallback(
     async (notificationId: string) => {
