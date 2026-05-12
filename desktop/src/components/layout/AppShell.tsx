@@ -4670,8 +4670,13 @@ function AppShellContent() {
         return;
       }
 
+      const sameWorkspace =
+        normalizedWorkspaceId === (selectedWorkspaceId?.trim() || "");
       let workspaceInstalledAppIds = installedAppIds;
-      if (normalizedWorkspaceId !== (selectedWorkspaceId?.trim() || "")) {
+
+      // installedAppIds is hydrated lazily on workspace entry; before that
+      // it is empty and routing would fall through to the internal surface.
+      if (!sameWorkspace || !workspaceAppsReady) {
         try {
           const lifecycle =
             await window.electronAPI.workspace.getWorkspaceLifecycle(
@@ -4683,8 +4688,13 @@ function AppShellContent() {
               .filter(Boolean),
           );
         } catch {
-          workspaceInstalledAppIds = new Set<string>();
+          workspaceInstalledAppIds = sameWorkspace
+            ? installedAppIds
+            : new Set<string>();
         }
+      }
+
+      if (!sameWorkspace) {
         // Mark before the workspace switch: this batches with the
         // setSpaceDisplayView call inside openWorkspaceOutputTarget below,
         // so when the workspace-change effect fires it sees the marker and
@@ -4705,6 +4715,7 @@ function AppShellContent() {
       openWorkspaceOutputTarget,
       selectedWorkspaceId,
       setSelectedWorkspaceId,
+      workspaceAppsReady,
     ],
   );
 
