@@ -749,12 +749,12 @@ function notificationBelongsToSelectedWorkspace(
 
 function shouldShowNativeRuntimeNotification(
   notification: RuntimeNotificationRecordPayload,
-  isWindowMinimized: boolean,
+  isWindowAway: boolean,
 ): boolean {
   if (isSystemCronjobNotification(notification)) {
     return true;
   }
-  if (!isWindowMinimized) {
+  if (!isWindowAway) {
     return false;
   }
   return notification.source_type === "main_session";
@@ -1539,6 +1539,20 @@ function AppShellContent() {
   const [spaceWorkspacePanelCollapsed, setSpaceWorkspacePanelCollapsed] =
     useState(loadSpaceWorkspacePanelCollapsed);
   const [spaceBrowserFullscreen, setSpaceBrowserFullscreen] = useState(false);
+  const [windowFocused, setWindowFocused] = useState<boolean>(() =>
+    typeof document !== "undefined" ? document.hasFocus() : true,
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleFocus = () => setWindowFocused(true);
+    const handleBlur = () => setWindowFocused(false);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
   const [spaceBrowserSpace, setSpaceBrowserSpace] =
     useState<BrowserSpaceId>("user");
   const [spaceDisplayView, setSpaceDisplayView] = useState<SpaceDisplayView>({
@@ -2358,13 +2372,10 @@ function AppShellContent() {
     void window.electronAPI.ui.setTheme(theme);
   }, [theme, colorScheme, themeVariant]);
 
-  // The chat session the user is *actively* viewing right now. Null
-  // when they're not in the chat pane (control center, sessions pane,
-  // browser-fullscreen, etc.). Notifications whose `session_id`
-  // matches this should never toast, and unread inbox entries for it
-  // should auto-mark read on arrival — the user already sees the
-  // event in the chat itself.
+  // Non-null only when the user is in the chat pane AND the window
+  // is focused — tabbed-away counts as "not seeing it".
   const viewingChatSessionId =
+    windowFocused &&
     activeShellView === "space" &&
     !spaceBrowserFullscreen &&
     agentView.type === "chat"
@@ -2402,7 +2413,8 @@ function AppShellContent() {
         return;
       }
 
-      const isWindowMinimized = windowState?.isMinimized === true;
+      const isWindowAway =
+        windowState?.isMinimized === true || !windowFocused;
       for (const item of shellNotifications) {
         if (
           item.state !== "unread" ||
@@ -2431,9 +2443,7 @@ function AppShellContent() {
           );
         };
 
-        if (
-          shouldShowNativeRuntimeNotification(item, isWindowMinimized)
-        ) {
+        if (shouldShowNativeRuntimeNotification(item, isWindowAway)) {
           const lastAttemptAt =
             nativeRuntimeNotificationAttemptedAtRef.current.get(item.id) ?? 0;
           if (Date.now() - lastAttemptAt < 15_000) {
