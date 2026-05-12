@@ -466,6 +466,7 @@ Rules:
 - do not expect provider tokens directly in env
 - use integrations only when existing installed app data is not already sufficient
 - keep integration declarations explicit in `app.runtime.yaml`
+- after `workspace_apps_ensure_running` succeeds, the runtime reads each declared `integrations:` entry with `required: true` and surfaces a Connect button next to your reply for any provider the user has not yet authorized — you do NOT need to call any extra tool. Just tell the user the app is ready and let them click Connect.
 
 ### Durable Output Pattern
 

@@ -2435,6 +2435,13 @@ function parseSubagentPendingIntegrationsFromText(text: string): SubagentPending
   return out;
 }
 
+const PENDING_INTEGRATION_EMITTING_TOOLS = new Set([
+  "workspace_apps_install",
+  "workspace_apps_ensure_running",
+  "workspace_apps_restart",
+  "workspace_apps_restart_and_wait_ready",
+]);
+
 function subagentPendingIntegrations(params: {
   store: RuntimeStateStore;
   workspaceId: string;
@@ -2450,7 +2457,8 @@ function subagentPendingIntegrations(params: {
   for (const event of events) {
     if (event.eventType !== "tool_call") continue;
     const payload = isRecord(event.payload) ? event.payload : {};
-    if (payload.tool_name !== "workspace_apps_install") continue;
+    const toolName = typeof payload.tool_name === "string" ? payload.tool_name : "";
+    if (!PENDING_INTEGRATION_EMITTING_TOOLS.has(toolName)) continue;
     if (payload.phase !== "completed" || payload.error === true) continue;
     const result = isRecord(payload.result) ? payload.result : null;
     if (!result || !Array.isArray(result.content)) continue;

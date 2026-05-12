@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -55,6 +55,7 @@ import {
   listWorkspaceApplicationPorts,
   listWorkspaceApplications,
   parseInstalledAppRuntime,
+  parseResolvedAppRuntime,
   readWorkspaceMcpRegistryServerNames,
   resolveWorkspaceAppRuntime,
   updateWorkspaceApplications,
@@ -72,6 +73,40 @@ function buildSessionRefreshFields(newMcpServers: string[]): JsonObject {
     new_mcp_servers: [...newMcpServers],
     session_refresh_note: SESSION_REFRESH_NOTE,
   };
+}
+
+function pendingIntegrationsFromAppManifests(params: {
+  workspaceDir: string;
+  appIds: string[];
+}): JsonObject[] {
+  const seen = new Set<string>();
+  const out: JsonObject[] = [];
+  for (const appId of params.appIds) {
+    const manifestPath = path.join(params.workspaceDir, "apps", appId, "app.runtime.yaml");
+    if (!existsSync(manifestPath)) continue;
+    let parsed;
+    try {
+      parsed = parseResolvedAppRuntime(
+        readFileSync(manifestPath, "utf8"),
+        appId,
+        `apps/${appId}/app.runtime.yaml`,
+      );
+    } catch {
+      continue;
+    }
+    for (const integration of parsed.integrations ?? []) {
+      if (!integration.required) continue;
+      const key = `${appId}|${integration.provider.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        app_id: appId,
+        provider_id: integration.provider,
+        credential_source: integration.credentialSource,
+      });
+    }
+  }
+  return out;
 }
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -4739,6 +4774,10 @@ export class RuntimeAgentToolsService {
 
     const mcpServersAfter = readWorkspaceMcpRegistryServerNames(workspaceDir);
     const newMcpServers = [...mcpServersAfter].filter((name) => !mcpServersBefore.has(name));
+    const pendingIntegrations = pendingIntegrationsFromAppManifests({
+      workspaceDir,
+      appIds: targetAppIds,
+    });
 
     const statusResult = this.getWorkspaceAppStatus({
       workspaceId: params.workspaceId,
@@ -4749,6 +4788,7 @@ export class RuntimeAgentToolsService {
       count: targetAppIds.length,
       status: statusResult,
       ...buildSessionRefreshFields(newMcpServers),
+      ...(pendingIntegrations.length > 0 ? { pending_integrations: pendingIntegrations } : {}),
     };
   }
 
