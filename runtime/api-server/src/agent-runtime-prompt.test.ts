@@ -292,6 +292,14 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /You are Hola, the user's front-of-house teammate for this workspace\./);
   assert.match(prompt.systemPrompt, /Perform Hola as a consistent character/);
   assert.match(prompt.systemPrompt, /Conversation and orchestration doctrine:/);
+  assert.match(
+    prompt.systemPrompt,
+    /In a workspace conversation, treat requests to `install`, `add`, or `use` an app as workspace-app requests by default, not native desktop-app installs/i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /If the current surfaced capability set or delegated executor snapshot includes `workspace_apps_find` and `workspace_apps_install`, check the workspace app catalog first and prefer catalog install/i,
+  );
   assert.match(prompt.systemPrompt, /single front-of-house counterpart/);
   assert.match(prompt.systemPrompt, /real teammate with taste, memory, preferences, and reactions/);
   assert.match(prompt.systemPrompt, /brief warmth, curiosity, humor, and point of view/);
@@ -465,6 +473,10 @@ test("composeAgentPrompt requires subagent outputs to stay self-contained", () =
   );
   assert.match(
     prompt.systemPrompt,
+    /In workspace tasks, treat requests to `install`, `add`, or `use` an app as workspace-app requests by default, not native desktop-app installs/i,
+  );
+  assert.match(
+    prompt.systemPrompt,
     /Do not inspect workspace files or app config just to prove an integration exists when the current surfaced capability set already exposes the relevant tools/i,
   );
   assert.match(
@@ -474,6 +486,37 @@ test("composeAgentPrompt requires subagent outputs to stay self-contained", () =
   assert.match(
     prompt.systemPrompt,
     /For browser tasks, if you reach a login or access wall, leave the browser where it is, ask the user to complete the required step, and wait for the main session to resume you\./,
+  );
+});
+
+test("composeAgentPrompt teaches subagents to prefer workspace app catalog install over scaffolding", () => {
+  const capabilityManifest = buildAgentCapabilityManifest({
+    defaultTools: ["read"],
+    extraTools: ["workspace_apps_find", "workspace_apps_install", "workspace_apps_scaffold"],
+    runtimeToolIds: ["workspace_apps_find", "workspace_apps_install", "workspace_apps_scaffold"],
+    workspaceSkillIds: [],
+    resolvedMcpToolRefs: [],
+    toolServerIdMap: {},
+  });
+
+  const prompt = composeAgentPrompt("You are concise.", {
+    defaultTools: ["read"],
+    extraTools: ["workspace_apps_find", "workspace_apps_install", "workspace_apps_scaffold"],
+    workspaceSkillIds: [],
+    resolvedMcpToolRefs: [],
+    sessionKind: "subagent",
+    sessionMode: "code",
+    harnessId: "pi",
+    capabilityManifest,
+  });
+
+  assert.match(
+    prompt.systemPrompt,
+    /When `workspace_apps_find` and `workspace_apps_install` are surfaced and the task could match an existing workspace app, call `workspace_apps_find` before scaffolding a new app/i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /If `workspace_apps_find` returns an exact or clearly suitable catalog match, prefer `workspace_apps_install`/i,
   );
 });
 

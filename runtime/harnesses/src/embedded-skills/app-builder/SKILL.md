@@ -25,6 +25,8 @@ This includes requests for dashboards, trackers, analytics surfaces, CSV visuali
 
 ## Deterministic Workspace Tools
 When these runtime tools are surfaced for the current run, prefer them over hand-written platform glue:
+- `workspace_apps_find` to check the marketplace/local catalog before deciding to build a new app
+- `workspace_apps_install` when the catalog already contains the app the user wants
 - `workspace_apps_scaffold` for the minimum valid app skeleton
 - `workspace_apps_register` for `workspace.yaml` registration
 - `workspace_apps_build` for deterministic `package.json` build verification instead of ad hoc shell
@@ -38,19 +40,22 @@ When these runtime tools are surfaced for the current run, prefer them over hand
 - `workspace_data_list_tables`, `workspace_data_describe_table`, and `workspace_data_sample_rows` for shared data discovery
 
 These tools are for workspace-contract operations. Keep app-specific UI, workflows, and domain logic model-driven.
+If `workspace_apps_find` returns an exact or clearly suitable app for the user's request, prefer `workspace_apps_install` over scaffolding a new app. Only build a new app when no suitable catalog app exists, the install route is blocked, or the user explicitly asked for a custom app.
 
 ## Build/Update Lifecycle
 Follow this sequence for both new apps and updates to existing apps:
 1. Inspect workspace context, existing apps, data sources, and any required local files.
-2. Decide whether to modify an existing app or create a new one.
-3. Scaffold the minimum valid app shape or edit the existing app files.
-4. Add only the capabilities the request actually needs.
-5. Register the app or update its workspace registration.
-6. Run `workspace_apps_build` when a deterministic build script exists instead of relying on ad hoc shell output.
-7. If the app was already running, prefer `workspace_apps_restart_and_wait_ready`; otherwise ensure the managed runtime is running it.
-8. Wait until runtime truth reports the app as `ready: true` if you did not already use the compound restart-and-wait tool.
-9. Verify the managed UI, MCP, data access, integrations, and outputs that the request depends on. Prefer `workspace_apps_probe_endpoints` for UI/MCP contract checks.
-10. Only then report that the app is installed, updated, or working.
+2. If `workspace_apps_find` is surfaced and the request could match an existing workspace app, query the catalog before deciding to build.
+3. Decide whether to modify an existing app, install an existing catalog app, or create a new one.
+4. If an exact or clearly suitable catalog app exists, install it and stop the build path unless the user explicitly asked for a custom app.
+5. Otherwise scaffold the minimum valid app shape or edit the existing app files.
+6. Add only the capabilities the request actually needs.
+7. Register the app or update its workspace registration.
+8. Run `workspace_apps_build` when a deterministic build script exists instead of relying on ad hoc shell output.
+9. If the app was already running, prefer `workspace_apps_restart_and_wait_ready`; otherwise ensure the managed runtime is running it.
+10. Wait until runtime truth reports the app as `ready: true` if you did not already use the compound restart-and-wait tool.
+11. Verify the managed UI, MCP, data access, integrations, and outputs that the request depends on. Prefer `workspace_apps_probe_endpoints` for UI/MCP contract checks.
+12. Only then report that the app is installed, updated, or working.
 
 Do not treat file creation, `npm install`, or a standalone browser preview as completion.
 
