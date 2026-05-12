@@ -62,10 +62,10 @@ if (content.includes("7_200_000")) {
 }
 
 if (!content.includes(OLD_SNIPPET)) {
-  console.warn(
-    "[patch-local-provider-timeout] Expected snippet not found — bundle may have changed. Skipping.",
+  console.error(
+    "[patch-local-provider-timeout] Expected snippet not found — bundle may have changed. Failing because the required timeout patch could not be applied.",
   );
-  process.exit(0);
+  process.exit(1);
 }
 
 writeFileSync(BUNDLE_FILE, content.replace(OLD_SNIPPET, NEW_SNIPPET), "utf8");
