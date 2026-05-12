@@ -226,6 +226,11 @@ test("renderCapabilityToolRoutingPromptSection tells main sessions to delegate w
   assert.match(section, /use `holaboss_delegate_task` instead of carrying out that task in this session/i);
   assert.match(section, /main session as a coordinator first/i);
   assert.match(section, /if the request requires task execution, route it to a delegated subagent/i);
+  assert.match(section, /Treat user requests as workspace-native by default/i);
+  assert.match(section, /delegate the workspace execution path unless the user explicitly asks for non-workspace handling/i);
+  assert.match(section, /Do not turn a named app or product request into a desktop install, browser-open, manual setup, or generic option list before delegation has checked the workspace-native route/i);
+  assert.match(section, /Ground clarification in current workspace\/session context or a concrete tool\/subagent result/i);
+  assert.match(section, /Do not ask abstract option-list questions or introduce unsupported alternatives from general product knowledge/i);
   assert.match(section, /Available-tool fallback:/);
   assert.match(section, /missing the ideal MCP, API, browser, web, terminal, or file tool is not enough to stop/i);
   assert.match(section, /choose another viable direct or delegated route/i);

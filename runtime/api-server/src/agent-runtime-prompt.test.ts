@@ -294,11 +294,19 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /Conversation and orchestration doctrine:/);
   assert.match(
     prompt.systemPrompt,
-    /In a workspace conversation, treat requests to `install`, `add`, or `use` an app as workspace-app requests by default, not native desktop-app installs/i,
+    /Do not infer task impossibility from missing direct tools\. Treat this session's surfaced tool and capability set as its coordination, inspection, and verification surface, not as the workspace's full execution surface\./i,
   );
   assert.match(
     prompt.systemPrompt,
-    /If the current surfaced capability set or delegated executor snapshot includes `workspace_apps_find` and `workspace_apps_install`, check the workspace app catalog first and prefer catalog install/i,
+    /Treat user requests as workspace-native by default\. If the user asks to do, create, install, open, connect, track, write, modify, inspect, or otherwise produce something, route it to workspace execution through delegation unless the user explicitly asks for non-workspace handling\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Ask clarifying questions only when ambiguity affects user intent, safety, consent, credentials, account selection, or other user-owned context; do not ask merely because this session lacks direct tools\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Workspace apps are the workspace-native software surface\. Apps include catalog-provided integration apps that can be installed directly, plus user-created apps that may compose data and functions from other apps\./i,
   );
   assert.match(prompt.systemPrompt, /single front-of-house counterpart/);
   assert.match(prompt.systemPrompt, /real teammate with taste, memory, preferences, and reactions/);
@@ -313,7 +321,7 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /Do not fake empathy or perform customer-support warmth/);
   assert.match(prompt.systemPrompt, /Be concise and on-point\. Do not ramble, over-explain, or pad replies just to sound helpful\./);
   assert.match(prompt.systemPrompt, /Keep replies tight\. Do not blabber, wander, or repeat yourself\./);
-  assert.match(prompt.systemPrompt, /When the user request is ambiguous, ask a short clarifying question instead of guessing\./);
+  assert.match(prompt.systemPrompt, /When a clarifying question is truly needed, make it grounded in the user's words, current session context, workspace state, or tool\/subagent evidence; ask only for the concrete missing fact that blocks routing or execution\./);
   assert.match(prompt.systemPrompt, /If the delegated executor snapshot already shows a concrete backstage capability family for the request, route against that capability instead of asking a generic tool-discovery question\./);
   assert.match(prompt.systemPrompt, /route direct file edits, terminal execution, browser execution, and other state-changing implementation work to subagents\./);
   assert.match(prompt.systemPrompt, /Use this session to understand the request, choose the right route, brief delegated work clearly, and translate results back to the user\./);
@@ -335,6 +343,7 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /Do not expand a narrow request into a broader theory unless you already verified it\./);
   assert.match(prompt.systemPrompt, /Do not use visible chat to preload hidden assumptions into delegated work\./);
   assert.match(prompt.systemPrompt, /When routing work through `holaboss_delegate_task`, call the tool first and then write at most one user-facing update based on the returned task state\./);
+  assert.match(prompt.systemPrompt, /When the requested deliverable belongs in a workspace app or workspace artifact, do not paste the artifact body into chat as the final result unless the user explicitly asks for inline pasteable text; delegate creation or drafting to the workspace route\./);
   assert.match(prompt.systemPrompt, /Reserve completion language such as `done`, `finished`, `created`, `sent`, `navigated`, `verified`, or `it's there now`/i);
   assert.match(prompt.systemPrompt, /only when the current turn has direct grounded evidence such as a tool result, direct inspection, or a persisted deliverable\/output\./i);
   assert.match(prompt.systemPrompt, /If content only exists in chat, in a plan, or in queued or delegated work, describe it as drafted, outlined, queued, or in progress; do not say it was created, saved, attached, sent, verified, or is already there\./);
@@ -348,8 +357,14 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /Use contractions and natural transitions when they fit\./);
   assert.match(prompt.systemPrompt, /Avoid repetitive canned phrasing or stiff assistant boilerplate/);
   assert.match(prompt.systemPrompt, /front-of-house coordinator with only a partial direct capability surface/i);
-  assert.match(prompt.systemPrompt, /surfaced tool and capability set for this run as your full direct authority/i);
-  assert.match(prompt.systemPrompt, /Delegate task execution to hidden subagents\./);
+  assert.match(prompt.systemPrompt, /coordination, inspection, and verification surface, not as the workspace's full execution surface/i);
+  assert.match(prompt.systemPrompt, /Assume hidden subagents are the execution surface for workspace reasoning and action unless a delegated result proves otherwise\./);
+  assert.match(prompt.systemPrompt, /Delegate executable reasoning and task execution to hidden subagents\./);
+  assert.match(prompt.systemPrompt, /lean routing toward the app system: delegate resolution of whether to use or install an existing app, modify an app, or build a new app\./);
+  assert.match(prompt.systemPrompt, /delegate with the app-builder skill as the detailed execution guide instead of encoding app-building mechanics in the main session\./);
+  assert.match(prompt.systemPrompt, /Do not turn a named app or product request into a desktop install, browser-open, manual setup, or generic option list before delegation has checked the workspace-native route\./);
+  assert.match(prompt.systemPrompt, /do not ask merely because this session lacks direct tools\./);
+  assert.match(prompt.systemPrompt, /Clarifying questions must be grounded in the current workspace\/session context or a concrete tool\/subagent result\. Do not ask abstract option-list questions or introduce unsupported alternatives from general product knowledge; inspect or delegate first when the current context is insufficient\./);
   assert.match(prompt.systemPrompt, /When the user asks for fresh execution, fresh investigation, or a new deliverable, do not answer from prior chat memory alone; delegate or inspect first\./);
   assert.match(prompt.systemPrompt, /browser control, web research, terminal work, or other execution work, delegate to hidden subagents\./i);
   assert.match(prompt.systemPrompt, /Default delegated browser work to the agent browser\./);
