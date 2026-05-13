@@ -4,7 +4,10 @@ import { firstWorkspacePaneSectionClassName } from "@/components/layout/firstWor
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { holabossLogoUrl } from "@/lib/assetPaths";
-import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import {
+  type FirstWorkspaceStep as SimpleStep,
+  useWorkspaceDesktop,
+} from "@/lib/workspaceDesktop";
 import { cn } from "@/lib/utils";
 import { CreatingView } from "./CreatingView";
 import { OnboardingShell } from "./OnboardingShell";
@@ -13,7 +16,6 @@ import {
   WorkspaceWizardLayout,
 } from "./WorkspaceWizardLayout";
 
-type SimpleStep = "welcome" | "name" | "folder";
 type FolderChoice = "default" | "custom";
 
 interface FirstWorkspacePaneProps {
@@ -58,18 +60,28 @@ export function FirstWorkspacePane({
     isCreatingWorkspace,
     workspaceErrorMessage,
     createWorkspace,
+    firstWorkspaceStep,
+    setFirstWorkspaceStep,
   } = useWorkspaceDesktop();
 
-  // Welcome lands first when launched as the full takeover (no workspaces
-  // yet); the panel variant skips it since the user is already inside a
-  // signed-in session and is creating an additional workspace.
-  const [step, setStep] = useState<SimpleStep>(
-    variant === "panel" ? "name" : "welcome",
-  );
+  // Step lives in the provider so a transient remount of this pane (the
+  // auth-completion sync flips AppShell's render gates briefly) doesn't
+  // snap useState back to "welcome".
+  const isPanelVariant = variant === "panel";
+  const step: SimpleStep =
+    isPanelVariant && firstWorkspaceStep === "welcome"
+      ? "name"
+      : firstWorkspaceStep;
+  const setStep = setFirstWorkspaceStep;
+
+  useEffect(() => {
+    if (isPanelVariant && firstWorkspaceStep === "welcome") {
+      setFirstWorkspaceStep("name");
+    }
+  }, [isPanelVariant, firstWorkspaceStep, setFirstWorkspaceStep]);
   const [folderChoice, setFolderChoice] = useState<FolderChoice>(() =>
     selectedWorkspaceFolder?.rootPath ? "custom" : "default",
   );
-  const isPanelVariant = variant === "panel";
   const totalSteps = isPanelVariant ? 2 : 3;
   const stepIndexMap = isPanelVariant ? STEP_INDEX_PANEL : STEP_INDEX_FULL;
 
