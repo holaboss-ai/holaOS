@@ -39,6 +39,15 @@ import type {
   BrowserVisibleSnapshotPayload,
 } from "../../shared/browser-pane-protocol.js";
 
+function isDisposedWebFrameError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /render frame was disposed before webframemain could be accessed/i.test(
+      error.message,
+    )
+  );
+}
+
 /** Structural opaque types — main's versions are richer; this module
  * only stores them on the workspace record without inspecting fields. */
 export type BrowserBookmarkPayload = unknown;
@@ -910,7 +919,7 @@ export function createBrowserPaneTabState(
     space?: BrowserSpaceId | null,
   ): void {
     const win = deps.getMainWindow();
-    if (!win || win.isDestroyed()) {
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
       return;
     }
     const activeId = deps.getActiveWorkspaceId();
@@ -920,12 +929,19 @@ export function createBrowserPaneTabState(
     if (normalized !== activeId || browserSpace !== deps.getActiveSpaceId()) {
       return;
     }
-    win.webContents.send(
-      "browser:state",
-      deps.browserWorkspaceSnapshot(normalized, browserSpace, null, {
-        useVisibleAgentSession: true,
-      }),
-    );
+    try {
+      win.webContents.send(
+        "browser:state",
+        deps.browserWorkspaceSnapshot(normalized, browserSpace, null, {
+          useVisibleAgentSession: true,
+        }),
+      );
+    } catch (error) {
+      if (isDisposedWebFrameError(error)) {
+        return;
+      }
+      throw error;
+    }
   }
 
   function emitHistoryState(workspaceId?: string | null): void {
@@ -933,7 +949,7 @@ export function createBrowserPaneTabState(
     const activeId = deps.getActiveWorkspaceId();
     const normalized =
       typeof workspaceId === "string" ? workspaceId.trim() : activeId;
-    if (!win || win.isDestroyed()) {
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
       if (!deps.hasOpenHistoryPopup()) {
         return;
       }
@@ -944,7 +960,13 @@ export function createBrowserPaneTabState(
     }
     const workspace = deps.getWorkspaceOrEmpty(normalized);
     const history = workspace?.history ?? [];
-    win.webContents.send("browser:history", history);
+    try {
+      win.webContents.send("browser:history", history);
+    } catch (error) {
+      if (!isDisposedWebFrameError(error)) {
+        throw error;
+      }
+    }
     deps.sendHistoryToPopup(history);
   }
 
@@ -983,6 +1005,9 @@ export function createBrowserPaneTabState(
       deps.scheduleAgentSessionBrowserLifecycleCheck(workspaceId, sessionId);
     }
     const viewContents = tab.view.webContents;
+    if (viewContents.isDestroyed()) {
+      return;
+    }
     tab.state = {
       ...tab.state,
       url: viewContents.getURL() || tab.state.url,

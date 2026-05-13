@@ -4583,16 +4583,6 @@ export async function processClaimedInput(params: {
             currentPreRunCompaction.projected_total_tokens,
           compaction_changed_branch: compactionResult.merged,
         };
-        if (finalPreRunDecision.decision !== "fit") {
-          preRunCompaction = {
-            ...preRunCompaction,
-            final_decision: "reset_required",
-            reset_required: true,
-          };
-          throw new SessionResetRequiredError(
-            `pre-run session compaction could not make the next prompt fit ${selectedModel ?? "the selected model"}; session reset required`,
-          );
-        }
       }
       const executeRunner =
         params.executeRunnerRequestFn ?? executeRunnerRequest;
