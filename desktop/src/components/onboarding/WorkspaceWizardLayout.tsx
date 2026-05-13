@@ -22,7 +22,7 @@ interface WorkspaceWizardLayoutProps {
   children: ReactNode;
   primary: WizardAction;
   secondary?: WizardAction;
-  /** Tertiary ghost action shown below the action bar (e.g. "Skip"). */
+  /** Tertiary ghost action shown below the action bar (e.g. "Cancel"). */
   tertiary?: WizardAction;
   errorMessage?: string | null;
   /** Optional hero/decoration block rendered above the title. */

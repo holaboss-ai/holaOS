@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { firstWorkspacePaneSectionClassName } from "@/components/layout/firstWorkspacePaneLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { holabossLogoUrl } from "@/lib/assetPaths";
 import {
   type FirstWorkspaceStep as SimpleStep,
@@ -17,6 +18,7 @@ import {
 } from "./WorkspaceWizardLayout";
 
 type FolderChoice = "default" | "custom";
+const AUTH_CONTINUE_TIMEOUT_MS = 120_000;
 
 interface FirstWorkspacePaneProps {
   variant?: "full" | "panel";
@@ -63,6 +65,7 @@ export function FirstWorkspacePane({
     firstWorkspaceStep,
     setFirstWorkspaceStep,
   } = useWorkspaceDesktop();
+  const authSessionState = useDesktopAuthSession();
 
   // Step lives in the provider so a transient remount of this pane (the
   // auth-completion sync flips AppShell's render gates briefly) doesn't
@@ -73,12 +76,46 @@ export function FirstWorkspacePane({
       ? "name"
       : firstWorkspaceStep;
   const setStep = setFirstWorkspaceStep;
+  const signedInUserId = authSessionState.data?.user?.id?.trim() || "";
+  const isSignedIn = Boolean(signedInUserId);
+  const [isAuthContinuationPending, setIsAuthContinuationPending] =
+    useState(false);
+  const [authGateError, setAuthGateError] = useState("");
 
   useEffect(() => {
     if (isPanelVariant && firstWorkspaceStep === "welcome") {
       setFirstWorkspaceStep("name");
     }
   }, [isPanelVariant, firstWorkspaceStep, setFirstWorkspaceStep]);
+
+  useEffect(() => {
+    if (!isAuthContinuationPending || !isSignedIn) {
+      return;
+    }
+    setIsAuthContinuationPending(false);
+    setAuthGateError("");
+    setStep("name");
+  }, [isAuthContinuationPending, isSignedIn, setStep]);
+
+  useEffect(() => {
+    if (!isAuthContinuationPending || !authSessionState.error) {
+      return;
+    }
+    setIsAuthContinuationPending(false);
+    setAuthGateError(authSessionState.error.message || "Sign-in failed.");
+  }, [authSessionState.error, isAuthContinuationPending]);
+
+  useEffect(() => {
+    if (!isAuthContinuationPending || isSignedIn) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      setIsAuthContinuationPending(false);
+      setAuthGateError("Sign-in did not finish. Try connecting holaOS again.");
+    }, AUTH_CONTINUE_TIMEOUT_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [isAuthContinuationPending, isSignedIn]);
+
   const [folderChoice, setFolderChoice] = useState<FolderChoice>(() =>
     selectedWorkspaceFolder?.rootPath ? "custom" : "default",
   );
@@ -106,9 +143,30 @@ export function FirstWorkspacePane({
     setStep("folder");
   }
 
-  function handleSignInThenContinue() {
-    void window.electronAPI.auth.requestAuth();
-    setStep("name");
+  async function handleSignInThenContinue() {
+    setAuthGateError("");
+    if (isSignedIn) {
+      setStep("name");
+      return;
+    }
+
+    setIsAuthContinuationPending(true);
+    try {
+      await authSessionState.requestAuth();
+      const user = await window.electronAPI.auth.getUser().catch(() => null);
+      if (user?.id?.trim()) {
+        setIsAuthContinuationPending(false);
+        setAuthGateError("");
+        setStep("name");
+      }
+    } catch (error) {
+      setIsAuthContinuationPending(false);
+      setAuthGateError(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "Failed to start sign-in.",
+      );
+    }
   }
 
   function handleSelectDefault() {
@@ -133,6 +191,13 @@ export function FirstWorkspacePane({
 
   const createDisabled =
     !trimmedName || (folderChoice === "custom" && !customPath);
+  const isAuthGateBusy =
+    !isSignedIn && (authSessionState.isPending || isAuthContinuationPending);
+  const authGatePrimaryLabel = isSignedIn
+    ? "Continue"
+    : isAuthGateBusy
+      ? "Waiting for sign-in"
+      : "Connect holaOS";
 
   const shellOnBack =
     step === "folder"
@@ -161,17 +226,15 @@ export function FirstWorkspacePane({
         {step === "welcome" ? (
           <WorkspaceWizardLayout
             aboveTitle={<WelcomeHero />}
-            description="Local AI workspace. Connect to sync, or stay offline."
+            description="Local AI workspace. Connect holaOS to sync your workspace."
             primary={{
-              label: "Connect holaOS",
+              label: authGatePrimaryLabel,
               onClick: handleSignInThenContinue,
+              loading: isAuthGateBusy,
             }}
+            errorMessage={authGateError || null}
             stepIndex={stepIndexMap.welcome}
             stepTotal={totalSteps}
-            tertiary={{
-              label: "Skip",
-              onClick: () => setStep("name"),
-            }}
             title="Welcome to holaOS"
             width="md"
           >
