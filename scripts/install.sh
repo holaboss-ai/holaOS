@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-REPO_URL="https://github.com/holaboss-ai/holaboss-ai.git"
+REPO_URL="https://github.com/holaboss-ai/holaOS.git"
 DEFAULT_INSTALL_DIR="${HOLABOSS_INSTALL_DIR:-$HOME/holaboss-ai}"
 HOLABOSS_HOME="${HOLABOSS_HOME:-$HOME/.holaboss}"
 MANAGED_NODE_DIR="${HOLABOSS_HOME}/node"
