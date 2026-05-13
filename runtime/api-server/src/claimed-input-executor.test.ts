@@ -677,7 +677,11 @@ test("claimed input persists runner events, assistant text, and idle state on su
     output_tokens: 34,
   });
   const snapshot = turnRequestSnapshotForInput(store, queued);
-  assert.equal(snapshot, null);
+  assert.ok(snapshot);
+  assert.equal(snapshot?.snapshotKind, "harness_host_request");
+  assert.equal(snapshot?.workspaceId, workspace.id);
+  assert.equal(snapshot?.sessionId, queued.sessionId);
+  assert.equal(snapshot?.inputId, queued.inputId);
 
   store.close();
 });
