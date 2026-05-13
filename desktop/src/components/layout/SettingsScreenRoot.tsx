@@ -367,15 +367,12 @@ export function SettingsScreenRoot({
     });
   }, [selectedWorkspace, workspaces]);
 
-  // Subscribe to in-app update status while the settings screen is mounted.
+  // Observe in-app update status while the settings screen is mounted.
+  // The Electron main process owns checks/downloads so this route can unmount
+  // without changing updater behavior.
   useEffect(() => {
     let cancelled = false;
     void window.electronAPI.appUpdate.getStatus().then((status) => {
-      if (!cancelled) {
-        setAppUpdateStatus(status);
-      }
-    });
-    void window.electronAPI.appUpdate.checkNow().then((status) => {
       if (!cancelled) {
         setAppUpdateStatus(status);
       }

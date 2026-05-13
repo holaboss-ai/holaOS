@@ -1105,6 +1105,7 @@ let desktopBrowserServiceUrl = "";
 let desktopBrowserServiceAuthToken = "";
 let appUpdateCheckTimer: NodeJS.Timeout | null = null;
 let appUpdateCheckPromise: Promise<AppUpdateStatusPayload> | null = null;
+let appUpdateDownloadPromise: Promise<Array<string>> | null = null;
 let appUpdateEventsConfigured = false;
 let appUpdatePreferences: AppUpdatePreferencesPayload = {};
 let notificationPreferences: { enabled: boolean } = { enabled: true };
@@ -1914,6 +1915,23 @@ function clampDownloadProgressPercent(progress: ProgressInfo) {
   return Math.max(0, Math.min(100, progress.percent));
 }
 
+function trackAppUpdateDownload(
+  downloadPromise: Promise<Array<string>> | null | undefined,
+) {
+  if (!downloadPromise || appUpdateDownloadPromise) {
+    return;
+  }
+
+  let trackedDownloadPromise: Promise<Array<string>>;
+  trackedDownloadPromise = downloadPromise.finally(() => {
+    if (appUpdateDownloadPromise === trackedDownloadPromise) {
+      appUpdateDownloadPromise = null;
+    }
+  });
+  appUpdateDownloadPromise = trackedDownloadPromise;
+  void trackedDownloadPromise.catch(() => undefined);
+}
+
 function applyAutoUpdaterChannelConfiguration() {
   const channel = effectiveAppUpdateChannel();
   autoUpdater.allowPrerelease = channel === "beta";
@@ -1969,6 +1987,7 @@ function configureAutoUpdater() {
   });
 
   autoUpdater.on("update-downloaded", (info) => {
+    appUpdateDownloadPromise = null;
     applyAppUpdateInfo(info, {
       available: false,
       downloaded: true,
@@ -1978,6 +1997,7 @@ function configureAutoUpdater() {
   });
 
   autoUpdater.on("update-not-available", (info) => {
+    appUpdateDownloadPromise = null;
     applyAppUpdateInfo(info, {
       available: false,
       downloaded: false,
@@ -1987,6 +2007,7 @@ function configureAutoUpdater() {
   });
 
   autoUpdater.on("error", (error) => {
+    appUpdateDownloadPromise = null;
     appUpdateStatus = {
       ...appUpdateStatus,
       supported: appUpdateSupported(),
@@ -2014,6 +2035,10 @@ async function checkForAppUpdates(): Promise<AppUpdateStatusPayload> {
     return appUpdateStatus;
   }
 
+  if (appUpdateDownloadPromise) {
+    return appUpdateStatus;
+  }
+
   if (appUpdateCheckPromise) {
     return appUpdateCheckPromise;
   }
@@ -2031,7 +2056,8 @@ async function checkForAppUpdates(): Promise<AppUpdateStatusPayload> {
 
   appUpdateCheckPromise = (async () => {
     try {
-      await autoUpdater.checkForUpdates();
+      const result = await autoUpdater.checkForUpdates();
+      trackAppUpdateDownload(result?.downloadPromise);
     } catch (error) {
       appUpdateStatus = {
         ...appUpdateStatus,
