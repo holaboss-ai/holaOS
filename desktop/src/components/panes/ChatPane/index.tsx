@@ -7481,7 +7481,7 @@ export function ChatPane({
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => openExternalUrl(billingLinks?.addCreditsUrl)}
+                  onClick={() => openExternalUrl(billingLinks?.billingPageUrl)}
                   className="rounded-full border-primary bg-primary/10 text-primary hover:bg-primary/16"
                 >
                   Add credits
