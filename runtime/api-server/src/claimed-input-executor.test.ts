@@ -5167,8 +5167,8 @@ test("claimed input synthesizes a turn request snapshot for main-session backgro
   store.close();
 });
 
-test("claimed input fails with session reset required when pre-run compaction cannot make the session fit", async () => {
-  const store = makeStore("hb-claimed-input-prerun-compaction-reset-");
+test("claimed input continues when pre-run compaction cannot get below the maintenance threshold", async () => {
+  const store = makeStore("hb-claimed-input-prerun-compaction-soft-");
   const workspace = store.createWorkspace({
     workspaceId: "workspace-1",
     name: "Workspace 1",
@@ -5285,38 +5285,58 @@ test("claimed input fails with session reset required when pre-run compaction ca
       },
       error: null,
     }),
-    executeRunnerRequestFn: async () => {
+    executeRunnerRequestFn: async (payload, options = {}) => {
       runnerCalled = true;
-      throw new Error("runner should not be invoked");
+      await options.onEvent?.({
+        session_id: String(payload.session_id),
+        input_id: String(payload.input_id),
+        sequence: 1,
+        event_type: "run_started",
+        payload: {},
+      });
+      await options.onEvent?.({
+        session_id: String(payload.session_id),
+        input_id: String(payload.input_id),
+        sequence: 2,
+        event_type: "run_completed",
+        payload: {
+          status: "completed",
+          harness_session_id: sessionFile,
+          context_usage: {
+            tokens: 100_000,
+            context_window: 400_000,
+            percent: 25,
+          },
+        },
+      });
+      return {
+        events: [],
+        skippedLines: [],
+        stderr: "",
+        returnCode: 0,
+        sawTerminal: true,
+      };
     },
   });
 
-  assert.equal(runnerCalled, false);
+  assert.equal(runnerCalled, true);
   const updated = store.getInput({
     workspaceId: workspace.id,
     inputId: queued.inputId,
   });
-  const events = outputEventsForInput(store, queued);
   const turnResult = turnResultForInput(store, queued);
-  const terminalPayload = events.at(-1)?.payload ?? null;
   const preRunTelemetry = recordValue(
     recordValue(turnResult?.contextBudgetDecisions)?.pre_run_compaction,
   );
-  assert.equal(updated?.status, "FAILED");
-  assert.equal(turnResult?.status, "failed");
-  assert.equal(turnResult?.stopReason, "session_reset_required");
-  assert.equal(recordValue(terminalPayload)?.error_type, "SessionResetRequiredError");
-  assert.ok(
-    String(recordValue(terminalPayload)?.message ?? "").includes(
-      "session reset required",
-    ),
-  );
+  assert.equal(updated?.status, "DONE");
+  assert.equal(turnResult?.status, "completed");
+  assert.notEqual(turnResult?.stopReason, "session_reset_required");
   assert.ok(preRunTelemetry);
   assert.equal(preRunTelemetry?.initial_decision, "threshold_exceeded");
-  assert.equal(preRunTelemetry?.final_decision, "reset_required");
+  assert.equal(preRunTelemetry?.final_decision, "threshold_exceeded");
   assert.equal(preRunTelemetry?.compaction_attempted, true);
   assert.equal(preRunTelemetry?.compaction_changed_branch, false);
-  assert.equal(preRunTelemetry?.reset_required, true);
+  assert.equal(preRunTelemetry?.reset_required, false);
   store.close();
 });
 

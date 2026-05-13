@@ -5703,27 +5703,10 @@ function browserSurfaceSummary(
     useVisibleAgentSession: true,
   });
   const activeTabId = tabSpace?.activeTabId ?? "";
-  if (activeTabId) {
-    syncBrowserState(
-      workspaceId,
-      activeTabId,
-      space,
-      space === "agent" ? browserVisibleAgentSessionId(workspace) : null,
-    );
-  }
-  const refreshedWorkspace = browserWorkspaceFromMap(workspaceId);
-  const refreshedTabSpace = browserTabSpaceState(
-    refreshedWorkspace,
-    space,
-    null,
-    {
-      useVisibleAgentSession: true,
-    },
-  );
-  const tabCount = browserTabSpaceTabCount(refreshedTabSpace);
+  const tabCount = browserTabSpaceTabCount(tabSpace);
   const activeTab =
-    activeTabId && refreshedTabSpace?.tabs.size
-      ? refreshedTabSpace.tabs.get(activeTabId) ?? null
+    activeTabId && tabSpace?.tabs.size
+      ? tabSpace.tabs.get(activeTabId) ?? null
       : null;
   const spaceLabel = space === "user" ? "User browser" : "Agent browser";
   const tabSummary = `${tabCount} open ${tabCount === 1 ? "tab" : "tabs"}`;
@@ -5739,7 +5722,7 @@ function browserSurfaceSummary(
     summaryParts.push("This surface is currently visible in the app.");
   }
   if (space === "user") {
-    const userLock = activeUserBrowserLock(refreshedWorkspace);
+    const userLock = activeUserBrowserLock(workspace);
     if (userLock) {
       summaryParts.push(
         `Exclusive control is currently held by agent session ${userLock.sessionId}.`,
@@ -16459,6 +16442,28 @@ function updateAttachedAppSurfaceView(): void {
   view.setBounds(appSurfaceBounds);
 }
 
+function detachAttachedMainWindowViews(): void {
+  const win = mainWindow;
+  if (win && !win.isDestroyed()) {
+    if (attachedBrowserTabView) {
+      try {
+        win.setBrowserView(null);
+      } catch {
+        // best effort during renderer teardown
+      }
+    }
+    if (attachedAppSurfaceView) {
+      try {
+        win.removeBrowserView(attachedAppSurfaceView);
+      } catch {
+        // best effort during renderer teardown
+      }
+    }
+  }
+  attachedBrowserTabView = null;
+  attachedAppSurfaceView = null;
+}
+
 async function resolveAppSurfaceUrl(
   workspaceId: string,
   appId: string,
@@ -21276,6 +21281,9 @@ app.on("web-contents-created", (_event, contents) => {
           : null,
       },
     });
+    if (ownerWindow && ownerWindow === mainWindow && contentsType === "window") {
+      detachAttachedMainWindowViews();
+    }
   });
 });
 

@@ -65,6 +65,7 @@ const LOCAL_OSS_TEMPLATE_USER_ID = "local-oss";
 const DEFAULT_WORKSPACE_HARNESS: WorkspaceHarnessId = "pi";
 const BOOTSTRAP_IPC_TIMEOUT_MS = 8_000;
 type TemplateSourceMode = "local" | "marketplace" | "empty" | "empty_onboarding";
+export type FirstWorkspaceStep = "welcome" | "name" | "folder";
 type LifecycleStepState = "pending" | "current" | "done" | "error";
 type WorkspaceListLoadSource = "auto" | "live" | "cached";
 type WorkspaceBrowserBootstrapMode = "fresh" | "copy_workspace" | "import_browser";
@@ -191,6 +192,8 @@ interface WorkspaceDesktopContextValue {
   isResolvingIntegrations: boolean;
   resolveIntegrationsBeforeCreate: () => Promise<ResolveTemplateIntegrationsResult | null>;
   clearPendingIntegrations: () => void;
+  firstWorkspaceStep: FirstWorkspaceStep;
+  setFirstWorkspaceStep: (step: FirstWorkspaceStep) => void;
 }
 
 const WorkspaceDesktopContext = createContext<WorkspaceDesktopContextValue | null>(null);
@@ -328,6 +331,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
   const [isResolvingIntegrations, setIsResolvingIntegrations] = useState(false);
   const [pendingAppInstall, setPendingAppInstall] = useState<{ appId: string; provider: string } | null>(null);
   const [isConnectingAppIntegration, setIsConnectingAppIntegration] = useState(false);
+  const [firstWorkspaceStep, setFirstWorkspaceStep] = useState<FirstWorkspaceStep>("welcome");
   // Composio toolkit metadata (name + logo + categories) keyed by toolkit
   // slug. Single source of truth for app display name + icon across the
   // shell — both the marketplace gallery and the workspace sidebar look
@@ -1707,7 +1711,9 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       pendingIntegrations,
       isResolvingIntegrations,
       resolveIntegrationsBeforeCreate,
-      clearPendingIntegrations
+      clearPendingIntegrations,
+      firstWorkspaceStep,
+      setFirstWorkspaceStep
     }),
     [
       runtimeConfig,
@@ -1777,7 +1783,8 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       pendingIntegrations,
       isResolvingIntegrations,
       resolveIntegrationsBeforeCreate,
-      clearPendingIntegrations
+      clearPendingIntegrations,
+      firstWorkspaceStep
     ]
   );
 

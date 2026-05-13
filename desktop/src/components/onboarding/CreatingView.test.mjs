@@ -8,6 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const creatingViewPath = path.join(__dirname, "CreatingView.tsx");
 const firstWorkspacePanePath = path.join(__dirname, "FirstWorkspacePane.tsx");
 const onboardingShellPath = path.join(__dirname, "OnboardingShell.tsx");
+const workspaceDesktopPath = path.join(__dirname, "../../lib/workspaceDesktop.tsx");
 const baseCssPath = path.join(__dirname, "../../styles/base.css");
 
 test("creating view uses the publish-flow shell DNA: rounded card on bg-fg-2 canvas with subtle shadow", async () => {
@@ -30,18 +31,19 @@ test("first workspace pane passes panel variant through to the creating view", a
 
 test("first workspace pane runs the welcome → name → folder flow", async () => {
   const source = await readFile(firstWorkspacePanePath, "utf8");
+  const workspaceDesktopSource = await readFile(workspaceDesktopPath, "utf8");
 
-  assert.match(source, /type SimpleStep = "welcome" \| "name" \| "folder";/);
+  assert.match(
+    workspaceDesktopSource,
+    /export type FirstWorkspaceStep = "welcome" \| "name" \| "folder";/,
+  );
   // Step index/total are variant-aware: full takeover = 3 (welcome→name→folder),
   // panel variant = 2 (name→folder, no Welcome).
   assert.match(source, /STEP_INDEX_FULL[\s\S]*welcome: 1,[\s\S]*name: 2,[\s\S]*folder: 3,/);
   assert.match(source, /STEP_INDEX_PANEL[\s\S]*name: 1,[\s\S]*folder: 2,/);
   assert.match(source, /const totalSteps = isPanelVariant \? 2 : 3;/);
-  // Initial step is held in useState<SimpleStep> — Welcome is in the
-  // possible state space. (Exact branch — full vs panel — is asserted via
-  // STEP_INDEX_* + totalSteps below; allows local dev to flip the
-  // initializer to force "welcome" while previewing.)
-  assert.match(source, /useState<SimpleStep>/);
+  // Initial step is held in the workspace provider so remounts do not reset it.
+  assert.match(workspaceDesktopSource, /useState<FirstWorkspaceStep>\("welcome"\)/);
   // Three step titles.
   assert.match(source, /title="Welcome to holaOS"/);
   assert.match(source, /title="Name your workspace"/);
@@ -49,10 +51,26 @@ test("first workspace pane runs the welcome → name → folder flow", async () 
   assert.match(source, /title="Use the default folder"/);
   assert.match(source, /title="Choose a custom folder"/);
   assert.match(source, /chooseWorkspaceFolder/);
-  // Welcome: brand-flavoured CTA "Connect holaOS" + plain "Skip" tertiary.
-  assert.match(source, /label: "Connect holaOS"/);
-  assert.match(source, /label: "Skip"/);
-  assert.match(source, /window\.electronAPI\.auth\.requestAuth\(\)/);
+  // Welcome: brand-flavoured CTA only; offline skip is no longer exposed.
+  assert.match(source, /useDesktopAuthSession/);
+  assert.match(source, /\? "Continue"\s*:\s*isAuthGateBusy/);
+  assert.match(source, /"Connect holaOS"/);
+  assert.doesNotMatch(source, /label: "Skip"/);
+  assert.match(source, /authSessionState\.requestAuth\(\)/);
+  assert.match(source, /setIsAuthContinuationPending\(true\)/);
+  assert.match(source, /if \(isSignedIn\) \{\s*setStep\("name"\);/);
+  assert.match(source, /if \(!isAuthContinuationPending \|\| !isSignedIn\)/);
+  assert.match(
+    source,
+    /!isSignedIn && \(authSessionState\.isPending \|\| isAuthContinuationPending\)/,
+  );
+  assert.match(source, /loading: isAuthGateBusy/);
+  assert.match(source, /label: authGatePrimaryLabel/);
+  assert.match(source, /errorMessage=\{authGateError \|\| null\}/);
+  assert.doesNotMatch(
+    source,
+    /window\.electronAPI\.auth\.requestAuth\(\);\s*setStep\("name"\)/,
+  );
   // Welcome step renders the brand hero above the title.
   assert.match(source, /aboveTitle=\{<WelcomeHero \/>\}/);
   // Three static halo rings fading outward, no motion.
