@@ -64,4 +64,12 @@ if (launch) {
   });
 }
 
+const sessionStartedAt = Date.now();
+window.addEventListener("beforeunload", () => {
+  trackUmamiEvent("desktop_quit", {
+    session_duration_ms: Date.now() - sessionStartedAt,
+    platform: platform ?? null,
+  });
+});
+
 ReactDOM.createRoot(document.getElementById("root")!).render(<App />);

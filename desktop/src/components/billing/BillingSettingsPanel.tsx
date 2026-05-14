@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   ArrowDownLeft,
@@ -22,6 +22,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { trackUmamiEvent } from "@/lib/analytics/umami";
 import { useDesktopBilling } from "@/lib/billing/useDesktopBilling";
 
 // ============================================================================
@@ -382,6 +383,10 @@ function openBillingLink(url: string | null | undefined) {
 export function BillingSettingsPanel() {
   const { overview, usage, links, isLoading, error, refresh } =
     useDesktopBilling();
+
+  useEffect(() => {
+    trackUmamiEvent("billing_page_viewed", { surface: "desktop" });
+  }, []);
 
   const showExpirationBanner = Boolean(overview?.expiresAt);
   const usageItems = usage?.items ?? [];

@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { trackUmamiEvent } from "@/lib/analytics/umami";
 import { getMarketplaceAppSdkClient } from "@/lib/app-sdk-client";
 import { type AuthSession, useDesktopAuthSession } from "@/lib/auth/authClient";
 import { hydrateInstalledWorkspaceApps, type WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
@@ -750,6 +751,10 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     setIsCreatingWorkspace(true);
     setWorkspaceCreatePhase("creating_workspace");
     setWorkspaceErrorMessage("");
+    trackUmamiEvent("workspace_create_phase_changed", {
+      phase: "creating_workspace",
+      template_mode: templateSourceMode,
+    });
     try {
       const trimmedWorkspaceName = newWorkspaceName.trim() || "Desktop Workspace";
       const customWorkspacePath = selectedWorkspaceFolder?.rootPath?.trim() || "";
@@ -815,6 +820,9 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
         const sourceWorkspaceId = browserBootstrapSourceWorkspaceId.trim();
         if (sourceWorkspaceId) {
           setWorkspaceCreatePhase("copying_browser_profile");
+          trackUmamiEvent("workspace_create_phase_changed", {
+            phase: "copying_browser_profile",
+          });
           try {
             await window.electronAPI.workspace.copyBrowserWorkspaceProfile({
               sourceWorkspaceId,
@@ -826,6 +834,9 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
         }
       } else if (browserBootstrapMode === "import_browser") {
         setWorkspaceCreatePhase("importing_browser_profile");
+        trackUmamiEvent("workspace_create_phase_changed", {
+          phase: "importing_browser_profile",
+        });
         try {
           await window.electronAPI.workspace.importBrowserProfile({
             workspaceId: createdWorkspaceId,
@@ -845,6 +856,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       }
 
       setWorkspaceCreatePhase("finalizing");
+      trackUmamiEvent("workspace_create_phase_changed", { phase: "finalizing" });
       // Keep the creating view alive for one more task so panel-based creation
       // can hand off cleanly to the newly selected workspace without flashing
       // the configuration screen again before the panel closes.
@@ -852,7 +864,12 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
         window.setTimeout(resolve, 0);
       });
     } catch (error) {
-      setWorkspaceErrorMessage(normalizeErrorMessage(error));
+      const message = normalizeErrorMessage(error);
+      setWorkspaceErrorMessage(message);
+      trackUmamiEvent("workspace_create_failed", {
+        template_mode: templateSourceMode,
+        error_message: message,
+      });
     } finally {
       setIsCreatingWorkspace(false);
       setWorkspaceCreatePhase("creating_workspace");
@@ -976,6 +993,11 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       return;
     }
     setAppCatalogError("");
+    trackUmamiEvent("app_install_clicked", {
+      app_id: appId,
+      workspace_id: selectedWorkspaceId,
+      source: appCatalogSource,
+    });
 
     // Check if this app requires an integration that isn't connected yet
     const provider = providerForApp(appId);
@@ -1048,8 +1070,18 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
         }
       }
       await refreshInstalledApps();
+      trackUmamiEvent("app_install_succeeded", {
+        app_id: appId,
+        workspace_id: selectedWorkspaceId,
+      });
     } catch (error) {
-      setAppCatalogError(normalizeErrorMessage(error));
+      const message = normalizeErrorMessage(error);
+      setAppCatalogError(message);
+      trackUmamiEvent("app_install_failed", {
+        app_id: appId,
+        workspace_id: selectedWorkspaceId,
+        error_message: message,
+      });
     } finally {
       setInstallingAppId(null);
     }

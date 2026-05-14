@@ -98,6 +98,7 @@ import {
 import { getExplorerAttachmentClipboardEntry } from "@/lib/appClipboard";
 import { CHAT_LAYOUT, chatScrollMaskImage } from "@/lib/chatLayout";
 import { ProviderBrandIcon } from "@/lib/providerBrandIcon";
+import { trackUmamiEvent } from "@/lib/analytics/umami";
 import {
   DEFAULT_RUNTIME_MODEL,
   useDesktopAuthSession,
@@ -5625,6 +5626,9 @@ export function ChatPane({
       if (targetSessionId) {
         draftParentSessionIdRef.current = null;
         setActiveSession(targetSessionId);
+        trackUmamiEvent("agent_session_started", {
+          workspace_id: selectedWorkspace.id,
+        });
       }
     }
     if (!targetSessionId) {
@@ -5655,6 +5659,13 @@ export function ChatPane({
     let optimisticUserMessageId = "";
 
     setIsSubmittingMessage(true);
+    trackUmamiEvent("agent_message_sent", {
+      workspace_id: selectedWorkspace?.id ?? null,
+      has_attachments: pendingAttachments.length > 0,
+      attachment_count: pendingAttachments.length,
+      message_length: trimmed.length,
+      queued_onto_active_run: queueOntoActiveRun,
+    });
 
     appendStreamTelemetry({
       streamId: activeStreamIdRef.current || "-",
@@ -7093,6 +7104,18 @@ export function ChatPane({
   const showLowBalanceWarning =
     usesHostedManagedCredits && isLowBalance && !isOutOfCredits;
   const showOutOfCreditsWarning = usesHostedManagedCredits && isOutOfCredits;
+  const creditWarningSeverity = showOutOfCreditsWarning
+    ? "out"
+    : showLowBalanceWarning
+      ? "low"
+      : null;
+  useEffect(() => {
+    if (creditWarningSeverity) {
+      trackUmamiEvent("credit_warning_shown", {
+        severity: creditWarningSeverity,
+      });
+    }
+  }, [creditWarningSeverity]);
   const chatPaneSentryState = useMemo(
     () => ({
       workspace_id: selectedWorkspaceId || null,
@@ -7481,7 +7504,13 @@ export function ChatPane({
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => openExternalUrl(billingLinks?.addCreditsUrl)}
+                  onClick={() => {
+                    trackUmamiEvent("credit_topup_clicked", {
+                      location: "chat_warning",
+                      severity: creditWarningSeverity,
+                    });
+                    openExternalUrl(billingLinks?.addCreditsUrl);
+                  }}
                   className="rounded-full border-primary bg-primary/10 text-primary hover:bg-primary/16"
                 >
                   Add credits
@@ -7491,9 +7520,12 @@ export function ChatPane({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() =>
-                      openExternalUrl(billingLinks?.billingPageUrl)
-                    }
+                    onClick={() => {
+                      trackUmamiEvent("billing_page_clicked", {
+                        location: "chat_warning",
+                      });
+                      openExternalUrl(billingLinks?.billingPageUrl);
+                    }}
                     className="rounded-full"
                   >
                     Manage on web
