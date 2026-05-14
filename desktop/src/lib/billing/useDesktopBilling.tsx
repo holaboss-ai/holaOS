@@ -115,6 +115,13 @@ function deriveAppBaseUrl(apiBaseUrl: string): string {
       parsed.hostname = parsed.hostname.replace(/^api-preview\./u, "preview.");
       return parsed.origin;
     }
+    if (parsed.hostname === "api.holaos.ai") {
+      // holaos.ai's web app is served from www., not app. (the app. subdomain
+      // is unused). Other api.* hosts (e.g. api.holaboss.ai, api.imerchstaging.com)
+      // still pair with app.* per their deploy layouts.
+      parsed.hostname = "www.holaos.ai";
+      return parsed.origin;
+    }
     if (parsed.hostname.startsWith("api.")) {
       parsed.hostname = parsed.hostname.replace(/^api\./u, "app.");
       return parsed.origin;
