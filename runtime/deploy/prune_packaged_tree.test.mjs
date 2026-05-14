@@ -30,3 +30,40 @@ test("prunePackagedTree preserves skill markdown while pruning other markdown fi
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("prunePackagedTree removes packaged-runtime archives, sources, and duplicate node binaries", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hb-prune-node-runtime-"));
+  const nodePackageDir = path.join(root, "node_modules", "node");
+  const nodeBinDir = path.join(nodePackageDir, "bin");
+  const duplicateNodeDir = path.join(nodePackageDir, "node_modules", "node-bin-win-x64", "bin");
+  const setupDir = path.join(nodePackageDir, "node_modules", "node-bin-setup");
+  const archivePath = path.join(root, "node_modules", "mcporter", "mcporter-0.7.3.tgz");
+  const sourcePath = path.join(root, "node_modules", "better-sqlite3", "deps", "sqlite3", "sqlite3.c");
+  const binaryPath = path.join(root, "node_modules", "native-module", "binding.node");
+
+  try {
+    fs.mkdirSync(nodeBinDir, { recursive: true });
+    fs.mkdirSync(duplicateNodeDir, { recursive: true });
+    fs.mkdirSync(setupDir, { recursive: true });
+    fs.mkdirSync(path.dirname(archivePath), { recursive: true });
+    fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+    fs.mkdirSync(path.dirname(binaryPath), { recursive: true });
+    fs.writeFileSync(path.join(nodeBinDir, "node.exe"), "node", "utf8");
+    fs.writeFileSync(path.join(duplicateNodeDir, "node.exe"), "duplicate", "utf8");
+    fs.writeFileSync(path.join(setupDir, "index.js"), "setup", "utf8");
+    fs.writeFileSync(archivePath, "archive", "utf8");
+    fs.writeFileSync(sourcePath, "source", "utf8");
+    fs.writeFileSync(binaryPath, "native", "utf8");
+
+    prunePackagedTree(root, "windows");
+
+    assert.equal(fs.existsSync(path.join(nodeBinDir, "node.exe")), true);
+    assert.equal(fs.existsSync(path.join(nodePackageDir, "node_modules", "node-bin-win-x64")), false);
+    assert.equal(fs.existsSync(setupDir), false);
+    assert.equal(fs.existsSync(archivePath), false);
+    assert.equal(fs.existsSync(sourcePath), false);
+    assert.equal(fs.existsSync(binaryPath), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

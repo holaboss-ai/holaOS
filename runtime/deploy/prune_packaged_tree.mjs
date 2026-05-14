@@ -11,7 +11,11 @@ const FILE_SUFFIXES_TO_PRUNE = [
   ".map",
   ".md",
   ".markdown",
+  ".c",
   ".pdb",
+  ".tar",
+  ".tar.gz",
+  ".tgz",
   ".tsbuildinfo",
   ".exp",
   ".lib"
@@ -110,6 +114,42 @@ function pruneKoffiBinaries(rootPath, targetPlatform) {
   }
 }
 
+function pruneNodePackageBinaryMirrors(rootPath) {
+  const nodePackageDir = path.join(rootPath, "node_modules", "node");
+  const nodeBinDir = path.join(nodePackageDir, "bin");
+  if (!hasAnyNodeExecutable(nodeBinDir)) {
+    return;
+  }
+
+  const nodePackageModulesDir = path.join(nodePackageDir, "node_modules");
+  let entries;
+  try {
+    entries = readdirSync(nodePackageModulesDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith("node-bin-")) {
+      continue;
+    }
+    rmSync(path.join(nodePackageModulesDir, entry.name), { recursive: true, force: true });
+  }
+}
+
+function hasAnyNodeExecutable(nodeBinDir) {
+  try {
+    for (const entry of readdirSync(nodeBinDir, { withFileTypes: true })) {
+      if (entry.isFile() && (entry.name === "node" || entry.name === "node.exe")) {
+        return true;
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 export function prunePackagedTree(targetRoot, targetPlatform = "") {
   const resolvedRoot = path.resolve(targetRoot);
   let beforeCount = 0;
@@ -120,6 +160,7 @@ export function prunePackagedTree(targetRoot, targetPlatform = "") {
   }
 
   pruneCommonRuntimeFiles(resolvedRoot);
+  pruneNodePackageBinaryMirrors(resolvedRoot);
   if (targetPlatform) {
     pruneKoffiBinaries(resolvedRoot, targetPlatform);
   }
