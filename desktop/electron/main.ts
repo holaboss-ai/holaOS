@@ -20844,11 +20844,13 @@ function desktopStatusItemIconPath(): string {
 }
 
 function shouldShowNativeDesktopNotification(): boolean {
-  return Boolean(
-    mainWindow &&
-      !mainWindow.isDestroyed() &&
-      mainWindow.isMinimized(),
-  );
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+  if (mainWindow.isMinimized() || !mainWindow.isVisible()) {
+    return true;
+  }
+  return !mainWindow.isFocused();
 }
 
 function normalizedNativeNotificationText(value: string, maxLength: number): string {
@@ -20960,7 +20962,7 @@ function showNativeDesktopNotification(
       title,
       body,
       force: payload.force,
-      detail: "Main window is visible and not minimized.",
+      detail: "Main window is visible, focused, and not minimized.",
     });
     return Promise.resolve(false);
   }
@@ -20973,13 +20975,7 @@ function showNativeDesktopNotification(
     });
     return Promise.resolve(false);
   }
-  if (shouldUseMacDevelopmentNotificationFallback()) {
-    return showMacDevelopmentNotificationFallback({
-      title,
-      body,
-      force: payload.force,
-    });
-  }
+  const useDevFallback = shouldUseMacDevelopmentNotificationFallback();
 
   return new Promise<boolean>((resolve) => {
     logNativeDesktopNotificationEvent("show_requested", {
@@ -21001,6 +20997,28 @@ function showNativeDesktopNotification(
       settled = true;
       resolve(value);
     };
+    const fallbackThenSettle = (detail: string) => {
+      if (settled) {
+        return;
+      }
+      if (!useDevFallback) {
+        settle(false);
+        return;
+      }
+      logNativeDesktopNotificationEvent("dev_fallback_attempt", {
+        title,
+        body,
+        force: payload.force,
+        detail,
+      });
+      void showMacDevelopmentNotificationFallback({
+        title,
+        body,
+        force: payload.force,
+      }).then((shown) => {
+        settle(shown);
+      });
+    };
     const showTimeout = setTimeout(() => {
       logNativeDesktopNotificationEvent("show_timeout", {
         title,
@@ -21008,7 +21026,7 @@ function showNativeDesktopNotification(
         force: payload.force,
         detail: "Notification did not emit show within 1500ms.",
       });
-      settle(false);
+      fallbackThenSettle("native_show_timeout");
     }, 1500);
     notification.on("show", () => {
       clearTimeout(showTimeout);
@@ -21021,18 +21039,19 @@ function showNativeDesktopNotification(
     });
     notification.on("failed", (_event, error) => {
       clearTimeout(showTimeout);
+      const detail =
+        typeof error === "string"
+          ? error
+          : error && typeof error === "object" && "message" in error
+            ? String((error as { message?: unknown }).message ?? "unknown")
+            : String(error ?? "unknown");
       logNativeDesktopNotificationEvent("failed", {
         title,
         body,
         force: payload.force,
-        detail:
-          typeof error === "string"
-            ? error
-            : error && typeof error === "object" && "message" in error
-              ? String((error as { message?: unknown }).message ?? "unknown")
-              : String(error ?? "unknown"),
+        detail,
       });
-      settle(false);
+      fallbackThenSettle(`native_failed:${detail}`);
     });
     notification.on("click", () => {
       logNativeDesktopNotificationEvent("clicked", {
