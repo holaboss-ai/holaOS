@@ -7556,6 +7556,18 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
     const workspaceDir = store.workspaceDir(workspaceId);
 
+    // Snapshot the app's currently-allocated ports BEFORE we touch any state,
+    // so we can force-kill any orphan process holding them as a safety net —
+    // matches the workspace-delete path. Without this, a silently-failed
+    // stopApp leaves a zombie process bound to the port, the state row gets
+    // released, and the next install can hand the port to a different app
+    // (state says appA@P, OS says appB@P) — exactly the misalignment that
+    // makes the desktop iframe render the wrong app's UI.
+    const allocatedPorts: number[] = [
+      store.getAppPort({ workspaceId, appId: `${appId}__http` })?.port,
+      store.getAppPort({ workspaceId, appId: `${appId}__mcp` })?.port
+    ].filter((p): p is number => typeof p === "number" && p > 0);
+
     try {
       const resolvedApp = resolveWorkspaceAppRuntime(workspaceDir, appId, {
         store,
@@ -7576,6 +7588,18 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     removeWorkspaceMcpRegistryEntry(workspaceDir, appId);
     releaseWorkspaceAppPorts({ store, workspaceId, appId });
     store.deleteAppBuild({ workspaceId, appId });
+
+    if (allocatedPorts.length > 0) {
+      try {
+        await killPortListeners(allocatedPorts);
+      } catch {
+        app.log.debug(
+          { workspaceId, appId, ports: allocatedPorts },
+          "best-effort port kill during app uninstall"
+        );
+      }
+    }
+
     return {
       app_id: appId,
       status: "uninstalled",

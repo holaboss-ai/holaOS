@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -696,6 +696,116 @@ async function killAllocatedPortListeners(mapKey: string, appDir: string, ports:
   shellLifecyclePorts.delete(mapKey);
 }
 
+/** Identity check for the listener bound to `port`: ask lsof for the PID
+ *  holding the LISTEN socket, then ask lsof for that PID's cwd. The runtime
+ *  always spawns app lifecycle commands with cwd = appDir, so for a healthy
+ *  shell-managed app the listener's cwd should equal (or live inside) the
+ *  expected appDir. Mismatch means another process is serving on this port
+ *  — typically an orphan from a previous install or a same-port allocation
+ *  race — and we should refuse the start instead of letting the desktop
+ *  render the wrong app's UI behind the right app's chrome.
+ *
+ *  Returns { ok: false, reason } when we can prove a mismatch; returns
+ *  { ok: true } when verified or when the platform/tooling can't determine
+ *  (Windows, missing lsof, root-only procfs) — degraded mode is non-fatal
+ *  by design since this is a safety net, not a hard contract. */
+export function verifyPortListenerCwd(params: {
+  port: number;
+  expectedAppDir: string;
+}): { ok: true } | { ok: false; reason: string } {
+  if (process.platform === "win32") {
+    // No portable way to read another process's cwd on Windows from here.
+    return { ok: true };
+  }
+  const pid = lookupListenerPid(params.port);
+  if (pid === null) {
+    return { ok: true };
+  }
+  const cwd = lookupProcessCwd(pid);
+  if (cwd === null) {
+    return { ok: true };
+  }
+  const expected = path.resolve(params.expectedAppDir);
+  const observed = path.resolve(cwd);
+  // Accept exact match OR observed being a subdir of expected — some apps
+  // chdir into a build subfolder after spawn. The previous-app-on-same-port
+  // case the check exists to catch never lives under expectedAppDir.
+  const matches =
+    observed === expected ||
+    observed.startsWith(`${expected}${path.sep}`);
+  if (matches) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    reason: `port ${params.port} listener cwd ${observed} is outside expected app dir ${expected} (pid ${pid})`,
+  };
+}
+
+function lookupListenerPid(port: number): number | null {
+  try {
+    const result = spawnSync(
+      "lsof",
+      ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"],
+      { stdio: ["ignore", "pipe", "ignore"], encoding: "utf8" },
+    );
+    if (result.status !== 0 || typeof result.stdout !== "string") {
+      return null;
+    }
+    const firstPid = result.stdout.trim().split(/\s+/)[0];
+    const parsed = Number.parseInt(firstPid ?? "", 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function lookupProcessCwd(pid: number): string | null {
+  try {
+    // -Fn emits a machine-parseable record: `p<PID>\nf<FD>\nn<CWD>\n`.
+    // Each field on its own line, prefixed by a single char tag.
+    const result = spawnSync(
+      "lsof",
+      ["-a", "-p", String(pid), "-d", "cwd", "-Fn"],
+      { stdio: ["ignore", "pipe", "ignore"], encoding: "utf8" },
+    );
+    if (result.status !== 0 || typeof result.stdout !== "string") {
+      return null;
+    }
+    for (const line of result.stdout.split("\n")) {
+      if (line.startsWith("n")) {
+        return line.slice(1);
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Throw if either of the shell-managed listener ports is held by a process
+ *  whose cwd is outside the expected appDir. Runs after waitHealthy so we
+ *  know *something* responded healthy on the port; this proves the
+ *  something is ours. */
+function verifyShellAppListenersOrThrow(params: {
+  appId: string;
+  appDir: string;
+  httpPort: number;
+  mcpPort: number;
+}): void {
+  for (const port of [params.httpPort, params.mcpPort]) {
+    const result = verifyPortListenerCwd({
+      port,
+      expectedAppDir: params.appDir,
+    });
+    if (!result.ok) {
+      throw new Error(
+        `App '${params.appId}' start aborted: ${result.reason}. Another process — likely an orphan from a previous install or a same-port allocation race — is serving on this port. Uninstall and reinstall to recover.`,
+      );
+    }
+  }
+}
+
 /** Kill any process listening on the given ports. Exported for use as a
  *  safety net during workspace deletion and orphan cleanup. */
 export async function killPortListeners(ports: number[], cwd?: string): Promise<void> {
@@ -991,6 +1101,12 @@ export async function startShellLifecycleAppTarget(params: {
     attachTrackedPipeConsumers(child);
 
     await waitHealthy(params);
+    verifyShellAppListenersOrThrow({
+      appId: params.appId,
+      appDir: params.appDir,
+      httpPort: params.httpPort,
+      mcpPort: params.mcpPort,
+    });
     return {
       app_id: params.appId,
       status: "started",
@@ -1045,6 +1161,12 @@ export async function startSubprocessAppTarget(params: {
     attachTrackedPipeConsumers(child);
 
     await waitHealthy(params);
+    verifyShellAppListenersOrThrow({
+      appId: params.appId,
+      appDir: params.appDir,
+      httpPort: params.httpPort,
+      mcpPort: params.mcpPort,
+    });
     return {
       app_id: params.appId,
       status: "started",
