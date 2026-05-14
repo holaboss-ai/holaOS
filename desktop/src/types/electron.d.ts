@@ -1588,6 +1588,10 @@ interface RuntimeNotificationListOptionsPayload {
       setConfigDocument: (rawDocument: string) => Promise<RuntimeConfigPayload>;
       exchangeBinding: (sandboxId: string) => Promise<RuntimeConfigPayload>;
       connectCodexOAuth: () => Promise<RuntimeConfigPayload>;
+      refreshCodexToken: () => Promise<{
+        refreshed: boolean;
+        accessTokenExpiresAt: string | null;
+      }>;
       validateProvider: (
         providerId: string,
       ) => Promise<{ ok: boolean; detail: string }>;

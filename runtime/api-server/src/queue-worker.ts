@@ -9,6 +9,10 @@ import {
 } from "@holaboss/runtime-state-store";
 
 import { processClaimedInput } from "./claimed-input-executor.js";
+import {
+  ensureCodexTokensFresh,
+  hasCodexProviderConfigured,
+} from "./codex-token-refresh.js";
 import type { MemoryServiceLike } from "./memory.js";
 import { buildRunCompletedEvent, buildRunFailedEvent } from "./runner-worker.js";
 import { captureRuntimeException } from "./runtime-sentry.js";
@@ -251,8 +255,12 @@ export class RuntimeQueueWorker implements QueueWorkerLike {
 
   #startClaimedInput(record: SessionInputRecord): void {
     const controller = new AbortController();
+    const codexConfigured = hasCodexProviderConfigured();
     const promise = (async () => {
       try {
+        if (codexConfigured) {
+          await ensureCodexTokensFresh().catch(() => undefined);
+        }
         await this.#executeClaimedInput(record, { signal: controller.signal });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

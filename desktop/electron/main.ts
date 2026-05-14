@@ -21725,6 +21725,19 @@ app.whenReady().then(async () => {
     async () => connectOpenAiCodexProvider(),
   );
   handleTrustedIpc(
+    "runtime:refreshCodexToken",
+    ["main", "auth-popup"],
+    async () => {
+      const refreshed = await refreshOpenAiCodexProviderCredentials({ force: true });
+      const document = await readRuntimeConfigDocument();
+      const state = openAiCodexProviderStateFromDocument(document);
+      return {
+        refreshed,
+        accessTokenExpiresAt: state.accessTokenExpiresAt || null,
+      };
+    },
+  );
+  handleTrustedIpc(
     "runtime:validateProvider",
     ["main", "auth-popup"],
     async (_event, providerId: string) => validateRuntimeProvider(providerId),

@@ -1159,6 +1159,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("runtime:exchangeBinding", sandboxId) as Promise<RuntimeConfigPayload>,
     connectCodexOAuth: () =>
       ipcRenderer.invoke("runtime:connectCodexOAuth") as Promise<RuntimeConfigPayload>,
+    refreshCodexToken: () =>
+      ipcRenderer.invoke("runtime:refreshCodexToken") as Promise<{
+        refreshed: boolean;
+        accessTokenExpiresAt: string | null;
+      }>,
     validateProvider: (providerId: string) =>
       ipcRenderer.invoke("runtime:validateProvider", providerId) as Promise<{
         ok: boolean;

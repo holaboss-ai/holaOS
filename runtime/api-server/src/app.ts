@@ -93,6 +93,7 @@ import {
   RuntimeConfigServiceError,
   type RuntimeConfigServiceLike
 } from "./runtime-config.js";
+import { ensureCodexTokensFresh } from "./codex-token-refresh.js";
 import {
   DesktopBrowserToolService,
   DesktopBrowserToolServiceError,
@@ -6045,6 +6046,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!isRecord(request.body)) {
       return sendError(reply, 400, "request body must be an object");
     }
+    await ensureCodexTokensFresh().catch(() => undefined);
     try {
       return await runnerExecutor.run(requiredDict(request.body, "body"));
     } catch (error) {
@@ -6059,6 +6061,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!isRecord(request.body)) {
       return sendError(reply, 400, "request body must be an object");
     }
+    await ensureCodexTokensFresh().catch(() => undefined);
     try {
       const stream = await runnerExecutor.stream(requiredDict(request.body, "body"));
       reply.header("Cache-Control", "no-cache");
