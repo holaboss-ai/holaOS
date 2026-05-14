@@ -308,7 +308,7 @@ test("main-session event worker inherits the owner main session model and thinki
   );
   assert.match(
     String(batchInput?.payload.text),
-    /If completed work established durable verified workspace knowledge that future runs should reuse, record it in `AGENTS\.md` with `holaboss_update_workspace_instructions` before replying\./i,
+    /If completed work established clearly stable or recurring verified workspace knowledge that future runs should reuse, record it in `AGENTS\.md` with `holaboss_update_workspace_instructions` before replying\./i,
   );
   assert.match(
     String(batchInput?.payload.text),
