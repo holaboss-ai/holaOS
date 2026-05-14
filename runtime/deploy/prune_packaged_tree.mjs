@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readdirSync, rmSync, statSync } from "node:fs";
+import { lstatSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -44,7 +44,7 @@ const KOFFI_PREFIXES_TO_KEEP = {
 };
 
 function countFiles(rootPath) {
-  const stats = statSync(rootPath);
+  const stats = lstatSync(rootPath);
   if (!stats.isDirectory()) {
     return 1;
   }
@@ -130,7 +130,14 @@ function pruneNodePackageBinaryMirrors(rootPath) {
   }
 
   for (const entry of entries) {
-    if (!entry.isDirectory() || !entry.name.startsWith("node-bin-")) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    if (entry.name === ".bin") {
+      rmSync(path.join(nodePackageModulesDir, entry.name), { recursive: true, force: true });
+      continue;
+    }
+    if (!entry.name.startsWith("node-bin-")) {
       continue;
     }
     rmSync(path.join(nodePackageModulesDir, entry.name), { recursive: true, force: true });
