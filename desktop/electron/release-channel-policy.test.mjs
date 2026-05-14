@@ -56,7 +56,11 @@ test("desktop updater uses electron-updater and exposes install-now state", asyn
   assert.match(source, /autoUpdater\.on\("update-available"/);
   assert.match(source, /autoUpdater\.on\("download-progress"/);
   assert.match(source, /autoUpdater\.on\("update-downloaded"/);
-  assert.match(source, /await autoUpdater\.checkForUpdates\(\);/);
+  assert.match(source, /let appUpdateDownloadPromise: Promise<Array<string>> \| null = null;/);
+  assert.match(source, /function trackAppUpdateDownload\(/);
+  assert.match(source, /if \(appUpdateDownloadPromise\) \{\s*return appUpdateStatus;\s*\}/);
+  assert.match(source, /const result = await autoUpdater\.checkForUpdates\(\);/);
+  assert.match(source, /trackAppUpdateDownload\(result\?\.downloadPromise\);/);
   assert.match(source, /handleTrustedIpc\(\s*"appUpdate:setChannel",\s*\["main"\],\s*async \(_event, channel: AppUpdateChannel\) => setAppUpdateChannel\(channel\),/);
   assert.match(source, /handleTrustedIpc\("appUpdate:installNow", \["main"\], async \(\) => \{/);
   assert.match(source, /autoUpdater\.quitAndInstall\(true, true\);/);

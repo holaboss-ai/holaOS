@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+
+import { runNpm } from "./npm-runner.mjs";
 
 const desktopRoot = process.cwd();
 const editorRoot = path.resolve(desktopRoot, "..", "packages", "editor");
@@ -64,17 +65,6 @@ function missingDirectDependencies() {
   );
 }
 
-function runNpm(args) {
-  const result = spawnSync("npm", args, {
-    cwd: editorRoot,
-    stdio: "inherit",
-    env: process.env,
-  });
-  if ((result.status ?? 1) !== 0) {
-    process.exit(result.status ?? 1);
-  }
-}
-
 const newestManifestStamp = Math.max(
   newestExistingMtime(editorPackageJsonPath),
   newestExistingMtime(editorPackageLockPath),
@@ -97,7 +87,11 @@ if (needsInstall) {
   console.log(
     `[ensure-editor] installing packages/editor dependencies for local desktop usage (${installReason}).`,
   );
-  runNpm(["install"]);
+  runNpm(["install"], {
+    cwd: editorRoot,
+    stdio: "inherit",
+    env: process.env,
+  });
 }
 
 const outputsExist = allOutputsExist();
@@ -115,5 +109,9 @@ if (!outputsExist || outputsStale) {
       ? "[ensure-editor] packages/editor build is stale; rebuilding."
       : "[ensure-editor] packages/editor build output missing; building.",
   );
-  runNpm(["run", "build"]);
+  runNpm(["run", "build"], {
+    cwd: editorRoot,
+    stdio: "inherit",
+    env: process.env,
+  });
 }

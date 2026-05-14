@@ -32,9 +32,47 @@ const runtimeBundleDir = `runtime-${runtimePlatform}`;
 const runtimeBundlePath = path.join(__dirname, "out", runtimeBundleDir);
 const githubReleasesOwner = "holaboss-ai";
 const githubReleasesRepo = "holaOS-releases";
-const windowsSigningConfigured = Boolean(
-  (process.env.WIN_CSC_LINK || process.env.CSC_LINK || "").trim(),
+
+function readEnv(name) {
+  return (process.env[name] || "").trim();
+}
+
+const windowsCertificateSigningConfigured = Boolean(
+  readEnv("WIN_CSC_LINK") || readEnv("CSC_LINK"),
 );
+const windowsAzureSigningEnv = {
+  publisherName: "WINDOWS_SIGNING_PUBLISHER_NAME",
+  endpoint: "WINDOWS_SIGNING_ENDPOINT",
+  certificateProfileName: "WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME",
+  codeSigningAccountName: "WINDOWS_SIGNING_ACCOUNT_NAME"
+};
+const windowsAzureSigningConfig = Object.fromEntries(
+  Object.entries(windowsAzureSigningEnv).map(([key, envName]) => [
+    key,
+    readEnv(envName)
+  ])
+);
+const windowsAzureSigningConfigured = Object.values(
+  windowsAzureSigningConfig
+).some(Boolean);
+const missingWindowsAzureSigningEnv = Object.entries(windowsAzureSigningConfig)
+  .filter(([, value]) => !value)
+  .map(([key]) => windowsAzureSigningEnv[key]);
+
+if (windowsAzureSigningConfigured && missingWindowsAzureSigningEnv.length > 0) {
+  throw new Error(
+    `Incomplete Windows Azure Trusted Signing configuration. Missing: ${missingWindowsAzureSigningEnv.join(", ")}`
+  );
+}
+
+if (windowsAzureSigningConfigured && windowsCertificateSigningConfigured) {
+  throw new Error(
+    "Configure either Azure Trusted Signing or CSC_LINK/WIN_CSC_LINK Windows certificate signing, not both."
+  );
+}
+
+const windowsSigningConfigured =
+  windowsAzureSigningConfigured || windowsCertificateSigningConfigured;
 const configuredReleaseChannel = (
   process.env.HOLABOSS_RELEASE_CHANNEL || ""
 ).trim().toLowerCase();
@@ -127,6 +165,11 @@ module.exports = {
   win: {
     icon: "resources/icon.ico",
     signAndEditExecutable: windowsSigningConfigured,
+    ...(windowsAzureSigningConfigured
+      ? {
+          azureSignOptions: windowsAzureSigningConfig
+        }
+      : {}),
     target: [
       {
         target: "nsis",

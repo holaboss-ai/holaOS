@@ -232,9 +232,19 @@ The manual `CI` release path requires these repository secrets and fails fast wh
 - `APPLE_ID`: Apple Developer account email
 - `APPLE_APP_SPECIFIC_PASSWORD`: app-specific password from Apple ID settings
 - `APPLE_TEAM_ID`: Apple Developer Team ID
-- `WINDOWS_CERTIFICATE`: base64-encoded or file-backed Windows code-signing certificate
-- `WINDOWS_CERTIFICATE_PASSWORD`: password for the Windows certificate
+- `AZURE_TENANT_ID`: Microsoft Entra tenant ID for the Windows signing service principal
+- `AZURE_CLIENT_ID`: client ID for the Windows signing service principal
+- `AZURE_CLIENT_SECRET`: client secret value for the Windows signing service principal; use the secret `Value`, not the secret ID
 - `HOLABOSS_RELEASES_REPO_TOKEN`: token with read access to the private source repo and write access to `holaboss-ai/holaOS-releases`
+
+The manual `CI` release path also requires these repository variables for Azure Trusted Signing:
+
+- `WINDOWS_SIGNING_ENDPOINT`: Azure Trusted Signing endpoint for the account region
+- `WINDOWS_SIGNING_ACCOUNT_NAME`: Trusted Signing account name
+- `WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME`: certificate profile name
+- `WINDOWS_SIGNING_PUBLISHER_NAME`: publisher name exactly as it appears in the certificate profile
+
+The Windows signing service principal must have the `Artifact Signing Certificate Profile Signer` role on the Trusted Signing account or certificate profile.
 
 When manually triggering `CI`, provide:
 
@@ -243,7 +253,7 @@ When manually triggering `CI`, provide:
 - `release_title`: optional display title for the GitHub release
 - `prerelease`: whether the GitHub release should be marked as a prerelease when first created
 
-The workflow stages the runtime bundle needed for each desktop build inside the runner, maps the Apple and Windows signing secrets to `electron-builder`, and uploads the desktop release assets to the chosen GitHub release. The desktop build config uses `hardenedRuntime` plus an explicit mac entitlements plist at `resources/entitlements.mac.plist`.
+The workflow stages the runtime bundle needed for each desktop build inside the runner, maps the Apple signing secrets and Azure Trusted Signing settings to `electron-builder`, and uploads the desktop release assets to the chosen GitHub release. The desktop build config uses `hardenedRuntime` plus an explicit mac entitlements plist at `resources/entitlements.mac.plist`.
 
 Docs publishing remains separate in `.github/workflows/deploy-docs.yml` and automatically runs only for docs changes.
 

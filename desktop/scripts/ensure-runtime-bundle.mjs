@@ -1,10 +1,9 @@
-import { spawnSync } from "node:child_process";
-
 import {
   resolveRuntimeBundleState,
   runtimeBundleExists,
   runtimeBundleIsStale,
 } from "./runtime-bundle-state.mjs";
+import { runNpm } from "./npm-runner.mjs";
 
 const desktopRoot = process.cwd();
 const runtimeBundleState = resolveRuntimeBundleState(desktopRoot);
@@ -23,7 +22,7 @@ if (!bundleExists || bundleStale) {
   const prepareScript = runtimeBundleState.canPrepareLocalRuntime
     ? "prepare:runtime:local"
     : "prepare:runtime";
-  const result = spawnSync("npm", ["run", prepareScript], {
+  runNpm(["run", prepareScript], {
     cwd: desktopRoot,
     stdio: "inherit",
     env: {
@@ -31,5 +30,4 @@ if (!bundleExists || bundleStale) {
       HOLABOSS_RUNTIME_PLATFORM: runtimeBundleState.runtimePlatform,
     }
   });
-  process.exit(result.status ?? 1);
 }
