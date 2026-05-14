@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  HOLABOSS_HOME_URL,
+  HOLAOS_HOME_URL,
   buildDesktopBillingLinks,
   deriveAppBaseUrl,
   normalizeBaseUrl,
@@ -90,16 +90,17 @@ test("deriveAppBaseUrl", async (t) => {
   );
 
   await t.test(
-    "given an empty string, falls back to the holaboss home URL",
+    "given an empty string, falls back to the holaos.ai home URL (the canonical default)",
     () => {
-      assert.equal(deriveAppBaseUrl(""), HOLABOSS_HOME_URL);
+      assert.equal(deriveAppBaseUrl(""), HOLAOS_HOME_URL);
+      assert.equal(HOLAOS_HOME_URL, "https://www.holaos.ai");
     },
   );
 
   await t.test(
-    "given a malformed URL, falls back to the holaboss home URL",
+    "given a malformed URL, falls back to the holaos.ai home URL",
     () => {
-      assert.equal(deriveAppBaseUrl("not a url"), HOLABOSS_HOME_URL);
+      assert.equal(deriveAppBaseUrl("not a url"), HOLAOS_HOME_URL);
     },
   );
 });
@@ -132,12 +133,16 @@ test("buildDesktopBillingLinks", async (t) => {
   );
 
   await t.test(
-    "given an empty base URL, falls back to the holaboss home URL",
+    "given an empty base URL, falls back to the holaos.ai home URL so the user still lands on the live web app",
     () => {
       const links = buildDesktopBillingLinks("");
       assert.equal(
         links.billingPageUrl,
-        `${HOLABOSS_HOME_URL}/app/settings?tab=billing`,
+        "https://www.holaos.ai/app/settings?tab=billing",
+      );
+      assert.equal(
+        links.billingPageUrl,
+        `${HOLAOS_HOME_URL}/app/settings?tab=billing`,
       );
     },
   );

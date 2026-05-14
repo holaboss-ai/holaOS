@@ -5,7 +5,7 @@ export interface DesktopBillingLinks {
   usageUrl: string;
 }
 
-export const HOLABOSS_HOME_URL = "https://holaboss.ai";
+export const HOLAOS_HOME_URL = "https://www.holaos.ai";
 
 export function normalizeBaseUrl(value: string | null | undefined): string {
   return (value ?? "").replace(/\/+$/u, "");
@@ -13,7 +13,7 @@ export function normalizeBaseUrl(value: string | null | undefined): string {
 
 export function deriveAppBaseUrl(apiBaseUrl: string): string {
   if (!apiBaseUrl) {
-    return HOLABOSS_HOME_URL;
+    return HOLAOS_HOME_URL;
   }
   try {
     const parsed = new URL(apiBaseUrl);
@@ -38,12 +38,12 @@ export function deriveAppBaseUrl(apiBaseUrl: string): string {
     }
     return parsed.origin;
   } catch {
-    return HOLABOSS_HOME_URL;
+    return HOLAOS_HOME_URL;
   }
 }
 
 export function buildDesktopBillingLinks(appBaseUrl: string): DesktopBillingLinks {
-  const normalizedBaseUrl = normalizeBaseUrl(appBaseUrl) || HOLABOSS_HOME_URL;
+  const normalizedBaseUrl = normalizeBaseUrl(appBaseUrl) || HOLAOS_HOME_URL;
   return {
     billingPageUrl: `${normalizedBaseUrl}/app/settings?tab=billing`,
     addCreditsUrl: `${normalizedBaseUrl}/app/settings?tab=billing&intent=add-credits`,
