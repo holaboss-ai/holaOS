@@ -2368,7 +2368,7 @@ function assistantHistoryStateFromOutputEvents(
     outputTone = "default";
   };
 
-  const hasAssistantOutput =
+  const hasAssistantOutput = () =>
     outputText.trim().length > 0 ||
     segments.some(
       (segment) => segment.kind === "output" && segment.text.trim().length > 0,
@@ -2483,7 +2483,7 @@ function assistantHistoryStateFromOutputEvents(
       );
       failureText = runFailedDetail(eventPayload);
       terminalCreatedAt = event.created_at;
-      if (!hasAssistantOutput) {
+      if (!hasAssistantOutput()) {
         flushExecutionSegment();
         outputText = failureText;
         outputTone = "error";
