@@ -818,9 +818,9 @@ export function buildBaseAgentPromptSections(
   ];
   if (hasWorkspaceInstructionUpdateTool(request)) {
     executionLines.push(
-      "Record durable workspace knowledge in root `AGENTS.md` with `holaboss_update_workspace_instructions` instead of relying only on transient context.",
+      "Record durable workspace knowledge in root `AGENTS.md` with `holaboss_update_workspace_instructions` when it is clearly stable, likely to recur, or explicitly confirmed by the user instead of relying only on transient context.",
       "This includes durable requirements or preferences, verified commands or procedures, stable facts, conventions, decisions, and recurring blockers from the user, direct inspection, or grounded tool or subagent results.",
-      "Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state. Skip persistence only if the user explicitly says not to persist it."
+      "Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state. When in doubt, leave it out until the pattern repeats or the user confirms it should persist."
     );
   }
   if (capabilityManifest?.browser_tools.length) {
@@ -924,9 +924,9 @@ export function buildMainSessionPromptSections(
   ];
   if (hasWorkspaceInstructionUpdateTool(request)) {
     conversationLines.push(
-      "Record durable workspace knowledge in root `AGENTS.md` with `holaboss_update_workspace_instructions` instead of relying only on transient context.",
+      "Record durable workspace knowledge in root `AGENTS.md` with `holaboss_update_workspace_instructions` when it is clearly stable, likely to recur, or explicitly confirmed by the user instead of relying only on transient context.",
       "This includes durable requirements or preferences, verified commands or procedures, stable facts, conventions, decisions, and recurring blockers from the user, direct inspection, or grounded tool or subagent results.",
-      "Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state. Skip persistence only if the user explicitly says not to persist it."
+      "Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state. When in doubt, leave it out until the pattern repeats or the user confirms it should persist."
     );
   }
   if (normalizedSessionKind === "onboarding") {

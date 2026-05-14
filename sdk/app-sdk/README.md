@@ -1,6 +1,6 @@
 # @holaboss/app-sdk
 
-Generated TypeScript client for the Holaboss product API. Consumed by the Holaboss web app and the open-source [holaOS](https://github.com/holaboss-ai/holaOS-priv) desktop.
+Generated TypeScript client for the Holaboss product API. Consumed by the Holaboss web app and the open-source [holaOS](https://github.com/holaboss-ai/holaOS) desktop.
 
 This package is a thin, type-safe wrapper over the Holaboss REST API (the Hono server that fronts the Python services). It is generated from the server's OpenAPI surface using [Kubb](https://kubb.dev/), so the types, functions, and React Query hooks stay in sync with the live contract.
 

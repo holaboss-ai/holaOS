@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/holaboss-ai/holaOS-priv.git"
+    "url": "https://github.com/holaboss-ai/holaOS.git"
   },
   "main": "out/dist-electron/main.cjs",
   "scripts": {

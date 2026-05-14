@@ -12,7 +12,7 @@ Use the one-line repository installer on a fresh machine, or follow the manual p
 For a fresh-machine bootstrap on macOS, Linux, or WSL, use the repository installer and continue directly into the desktop dev environment after verification:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/holaboss-ai/holaOS-priv/main/scripts/install.sh | bash -s -- --launch
+curl -fsSL https://raw.githubusercontent.com/holaboss-ai/holaOS/main/scripts/install.sh | bash -s -- --launch
 ```
 
 That installer:
@@ -50,7 +50,7 @@ npm --version
 If you are using Codex, Claude Code, Cursor, Windsurf, or another coding agent, you can hand it the setup instructions in one sentence:
 
 ```text
-Clone the holaOS repo from https://github.com/holaboss-ai/holaOS-priv.git if needed, or use the current checkout if it is already open, then follow INSTALL.md exactly to bootstrap local desktop development. If the environment cannot open Electron, stop after verification and tell me the next manual step.
+Clone the holaOS repo from https://github.com/holaboss-ai/holaOS.git if needed, or use the current checkout if it is already open, then follow INSTALL.md exactly to bootstrap local desktop development. If the environment cannot open Electron, stop after verification and tell me the next manual step.
 ```
 
 That handoff keeps the installation flow self-contained while leaving the detailed bootstrap steps in the repo-local `INSTALL.md` runbook.
@@ -60,7 +60,7 @@ That handoff keeps the installation flow self-contained while leaving the detail
 **Step 1: Clone the repository**
 
 ```bash
-git clone https://github.com/holaboss-ai/holaOS-priv.git
+git clone https://github.com/holaboss-ai/holaOS.git
 cd holaOS
 ```
 

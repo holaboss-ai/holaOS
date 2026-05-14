@@ -973,8 +973,8 @@ function runtimeToolPromptGuidelines(toolId: RuntimeAgentToolId): string[] {
   if (toolId === "holaboss_update_workspace_instructions") {
     return [
       "Use `holaboss_update_workspace_instructions` when durable workspace knowledge should be recorded in root `AGENTS.md`.",
-      "Record durable user requirements and preferences, verified commands and procedures, stable workspace facts, conventions, decisions, and recurring blockers that future runs should reuse, whether they came from the user, direct inspection, or grounded tool or subagent results.",
-      "Do not record narrow one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state. Only skip a durable item when the user explicitly says not to record it.",
+      "Record durable user requirements and preferences, verified commands and procedures, stable workspace facts, conventions, decisions, and recurring blockers that future runs should reuse when they are clearly stable, likely to recur, or explicitly confirmed by the user, whether they came from the user, direct inspection, or grounded tool or subagent results.",
+      "Do not record narrow one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state. When in doubt, leave it out until the pattern repeats or the user confirms it should persist.",
       "After recording durable guidance in `AGENTS.md`, if it is conditional, situational, or procedural rather than always-on policy, also create or update a workspace-local skill and keep a short skills index entry in `AGENTS.md`.",
       "Use `read_current` before replacing the managed section when you need to preserve or refine existing workspace instructions.",
       "Use `append_rule` for concise rules, `remove_rule` to retract one, and `replace_managed_section` for structured markdown templates, indexes, or larger rule sets.",

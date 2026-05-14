@@ -91,7 +91,7 @@ import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { URL } from "node:url";
+import { URL, pathToFileURL } from "node:url";
 import ExcelJS from "exceljs";
 import JSZip from "jszip";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -2645,6 +2645,12 @@ interface WorkspaceListResponsePayload {
 
 interface DiagnosticsExportRequestPayload {
   workspaceId?: string | null;
+}
+
+interface HtmlToPdfExportRequestPayload {
+  html: string;
+  suggestedName?: string;
+  basePath?: string | null;
 }
 
 interface SubmissionListResponsePayload {
@@ -19474,6 +19480,182 @@ async function exportExplorerPathToFile(
   return { path: destination, canceled: false };
 }
 
+const CONTENT_SECURITY_POLICY_META_PATTERN =
+  /<meta\b[^>]*http-equiv=(["'])content-security-policy\1[^>]*>/gi;
+const HTML_PDF_RENDER_SETTLE_TIMEOUT_MS = 15_000;
+
+function htmlPdfSuggestedFileName(rawName: string | null | undefined): string {
+  const trimmed = (rawName ?? "").trim();
+  const segments = trimmed
+    .split(/[/\\]+/u)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  const leafName = segments.length > 0 ? segments[segments.length - 1] : "";
+  if (!leafName) {
+    return "export.pdf";
+  }
+  return leafName.replace(/\.[^./\\]+$/u, "") + ".pdf";
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+function htmlPdfBaseHrefFromPath(
+  absolutePath: string | null | undefined,
+): string | null {
+  const trimmed = (absolutePath ?? "").trim();
+  if (!trimmed || !path.isAbsolute(trimmed)) {
+    return null;
+  }
+  const href = pathToFileURL(path.dirname(trimmed)).toString();
+  return href.endsWith("/") ? href : `${href}/`;
+}
+
+function prepareHtmlForPdfExport(
+  rawHtml: string,
+  baseHref: string | null,
+): string {
+  const sanitizedHtml = rawHtml.replace(
+    CONTENT_SECURITY_POLICY_META_PATTERN,
+    "",
+  );
+  const baseTag =
+    baseHref && !/<base\b[^>]*>/i.test(sanitizedHtml)
+      ? `<base href="${escapeHtmlAttribute(baseHref)}">`
+      : "";
+
+  if (/<head\b[^>]*>/i.test(sanitizedHtml)) {
+    return sanitizedHtml.replace(
+      /<head\b([^>]*)>/i,
+      `<head$1>${baseTag}`,
+    );
+  }
+  if (/<html\b[^>]*>/i.test(sanitizedHtml)) {
+    return sanitizedHtml.replace(
+      /<html\b([^>]*)>/i,
+      `<html$1><head>${baseTag}</head>`,
+    );
+  }
+  return `<!doctype html><html><head>${baseTag}</head><body>${sanitizedHtml}</body></html>`;
+}
+
+async function waitForHtmlPdfRender(contents: WebContents): Promise<void> {
+  if (contents.isLoading()) {
+    await new Promise<void>((resolve) => {
+      contents.once("did-stop-loading", () => resolve());
+    });
+  }
+
+  await Promise.race([
+    contents
+      .executeJavaScript(`
+        new Promise((resolve) => {
+          const waitForImages = Promise.all(
+            Array.from(document.images ?? []).map((image) => {
+              if (image.complete) {
+                return Promise.resolve();
+              }
+              return new Promise((done) => {
+                const finish = () => done(null);
+                image.addEventListener("load", finish, { once: true });
+                image.addEventListener("error", finish, { once: true });
+              });
+            }),
+          );
+          const waitForFonts =
+            document.fonts?.ready?.catch(() => undefined) ?? Promise.resolve();
+          Promise.all([waitForImages, waitForFonts])
+            .catch(() => undefined)
+            .finally(() => {
+              requestAnimationFrame(() => {
+                requestAnimationFrame(() => resolve(null));
+              });
+            });
+        });
+      `)
+      .catch(() => undefined),
+    new Promise<void>((resolve) => {
+      setTimeout(() => resolve(), HTML_PDF_RENDER_SETTLE_TIMEOUT_MS);
+    }),
+  ]);
+}
+
+async function exportHtmlToPdf(
+  payload: HtmlToPdfExportRequestPayload,
+): Promise<{ path: string | null; canceled: boolean }> {
+  const html = payload.html ?? "";
+  if (!html.trim()) {
+    throw new Error("HTML content is empty.");
+  }
+
+  const suggestedName = htmlPdfSuggestedFileName(payload.suggestedName);
+  const downloadsDir = app.getPath("downloads");
+  const ownerWindow = BrowserWindow.getFocusedWindow() ?? mainWindow ?? null;
+  const options: SaveDialogOptions = {
+    title: "Export PDF",
+    defaultPath: path.join(downloadsDir, suggestedName),
+    buttonLabel: "Export PDF",
+    filters: [{ name: "PDF", extensions: ["pdf"] }],
+  };
+  const result = ownerWindow
+    ? await dialog.showSaveDialog(ownerWindow, options)
+    : await dialog.showSaveDialog(options);
+  if (result.canceled || !result.filePath) {
+    return { path: null, canceled: true };
+  }
+
+  const destination = path.resolve(result.filePath);
+  await fs.mkdir(path.dirname(destination), { recursive: true });
+
+  const renderWindow = new BrowserWindow({
+    show: false,
+    width: 1280,
+    height: 900,
+    backgroundColor: "#ffffff",
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+  renderWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+
+  let tempDirPath = "";
+  try {
+    tempDirPath = await fs.mkdtemp(
+      path.join(app.getPath("temp"), "holaboss-html-pdf-"),
+    );
+    const tempHtmlPath = path.join(tempDirPath, "index.html");
+    await fs.writeFile(
+      tempHtmlPath,
+      prepareHtmlForPdfExport(
+        html,
+        htmlPdfBaseHrefFromPath(payload.basePath),
+      ),
+      "utf-8",
+    );
+    await renderWindow.loadFile(tempHtmlPath);
+    await waitForHtmlPdfRender(renderWindow.webContents);
+    const pdfBuffer = await renderWindow.webContents.printToPDF({
+      printBackground: true,
+      preferCSSPageSize: true,
+    });
+    await fs.writeFile(destination, pdfBuffer);
+  } finally {
+    if (!renderWindow.isDestroyed()) {
+      renderWindow.destroy();
+    }
+    if (tempDirPath) {
+      await fs.rm(tempDirPath, { recursive: true, force: true }).catch(
+        () => undefined,
+      );
+    }
+  }
+
+  return { path: destination, canceled: false };
+}
+
 async function listDirectory(
   targetPath?: string | null,
   workspaceId?: string | null,
@@ -21608,6 +21790,12 @@ app.whenReady().then(async () => {
       workspaceId?: string | null,
       payload?: { content?: string; suggestedName?: string },
     ) => exportExplorerPathToFile(targetPath, workspaceId, payload),
+  );
+  handleTrustedIpc(
+    "fs:exportHtmlToPdf",
+    ["main"],
+    async (_event, payload: HtmlToPdfExportRequestPayload) =>
+      exportHtmlToPdf(payload),
   );
   handleTrustedIpc("fs:getBookmarks", ["main"], () => fileBookmarks);
   handleTrustedIpc(

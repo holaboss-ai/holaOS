@@ -474,6 +474,22 @@ export function InternalSurfacePane({
     }
   }, [preview, previewDraft, selectedWorkspaceId]);
 
+  const exportHtmlPreviewAsPdf = useCallback(
+    async (payload: HtmlToPdfExportRequestPayload) => {
+      setErrorMessage("");
+      try {
+        await window.electronAPI.fs.exportHtmlToPdf(payload);
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "Failed to export PDF.",
+        );
+      }
+    },
+    [],
+  );
+
   const savePreview = useCallback(async () => {
     if (!preview || !preview.isEditable) {
       return;
@@ -530,15 +546,57 @@ export function InternalSurfacePane({
 
     if (surface === "preview") {
       if (htmlContent && htmlContent.trim()) {
+        const previewPdfBasePath =
+          typeof resourceId === "string" && isAbsolutePath(resourceId)
+            ? resourceId
+            : null;
         return (
-          <div className="grid min-h-0 gap-3">
-            <HtmlPreviewFrame
-              title="Output preview"
-              html={htmlContent}
-              onOpenLinkInBrowser={openPreviewLink}
-              onOpenLocalLink={handleLocalLinkInPreview}
-              className="min-h-[60vh] w-full rounded-2xl border border-border bg-white"
-            />
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-2">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-foreground">
+                  Output preview
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Export the rendered HTML preview as a PDF.
+                </div>
+              </div>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() =>
+                        void exportHtmlPreviewAsPdf({
+                          html: htmlContent,
+                          suggestedName: pdfExportSuggestedName(
+                            resourceId || "output-preview",
+                          ),
+                          basePath: previewPdfBasePath,
+                        })
+                      }
+                      aria-label="Export PDF"
+                    />
+                  }
+                >
+                  <FileText className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="py-1">
+                  Export PDF
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden bg-muted p-3">
+              <HtmlPreviewFrame
+                title="Output preview"
+                html={htmlContent}
+                onOpenLinkInBrowser={openPreviewLink}
+                onOpenLocalLink={handleLocalLinkInPreview}
+                className="h-full w-full rounded-2xl border border-border bg-white"
+              />
+            </div>
           </div>
         );
       }
@@ -628,6 +686,35 @@ export function InternalSurfacePane({
                   <Eye className="size-3.5" />
                 </Button>
               ) : null}
+              {isHtmlPreview ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() =>
+                          void exportHtmlPreviewAsPdf({
+                            html: previewDraft,
+                            suggestedName: pdfExportSuggestedName(
+                              preview.name,
+                            ),
+                            basePath: preview.absolutePath,
+                          })
+                        }
+                        disabled={!previewDraft.trim()}
+                        aria-label="Export PDF"
+                      />
+                    }
+                  >
+                    <FileText className="size-3.5" />
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="py-1">
+                    Export PDF
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
               {preview.isEditable && (isDirty || isSaving) ? (
                 <Button
                   type="button"
@@ -644,18 +731,18 @@ export function InternalSurfacePane({
                 <TooltipTrigger
                   render={
                     <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => void exportPreview()}
-                      aria-label="Export"
-                    />
-                  }
-                >
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => void exportPreview()}
+                        aria-label="Export file"
+                      />
+                    }
+                  >
                   <Download className="size-3.5" />
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="py-1">
-                  Export
+                  Export file
                 </TooltipContent>
               </Tooltip>
             </div>
@@ -809,14 +896,14 @@ export function InternalSurfacePane({
                         variant="ghost"
                         size="icon-sm"
                         onClick={() => void exportPreview()}
-                        aria-label="Export"
+                        aria-label="Export file"
                       />
                     }
                   >
                     <Download className="size-3.5" />
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="py-1">
-                    Export
+                    Export file
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -862,6 +949,7 @@ export function InternalSurfacePane({
     isDirty,
     isMarkdownPreview,
     isSaving,
+    exportHtmlPreviewAsPdf,
     handleLocalLinkInPreview,
     openPreviewLink,
     preview,
@@ -885,6 +973,21 @@ function formatPreviewSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function pdfExportSuggestedName(
+  rawName: string | null | undefined,
+): string {
+  const trimmed = (rawName ?? "").trim();
+  const segments = trimmed
+    .split(/[/\\]+/u)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  const leafName = segments.length > 0 ? segments[segments.length - 1] : "";
+  if (!leafName) {
+    return "export.pdf";
+  }
+  return leafName.replace(/\.[^./\\]+$/u, "") + ".pdf";
 }
 
 function MetadataRow({ label, value }: { label: string; value: string }) {

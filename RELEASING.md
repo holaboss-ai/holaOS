@@ -11,12 +11,6 @@
 - Use stable release tags for published releases.
 - Do not reuse or move an existing published tag.
 
-## Private Linux runtime releases
-
-- In `holaOS-priv`, run `.github/workflows/publish-linux-runtime.yml` to publish the backend-consumed Linux x64 runtime assets to a release in the same repo.
-- The workflow uploads `holaboss-runtime-linux-x64.tar.gz`, `holaboss-runtime-linux-x64.tar.gz.sha256`, and `holaboss-runtime-linux-x64.json`.
-- The tarball is intentionally unwrapped so extraction lands `bin/sandbox-runtime` at archive root; the Sprites runtime installer expects that layout.
-
 ## Release notes
 
 Release notes should cover:

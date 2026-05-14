@@ -117,6 +117,12 @@ declare global {
     absolutePath: string;
   }
 
+  interface HtmlToPdfExportRequestPayload {
+    html: string;
+    suggestedName?: string;
+    basePath?: string | null;
+  }
+
   interface DiagnosticsExportPayload {
     bundlePath: string;
     fileName: string;
@@ -1561,6 +1567,9 @@ interface RuntimeNotificationListOptionsPayload {
         targetPath: string,
         workspaceId?: string | null,
         payload?: { content?: string; suggestedName?: string },
+      ) => Promise<{ path: string | null; canceled: boolean }>;
+      exportHtmlToPdf: (
+        payload: HtmlToPdfExportRequestPayload,
       ) => Promise<{ path: string | null; canceled: boolean }>;
       getBookmarks: (workspaceId?: string | null) => Promise<FileBookmarkPayload[]>;
       addBookmark: (targetPath: string, label?: string, workspaceId?: string | null) => Promise<FileBookmarkPayload[]>;

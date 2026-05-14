@@ -110,6 +110,12 @@ interface ExplorerExternalImportResultPayload {
   absolutePaths: string[];
 }
 
+interface HtmlToPdfExportRequestPayload {
+  html: string;
+  suggestedName?: string;
+  basePath?: string | null;
+}
+
 interface DiagnosticsExportRequestPayload {
   workspaceId?: string | null;
 }
@@ -1117,6 +1123,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
         workspaceId,
         payload,
       ) as Promise<{ path: string | null; canceled: boolean }>,
+    exportHtmlToPdf: (payload: HtmlToPdfExportRequestPayload) =>
+      ipcRenderer.invoke("fs:exportHtmlToPdf", payload) as Promise<{
+        path: string | null;
+        canceled: boolean;
+      }>,
     getBookmarks: (workspaceId?: string | null) =>
       ipcRenderer.invoke("fs:getBookmarks", workspaceId) as Promise<FileBookmarkPayload[]>,
     addBookmark: (targetPath: string, label?: string, workspaceId?: string | null) =>
