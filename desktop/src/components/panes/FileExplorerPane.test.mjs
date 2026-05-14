@@ -332,6 +332,9 @@ test("file explorer adds a markdown preview mode while keeping text editing inli
 test("file explorer renders html files inside a sandboxed iframe preview", async () => {
   const source = await readFile(sourcePath, "utf8");
 
+  assert.match(source, /function pdfExportSuggestedName\(/);
+  assert.match(source, /const exportHtmlPreviewAsPdf = useCallback\(async \(\) => \{[\s\S]*window\.electronAPI\.fs\.exportHtmlToPdf\(\{[\s\S]*html: previewDraft,[\s\S]*suggestedName: pdfExportSuggestedName\(preview\.name\),[\s\S]*basePath: preview\.absolutePath,[\s\S]*\}\);/);
+  assert.match(source, /aria-label="Export PDF"/);
   assert.match(source, /const isHtmlPreview = isHtmlPreviewPayload\(preview\);/);
   assert.match(source, /isHtmlPreview && textPreviewMode === "preview"/);
   assert.match(source, /<HtmlPreviewFrame[\s\S]*title=\{preview\.name\}[\s\S]*html=\{previewDraft\}[\s\S]*onOpenLinkInBrowser=\{openPreviewLink\}[\s\S]*onOpenLocalLink=\{handleLocalLinkInPreview\}[\s\S]*className="h-full w-full rounded-lg border border-border bg-white"/);

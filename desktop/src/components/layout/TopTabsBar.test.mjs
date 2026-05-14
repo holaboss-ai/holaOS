@@ -63,3 +63,26 @@ test("top tabs bar keeps broad integrated title bar space draggable in workspace
     /className=\{`\$\{integratedTitleBar \? "window-no-drag " : ""\}flex min-w-0 items-center justify-self-end gap-1\.5`\}/,
   );
 });
+
+test("top tabs bar keeps BrowserView suspension sticky while popovers hand off", async () => {
+  const source = await readFile(TOP_TABS_BAR_PATH, "utf8");
+
+  assert.match(source, /const TOP_BAR_POPOVER_CLOSE_GRACE_MS = 120;/);
+  assert.match(
+    source,
+    /const topBarPopoverCloseTimerRef = useRef<number \| null>\(null\);/,
+  );
+  assert.match(source, /const topBarPopoverSuspendedRef = useRef\(false\);/);
+  assert.match(
+    source,
+    /const hasOpenTopBarPopover =\s*inboxOpen \|\| accountMenuOpen \|\| layoutPickerOpen;/,
+  );
+  assert.match(
+    source,
+    /if \(hasOpenTopBarPopover\) \{[\s\S]*topBarPopoverSuspendedRef\.current = true;[\s\S]*onTopBarPopoverOpenChange\(true\);/,
+  );
+  assert.match(
+    source,
+    /topBarPopoverCloseTimerRef\.current = window\.setTimeout\(\(\) => \{[\s\S]*topBarPopoverSuspendedRef\.current = false;[\s\S]*onTopBarPopoverOpenChange\(false\);[\s\S]*\}, TOP_BAR_POPOVER_CLOSE_GRACE_MS\);/,
+  );
+});

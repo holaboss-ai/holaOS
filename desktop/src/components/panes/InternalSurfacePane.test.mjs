@@ -46,6 +46,13 @@ test("internal surface renders html files inside a sandboxed iframe preview", as
 
   assert.match(source, /const HTML_PREVIEW_EXTENSIONS = new Set\(\[\s*"\.html",\s*"\.htm"\s*\]\);/);
   assert.match(source, /function isHtmlPreviewPayload\(/);
+  assert.match(source, /const exportHtmlPreviewAsPdf = useCallback\(/);
+  assert.match(source, /window\.electronAPI\.fs\.exportHtmlToPdf\(payload\)/);
+  assert.match(source, /suggestedName: pdfExportSuggestedName\(\s*resourceId \|\| "output-preview",\s*\)/);
+  assert.match(source, /suggestedName: pdfExportSuggestedName\(\s*preview\.name,\s*\)/);
+  assert.match(source, /basePath: preview\.absolutePath,/);
+  assert.match(source, /Export the rendered HTML preview as a PDF\./);
+  assert.match(source, /aria-label="Export PDF"/);
   assert.match(source, /const isHtmlPreview = isHtmlPreviewPayload\(preview\);/);
   assert.match(source, /const supportsRenderedTextPreview = isMarkdownPreview \|\| isHtmlPreview;/);
   assert.match(source, /isHtmlPreview && textPreviewMode === "preview"/);

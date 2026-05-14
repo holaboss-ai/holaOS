@@ -112,6 +112,8 @@ const LAYOUT_PICKER_OPTIONS: ReadonlyArray<{
   { mode: "focus_work", label: "Focus workspace", shortcutKey: "3" },
 ];
 
+const TOP_BAR_POPOVER_CLOSE_GRACE_MS = 120;
+
 export function TopTabsBar({
   integratedTitleBar = false,
   desktopPlatform = null,
@@ -154,6 +156,8 @@ export function TopTabsBar({
   const { data: authSession } = useDesktopAuthSession();
   const currentUser = authSession?.user ?? null;
   const userButtonRef = useRef<HTMLButtonElement | null>(null);
+  const topBarPopoverCloseTimerRef = useRef<number | null>(null);
+  const topBarPopoverSuspendedRef = useRef(false);
   const workspaceSwitcherRef = useRef<HTMLDivElement | null>(null);
   const workspaceSwitcherButtonRef = useRef<HTMLButtonElement | null>(null);
   const workspaceSwitcherPopupRef = useRef<HTMLDivElement | null>(null);
@@ -256,15 +260,62 @@ export function TopTabsBar({
   }, [onWorkspaceSwitcherVisibilityChange, workspaceSwitcherOpen]);
 
   useEffect(() => {
-    onTopBarPopoverOpenChange?.(
-      inboxOpen || accountMenuOpen || layoutPickerOpen,
-    );
+    const clearTopBarPopoverCloseTimer = () => {
+      if (topBarPopoverCloseTimerRef.current === null) {
+        return;
+      }
+      window.clearTimeout(topBarPopoverCloseTimerRef.current);
+      topBarPopoverCloseTimerRef.current = null;
+    };
+
+    if (!onTopBarPopoverOpenChange) {
+      clearTopBarPopoverCloseTimer();
+      topBarPopoverSuspendedRef.current = false;
+      return;
+    }
+
+    const hasOpenTopBarPopover =
+      inboxOpen || accountMenuOpen || layoutPickerOpen;
+
+    if (hasOpenTopBarPopover) {
+      clearTopBarPopoverCloseTimer();
+      topBarPopoverSuspendedRef.current = true;
+      onTopBarPopoverOpenChange(true);
+      return clearTopBarPopoverCloseTimer;
+    }
+
+    if (!topBarPopoverSuspendedRef.current) {
+      onTopBarPopoverOpenChange(false);
+      return clearTopBarPopoverCloseTimer;
+    }
+
+    // Keep the BrowserView detached across popover handoffs and exit
+    // animations; otherwise the inbox can close a tick before the account
+    // menu opens and the native view flashes on top of it.
+    clearTopBarPopoverCloseTimer();
+    topBarPopoverCloseTimerRef.current = window.setTimeout(() => {
+      topBarPopoverCloseTimerRef.current = null;
+      topBarPopoverSuspendedRef.current = false;
+      onTopBarPopoverOpenChange(false);
+    }, TOP_BAR_POPOVER_CLOSE_GRACE_MS);
+    return clearTopBarPopoverCloseTimer;
   }, [
     accountMenuOpen,
     inboxOpen,
     layoutPickerOpen,
     onTopBarPopoverOpenChange,
   ]);
+
+  useEffect(() => {
+    return () => {
+      if (topBarPopoverCloseTimerRef.current !== null) {
+        window.clearTimeout(topBarPopoverCloseTimerRef.current);
+        topBarPopoverCloseTimerRef.current = null;
+      }
+      topBarPopoverSuspendedRef.current = false;
+      onTopBarPopoverOpenChange?.(false);
+    };
+  }, [onTopBarPopoverOpenChange]);
 
   useEffect(() => {
     if (!controlCenterActive || !workspaceSwitcherOpen) {
