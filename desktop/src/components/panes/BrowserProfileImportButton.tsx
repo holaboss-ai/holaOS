@@ -1,10 +1,11 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Globe, Loader2, UploadCloud, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import { cn } from "@/lib/utils";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
+import { BrowserCaptureStatusToast } from "@/components/panes/useBrowserCaptureActions";
 
 const IMPORT_PROFILE_LIST_HANDLER_MISSING_MESSAGE =
   "No handler registered for 'workspace:listImportBrowserProfiles'";
@@ -127,7 +128,28 @@ export function BrowserProfileImportButton({
   const [resultWarnings, setResultWarnings] = useState<string[]>([]);
   const [lastSucceededImportSignature, setLastSucceededImportSignature] =
     useState<string | null>(null);
+  const [successToastMessage, setSuccessToastMessage] = useState("");
+  const successToastTimeoutRef = useRef<number | null>(null);
   const open = controlledOpen ?? internalOpen;
+
+  useEffect(() => {
+    return () => {
+      if (successToastTimeoutRef.current !== null) {
+        window.clearTimeout(successToastTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const showSuccessToast = (message: string) => {
+    if (successToastTimeoutRef.current !== null) {
+      window.clearTimeout(successToastTimeoutRef.current);
+    }
+    setSuccessToastMessage(message);
+    successToastTimeoutRef.current = window.setTimeout(() => {
+      setSuccessToastMessage("");
+      successToastTimeoutRef.current = null;
+    }, 2400);
+  };
 
   const setOpen = (nextOpen: boolean) => {
     if (controlledOpen === undefined) {
@@ -359,6 +381,13 @@ export function BrowserProfileImportButton({
         );
         setResultWarnings(summary.warnings);
         setLastSucceededImportSignature(currentImportSignature);
+        showSuccessToast(
+          `Copied browser profile from ${
+            selectedCopySourceWorkspace?.name || summary.sourceLabel
+          }.`,
+        );
+        setOpen(false);
+        void window.electronAPI.browser.reload();
         return;
       }
       const summary = await window.electronAPI.workspace.importBrowserProfile({
@@ -379,6 +408,9 @@ export function BrowserProfileImportButton({
       setStatusMessage(importSummaryMessage(summary));
       setResultWarnings(summary.warnings);
       setLastSucceededImportSignature(currentImportSignature);
+      showSuccessToast(`Imported ${summary.sourceLabel}.`);
+      setOpen(false);
+      void window.electronAPI.browser.reload();
     } catch (error) {
       setStatusTone("error");
       setStatusMessage(normalizeErrorMessage(error));
@@ -390,6 +422,7 @@ export function BrowserProfileImportButton({
 
   return (
     <>
+      <BrowserCaptureStatusToast message={successToastMessage} />
       <Button
         type="button"
         variant={buttonVariant}
