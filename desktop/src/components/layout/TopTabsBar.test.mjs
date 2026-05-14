@@ -31,6 +31,7 @@ test("top tabs bar exposes a control center action alongside integrated title ba
     source,
     /const isWindowsIntegratedTitleBar =\s*integratedTitleBar && desktopPlatform === "win32";/,
   );
+  assert.match(source, /"window-drag relative h-\[38px\] px-2\.5 pt-1"/);
   assert.match(source, /window\.electronAPI\.ui\.getWindowState\(\)/);
   assert.match(source, /window\.electronAPI\.ui\.minimizeWindow\(\)/);
   assert.match(source, /window\.electronAPI\.ui\.closeWindow\(\)/);
@@ -48,6 +49,10 @@ test("top tabs bar keeps broad integrated title bar space draggable in workspace
   assert.match(
     source,
     /<div className="flex min-w-0 items-center justify-self-end gap-1\.5">/,
+  );
+  assert.match(
+    source,
+    /const workspaceSwitcherContainerClassName = `\$\{integratedTitleBar \? "window-no-drag " : ""\}relative \$\{isWindowsIntegratedTitleBar \? "w-44" : "w-40"\} shrink-0`;/,
   );
   assert.doesNotMatch(
     source,

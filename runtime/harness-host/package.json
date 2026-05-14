@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsup --config tsup.config.ts",
-    "clean": "rm -rf dist",
+    "clean": "node ../../scripts/remove-paths.mjs dist",
     "postinstall": "node scripts/apply-pi-patches.mjs",
     "test": "node --import tsx --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit"

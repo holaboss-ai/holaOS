@@ -113,6 +113,15 @@ export function sqliteTableColumns(
     .filter(Boolean);
 }
 
+export function isBusyChromiumProfileDatabaseError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const code =
+    "code" in error && typeof error.code === "string" ? error.code : "";
+  return code === "EBUSY" || code === "EPERM" || code === "EACCES";
+}
+
 /**
  * External Chromium profiles can contain a History file that is not backed by
  * the expected history schema, so validate it before querying `urls`.
@@ -887,16 +896,23 @@ export async function copyChromeProfileDatabaseToTemp(
 ) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), tempPrefix));
   const copiedPath = path.join(tempDir, path.basename(sourcePath));
-  await fs.copyFile(sourcePath, copiedPath);
-  for (const suffix of ["-wal", "-shm"]) {
-    const sourceCompanionPath = `${sourcePath}${suffix}`;
-    if (!existsSync(sourceCompanionPath)) {
-      continue;
+  try {
+    await fs.copyFile(sourcePath, copiedPath);
+    for (const suffix of ["-wal", "-shm"]) {
+      const sourceCompanionPath = `${sourcePath}${suffix}`;
+      if (!existsSync(sourceCompanionPath)) {
+        continue;
+      }
+      await fs.copyFile(
+        sourceCompanionPath,
+        `${copiedPath}${suffix}`,
+      ).catch(() => undefined);
     }
-    await fs.copyFile(
-      sourceCompanionPath,
-      `${copiedPath}${suffix}`,
-    ).catch(() => undefined);
+  } catch (error) {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(
+      () => undefined,
+    );
+    throw error;
   }
   return {
     copiedPath,
@@ -916,12 +932,11 @@ export async function readChromeHistory(
     return [];
   }
 
-  const { copiedPath, cleanup } = await copyChromeProfileDatabaseToTemp(
-    historyPath,
-    "holaboss-chrome-history-",
-  );
-
   try {
+    const { copiedPath, cleanup } = await copyChromeProfileDatabaseToTemp(
+      historyPath,
+      "holaboss-chrome-history-",
+    );
     try {
       const database = new Database(copiedPath, {
         readonly: true,
@@ -981,17 +996,21 @@ export async function readChromeHistory(
       } finally {
         database.close();
       }
-    } catch (error) {
-      if (isSqliteError(error)) {
-        console.warn(
-          `[browser-import] Skipping Chromium history import from ${historyPath}: ${error.message}`,
-        );
-        return [];
-      }
-      throw error;
+    } finally {
+      await cleanup();
     }
-  } finally {
-    await cleanup();
+  } catch (error) {
+    if (
+      isSqliteError(error) ||
+      isBusyChromiumProfileDatabaseError(error)
+    ) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `[browser-import] Skipping Chromium history import from ${historyPath}: ${message}`,
+      );
+      return [];
+    }
+    throw error;
   }
 }
 
@@ -1053,10 +1072,27 @@ export async function importChromiumFamilyCookiesIntoWorkspaceSession(
     }
   }
 
-  const { copiedPath, cleanup } = await copyChromeProfileDatabaseToTemp(
-    cookiesPath,
-    "holaboss-chrome-cookies-",
-  );
+  let copiedPath = "";
+  let cleanup: () => Promise<void> = async () => {};
+  try {
+    const copiedDatabase = await copyChromeProfileDatabaseToTemp(
+      cookiesPath,
+      "holaboss-chrome-cookies-",
+    );
+    copiedPath = copiedDatabase.copiedPath;
+    cleanup = copiedDatabase.cleanup;
+  } catch (error) {
+    if (isBusyChromiumProfileDatabaseError(error)) {
+      return {
+        importedCount: 0,
+        skippedCount: 0,
+        warnings: [
+          `${browserDisplayName} cookies could not be copied because that profile appears to be open in another app. Close ${browserDisplayName} and try again if you need signed-in sessions.`,
+        ],
+      };
+    }
+    throw error;
+  }
 
   try {
     const database = new Database(copiedPath, {

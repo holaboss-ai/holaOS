@@ -12,7 +12,7 @@
   },
   "scripts": {
     "build": "tsup --config tsup.config.ts",
-    "clean": "rm -rf dist",
+    "clean": "node ../../scripts/remove-paths.mjs dist",
     "test": "node --import tsx --test src/**/*.test.ts",
     "ts-runner": "node --import tsx src/ts-runner.ts",
     "typecheck": "tsc --noEmit"

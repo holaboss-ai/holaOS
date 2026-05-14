@@ -1657,6 +1657,24 @@ export function resolvedApplicationMcpHeaders(
   };
 }
 
+function writeEncodedRequestToChildStdin(
+  stdin: NodeJS.WritableStream | null | undefined,
+  encodedRequest: string,
+  onError: (error: unknown) => void,
+): void {
+  if (!stdin) {
+    return;
+  }
+  const handleError = (error: unknown) => {
+    stdin.removeListener("error", handleError);
+    onError(error);
+  };
+  stdin.once("error", handleError);
+  stdin.end(encodedRequest, "utf8", () => {
+    stdin.removeListener("error", handleError);
+  });
+}
+
 async function defaultRunHarnessHost(params: {
   harness: string;
   requestPayload: Record<string, unknown>;
@@ -1687,17 +1705,13 @@ async function defaultRunHarnessHost(params: {
   try {
     child = spawn(
       runtimeNodeBin(),
-      [
-        ...argsPrefix,
-        entryPath,
-        harnessCommand,
-        "--request-base64",
-        requestBase64,
-      ],
+      [...argsPrefix, entryPath, harnessCommand, "--request-stdin"],
       {
         cwd: runtimeRootDir(),
         env: buildRunnerEnv(),
-        stdio: ["ignore", "pipe", "pipe"],
+        // Send request payloads over stdin so Windows command-line limits do not
+        // cap harness launches for larger chat contexts.
+        stdio: ["pipe", "pipe", "pipe"],
       },
     );
   } catch (error) {
@@ -1710,6 +1724,13 @@ async function defaultRunHarnessHost(params: {
       spawnError: errorMessage(error),
     };
   }
+
+  let stdinError = "";
+  writeEncodedRequestToChildStdin(child.stdin, requestBase64, (error) => {
+    if (!stdinError) {
+      stdinError = errorMessage(error);
+    }
+  });
 
   let stderr = "";
   child.stderr?.setEncoding("utf8");
@@ -1747,10 +1768,13 @@ async function defaultRunHarnessHost(params: {
     child.once("error", reject);
     child.once("close", (code) => resolve(code ?? 0));
   });
+  const normalizedStderr = [stderr.trim(), stdinError]
+    .filter((value) => value.length > 0)
+    .join("\n");
 
   return {
     exitCode,
-    stderr: stderr.trim(),
+    stderr: normalizedStderr,
     sawEvent,
     terminalEmitted,
     lastSequence,

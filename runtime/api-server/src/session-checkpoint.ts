@@ -735,6 +735,24 @@ function snapshotSessionPath(baseSessionFile: string): string {
   );
 }
 
+function writeEncodedRequestToChildStdin(
+  stdin: NodeJS.WritableStream | null | undefined,
+  encodedRequest: string,
+  onError: (error: unknown) => void,
+): void {
+  if (!stdin) {
+    return;
+  }
+  const handleError = (error: unknown) => {
+    stdin.removeListener("error", handleError);
+    onError(error);
+  };
+  stdin.once("error", handleError);
+  stdin.end(encodedRequest, "utf8", () => {
+    stdin.removeListener("error", handleError);
+  });
+}
+
 async function runPiSessionCompaction(requestPayload: Record<string, unknown>): Promise<PiCompactionCommandResult> {
   const { entryPath, argsPrefix } = harnessHostEntryPath();
   if (!fs.existsSync(entryPath)) {
@@ -743,16 +761,22 @@ async function runPiSessionCompaction(requestPayload: Record<string, unknown>): 
   const requestBase64 = Buffer.from(JSON.stringify(requestPayload), "utf8").toString("base64");
   const child = spawn(
     runtimeNodeBin(),
-    [...argsPrefix, entryPath, "compact-pi-session", "--request-base64", requestBase64],
+    [...argsPrefix, entryPath, "compact-pi-session", "--request-stdin"],
     {
       cwd: runtimeRootDir(),
       env: buildRunnerEnv(),
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
     },
   );
 
   let stdout = "";
   let stderr = "";
+  let stdinError = "";
+  writeEncodedRequestToChildStdin(child.stdin, requestBase64, (error) => {
+    if (!stdinError) {
+      stdinError = error instanceof Error ? error.message : String(error);
+    }
+  });
   child.stdout?.setEncoding("utf8");
   child.stderr?.setEncoding("utf8");
   child.stdout?.on("data", (chunk: string) => {
@@ -766,6 +790,9 @@ async function runPiSessionCompaction(requestPayload: Record<string, unknown>): 
     child.once("error", reject);
     child.once("close", (code) => resolve(code ?? 0));
   });
+  const normalizedStderr = [stderr.trim(), stdinError]
+    .filter((value) => value.length > 0)
+    .join("\n");
   const responseLine = stdout
     .trim()
     .split(/\r?\n/)
@@ -773,7 +800,9 @@ async function runPiSessionCompaction(requestPayload: Record<string, unknown>): 
     .filter(Boolean)
     .at(-1);
   if (!responseLine && exitCode !== 0) {
-    throw new Error(stderr.trim() || `compact-pi-session exited with code ${exitCode}`);
+    throw new Error(
+      normalizedStderr || `compact-pi-session exited with code ${exitCode}`,
+    );
   }
   if (!responseLine) {
     throw new Error("compact-pi-session did not return a result");
@@ -783,23 +812,26 @@ async function runPiSessionCompaction(requestPayload: Record<string, unknown>): 
   if (result.error) {
     const error = new Error(
       nonEmptyString(result.error.message) ??
-        (stderr.trim() || `compact-pi-session exited with code ${exitCode || 1}`),
+        (normalizedStderr ||
+          `compact-pi-session exited with code ${exitCode || 1}`),
     );
     error.name =
       nonEmptyString(result.error.name) ?? "PiSessionCompactionCommandError";
     Object.assign(error, {
       commandResult: result,
       exitCode,
-      stderr: stderr.trim() || null,
+      stderr: normalizedStderr || null,
     });
     throw error;
   }
   if (exitCode !== 0) {
-    const error = new Error(stderr.trim() || `compact-pi-session exited with code ${exitCode}`);
+    const error = new Error(
+      normalizedStderr || `compact-pi-session exited with code ${exitCode}`,
+    );
     Object.assign(error, {
       commandResult: result,
       exitCode,
-      stderr: stderr.trim() || null,
+      stderr: normalizedStderr || null,
     });
     throw error;
   }

@@ -4471,7 +4471,7 @@ function AppShellContent() {
     desktopPlatform === "darwin" || desktopPlatform === "win32";
   const titleBarContainerClassName =
     desktopPlatform === "win32"
-      ? "relative min-w-0 -mx-2 -mt-2 sm:-mx-3 sm:-mt-2.5"
+      ? "relative min-w-0 -mx-2 -mt-1 sm:-mx-3 sm:-mt-1.5"
       : "relative min-w-0";
   const mainGridClassName = appShellMainGridClassName({
     hasWorkspaces,

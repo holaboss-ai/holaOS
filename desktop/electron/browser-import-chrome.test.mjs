@@ -8,6 +8,7 @@ import importChromiumModule from "./browser-pane/import-chromium.ts";
 
 const {
   chromeHistoryDatabaseHasExpectedSchema,
+  isBusyChromiumProfileDatabaseError,
   isSqliteError,
   sqliteTableColumns,
   sqliteTableExists,
@@ -91,7 +92,11 @@ test("desktop browser import flow discovers a Chrome profile and imports bookmar
   );
   assert.match(
     chromiumSource,
-    /if \(isSqliteError\(error\)\) \{\s*console\.warn\(/,
+    /if \(\s*isSqliteError\(error\)\s*\|\|\s*isBusyChromiumProfileDatabaseError\(error\)\s*\) \{\s*const message =[\s\S]*console\.warn\(/,
+  );
+  assert.match(
+    chromiumSource,
+    /isBusyChromiumProfileDatabaseError\(error\)/,
   );
 
   // Cookie import (chromium family + chrome convenience wrapper).
@@ -167,6 +172,10 @@ test("desktop browser import flow discovers a Chrome profile and imports bookmar
   );
   assert.match(chromiumSource, /await browserSession\.cookies\.set\(/);
   assert.match(chromiumSource, /await browserSession\.cookies\.flushStore\(\);/);
+  assert.match(
+    chromiumSource,
+    /Close \$\{browserDisplayName\} and try again if you need signed-in sessions\./,
+  );
 
   // Public orchestration entry points moved to import-browsers.ts.
   assert.match(
@@ -218,7 +227,7 @@ test("desktop browser overflow popup exposes Chrome import and reports the resul
   // Overflow popup HTML lives in browser-pane/popups.ts (BP-P3 extraction).
   assert.match(
     popupsSource,
-    /<button class="item" id="chrome-import"><span class="icon">⇪<\/span><span>Import Chrome<\/span><\/button>/,
+    /<button class="item" id="chrome-import">[\s\S]*?<span>Import Chrome<\/span>[\s\S]*?<\/button>/,
   );
   assert.match(popupsSource, /window\.overflowPopup\.importChrome\(\)/);
   assert.match(
@@ -344,4 +353,20 @@ test("sqlite error helper only swallows SQLite-backed import failures", () => {
   const genericError = new Error("something else");
   assert.equal(isSqliteError(genericError), false);
   assert.equal(isSqliteError({ code: "SQLITE_ERROR" }), false);
+});
+
+test("Chromium profile database helper recognizes busy or locked source files", () => {
+  const busyError = new Error("resource busy or locked");
+  busyError.code = "EBUSY";
+  assert.equal(isBusyChromiumProfileDatabaseError(busyError), true);
+
+  const permError = new Error("operation not permitted");
+  permError.code = "EPERM";
+  assert.equal(isBusyChromiumProfileDatabaseError(permError), true);
+
+  const sqliteError = new Error("no such table: urls");
+  sqliteError.code = "SQLITE_ERROR";
+  assert.equal(isBusyChromiumProfileDatabaseError(sqliteError), false);
+
+  assert.equal(isBusyChromiumProfileDatabaseError({ code: "EBUSY" }), false);
 });

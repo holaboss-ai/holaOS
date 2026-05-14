@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
 import test from "node:test";
 
 import { runHarnessHostMain } from "./index.js";
@@ -83,5 +84,43 @@ test("runHarnessHostMain flushes error output before exiting with failure", asyn
     'flush:""',
     'flush:""',
     "exit:1"
+  ]);
+});
+
+test("runHarnessHostMain accepts request payloads over stdin", async () => {
+  const calls: string[] = [];
+  const stream = createQueuedWritable(calls);
+  const request = { instruction: "stdin session" };
+  const encodedRequest = Buffer.from(
+    JSON.stringify(request),
+    "utf8",
+  ).toString("base64");
+
+  await runHarnessHostMain(["pi", "--request-stdin"], {
+    stdin: Readable.from([encodedRequest]),
+    resolvePluginByCommand: () =>
+      ({
+        decodeRequestBase64: (encoded: string) =>
+          JSON.parse(Buffer.from(encoded, "base64").toString("utf8")),
+        run: async () => {
+          stream.write('{"event_type":"run_completed"}\n');
+          return 0;
+        }
+      }) as never,
+    stdout: stream,
+    stderr: stream,
+    exit: (code) => {
+      calls.push(`exit:${code}`);
+    }
+  });
+
+  assert.deepEqual(calls, [
+    'write:"{\\"event_type\\":\\"run_completed\\"}\\n"',
+    'write:""',
+    'write:""',
+    'flush:"{\\"event_type\\":\\"run_completed\\"}\\n"',
+    'flush:""',
+    'flush:""',
+    "exit:0"
   ]);
 });

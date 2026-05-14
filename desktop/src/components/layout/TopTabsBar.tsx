@@ -338,7 +338,7 @@ export function TopTabsBar({
 
   const headerClassName = integratedTitleBar
     ? isWindowsIntegratedTitleBar
-      ? "window-drag relative h-[32px] px-2 pt-0.5"
+      ? "window-drag relative h-[38px] px-2.5 pt-1"
       : "window-drag relative h-[32px] px-2"
     : "rounded-xl border border-border bg-card px-2.5 py-1 shadow-2xs backdrop-blur-sm sm:px-4";
   const headerGridClassName =
@@ -349,7 +349,7 @@ export function TopTabsBar({
 
   const windowControlButtonClassName =
     "window-no-drag flex h-6 w-6 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors duration-150 hover:bg-fg-6 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50";
-  const workspaceSwitcherContainerClassName = `${integratedTitleBar ? "window-no-drag " : ""}relative w-40 shrink-0`;
+  const workspaceSwitcherContainerClassName = `${integratedTitleBar ? "window-no-drag " : ""}relative ${isWindowsIntegratedTitleBar ? "w-44" : "w-40"} shrink-0`;
   const workspaceSwitcherButtonClassName = "w-full justify-start";
 
   return (

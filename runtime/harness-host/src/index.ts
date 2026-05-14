@@ -7,23 +7,50 @@ import { flushHarnessSentry, initHarnessSentry } from "./harness-ai-monitoring.j
 import { requireHarnessHostPluginByCommand } from "./harness-registry.js";
 import { compactPiSession } from "./pi.js";
 
+type ReadableRequestStream = Pick<NodeJS.ReadableStream, "setEncoding"> &
+  AsyncIterable<string | Buffer>;
+
 type HarnessHostCliDeps = {
   resolvePluginByCommand?: typeof requireHarnessHostPluginByCommand;
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;
+  stdin?: ReadableRequestStream;
   exit?: (code: number) => void;
 };
 
-export function readRequestBase64(args: string[]) {
+async function readRequestBase64FromStdin(
+  stdin: ReadableRequestStream,
+): Promise<string> {
+  stdin.setEncoding("utf8");
+  let encoded = "";
+  for await (const chunk of stdin) {
+    encoded += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  }
+  return encoded.trim();
+}
+
+export async function readRequestBase64(
+  args: string[],
+  stdin: ReadableRequestStream = process.stdin as ReadableRequestStream,
+) {
   const flagIndex = args.findIndex((arg) => arg === "--request-base64");
-  if (flagIndex === -1) {
-    throw new Error("missing required argument --request-base64");
+  if (flagIndex !== -1) {
+    const encoded = args[flagIndex + 1];
+    if (!encoded) {
+      throw new Error("missing value for --request-base64");
+    }
+    return encoded;
   }
-  const encoded = args[flagIndex + 1];
-  if (!encoded) {
-    throw new Error("missing value for --request-base64");
+
+  if (args.includes("--request-stdin")) {
+    const encoded = await readRequestBase64FromStdin(stdin);
+    if (!encoded) {
+      throw new Error("missing stdin payload for --request-stdin");
+    }
+    return encoded;
   }
-  return encoded;
+
+  throw new Error("missing required argument --request-base64 or --request-stdin");
 }
 
 export async function flushWritableStream(stream: Pick<NodeJS.WritableStream, "write">): Promise<void> {
@@ -40,7 +67,7 @@ export async function flushWritableStream(stream: Pick<NodeJS.WritableStream, "w
 
 export async function runHarnessHostCli(
   argv: string[],
-  deps: Pick<HarnessHostCliDeps, "resolvePluginByCommand" | "stdout"> = {},
+  deps: Pick<HarnessHostCliDeps, "resolvePluginByCommand" | "stdout" | "stdin"> = {},
 ) {
   const [command, ...args] = argv;
   if (!command) {
@@ -48,7 +75,10 @@ export async function runHarnessHostCli(
   }
 
   if (command === "compact-pi-session") {
-    const encoded = readRequestBase64(args);
+    const encoded = await readRequestBase64(
+      args,
+      deps.stdin ?? (process.stdin as ReadableRequestStream),
+    );
     const request = decodeHarnessHostPiRequestBase64(encoded);
     const result = await compactPiSession(request);
     const stdout = deps.stdout ?? process.stdout;
@@ -58,7 +88,10 @@ export async function runHarnessHostCli(
 
   const resolvePluginByCommand = deps.resolvePluginByCommand ?? requireHarnessHostPluginByCommand;
   const plugin = resolvePluginByCommand(command);
-  const encoded = readRequestBase64(args);
+  const encoded = await readRequestBase64(
+    args,
+    deps.stdin ?? (process.stdin as ReadableRequestStream),
+  );
   const request = plugin.decodeRequestBase64(encoded);
   return await plugin.run(request);
 }
