@@ -496,6 +496,33 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
               integration.providerId.toLowerCase(),
         );
         if (newConnection) {
+          // Composio creates the row at /connect time in INITIATED state —
+          // its presence does NOT mean the user finished OAuth. Query the
+          // account's real status before finalizing.
+          let accountStatus;
+          try {
+            accountStatus =
+              await window.electronAPI.workspace.composioAccountStatus(
+                newConnection.id,
+                integration.providerId,
+              );
+          } catch {
+            continue;
+          }
+          const status = (accountStatus.status ?? "").toUpperCase();
+          if (
+            status === "FAILED" ||
+            status === "EXPIRED" ||
+            status === "INACTIVE"
+          ) {
+            setStatusMessage(
+              `Authorization for ${integration.name} ${status.toLowerCase()}. Please try again.`,
+            );
+            return;
+          }
+          if (status !== "ACTIVE") {
+            continue;
+          }
           await window.electronAPI.workspace.composioFinalize({
             connected_account_id: newConnection.id,
             provider: integration.providerId,
