@@ -84,6 +84,10 @@ interface TopTabsBarProps {
   onMarkAllInboxNotificationsRead?: () => void;
   onOpenControlCenter?: () => void;
   onWorkspaceSwitcherVisibilityChange?: (open: boolean) => void;
+  /** Fires whenever any non-workspace-switcher popover in this bar (inbox,
+   *  account menu, layout picker) opens or closes. AppShell uses this to
+   *  detach the BrowserView so the popover isn't occluded by it. */
+  onTopBarPopoverOpenChange?: (open: boolean) => void;
   onOpenWorkspaceCreatePanel?: () => void;
   onOpenSettings?: () => void;
   onOpenAccount?: () => void;
@@ -120,6 +124,7 @@ export function TopTabsBar({
   onMarkAllInboxNotificationsRead,
   onOpenControlCenter,
   onWorkspaceSwitcherVisibilityChange,
+  onTopBarPopoverOpenChange,
   onOpenWorkspaceCreatePanel,
   onOpenSettings,
   onOpenAccount,
@@ -132,6 +137,7 @@ export function TopTabsBar({
 }: TopTabsBarProps) {
   const [layoutPickerOpen, setLayoutPickerOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   // Mac stoplight compensation now flows through StoplightContext (set in
   // AppShell); the hook returns true only on darwin AND when the provider
   // says we have an integrated title bar. We still keep the platform prop
@@ -248,6 +254,17 @@ export function TopTabsBar({
   useEffect(() => {
     onWorkspaceSwitcherVisibilityChange?.(workspaceSwitcherOpen);
   }, [onWorkspaceSwitcherVisibilityChange, workspaceSwitcherOpen]);
+
+  useEffect(() => {
+    onTopBarPopoverOpenChange?.(
+      inboxOpen || accountMenuOpen || layoutPickerOpen,
+    );
+  }, [
+    accountMenuOpen,
+    inboxOpen,
+    layoutPickerOpen,
+    onTopBarPopoverOpenChange,
+  ]);
 
   useEffect(() => {
     if (!controlCenterActive || !workspaceSwitcherOpen) {
@@ -539,7 +556,7 @@ export function TopTabsBar({
               }}
             />
           ) : null}
-          <DropdownMenu>
+          <DropdownMenu open={accountMenuOpen} onOpenChange={setAccountMenuOpen}>
             <DropdownMenuTrigger
               ref={userButtonRef}
               render={

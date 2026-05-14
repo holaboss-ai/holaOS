@@ -12,7 +12,7 @@ test("top tabs bar keeps the profile menu and gates the workspace switcher off o
   assert.match(source, /if \(!controlCenterActive \|\| !workspaceSwitcherOpen\) \{\s*return;\s*\}\s*closeWorkspaceSwitcher\(\);/);
   assert.match(source, /!controlCenterActive \? \(/);
   assert.match(source, /!controlCenterActive &&\s*workspaceSwitcherOpen/);
-  assert.match(source, /<DropdownMenu>/);
+  assert.match(source, /<DropdownMenu\b/);
   assert.doesNotMatch(source, /<NotificationCenter/);
   assert.doesNotMatch(source, /notificationUnreadCount/);
 });

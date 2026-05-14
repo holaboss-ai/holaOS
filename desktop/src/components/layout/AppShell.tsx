@@ -1577,6 +1577,7 @@ function AppShellContent() {
     null,
   );
   const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false);
+  const [topBarPopoverOpen, setTopBarPopoverOpen] = useState(false);
   const [spaceVisibility, setSpaceVisibility] =
     useState<SpaceVisibilityState>(loadSpaceVisibility);
   const [filesPaneWidth, setFilesPaneWidth] = useState(
@@ -4452,7 +4453,13 @@ function AppShellContent() {
     workspaceAppsDialogOpen ||
     createWorkspacePanelOpen ||
     publishOpen ||
-    effectiveSpaceWorkspacePanelCollapsed;
+    effectiveSpaceWorkspacePanelCollapsed ||
+    // BrowserView paints natively above renderer DOM, so toasts anchored
+    // top-right would be hidden behind it. Detach while any toast is up.
+    effectiveToastNotifications.length > 0 ||
+    // Same reason — inbox / account / layout popovers anchored to the
+    // top bar would render behind the BrowserView otherwise.
+    topBarPopoverOpen;
   const runtimeStartupBlockedDetail = runtimeStartupBlockedMessage(
     runtimeStatus,
     workspaceBlockingReason || workspaceErrorMessage,
@@ -5373,6 +5380,7 @@ function AppShellContent() {
               }
               onOpenControlCenter={handleOpenControlCenter}
               onWorkspaceSwitcherVisibilityChange={setWorkspaceSwitcherOpen}
+              onTopBarPopoverOpenChange={setTopBarPopoverOpen}
               onOpenWorkspaceCreatePanel={handleOpenCreateWorkspacePanel}
               onOpenSettings={() => {
                 setSettingsDialogSection("settings");

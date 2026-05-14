@@ -122,7 +122,7 @@ test("app shell opens the centered add apps dialog from the applications explore
   );
   assert.match(
     source,
-    /const shouldSuspendBrowserNativeView =\s*[\s\S]*taskProposalDetailsDialogOpen[\s\S]*chatImagePreviewOpen[\s\S]*workspaceAppsDialogOpen[\s\S]*createWorkspacePanelOpen[\s\S]*publishOpen[\s\S]*effectiveSpaceWorkspacePanelCollapsed;/,
+    /const shouldSuspendBrowserNativeView =\s*[\s\S]*taskProposalDetailsDialogOpen[\s\S]*chatImagePreviewOpen[\s\S]*workspaceAppsDialogOpen[\s\S]*createWorkspacePanelOpen[\s\S]*publishOpen[\s\S]*effectiveSpaceWorkspacePanelCollapsed[\s\S]*effectiveToastNotifications\.length > 0[\s\S]*topBarPopoverOpen;/,
   );
   assert.doesNotMatch(
     source,
@@ -515,7 +515,7 @@ test("app shell no longer reserves a separate safe pane region for update toasts
   assert.doesNotMatch(source, /anchoredToastStackStyle/);
   assert.match(
     source,
-    /const shouldSuspendBrowserNativeView =\s*workspaceSwitcherOpen \|\|[\s\S]*settingsDialogRendered \|\|[\s\S]*taskProposalDetailsDialogOpen \|\|[\s\S]*chatImagePreviewOpen \|\|[\s\S]*workspaceAppsDialogOpen \|\|[\s\S]*createWorkspacePanelOpen \|\|[\s\S]*publishOpen \|\|[\s\S]*effectiveSpaceWorkspacePanelCollapsed;/,
+    /const shouldSuspendBrowserNativeView =\s*workspaceSwitcherOpen \|\|[\s\S]*settingsDialogRendered \|\|[\s\S]*taskProposalDetailsDialogOpen \|\|[\s\S]*chatImagePreviewOpen \|\|[\s\S]*workspaceAppsDialogOpen \|\|[\s\S]*createWorkspacePanelOpen \|\|[\s\S]*publishOpen \|\|[\s\S]*effectiveSpaceWorkspacePanelCollapsed \|\|[\s\S]*effectiveToastNotifications\.length > 0 \|\|[\s\S]*topBarPopoverOpen;/,
   );
   assert.doesNotMatch(
     source,
