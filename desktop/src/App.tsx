@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
+import { NewAppShell } from "@/components/layout/NewAppShell";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import {
   identifyUmamiUser,
@@ -61,12 +62,17 @@ function App() {
     return installRendererAuthCacheListeners();
   }, []);
 
+  // Side-by-side layout redesign — flip VITE_NEW_LAYOUT_SHELL=1 in the
+  // renderer env to render the in-progress shell. See
+  // holaOS/docs/plans/2026-05-14-layout-redesign-audit.md.
+  const useNewShell = import.meta.env.VITE_NEW_LAYOUT_SHELL === "1";
+
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <UmamiIdentity />
-          <AppShell />
+          {useNewShell ? <NewAppShell /> : <AppShell />}
         </TooltipProvider>
       </QueryClientProvider>
     </ErrorBoundary>
