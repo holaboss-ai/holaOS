@@ -31,6 +31,13 @@ export function CodexOAuthModal({
   const [copied, setCopied] = useState(false);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runIdRef = useRef(0);
+  const onSuccessRef = useRef(onSuccess);
+  const onOpenChangeRef = useRef(onOpenChange);
+
+  useEffect(() => {
+    onSuccessRef.current = onSuccess;
+    onOpenChangeRef.current = onOpenChange;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -58,10 +65,10 @@ export function CodexOAuthModal({
         const config = await api.awaitCodexOAuth();
         if (cancelled || runIdRef.current !== runId) return;
         setPhase("success");
-        onSuccess(config);
+        onSuccessRef.current(config);
         setTimeout(() => {
           if (runIdRef.current === runId) {
-            onOpenChange(false);
+            onOpenChangeRef.current(false);
           }
         }, 600);
       } catch (error) {
@@ -80,7 +87,7 @@ export function CodexOAuthModal({
       cancelled = true;
       void api.cancelCodexOAuth().catch(() => undefined);
     };
-  }, [open, onOpenChange, onSuccess]);
+  }, [open]);
 
   useEffect(() => {
     return () => {

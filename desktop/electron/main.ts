@@ -7843,29 +7843,56 @@ async function refreshOpenAiCodexAccessToken(refreshToken: string): Promise<{
 interface CodexOAuthSession {
   challenge: { userCode: string; deviceAuthId: string; intervalSeconds: number };
   abort: AbortController;
+  startedAt: number;
 }
 
 let activeCodexOAuthSession: CodexOAuthSession | null = null;
+let pendingCodexOAuthStart: Promise<{
+  userCode: string;
+  intervalSeconds: number;
+}> | null = null;
+const CODEX_OAUTH_REUSE_WINDOW_MS = 60_000;
 
 async function startOpenAiCodexOAuth(): Promise<{
   userCode: string;
   intervalSeconds: number;
 }> {
+  if (pendingCodexOAuthStart) {
+    return pendingCodexOAuthStart;
+  }
+  if (
+    activeCodexOAuthSession &&
+    !activeCodexOAuthSession.abort.signal.aborted &&
+    Date.now() - activeCodexOAuthSession.startedAt < CODEX_OAUTH_REUSE_WINDOW_MS
+  ) {
+    return {
+      userCode: activeCodexOAuthSession.challenge.userCode,
+      intervalSeconds: activeCodexOAuthSession.challenge.intervalSeconds,
+    };
+  }
   if (activeCodexOAuthSession) {
     activeCodexOAuthSession.abort.abort();
     activeCodexOAuthSession = null;
   }
-  const challenge = await requestOpenAiCodexDeviceCode();
-  clipboard.writeText(challenge.userCode);
-  void shell.openExternal(OPENAI_CODEX_OAUTH_DEVICE_PAGE_URL).catch(() => undefined);
-  activeCodexOAuthSession = {
-    challenge,
-    abort: new AbortController(),
-  };
-  return {
-    userCode: challenge.userCode,
-    intervalSeconds: challenge.intervalSeconds,
-  };
+  pendingCodexOAuthStart = (async () => {
+    const challenge = await requestOpenAiCodexDeviceCode();
+    clipboard.writeText(challenge.userCode);
+    void shell.openExternal(OPENAI_CODEX_OAUTH_DEVICE_PAGE_URL).catch(() => undefined);
+    activeCodexOAuthSession = {
+      challenge,
+      abort: new AbortController(),
+      startedAt: Date.now(),
+    };
+    return {
+      userCode: challenge.userCode,
+      intervalSeconds: challenge.intervalSeconds,
+    };
+  })();
+  try {
+    return await pendingCodexOAuthStart;
+  } finally {
+    pendingCodexOAuthStart = null;
+  }
 }
 
 async function awaitOpenAiCodexOAuth(): Promise<RuntimeConfigPayload> {
