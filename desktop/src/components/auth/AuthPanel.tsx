@@ -41,6 +41,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { CodexOAuthModal } from "@/components/auth/CodexOAuthModal";
 import { useDesktopAuthSession, type AuthSession } from "@/lib/auth/authClient";
 import { holabossLogoUrl } from "@/lib/assetPaths";
 import { useDesktopBilling } from "@/lib/billing/useDesktopBilling";
@@ -1695,6 +1696,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
     useState(false);
   const [connectingProviderId, setConnectingProviderId] =
     useState<KnownProviderId | null>(null);
+  const [codexOAuthModalOpen, setCodexOAuthModalOpen] = useState(false);
   const [disconnectingProviderId, setDisconnectingProviderId] =
     useState<KnownProviderId | null>(null);
   // Per-provider validation state for the "Validate" affordance.
@@ -3005,7 +3007,7 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
     );
   }
 
-  async function handleConnectCodexProvider(providerId: KnownProviderId) {
+  function handleConnectCodexProvider(providerId: KnownProviderId) {
     if (!window.electronAPI || providerId !== "openai_codex") {
       return;
     }
@@ -3016,15 +3018,16 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
       setAuthMessage("");
       return;
     }
-
     setConnectingProviderId(providerId);
-    setProviderSaveStatus("saving");
     setAuthError("");
-    setAuthMessage(
-      "OpenAI Codex sign-in is starting in your browser. The device code will be copied to your clipboard.",
-    );
+    setAuthMessage("");
+    setCodexOAuthModalOpen(true);
+  }
+
+  async function handleCodexOAuthSuccess(nextConfig: RuntimeConfigPayload) {
+    if (!window.electronAPI) return;
+    setProviderSaveStatus("saving");
     try {
-      const nextConfig = await window.electronAPI.runtime.connectCodexOAuth();
       const nextDocumentText =
         await window.electronAPI.runtime.getConfigDocument();
       const persisted = persistedProviderSettingsSnapshot(
@@ -3038,22 +3041,29 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
       setBackgroundTasksDraft(persisted.backgroundTasks);
       setRecallEmbeddingsDraft(persisted.recallEmbeddings);
       setImageGenerationDraft(persisted.imageGeneration);
-      setExpandedProviderId(providerId);
+      setExpandedProviderId("openai_codex");
       setIsProviderDraftDirty(false);
       setProviderSaveStatus("saved");
       setAuthMessage(
-        "OpenAI Codex connected. Future access token refreshes are managed locally on this desktop.",
+        "OpenAI Codex connected. Tokens refresh automatically on this desktop.",
       );
     } catch (error) {
       setAuthError(
         error instanceof Error
           ? error.message
-          : "Failed to connect OpenAI Codex.",
+          : "Connected, but failed to reload runtime config.",
       );
       setAuthMessage("");
       setProviderSaveStatus("error");
-    } finally {
-      setConnectingProviderId(null);
+    }
+  }
+
+  function handleCodexOAuthModalChange(open: boolean) {
+    setCodexOAuthModalOpen(open);
+    if (!open) {
+      setConnectingProviderId((current) =>
+        current === "openai_codex" ? null : current,
+      );
     }
   }
 
@@ -4139,6 +4149,11 @@ export function AuthPanel({ view = "full" }: AuthPanelProps) {
           </DialogPrimitive.Popup>
         </DialogPrimitive.Portal>
       </DialogPrimitive.Root>
+      <CodexOAuthModal
+        open={codexOAuthModalOpen}
+        onOpenChange={handleCodexOAuthModalChange}
+        onSuccess={(config) => void handleCodexOAuthSuccess(config)}
+      />
     </div>
   );
 

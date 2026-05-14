@@ -433,7 +433,8 @@ test("direct Anthropic, OpenRouter, and Gemini defaults advertise current provid
   assert.match(codexTemplate, /defaultBackgroundModel: "gpt-5\.4"/);
   assert.match(codexTemplate, /defaultImageModel: null/);
   assert.match(source, /handleConnectCodexProvider\(providerId: KnownProviderId\)/);
-  assert.match(source, /window\.electronAPI\.runtime\.connectCodexOAuth\(\)/);
+  assert.match(source, /setCodexOAuthModalOpen\(true\)/);
+  assert.match(source, /<CodexOAuthModal/);
   assert.match(source, /apiKey: providerId === "openai_codex" \? "" : apiKey/);
   assert.match(source, /providerId === "openai_codex"/);
 

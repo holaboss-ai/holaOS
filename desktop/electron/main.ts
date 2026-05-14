@@ -7668,19 +7668,33 @@ async function requestOpenAiCodexDeviceCode(): Promise<{
   };
 }
 
-async function waitForOpenAiCodexAuthorizationCode(params: {
-  deviceAuthId: string;
-  userCode: string;
-  intervalSeconds: number;
-}): Promise<{
+async function waitForOpenAiCodexAuthorizationCode(
+  params: {
+    deviceAuthId: string;
+    userCode: string;
+    intervalSeconds: number;
+  },
+  options?: { signal?: AbortSignal },
+): Promise<{
   authorizationCode: string;
   codeVerifier: string;
 }> {
   const deadline = Date.now() + OPENAI_CODEX_DEVICE_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    await new Promise((resolve) =>
-      setTimeout(resolve, params.intervalSeconds * 1000),
-    );
+    if (options?.signal?.aborted) {
+      throw new Error("OpenAI Codex sign-in cancelled.");
+    }
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(resolve, params.intervalSeconds * 1000);
+      const onAbort = () => {
+        clearTimeout(timeout);
+        reject(new Error("OpenAI Codex sign-in cancelled."));
+      };
+      options?.signal?.addEventListener("abort", onAbort, { once: true });
+    });
+    if (options?.signal?.aborted) {
+      throw new Error("OpenAI Codex sign-in cancelled.");
+    }
     const response = await fetch(OPENAI_CODEX_OAUTH_DEVICE_TOKEN_URL, {
       method: "POST",
       headers: {
@@ -7690,6 +7704,7 @@ async function waitForOpenAiCodexAuthorizationCode(params: {
         device_auth_id: params.deviceAuthId,
         user_code: params.userCode,
       }),
+      signal: options?.signal,
     });
     if (response.status === 403 || response.status === 404) {
       continue;
@@ -7825,37 +7840,70 @@ async function refreshOpenAiCodexAccessToken(refreshToken: string): Promise<{
   };
 }
 
-async function connectOpenAiCodexProvider(): Promise<RuntimeConfigPayload> {
+interface CodexOAuthSession {
+  challenge: { userCode: string; deviceAuthId: string; intervalSeconds: number };
+  abort: AbortController;
+}
+
+let activeCodexOAuthSession: CodexOAuthSession | null = null;
+
+async function startOpenAiCodexOAuth(): Promise<{
+  userCode: string;
+  intervalSeconds: number;
+}> {
+  if (activeCodexOAuthSession) {
+    activeCodexOAuthSession.abort.abort();
+    activeCodexOAuthSession = null;
+  }
   const challenge = await requestOpenAiCodexDeviceCode();
   clipboard.writeText(challenge.userCode);
-  const dialogOptions = {
-    type: "info",
-    buttons: ["Continue"],
-    defaultId: 0,
-    title: OPENAI_CODEX_PROVIDER_LABEL,
-    message: "Complete OpenAI Codex sign-in in your browser.",
-    detail:
-      "The device code was copied to your clipboard.\n\n" +
-      `If paste does not work, enter this code manually:\n${challenge.userCode}`,
-    noLink: true,
-  } satisfies Electron.MessageBoxOptions;
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    await dialog.showMessageBox(mainWindow, dialogOptions);
-  } else {
-    await dialog.showMessageBox(dialogOptions);
+  void shell.openExternal(OPENAI_CODEX_OAUTH_DEVICE_PAGE_URL).catch(() => undefined);
+  activeCodexOAuthSession = {
+    challenge,
+    abort: new AbortController(),
+  };
+  return {
+    userCode: challenge.userCode,
+    intervalSeconds: challenge.intervalSeconds,
+  };
+}
+
+async function awaitOpenAiCodexOAuth(): Promise<RuntimeConfigPayload> {
+  const session = activeCodexOAuthSession;
+  if (!session) {
+    throw new Error("No OpenAI Codex sign-in is in progress. Click Connect to start one.");
   }
-  await shell.openExternal(OPENAI_CODEX_OAUTH_DEVICE_PAGE_URL);
-  const authorization = await waitForOpenAiCodexAuthorizationCode(challenge);
-  const exchanged = await exchangeOpenAiCodexAuthorizationCode(authorization);
-  const config = await updateRuntimeConfigDocumentWithoutRestart(
-    (currentDocument) =>
-      withOpenAiCodexProviderState(currentDocument, {
-        ...exchanged,
-        lastRefreshAt: utcNowIso(),
-      }),
-  );
-  ensureOpenAiCodexRefreshLoop();
-  return config;
+  try {
+    const authorization = await waitForOpenAiCodexAuthorizationCode(
+      session.challenge,
+      { signal: session.abort.signal },
+    );
+    const exchanged = await exchangeOpenAiCodexAuthorizationCode(authorization);
+    const config = await updateRuntimeConfigDocumentWithoutRestart(
+      (currentDocument) =>
+        withOpenAiCodexProviderState(currentDocument, {
+          ...exchanged,
+          lastRefreshAt: utcNowIso(),
+        }),
+    );
+    ensureOpenAiCodexRefreshLoop();
+    return config;
+  } finally {
+    if (activeCodexOAuthSession === session) {
+      activeCodexOAuthSession = null;
+    }
+  }
+}
+
+function cancelOpenAiCodexOAuth(): void {
+  if (!activeCodexOAuthSession) return;
+  activeCodexOAuthSession.abort.abort();
+  activeCodexOAuthSession = null;
+}
+
+async function connectOpenAiCodexProvider(): Promise<RuntimeConfigPayload> {
+  await startOpenAiCodexOAuth();
+  return awaitOpenAiCodexOAuth();
 }
 
 async function refreshOpenAiCodexProviderCredentials(options?: {
@@ -21723,6 +21771,21 @@ app.whenReady().then(async () => {
     "runtime:connectCodexOAuth",
     ["main", "auth-popup"],
     async () => connectOpenAiCodexProvider(),
+  );
+  handleTrustedIpc(
+    "runtime:startCodexOAuth",
+    ["main", "auth-popup"],
+    async () => startOpenAiCodexOAuth(),
+  );
+  handleTrustedIpc(
+    "runtime:awaitCodexOAuth",
+    ["main", "auth-popup"],
+    async () => awaitOpenAiCodexOAuth(),
+  );
+  handleTrustedIpc(
+    "runtime:cancelCodexOAuth",
+    ["main", "auth-popup"],
+    async () => cancelOpenAiCodexOAuth(),
   );
   handleTrustedIpc(
     "runtime:refreshCodexToken",
