@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import "@holaboss/editor/styles.css";
+import { recordLaunch } from "./lib/analytics/device-id";
+import { trackUmamiEvent } from "./lib/analytics/umami";
 import {
   enrichRendererSentryEvent,
   pushRendererSentryActivity,
@@ -51,6 +53,15 @@ document.addEventListener("visibilitychange", () => {
 const platform = window.electronAPI?.platform;
 if (platform) {
   document.documentElement.dataset.platform = platform;
+}
+
+const launch = recordLaunch();
+if (launch) {
+  trackUmamiEvent("desktop_launched", {
+    is_first_launch: launch.isFirstLaunch,
+    platform: platform ?? null,
+    electron_version: window.electronAPI?.versions?.electron ?? null,
+  });
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(<App />);

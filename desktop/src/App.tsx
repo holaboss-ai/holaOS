@@ -1,9 +1,28 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import {
+  identifyUmamiUser,
+  trackUmamiEvent,
+} from "@/lib/analytics/umami";
 import { installRendererAuthCacheListeners } from "@/lib/app-sdk-client";
+import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { TooltipProvider } from "./components/ui/tooltip";
+
+function UmamiIdentity() {
+  const { data } = useDesktopAuthSession();
+  const userId = data?.user?.id ?? null;
+  const previousUserIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    identifyUmamiUser(userId);
+    if (userId && previousUserIdRef.current === null) {
+      trackUmamiEvent("signin_completed", { user_id: userId });
+    }
+    previousUserIdRef.current = userId;
+  }, [userId]);
+  return null;
+}
 
 function createDesktopQueryClient(): QueryClient {
   return new QueryClient({
@@ -46,6 +65,7 @@ function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
+          <UmamiIdentity />
           <AppShell />
         </TooltipProvider>
       </QueryClientProvider>
