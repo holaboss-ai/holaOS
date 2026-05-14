@@ -40,7 +40,7 @@
     "build:renderer": "vite build",
     "build:electron": "tsup --config tsup.config.ts --minify",
     "e2e": "npm run rebuild:native && npm run build && node --test e2e/*.test.mjs",
-    "test:unit": "node --import tsx --test electron/**/*.test.ts",
+    "test:unit": "node --import tsx --test electron/**/*.test.ts src/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "dist:mac": "npm run prepare:runtime:local:macos && npm run prepare:packaged-config && npm run build && node scripts/run-electron-builder.mjs --mac dir --arm64 --config.mac.identity=-",
