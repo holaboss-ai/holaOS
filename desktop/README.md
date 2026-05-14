@@ -234,7 +234,7 @@ The manual `CI` release path requires these repository secrets and fails fast wh
 - `APPLE_TEAM_ID`: Apple Developer Team ID
 - `AZURE_TENANT_ID`: Microsoft Entra tenant ID for the Windows signing service principal
 - `AZURE_CLIENT_ID`: client ID for the Windows signing service principal
-- `AZURE_CLIENT_SECRET`: client secret for the Windows signing service principal
+- `AZURE_CLIENT_SECRET`: client secret value for the Windows signing service principal; use the secret `Value`, not the secret ID
 - `HOLABOSS_RELEASES_REPO_TOKEN`: token with read access to the private source repo and write access to `holaboss-ai/holaOS-releases`
 
 The manual `CI` release path also requires these repository variables for Azure Trusted Signing:

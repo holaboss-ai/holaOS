@@ -598,6 +598,69 @@ jobs:
             sdk/app-sdk/package-lock.json
             desktop/package-lock.json
 
+      - name: Validate Azure Trusted Signing credentials
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_ENDPOINT: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+          WINDOWS_SIGNING_ACCOUNT_NAME: ${{ vars.WINDOWS_SIGNING_ACCOUNT_NAME }}
+          WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          WINDOWS_SIGNING_PUBLISHER_NAME: ${{ vars.WINDOWS_SIGNING_PUBLISHER_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          $requiredSigningEnv = @(
+            "WINDOWS_SIGNING_ENDPOINT",
+            "WINDOWS_SIGNING_ACCOUNT_NAME",
+            "WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME",
+            "WINDOWS_SIGNING_PUBLISHER_NAME",
+            "AZURE_TENANT_ID",
+            "AZURE_CLIENT_ID",
+            "AZURE_CLIENT_SECRET"
+          )
+          $missingSigningEnv = @(
+            foreach ($name in $requiredSigningEnv) {
+              if (-not [Environment]::GetEnvironmentVariable($name)) {
+                $name
+              }
+            }
+          )
+          if ($missingSigningEnv.Count -gt 0) {
+            throw "Windows desktop release requires Azure Trusted Signing configuration. Missing: $($missingSigningEnv -join ', ')"
+          }
+
+          $tokenUri = "https://login.microsoftonline.com/$env:AZURE_TENANT_ID/oauth2/v2.0/token"
+          $tokenBody = @{
+            client_id = $env:AZURE_CLIENT_ID
+            client_secret = $env:AZURE_CLIENT_SECRET
+            grant_type = "client_credentials"
+            scope = "https://codesigning.azure.net/.default"
+          }
+
+          try {
+            $tokenResponse = Invoke-RestMethod `
+              -Method Post `
+              -Uri $tokenUri `
+              -ContentType "application/x-www-form-urlencoded" `
+              -Body $tokenBody `
+              -ErrorAction Stop
+          } catch {
+            $errorBody = $_.ErrorDetails.Message
+            if ($errorBody -match "AADSTS7000215|invalid_client") {
+              throw "Azure client secret validation failed. Update AZURE_CLIENT_SECRET to the client secret Value from Microsoft Entra, not the Secret ID."
+            }
+            if ($errorBody) {
+              Write-Host "Azure token endpoint response: $errorBody"
+            }
+            throw "Azure Trusted Signing credential validation failed before build."
+          }
+
+          if (-not $tokenResponse.access_token) {
+            throw "Azure token endpoint did not return an access token for Trusted Signing."
+          }
+
+          Write-Host "Azure Trusted Signing service principal credentials validated."
+
       - name: Prepare desktop (build SDK + install desktop deps)
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
