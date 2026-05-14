@@ -63,6 +63,8 @@ test("desktop updater uses electron-updater and exposes install-now state", asyn
   assert.match(source, /trackAppUpdateDownload\(result\?\.downloadPromise\);/);
   assert.match(source, /handleTrustedIpc\(\s*"appUpdate:setChannel",\s*\["main"\],\s*async \(_event, channel: AppUpdateChannel\) => setAppUpdateChannel\(channel\),/);
   assert.match(source, /handleTrustedIpc\("appUpdate:installNow", \["main"\], async \(\) => \{/);
+  assert.match(source, /await ensureAppQuitCleanup\(\);/);
+  assert.match(source, /if \(process\.platform === "win32"\) \{\s*autoUpdater\.quitAndInstall\(false, false\);[\s\S]*return;\s*\}/);
   assert.match(source, /autoUpdater\.quitAndInstall\(true, true\);/);
   assert.match(source, /if \(!app\.isPackaged \|\| !APP_UPDATE_SUPPORTED_PLATFORMS\.has\(process\.platform\)\) \{\s*return false;\s*\}/);
   assert.match(source, /if \(typeof packagedDesktopConfig\.appUpdateEnabled === "boolean"\) \{\s*return packagedDesktopConfig\.appUpdateEnabled;\s*\}/);

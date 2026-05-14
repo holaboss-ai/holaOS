@@ -8,6 +8,8 @@ import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 
 const IMPORT_PROFILE_LIST_HANDLER_MISSING_MESSAGE =
   "No handler registered for 'workspace:listImportBrowserProfiles'";
+const WINDOWS_BROWSER_SESSION_WARNING_PATTERN =
+  /App-Bound Encryption|device-bound session state|security-hardened sites/i;
 
 const IMPORT_SOURCE_OPTIONS: Array<{
   label: string;
@@ -52,6 +54,17 @@ function importSummaryMessage(summary: BrowserImportSummaryPayload) {
   });
 }
 
+function browserProfileRefreshHint(summary: BrowserImportSummaryPayload) {
+  if (
+    summary.warnings.some((warning) =>
+      WINDOWS_BROWSER_SESSION_WARNING_PATTERN.test(warning),
+    )
+  ) {
+    return "Refresh the current page, but Windows Chrome-family sign-ins for Google and some other sites may still require signing in again.";
+  }
+  return "Refresh the current page if it still shows an expired-cookie error.";
+}
+
 function browserProfileSummaryMessage(params: {
   summary: BrowserImportSummaryPayload;
   prefix: string;
@@ -65,7 +78,7 @@ function browserProfileSummaryMessage(params: {
   if (summary.skippedCookies > 0) {
     detailParts.push(`${summary.skippedCookies} cookies skipped`);
   }
-  return `${prefix} ${detailParts.join(", ")}. Refresh the current page if it still shows an expired-cookie error.`;
+  return `${prefix} ${detailParts.join(", ")}. ${browserProfileRefreshHint(summary)}`;
 }
 
 interface BrowserProfileImportButtonProps {
@@ -428,8 +441,8 @@ export function BrowserProfileImportButton({
                 <div className="rounded-xl bg-fg-2 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
                   Current workspace cookies are replaced before import so stale
                   login state does not linger. Sites that rely on app-bound
-                  encryption or non-cookie storage may still ask you to sign in
-                  again.
+                  encryption, device-bound session credentials, or non-cookie
+                  storage may still ask you to sign in again.
                 </div>
 
                 <div className="grid gap-1.5">

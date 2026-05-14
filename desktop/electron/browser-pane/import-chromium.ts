@@ -1138,6 +1138,7 @@ export async function importChromiumFamilyCookiesIntoWorkspaceSession(
       const warnings = new Set<string>();
       const nowEpochSeconds = Date.now() / 1000;
       let expiredCount = 0;
+      let appBoundProtectedCount = 0;
       const transferableCookies: Array<{
         url: string;
         name: string;
@@ -1163,16 +1164,16 @@ export async function importChromiumFamilyCookiesIntoWorkspaceSession(
 
         let cookieValue = row.value ?? "";
         if (!cookieValue) {
+          const version = chromeEncryptedCookieVersion(row.encrypted_value);
+          if (
+            process.platform === "win32" &&
+            version === CHROME_WINDOWS_APP_BOUND_COOKIE_PREFIX
+          ) {
+            skippedCount += 1;
+            appBoundProtectedCount += 1;
+            continue;
+          }
           try {
-            const version = chromeEncryptedCookieVersion(row.encrypted_value);
-            if (
-              process.platform === "win32" &&
-              version === CHROME_WINDOWS_APP_BOUND_COOKIE_PREFIX
-            ) {
-              throw new Error(
-                "Some Windows Chrome cookies use App-Bound encryption and cannot be imported from a different desktop app.",
-              );
-            }
             const decryptedValue =
               process.platform === "win32"
                 ? decryptChromeCookieValueWindows(
@@ -1229,6 +1230,11 @@ export async function importChromiumFamilyCookiesIntoWorkspaceSession(
       if (expiredCount > 0) {
         warnings.add(
           `Skipped ${expiredCount} expired ${browserDisplayName} cookies.`,
+        );
+      }
+      if (appBoundProtectedCount > 0) {
+        warnings.add(
+          `Skipped ${appBoundProtectedCount} Windows ${browserDisplayName} cookies protected by App-Bound Encryption. Google and some other sign-in sessions cannot be transferred into another desktop app and may require signing in again.`,
         );
       }
 
@@ -1301,6 +1307,11 @@ export async function importChromiumFamilyCookiesIntoWorkspaceSession(
       }
 
       await browserSession.cookies.flushStore();
+      if (process.platform === "win32" && importedCount > 0) {
+        warnings.add(
+          `On Windows, Google and some other security-hardened sites may still require signing in again even when cookies import successfully, because the original browser can keep device-bound session state that Electron cannot reuse.`,
+        );
+      }
       return {
         importedCount,
         skippedCount,

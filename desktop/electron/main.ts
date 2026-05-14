@@ -2173,14 +2173,25 @@ async function setAppUpdateChannel(
   return checkForAppUpdates();
 }
 
-function installAppUpdateNow() {
+async function installAppUpdateNow() {
   if (!appUpdateSupported()) {
     throw new Error("In-app updates are unavailable on this build.");
   }
   if (!appUpdateStatus.downloaded) {
     throw new Error("No downloaded update is ready to install.");
   }
-  // Treat the toast action as an immediate in-place restart, not a manual installer flow.
+  // electron-updater's NSIS flow spawns the installer before app.quit().
+  // Finish our own runtime/browser-service teardown first so Windows doesn't
+  // spend a long time waiting on locked files while replacing the app.
+  await ensureAppQuitCleanup();
+  // Windows silent installs give the user no visible progress while the large
+  // packaged app is being replaced, which reads like the app vanished. Let
+  // NSIS show its update progress there; keep macOS on the restart-in-place
+  // path.
+  if (process.platform === "win32") {
+    autoUpdater.quitAndInstall(false, false);
+    return;
+  }
   autoUpdater.quitAndInstall(true, true);
 }
 

@@ -140,7 +140,11 @@ test("desktop browser import flow discovers a Chrome profile and imports bookmar
   );
   assert.match(
     chromiumSource,
-    /App-Bound encryption and cannot be imported from a different desktop app/,
+    /let appBoundProtectedCount = 0;/,
+  );
+  assert.match(
+    chromiumSource,
+    /Skipped \$\{appBoundProtectedCount\} Windows \$\{browserDisplayName\} cookies protected by App-Bound Encryption\./,
   );
   assert.match(
     chromiumSource,
@@ -172,6 +176,10 @@ test("desktop browser import flow discovers a Chrome profile and imports bookmar
   );
   assert.match(chromiumSource, /await browserSession\.cookies\.set\(/);
   assert.match(chromiumSource, /await browserSession\.cookies\.flushStore\(\);/);
+  assert.match(
+    chromiumSource,
+    /On Windows, Google and some other security-hardened sites may still require signing in again even when cookies import successfully, because the original browser can keep device-bound session state that Electron cannot reuse\./,
+  );
   assert.match(
     chromiumSource,
     /Close \$\{browserDisplayName\} and try again if you need signed-in sessions\./,
