@@ -256,7 +256,7 @@ test("file explorer accepts one-shot focus requests for artifact files", async (
   assert.match(source, /export type FileExplorerFocusRequest = \{\s*path: string;\s*requestKey: number;\s*\};/);
   assert.match(
     source,
-    /interface FileExplorerPaneProps \{\s*focusRequest\?: FileExplorerFocusRequest \| null;\s*onFocusRequestConsumed\?: \(requestKey: number\) => void;\s*previewInPane\?: boolean;\s*onFileOpen\?: \(path: string\) => void;\s*onReferenceInChat\?: \(entry: LocalFileEntry\) => void;\s*onDeleteEntry\?: \(entry: LocalFileEntry\) => void;\s*onOpenLinkInBrowser\?: \(url: string\) => void;\s*embedded\?: boolean;\s*\}/,
+    /interface FileExplorerPaneProps \{\s*focusRequest\?: FileExplorerFocusRequest \| null;\s*onFocusRequestConsumed\?: \(requestKey: number\) => void;\s*previewInPane\?: boolean;\s*onFileOpen\?: \(path: string\) => void;\s*onReferenceInChat\?: \(entry: LocalFileEntry\) => void;\s*onDeleteEntry\?: \(entry: LocalFileEntry\) => void;\s*onOpenLinkInBrowser\?: \(url: string\) => void;\s*onOpenLocalLink\?: \(absolutePath: string\) => void;\s*embedded\?: boolean;\s*\}/,
   );
   assert.match(source, /const request = focusRequest;\s*if \(lastProcessedFocusRequestKeyRef\.current === request\.requestKey\) \{\s*return;\s*\}/);
   assert.match(
@@ -281,6 +281,7 @@ test("file explorer adds a markdown preview mode while keeping text editing inli
     /if \(loading \|\| error \|\| hasVisibleEntryRows\) \{\s*return;\s*\}\s*resetPreviewState\(\);/,
   );
   assert.match(source, /import \{ SimpleMarkdown \} from "@\/components\/marketplace\/SimpleMarkdown";/);
+  assert.match(source, /import \{ HtmlPreviewFrame \} from "@\/components\/panes\/HtmlPreviewFrame";/);
   assert.match(source, /const MARKDOWN_PREVIEW_EXTENSIONS = new Set\(\[\s*"\.md",\s*"\.mdx",\s*"\.markdown"\s*\]\);/);
   assert.match(source, /const HTML_PREVIEW_EXTENSIONS = new Set\(\[\s*"\.html",\s*"\.htm"\s*\]\);/);
   assert.match(source, /type TextPreviewMode = "edit" \| "preview";/);
@@ -301,13 +302,14 @@ test("file explorer adds a markdown preview mode while keeping text editing inli
   assert.match(source, /title=\{showInlinePreview \? "File" : ""\}/);
   assert.match(source, /preview\?\.kind === "text" \? \(/);
   assert.match(source, /isMarkdownPreview && textPreviewMode === "preview"/);
-  assert.match(source, /<SimpleMarkdown[\s\S]*className="chat-markdown text-sm leading-7 text-foreground"[\s\S]*onLinkClick=\{openPreviewLink\}[\s\S]*\{previewDraft\}[\s\S]*<\/SimpleMarkdown>/);
+  assert.match(source, /<SimpleMarkdown[\s\S]*className="file-preview-markdown"[\s\S]*onLinkClick=\{openPreviewLink\}[\s\S]*onLocalLinkClick=\{handleLocalLinkInPreview\}[\s\S]*\{previewDraft\}[\s\S]*<\/SimpleMarkdown>/);
   assert.match(source, /const supportsRenderedTextPreview = isMarkdownPreview \|\| isHtmlPreview;/);
   assert.match(source, /readOnly=\{!preview\.isEditable\}/);
-  assert.match(source, />\s*Preview\s*<\/Button>/);
-  assert.match(source, />\s*Edit\s*<\/Button>/);
+  assert.match(source, /aria-label=\{\s*textPreviewMode === "preview"\s*\?\s*"Switch to edit mode"\s*:\s*"Switch to preview mode"\s*\}/);
+  assert.match(source, /title=\{\s*textPreviewMode === "preview"\s*\?\s*"Previewing — click to edit"\s*:\s*"Editing — click to preview"\s*\}/);
   assert.match(source, /if \(onOpenLinkInBrowser\) \{\s*onOpenLinkInBrowser\(url\);\s*return;\s*\}/);
   assert.match(source, /window\.electronAPI\.ui\.openExternalUrl\(url\)/);
+  assert.match(source, /const handleLocalLinkInPreview = useCallback\(/);
   assert.match(
     source,
     /const \{ allowed, targetPath: validatedTargetPath \} =\s*await validateWorkspaceScopedTargetPath\(targetPath\);[\s\S]*window\.electronAPI\.fs\.readFilePreview\(\s*validatedTargetPath,\s*selectedWorkspaceId \?\? null,\s*\)/,
@@ -330,9 +332,12 @@ test("file explorer adds a markdown preview mode while keeping text editing inli
 test("file explorer renders html files inside a sandboxed iframe preview", async () => {
   const source = await readFile(sourcePath, "utf8");
 
+  assert.match(source, /function pdfExportSuggestedName\(/);
+  assert.match(source, /const exportHtmlPreviewAsPdf = useCallback\(async \(\) => \{[\s\S]*window\.electronAPI\.fs\.exportHtmlToPdf\(\{[\s\S]*html: previewDraft,[\s\S]*suggestedName: pdfExportSuggestedName\(preview\.name\),[\s\S]*basePath: preview\.absolutePath,[\s\S]*\}\);/);
+  assert.match(source, /aria-label="Export PDF"/);
   assert.match(source, /const isHtmlPreview = isHtmlPreviewPayload\(preview\);/);
   assert.match(source, /isHtmlPreview && textPreviewMode === "preview"/);
-  assert.match(source, /<iframe[\s\S]*title=\{preview\.name\}[\s\S]*sandbox=""[\s\S]*srcDoc=\{previewDraft\}[\s\S]*className="h-full w-full rounded-lg border border-border bg-white"/);
+  assert.match(source, /<HtmlPreviewFrame[\s\S]*title=\{preview\.name\}[\s\S]*html=\{previewDraft\}[\s\S]*onOpenLinkInBrowser=\{openPreviewLink\}[\s\S]*onOpenLocalLink=\{handleLocalLinkInPreview\}[\s\S]*className="h-full w-full rounded-lg border border-border bg-white"/);
   assert.match(source, /Empty file — switch to Edit to add markup\./);
 });
 
@@ -803,11 +808,11 @@ test("file explorer does not expose a pane-level close action", async () => {
 
   assert.match(
     source,
-    /interface FileExplorerPaneProps \{\s*focusRequest\?: FileExplorerFocusRequest \| null;\s*onFocusRequestConsumed\?: \(requestKey: number\) => void;\s*previewInPane\?: boolean;\s*onFileOpen\?: \(path: string\) => void;\s*onReferenceInChat\?: \(entry: LocalFileEntry\) => void;\s*onDeleteEntry\?: \(entry: LocalFileEntry\) => void;\s*onOpenLinkInBrowser\?: \(url: string\) => void;\s*embedded\?: boolean;\s*\}/,
+    /interface FileExplorerPaneProps \{\s*focusRequest\?: FileExplorerFocusRequest \| null;\s*onFocusRequestConsumed\?: \(requestKey: number\) => void;\s*previewInPane\?: boolean;\s*onFileOpen\?: \(path: string\) => void;\s*onReferenceInChat\?: \(entry: LocalFileEntry\) => void;\s*onDeleteEntry\?: \(entry: LocalFileEntry\) => void;\s*onOpenLinkInBrowser\?: \(url: string\) => void;\s*onOpenLocalLink\?: \(absolutePath: string\) => void;\s*embedded\?: boolean;\s*\}/,
   );
   assert.match(
     source,
-    /export function FileExplorerPane\(\{\s*focusRequest = null,\s*onFocusRequestConsumed,\s*previewInPane = true,\s*onFileOpen,\s*onReferenceInChat,\s*onDeleteEntry,\s*onOpenLinkInBrowser,\s*embedded = false,\s*}: FileExplorerPaneProps\)/,
+    /export function FileExplorerPane\(\{\s*focusRequest = null,\s*onFocusRequestConsumed,\s*previewInPane = true,\s*onFileOpen,\s*onReferenceInChat,\s*onDeleteEntry,\s*onOpenLinkInBrowser,\s*onOpenLocalLink,\s*embedded = false,\s*}: FileExplorerPaneProps\)/,
   );
   assert.doesNotMatch(source, /label="Close file explorer"/);
   assert.doesNotMatch(source, /icon=\{<X size=\{1[23]\} \/>/);

@@ -1,6 +1,6 @@
 // Ported verbatim from holaOS/desktop/electron/main.ts (lines 13823-13978).
 // Two intentional changes from the original:
-//   1. Transport: node:http -> fetch. Electron renderer + Node 22 + Bun all
+//   1. Transport: node:http -> fetch. Electron renderer + Node 24 + Bun all
 //      support fetch + AbortSignal natively, so the SDK works in every host.
 //   2. Base URL: callback (`getBaseURL`) instead of an inline call to
 //      `ensureRuntimeReady()`, which was Electron-main-process-bound.

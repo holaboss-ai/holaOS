@@ -25,7 +25,8 @@ test("browser profile import button exposes a centered workspace re-import dialo
   assert.match(source, /Import from a browser/);
   assert.match(source, /Current workspace cookies are replaced before import so stale[\s\S]*login[\s\S]*state does not linger\./);
   assert.match(source, /app-bound/);
-  assert.match(source, /non-cookie storage/);
+  assert.match(source, /device-bound session credentials/);
+  assert.match(source, /non-cookie[\s\S]*storage/);
   assert.match(source, /sign in/);
   assert.doesNotMatch(source, /PopoverContent/);
 });
@@ -42,6 +43,8 @@ test("browser profile import button loads profiles and invokes the import IPC", 
   assert.match(source, /Import Into Workspace Browser/);
   assert.match(source, /browserProfileSummaryMessage/);
   assert.match(source, /prefix: `Imported \$\{summary\.sourceLabel\}\.`/);
+  assert.match(source, /WINDOWS_BROWSER_SESSION_WARNING_PATTERN/);
+  assert.match(source, /Windows Chrome-family sign-ins for Google and some other sites may still require signing in again\./);
   assert.match(source, /Refresh the current page if it still shows an expired-cookie error\./);
 });
 

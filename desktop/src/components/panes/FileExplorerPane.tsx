@@ -41,6 +41,7 @@ import catppuccinCollection from "@iconify-json/catppuccin/icons.json";
 
 addCollection(catppuccinCollection as Parameters<typeof addCollection>[0]);
 import { SimpleMarkdown } from "@/components/marketplace/SimpleMarkdown";
+import { HtmlPreviewFrame } from "@/components/panes/HtmlPreviewFrame";
 import { PresentationPreview } from "@/components/panes/PresentationPreview";
 import {
   areTablePreviewSheetsEqual,
@@ -1056,6 +1057,21 @@ function formatFileSize(size: number) {
   }
 
   return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function pdfExportSuggestedName(
+  rawName: string | null | undefined,
+): string {
+  const trimmed = (rawName ?? "").trim();
+  const segments = trimmed
+    .split(/[/\\]+/u)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  const leafName = segments.length > 0 ? segments[segments.length - 1] : "";
+  if (!leafName) {
+    return "export.pdf";
+  }
+  return leafName.replace(/\.[^./\\]+$/u, "") + ".pdf";
 }
 
 function formatModified(ts: string) {
@@ -2544,6 +2560,25 @@ export function FileExplorerPane({
     }
   };
 
+  const exportHtmlPreviewAsPdf = useCallback(async () => {
+    if (!preview || preview.kind !== "text" || !isHtmlPreview) {
+      return;
+    }
+
+    setPreviewError("");
+    try {
+      await window.electronAPI.fs.exportHtmlToPdf({
+        html: previewDraft,
+        suggestedName: pdfExportSuggestedName(preview.name),
+        basePath: preview.absolutePath,
+      });
+    } catch (cause) {
+      const message =
+        cause instanceof Error ? cause.message : "Failed to export PDF.";
+      setPreviewError(message);
+    }
+  }, [isHtmlPreview, preview, previewDraft]);
+
   const previewTableSheets =
     preview?.kind === "table" && Array.isArray(preview.tableSheets)
       ? tablePreviewDraft
@@ -3602,10 +3637,11 @@ export function FileExplorerPane({
           ) : isHtmlPreview && textPreviewMode === "preview" ? (
             previewDraft.trim() ? (
               <div className="h-full overflow-hidden bg-muted p-4">
-                <iframe
+                <HtmlPreviewFrame
                   title={preview.name}
-                  sandbox=""
-                  srcDoc={previewDraft}
+                  html={previewDraft}
+                  onOpenLinkInBrowser={openPreviewLink}
+                  onOpenLocalLink={handleLocalLinkInPreview}
                   className="h-full w-full rounded-lg border border-border bg-white"
                 />
               </div>
@@ -4228,6 +4264,20 @@ export function FileExplorerPane({
                 }
               >
                 <Eye className="size-3.5" />
+              </Button>
+            ) : null}
+            {isHtmlPreview ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => void exportHtmlPreviewAsPdf()}
+                disabled={!previewDraft.trim()}
+                aria-label="Export PDF"
+                title="Export PDF"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <FileText className="size-3.5" />
               </Button>
             ) : null}
             {preview?.isEditable && (isDirty || saving) ? (

@@ -9,5 +9,5 @@ export default defineConfig({
   external: ["react", "react-dom"],
   loader: { ".css": "copy" },
   publicDir: false,
-  onSuccess: "cp src/styles.css dist/styles.css",
+  onSuccess: "node scripts/copy-styles.mjs",
 });

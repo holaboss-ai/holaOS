@@ -113,6 +113,15 @@ export function sqliteTableColumns(
     .filter(Boolean);
 }
 
+export function isBusyChromiumProfileDatabaseError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const code =
+    "code" in error && typeof error.code === "string" ? error.code : "";
+  return code === "EBUSY" || code === "EPERM" || code === "EACCES";
+}
+
 /**
  * External Chromium profiles can contain a History file that is not backed by
  * the expected history schema, so validate it before querying `urls`.
@@ -887,16 +896,23 @@ export async function copyChromeProfileDatabaseToTemp(
 ) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), tempPrefix));
   const copiedPath = path.join(tempDir, path.basename(sourcePath));
-  await fs.copyFile(sourcePath, copiedPath);
-  for (const suffix of ["-wal", "-shm"]) {
-    const sourceCompanionPath = `${sourcePath}${suffix}`;
-    if (!existsSync(sourceCompanionPath)) {
-      continue;
+  try {
+    await fs.copyFile(sourcePath, copiedPath);
+    for (const suffix of ["-wal", "-shm"]) {
+      const sourceCompanionPath = `${sourcePath}${suffix}`;
+      if (!existsSync(sourceCompanionPath)) {
+        continue;
+      }
+      await fs.copyFile(
+        sourceCompanionPath,
+        `${copiedPath}${suffix}`,
+      ).catch(() => undefined);
     }
-    await fs.copyFile(
-      sourceCompanionPath,
-      `${copiedPath}${suffix}`,
-    ).catch(() => undefined);
+  } catch (error) {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(
+      () => undefined,
+    );
+    throw error;
   }
   return {
     copiedPath,
@@ -916,12 +932,11 @@ export async function readChromeHistory(
     return [];
   }
 
-  const { copiedPath, cleanup } = await copyChromeProfileDatabaseToTemp(
-    historyPath,
-    "holaboss-chrome-history-",
-  );
-
   try {
+    const { copiedPath, cleanup } = await copyChromeProfileDatabaseToTemp(
+      historyPath,
+      "holaboss-chrome-history-",
+    );
     try {
       const database = new Database(copiedPath, {
         readonly: true,
@@ -981,17 +996,21 @@ export async function readChromeHistory(
       } finally {
         database.close();
       }
-    } catch (error) {
-      if (isSqliteError(error)) {
-        console.warn(
-          `[browser-import] Skipping Chromium history import from ${historyPath}: ${error.message}`,
-        );
-        return [];
-      }
-      throw error;
+    } finally {
+      await cleanup();
     }
-  } finally {
-    await cleanup();
+  } catch (error) {
+    if (
+      isSqliteError(error) ||
+      isBusyChromiumProfileDatabaseError(error)
+    ) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `[browser-import] Skipping Chromium history import from ${historyPath}: ${message}`,
+      );
+      return [];
+    }
+    throw error;
   }
 }
 
@@ -1053,10 +1072,27 @@ export async function importChromiumFamilyCookiesIntoWorkspaceSession(
     }
   }
 
-  const { copiedPath, cleanup } = await copyChromeProfileDatabaseToTemp(
-    cookiesPath,
-    "holaboss-chrome-cookies-",
-  );
+  let copiedPath = "";
+  let cleanup: () => Promise<void> = async () => {};
+  try {
+    const copiedDatabase = await copyChromeProfileDatabaseToTemp(
+      cookiesPath,
+      "holaboss-chrome-cookies-",
+    );
+    copiedPath = copiedDatabase.copiedPath;
+    cleanup = copiedDatabase.cleanup;
+  } catch (error) {
+    if (isBusyChromiumProfileDatabaseError(error)) {
+      return {
+        importedCount: 0,
+        skippedCount: 0,
+        warnings: [
+          `${browserDisplayName} cookies could not be copied because that profile appears to be open in another app. Close ${browserDisplayName} and try again if you need signed-in sessions.`,
+        ],
+      };
+    }
+    throw error;
+  }
 
   try {
     const database = new Database(copiedPath, {
@@ -1102,6 +1138,7 @@ export async function importChromiumFamilyCookiesIntoWorkspaceSession(
       const warnings = new Set<string>();
       const nowEpochSeconds = Date.now() / 1000;
       let expiredCount = 0;
+      let appBoundProtectedCount = 0;
       const transferableCookies: Array<{
         url: string;
         name: string;
@@ -1127,16 +1164,16 @@ export async function importChromiumFamilyCookiesIntoWorkspaceSession(
 
         let cookieValue = row.value ?? "";
         if (!cookieValue) {
+          const version = chromeEncryptedCookieVersion(row.encrypted_value);
+          if (
+            process.platform === "win32" &&
+            version === CHROME_WINDOWS_APP_BOUND_COOKIE_PREFIX
+          ) {
+            skippedCount += 1;
+            appBoundProtectedCount += 1;
+            continue;
+          }
           try {
-            const version = chromeEncryptedCookieVersion(row.encrypted_value);
-            if (
-              process.platform === "win32" &&
-              version === CHROME_WINDOWS_APP_BOUND_COOKIE_PREFIX
-            ) {
-              throw new Error(
-                "Some Windows Chrome cookies use App-Bound encryption and cannot be imported from a different desktop app.",
-              );
-            }
             const decryptedValue =
               process.platform === "win32"
                 ? decryptChromeCookieValueWindows(
@@ -1193,6 +1230,11 @@ export async function importChromiumFamilyCookiesIntoWorkspaceSession(
       if (expiredCount > 0) {
         warnings.add(
           `Skipped ${expiredCount} expired ${browserDisplayName} cookies.`,
+        );
+      }
+      if (appBoundProtectedCount > 0) {
+        warnings.add(
+          `Skipped ${appBoundProtectedCount} Windows ${browserDisplayName} cookies protected by App-Bound Encryption. Google and some other sign-in sessions cannot be transferred into another desktop app and may require signing in again.`,
         );
       }
 
@@ -1265,6 +1307,11 @@ export async function importChromiumFamilyCookiesIntoWorkspaceSession(
       }
 
       await browserSession.cookies.flushStore();
+      if (process.platform === "win32" && importedCount > 0) {
+        warnings.add(
+          `On Windows, Google and some other security-hardened sites may still require signing in again even when cookies import successfully, because the original browser can keep device-bound session state that Electron cannot reuse.`,
+        );
+      }
       return {
         importedCount,
         skippedCount,

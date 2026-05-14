@@ -67,10 +67,16 @@ jobs:
             sdk/app-sdk/package-lock.json
             desktop/package-lock.json
 
-      - name: Prepare desktop (build SDK + install desktop deps)
+      - name: Install app SDK dependencies
+        run: npm install --prefix sdk/app-sdk
+
+      - name: Build app SDK
+        run: npm --prefix sdk/app-sdk run build
+
+      - name: Install desktop dependencies
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-        run: npm run desktop:prepare
+        run: npm install --prefix desktop
 
       - name: Desktop typecheck
         run: npm run desktop:typecheck
@@ -319,10 +325,16 @@ jobs:
             --url-prefix "~/" \
             runtime/api-server/dist
 
-      - name: Prepare desktop (build SDK + install desktop deps)
+      - name: Install app SDK dependencies
+        run: npm install --prefix sdk/app-sdk
+
+      - name: Build app SDK
+        run: npm --prefix sdk/app-sdk run build
+
+      - name: Install desktop dependencies
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-        run: npm run desktop:prepare
+        run: npm install --prefix desktop
 
       - name: Require mac signing and notarization credentials
         run: |
@@ -582,8 +594,6 @@ jobs:
       HOLABOSS_RELEASE_CHANNEL: ${{ needs.ensure-release.outputs.release_channel }}
       DESKTOP_ASSET_PREFIX: holaboss-desktop-windows
       DESKTOP_RELEASE_ASSET_NAME: holaOS-windows-x64-setup.exe
-      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -600,10 +610,152 @@ jobs:
             sdk/app-sdk/package-lock.json
             desktop/package-lock.json
 
-      - name: Prepare desktop (build SDK + install desktop deps)
+      - name: Validate Azure Trusted Signing credentials
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_ENDPOINT: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+          WINDOWS_SIGNING_ACCOUNT_NAME: ${{ vars.WINDOWS_SIGNING_ACCOUNT_NAME }}
+          WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          WINDOWS_SIGNING_PUBLISHER_NAME: ${{ vars.WINDOWS_SIGNING_PUBLISHER_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          $requiredSigningEnv = @(
+            "WINDOWS_SIGNING_ENDPOINT",
+            "WINDOWS_SIGNING_ACCOUNT_NAME",
+            "WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME",
+            "WINDOWS_SIGNING_PUBLISHER_NAME",
+            "AZURE_TENANT_ID",
+            "AZURE_CLIENT_ID",
+            "AZURE_CLIENT_SECRET"
+          )
+          $missingSigningEnv = @(
+            foreach ($name in $requiredSigningEnv) {
+              if (-not [Environment]::GetEnvironmentVariable($name)) {
+                $name
+              }
+            }
+          )
+          if ($missingSigningEnv.Count -gt 0) {
+            throw "Windows desktop release requires Azure Trusted Signing configuration. Missing: $($missingSigningEnv -join ', ')"
+          }
+
+          $tokenUri = "https://login.microsoftonline.com/$env:AZURE_TENANT_ID/oauth2/v2.0/token"
+          $tokenBody = @{
+            client_id = $env:AZURE_CLIENT_ID
+            client_secret = $env:AZURE_CLIENT_SECRET
+            grant_type = "client_credentials"
+            scope = "https://codesigning.azure.net/.default"
+          }
+
+          try {
+            $tokenResponse = Invoke-RestMethod `
+              -Method Post `
+              -Uri $tokenUri `
+              -ContentType "application/x-www-form-urlencoded" `
+              -Body $tokenBody `
+              -ErrorAction Stop
+          } catch {
+            $errorBody = $_.ErrorDetails.Message
+            if ($errorBody -match "AADSTS7000215|invalid_client") {
+              throw "Azure client secret validation failed. Update AZURE_CLIENT_SECRET to the client secret Value from Microsoft Entra, not the Secret ID."
+            }
+            if ($errorBody) {
+              Write-Host "Azure token endpoint response: $errorBody"
+            }
+            throw "Azure Trusted Signing credential validation failed before build."
+          }
+
+          if (-not $tokenResponse.access_token) {
+            throw "Azure token endpoint did not return an access token for Trusted Signing."
+          }
+
+          Write-Host "Azure Trusted Signing service principal credentials validated."
+
+      - name: Validate Azure Trusted Signing authorization
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_ENDPOINT: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+          WINDOWS_SIGNING_ACCOUNT_NAME: ${{ vars.WINDOWS_SIGNING_ACCOUNT_NAME }}
+          WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          try {
+            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser
+          } catch {
+            Write-Host "NuGet package provider setup did not complete cleanly; continuing because it may already be installed."
+            Write-Host $_
+          }
+
+          Install-Module -Name TrustedSigning -MinimumVersion 0.5.0 -Force -Repository PSGallery -Scope CurrentUser
+          Import-Module TrustedSigning -MinimumVersion 0.5.0 -Force
+
+          $probeDir = Join-Path $env:RUNNER_TEMP "trusted-signing-probe"
+          New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
+          $probePath = Join-Path $probeDir "trusted-signing-probe.exe"
+          $probeSourcePath = Join-Path $probeDir "TrustedSigningProbe.cs"
+          $probeSource = @"
+          public static class TrustedSigningProbe
+          {
+              public static int Main(string[] args)
+              {
+                  return 0;
+              }
+          }
+          "@
+
+          Set-Content -Path $probeSourcePath -Value $probeSource -Encoding UTF8
+          $cscCandidates = @(
+            (Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"),
+            (Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe")
+          )
+          $csc = $cscCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $csc) {
+            throw "Unable to create Azure Trusted Signing probe executable because csc.exe was not found on the Windows runner."
+          }
+
+          & $csc /nologo /target:exe /out:$probePath $probeSourcePath
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $probePath)) {
+            throw "Unable to create Azure Trusted Signing probe executable. csc.exe exited with code $LASTEXITCODE."
+          }
+
+          try {
+            Invoke-TrustedSigning `
+              -Endpoint $env:WINDOWS_SIGNING_ENDPOINT `
+              -CertificateProfileName $env:WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME `
+              -CodeSigningAccountName $env:WINDOWS_SIGNING_ACCOUNT_NAME `
+              -TimestampRfc3161 "http://timestamp.acs.microsoft.com" `
+              -TimestampDigest "SHA256" `
+              -FileDigest "SHA256" `
+              -Files $probePath
+          } catch {
+            $signingError = $_ | Out-String
+            if ($signingError -match "403|Forbidden") {
+              throw "Azure Trusted Signing authorization probe failed with 403 Forbidden. Confirm the service principal has Artifact Signing Certificate Profile Signer on the certificate profile or account, then wait for Azure role propagation."
+            }
+            throw
+          }
+
+          $probeSignature = Get-AuthenticodeSignature -FilePath $probePath
+          if ($probeSignature.Status -ne "Valid") {
+            throw "Azure Trusted Signing authorization probe did not produce a valid Authenticode signature. Status: $($probeSignature.Status). $($probeSignature.StatusMessage)"
+          }
+
+          Write-Host "Azure Trusted Signing authorization validated with a signed probe executable."
+
+      - name: Install app SDK dependencies
+        run: npm install --prefix sdk/app-sdk
+
+      - name: Build app SDK
+        run: npm --prefix sdk/app-sdk run build
+
+      - name: Install desktop dependencies
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-        run: npm run desktop:prepare
+        run: npm install --prefix desktop
 
       - name: Build Windows desktop installer
         id: build_windows_installer
@@ -619,21 +771,43 @@ jobs:
           HOLABOSS_MARKETPLACE_URL: ${{ vars.HOLABOSS_MARKETPLACE_URL }}
           HOLABOSS_PROACTIVE_URL: ${{ vars.HOLABOSS_PROACTIVE_URL }}
           GITHUB_TOKEN: ${{ github.token }}
-          CSC_LINK: ${{ env.WINDOWS_CERTIFICATE }}
-          CSC_KEY_PASSWORD: ${{ env.WINDOWS_CERTIFICATE_PASSWORD }}
-          WIN_CSC_LINK: ${{ env.WINDOWS_CERTIFICATE }}
-          WIN_CSC_KEY_PASSWORD: ${{ env.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_SIGNING_ENDPOINT: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+          WINDOWS_SIGNING_ACCOUNT_NAME: ${{ vars.WINDOWS_SIGNING_ACCOUNT_NAME }}
+          WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          WINDOWS_SIGNING_PUBLISHER_NAME: ${{ vars.WINDOWS_SIGNING_PUBLISHER_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           SENTRY_ENVIRONMENT: production
           HOLABOSS_RUNTIME_VERSION: ${{ env.RELEASE_TAG }}
         run: |
-          if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
-            throw "Windows desktop release requires WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD so the public installer is code-signed."
+          $requiredSigningEnv = @(
+            "WINDOWS_SIGNING_ENDPOINT",
+            "WINDOWS_SIGNING_ACCOUNT_NAME",
+            "WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME",
+            "WINDOWS_SIGNING_PUBLISHER_NAME",
+            "AZURE_TENANT_ID",
+            "AZURE_CLIENT_ID",
+            "AZURE_CLIENT_SECRET"
+          )
+          $missingSigningEnv = @(
+            foreach ($name in $requiredSigningEnv) {
+              if (-not [Environment]::GetEnvironmentVariable($name)) {
+                $name
+              }
+            }
+          )
+          if ($missingSigningEnv.Count -gt 0) {
+            throw "Windows desktop release requires Azure Trusted Signing configuration. Missing: $($missingSigningEnv -join ', ')"
           }
 
-          Write-Host "Building signed Windows installer."
+          Write-Host "Building Azure Trusted Signing Windows installer."
 
           npm run dist:win:local
+          if ($LASTEXITCODE -ne 0) {
+            throw "npm run dist:win:local failed with exit code $LASTEXITCODE"
+          }
 
           $installer = Get-ChildItem -Path out/release -File -Recurse |
             Where-Object {
@@ -645,6 +819,14 @@ jobs:
             Select-Object -First 1
 
           if (-not $installer) {
+            if (Test-Path -LiteralPath "out/release") {
+              Write-Host "Contents of desktop/out/release:"
+              Get-ChildItem -Path out/release -Recurse |
+                Select-Object FullName, Length |
+                Format-Table -AutoSize
+            } else {
+              Write-Host "desktop/out/release does not exist."
+            }
             throw "No Windows installer .exe was produced under desktop/out/release."
           }
 
@@ -655,6 +837,31 @@ jobs:
           $installerPath = $installer.FullName
           $stablePath = Join-Path $PWD "out/release/$env:DESKTOP_RELEASE_ASSET_NAME"
           Copy-Item -LiteralPath $installerPath -Destination $stablePath -Force
+
+          $installerBlockmapPath = "$installerPath.blockmap"
+          $stableBlockmapPath = "$stablePath.blockmap"
+          if (-not (Test-Path -LiteralPath $installerBlockmapPath)) {
+            throw "No Windows installer blockmap was produced for $($installer.Name)."
+          }
+          Copy-Item -LiteralPath $installerBlockmapPath -Destination $stableBlockmapPath -Force
+
+          foreach ($manifestName in @("latest.yml", "beta.yml")) {
+            $manifestPath = Join-Path $PWD "out/release/$manifestName"
+            if (-not (Test-Path -LiteralPath $manifestPath)) {
+              continue
+            }
+            $manifestContent = Get-Content -LiteralPath $manifestPath -Raw
+            $manifestContent = $manifestContent -replace "(?m)^(\s*-\s*url:\s*).+$", "`${1}$env:DESKTOP_RELEASE_ASSET_NAME"
+            $manifestContent = $manifestContent -replace "(?m)^(path:\s*).+$", "`${1}$env:DESKTOP_RELEASE_ASSET_NAME"
+            Set-Content -LiteralPath $manifestPath -Value $manifestContent -Encoding UTF8
+          }
+
+          $signature = Get-AuthenticodeSignature -FilePath $stablePath
+          if ($signature.Status -ne "Valid") {
+            $signature | Format-List *
+            throw "Windows installer signature is not valid: $($signature.Status)"
+          }
+
           Add-Content -Path $env:GITHUB_OUTPUT -Value "generated_installer_path=$installerPath"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "installer_path=$stablePath"
 
@@ -682,6 +889,12 @@ jobs:
             throw "$manifestName was not generated"
           }
 
+          $stableInstallerName = "holaOS-windows-x64-setup.exe"
+          $manifestContent = Get-Content -LiteralPath $manifestPath -Raw
+          if ($manifestContent -notmatch [regex]::Escape($stableInstallerName)) {
+            throw "$manifestName does not reference $stableInstallerName"
+          }
+
           if ($primaryChannel -eq "latest") {
             $betaManifestPath = Join-Path $PWD "desktop/out/release/beta.yml"
             Copy-Item -LiteralPath $manifestPath -Destination $betaManifestPath -Force
@@ -690,9 +903,9 @@ jobs:
             }
           }
 
-          $blockmaps = Get-ChildItem -Path desktop/out/release -File -Filter *.blockmap
-          if (-not $blockmaps) {
-            throw "No Windows blockmap was produced under desktop/out/release."
+          $stableBlockmapPath = Join-Path $PWD "desktop/out/release/$stableInstallerName.blockmap"
+          if (-not (Test-Path -LiteralPath $stableBlockmapPath)) {
+            throw "No Windows blockmap was produced for $stableInstallerName."
           }
 
       - name: Upload Windows release artifacts
@@ -700,11 +913,10 @@ jobs:
         with:
           name: ${{ env.DESKTOP_ASSET_PREFIX }}-${{ inputs.release_tag }}
           path: |
-            desktop/out/release/*.exe
-            desktop/out/release/*.yml
-            desktop/out/release/*.blockmap
-            desktop/out/runtime-windows/package-metadata.json
-            desktop/out/runtime-windows/runtime/metadata.json
+            desktop/out/release/${{ env.DESKTOP_RELEASE_ASSET_NAME }}
+            desktop/out/release/${{ env.DESKTOP_RELEASE_ASSET_NAME }}.blockmap
+            desktop/out/release/latest.yml
+            desktop/out/release/beta.yml
           if-no-files-found: error
 
   publish-release:
@@ -806,13 +1018,43 @@ jobs:
           done < <(find release-assets/macos-desktop -maxdepth 1 -name '*.blockmap' -print | sort)
 
           if [ "${{ inputs.release_windows }}" = "true" ]; then
-            while IFS= read -r windows_asset; do
-              upload_paths+=("${windows_asset}")
-            done < <(
-              find release-assets/windows-desktop -maxdepth 1 -type f \
-                \( -name '*.exe' -o -name '*.yml' -o -name '*.blockmap' \) \
-                -print | sort
-            )
+            windows_release_dir="release-assets/windows-desktop"
+            if [ -d "${windows_release_dir}/release" ]; then
+              windows_release_dir="${windows_release_dir}/release"
+            fi
+
+            windows_installer_asset="${windows_release_dir}/holaOS-windows-x64-setup.exe"
+            windows_blockmap_asset="${windows_installer_asset}.blockmap"
+            if [ ! -f "${windows_installer_asset}" ]; then
+              echo "missing Windows installer release asset" >&2
+              find release-assets/windows-desktop -maxdepth 3 -type f -print >&2 || true
+              exit 1
+            fi
+            if [ ! -f "${windows_blockmap_asset}" ]; then
+              echo "missing Windows installer blockmap release asset" >&2
+              find release-assets/windows-desktop -maxdepth 3 -type f -print >&2 || true
+              exit 1
+            fi
+
+            upload_paths+=("${windows_installer_asset}" "${windows_blockmap_asset}")
+
+            windows_manifest_count=0
+            for windows_manifest_asset in "${windows_release_dir}/latest.yml" "${windows_release_dir}/beta.yml"; do
+              if [ ! -f "${windows_manifest_asset}" ]; then
+                continue
+              fi
+              if ! grep -q 'holaOS-windows-x64-setup\.exe' "${windows_manifest_asset}"; then
+                echo "${windows_manifest_asset} does not reference holaOS-windows-x64-setup.exe" >&2
+                exit 1
+              fi
+              upload_paths+=("${windows_manifest_asset}")
+              windows_manifest_count=$((windows_manifest_count + 1))
+            done
+            if [ "${windows_manifest_count}" -eq 0 ]; then
+              echo "missing Windows auto-update manifest release asset" >&2
+              find release-assets/windows-desktop -maxdepth 3 -type f -print >&2 || true
+              exit 1
+            fi
           fi
 
           prerelease_flag=()

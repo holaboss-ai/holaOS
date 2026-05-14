@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { firstWorkspacePaneSectionClassName } from "@/components/layout/firstWorkspacePaneLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { trackUmamiEvent } from "@/lib/analytics/umami";
 import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { holabossLogoUrl } from "@/lib/assetPaths";
 import {
@@ -131,6 +132,13 @@ export function FirstWorkspacePane({
     setBrowserBootstrapMode("fresh");
   }, [setTemplateSourceMode, setBrowserBootstrapMode]);
 
+  useEffect(() => {
+    trackUmamiEvent("onboarding_step_viewed", {
+      step,
+      variant: isPanelVariant ? "panel" : "full",
+    });
+  }, [step, isPanelVariant]);
+
   const trimmedName = newWorkspaceName.trim();
   const sectionClassName = firstWorkspacePaneSectionClassName("configure");
   const defaultRoot = runtimeStatus?.sandboxRoot?.trim() || "";
@@ -182,7 +190,13 @@ export function FirstWorkspacePane({
   }
 
   function handleCreate() {
+    trackUmamiEvent("first_workspace_create_started", {
+      folder_choice: folderChoice,
+    });
     void createWorkspace().then(() => {
+      trackUmamiEvent("first_workspace_created", {
+        folder_choice: folderChoice,
+      });
       if (isPanelVariant) {
         onClose?.();
       }

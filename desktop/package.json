@@ -9,7 +9,7 @@
   },
   "main": "out/dist-electron/main.cjs",
   "scripts": {
-    "clean": "rm -rf out build",
+    "clean": "node ../scripts/remove-paths.mjs out build",
     "rebuild:native": "node ./node_modules/@electron/rebuild/lib/cli.js -f -w better-sqlite3",
     "predev": "node scripts/ensure-app-sdk.mjs && node scripts/ensure-runtime-client.mjs && node scripts/ensure-editor.mjs && node scripts/validate-dev-env.mjs && kill-port 5173 && npm run rebuild:native && node scripts/ensure-runtime-bundle.mjs && node scripts/patch-electron-plist.mjs",
     "prebuild": "node scripts/ensure-app-sdk.mjs && node scripts/ensure-runtime-client.mjs && node scripts/ensure-editor.mjs",
@@ -40,7 +40,7 @@
     "build:renderer": "vite build",
     "build:electron": "tsup --config tsup.config.ts --minify",
     "e2e": "npm run rebuild:native && npm run build && node --test e2e/*.test.mjs",
-    "test:unit": "node --import tsx --test electron/**/*.test.ts",
+    "test:unit": "node --import tsx --test electron/**/*.test.ts src/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "dist:mac": "npm run prepare:runtime:local:macos && npm run prepare:packaged-config && npm run build && node scripts/run-electron-builder.mjs --mac dir --arm64 --config.mac.identity=-",

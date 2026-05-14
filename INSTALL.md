@@ -4,14 +4,14 @@ This file is a deterministic setup runbook for an agent working from a fresh mac
 
 ## Goal
 
-Bootstrap local Holaboss OSS desktop development, including provisioning `git` and Node.js `22`/`npm` when they are missing.
+Bootstrap local Holaboss OSS desktop development, including provisioning `git` and Node.js `24`/`npm` when they are missing.
 
 ## Repository
 
 Use this repository URL:
 
 ```bash
-https://github.com/holaboss-ai/holaboss-ai.git
+https://github.com/holaboss-ai/holaOS.git
 ```
 
 ## Quick Installer
@@ -19,13 +19,13 @@ https://github.com/holaboss-ai/holaboss-ai.git
 For a fresh machine bootstrap, the repo ships an installer wrapper that can provision missing prerequisites before cloning and bootstrapping the desktop checkout:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/holaboss-ai/holaboss-ai/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/holaboss-ai/holaOS/main/scripts/install.sh | bash
 ```
 
 By default, that script:
 
 - installs `git` if it is missing
-- installs Node.js `22` plus `npm` if they are missing
+- installs Node.js `24` plus `npm` if they are missing
 - clones the repo into `~/holaboss-ai`
 - creates `desktop/.env` from `desktop/.env.example` if needed
 - runs `npm run desktop:install`
@@ -36,7 +36,7 @@ By default, that script:
 If you want the installer to continue directly into the desktop dev environment after verification, use:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/holaboss-ai/holaboss-ai/main/scripts/install.sh | bash -s -- --launch
+curl -fsSL https://raw.githubusercontent.com/holaboss-ai/holaOS/main/scripts/install.sh | bash -s -- --launch
 ```
 
 Optional installer flags:
@@ -69,7 +69,7 @@ If `git` is missing:
 For the manual path, ensure the machine has:
 
 - `git`
-- `node` version `22` or newer
+- `node` version `24` or newer
 - `npm`
 
 Validate prerequisites:
@@ -80,14 +80,14 @@ node --version
 npm --version
 ```
 
-If `node --version` reports a major version lower than `22`, stop and upgrade Node.js before continuing.
+If `node --version` reports a major version lower than `24`, stop and upgrade Node.js before continuing.
 
 ## Clone The Repository
 
 If the repository is not already present locally, clone it:
 
 ```bash
-git clone https://github.com/holaboss-ai/holaboss-ai.git
+git clone https://github.com/holaboss-ai/holaOS.git
 cd holaboss-ai
 ```
 
@@ -195,13 +195,13 @@ Important:
 If you want the one-command installer path, use:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/holaboss-ai/holaboss-ai/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/holaboss-ai/holaOS/main/scripts/install.sh | bash
 ```
 
 For the equivalent manual fresh setup, the expected command sequence is:
 
 ```bash
-git clone https://github.com/holaboss-ai/holaboss-ai.git
+git clone https://github.com/holaboss-ai/holaOS.git
 cd holaboss-ai
 npm run desktop:install
 cp desktop/.env.example desktop/.env

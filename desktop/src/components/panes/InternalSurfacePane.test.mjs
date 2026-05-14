@@ -10,6 +10,7 @@ const sourcePath = path.join(__dirname, "InternalSurfacePane.tsx");
 test("internal surface renders markdown files with the shared markdown renderer", async () => {
   const source = await readFile(sourcePath, "utf8");
 
+  assert.match(source, /import \{ HtmlPreviewFrame \} from "@\/components\/panes\/HtmlPreviewFrame";/);
   assert.match(source, /import \{ SimpleMarkdown \} from "@\/components\/marketplace\/SimpleMarkdown";/);
   assert.match(source, /const MARKDOWN_PREVIEW_EXTENSIONS = new Set\(\[\s*"\.md",\s*"\.mdx",\s*"\.markdown"\s*\]\);/);
   assert.match(source, /const HTML_PREVIEW_EXTENSIONS = new Set\(\[\s*"\.html",\s*"\.htm"\s*\]\);/);
@@ -19,14 +20,15 @@ test("internal surface renders markdown files with the shared markdown renderer"
   assert.match(source, /function isHtmlPreviewPayload\(/);
   assert.match(source, /const \[textPreviewMode, setTextPreviewMode\] =\s*useState<TextPreviewMode>\("edit"\);/);
   assert.match(source, /setTextPreviewMode\("edit"\);/);
-  assert.match(source, /if \(preview\.kind === "text"\) \{[\s\S]*\{isMarkdownPreview && textPreviewMode === "preview" \? \(/);
+  assert.match(source, /if \(preview\.kind === "text"\) \{[\s\S]*\{isMarkdownPreview \? \(/);
   assert.match(source, /const supportsRenderedTextPreview = isMarkdownPreview \|\| isHtmlPreview;/);
-  assert.match(source, /<SimpleMarkdown[\s\S]*className="chat-markdown text-sm leading-7 text-foreground"[\s\S]*onLinkClick=\{openPreviewLink\}[\s\S]*\{previewDraft\}[\s\S]*<\/SimpleMarkdown>/);
+  assert.match(source, /<SimpleMarkdown[\s\S]*className="file-preview-markdown"[\s\S]*onLinkClick=\{openPreviewLink\}[\s\S]*onLocalLinkClick=\{handleLocalLinkInPreview\}[\s\S]*\{previewDraft\}[\s\S]*<\/SimpleMarkdown>/);
   assert.match(source, /isHtmlPreview && textPreviewMode === "preview"/);
-  assert.match(source, /<iframe[\s\S]*title=\{preview\.name\}[\s\S]*sandbox=""[\s\S]*srcDoc=\{previewDraft\}[\s\S]*className="h-full w-full rounded-lg border border-border bg-white"/);
+  assert.match(source, /<HtmlPreviewFrame[\s\S]*title=\{preview\.name\}[\s\S]*html=\{previewDraft\}[\s\S]*onOpenLinkInBrowser=\{openPreviewLink\}[\s\S]*onOpenLocalLink=\{handleLocalLinkInPreview\}[\s\S]*className="h-full w-full rounded-lg border border-border bg-white"/);
   assert.match(source, /Empty file — switch to Edit to add markup\./);
   assert.match(source, /if \(onOpenLinkInBrowser\) \{\s*onOpenLinkInBrowser\(url\);\s*return;\s*\}/);
   assert.match(source, /window\.electronAPI\.ui\.openExternalUrl\(url\)/);
+  assert.match(source, /const handleLocalLinkInPreview = useCallback\(/);
   assert.match(source, /onResourceMissing\?: \(resourceId: string\) => void;/);
   assert.match(
     source,
@@ -44,10 +46,17 @@ test("internal surface renders html files inside a sandboxed iframe preview", as
 
   assert.match(source, /const HTML_PREVIEW_EXTENSIONS = new Set\(\[\s*"\.html",\s*"\.htm"\s*\]\);/);
   assert.match(source, /function isHtmlPreviewPayload\(/);
+  assert.match(source, /const exportHtmlPreviewAsPdf = useCallback\(/);
+  assert.match(source, /window\.electronAPI\.fs\.exportHtmlToPdf\(payload\)/);
+  assert.match(source, /suggestedName: pdfExportSuggestedName\(\s*resourceId \|\| "output-preview",\s*\)/);
+  assert.match(source, /suggestedName: pdfExportSuggestedName\(\s*preview\.name,\s*\)/);
+  assert.match(source, /basePath: preview\.absolutePath,/);
+  assert.match(source, /Export the rendered HTML preview as a PDF\./);
+  assert.match(source, /aria-label="Export PDF"/);
   assert.match(source, /const isHtmlPreview = isHtmlPreviewPayload\(preview\);/);
   assert.match(source, /const supportsRenderedTextPreview = isMarkdownPreview \|\| isHtmlPreview;/);
   assert.match(source, /isHtmlPreview && textPreviewMode === "preview"/);
-  assert.match(source, /<iframe[\s\S]*title=\{preview\.name\}[\s\S]*sandbox=""[\s\S]*srcDoc=\{previewDraft\}[\s\S]*className="h-full w-full rounded-lg border border-border bg-white"/);
+  assert.match(source, /<HtmlPreviewFrame[\s\S]*title=\{preview\.name\}[\s\S]*html=\{previewDraft\}[\s\S]*onOpenLinkInBrowser=\{openPreviewLink\}[\s\S]*onOpenLocalLink=\{handleLocalLinkInPreview\}[\s\S]*className="h-full w-full rounded-lg border border-border bg-white"/);
   assert.match(source, /Empty file — switch to Edit to add markup\./);
 });
 

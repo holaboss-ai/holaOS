@@ -24,7 +24,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "node ../../scripts/remove-paths.mjs dist"
   },
   "dependencies": {
     "@tiptap/core": "^3.0.0",

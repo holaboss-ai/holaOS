@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { trackUmamiEvent } from "@/lib/analytics/umami";
 import { getMarketplaceAppSdkClient } from "@/lib/app-sdk-client";
 import { type AuthSession, useDesktopAuthSession } from "@/lib/auth/authClient";
 import { hydrateInstalledWorkspaceApps, type WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
@@ -127,10 +128,12 @@ interface WorkspaceDesktopContextValue {
   clearPendingAppInstall: () => void;
   connectAndInstallApp: () => Promise<void>;
   isConnectingAppIntegration: boolean;
+  cancelAppIntegrationConnect: () => void;
   connectIntegrationProvider: (params: {
     provider: string;
     appId?: string | null;
     accountLabel?: string | null;
+    signal?: AbortSignal;
   }) => Promise<{ connectionId: string }>;
   templateSourceMode: TemplateSourceMode;
   setTemplateSourceMode: (value: TemplateSourceMode) => void;
@@ -331,6 +334,11 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
   const [isResolvingIntegrations, setIsResolvingIntegrations] = useState(false);
   const [pendingAppInstall, setPendingAppInstall] = useState<{ appId: string; provider: string } | null>(null);
   const [isConnectingAppIntegration, setIsConnectingAppIntegration] = useState(false);
+  // Per-call AbortController for the in-flight app-install connect flow.
+  // A controller is created in `connectAndInstallApp`, captured here so the
+  // Cancel button can abort it. Other callers (e.g. chat pane's connect
+  // card) get their own signal — no shared mutable state to clobber.
+  const appInstallConnectControllerRef = useRef<AbortController | null>(null);
   const [firstWorkspaceStep, setFirstWorkspaceStep] = useState<FirstWorkspaceStep>("welcome");
   // Composio toolkit metadata (name + logo + categories) keyed by toolkit
   // slug. Single source of truth for app display name + icon across the
@@ -750,6 +758,10 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     setIsCreatingWorkspace(true);
     setWorkspaceCreatePhase("creating_workspace");
     setWorkspaceErrorMessage("");
+    trackUmamiEvent("workspace_create_phase_changed", {
+      phase: "creating_workspace",
+      template_mode: templateSourceMode,
+    });
     try {
       const trimmedWorkspaceName = newWorkspaceName.trim() || "Desktop Workspace";
       const customWorkspacePath = selectedWorkspaceFolder?.rootPath?.trim() || "";
@@ -815,6 +827,9 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
         const sourceWorkspaceId = browserBootstrapSourceWorkspaceId.trim();
         if (sourceWorkspaceId) {
           setWorkspaceCreatePhase("copying_browser_profile");
+          trackUmamiEvent("workspace_create_phase_changed", {
+            phase: "copying_browser_profile",
+          });
           try {
             await window.electronAPI.workspace.copyBrowserWorkspaceProfile({
               sourceWorkspaceId,
@@ -826,6 +841,9 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
         }
       } else if (browserBootstrapMode === "import_browser") {
         setWorkspaceCreatePhase("importing_browser_profile");
+        trackUmamiEvent("workspace_create_phase_changed", {
+          phase: "importing_browser_profile",
+        });
         try {
           await window.electronAPI.workspace.importBrowserProfile({
             workspaceId: createdWorkspaceId,
@@ -845,6 +863,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       }
 
       setWorkspaceCreatePhase("finalizing");
+      trackUmamiEvent("workspace_create_phase_changed", { phase: "finalizing" });
       // Keep the creating view alive for one more task so panel-based creation
       // can hand off cleanly to the newly selected workspace without flashing
       // the configuration screen again before the panel closes.
@@ -852,7 +871,12 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
         window.setTimeout(resolve, 0);
       });
     } catch (error) {
-      setWorkspaceErrorMessage(normalizeErrorMessage(error));
+      const message = normalizeErrorMessage(error);
+      setWorkspaceErrorMessage(message);
+      trackUmamiEvent("workspace_create_failed", {
+        template_mode: templateSourceMode,
+        error_message: message,
+      });
     } finally {
       setIsCreatingWorkspace(false);
       setWorkspaceCreatePhase("creating_workspace");
@@ -976,6 +1000,11 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       return;
     }
     setAppCatalogError("");
+    trackUmamiEvent("app_install_clicked", {
+      app_id: appId,
+      workspace_id: selectedWorkspaceId,
+      source: appCatalogSource,
+    });
 
     // Check if this app requires an integration that isn't connected yet
     const provider = providerForApp(appId);
@@ -1048,8 +1077,18 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
         }
       }
       await refreshInstalledApps();
+      trackUmamiEvent("app_install_succeeded", {
+        app_id: appId,
+        workspace_id: selectedWorkspaceId,
+      });
     } catch (error) {
-      setAppCatalogError(normalizeErrorMessage(error));
+      const message = normalizeErrorMessage(error);
+      setAppCatalogError(message);
+      trackUmamiEvent("app_install_failed", {
+        app_id: appId,
+        workspace_id: selectedWorkspaceId,
+        error_message: message,
+      });
     } finally {
       setInstallingAppId(null);
     }
@@ -1059,14 +1098,33 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     setPendingAppInstall(null);
   }
 
+  class IntegrationConnectCancelled extends Error {
+    constructor() {
+      super("Integration connect cancelled by user");
+      this.name = "IntegrationConnectCancelled";
+    }
+  }
+
   async function connectIntegrationProvider({
     provider,
     accountLabel,
+    signal,
   }: {
     provider: string;
     appId?: string | null;
     accountLabel?: string | null;
+    signal?: AbortSignal;
   }): Promise<{ connectionId: string }> {
+    const throwIfAborted = () => {
+      if (signal?.aborted) {
+        throw new IntegrationConnectCancelled();
+      }
+    };
+
+    const COMPOSIO_POLL_INTERVAL_MS = 3000;
+    const COMPOSIO_POLL_MAX_TICKS = 100;
+    const MAX_CONSECUTIVE_ERRORS = 20;
+
     const runtimeConfig = await window.electronAPI.runtime.getConfig();
     const userId = runtimeConfig.userId ?? (resolvedUserId || "local");
 
@@ -1082,18 +1140,21 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       // tolerate snapshot failure
     }
 
+    throwIfAborted();
+
     const link = await window.electronAPI.workspace.composioConnect({
       provider,
       owner_user_id: userId,
     });
+
+    throwIfAborted();
+
     await window.electronAPI.ui.openExternalUrl(link.redirect_url);
 
-    const COMPOSIO_POLL_INTERVAL_MS = 3000;
-    const COMPOSIO_POLL_MAX_TICKS = 100;
-    const MAX_CONSECUTIVE_ERRORS = 20;
     let consecutiveErrors = 0;
     for (let tick = 0; tick < COMPOSIO_POLL_MAX_TICKS; tick++) {
       await new Promise((r) => setTimeout(r, COMPOSIO_POLL_INTERVAL_MS));
+      throwIfAborted();
       let current;
       try {
         current =
@@ -1112,13 +1173,41 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
           c.toolkitSlug.toLowerCase() === provider.toLowerCase(),
       );
       if (newConnection) {
-        await window.electronAPI.workspace.composioFinalize({
-          connected_account_id: newConnection.id,
-          provider,
-          owner_user_id: userId,
-          account_label: accountLabel ?? `${provider} (Managed)`,
-        });
-        return { connectionId: newConnection.id };
+        // Composio creates the row at /connect time in INITIATED state —
+        // its mere presence in the list is NOT proof that OAuth completed.
+        // Read the account's real status before finalizing.
+        let accountStatus;
+        try {
+          accountStatus =
+            await window.electronAPI.workspace.composioAccountStatus(
+              newConnection.id,
+              provider,
+            );
+        } catch {
+          continue;
+        }
+        throwIfAborted();
+        const status = (accountStatus.status ?? "").toUpperCase();
+        if (status === "ACTIVE") {
+          await window.electronAPI.workspace.composioFinalize({
+            connected_account_id: newConnection.id,
+            provider,
+            owner_user_id: userId,
+            account_label: accountLabel ?? `${provider} (Managed)`,
+          });
+          throwIfAborted();
+          return { connectionId: newConnection.id };
+        }
+        if (
+          status === "FAILED" ||
+          status === "EXPIRED" ||
+          status === "INACTIVE"
+        ) {
+          throw new Error(
+            `Authorization for ${provider} ${status.toLowerCase()}. Please try again.`,
+          );
+        }
+        // INITIATED / INITIATING / anything else — keep polling.
       }
     }
     throw new Error(
@@ -1128,17 +1217,48 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     );
   }
 
+  function cancelAppIntegrationConnect() {
+    appInstallConnectControllerRef.current?.abort();
+    setPendingAppInstall(null);
+  }
+
   async function connectAndInstallApp() {
     if (!pendingAppInstall) return;
     const { appId, provider } = pendingAppInstall;
+    const controller = new AbortController();
+    appInstallConnectControllerRef.current = controller;
     setIsConnectingAppIntegration(true);
     setAppCatalogError("");
     try {
-      await connectIntegrationProvider({ provider, appId });
+      await connectIntegrationProvider({
+        provider,
+        appId,
+        signal: controller.signal,
+      });
+      // Cancel could land in the gap between connect-success and install —
+      // honor it here so the app doesn't get installed after the user
+      // clicked Cancel.
+      if (controller.signal.aborted) {
+        return;
+      }
       await doInstallApp(appId, null);
     } catch (error) {
+      // User cancelled — silent close, no error banner, no install.
+      if (
+        error instanceof IntegrationConnectCancelled ||
+        controller.signal.aborted
+      ) {
+        return;
+      }
+      // Real failure (timeout, FAILED/EXPIRED/INACTIVE, network). Close the
+      // modal so the error banner in the gallery becomes visible — otherwise
+      // the modal stays open with no progress indication and no error.
+      setPendingAppInstall(null);
       setAppCatalogError(normalizeErrorMessage(error));
     } finally {
+      if (appInstallConnectControllerRef.current === controller) {
+        appInstallConnectControllerRef.current = null;
+      }
       setIsConnectingAppIntegration(false);
     }
   }
@@ -1657,6 +1777,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       clearPendingAppInstall,
       connectAndInstallApp,
       isConnectingAppIntegration,
+      cancelAppIntegrationConnect,
       connectIntegrationProvider,
       templateSourceMode,
       setTemplateSourceMode,

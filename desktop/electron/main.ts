@@ -91,7 +91,7 @@ import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { URL } from "node:url";
+import { URL, pathToFileURL } from "node:url";
 import ExcelJS from "exceljs";
 import JSZip from "jszip";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -1105,6 +1105,7 @@ let desktopBrowserServiceUrl = "";
 let desktopBrowserServiceAuthToken = "";
 let appUpdateCheckTimer: NodeJS.Timeout | null = null;
 let appUpdateCheckPromise: Promise<AppUpdateStatusPayload> | null = null;
+let appUpdateDownloadPromise: Promise<Array<string>> | null = null;
 let appUpdateEventsConfigured = false;
 let appUpdatePreferences: AppUpdatePreferencesPayload = {};
 let notificationPreferences: { enabled: boolean } = { enabled: true };
@@ -1914,6 +1915,23 @@ function clampDownloadProgressPercent(progress: ProgressInfo) {
   return Math.max(0, Math.min(100, progress.percent));
 }
 
+function trackAppUpdateDownload(
+  downloadPromise: Promise<Array<string>> | null | undefined,
+) {
+  if (!downloadPromise || appUpdateDownloadPromise) {
+    return;
+  }
+
+  let trackedDownloadPromise: Promise<Array<string>>;
+  trackedDownloadPromise = downloadPromise.finally(() => {
+    if (appUpdateDownloadPromise === trackedDownloadPromise) {
+      appUpdateDownloadPromise = null;
+    }
+  });
+  appUpdateDownloadPromise = trackedDownloadPromise;
+  void trackedDownloadPromise.catch(() => undefined);
+}
+
 function applyAutoUpdaterChannelConfiguration() {
   const channel = effectiveAppUpdateChannel();
   autoUpdater.allowPrerelease = channel === "beta";
@@ -1969,6 +1987,7 @@ function configureAutoUpdater() {
   });
 
   autoUpdater.on("update-downloaded", (info) => {
+    appUpdateDownloadPromise = null;
     applyAppUpdateInfo(info, {
       available: false,
       downloaded: true,
@@ -1978,6 +1997,7 @@ function configureAutoUpdater() {
   });
 
   autoUpdater.on("update-not-available", (info) => {
+    appUpdateDownloadPromise = null;
     applyAppUpdateInfo(info, {
       available: false,
       downloaded: false,
@@ -1987,6 +2007,7 @@ function configureAutoUpdater() {
   });
 
   autoUpdater.on("error", (error) => {
+    appUpdateDownloadPromise = null;
     appUpdateStatus = {
       ...appUpdateStatus,
       supported: appUpdateSupported(),
@@ -2014,6 +2035,10 @@ async function checkForAppUpdates(): Promise<AppUpdateStatusPayload> {
     return appUpdateStatus;
   }
 
+  if (appUpdateDownloadPromise) {
+    return appUpdateStatus;
+  }
+
   if (appUpdateCheckPromise) {
     return appUpdateCheckPromise;
   }
@@ -2031,7 +2056,8 @@ async function checkForAppUpdates(): Promise<AppUpdateStatusPayload> {
 
   appUpdateCheckPromise = (async () => {
     try {
-      await autoUpdater.checkForUpdates();
+      const result = await autoUpdater.checkForUpdates();
+      trackAppUpdateDownload(result?.downloadPromise);
     } catch (error) {
       appUpdateStatus = {
         ...appUpdateStatus,
@@ -2147,14 +2173,25 @@ async function setAppUpdateChannel(
   return checkForAppUpdates();
 }
 
-function installAppUpdateNow() {
+async function installAppUpdateNow() {
   if (!appUpdateSupported()) {
     throw new Error("In-app updates are unavailable on this build.");
   }
   if (!appUpdateStatus.downloaded) {
     throw new Error("No downloaded update is ready to install.");
   }
-  // Treat the toast action as an immediate in-place restart, not a manual installer flow.
+  // electron-updater's NSIS flow spawns the installer before app.quit().
+  // Finish our own runtime/browser-service teardown first so Windows doesn't
+  // spend a long time waiting on locked files while replacing the app.
+  await ensureAppQuitCleanup();
+  // Windows silent installs give the user no visible progress while the large
+  // packaged app is being replaced, which reads like the app vanished. Let
+  // NSIS show its update progress there; keep macOS on the restart-in-place
+  // path.
+  if (process.platform === "win32") {
+    autoUpdater.quitAndInstall(false, false);
+    return;
+  }
   autoUpdater.quitAndInstall(true, true);
 }
 
@@ -2608,6 +2645,12 @@ interface WorkspaceListResponsePayload {
 
 interface DiagnosticsExportRequestPayload {
   workspaceId?: string | null;
+}
+
+interface HtmlToPdfExportRequestPayload {
+  html: string;
+  suggestedName?: string;
+  basePath?: string | null;
 }
 
 interface SubmissionListResponsePayload {
@@ -19362,6 +19405,182 @@ async function exportExplorerPathToFile(
   return { path: destination, canceled: false };
 }
 
+const CONTENT_SECURITY_POLICY_META_PATTERN =
+  /<meta\b[^>]*http-equiv=(["'])content-security-policy\1[^>]*>/gi;
+const HTML_PDF_RENDER_SETTLE_TIMEOUT_MS = 15_000;
+
+function htmlPdfSuggestedFileName(rawName: string | null | undefined): string {
+  const trimmed = (rawName ?? "").trim();
+  const segments = trimmed
+    .split(/[/\\]+/u)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  const leafName = segments.length > 0 ? segments[segments.length - 1] : "";
+  if (!leafName) {
+    return "export.pdf";
+  }
+  return leafName.replace(/\.[^./\\]+$/u, "") + ".pdf";
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+function htmlPdfBaseHrefFromPath(
+  absolutePath: string | null | undefined,
+): string | null {
+  const trimmed = (absolutePath ?? "").trim();
+  if (!trimmed || !path.isAbsolute(trimmed)) {
+    return null;
+  }
+  const href = pathToFileURL(path.dirname(trimmed)).toString();
+  return href.endsWith("/") ? href : `${href}/`;
+}
+
+function prepareHtmlForPdfExport(
+  rawHtml: string,
+  baseHref: string | null,
+): string {
+  const sanitizedHtml = rawHtml.replace(
+    CONTENT_SECURITY_POLICY_META_PATTERN,
+    "",
+  );
+  const baseTag =
+    baseHref && !/<base\b[^>]*>/i.test(sanitizedHtml)
+      ? `<base href="${escapeHtmlAttribute(baseHref)}">`
+      : "";
+
+  if (/<head\b[^>]*>/i.test(sanitizedHtml)) {
+    return sanitizedHtml.replace(
+      /<head\b([^>]*)>/i,
+      `<head$1>${baseTag}`,
+    );
+  }
+  if (/<html\b[^>]*>/i.test(sanitizedHtml)) {
+    return sanitizedHtml.replace(
+      /<html\b([^>]*)>/i,
+      `<html$1><head>${baseTag}</head>`,
+    );
+  }
+  return `<!doctype html><html><head>${baseTag}</head><body>${sanitizedHtml}</body></html>`;
+}
+
+async function waitForHtmlPdfRender(contents: WebContents): Promise<void> {
+  if (contents.isLoading()) {
+    await new Promise<void>((resolve) => {
+      contents.once("did-stop-loading", () => resolve());
+    });
+  }
+
+  await Promise.race([
+    contents
+      .executeJavaScript(`
+        new Promise((resolve) => {
+          const waitForImages = Promise.all(
+            Array.from(document.images ?? []).map((image) => {
+              if (image.complete) {
+                return Promise.resolve();
+              }
+              return new Promise((done) => {
+                const finish = () => done(null);
+                image.addEventListener("load", finish, { once: true });
+                image.addEventListener("error", finish, { once: true });
+              });
+            }),
+          );
+          const waitForFonts =
+            document.fonts?.ready?.catch(() => undefined) ?? Promise.resolve();
+          Promise.all([waitForImages, waitForFonts])
+            .catch(() => undefined)
+            .finally(() => {
+              requestAnimationFrame(() => {
+                requestAnimationFrame(() => resolve(null));
+              });
+            });
+        });
+      `)
+      .catch(() => undefined),
+    new Promise<void>((resolve) => {
+      setTimeout(() => resolve(), HTML_PDF_RENDER_SETTLE_TIMEOUT_MS);
+    }),
+  ]);
+}
+
+async function exportHtmlToPdf(
+  payload: HtmlToPdfExportRequestPayload,
+): Promise<{ path: string | null; canceled: boolean }> {
+  const html = payload.html ?? "";
+  if (!html.trim()) {
+    throw new Error("HTML content is empty.");
+  }
+
+  const suggestedName = htmlPdfSuggestedFileName(payload.suggestedName);
+  const downloadsDir = app.getPath("downloads");
+  const ownerWindow = BrowserWindow.getFocusedWindow() ?? mainWindow ?? null;
+  const options: SaveDialogOptions = {
+    title: "Export PDF",
+    defaultPath: path.join(downloadsDir, suggestedName),
+    buttonLabel: "Export PDF",
+    filters: [{ name: "PDF", extensions: ["pdf"] }],
+  };
+  const result = ownerWindow
+    ? await dialog.showSaveDialog(ownerWindow, options)
+    : await dialog.showSaveDialog(options);
+  if (result.canceled || !result.filePath) {
+    return { path: null, canceled: true };
+  }
+
+  const destination = path.resolve(result.filePath);
+  await fs.mkdir(path.dirname(destination), { recursive: true });
+
+  const renderWindow = new BrowserWindow({
+    show: false,
+    width: 1280,
+    height: 900,
+    backgroundColor: "#ffffff",
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+  renderWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+
+  let tempDirPath = "";
+  try {
+    tempDirPath = await fs.mkdtemp(
+      path.join(app.getPath("temp"), "holaboss-html-pdf-"),
+    );
+    const tempHtmlPath = path.join(tempDirPath, "index.html");
+    await fs.writeFile(
+      tempHtmlPath,
+      prepareHtmlForPdfExport(
+        html,
+        htmlPdfBaseHrefFromPath(payload.basePath),
+      ),
+      "utf-8",
+    );
+    await renderWindow.loadFile(tempHtmlPath);
+    await waitForHtmlPdfRender(renderWindow.webContents);
+    const pdfBuffer = await renderWindow.webContents.printToPDF({
+      printBackground: true,
+      preferCSSPageSize: true,
+    });
+    await fs.writeFile(destination, pdfBuffer);
+  } finally {
+    if (!renderWindow.isDestroyed()) {
+      renderWindow.destroy();
+    }
+    if (tempDirPath) {
+      await fs.rm(tempDirPath, { recursive: true, force: true }).catch(
+        () => undefined,
+      );
+    }
+  }
+
+  return { path: destination, canceled: false };
+}
+
 async function listDirectory(
   targetPath?: string | null,
   workspaceId?: string | null,
@@ -20807,11 +21026,13 @@ function desktopStatusItemIconPath(): string {
 }
 
 function shouldShowNativeDesktopNotification(): boolean {
-  return Boolean(
-    mainWindow &&
-      !mainWindow.isDestroyed() &&
-      mainWindow.isMinimized(),
-  );
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+  if (mainWindow.isMinimized() || !mainWindow.isVisible()) {
+    return true;
+  }
+  return !mainWindow.isFocused();
 }
 
 function normalizedNativeNotificationText(value: string, maxLength: number): string {
@@ -20923,7 +21144,7 @@ function showNativeDesktopNotification(
       title,
       body,
       force: payload.force,
-      detail: "Main window is visible and not minimized.",
+      detail: "Main window is visible, focused, and not minimized.",
     });
     return Promise.resolve(false);
   }
@@ -20936,13 +21157,7 @@ function showNativeDesktopNotification(
     });
     return Promise.resolve(false);
   }
-  if (shouldUseMacDevelopmentNotificationFallback()) {
-    return showMacDevelopmentNotificationFallback({
-      title,
-      body,
-      force: payload.force,
-    });
-  }
+  const useDevFallback = shouldUseMacDevelopmentNotificationFallback();
 
   return new Promise<boolean>((resolve) => {
     logNativeDesktopNotificationEvent("show_requested", {
@@ -20964,6 +21179,28 @@ function showNativeDesktopNotification(
       settled = true;
       resolve(value);
     };
+    const fallbackThenSettle = (detail: string) => {
+      if (settled) {
+        return;
+      }
+      if (!useDevFallback) {
+        settle(false);
+        return;
+      }
+      logNativeDesktopNotificationEvent("dev_fallback_attempt", {
+        title,
+        body,
+        force: payload.force,
+        detail,
+      });
+      void showMacDevelopmentNotificationFallback({
+        title,
+        body,
+        force: payload.force,
+      }).then((shown) => {
+        settle(shown);
+      });
+    };
     const showTimeout = setTimeout(() => {
       logNativeDesktopNotificationEvent("show_timeout", {
         title,
@@ -20971,7 +21208,7 @@ function showNativeDesktopNotification(
         force: payload.force,
         detail: "Notification did not emit show within 1500ms.",
       });
-      settle(false);
+      fallbackThenSettle("native_show_timeout");
     }, 1500);
     notification.on("show", () => {
       clearTimeout(showTimeout);
@@ -20984,18 +21221,19 @@ function showNativeDesktopNotification(
     });
     notification.on("failed", (_event, error) => {
       clearTimeout(showTimeout);
+      const detail =
+        typeof error === "string"
+          ? error
+          : error && typeof error === "object" && "message" in error
+            ? String((error as { message?: unknown }).message ?? "unknown")
+            : String(error ?? "unknown");
       logNativeDesktopNotificationEvent("failed", {
         title,
         body,
         force: payload.force,
-        detail:
-          typeof error === "string"
-            ? error
-            : error && typeof error === "object" && "message" in error
-              ? String((error as { message?: unknown }).message ?? "unknown")
-              : String(error ?? "unknown"),
+        detail,
       });
-      settle(false);
+      fallbackThenSettle(`native_failed:${detail}`);
     });
     notification.on("click", () => {
       logNativeDesktopNotificationEvent("clicked", {
@@ -21477,6 +21715,12 @@ app.whenReady().then(async () => {
       workspaceId?: string | null,
       payload?: { content?: string; suggestedName?: string },
     ) => exportExplorerPathToFile(targetPath, workspaceId, payload),
+  );
+  handleTrustedIpc(
+    "fs:exportHtmlToPdf",
+    ["main"],
+    async (_event, payload: HtmlToPdfExportRequestPayload) =>
+      exportHtmlToPdf(payload),
   );
   handleTrustedIpc("fs:getBookmarks", ["main"], () => fileBookmarks);
   handleTrustedIpc(

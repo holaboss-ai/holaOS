@@ -84,6 +84,10 @@ interface TopTabsBarProps {
   onMarkAllInboxNotificationsRead?: () => void;
   onOpenControlCenter?: () => void;
   onWorkspaceSwitcherVisibilityChange?: (open: boolean) => void;
+  /** Fires whenever any non-workspace-switcher popover in this bar (inbox,
+   *  account menu, layout picker) opens or closes. AppShell uses this to
+   *  detach the BrowserView so the popover isn't occluded by it. */
+  onTopBarPopoverOpenChange?: (open: boolean) => void;
   onOpenWorkspaceCreatePanel?: () => void;
   onOpenSettings?: () => void;
   onOpenAccount?: () => void;
@@ -108,6 +112,8 @@ const LAYOUT_PICKER_OPTIONS: ReadonlyArray<{
   { mode: "focus_work", label: "Focus workspace", shortcutKey: "3" },
 ];
 
+const TOP_BAR_POPOVER_CLOSE_GRACE_MS = 120;
+
 export function TopTabsBar({
   integratedTitleBar = false,
   desktopPlatform = null,
@@ -120,6 +126,7 @@ export function TopTabsBar({
   onMarkAllInboxNotificationsRead,
   onOpenControlCenter,
   onWorkspaceSwitcherVisibilityChange,
+  onTopBarPopoverOpenChange,
   onOpenWorkspaceCreatePanel,
   onOpenSettings,
   onOpenAccount,
@@ -132,6 +139,7 @@ export function TopTabsBar({
 }: TopTabsBarProps) {
   const [layoutPickerOpen, setLayoutPickerOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   // Mac stoplight compensation now flows through StoplightContext (set in
   // AppShell); the hook returns true only on darwin AND when the provider
   // says we have an integrated title bar. We still keep the platform prop
@@ -148,6 +156,8 @@ export function TopTabsBar({
   const { data: authSession } = useDesktopAuthSession();
   const currentUser = authSession?.user ?? null;
   const userButtonRef = useRef<HTMLButtonElement | null>(null);
+  const topBarPopoverCloseTimerRef = useRef<number | null>(null);
+  const topBarPopoverSuspendedRef = useRef(false);
   const workspaceSwitcherRef = useRef<HTMLDivElement | null>(null);
   const workspaceSwitcherButtonRef = useRef<HTMLButtonElement | null>(null);
   const workspaceSwitcherPopupRef = useRef<HTMLDivElement | null>(null);
@@ -250,6 +260,64 @@ export function TopTabsBar({
   }, [onWorkspaceSwitcherVisibilityChange, workspaceSwitcherOpen]);
 
   useEffect(() => {
+    const clearTopBarPopoverCloseTimer = () => {
+      if (topBarPopoverCloseTimerRef.current === null) {
+        return;
+      }
+      window.clearTimeout(topBarPopoverCloseTimerRef.current);
+      topBarPopoverCloseTimerRef.current = null;
+    };
+
+    if (!onTopBarPopoverOpenChange) {
+      clearTopBarPopoverCloseTimer();
+      topBarPopoverSuspendedRef.current = false;
+      return;
+    }
+
+    const hasOpenTopBarPopover =
+      inboxOpen || accountMenuOpen || layoutPickerOpen;
+
+    if (hasOpenTopBarPopover) {
+      clearTopBarPopoverCloseTimer();
+      topBarPopoverSuspendedRef.current = true;
+      onTopBarPopoverOpenChange(true);
+      return clearTopBarPopoverCloseTimer;
+    }
+
+    if (!topBarPopoverSuspendedRef.current) {
+      onTopBarPopoverOpenChange(false);
+      return clearTopBarPopoverCloseTimer;
+    }
+
+    // Keep the BrowserView detached across popover handoffs and exit
+    // animations; otherwise the inbox can close a tick before the account
+    // menu opens and the native view flashes on top of it.
+    clearTopBarPopoverCloseTimer();
+    topBarPopoverCloseTimerRef.current = window.setTimeout(() => {
+      topBarPopoverCloseTimerRef.current = null;
+      topBarPopoverSuspendedRef.current = false;
+      onTopBarPopoverOpenChange(false);
+    }, TOP_BAR_POPOVER_CLOSE_GRACE_MS);
+    return clearTopBarPopoverCloseTimer;
+  }, [
+    accountMenuOpen,
+    inboxOpen,
+    layoutPickerOpen,
+    onTopBarPopoverOpenChange,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (topBarPopoverCloseTimerRef.current !== null) {
+        window.clearTimeout(topBarPopoverCloseTimerRef.current);
+        topBarPopoverCloseTimerRef.current = null;
+      }
+      topBarPopoverSuspendedRef.current = false;
+      onTopBarPopoverOpenChange?.(false);
+    };
+  }, [onTopBarPopoverOpenChange]);
+
+  useEffect(() => {
     if (!controlCenterActive || !workspaceSwitcherOpen) {
       return;
     }
@@ -338,7 +406,7 @@ export function TopTabsBar({
 
   const headerClassName = integratedTitleBar
     ? isWindowsIntegratedTitleBar
-      ? "window-drag relative h-[32px] px-2 pt-0.5"
+      ? "window-drag relative h-[38px] px-2.5 pt-1"
       : "window-drag relative h-[32px] px-2"
     : "rounded-xl border border-border bg-card px-2.5 py-1 shadow-2xs backdrop-blur-sm sm:px-4";
   const headerGridClassName =
@@ -349,7 +417,7 @@ export function TopTabsBar({
 
   const windowControlButtonClassName =
     "window-no-drag flex h-6 w-6 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors duration-150 hover:bg-fg-6 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50";
-  const workspaceSwitcherContainerClassName = `${integratedTitleBar ? "window-no-drag " : ""}relative w-40 shrink-0`;
+  const workspaceSwitcherContainerClassName = `${integratedTitleBar ? "window-no-drag " : ""}relative ${isWindowsIntegratedTitleBar ? "w-44" : "w-40"} shrink-0`;
   const workspaceSwitcherButtonClassName = "w-full justify-start";
 
   return (
@@ -539,7 +607,7 @@ export function TopTabsBar({
               }}
             />
           ) : null}
-          <DropdownMenu>
+          <DropdownMenu open={accountMenuOpen} onOpenChange={setAccountMenuOpen}>
             <DropdownMenuTrigger
               ref={userButtonRef}
               render={

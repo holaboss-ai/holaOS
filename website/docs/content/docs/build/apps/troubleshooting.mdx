@@ -23,7 +23,7 @@ For a packaged or standalone runtime, use the port you actually bound, usually `
 
 Most early failures happen in the desktop `predev` hook, before the app window exists.
 
-- Verify that Node.js `22+` is installed.
+- Verify that Node.js `24+` is installed.
 - Re-run `npm run desktop:install` if the desktop dependency tree is incomplete.
 - Check `desktop/.env`. `desktop/scripts/validate-dev-env.mjs` requires at least one configured remote base URL such as `HOLABOSS_BACKEND_BASE_URL`, `HOLABOSS_PROACTIVE_URL`, `HOLABOSS_CLI_PROACTIVE_URL`, or `HOLABOSS_DESKTOP_CONTROL_PLANE_BASE_URL`.
 - If the failure happens during native module rebuild, re-run `npm run desktop:install` and then `npm run desktop:typecheck`.

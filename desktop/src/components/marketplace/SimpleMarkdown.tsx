@@ -3,7 +3,15 @@
  * Uses react-markdown with GFM support while preserving the existing md-* CSS hooks.
  */
 
-import { memo, useMemo, type ReactNode } from "react";
+import {
+  createElement,
+  isValidElement,
+  memo,
+  useCallback,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from "react";
 import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock, codeBlockFromPreNode } from "./CodeBlock";
@@ -16,6 +24,10 @@ import { normalizeWrappedMarkdownFence } from "./markdownFenceNormalization.mjs"
  *  `renderMention(handle)`. Keeping the contract here so callers don't
  *  guess the prefix. */
 export const MENTION_URL_SCHEME = "holaboss-mention://";
+const STANDALONE_HTML_ANCHOR_PATTERN =
+  /^<a\b[^>]*(?:id|name)=(["'])([^"'<>]+)\1[^>]*>\s*<\/a>$/i;
+const ATX_HEADING_PATTERN = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/;
+const FENCED_BLOCK_PATTERN = /^\s{0,3}(`{3,}|~{3,})/;
 
 function appendClassName(current: string | undefined, next: string): string {
   return current ? `${current} ${next}` : next;
@@ -39,6 +51,168 @@ function normalizeHttpUrl(rawHref: string | null | undefined): string | null {
   return null;
 }
 
+function decodeAnchorHref(rawHref: string): string {
+  const trimmed = rawHref.trim().replace(/^#+/, "");
+  if (!trimmed) {
+    return "";
+  }
+  try {
+    return decodeURIComponent(trimmed);
+  } catch {
+    return trimmed;
+  }
+}
+
+function extractStandaloneAnchorId(line: string): string | null {
+  const match = line.trim().match(STANDALONE_HTML_ANCHOR_PATTERN);
+  return match?.[2]?.trim() || null;
+}
+
+function markdownHeadingTextToPlainText(rawText: string): string {
+  return rawText
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/<[^>]+>/g, "")
+    .replace(/[*_~]/g, "")
+    .replace(/\\([\\`*_[\]{}()#+\-.!>])/g, "$1")
+    .trim();
+}
+
+function slugifyHeadingText(rawText: string): string {
+  const normalized = rawText
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}\s-]/gu, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || "section";
+}
+
+function plainTextFromNode(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") {
+    return String(node);
+  }
+  if (Array.isArray(node)) {
+    return node.map((child) => plainTextFromNode(child)).join("");
+  }
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    return plainTextFromNode(node.props.children);
+  }
+  return "";
+}
+
+function isScrollableElement(element: HTMLElement): boolean {
+  const style = window.getComputedStyle(element);
+  return (
+    /(auto|scroll)/.test(style.overflowY) &&
+    element.scrollHeight > element.clientHeight + 1
+  );
+}
+
+function findScrollableContainer(element: HTMLElement | null): HTMLElement | null {
+  let current = element?.parentElement ?? null;
+  while (current) {
+    if (isScrollableElement(current)) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
+
+function scrollElementWithinContainer(
+  container: HTMLElement,
+  target: HTMLElement,
+): void {
+  const containerRect = container.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const top = container.scrollTop + (targetRect.top - containerRect.top);
+  container.scrollTo({
+    top: Math.max(0, top),
+    behavior: "smooth",
+  });
+}
+
+function resolveHeadingId(
+  props: MdProps,
+  headingSlugCounts: Map<string, number>,
+): string {
+  const explicitId =
+    typeof props.id === "string" && props.id.trim() ? props.id.trim() : "";
+  if (explicitId) {
+    return explicitId;
+  }
+  const baseSlug = slugifyHeadingText(plainTextFromNode(props.children));
+  const count = headingSlugCounts.get(baseSlug) ?? 0;
+  headingSlugCounts.set(baseSlug, count + 1);
+  return count === 0 ? baseSlug : `${baseSlug}-${count + 1}`;
+}
+
+function renderHeading(
+  tag: "h1" | "h2" | "h3" | "h4" | "h5" | "h6",
+  headingClassName: string,
+  props: MdProps,
+  headingSlugCounts: Map<string, number>,
+) {
+  const { className, ...restProps } = props;
+  return createElement(tag, {
+    ...restProps,
+    id: resolveHeadingId(props, headingSlugCounts),
+    className: appendClassName(className, headingClassName),
+  });
+}
+
+function buildMarkdownAnchorAliasMap(
+  markdown: string,
+): Map<string, string> {
+  const pendingAliases: string[] = [];
+  const headingSlugCounts = new Map<string, number>();
+  const aliases = new Map<string, string>();
+  let activeFenceMarker: string | null = null;
+
+  for (const rawLine of markdown.split(/\r?\n/)) {
+    const trimmedLine = rawLine.trim();
+    const fenceMatch = trimmedLine.match(FENCED_BLOCK_PATTERN);
+    if (fenceMatch) {
+      const marker = fenceMatch[1];
+      if (!activeFenceMarker) {
+        activeFenceMarker = marker[0];
+      } else if (marker[0] === activeFenceMarker) {
+        activeFenceMarker = null;
+      }
+      continue;
+    }
+    if (activeFenceMarker) {
+      continue;
+    }
+    const explicitAnchorId = extractStandaloneAnchorId(trimmedLine);
+    if (explicitAnchorId) {
+      pendingAliases.push(explicitAnchorId);
+      continue;
+    }
+    const headingMatch = trimmedLine.match(ATX_HEADING_PATTERN);
+    if (!headingMatch) {
+      continue;
+    }
+    const baseSlug = slugifyHeadingText(
+      markdownHeadingTextToPlainText(headingMatch[2] ?? ""),
+    );
+    const count = headingSlugCounts.get(baseSlug) ?? 0;
+    headingSlugCounts.set(baseSlug, count + 1);
+    const resolvedHeadingId =
+      count === 0 ? baseSlug : `${baseSlug}-${count + 1}`;
+    for (const anchorId of pendingAliases) {
+      aliases.set(anchorId, resolvedHeadingId);
+    }
+    pendingAliases.length = 0;
+  }
+  return aliases;
+}
+
 import type { ExtraProps } from "react-markdown";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -47,8 +221,10 @@ type MdProps = any;
 function createMarkdownComponents(
   onLinkClick?: ((url: string) => void) | undefined,
   onLocalLinkClick?: ((href: string) => void) | undefined,
+  onAnchorClick?: ((href: string) => boolean) | undefined,
   renderMention?: ((handle: string) => ReactNode) | undefined,
 ): Components {
+  const headingSlugCounts = new Map<string, number>();
   return {
   a({ className, ...props }: MdProps) {
     const rawHref = typeof props.href === "string" ? props.href.trim() : "";
@@ -72,6 +248,13 @@ function createMarkdownComponents(
           if (event.defaultPrevented) {
             return;
           }
+          if (isAnchor && onAnchorClick) {
+            const handled = onAnchorClick(rawHref);
+            if (handled) {
+              event.preventDefault();
+            }
+            return;
+          }
           if (isHttpHref && onLinkClick && normalizedHttpHref) {
             event.preventDefault();
             onLinkClick(normalizedHttpHref);
@@ -90,23 +273,23 @@ function createMarkdownComponents(
   blockquote({ className, ...props }: MdProps) {
     return <blockquote {...props} className={appendClassName(className, "md-blockquote")} />;
   },
-  h1({ className, ...props }: MdProps) {
-    return <h1 {...props} className={appendClassName(className, "md-h1")} />;
+  h1(props: MdProps) {
+    return renderHeading("h1", "md-h1", props, headingSlugCounts);
   },
-  h2({ className, ...props }: MdProps) {
-    return <h2 {...props} className={appendClassName(className, "md-h2")} />;
+  h2(props: MdProps) {
+    return renderHeading("h2", "md-h2", props, headingSlugCounts);
   },
-  h3({ className, ...props }: MdProps) {
-    return <h3 {...props} className={appendClassName(className, "md-h3")} />;
+  h3(props: MdProps) {
+    return renderHeading("h3", "md-h3", props, headingSlugCounts);
   },
-  h4({ className, ...props }: MdProps) {
-    return <h4 {...props} className={appendClassName(className, "md-h4")} />;
+  h4(props: MdProps) {
+    return renderHeading("h4", "md-h4", props, headingSlugCounts);
   },
-  h5({ className, ...props }: MdProps) {
-    return <h5 {...props} className={appendClassName(className, "md-h5")} />;
+  h5(props: MdProps) {
+    return renderHeading("h5", "md-h5", props, headingSlugCounts);
   },
-  h6({ className, ...props }: MdProps) {
-    return <h6 {...props} className={appendClassName(className, "md-h6")} />;
+  h6(props: MdProps) {
+    return renderHeading("h6", "md-h6", props, headingSlugCounts);
   },
   hr({ className, ...props }: MdProps) {
     return <hr {...props} className={appendClassName(className, "md-hr")} />;
@@ -164,17 +347,55 @@ function SimpleMarkdownComponent({
   onLocalLinkClick,
   renderMention,
 }: SimpleMarkdownProps) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const normalizedChildren = useMemo(
     () => normalizeWrappedMarkdownFence(children),
     [children],
   );
+  const explicitAnchorAliases = useMemo(
+    () => buildMarkdownAnchorAliasMap(normalizedChildren),
+    [normalizedChildren],
+  );
+  const handleAnchorClick = useCallback((href: string) => {
+    const rawTargetId = decodeAnchorHref(href);
+    if (!rawTargetId) {
+      return false;
+    }
+    const container = rootRef.current;
+    if (!container) {
+      return false;
+    }
+    const targetId = explicitAnchorAliases.get(rawTargetId) ?? rawTargetId;
+    const target =
+      container.querySelector<HTMLElement>(`#${CSS.escape(targetId)}`) ??
+      Array.from(container.querySelectorAll<HTMLAnchorElement>("a[name]")).find(
+        (anchor) => anchor.getAttribute("name") === targetId,
+      ) ??
+      null;
+    if (!target) {
+      return false;
+    }
+    const scrollContainer = findScrollableContainer(target);
+    if (scrollContainer) {
+      scrollElementWithinContainer(scrollContainer, target);
+    } else {
+      target.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
+    return true;
+  }, [explicitAnchorAliases]);
   const components = useMemo(
-    () => createMarkdownComponents(onLinkClick, onLocalLinkClick, renderMention),
-    [onLinkClick, onLocalLinkClick, renderMention],
+    () =>
+      createMarkdownComponents(
+        onLinkClick,
+        onLocalLinkClick,
+        handleAnchorClick,
+        renderMention,
+      ),
+    [handleAnchorClick, onLinkClick, onLocalLinkClick, renderMention],
   );
 
   return (
-    <div className={`simple-markdown ${className}`.trim()}>
+    <div ref={rootRef} className={`simple-markdown ${className}`.trim()}>
       <ReactMarkdown
         components={components}
         remarkPlugins={[remarkGfm]}

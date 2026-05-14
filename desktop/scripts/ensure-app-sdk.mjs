@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+
+import { runNpm } from "./npm-runner.mjs";
 
 const desktopRoot = process.cwd();
 const appSdkRoot = path.resolve(desktopRoot, "..", "sdk", "app-sdk");
@@ -40,17 +41,6 @@ function allOutputsExist() {
   return appSdkRequiredOutputs.every((targetPath) => fs.existsSync(targetPath));
 }
 
-function runNpm(args) {
-  const result = spawnSync("npm", args, {
-    cwd: appSdkRoot,
-    stdio: "inherit",
-    env: process.env,
-  });
-  if ((result.status ?? 1) !== 0) {
-    process.exit(result.status ?? 1);
-  }
-}
-
 const outputsExist = allOutputsExist();
 const newestSourceStamp = Math.max(
   ...appSdkSourceInputs.map((targetPath) => newestExistingMtime(targetPath)),
@@ -65,7 +55,11 @@ if (!outputsExist || outputsStale) {
     console.log(
       "[ensure-app-sdk] installing sdk/app-sdk dependencies for local desktop usage.",
     );
-    runNpm(["install"]);
+    runNpm(["install"], {
+      cwd: appSdkRoot,
+      stdio: "inherit",
+      env: process.env,
+    });
   }
 
   console.log(
@@ -73,5 +67,9 @@ if (!outputsExist || outputsStale) {
       ? "[ensure-app-sdk] sdk/app-sdk build is stale; rebuilding."
       : "[ensure-app-sdk] sdk/app-sdk build output missing; building.",
   );
-  runNpm(["run", "build"]);
+  runNpm(["run", "build"], {
+    cwd: appSdkRoot,
+    stdio: "inherit",
+    env: process.env,
+  });
 }

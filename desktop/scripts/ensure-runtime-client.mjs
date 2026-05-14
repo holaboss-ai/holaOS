@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+
+import { runNpm } from "./npm-runner.mjs";
 
 const desktopRoot = process.cwd();
 const sdkRoot = path.resolve(desktopRoot, "..", "sdk", "runtime-client");
@@ -40,17 +41,6 @@ function allOutputsExist() {
   return sdkRequiredOutputs.every((targetPath) => fs.existsSync(targetPath));
 }
 
-function runNpm(args) {
-  const result = spawnSync("npm", args, {
-    cwd: sdkRoot,
-    stdio: "inherit",
-    env: process.env,
-  });
-  if ((result.status ?? 1) !== 0) {
-    process.exit(result.status ?? 1);
-  }
-}
-
 const outputsExist = allOutputsExist();
 const newestSourceStamp = Math.max(
   ...sdkSourceInputs.map((targetPath) => newestExistingMtime(targetPath)),
@@ -65,7 +55,11 @@ if (!outputsExist || outputsStale) {
     console.log(
       "[ensure-runtime-client] installing sdk/runtime-client dependencies for local desktop usage.",
     );
-    runNpm(["install"]);
+    runNpm(["install"], {
+      cwd: sdkRoot,
+      stdio: "inherit",
+      env: process.env,
+    });
   }
 
   console.log(
@@ -73,5 +67,9 @@ if (!outputsExist || outputsStale) {
       ? "[ensure-runtime-client] sdk/runtime-client build is stale; rebuilding."
       : "[ensure-runtime-client] sdk/runtime-client build output missing; building.",
   );
-  runNpm(["run", "build"]);
+  runNpm(["run", "build"], {
+    cwd: sdkRoot,
+    stdio: "inherit",
+    env: process.env,
+  });
 }
