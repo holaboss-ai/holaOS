@@ -67,10 +67,16 @@ jobs:
             sdk/app-sdk/package-lock.json
             desktop/package-lock.json
 
-      - name: Prepare desktop (build SDK + install desktop deps)
+      - name: Install app SDK dependencies
+        run: npm install --prefix sdk/app-sdk
+
+      - name: Build app SDK
+        run: npm --prefix sdk/app-sdk run build
+
+      - name: Install desktop dependencies
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-        run: npm run desktop:prepare
+        run: npm install --prefix desktop
 
       - name: Desktop typecheck
         run: npm run desktop:typecheck
@@ -319,10 +325,16 @@ jobs:
             --url-prefix "~/" \
             runtime/api-server/dist
 
-      - name: Prepare desktop (build SDK + install desktop deps)
+      - name: Install app SDK dependencies
+        run: npm install --prefix sdk/app-sdk
+
+      - name: Build app SDK
+        run: npm --prefix sdk/app-sdk run build
+
+      - name: Install desktop dependencies
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-        run: npm run desktop:prepare
+        run: npm install --prefix desktop
 
       - name: Require mac signing and notarization credentials
         run: |
@@ -734,10 +746,16 @@ jobs:
 
           Write-Host "Azure Trusted Signing authorization validated with a signed probe executable."
 
-      - name: Prepare desktop (build SDK + install desktop deps)
+      - name: Install app SDK dependencies
+        run: npm install --prefix sdk/app-sdk
+
+      - name: Build app SDK
+        run: npm --prefix sdk/app-sdk run build
+
+      - name: Install desktop dependencies
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-        run: npm run desktop:prepare
+        run: npm install --prefix desktop
 
       - name: Build Windows desktop installer
         id: build_windows_installer
