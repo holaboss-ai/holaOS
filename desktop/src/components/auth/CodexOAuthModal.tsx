@@ -119,10 +119,10 @@ export function CodexOAuthModal({
       }}
     >
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className="fixed inset-0 z-[700] bg-background/60 backdrop-blur-md data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 duration-200" />
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-[1000] bg-background/60 backdrop-blur-md data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 duration-200" />
         <DialogPrimitive.Popup
           className={cn(
-            "fixed top-1/2 left-1/2 z-[700] w-[min(440px,calc(100vw-32px))]",
+            "fixed top-1/2 left-1/2 z-[1000] w-[min(440px,calc(100vw-32px))]",
             "-translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl",
             "bg-background/95 backdrop-blur-2xl backdrop-saturate-150",
             "shadow-xl ring-1 ring-foreground/10 outline-none",
