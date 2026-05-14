@@ -45,6 +45,7 @@ export function AppsGallery() {
     pendingAppInstall,
     clearPendingAppInstall,
     connectAndInstallApp,
+    cancelAppIntegrationConnect,
     isConnectingAppIntegration,
     refreshInstalledApps,
   } = useWorkspaceDesktop();
@@ -288,8 +289,13 @@ export function AppsGallery() {
           <button
             type="button"
             aria-label="Cancel connect account"
-            onClick={clearPendingAppInstall}
-            disabled={isConnectingAppIntegration}
+            onClick={() => {
+              if (isConnectingAppIntegration) {
+                cancelAppIntegrationConnect();
+              } else {
+                clearPendingAppInstall();
+              }
+            }}
             className="absolute inset-0 bg-scrim backdrop-blur-sm"
           />
           <div
@@ -314,8 +320,13 @@ export function AppsGallery() {
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={isConnectingAppIntegration}
-                onClick={clearPendingAppInstall}
+                onClick={() => {
+                  if (isConnectingAppIntegration) {
+                    cancelAppIntegrationConnect();
+                  } else {
+                    clearPendingAppInstall();
+                  }
+                }}
               >
                 Cancel
               </Button>

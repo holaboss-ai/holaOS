@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 type View = "gallery" | "detail" | "creating" | "connect_integrations";
 
@@ -60,6 +60,11 @@ export function MarketplacePane({ initialTab = "templates" }: MarketplacePanePro
     null,
   );
   const [connectStatus, setConnectStatus] = useState("");
+  const cancelConnectRef = useRef<(() => void) | null>(null);
+
+  function cancelActiveConnect() {
+    cancelConnectRef.current?.();
+  }
 
   function handleSelectKit(template: TemplateMetadataPayload) {
     setDetailTemplate(template);
@@ -85,6 +90,11 @@ export function MarketplacePane({ initialTab = "templates" }: MarketplacePanePro
   }
 
   async function handleConnectProvider(provider: string) {
+    let cancelled = false;
+    cancelConnectRef.current = () => {
+      cancelled = true;
+    };
+
     setConnectingProvider(provider);
     setConnectStatus("Complete authorization in your browser...");
     try {
@@ -103,10 +113,18 @@ export function MarketplacePane({ initialTab = "templates" }: MarketplacePanePro
         // tolerate snapshot failure
       }
 
+      if (cancelled) {
+        return;
+      }
+
       const link = await window.electronAPI.workspace.composioConnect({
         provider,
         owner_user_id: userId,
       });
+
+      if (cancelled) {
+        return;
+      }
 
       await window.electronAPI.ui.openExternalUrl(link.redirect_url);
 
@@ -114,6 +132,9 @@ export function MarketplacePane({ initialTab = "templates" }: MarketplacePanePro
       const MAX_CONSECUTIVE_ERRORS = 20;
       for (let i = 0; i < 100; i++) {
         await new Promise((r) => setTimeout(r, 3000));
+        if (cancelled) {
+          return;
+        }
         let current;
         try {
           current =
@@ -132,16 +153,50 @@ export function MarketplacePane({ initialTab = "templates" }: MarketplacePanePro
             c.toolkitSlug.toLowerCase() === provider.toLowerCase(),
         );
         if (newConnection) {
+          // Composio creates the row at /connect time in INITIATED state —
+          // its presence does NOT mean the user finished OAuth. Query the
+          // account's real status before treating it as authorized.
+          let accountStatus;
+          try {
+            accountStatus =
+              await window.electronAPI.workspace.composioAccountStatus(
+                newConnection.id,
+                provider,
+              );
+          } catch {
+            continue;
+          }
+          if (cancelled) {
+            return;
+          }
+          const status = (accountStatus.status ?? "").toUpperCase();
+          if (
+            status === "FAILED" ||
+            status === "EXPIRED" ||
+            status === "INACTIVE"
+          ) {
+            throw new Error(
+              `Authorization for ${provider} ${status.toLowerCase()}. Please try again.`,
+            );
+          }
+          if (status !== "ACTIVE") {
+            continue;
+          }
           await window.electronAPI.workspace.composioFinalize({
             connected_account_id: newConnection.id,
             provider,
             owner_user_id: userId,
             account_label: `${provider} (Managed)`,
           });
+          if (cancelled) {
+            return;
+          }
           setConnectStatus("");
-          setConnectingProvider(null);
 
           const updated = await resolveIntegrationsBeforeCreate();
+          if (cancelled) {
+            return;
+          }
           if (!updated || updated.missing_providers.length === 0) {
             clearPendingIntegrations();
             setView("creating");
@@ -150,10 +205,20 @@ export function MarketplacePane({ initialTab = "templates" }: MarketplacePanePro
           return;
         }
       }
-      setConnectStatus("Connection timed out. Please try again.");
+      if (!cancelled) {
+        setConnectStatus("Connection timed out. Please try again.");
+      }
     } catch (error) {
-      setConnectStatus(error instanceof Error ? error.message : String(error));
+      if (!cancelled) {
+        setConnectStatus(
+          error instanceof Error ? error.message : String(error),
+        );
+      }
     } finally {
+      if (cancelled) {
+        setConnectStatus("");
+      }
+      cancelConnectRef.current = null;
       setConnectingProvider(null);
     }
   }
@@ -289,6 +354,7 @@ export function MarketplacePane({ initialTab = "templates" }: MarketplacePanePro
                 variant="link"
                 size="sm"
                 onClick={() => {
+                  cancelActiveConnect();
                   clearPendingIntegrations();
                   setView("creating");
                 }}
@@ -315,12 +381,24 @@ export function MarketplacePane({ initialTab = "templates" }: MarketplacePanePro
                       <Button
                         type="button"
                         size="sm"
-                        disabled={connectingProvider !== null}
-                        onClick={() => void handleConnectProvider(provider)}
+                        variant={
+                          connectingProvider === provider
+                            ? "outline"
+                            : "default"
+                        }
+                        disabled={
+                          connectingProvider !== null &&
+                          connectingProvider !== provider
+                        }
+                        onClick={() => {
+                          if (connectingProvider === provider) {
+                            cancelActiveConnect();
+                          } else {
+                            void handleConnectProvider(provider);
+                          }
+                        }}
                       >
-                        {connectingProvider === provider
-                          ? "Connecting…"
-                          : "Connect"}
+                        {connectingProvider === provider ? "Cancel" : "Connect"}
                       </Button>
                     </div>
                   ))}
