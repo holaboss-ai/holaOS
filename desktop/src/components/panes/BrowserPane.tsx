@@ -1008,24 +1008,6 @@ export function BrowserPane({
                     type="button"
                     variant="outline"
                     size="icon-sm"
-                    onClick={() => onSelectBrowserSpace(alternateBrowserSpace)}
-                    className="shrink-0 bg-background/80"
-                    aria-label={`Switch to ${alternateBrowserLabel} browser`}
-                    title={`Switch to ${alternateBrowserLabel} browser`}
-                  >
-                    <VisibleBrowserIcon
-                      size={12}
-                      className={
-                        visibleBrowserSpace === "agent"
-                          ? "text-primary"
-                          : "text-muted-foreground"
-                      }
-                    />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon-sm"
                     className="shrink-0"
                     aria-label="Copy browser screenshot"
                     title="Copy browser screenshot"

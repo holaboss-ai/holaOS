@@ -16,14 +16,22 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useWorkspaceBrowser } from "@/components/panes/useWorkspaceBrowser";
+import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { cn } from "@/lib/utils";
 import { newTabOpenAtom } from "./state/ui";
 
 export function TopChrome() {
   const openNewTab = useSetAtom(newTabOpenAtom);
+  const { selectedWorkspaceId } = useWorkspaceSelection();
   const { browserState } = useWorkspaceBrowser("user");
 
   const handleSelectTab = (id: string) => {
+    if (selectedWorkspaceId) {
+      void window.electronAPI.browser.setActiveWorkspace(
+        selectedWorkspaceId,
+        "user",
+      );
+    }
     void window.electronAPI.browser.setActiveTab(id);
   };
   const handleCloseTab = (id: string) => {
@@ -202,6 +210,7 @@ function ScratchGroupChip() {
 }
 
 function ScratchRow({ tab }: { tab: BrowserStatePayload }) {
+  const { selectedWorkspaceId } = useWorkspaceSelection();
   const title = tab.title || hostFromUrl(tab.url) || "New Tab";
   const host = hostFromUrl(tab.url) || tab.url;
   const [faviconError, setFaviconError] = useState(false);
@@ -211,6 +220,16 @@ function ScratchRow({ tab }: { tab: BrowserStatePayload }) {
   const handleClose = (e: React.MouseEvent) => {
     e.stopPropagation();
     void window.electronAPI.browser.closeTab(tab.id);
+  };
+
+  const handleSelect = async () => {
+    if (selectedWorkspaceId) {
+      await window.electronAPI.browser.setActiveWorkspace(
+        selectedWorkspaceId,
+        "agent",
+      );
+    }
+    await window.electronAPI.browser.setActiveTab(tab.id);
   };
 
   return (
@@ -226,7 +245,7 @@ function ScratchRow({ tab }: { tab: BrowserStatePayload }) {
       <button
         type="button"
         title={title}
-        onClick={() => void window.electronAPI.browser.setActiveTab(tab.id)}
+        onClick={() => void handleSelect()}
         className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
       >
         <span
