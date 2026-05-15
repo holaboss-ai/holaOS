@@ -81,6 +81,7 @@
     "dotenv": "^16.6.1",
     "electron-updater": "^6.8.3",
     "exceljs": "^4.4.0",
+    "jotai": "^2.20.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.542.0",
     "react": "^19.1.1",

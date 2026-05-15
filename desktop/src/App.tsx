@@ -1,8 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { NewAppShell } from "@/components/layout/NewAppShell";
+import { NewAppShell } from "@/components/layout/new-shell";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+
+const NEW_SHELL_STORAGE_KEY = "holaboss-new-layout-shell-v1";
 import {
   identifyUmamiUser,
   trackUmamiEvent,
@@ -62,10 +64,25 @@ function App() {
     return installRendererAuthCacheListeners();
   }, []);
 
-  // Side-by-side layout redesign — flip VITE_NEW_LAYOUT_SHELL=1 in the
-  // renderer env to render the in-progress shell. See
-  // holaOS/docs/plans/2026-05-14-layout-redesign-audit.md.
-  const useNewShell = import.meta.env.VITE_NEW_LAYOUT_SHELL === "1";
+  // Side-by-side layout redesign. VITE_NEW_LAYOUT_SHELL=1 forces the new
+  // shell at boot; otherwise the toggle button persists user choice in
+  // localStorage. See holaOS/docs/plans/2026-05-14-layout-redesign-audit.md.
+  const [useNewShell, setUseNewShell] = useState(() => {
+    if (import.meta.env.VITE_NEW_LAYOUT_SHELL === "1") return true;
+    try {
+      return localStorage.getItem(NEW_SHELL_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(NEW_SHELL_STORAGE_KEY, useNewShell ? "1" : "0");
+    } catch {
+      /* localStorage unavailable — ignore */
+    }
+  }, [useNewShell]);
 
   return (
     <ErrorBoundary>
@@ -73,9 +90,33 @@ function App() {
         <TooltipProvider>
           <UmamiIdentity />
           {useNewShell ? <NewAppShell /> : <AppShell />}
+          <ShellToggle
+            useNewShell={useNewShell}
+            onToggle={() => setUseNewShell((v) => !v)}
+          />
         </TooltipProvider>
       </QueryClientProvider>
     </ErrorBoundary>
+  );
+}
+
+function ShellToggle({
+  useNewShell,
+  onToggle,
+}: {
+  useNewShell: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="fixed right-3 bottom-3 z-50 flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground"
+      title="Toggle layout shell (dev preview)"
+    >
+      <span className="size-1.5 rounded-full bg-primary" aria-hidden />
+      Layout: {useNewShell ? "new" : "current"}
+    </button>
   );
 }
 
