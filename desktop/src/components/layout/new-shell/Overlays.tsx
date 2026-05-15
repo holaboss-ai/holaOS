@@ -44,7 +44,7 @@ function InboxOverlay() {
   const { proposals, isLoading, statusMessage, action, accept, dismiss } =
     useTaskProposals(selectedWorkspaceId || null);
   return (
-    <PaneOverlay openAtom={inboxOpenAtom} title="Inbox">
+    <PaneOverlay openAtom={inboxOpenAtom} title="Inbox" size="md">
       <div className="h-full overflow-y-auto">
         <OperationsInboxPane
           proposals={proposals}
@@ -60,34 +60,51 @@ function InboxOverlay() {
   );
 }
 
+type PaneOverlaySize = "md" | "lg" | "xl";
+
+const SIZE_CLASS: Record<PaneOverlaySize, string> = {
+  md: "w-[min(640px,calc(100vw-48px))] h-[min(560px,calc(100vh-96px))]",
+  lg: "w-[min(880px,calc(100vw-48px))] h-[min(680px,calc(100vh-96px))]",
+  xl: "w-[min(1100px,calc(100vw-48px))] h-[min(800px,calc(100vh-96px))]",
+};
+
 function PaneOverlay({
   openAtom,
   title,
+  size = "lg",
   children,
 }: {
   openAtom: PrimitiveAtom<boolean>;
   title: string;
+  size?: PaneOverlaySize;
   children: ReactNode;
 }) {
   const [open, setOpen] = useAtom(openAtom);
   return (
     <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
       <DialogPrimitive.Portal>
+        <DialogPrimitive.Backdrop
+          className="fixed inset-0 z-40 bg-foreground/20 backdrop-blur-sm data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0"
+          style={{
+            animationDuration: "180ms",
+            animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+          }}
+        />
         <DialogPrimitive.Popup
-          className="fixed inset-0 z-40 flex flex-col overflow-hidden bg-background outline-none data-open:animate-in data-open:fade-in-0 data-open:slide-in-from-bottom-2 data-closed:animate-out data-closed:fade-out-0 data-closed:slide-out-to-bottom-2"
+          className={`fixed top-1/2 left-1/2 z-40 flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl outline-none ring-1 ring-foreground/5 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.98] data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[0.98] ${SIZE_CLASS[size]}`}
           style={{
             animationDuration: "220ms",
             animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
           }}
         >
-          <div className="window-drag flex h-10 shrink-0 items-center justify-between border-b border-border pr-3 pl-20">
+          <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
             <span className="text-sm font-medium">{title}</span>
             <Button
               variant="ghost"
               size="icon-sm"
               aria-label="Close"
               onClick={() => setOpen(false)}
-              className="window-no-drag text-foreground/60"
+              className="text-foreground/60"
             >
               <X className="size-3.5" />
             </Button>
@@ -111,7 +128,11 @@ function ArtifactsOverlay() {
 function AutomationsOverlay() {
   const { selectedWorkspaceId } = useWorkspaceSelection();
   return (
-    <PaneOverlay openAtom={automationsOpenAtom} title="Automations">
+    <PaneOverlay
+      openAtom={automationsOpenAtom}
+      title="Automations"
+      size="md"
+    >
       <AutomationsPane workspaceId={selectedWorkspaceId || null} />
     </PaneOverlay>
   );
@@ -138,7 +159,11 @@ function AppsOverlay() {
 
 function MarketplaceOverlay() {
   return (
-    <PaneOverlay openAtom={marketplaceOpenAtom} title="Marketplace">
+    <PaneOverlay
+      openAtom={marketplaceOpenAtom}
+      title="Marketplace"
+      size="xl"
+    >
       <div className="h-full overflow-y-auto">
         <MarketplacePane />
       </div>
@@ -166,7 +191,7 @@ function SettingsOverlay() {
   }, []);
 
   return (
-    <PaneOverlay openAtom={settingsOpenAtom} title="Settings">
+    <PaneOverlay openAtom={settingsOpenAtom} title="Settings" size="xl">
       <SettingsScreenRoot
         activeSection={section}
         appVersion={appVersion}
