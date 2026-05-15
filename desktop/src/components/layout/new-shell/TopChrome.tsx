@@ -145,15 +145,12 @@ function Tab({
   );
 }
 
-const SCRATCH_TABS: Array<{ title: string; url: string; when: string }> = [
-  { title: "Joshua Li · LinkedIn", url: "linkedin.com/in/joshli", when: "now" },
-  { title: "Jeffrey Li · LinkedIn", url: "linkedin.com/in/jeffl", when: "1m" },
-  { title: "ICP research notes", url: "notion.so/icp-q4", when: "3m" },
-  { title: "Competitor X pricing", url: "competitorx.com/pricing", when: "5m" },
-  { title: "Cold email examples", url: "google.com/search", when: "8m" },
-];
-
 function ScratchGroupChip() {
+  const { browserState: agentState } = useWorkspaceBrowser("agent");
+  const tabs = agentState.tabs;
+
+  if (tabs.length === 0) return null;
+
   return (
     <Popover>
       <PopoverTrigger
@@ -166,7 +163,7 @@ function ScratchGroupChip() {
             <Package className="size-3.5" />
             <span>Agent scratch</span>
             <Badge variant="secondary" className="h-4 px-1 text-[10px]">
-              {SCRATCH_TABS.length}
+              {tabs.length}
             </Badge>
             <ChevronDown className="size-3 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] group-aria-expanded/button:rotate-180" />
           </Button>
@@ -181,41 +178,53 @@ function ScratchGroupChip() {
           animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
         }}
       >
-        {SCRATCH_TABS.map((tab) => (
-          <ScratchRow key={tab.url} tab={tab} />
+        {tabs.map((tab) => (
+          <ScratchRow key={tab.id} tab={tab} />
         ))}
       </PopoverContent>
     </Popover>
   );
 }
 
-function ScratchRow({
-  tab,
-}: {
-  tab: { title: string; url: string; when: string };
-}) {
-  const initial = tab.title.trim().charAt(0).toUpperCase() || "•";
-  const host = tab.url.split("/")[0] ?? tab.url;
+function ScratchRow({ tab }: { tab: BrowserStatePayload }) {
+  const title = tab.title || hostFromUrl(tab.url) || "New Tab";
+  const host = hostFromUrl(tab.url) || tab.url;
+  const [faviconError, setFaviconError] = useState(false);
+  const showFavicon =
+    Boolean(tab.faviconUrl) && !faviconError && !tab.loading;
+
+  const handleClose = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    void window.electronAPI.browser.closeTab(tab.id);
+  };
+
   return (
     <div className="group/scratch-row flex items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors duration-200 ease-out hover:bg-foreground/[0.04]">
       <button
         type="button"
+        onClick={() => void window.electronAPI.browser.setActiveTab(tab.id)}
         className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
       >
         <span
           aria-hidden
-          className="grid size-5 shrink-0 place-items-center rounded-[5px] bg-foreground/[0.06] text-[10px] font-semibold text-foreground/55 ring-1 ring-inset ring-foreground/5 transition-colors duration-200 ease-out group-hover/scratch-row:bg-foreground/[0.08] group-hover/scratch-row:text-foreground/70"
+          className="grid size-5 shrink-0 place-items-center overflow-hidden rounded-[5px] bg-foreground/[0.06] text-[10px] font-semibold text-foreground/55 ring-1 ring-inset ring-foreground/5 transition-colors duration-200 ease-out group-hover/scratch-row:bg-foreground/[0.08] group-hover/scratch-row:text-foreground/70"
         >
-          {initial}
+          {showFavicon ? (
+            <img
+              src={tab.faviconUrl}
+              alt=""
+              className="size-3.5 rounded-[2px] object-contain"
+              onError={() => setFaviconError(true)}
+            />
+          ) : (
+            <Globe className="size-3" />
+          )}
         </span>
         <span className="flex min-w-0 flex-1 flex-col leading-tight">
-          <span className="truncate text-sm text-foreground">{tab.title}</span>
+          <span className="truncate text-sm text-foreground">{title}</span>
           <span className="truncate text-xs text-foreground/35">{host}</span>
         </span>
       </button>
-      <span className="shrink-0 text-xs tabular-nums text-foreground/35">
-        {tab.when}
-      </span>
       <div
         aria-hidden
         className="ml-0 w-0 shrink-0 overflow-hidden transition-[width,margin-left] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover/scratch-row:ml-1 group-hover/scratch-row:w-4"
@@ -224,6 +233,7 @@ function ScratchRow({
           type="button"
           aria-label="Close tab"
           tabIndex={-1}
+          onClick={handleClose}
           className="grid size-4 place-items-center rounded-full bg-foreground/10 text-foreground/60 opacity-0 transition-opacity duration-200 ease-out hover:bg-foreground/20 hover:text-foreground group-hover/scratch-row:opacity-100"
         >
           <X className="size-2.5" strokeWidth={2.5} />
