@@ -60,24 +60,11 @@
         align-items: center;
         justify-content: center;
       }
-      .boot-splash-halo {
-        position: absolute;
-        inset: 0;
-        border-radius: 22px;
-        filter: blur(28px);
-        background: radial-gradient(
-          circle,
-          rgba(245, 132, 25, 0.55),
-          transparent 70%
-        );
-        animation: boot-splash-halo 2.8s ease-in-out infinite;
-      }
       .boot-splash-logo {
         position: relative;
         height: 56px;
         width: 56px;
         border-radius: 16px;
-        box-shadow: 0 10px 28px -12px rgba(245, 132, 25, 0.55);
         user-select: none;
         -webkit-user-drag: none;
       }
@@ -86,12 +73,6 @@
         font-size: 17px;
         font-weight: 600;
         letter-spacing: -0.01em;
-      }
-      .boot-splash-subtitle {
-        margin-top: 6px;
-        font-size: 12.5px;
-        font-weight: 500;
-        opacity: 0.6;
       }
       .boot-splash-dots {
         margin-top: 20px;
@@ -109,10 +90,6 @@
       }
       .boot-splash-dots span:nth-child(2) { animation-delay: 160ms; }
       .boot-splash-dots span:nth-child(3) { animation-delay: 320ms; }
-      @keyframes boot-splash-halo {
-        0%, 100% { opacity: 0.35; transform: scale(1); }
-        50% { opacity: 0.7; transform: scale(1.08); }
-      }
       @keyframes boot-splash-dot {
         0%, 100% { opacity: 0.2; transform: translateY(0); }
         50% { opacity: 1; transform: translateY(-1.5px); }
@@ -127,11 +104,9 @@
       <div class="boot-splash-glow"></div>
       <div class="boot-splash-stack">
         <div class="boot-splash-logo-wrap">
-          <div class="boot-splash-halo"></div>
           <img class="boot-splash-logo" src="/logo.svg" alt="" draggable="false" />
         </div>
         <div class="boot-splash-title">Holaboss</div>
-        <div class="boot-splash-subtitle">Preparing your desktop</div>
         <div class="boot-splash-dots" role="status" aria-label="Loading">
           <span></span><span></span><span></span>
         </div>
