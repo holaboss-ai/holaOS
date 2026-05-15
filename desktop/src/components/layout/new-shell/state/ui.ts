@@ -20,3 +20,23 @@ export const automationsOpenAtom = atom(false);
 
 /** Is the Sessions overlay open? */
 export const sessionsOpenAtom = atom(false);
+
+/** Is the Settings full-screen overlay open? */
+export const settingsOpenAtom = atom(false);
+
+/**
+ * True when any overlay is open. BrowserPane reads this to detach the
+ * native BrowserView; otherwise the OS-level webview paints on top of
+ * the React modal layer and the user can't see it.
+ */
+export const browserViewSuspendedAtom = atom(
+  (get) =>
+    get(newTabOpenAtom) ||
+    get(publishOpenAtom) ||
+    get(createWorkspaceOpenAtom) ||
+    get(inboxOpenAtom) ||
+    get(artifactsOpenAtom) ||
+    get(automationsOpenAtom) ||
+    get(sessionsOpenAtom) ||
+    get(settingsOpenAtom),
+);

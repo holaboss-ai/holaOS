@@ -36,15 +36,8 @@ function PaneOverlay({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop
-          className="fixed inset-0 z-[90] bg-foreground/20 backdrop-blur-sm data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0"
-          style={{
-            animationDuration: "180ms",
-            animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
-          }}
-        />
         <DialogPrimitive.Popup
-          className="fixed inset-x-[8%] inset-y-[8%] z-[100] flex flex-col overflow-hidden rounded-xl border border-border bg-popover/95 shadow-2xl outline-none backdrop-blur-2xl data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95"
+          className="fixed inset-0 z-[100] flex flex-col overflow-hidden bg-background outline-none data-open:animate-in data-open:fade-in-0 data-open:slide-in-from-bottom-2 data-closed:animate-out data-closed:fade-out-0 data-closed:slide-out-to-bottom-2"
           style={{
             animationDuration: "220ms",
             animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
