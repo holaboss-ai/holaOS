@@ -80,29 +80,22 @@ function PaneOverlay({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop
-          className="fixed inset-0 z-40 bg-foreground/30 opacity-0 transition-opacity duration-[200ms] data-open:opacity-100"
-          style={{ transitionTimingFunction: "cubic-bezier(0.32, 0.72, 0, 1)" }}
-        />
-        <DialogPrimitive.Popup
-          className="group fixed inset-0 z-40 grid place-items-center opacity-0 outline-none transition-opacity duration-[220ms] data-open:opacity-100"
-          style={{ transitionTimingFunction: "cubic-bezier(0.32, 0.72, 0, 1)" }}
-        >
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-40 bg-foreground/30 opacity-0 transition-opacity duration-snappy ease-emphasized data-open:opacity-100" />
+        <DialogPrimitive.Popup className="group fixed inset-0 z-40 grid place-items-center opacity-0 outline-none transition-opacity duration-base ease-emphasized data-open:opacity-100">
           <div
-            className={`flex scale-[0.96] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl ring-1 ring-foreground/5 transition-transform duration-[240ms] group-data-[open]:scale-100 ${SIZE_CLASS[size]}`}
-            style={{
-              transitionTimingFunction: "cubic-bezier(0.32, 0.72, 0, 1)",
-              willChange: "transform",
-            }}
+            className={`flex scale-[0.96] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl ring-1 ring-foreground/5 transition-transform duration-stride ease-emphasized group-data-[open]:scale-100 ${SIZE_CLASS[size]}`}
+            style={{ willChange: "transform" }}
           >
-            <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
-              <span className="text-sm font-medium">{title}</span>
+            <div className="relative flex shrink-0 items-center px-4 pt-3.5 pb-1.5">
+              <span className="text-sm font-medium text-foreground/90">
+                {title}
+              </span>
               <Button
                 variant="ghost"
                 size="icon-sm"
                 aria-label="Close"
                 onClick={() => setOpen(false)}
-                className="text-foreground/60"
+                className="ml-auto text-foreground/55 hover:text-foreground"
               >
                 <X className="size-3.5" />
               </Button>

@@ -53,15 +53,15 @@ export function NewTabDialog() {
         <DialogPrimitive.Backdrop
           className="fixed inset-0 z-[90] bg-foreground/20 backdrop-blur-sm data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0"
           style={{
-            animationDuration: "180ms",
-            animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+            animationDuration: "var(--duration-snappy)",
+            animationTimingFunction: "var(--ease-out-expo)",
           }}
         />
         <DialogPrimitive.Popup
           className="fixed top-[18%] left-1/2 z-[100] w-[560px] -translate-x-1/2 overflow-hidden rounded-xl border border-border bg-popover/95 shadow-2xl outline-none backdrop-blur-2xl data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95"
           style={{
-            animationDuration: "220ms",
-            animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+            animationDuration: "var(--duration-base)",
+            animationTimingFunction: "var(--ease-out-expo)",
           }}
         >
           <Command className="bg-transparent">

@@ -46,10 +46,9 @@ export function TopChrome() {
 
   return (
     <header
-      className="window-drag flex h-10 shrink-0 items-center gap-1 border-b border-border pr-3"
+      className="window-drag flex h-10 shrink-0 items-center gap-1 border-b border-border pr-3 transition-[padding-left] duration-stride ease-out-expo"
       style={{
         paddingLeft: sidebarCollapsed ? "5rem" : "0.5rem",
-        transition: "padding-left 240ms cubic-bezier(0.16, 1, 0.3, 1)",
       }}
     >
       <button
@@ -165,7 +164,7 @@ function Tab({
         <span className="flex-1 truncate">{title}</span>
         {driver === "agent" ? (
           <span
-            className="size-1.5 shrink-0 rounded-full bg-primary transition-opacity duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover/tab:opacity-0"
+            className="size-1.5 shrink-0 rounded-full bg-primary transition-opacity duration-300 ease-emphasized group-hover/tab:opacity-0"
             title="Agent driving"
             aria-label="Agent driving"
           />
@@ -173,7 +172,7 @@ function Tab({
       </div>
       <div
         aria-hidden
-        className="ml-0 w-0 shrink-0 overflow-hidden transition-[width,margin-left] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover/tab:ml-1.5 group-hover/tab:w-3.5"
+        className="ml-0 w-0 shrink-0 overflow-hidden transition-[width,margin-left] duration-300 ease-out-expo group-hover/tab:ml-1.5 group-hover/tab:w-3.5"
       >
         <button
           type="button"
@@ -215,7 +214,7 @@ function ScratchGroupChip() {
             <Badge variant="secondary" className="h-4 px-1 text-[10px]">
               {tabs.length}
             </Badge>
-            <ChevronDown className="size-3 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] group-aria-expanded/button:rotate-180" />
+            <ChevronDown className="size-3 transition-transform duration-200 ease-out-expo group-aria-expanded/button:rotate-180" />
           </Button>
         }
       />
@@ -224,8 +223,8 @@ function ScratchGroupChip() {
         sideOffset={6}
         className="w-[280px] gap-0 p-1"
         style={{
-          animationDuration: "220ms",
-          animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+          animationDuration: "var(--duration-base)",
+          animationTimingFunction: "var(--ease-out-expo)",
         }}
       >
         {tabs.map((tab) => (
@@ -299,7 +298,7 @@ function ScratchRow({ tab }: { tab: BrowserStatePayload }) {
       </button>
       <div
         aria-hidden
-        className="ml-0 w-0 shrink-0 overflow-hidden transition-[width,margin-left] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover/scratch-row:ml-1 group-hover/scratch-row:w-4"
+        className="ml-0 w-0 shrink-0 overflow-hidden transition-[width,margin-left] duration-300 ease-out-expo group-hover/scratch-row:ml-1 group-hover/scratch-row:w-4"
       >
         <button
           type="button"

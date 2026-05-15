@@ -58,17 +58,13 @@ function hostFromUrl(url: string): string {
 }
 
 const SIDEBAR_WIDTH = 260;
-const SIDEBAR_TRANSITION = "240ms cubic-bezier(0.16, 1, 0.3, 1)";
 
 export function Sidebar() {
   const collapsed = useAtomValue(sidebarCollapsedAtom);
   return (
     <div
-      className="flex shrink-0 overflow-hidden"
-      style={{
-        width: collapsed ? 0 : SIDEBAR_WIDTH,
-        transition: `width ${SIDEBAR_TRANSITION}`,
-      }}
+      className="flex shrink-0 overflow-hidden transition-[width] duration-stride ease-out-expo"
+      style={{ width: collapsed ? 0 : SIDEBAR_WIDTH }}
     >
       <SidebarExpanded />
     </div>
@@ -153,7 +149,7 @@ function SidebarExpanded() {
                 type="button"
                 onClick={() => setAutomationsOpen(true)}
                 className={cn(
-                  "flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs font-medium tracking-wide text-foreground/40 uppercase transition-colors hover:bg-foreground/[0.04]",
+                  "flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs font-medium tracking-wide text-foreground/40 uppercase outline-none transition-colors hover:bg-foreground/[0.04] focus-visible:ring-0",
                   automationsOpen && "bg-foreground/[0.07]",
                 )}
               >
@@ -209,15 +205,13 @@ function AppsSection() {
     }
   };
 
-  const EASE = "cubic-bezier(0.32, 0.72, 0, 1)";
-
   return (
     <>
       <Button
         variant="ghost"
         size="sm"
         onClick={() => setExpanded((v) => !v)}
-        className="h-auto justify-start gap-2 px-2 py-[5px] text-sm font-normal text-foreground hover:bg-foreground/[0.04]"
+        className="h-auto justify-start gap-2 px-2 py-[5px] text-sm font-normal text-foreground outline-none hover:bg-foreground/[0.04] focus-visible:ring-0"
       >
         <Wrench className="size-3.5 shrink-0 text-foreground/60" />
         <span className="flex-1 truncate text-left">Apps</span>
@@ -227,29 +221,22 @@ function AppsSection() {
           </span>
         ) : null}
         <ChevronRight
-          className="size-3.5 shrink-0 text-foreground/40"
+          className="size-3.5 shrink-0 text-foreground/40 transition-transform duration-snappy ease-emphasized"
           style={{
             transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
-            transition: `transform 200ms ${EASE}`,
           }}
         />
       </Button>
 
       <div
         aria-hidden={!expanded}
-        className="grid"
-        style={{
-          gridTemplateRows: expanded ? "1fr" : "0fr",
-          transition: `grid-template-rows 220ms ${EASE}`,
-        }}
+        className="grid transition-[grid-template-rows] duration-base ease-emphasized"
+        style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
       >
         <div className="overflow-hidden">
           <div
-            className="flex flex-col gap-0.5 pt-0.5"
-            style={{
-              opacity: expanded ? 1 : 0,
-              transition: `opacity 180ms ${EASE}`,
-            }}
+            className="flex flex-col gap-0.5 pt-0.5 transition-opacity duration-snappy ease-emphasized"
+            style={{ opacity: expanded ? 1 : 0 }}
           >
             {installedApps.map((app) => {
               const providerId =
@@ -274,7 +261,7 @@ function AppsSection() {
                   disabled={status !== "ready"}
                   tabIndex={expanded ? 0 : -1}
                   title={app.summary || label}
-                  className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/80 transition-colors hover:bg-foreground/[0.04] disabled:cursor-default disabled:opacity-60"
+                  className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/80 outline-none transition-colors hover:bg-foreground/[0.04] focus-visible:ring-0 disabled:cursor-default disabled:opacity-60"
                 >
                   <AppIcon
                     iconUrl={display.logo}
@@ -297,7 +284,7 @@ function AppsSection() {
               type="button"
               onClick={() => setMarketplaceOpen(true)}
               tabIndex={expanded ? 0 : -1}
-              className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/55 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+              className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/55 outline-none transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:ring-0"
             >
               <Plus className="size-3.5 shrink-0" />
               <span className="truncate">Browse marketplace</span>
@@ -326,7 +313,7 @@ function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
       type="button"
       onClick={() => void handleOpen()}
       title={title}
-      className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.04]"
+      className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/70 outline-none transition-colors hover:bg-foreground/[0.04] focus-visible:ring-0"
     >
       <span className="truncate">{title}</span>
     </button>
@@ -403,8 +390,8 @@ function WorkspaceSwitcher() {
           sideOffset={6}
           className="w-[300px] gap-0 p-2"
           style={{
-            animationDuration: "220ms",
-            animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+            animationDuration: "var(--duration-base)",
+            animationTimingFunction: "var(--ease-out-expo)",
           }}
         >
           <div className="relative mb-2">
@@ -537,7 +524,7 @@ function NavItem({
       size="sm"
       onClick={onClick}
       className={cn(
-        "h-auto justify-start gap-2 px-2 py-[5px] text-sm font-normal text-foreground",
+        "h-auto justify-start gap-2 px-2 py-[5px] text-sm font-normal text-foreground outline-none focus-visible:ring-0",
         active && "bg-foreground/[0.07] text-foreground",
         !active && "hover:bg-foreground/[0.04]",
         indent && "pl-7",

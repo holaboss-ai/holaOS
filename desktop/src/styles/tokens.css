@@ -172,8 +172,17 @@
   --default-transition-timing-function: cubic-bezier(0.32, 0.08, 0.24, 1);
   --ease-standard: cubic-bezier(0.32, 0.08, 0.24, 1);
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Linear-style emphasized curve — used for modals, collapses,
+     expansions, anything where the user needs to feel a deliberate
+     enter/exit. */
+  --ease-emphasized: cubic-bezier(0.32, 0.72, 0, 1);
+  /* Smooth ease-out for slide-ins where the element should decelerate
+     into rest. */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --duration-fast: 120ms;
+  --duration-snappy: 180ms;
   --duration-base: 220ms;
+  --duration-stride: 240ms;
   --duration-slow: 360ms;
 }
 
