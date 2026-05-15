@@ -65,9 +65,9 @@ function App() {
   }, []);
 
   // Side-by-side layout redesign. VITE_NEW_LAYOUT_SHELL=1 forces the new
-  // shell at boot; otherwise the toggle button persists user choice in
-  // localStorage. See holaOS/docs/plans/2026-05-14-layout-redesign-audit.md.
-  const [useNewShell, setUseNewShell] = useState(() => {
+  // shell at boot; otherwise reads the user's choice from localStorage
+  // (Settings → Experimental toggles it and reloads).
+  const [useNewShell] = useState(() => {
     if (import.meta.env.VITE_NEW_LAYOUT_SHELL === "1") return true;
     try {
       return localStorage.getItem(NEW_SHELL_STORAGE_KEY) === "1";
@@ -76,47 +76,15 @@ function App() {
     }
   });
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(NEW_SHELL_STORAGE_KEY, useNewShell ? "1" : "0");
-    } catch {
-      /* localStorage unavailable — ignore */
-    }
-  }, [useNewShell]);
-
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <UmamiIdentity />
           {useNewShell ? <NewAppShell /> : <AppShell />}
-          <ShellToggle
-            useNewShell={useNewShell}
-            onToggle={() => setUseNewShell((v) => !v)}
-          />
         </TooltipProvider>
       </QueryClientProvider>
     </ErrorBoundary>
-  );
-}
-
-function ShellToggle({
-  useNewShell,
-  onToggle,
-}: {
-  useNewShell: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className="fixed right-3 bottom-3 z-50 flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground"
-      title="Toggle layout shell (dev preview)"
-    >
-      <span className="size-1.5 rounded-full bg-primary" aria-hidden />
-      Layout: {useNewShell ? "new" : "current"}
-    </button>
   );
 }
 

@@ -45,9 +45,7 @@ export const appsExpandedAtom = atomWithStorage(
 );
 
 /** Active section inside the Settings overlay. */
-export const settingsSectionAtom = atom<
-  "account" | "billing" | "providers" | "integrations" | "submissions" | "settings"
->("settings");
+export const settingsSectionAtom = atom<UiSettingsPaneSection>("settings");
 
 /**
  * True when any overlay is open. BrowserPane reads this to detach the

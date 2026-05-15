@@ -6,6 +6,7 @@ import {
   Copy,
   CreditCard,
   ExternalLink,
+  FlaskConical,
   FolderOpen,
   Globe,
   Info,
@@ -20,6 +21,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import { AuthPanel } from "@/components/auth/AuthPanel";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { BillingSettingsPanel } from "@/components/billing/BillingSettingsPanel";
 import { IntegrationsPane } from "@/components/panes/IntegrationsPane";
 import {
@@ -117,6 +119,7 @@ const SETTINGS_NAV: ReadonlyArray<SettingsScreenNavEntry<UiSettingsPaneSection>>
   { id: "providers", label: "Providers", icon: Waypoints },
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "submissions", label: "Submissions", icon: Send },
+  { id: "experimental", label: "Experimental", icon: FlaskConical },
 ];
 
 const ABOUT_LINKS = [
@@ -152,6 +155,8 @@ function pageTitle(section: UiSettingsPaneSection): string {
       return "Integrations";
     case "submissions":
       return "Submissions";
+    case "experimental":
+      return "Experimental 🧪";
     default:
       return "General";
   }
@@ -171,6 +176,8 @@ function pageDescription(section: UiSettingsPaneSection): string | undefined {
       return "Manage connections to third-party services your apps depend on.";
     case "submissions":
       return "Review templates and apps you've submitted for marketplace listing.";
+    case "experimental":
+      return "Opt into in-progress features. Behavior may change and bugs are expected.";
     default:
       return undefined;
   }
@@ -538,6 +545,8 @@ export function SettingsScreenRoot({
           <SubmissionsPanel initialFocusedId={submissionsFocusId} />
         ) : null}
 
+        {activeSection === "experimental" ? <ExperimentalPanel /> : null}
+
         {activeSection === "settings" ? (
           <>
             <SettingsSection title="App">
@@ -872,5 +881,60 @@ export function SettingsScreenRoot({
         ) : null}
       </SettingsPage>
     </SettingsScreen>
+  );
+}
+
+const NEW_SHELL_STORAGE_KEY = "holaboss-new-layout-shell-v1";
+
+function ExperimentalPanel() {
+  const [newShellEnabled, setNewShellEnabled] = useState(() => {
+    try {
+      return localStorage.getItem(NEW_SHELL_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [confirmEnableOpen, setConfirmEnableOpen] = useState(false);
+
+  const apply = (next: boolean) => {
+    try {
+      localStorage.setItem(NEW_SHELL_STORAGE_KEY, next ? "1" : "0");
+    } catch {
+      /* localStorage unavailable — fall through to reload anyway */
+    }
+    setNewShellEnabled(next);
+    // Reload so App.tsx picks the right shell at boot. The renderer
+    // holds quite a bit of in-flight state between the two shells; a
+    // hard reload is the safe path.
+    window.location.reload();
+  };
+
+  return (
+    <>
+      <SettingsCard>
+        <SettingsToggle
+          leading={<FlaskConical className="size-4 text-foreground/60" />}
+          label="New layout shell"
+          description="Adopt the redesigned desktop shell (sidebar collapse, tab-based files, inline apps). The app will reload to apply your choice."
+          checked={newShellEnabled}
+          onCheckedChange={(next) => {
+            if (next) {
+              setConfirmEnableOpen(true);
+            } else {
+              apply(false);
+            }
+          }}
+        />
+      </SettingsCard>
+      <ConfirmDialog
+        open={confirmEnableOpen}
+        onOpenChange={setConfirmEnableOpen}
+        title="Enable the new layout shell?"
+        description="This UI is in active development and may contain bugs. You can switch back from this same page anytime — the app will reload when you do."
+        confirmLabel="Enable and reload"
+        cancelLabel="Not yet"
+        onConfirm={() => apply(true)}
+      />
+    </>
   );
 }
