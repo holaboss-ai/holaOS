@@ -1,7 +1,6 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import {
   ChevronDown,
-  Clock3,
   Inbox,
   Loader2,
   Package,
@@ -40,7 +39,6 @@ import {
   marketplaceOpenAtom,
   publishOpenAtom,
   searchOpenAtom,
-  sessionsOpenAtom,
   settingsOpenAtom,
   settingsSectionAtom,
   sidebarCollapsedAtom,
@@ -73,7 +71,6 @@ function SidebarExpanded() {
   const setArtifactsOpen = useSetAtom(artifactsOpenAtom);
   const setInboxOpen = useSetAtom(inboxOpenAtom);
   const setAutomationsOpen = useSetAtom(automationsOpenAtom);
-  const setSessionsOpen = useSetAtom(sessionsOpenAtom);
   const setAppsOpen = useSetAtom(appsOpenAtom);
   const setMarketplaceOpen = useSetAtom(marketplaceOpenAtom);
   const setSettingsOpen = useSetAtom(settingsOpenAtom);
@@ -83,7 +80,6 @@ function SidebarExpanded() {
   const artifactsOpen = useAtomValue(artifactsOpenAtom);
   const inboxOpen = useAtomValue(inboxOpenAtom);
   const automationsOpen = useAtomValue(automationsOpenAtom);
-  const sessionsOpen = useAtomValue(sessionsOpenAtom);
   const appsOpen = useAtomValue(appsOpenAtom);
   const marketplaceOpen = useAtomValue(marketplaceOpenAtom);
   const settingsOpen = useAtomValue(settingsOpenAtom);
@@ -179,13 +175,6 @@ function SidebarExpanded() {
             onClick={() => setMarketplaceOpen(true)}
           >
             Marketplace
-          </NavItem>
-          <NavItem
-            icon={<Clock3 />}
-            active={sessionsOpen}
-            onClick={() => setSessionsOpen(true)}
-          >
-            Sessions
           </NavItem>
           <NavItem
             icon={<Settings />}
@@ -473,7 +462,6 @@ function SidebarRail() {
   const setArtifactsOpen = useSetAtom(artifactsOpenAtom);
   const setAppsOpen = useSetAtom(appsOpenAtom);
   const setMarketplaceOpen = useSetAtom(marketplaceOpenAtom);
-  const setSessionsOpen = useSetAtom(sessionsOpenAtom);
   const setSettingsOpen = useSetAtom(settingsOpenAtom);
   const setSettingsSection = useSetAtom(settingsSectionAtom);
 
@@ -481,7 +469,6 @@ function SidebarRail() {
   const artifactsOpen = useAtomValue(artifactsOpenAtom);
   const appsOpen = useAtomValue(appsOpenAtom);
   const marketplaceOpen = useAtomValue(marketplaceOpenAtom);
-  const sessionsOpen = useAtomValue(sessionsOpenAtom);
   const settingsOpen = useAtomValue(settingsOpenAtom);
 
   const { proposals } = useTaskProposals(selectedWorkspaceId || null);
@@ -545,12 +532,6 @@ function SidebarRail() {
         label="Marketplace"
         active={marketplaceOpen}
         onClick={() => setMarketplaceOpen(true)}
-      />
-      <RailIcon
-        icon={<Clock3 />}
-        label="Sessions"
-        active={sessionsOpen}
-        onClick={() => setSessionsOpen(true)}
       />
       <RailIcon
         icon={<Settings />}
