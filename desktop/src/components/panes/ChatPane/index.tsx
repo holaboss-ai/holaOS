@@ -7950,7 +7950,6 @@ export function ChatPane({
           />
         </div>
       </div>
-    </div>
   );
 
   if (isEmbeddedVariant) {
