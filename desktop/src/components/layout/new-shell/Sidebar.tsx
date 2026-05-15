@@ -261,7 +261,7 @@ function AppsSection() {
                   disabled={status !== "ready"}
                   tabIndex={expanded ? 0 : -1}
                   title={app.summary || label}
-                  className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/80 transition-colors hover:bg-foreground/[0.04] disabled:cursor-default disabled:opacity-60"
+                  className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-6 text-left text-xs text-foreground/80 transition-colors hover:bg-foreground/[0.04] disabled:cursor-default disabled:opacity-60"
                 >
                   <AppIcon
                     iconUrl={display.logo}
@@ -284,7 +284,7 @@ function AppsSection() {
               type="button"
               onClick={() => setMarketplaceOpen(true)}
               tabIndex={expanded ? 0 : -1}
-              className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/55 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+              className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-6 text-left text-xs text-foreground/55 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
             >
               <Plus className="size-3.5 shrink-0" />
               <span className="truncate">Browse marketplace</span>
@@ -313,7 +313,7 @@ function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
       type="button"
       onClick={() => void handleOpen()}
       title={title}
-      className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.04]"
+      className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] text-left text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.04]"
     >
       <span className="truncate">{title}</span>
     </button>
@@ -527,7 +527,7 @@ function NavItem({
         "h-auto justify-start gap-2 px-2 py-[5px] text-sm font-normal text-foreground",
         active && "bg-foreground/[0.07] text-foreground",
         !active && "hover:bg-foreground/[0.04]",
-        indent && "pl-7",
+        indent && "pl-6",
       )}
     >
       {icon ? (
