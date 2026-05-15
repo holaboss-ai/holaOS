@@ -5,6 +5,8 @@ import {
   Inbox,
   Loader2,
   Package,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
   Settings,
@@ -43,6 +45,7 @@ import {
   sessionsOpenAtom,
   settingsOpenAtom,
   settingsSectionAtom,
+  sidebarCollapsedAtom,
 } from "./state/ui";
 import { useTaskProposals } from "./useTaskProposals";
 import {
@@ -60,6 +63,12 @@ function hostFromUrl(url: string): string {
 }
 
 export function Sidebar() {
+  const collapsed = useAtomValue(sidebarCollapsedAtom);
+  if (collapsed) return <SidebarRail />;
+  return <SidebarExpanded />;
+}
+
+function SidebarExpanded() {
   const { installedApps } = useWorkspaceDesktop();
   const { selectedWorkspaceId } = useWorkspaceSelection();
 
@@ -237,6 +246,7 @@ function WorkspaceSwitcher() {
   } = useWorkspaceDesktop();
   const setPublishOpen = useSetAtom(publishOpenAtom);
   const setCreateWorkspaceOpen = useSetAtom(createWorkspaceOpenAtom);
+  const setCollapsed = useSetAtom(sidebarCollapsedAtom);
 
   const [query, setQuery] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -399,6 +409,15 @@ function WorkspaceSwitcher() {
           </div>
         </PopoverContent>
       </Popover>
+      <button
+        type="button"
+        aria-label="Collapse sidebar"
+        title="Collapse sidebar (⌘\\)"
+        onClick={() => setCollapsed(true)}
+        className="window-no-drag ml-1 grid size-6 shrink-0 place-items-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+      >
+        <PanelLeftClose className="size-3.5" />
+      </button>
     </div>
   );
 }
@@ -468,6 +487,157 @@ function AccountFoot({ onOpenAccount }: { onOpenAccount: () => void }) {
         <UserAvatar user={user} />
       </div>
       <span className="flex-1 truncate text-sm">{label}</span>
+    </button>
+  );
+}
+
+function SidebarRail() {
+  const { selectedWorkspace } = useWorkspaceDesktop();
+  const { selectedWorkspaceId } = useWorkspaceSelection();
+  const { data } = useDesktopAuthSession();
+  const user = data?.user ?? null;
+
+  const setCollapsed = useSetAtom(sidebarCollapsedAtom);
+  const setSearchOpen = useSetAtom(searchOpenAtom);
+  const setInboxOpen = useSetAtom(inboxOpenAtom);
+  const setArtifactsOpen = useSetAtom(artifactsOpenAtom);
+  const setAppsOpen = useSetAtom(appsOpenAtom);
+  const setMarketplaceOpen = useSetAtom(marketplaceOpenAtom);
+  const setSessionsOpen = useSetAtom(sessionsOpenAtom);
+  const setSettingsOpen = useSetAtom(settingsOpenAtom);
+  const setSettingsSection = useSetAtom(settingsSectionAtom);
+
+  const inboxOpen = useAtomValue(inboxOpenAtom);
+  const artifactsOpen = useAtomValue(artifactsOpenAtom);
+  const appsOpen = useAtomValue(appsOpenAtom);
+  const marketplaceOpen = useAtomValue(marketplaceOpenAtom);
+  const sessionsOpen = useAtomValue(sessionsOpenAtom);
+  const settingsOpen = useAtomValue(settingsOpenAtom);
+
+  const { proposals } = useTaskProposals(selectedWorkspaceId || null);
+  const unreadInbox = proposals.length;
+
+  return (
+    <aside
+      data-pane-card="true"
+      className="flex w-[60px] shrink-0 flex-col items-center border-r border-border bg-card backdrop-blur-sm"
+    >
+      <div className="window-drag h-[70px] w-full" />
+      <button
+        type="button"
+        aria-label="Expand sidebar"
+        title="Expand sidebar (⌘\\)"
+        onClick={() => setCollapsed(false)}
+        className="window-no-drag mb-2 grid size-8 shrink-0 place-items-center rounded-md text-foreground/55 transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+      >
+        <PanelLeftOpen className="size-4" />
+      </button>
+      <div className="my-1 h-px w-7 bg-border" />
+      {selectedWorkspace ? (
+        <div
+          className="mb-1 grid size-8 place-items-center rounded-md"
+          title={selectedWorkspace.name}
+        >
+          <WorkspaceIcon
+            workspace={selectedWorkspace}
+            size="sm"
+            className="ring-1 ring-foreground/10"
+          />
+        </div>
+      ) : null}
+      <RailIcon
+        icon={<Search />}
+        label="Search (⌘K)"
+        onClick={() => setSearchOpen(true)}
+      />
+      <RailIcon
+        icon={<Inbox />}
+        label="Inbox"
+        active={inboxOpen}
+        badge={unreadInbox > 0}
+        onClick={() => setInboxOpen(true)}
+      />
+      <RailIcon
+        icon={<Package />}
+        label="Artifacts"
+        active={artifactsOpen}
+        onClick={() => setArtifactsOpen(true)}
+      />
+      <div className="mt-auto" />
+      <RailIcon
+        icon={<Wrench />}
+        label="Apps"
+        active={appsOpen}
+        onClick={() => setAppsOpen(true)}
+      />
+      <RailIcon
+        icon={<Store />}
+        label="Marketplace"
+        active={marketplaceOpen}
+        onClick={() => setMarketplaceOpen(true)}
+      />
+      <RailIcon
+        icon={<Clock3 />}
+        label="Sessions"
+        active={sessionsOpen}
+        onClick={() => setSessionsOpen(true)}
+      />
+      <RailIcon
+        icon={<Settings />}
+        label="Settings"
+        active={settingsOpen}
+        onClick={() => {
+          setSettingsSection("settings");
+          setSettingsOpen(true);
+        }}
+      />
+      <button
+        type="button"
+        title="Account"
+        onClick={() => {
+          setSettingsSection("account");
+          setSettingsOpen(true);
+        }}
+        className="my-2 grid size-7 place-items-center rounded-full ring-1 ring-inset ring-foreground/10 transition-opacity hover:opacity-80"
+      >
+        <div className="size-7 shrink-0 overflow-hidden rounded-full">
+          <UserAvatar user={user} />
+        </div>
+      </button>
+    </aside>
+  );
+}
+
+function RailIcon({
+  icon,
+  label,
+  badge,
+  active,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  badge?: boolean;
+  active?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+      className={cn(
+        "relative my-0.5 grid size-8 place-items-center rounded-md text-foreground/65 transition-colors [&_svg]:size-4",
+        active
+          ? "bg-foreground/[0.07] text-foreground"
+          : "hover:bg-foreground/[0.04] hover:text-foreground",
+      )}
+    >
+      {icon}
+      {badge ? (
+        <span className="absolute top-1 right-1 size-1.5 rounded-full bg-primary" />
+      ) : null}
     </button>
   );
 }

@@ -1,4 +1,11 @@
 import { atom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
+
+/** Is the sidebar collapsed (icon-only / hidden)? Persists across sessions. */
+export const sidebarCollapsedAtom = atomWithStorage(
+  "holaboss-new-shell-sidebar-collapsed-v1",
+  false,
+);
 
 /** Is the new-tab command palette dialog open? */
 export const newTabOpenAtom = atom(false);

@@ -19,6 +19,7 @@ import {
   newTabOpenAtom,
   publishOpenAtom,
   searchOpenAtom,
+  sidebarCollapsedAtom,
 } from "./state/ui";
 import { TopChrome } from "./TopChrome";
 
@@ -37,12 +38,12 @@ export function NewAppShell() {
 function NewAppShellContent() {
   const setNewTabOpen = useSetAtom(newTabOpenAtom);
   const setSearchOpen = useSetAtom(searchOpenAtom);
+  const setSidebarCollapsed = useSetAtom(sidebarCollapsedAtom);
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const [publishOpen, setPublishOpen] = useAtom(publishOpenAtom);
   const createWorkspaceOpen = useAtomValue(createWorkspaceOpenAtom);
   const setCreateWorkspaceOpen = useSetAtom(createWorkspaceOpenAtom);
 
-  // Cmd/Ctrl + T → new tab palette; Cmd/Ctrl + K → universal search palette.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "t") {
@@ -51,11 +52,14 @@ function NewAppShellContent() {
       } else if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setSearchOpen(true);
+      } else if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
+        e.preventDefault();
+        setSidebarCollapsed((prev) => !prev);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [setNewTabOpen, setSearchOpen]);
+  }, [setNewTabOpen, setSearchOpen, setSidebarCollapsed]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden text-foreground antialiased">
