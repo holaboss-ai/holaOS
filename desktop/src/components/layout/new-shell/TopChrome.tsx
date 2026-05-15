@@ -29,6 +29,8 @@ export function TopChrome() {
     void window.electronAPI.browser.closeTab(id);
   };
 
+  const agentTabCount = browserState.tabCounts.agent;
+
   return (
     <header className="window-drag flex h-10 shrink-0 items-center gap-1 border-b border-border px-3">
       {browserState.tabs.map((tab) => (
@@ -43,7 +45,7 @@ export function TopChrome() {
           onClose={handleCloseTab}
         />
       ))}
-      <ScratchGroupChip />
+      {agentTabCount > 0 ? <ScratchGroupChip /> : null}
       <Button
         variant="ghost"
         size="icon-sm"
@@ -146,6 +148,9 @@ function Tab({
 }
 
 function ScratchGroupChip() {
+  // Only mounted when the user-space hook reports tabCounts.agent > 0.
+  // Subscribing here is then safe — ensureBrowserTabSpaceInitialized
+  // sees existing tabs and skips its seed-a-default-tab branch.
   const { browserState: agentState } = useWorkspaceBrowser("agent");
   const tabs = agentState.tabs;
 
