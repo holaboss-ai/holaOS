@@ -53,6 +53,7 @@ import { StoplightProvider } from "@/lib/StoplightContext";
 import { holabossLogoUrl } from "@/lib/assetPaths";
 import { type ExplorerAttachmentDragPayload } from "@/lib/attachmentDrag";
 import { CHAT_LAYOUT } from "@/lib/chatLayout";
+import { useControlCenterCardSignals } from "@/lib/controlCenterLifecycle";
 import { useEscapeToClose } from "@/lib/useEscapeToClose";
 import { cn } from "@/lib/utils";
 import { DesktopBillingProvider } from "@/lib/billing/useDesktopBilling";
@@ -1243,11 +1244,7 @@ function EmptyWorkspacePane() {
   );
 }
 
-function WorkspaceBootstrapPane({
-  subtitle = "Preparing your desktop",
-}: {
-  subtitle?: string;
-}) {
+function WorkspaceBootstrapPane() {
   // Pin to the viewport so the bootstrap surface fills edge-to-edge
   // independent of the AppShell grid's outer padding/gutters. Otherwise
   // the body (which is translucent on macOS for vibrancy) would show as
@@ -1267,22 +1264,13 @@ function WorkspaceBootstrapPane({
         style={{ animation: "var(--animate-fade-in-once)" }}
       >
         <div className="relative flex h-16 w-16 items-center justify-center">
-          <div
-            aria-hidden="true"
-            className="absolute inset-0 rounded-2xl blur-2xl"
-            style={{
-              background:
-                "radial-gradient(circle, color-mix(in srgb, var(--primary) 55%, transparent), transparent 70%)",
-              animation: "holaboss-splash-halo 2.8s ease-in-out infinite",
-            }}
-          />
           <img
             src={holabossLogoUrl}
             alt="holaOS"
             width={56}
             height={56}
             draggable={false}
-            className="relative h-14 w-14 rounded-2xl shadow-[0_10px_28px_-12px_rgba(245,132,25,0.55)] select-none"
+            className="relative h-14 w-14 rounded-2xl select-none"
           />
         </div>
         <h1
@@ -1291,9 +1279,6 @@ function WorkspaceBootstrapPane({
         >
           holaOS
         </h1>
-        <p className="mt-1.5 text-[12.5px] font-medium text-muted-foreground">
-          {subtitle}
-        </p>
         <div
           className="mt-5 flex items-center gap-1.5"
           aria-label="Loading"
@@ -1345,16 +1330,6 @@ function runtimeStartupBlockedMessage(
     );
   }
   return "";
-}
-
-function workspaceBootstrapSubtitle(
-  runtimeStatus: RuntimeStatusPayload | null,
-): string {
-  const startupMessage =
-    runtimeStatus?.status === "starting"
-      ? runtimeStatus.startupMessage?.trim() || ""
-      : "";
-  return startupMessage || "Preparing your desktop";
 }
 
 function FocusPlaceholder({
@@ -3534,6 +3509,29 @@ function AppShellContent() {
     ],
   );
 
+  const handleOpenWorkspaceRunningTasks = useCallback(
+    (workspaceId: string) => {
+      handleEnterWorkspace(workspaceId);
+      setActiveOperationsTab("running");
+      setOperationsDrawerOpen(true);
+    },
+    [handleEnterWorkspace],
+  );
+
+  const handleOpenWorkspaceAppsExplorer = useCallback(
+    (workspaceId: string) => {
+      handleEnterWorkspace(workspaceId);
+      setSpaceVisibility((previous) => ({
+        ...previous,
+        files: true,
+        agent: true,
+      }));
+      setSpaceWorkspacePanelCollapsed(false);
+      setSpaceExplorerMode("applications");
+    },
+    [handleEnterWorkspace],
+  );
+
   useEffect(() => {
     const unsubscribe = window.electronAPI.ui.onNotificationActivated(
       ({ workspaceId }) => {
@@ -4379,6 +4377,11 @@ function AppShellContent() {
 
   const controlCenterMode = activeShellView === "control_center";
   const spaceMode = activeShellView === "space";
+
+  const controlCenterCardSignals = useControlCenterCardSignals(
+    controlCenterVisibleWorkspaceIds,
+    controlCenterMode,
+  );
 
   // ⌘1 / ⌘2 / ⌘3 jump directly to a layout mode. Mirrors the macOS
   // Finder / browser view-mode convention; users learn the trio once
@@ -5420,9 +5423,7 @@ function AppShellContent() {
           bootstrapErrorMessage ? (
             <WorkspaceStartupErrorPane message={bootstrapErrorMessage} />
           ) : (
-            <WorkspaceBootstrapPane
-              subtitle={workspaceBootstrapSubtitle(runtimeStatus)}
-            />
+            <WorkspaceBootstrapPane />
           )
         ) : hydratedRuntimeErrorMessage ? (
           <WorkspaceStartupErrorPane message={hydratedRuntimeErrorMessage} />
@@ -5437,6 +5438,9 @@ function AppShellContent() {
             cardsPerRow={controlCenterCardsPerRow}
             orderedWorkspaceIds={controlCenterWorkspaceCardOrder}
             highlightedWorkspaceIds={controlCenterHighlightedWorkspaceIds}
+            cardSignals={controlCenterCardSignals}
+            onOpenWorkspaceRunningTasks={handleOpenWorkspaceRunningTasks}
+            onOpenWorkspaceAppsExplorer={handleOpenWorkspaceAppsExplorer}
             onSelectWorkspace={handleSelectControlCenterWorkspace}
             onEnterWorkspace={handleEnterWorkspace}
             onOpenOutput={handleOpenControlCenterWorkspaceOutput}

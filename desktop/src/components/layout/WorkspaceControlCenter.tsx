@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/card";
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import { useChatComposerModelSelection } from "@/lib/chat/useChatComposerModelSelection";
+import type { ControlCenterCardSignal } from "@/lib/controlCenterLifecycle";
 import { cn } from "@/lib/utils";
 
 const PREVIEW_HISTORY_LIMIT = 18;
@@ -63,6 +64,9 @@ interface WorkspaceControlCenterProps {
   cardsPerRow: number;
   orderedWorkspaceIds: readonly string[];
   highlightedWorkspaceIds: readonly string[];
+  cardSignals: Record<string, ControlCenterCardSignal>;
+  onOpenWorkspaceRunningTasks: (workspaceId: string) => void;
+  onOpenWorkspaceAppsExplorer: (workspaceId: string) => void;
   onSelectWorkspace: (workspaceId: string) => void;
   onEnterWorkspace: (workspaceId: string) => void;
   onOpenOutput: (
@@ -82,6 +86,9 @@ interface WorkspaceCardProps {
   isDragging: boolean;
   isDragTarget: boolean;
   hasUnreadCompletionHighlight: boolean;
+  cardSignal: ControlCenterCardSignal | null;
+  onOpenRunningTasks: (workspaceId: string) => void;
+  onOpenAppsExplorer: (workspaceId: string) => void;
   onSelectWorkspace: (workspaceId: string) => void;
   onEnterWorkspace: (workspaceId: string) => void;
   onOpenOutput: (
@@ -225,34 +232,6 @@ function previewStatusLabel(state: RuntimeCardState) {
   }
 }
 
-function previewStatusVariant(state: RuntimeCardState) {
-  switch (state) {
-    case "error":
-      return "destructive";
-    case "queued":
-    case "waiting":
-      return "secondary";
-    case "working":
-      return "default";
-    default:
-      return "outline";
-  }
-}
-
-function statusAccentClassName(state: RuntimeCardState) {
-  switch (state) {
-    case "error":
-      return "bg-destructive";
-    case "queued":
-    case "waiting":
-      return "bg-warning";
-    case "working":
-      return "bg-primary animate-pulse";
-    default:
-      return "bg-success";
-  }
-}
-
 function statusStripeClassName(state: RuntimeCardState) {
   switch (state) {
     case "error":
@@ -265,6 +244,108 @@ function statusStripeClassName(state: RuntimeCardState) {
     default:
       return "bg-transparent";
   }
+}
+
+type CardBadgeIntent = "ops-running" | "apps-explorer" | null;
+
+interface CardBadgeDescriptor {
+  show: boolean;
+  variant: "default" | "secondary" | "destructive" | "outline";
+  label: string;
+  stripe: string;
+  stripeAnimate: boolean;
+  intent: CardBadgeIntent;
+}
+
+// Single point of truth for which signal a card surfaces. Priority:
+//   lifecycle.error  >  any active session OR background-task signal
+//   >  lifecycle.starting  >  idle (no badge)
+// Background tasks (running / queued / waiting_on_user / failed) are
+// treated as session-level activity so the card reflects subagent work
+// that didn't originate from the main chat.
+// Spec: ready/idle never paints a badge — keeps the grid quiet so
+// transient or attention-grabbing states stand out.
+function resolveCardBadge(
+  session: RuntimeCardState,
+  signal: ControlCenterCardSignal | null,
+): CardBadgeDescriptor {
+  const lifecycle = signal?.lifecycle ?? null;
+  const task = signal?.taskActivity ?? "none";
+
+  if (lifecycle === "error") {
+    return {
+      show: true,
+      variant: "destructive",
+      label: "Issue",
+      stripe: "bg-destructive",
+      stripeAnimate: false,
+      intent: "apps-explorer",
+    };
+  }
+
+  if (session === "error" || task === "failed") {
+    return {
+      show: true,
+      variant: "destructive",
+      label: session === "error" ? "Needs attention" : "Failed",
+      stripe: "bg-destructive",
+      stripeAnimate: false,
+      intent: task === "failed" ? "ops-running" : null,
+    };
+  }
+
+  if (session === "waiting" || task === "waiting") {
+    return {
+      show: true,
+      variant: "secondary",
+      label: "Waiting",
+      stripe: "bg-warning",
+      stripeAnimate: false,
+      intent: "ops-running",
+    };
+  }
+
+  if (session === "working" || task === "running") {
+    return {
+      show: true,
+      variant: "secondary",
+      label: "Running",
+      stripe: "bg-primary",
+      stripeAnimate: true,
+      intent: "ops-running",
+    };
+  }
+
+  if (session === "queued") {
+    return {
+      show: true,
+      variant: "secondary",
+      label: "Queued",
+      stripe: "bg-warning",
+      stripeAnimate: false,
+      intent: "ops-running",
+    };
+  }
+
+  if (lifecycle === "starting") {
+    return {
+      show: true,
+      variant: "outline",
+      label: "Starting",
+      stripe: "bg-transparent",
+      stripeAnimate: false,
+      intent: null,
+    };
+  }
+
+  return {
+    show: false,
+    variant: "outline",
+    label: "",
+    stripe: "bg-transparent",
+    stripeAnimate: false,
+    intent: null,
+  };
 }
 
 /** Bucket recent message timestamps into `slotCount` equal time slices
@@ -341,6 +422,9 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
   isDragging,
   isDragTarget,
   hasUnreadCompletionHighlight,
+  cardSignal,
+  onOpenRunningTasks,
+  onOpenAppsExplorer,
   onSelectWorkspace,
   onEnterWorkspace,
   onOpenOutput,
@@ -1091,6 +1175,10 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
     () => buildRecentEventDensity(messages, 8),
     [messages],
   );
+  const cardBadge = useMemo(
+    () => resolveCardBadge(runtimeCardState, cardSignal),
+    [runtimeCardState, cardSignal],
+  );
 
   return (
     <Card
@@ -1119,8 +1207,8 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
         aria-hidden="true"
         className={cn(
           "absolute inset-x-0 top-0 h-[2px] transition-colors",
-          statusStripeClassName(runtimeCardState),
-          runtimeCardState === "working" && "hb-tile-stripe-working",
+          cardBadge.stripe,
+          cardBadge.stripeAnimate && "hb-tile-stripe-working",
         )}
       />
       <CardHeader className="gap-0 border-b border-border px-2.5 py-1.5">
@@ -1141,19 +1229,32 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
           <CardTitle className="min-w-0 flex-1 truncate text-[13px] font-medium">
             {workspace.name}
           </CardTitle>
-          <Badge
-            variant={previewStatusVariant(runtimeCardState)}
-            className="h-4 shrink-0 gap-1 rounded-full px-1.5 text-[10px] font-medium uppercase tracking-wide"
-          >
-            <span
-              aria-hidden="true"
-              className={cn(
-                "inline-flex h-1.5 w-1.5 rounded-full",
-                statusAccentClassName(runtimeCardState),
-              )}
-            />
-            {previewStatusLabel(runtimeCardState)}
-          </Badge>
+          {cardBadge.show ? (
+            cardBadge.intent ? (
+              <Badge
+                variant={cardBadge.variant}
+                render={
+                  <button
+                    type="button"
+                    aria-label={`${cardBadge.label} — open details for ${workspace.name}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (cardBadge.intent === "ops-running") {
+                        onOpenRunningTasks(workspaceId);
+                      } else if (cardBadge.intent === "apps-explorer") {
+                        onOpenAppsExplorer(workspaceId);
+                      }
+                    }}
+                    className="cursor-pointer hover:opacity-80 focus-visible:outline-none"
+                  />
+                }
+              >
+                {cardBadge.label}
+              </Badge>
+            ) : (
+              <Badge variant={cardBadge.variant}>{cardBadge.label}</Badge>
+            )
+          ) : null}
           <Button
             variant="ghost"
             size="icon"
@@ -1672,6 +1773,9 @@ export function WorkspaceControlCenter({
   cardsPerRow,
   orderedWorkspaceIds,
   highlightedWorkspaceIds,
+  cardSignals,
+  onOpenWorkspaceRunningTasks,
+  onOpenWorkspaceAppsExplorer,
   onSelectWorkspace,
   onEnterWorkspace,
   onOpenOutput,
@@ -2057,6 +2161,9 @@ export function WorkspaceControlCenter({
                     draggedWorkspaceId !== id
                   }
                   hasUnreadCompletionHighlight={highlightedWorkspaceIdSet.has(id)}
+                  cardSignal={cardSignals[id] ?? null}
+                  onOpenRunningTasks={onOpenWorkspaceRunningTasks}
+                  onOpenAppsExplorer={onOpenWorkspaceAppsExplorer}
                   onSelectWorkspace={handleSelectWorkspaceWithComposer}
                   onEnterWorkspace={onEnterWorkspace}
                   onOpenOutput={onOpenOutput}
