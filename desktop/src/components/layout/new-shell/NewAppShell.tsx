@@ -1,13 +1,22 @@
-import { useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useEffect } from "react";
+import { FirstWorkspacePane } from "@/components/onboarding/FirstWorkspacePane";
+import { PublishScreen } from "@/components/publish/PublishScreen";
 import { DesktopBillingProvider } from "@/lib/billing/useDesktopBilling";
 import { WorkspaceDesktopProvider } from "@/lib/workspaceDesktop";
-import { WorkspaceSelectionProvider } from "@/lib/workspaceSelection";
+import {
+  useWorkspaceSelection,
+  WorkspaceSelectionProvider,
+} from "@/lib/workspaceSelection";
 import { Center } from "./Center";
 import { ChatPanel } from "./ChatPanel";
 import { NewTabDialog } from "./NewTabDialog";
 import { Sidebar } from "./Sidebar";
-import { newTabOpenAtom } from "./state/ui";
+import {
+  createWorkspaceOpenAtom,
+  newTabOpenAtom,
+  publishOpenAtom,
+} from "./state/ui";
 import { TopChrome } from "./TopChrome";
 
 export function NewAppShell() {
@@ -24,6 +33,10 @@ export function NewAppShell() {
 
 function NewAppShellContent() {
   const setNewTabOpen = useSetAtom(newTabOpenAtom);
+  const { selectedWorkspaceId } = useWorkspaceSelection();
+  const [publishOpen, setPublishOpen] = useAtom(publishOpenAtom);
+  const createWorkspaceOpen = useAtomValue(createWorkspaceOpenAtom);
+  const setCreateWorkspaceOpen = useSetAtom(createWorkspaceOpenAtom);
 
   // Cmd/Ctrl + T → new tab palette
   useEffect(() => {
@@ -48,6 +61,23 @@ function NewAppShellContent() {
         </div>
       </div>
       <NewTabDialog />
+      {selectedWorkspaceId ? (
+        <PublishScreen
+          open={publishOpen}
+          onOpenChange={setPublishOpen}
+          onViewSubmission={() => {
+            // Settings flow not wired in new shell yet; deferred to a
+            // later step when SettingsScreenRoot is shared between shells.
+          }}
+          workspaceId={selectedWorkspaceId}
+        />
+      ) : null}
+      {createWorkspaceOpen ? (
+        <FirstWorkspacePane
+          variant="panel"
+          onClose={() => setCreateWorkspaceOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

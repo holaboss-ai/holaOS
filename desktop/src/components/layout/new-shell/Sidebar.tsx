@@ -1,29 +1,38 @@
+import { useSetAtom } from "jotai";
 import {
-  Check,
   ChevronDown,
   Globe,
   Inbox,
   LayoutDashboard,
+  Loader2,
   Package,
+  Plus,
   Search,
   Settings,
   Store,
+  Trash2,
+  Upload,
   Wrench,
 } from "lucide-react";
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { StatusDot } from "@/components/ui/status-dot";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
+import { WorkspaceIconPicker } from "@/components/ui/workspace-icon-picker";
 import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { cn } from "@/lib/utils";
 import { SectionLabel } from "./shared";
+import { createWorkspaceOpenAtom, publishOpenAtom } from "./state/ui";
 
 export function Sidebar() {
   const { installedApps } = useWorkspaceDesktop();
@@ -89,7 +98,38 @@ export function Sidebar() {
 function WorkspaceSwitcher() {
   const { selectedWorkspaceId, setSelectedWorkspaceId } =
     useWorkspaceSelection();
-  const { workspaces, selectedWorkspace } = useWorkspaceDesktop();
+  const {
+    workspaces,
+    selectedWorkspace,
+    deleteWorkspace,
+    updateWorkspaceAppearance,
+  } = useWorkspaceDesktop();
+  const setPublishOpen = useSetAtom(publishOpenAtom);
+  const setCreateWorkspaceOpen = useSetAtom(createWorkspaceOpenAtom);
+
+  const [query, setQuery] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const filtered = useMemo(() => {
+    const trimmed = query.trim().toLowerCase();
+    if (!trimmed) return workspaces;
+    return workspaces.filter((w) =>
+      w.name.toLowerCase().includes(trimmed),
+    );
+  }, [workspaces, query]);
+
+  const handleDelete = async (workspace: WorkspaceRecordPayload) => {
+    if (deletingId) return;
+    if (!window.confirm(`Delete workspace '${workspace.name}'?`)) return;
+    setDeletingId(workspace.id);
+    try {
+      await deleteWorkspace(workspace.id);
+    } catch {
+      // workspaceErrorMessage is already set by WorkspaceDesktopProvider
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <div className="window-drag flex h-10 shrink-0 items-center px-2 pl-20">
@@ -123,36 +163,108 @@ function WorkspaceSwitcher() {
         <PopoverContent
           align="start"
           sideOffset={6}
-          className="w-[260px] gap-0 p-1"
+          className="w-[300px] gap-0 p-2"
           style={{
             animationDuration: "220ms",
             animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
           }}
         >
-          {workspaces.length === 0 ? (
-            <div className="px-2 py-3 text-center text-xs text-foreground/40">
-              No workspaces yet.
-            </div>
-          ) : (
-            workspaces.map((w) => (
+          <div className="relative mb-2">
+            <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-foreground/40" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search workspaces"
+              className="h-8 rounded-md pl-8 text-xs focus-visible:ring-0"
+            />
+          </div>
+
+          <div className="max-h-[280px] overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="px-2 py-3 text-center text-xs text-foreground/40">
+                {query ? "No matches." : "No workspaces yet."}
+              </div>
+            ) : (
+              filtered.map((w) => {
+                const isActive = w.id === selectedWorkspaceId;
+                const isDeleting = deletingId === w.id;
+                const folderMissing = w.folder_state === "missing";
+                return (
+                  <div
+                    key={w.id}
+                    className={cn(
+                      "group flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors",
+                      isActive
+                        ? "bg-foreground/[0.07]"
+                        : "hover:bg-foreground/[0.04]",
+                      isDeleting && "opacity-50",
+                    )}
+                  >
+                    <WorkspaceIconPicker
+                      workspace={w}
+                      size="xs"
+                      disabled={isDeleting}
+                      onChange={({ icon, iconColor }) => {
+                        void updateWorkspaceAppearance(w.id, {
+                          icon,
+                          iconColor,
+                        });
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={isDeleting}
+                      onClick={() => setSelectedWorkspaceId(w.id)}
+                      className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm disabled:cursor-not-allowed"
+                    >
+                      <span className="truncate">{w.name}</span>
+                      {folderMissing ? (
+                        <StatusDot
+                          variant="warning"
+                          className="ml-auto"
+                          title={`Folder missing at ${w.workspace_path ?? "unknown"}`}
+                        />
+                      ) : null}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${w.name}`}
+                      disabled={Boolean(deletingId)}
+                      onClick={() => void handleDelete(w)}
+                      className="grid size-5 shrink-0 place-items-center rounded text-foreground/60 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 disabled:cursor-not-allowed group-hover:opacity-100"
+                    >
+                      {isDeleting ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="size-3.5" />
+                      )}
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="mt-2 flex flex-col gap-0.5 border-t border-border pt-2">
+            {selectedWorkspaceId ? (
               <button
-                key={w.id}
                 type="button"
-                onClick={() => setSelectedWorkspaceId(w.id)}
-                className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-foreground/[0.04]"
+                onClick={() => setPublishOpen(true)}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-foreground/[0.04]"
               >
-                <WorkspaceIcon
-                  workspace={w}
-                  size="xs"
-                  className="ring-1 ring-foreground/10"
-                />
-                <span className="min-w-0 flex-1 truncate">{w.name}</span>
-                {w.id === selectedWorkspaceId ? (
-                  <Check className="size-3.5 shrink-0 text-foreground/60" />
-                ) : null}
+                <Upload className="size-3.5 text-foreground/60" />
+                Publish to Store
               </button>
-            ))
-          )}
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setCreateWorkspaceOpen(true)}
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-foreground/[0.04]"
+            >
+              <Plus className="size-3.5 text-foreground/60" />
+              Create new workspace
+            </button>
+          </div>
         </PopoverContent>
       </Popover>
     </div>
