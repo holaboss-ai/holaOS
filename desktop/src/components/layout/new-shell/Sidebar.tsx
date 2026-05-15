@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  Globe,
   Inbox,
   Loader2,
   MoreHorizontal,
@@ -423,6 +424,8 @@ function AppRow({
 function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const title = entry.title || hostFromUrl(entry.url) || entry.url;
+  const [faviconError, setFaviconError] = useState(false);
+  const showFavicon = Boolean(entry.faviconUrl) && !faviconError;
 
   const handleOpen = async () => {
     if (selectedWorkspaceId) {
@@ -461,6 +464,21 @@ function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
         title={title}
         className="flex min-w-0 flex-1 items-center gap-2 rounded-[6px] px-2 py-[5px] text-left text-xs text-foreground/70"
       >
+        <span
+          aria-hidden
+          className="grid size-3.5 shrink-0 place-items-center overflow-hidden rounded-[3px] text-foreground/55"
+        >
+          {showFavicon ? (
+            <img
+              src={entry.faviconUrl}
+              alt=""
+              className="size-3.5 rounded-[2px] object-contain"
+              onError={() => setFaviconError(true)}
+            />
+          ) : (
+            <Globe className="size-3" />
+          )}
+        </span>
         <span className="truncate">{title}</span>
       </button>
       <DropdownMenu>

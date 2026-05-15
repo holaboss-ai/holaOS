@@ -409,6 +409,20 @@ function ScratchGroupChip() {
         {tabs.map((tab) => (
           <ScratchRow key={tab.id} tab={tab} />
         ))}
+        <div className="mt-1 border-t border-border pt-1">
+          <button
+            type="button"
+            onClick={() => {
+              for (const tab of tabs) {
+                void window.electronAPI.browser.closeTab(tab.id);
+              }
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground/60 transition-colors hover:bg-foreground/[0.04] hover:text-destructive"
+          >
+            <X className="size-3.5" />
+            Close all agent tabs
+          </button>
+        </div>
       </PopoverContent>
     </Popover>
   );
