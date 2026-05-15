@@ -333,13 +333,13 @@
   --border: oklch(0.92 0.003 250);
   --input: oklch(0.92 0.003 250);
   --ring: oklch(0.624 0.229 32);
-  --sidebar: oklch(0.97 0.002 250);
+  --sidebar: oklch(0.945 0.002 250);
   --sidebar-foreground: oklch(0.18 0.003 250);
   --sidebar-primary: oklch(0.624 0.229 32);
   --sidebar-primary-foreground: oklch(0.98 0.01 32);
-  --sidebar-accent: oklch(0.94 0.002 250);
+  --sidebar-accent: oklch(0.92 0.002 250);
   --sidebar-accent-foreground: oklch(0.21 0.003 250);
-  --sidebar-border: oklch(0.92 0.003 250);
+  --sidebar-border: oklch(0.9 0.003 250);
   --sidebar-ring: oklch(0.624 0.229 32);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);

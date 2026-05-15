@@ -93,7 +93,8 @@ function SidebarExpanded() {
   return (
     <aside
       data-pane-card="true"
-      className="flex w-[260px] shrink-0 flex-col border-r border-border bg-card backdrop-blur-sm"
+      data-pane-role="sidebar"
+      className="flex w-[260px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground backdrop-blur-sm"
     >
       <WorkspaceSwitcher />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
@@ -477,7 +478,8 @@ function SidebarRail() {
   return (
     <aside
       data-pane-card="true"
-      className="flex w-[60px] shrink-0 flex-col items-center border-r border-border bg-card backdrop-blur-sm"
+      data-pane-role="sidebar"
+      className="flex w-[60px] shrink-0 flex-col items-center border-r border-sidebar-border bg-sidebar text-sidebar-foreground backdrop-blur-sm"
     >
       <div className="window-drag h-[70px] w-full" />
       <button

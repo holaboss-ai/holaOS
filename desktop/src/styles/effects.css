@@ -65,6 +65,20 @@ html[data-platform="win32"][data-theme$="-dark"] [data-pane-card="true"] {
   background: color-mix(in oklch, var(--card) 78%, transparent);
 }
 
+/* Sidebar uses its own token so it can sit a notch darker than --card and
+   read as recessed chrome (vs. an elevated content card). Override per-mode
+   so the dark pane-card rule above doesn't claim the surface. */
+html[data-platform="darwin"] [data-pane-card="true"][data-pane-role="sidebar"],
+html[data-platform="win32"] [data-pane-card="true"][data-pane-role="sidebar"] {
+  background: color-mix(in oklch, var(--sidebar) 80%, transparent);
+}
+html[data-platform="darwin"][data-theme$="-dark"]
+  [data-pane-card="true"][data-pane-role="sidebar"],
+html[data-platform="win32"][data-theme$="-dark"]
+  [data-pane-card="true"][data-pane-role="sidebar"] {
+  background: color-mix(in oklch, var(--sidebar) 78%, transparent);
+}
+
 /* Loading shells: mostly solid for legibility, hint of OS material. */
 html[data-platform="darwin"] .theme-shell,
 html[data-platform="win32"] .theme-shell {
