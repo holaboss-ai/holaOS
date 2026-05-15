@@ -35,11 +35,23 @@ import { StatusDot } from "@/components/ui/status-dot";
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import { WorkspaceIconPicker } from "@/components/ui/workspace-icon-picker";
 import { AppIcon } from "@/components/marketplace/AppIcon";
+import { FileTypeIcon } from "@/lib/fileIcon";
 import type { WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
 import { resolveAppDisplay, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { cn } from "@/lib/utils";
 import { SectionLabel } from "./shared";
+import {
+  activeInternalTabIdAtom,
+  fileNameFromPath,
+  internalTabsAtom,
+  makeInternalTabId,
+} from "./state/internalTabs";
+import {
+  type RecentFile,
+  recentFilesAtom,
+  removeRecentFileAtom,
+} from "./state/recentFiles";
 import {
   appsExpandedAtom,
   artifactsOpenAtom,
@@ -59,6 +71,10 @@ import {
   useWorkspaceCronjobs,
   useWorkspaceSkills,
 } from "./useWorkspaceLists";
+
+type RecentItem =
+  | { kind: "url"; ts: string; entry: BrowserHistoryEntryPayload }
+  | { kind: "file"; ts: string; entry: RecentFile };
 
 function hostFromUrl(url: string): string {
   try {
@@ -99,7 +115,24 @@ function SidebarExpanded() {
 
   const skills = useWorkspaceSkills(selectedWorkspaceId || null);
   const cronjobs = useWorkspaceCronjobs(selectedWorkspaceId || null);
-  const recents = useRecentBrowserHistory(7);
+  const urlRecents = useRecentBrowserHistory(20);
+  const fileRecents = useAtomValue(recentFilesAtom);
+  const recents = useMemo<RecentItem[]>(() => {
+    const merged: RecentItem[] = [
+      ...urlRecents.map((entry) => ({
+        kind: "url" as const,
+        ts: entry.lastVisitedAt || entry.createdAt,
+        entry,
+      })),
+      ...fileRecents.map((entry) => ({
+        kind: "file" as const,
+        ts: entry.openedAt,
+        entry,
+      })),
+    ];
+    merged.sort((a, b) => b.ts.localeCompare(a.ts));
+    return merged.slice(0, 7);
+  }, [urlRecents, fileRecents]);
   const { proposals } = useTaskProposals(selectedWorkspaceId || null);
   const unreadInbox = proposals.length;
 
@@ -139,9 +172,13 @@ function SidebarExpanded() {
         {recents.length > 0 ? (
           <SidebarGroup>
             <SectionLabel>Recents</SectionLabel>
-            {recents.map((entry) => (
-              <RecentRow key={entry.id} entry={entry} />
-            ))}
+            {recents.map((item) =>
+              item.kind === "url" ? (
+                <RecentRow key={`u:${item.entry.id}`} entry={item.entry} />
+              ) : (
+                <RecentFileRow key={`f:${item.entry.id}`} entry={item.entry} />
+              ),
+            )}
           </SidebarGroup>
         ) : null}
 
@@ -518,6 +555,94 @@ function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
             >
               <Trash2 className="size-3.5" />
               Remove from history
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
+  );
+}
+
+function RecentFileRow({ entry }: { entry: RecentFile }) {
+  const [internalTabs, setInternalTabs] = useAtom(internalTabsAtom);
+  const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
+  const removeRecentFile = useSetAtom(removeRecentFileAtom);
+
+  const handleOpen = () => {
+    const existing = internalTabs.find((t) => t.filePath === entry.filePath);
+    if (existing) {
+      setActiveInternalTabId(existing.id);
+      return;
+    }
+    const tab = {
+      id: makeInternalTabId(),
+      kind: "file" as const,
+      filePath: entry.filePath,
+      label: entry.label || fileNameFromPath(entry.filePath),
+    };
+    setInternalTabs((prev) => [...prev, tab]);
+    setActiveInternalTabId(tab.id);
+  };
+
+  const handleCopyPath = async () => {
+    try {
+      await navigator.clipboard.writeText(entry.filePath);
+    } catch {
+      // tolerate clipboard rejection
+    }
+  };
+
+  return (
+    <div
+      role="group"
+      className="group/recent relative flex items-center rounded-[6px] transition-colors hover:bg-foreground/[0.04]"
+    >
+      <button
+        type="button"
+        onClick={handleOpen}
+        title={entry.filePath}
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-[6px] px-2 py-[5px] text-left text-xs text-foreground/70"
+      >
+        <span
+          aria-hidden
+          className="grid size-3.5 shrink-0 place-items-center overflow-hidden rounded-[3px]"
+        >
+          <FileTypeIcon filePath={entry.filePath} size={14} />
+        </span>
+        <span className="truncate">{entry.label}</span>
+      </button>
+      <div
+        aria-hidden
+        className="mr-0 w-0 shrink-0 overflow-hidden transition-[width,margin-right] duration-200 ease-out-expo group-hover/recent:mr-1 group-hover/recent:w-5 group-has-[[aria-expanded=true]]/recent:mr-1 group-has-[[aria-expanded=true]]/recent:w-5"
+      >
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                aria-label="File actions"
+                onClick={(e) => e.stopPropagation()}
+                className="grid size-5 place-items-center rounded text-foreground/50 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+              >
+                <MoreHorizontal className="size-3.5" />
+              </button>
+            }
+          />
+          <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
+            <DropdownMenuItem onClick={handleOpen}>
+              <Plus className="size-3.5" />
+              Open
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => void handleCopyPath()}>
+              <Copy className="size-3.5" />
+              Copy path
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => removeRecentFile(entry.id)}
+              variant="destructive"
+            >
+              <Trash2 className="size-3.5" />
+              Remove from recents
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

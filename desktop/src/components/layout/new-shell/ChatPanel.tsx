@@ -10,6 +10,7 @@ import {
   internalTabsAtom,
   makeInternalTabId,
 } from "./state/internalTabs";
+import { pushRecentFileAtom } from "./state/recentFiles";
 
 export function ChatPanel() {
   const setSessionsOpen = useSetAtom(sessionsOpenAtom);
@@ -17,6 +18,7 @@ export function ChatPanel() {
   const { installedApps } = useWorkspaceDesktop();
   const [internalTabs, setInternalTabs] = useAtom(internalTabsAtom);
   const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
+  const pushRecentFile = useSetAtom(pushRecentFileAtom);
 
   const installedAppIds = useMemo(
     () => new Set(installedApps.map((a) => a.id)),
@@ -49,6 +51,12 @@ export function ChatPanel() {
       } catch {
         // tolerate already-decoded inputs
       }
+      const label = fileNameFromPath(decoded);
+      pushRecentFile({
+        filePath: decoded,
+        label,
+        workspaceId: selectedWorkspaceId ?? null,
+      });
       const existing = internalTabs.find((t) => t.filePath === decoded);
       if (existing) {
         setActiveInternalTabId(existing.id);
@@ -58,12 +66,18 @@ export function ChatPanel() {
         id: makeInternalTabId(),
         kind: "file" as const,
         filePath: decoded,
-        label: fileNameFromPath(decoded),
+        label,
       };
       setInternalTabs((prev) => [...prev, tab]);
       setActiveInternalTabId(tab.id);
     },
-    [internalTabs, setActiveInternalTabId, setInternalTabs],
+    [
+      internalTabs,
+      pushRecentFile,
+      selectedWorkspaceId,
+      setActiveInternalTabId,
+      setInternalTabs,
+    ],
   );
 
   const handleOpenOutput = useCallback(
