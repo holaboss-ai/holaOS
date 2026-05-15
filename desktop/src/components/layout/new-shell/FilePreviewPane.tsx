@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Eye, Loader2, Pencil } from "lucide-react";
 import { SimpleMarkdown } from "@/components/marketplace/SimpleMarkdown";
 import { PresentationPreview } from "@/components/panes/PresentationPreview";
 import { SpreadsheetEditor } from "@/components/panes/SpreadsheetEditor";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 
 interface FilePreviewPaneProps {
@@ -102,24 +104,21 @@ export function FilePreviewPane({ filePath }: FilePreviewPaneProps) {
   }
 
   if (preview.kind === "text") {
-    const content = preview.content ?? "";
     if (MARKDOWN_EXTS.has(preview.extension.toLowerCase())) {
       return (
-        <div className="h-full overflow-auto">
-          <div className="mx-auto max-w-3xl px-10 py-12">
-            <SimpleMarkdown className="file-preview-markdown">
-              {content}
-            </SimpleMarkdown>
-          </div>
-        </div>
+        <MarkdownEditor
+          preview={preview}
+          workspaceId={selectedWorkspaceId ?? null}
+          onUpdated={setPreview}
+        />
       );
     }
     return (
-      <div className="h-full overflow-auto bg-muted">
-        <pre className="px-6 py-5 font-mono text-[13px] leading-6 text-foreground">
-          {content}
-        </pre>
-      </div>
+      <TextEditor
+        preview={preview}
+        workspaceId={selectedWorkspaceId ?? null}
+        onUpdated={setPreview}
+      />
     );
   }
 
@@ -129,5 +128,206 @@ export function FilePreviewPane({ filePath }: FilePreviewPaneProps) {
         {preview.unsupportedReason || "Preview unavailable for this file type."}
       </div>
     </div>
+  );
+}
+
+interface EditorSurfaceProps {
+  preview: FilePreviewPayload;
+  workspaceId: string | null;
+  onUpdated: (next: FilePreviewPayload) => void;
+}
+
+function useFileDraft(
+  preview: FilePreviewPayload,
+  workspaceId: string | null,
+  onUpdated: (next: FilePreviewPayload) => void,
+) {
+  const [draft, setDraft] = useState(preview.content ?? "");
+  const [saving, setSaving] = useState(false);
+
+  // Reset whenever we switch files OR the on-disk content changes
+  // beneath us (e.g. external write); keying on absolutePath +
+  // preview.modifiedAt lets us re-baseline cleanly.
+  useEffect(() => {
+    setDraft(preview.content ?? "");
+  }, [preview.absolutePath, preview.modifiedAt, preview.content]);
+
+  const dirty = draft !== (preview.content ?? "");
+
+  const save = useCallback(async () => {
+    if (!dirty || saving) return;
+    setSaving(true);
+    try {
+      const next = await window.electronAPI.fs.writeTextFile(
+        preview.absolutePath,
+        draft,
+        workspaceId,
+      );
+      onUpdated(next);
+    } catch {
+      // surface left to the dirty indicator; user can retry
+    } finally {
+      setSaving(false);
+    }
+  }, [dirty, saving, draft, preview.absolutePath, workspaceId, onUpdated]);
+
+  // Cmd/Ctrl+S to save when dirty.
+  useEffect(() => {
+    if (!dirty) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        void save();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dirty, save]);
+
+  return { draft, setDraft, dirty, saving, save };
+}
+
+function MarkdownEditor({ preview, workspaceId, onUpdated }: EditorSurfaceProps) {
+  const { draft, setDraft, dirty, saving, save } = useFileDraft(
+    preview,
+    workspaceId,
+    onUpdated,
+  );
+  const [mode, setMode] = useState<"preview" | "edit">("preview");
+  const editable = preview.isEditable;
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-3">
+        <ToggleButton
+          active={mode === "preview"}
+          onClick={() => setMode("preview")}
+        >
+          <Eye className="size-3.5" />
+          Preview
+        </ToggleButton>
+        {editable ? (
+          <ToggleButton
+            active={mode === "edit"}
+            onClick={() => setMode("edit")}
+          >
+            <Pencil className="size-3.5" />
+            Edit
+          </ToggleButton>
+        ) : null}
+        <div className="ml-auto flex items-center gap-2">
+          {dirty ? (
+            <span className="text-[11px] text-muted-foreground">
+              Unsaved
+            </span>
+          ) : null}
+          {editable && dirty ? (
+            <Button
+              size="xs"
+              variant="default"
+              disabled={saving}
+              onClick={() => void save()}
+            >
+              {saving ? <Loader2 className="size-3 animate-spin" /> : null}
+              Save
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        {mode === "preview" ? (
+          <div className="mx-auto max-w-3xl px-10 py-12">
+            <SimpleMarkdown className="file-preview-markdown">
+              {draft}
+            </SimpleMarkdown>
+          </div>
+        ) : (
+          <textarea
+            aria-label={`Edit ${preview.name}`}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            readOnly={!editable}
+            spellCheck={false}
+            className={cn(
+              "h-full min-h-full w-full resize-none border-0 bg-muted px-6 py-5 font-mono text-[13px] leading-6 text-foreground outline-none",
+              !editable && "cursor-default opacity-80",
+            )}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TextEditor({ preview, workspaceId, onUpdated }: EditorSurfaceProps) {
+  const { draft, setDraft, dirty, saving, save } = useFileDraft(
+    preview,
+    workspaceId,
+    onUpdated,
+  );
+  const editable = preview.isEditable;
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
+        <span className="text-xs text-muted-foreground">
+          {editable ? "Editable" : preview.unsupportedReason || "Read only"}
+        </span>
+        <div className="ml-auto flex items-center gap-2">
+          {dirty ? (
+            <span className="text-[11px] text-muted-foreground">
+              Unsaved
+            </span>
+          ) : null}
+          {editable && dirty ? (
+            <Button
+              size="xs"
+              variant="default"
+              disabled={saving}
+              onClick={() => void save()}
+            >
+              {saving ? <Loader2 className="size-3 animate-spin" /> : null}
+              Save
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      <textarea
+        aria-label={`Edit ${preview.name}`}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        readOnly={!editable}
+        spellCheck={false}
+        className={cn(
+          "min-h-0 flex-1 resize-none border-0 bg-muted px-6 py-5 font-mono text-[13px] leading-6 text-foreground outline-none",
+          !editable && "cursor-default opacity-80",
+        )}
+      />
+    </div>
+  );
+}
+
+function ToggleButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex h-6 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
+        active
+          ? "bg-foreground/[0.08] text-foreground"
+          : "text-foreground/55 hover:bg-foreground/[0.04] hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
   );
 }
