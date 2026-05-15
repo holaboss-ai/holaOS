@@ -12,6 +12,8 @@ import {
   Camera,
   ChevronLeft,
   ChevronRight,
+  Clock3,
+  Download,
   FolderOpen,
   Globe,
   ListTree,
@@ -24,6 +26,12 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { PaneCard } from "@/components/ui/PaneCard";
 import { browserSurfaceStatusSummary } from "@/components/panes/browserSessionUi";
 import { BrowserProfileImportButton } from "@/components/panes/BrowserProfileImportButton";
@@ -1020,29 +1028,59 @@ export function BrowserPane({
                       <Camera size={13} />
                     )}
                   </Button>
-                  <Button
-                    ref={moreButtonRef}
-                    type="button"
-                    variant="outline"
-                    size="icon-sm"
-                    className="relative shrink-0"
-                    aria-label="More browser options"
-                    title="More options"
-                    onClick={() => {
-                      const bounds = getButtonBounds(moreButtonRef.current);
-                      if (!bounds) return;
-                      void window.electronAPI.browser.toggleOverflowPopup(
-                        bounds,
-                      );
-                    }}
-                  >
-                    <MoreHorizontal size={14} />
-                    {activeDownloadCount > 0 ? (
-                      <Badge className="absolute -right-1 -top-1 h-4 min-w-4 px-1 text-xs font-bold leading-none">
-                        {activeDownloadCount}
-                      </Badge>
-                    ) : null}
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          ref={moreButtonRef}
+                          type="button"
+                          variant="outline"
+                          size="icon-sm"
+                          className="relative shrink-0"
+                          aria-label="More browser options"
+                          title="More options"
+                        >
+                          <MoreHorizontal size={14} />
+                          {activeDownloadCount > 0 ? (
+                            <Badge className="absolute -right-1 -top-1 h-4 min-w-4 px-1 text-xs font-bold leading-none">
+                              {activeDownloadCount}
+                            </Badge>
+                          ) : null}
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end" sideOffset={6}>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          const bounds = getButtonBounds(moreButtonRef.current);
+                          if (!bounds) return;
+                          void window.electronAPI.browser.toggleDownloadsPopup(
+                            bounds,
+                          );
+                        }}
+                      >
+                        <Download className="size-3.5" />
+                        Downloads
+                        {activeDownloadCount > 0 ? (
+                          <span className="ml-auto text-xs tabular-nums text-foreground/40">
+                            {activeDownloadCount}
+                          </span>
+                        ) : null}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          const bounds = getButtonBounds(moreButtonRef.current);
+                          if (!bounds) return;
+                          void window.electronAPI.browser.toggleHistoryPopup(
+                            bounds,
+                          );
+                        }}
+                      >
+                        <Clock3 className="size-3.5" />
+                        History
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               ) : null}
             </form>
