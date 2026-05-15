@@ -4,6 +4,8 @@ import {
   Globe,
   Loader2,
   Package,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   X,
 } from "lucide-react";
@@ -25,6 +27,7 @@ export function TopChrome() {
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const { browserState } = useWorkspaceBrowser("user");
   const sidebarCollapsed = useAtomValue(sidebarCollapsedAtom);
+  const setSidebarCollapsed = useSetAtom(sidebarCollapsedAtom);
 
   const handleSelectTab = (id: string) => {
     if (selectedWorkspaceId) {
@@ -45,9 +48,26 @@ export function TopChrome() {
     <header
       className={cn(
         "window-drag flex h-10 shrink-0 items-center gap-1 border-b border-border pr-3",
-        sidebarCollapsed ? "pl-20" : "pl-3",
+        sidebarCollapsed ? "pl-20" : "pl-2",
       )}
     >
+      <button
+        type="button"
+        aria-label={sidebarCollapsed ? "Pin sidebar open" : "Collapse sidebar"}
+        title={
+          sidebarCollapsed
+            ? "Pin sidebar open (⌘\\)"
+            : "Collapse sidebar (⌘\\)"
+        }
+        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        className="window-no-drag mr-1 grid size-7 shrink-0 place-items-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+      >
+        {sidebarCollapsed ? (
+          <PanelLeftOpen className="size-3.5" />
+        ) : (
+          <PanelLeftClose className="size-3.5" />
+        )}
+      </button>
       {browserState.tabs.map((tab) => (
         <Tab
           key={tab.id}

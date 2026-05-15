@@ -4,8 +4,6 @@ import {
   Inbox,
   Loader2,
   Package,
-  PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   Search,
   Settings,
@@ -125,7 +123,7 @@ function SidebarExpanded({ floating = false }: { floating?: boolean }) {
         floating ? "h-full w-full" : "w-[260px] shrink-0",
       )}
     >
-      <WorkspaceSwitcher floating={floating} />
+      <WorkspaceSwitcher />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
         <SidebarGroup>
           <NavItem
@@ -246,7 +244,7 @@ function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
   );
 }
 
-function WorkspaceSwitcher({ floating = false }: { floating?: boolean }) {
+function WorkspaceSwitcher() {
   const { selectedWorkspaceId, setSelectedWorkspaceId } =
     useWorkspaceSelection();
   const {
@@ -257,7 +255,6 @@ function WorkspaceSwitcher({ floating = false }: { floating?: boolean }) {
   } = useWorkspaceDesktop();
   const setPublishOpen = useSetAtom(publishOpenAtom);
   const setCreateWorkspaceOpen = useSetAtom(createWorkspaceOpenAtom);
-  const setCollapsed = useSetAtom(sidebarCollapsedAtom);
 
   const [query, setQuery] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -420,21 +417,6 @@ function WorkspaceSwitcher({ floating = false }: { floating?: boolean }) {
           </div>
         </PopoverContent>
       </Popover>
-      <button
-        type="button"
-        aria-label={floating ? "Pin sidebar open" : "Collapse sidebar"}
-        title={
-          floating ? "Pin sidebar open (⌘\\)" : "Collapse sidebar (⌘\\)"
-        }
-        onClick={() => setCollapsed(!floating)}
-        className="window-no-drag ml-1 grid size-6 shrink-0 place-items-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
-      >
-        {floating ? (
-          <PanelLeftOpen className="size-3.5" />
-        ) : (
-          <PanelLeftClose className="size-3.5" />
-        )}
-      </button>
     </div>
   );
 }
