@@ -1,7 +1,6 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   ChevronDown,
-  FileText,
   Globe,
   Loader2,
   Package,
@@ -10,6 +9,7 @@ import {
   Plus,
   X,
 } from "lucide-react";
+import { FileTypeIcon } from "@/lib/fileIcon";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -177,6 +177,7 @@ export function TopChrome() {
           key={tab.id}
           id={tab.id}
           label={tab.label}
+          filePath={tab.filePath}
           active={tab.id === activeInternalTabId}
           onSelect={handleSelectInternalTab}
           onClose={handleCloseInternalTab}
@@ -210,6 +211,7 @@ export function TopChrome() {
 function InternalTabChip({
   id,
   label,
+  filePath,
   active,
   onSelect,
   onClose,
@@ -217,6 +219,7 @@ function InternalTabChip({
 }: {
   id: string;
   label: string;
+  filePath: string;
   active?: boolean;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
@@ -243,7 +246,7 @@ function InternalTabChip({
       )}
     >
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
-        <FileText className="size-3.5 shrink-0 text-foreground/55" />
+        <FileTypeIcon filePath={filePath} size={14} className="shrink-0" />
         <span className="flex-1 truncate">{label}</span>
       </div>
       <div
