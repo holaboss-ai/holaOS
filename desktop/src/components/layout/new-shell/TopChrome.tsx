@@ -2,6 +2,7 @@ import { useSetAtom } from "jotai";
 import {
   ChevronDown,
   Globe,
+  Loader2,
   Package,
   Plus,
   X,
@@ -93,7 +94,14 @@ function Tab({
     <div
       role="tab"
       aria-selected={active}
+      title={title}
       onClick={() => onSelect(id)}
+      onMouseDown={(e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          onClose(id);
+        }
+      }}
       className={cn(
         "window-no-drag group/tab flex h-7 max-w-[180px] cursor-default items-center rounded-md px-2.5 text-sm transition-colors",
         active
@@ -106,7 +114,9 @@ function Tab({
           aria-hidden
           className="grid size-3.5 shrink-0 place-items-center text-foreground/60"
         >
-          {showFavicon ? (
+          {loading ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : showFavicon ? (
             <img
               src={faviconUrl}
               alt=""
@@ -204,9 +214,18 @@ function ScratchRow({ tab }: { tab: BrowserStatePayload }) {
   };
 
   return (
-    <div className="group/scratch-row flex items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors duration-200 ease-out hover:bg-foreground/[0.04]">
+    <div
+      className="group/scratch-row flex items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors duration-200 ease-out hover:bg-foreground/[0.04]"
+      onMouseDown={(e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          void window.electronAPI.browser.closeTab(tab.id);
+        }
+      }}
+    >
       <button
         type="button"
+        title={title}
         onClick={() => void window.electronAPI.browser.setActiveTab(tab.id)}
         className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
       >
@@ -214,7 +233,9 @@ function ScratchRow({ tab }: { tab: BrowserStatePayload }) {
           aria-hidden
           className="grid size-5 shrink-0 place-items-center overflow-hidden rounded-[5px] bg-foreground/[0.06] text-[10px] font-semibold text-foreground/55 ring-1 ring-inset ring-foreground/5 transition-colors duration-200 ease-out group-hover/scratch-row:bg-foreground/[0.08] group-hover/scratch-row:text-foreground/70"
         >
-          {showFavicon ? (
+          {tab.loading ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : showFavicon ? (
             <img
               src={tab.faviconUrl}
               alt=""
