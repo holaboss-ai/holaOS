@@ -1,4 +1,5 @@
 import {
+  Check,
   ChevronDown,
   Globe,
   Inbox,
@@ -6,13 +7,20 @@ import {
   Package,
   Search,
   Settings,
-  Sparkles,
   Store,
   Wrench,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { UserAvatar } from "@/components/ui/UserAvatar";
+import { WorkspaceIcon } from "@/components/ui/workspace-icon";
+import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { cn } from "@/lib/utils";
 import { SectionLabel } from "./shared";
 
@@ -74,24 +82,74 @@ export function Sidebar() {
 }
 
 function WorkspaceSwitcher() {
+  const { selectedWorkspaceId, setSelectedWorkspaceId } =
+    useWorkspaceSelection();
+  const { workspaces, selectedWorkspace } = useWorkspaceDesktop();
+
   return (
     <div className="window-drag flex h-10 shrink-0 items-center px-2 pl-20">
-      <Button
-        variant="ghost"
-        size="sm"
-        className="window-no-drag flex h-7 min-w-0 flex-1 justify-start gap-1.5 px-2 text-left"
-      >
-        <span
-          className="grid size-4 shrink-0 place-items-center rounded-full bg-primary/15 text-primary ring-1 ring-foreground/10"
-          aria-hidden
+      <Popover>
+        <PopoverTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="window-no-drag flex h-7 min-w-0 flex-1 justify-start gap-1.5 px-2 text-left"
+            >
+              {selectedWorkspace ? (
+                <WorkspaceIcon
+                  workspace={selectedWorkspace}
+                  size="xs"
+                  className="ring-1 ring-foreground/10"
+                />
+              ) : (
+                <span
+                  className="size-4 shrink-0 rounded bg-foreground/10"
+                  aria-hidden
+                />
+              )}
+              <span className="ml-1 min-w-0 flex-1 truncate font-sans text-base font-medium">
+                {selectedWorkspace?.name ?? "Select workspace"}
+              </span>
+              <ChevronDown className="size-3 shrink-0 text-foreground/40" />
+            </Button>
+          }
+        />
+        <PopoverContent
+          align="start"
+          sideOffset={6}
+          className="w-[260px] gap-0 p-1"
+          style={{
+            animationDuration: "220ms",
+            animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+          }}
         >
-          <Sparkles className="size-2.5" />
-        </span>
-        <span className="ml-1 min-w-0 flex-1 truncate font-sans text-base font-medium">
-          SocialMedia
-        </span>
-        <ChevronDown className="size-3 shrink-0 text-foreground/40" />
-      </Button>
+          {workspaces.length === 0 ? (
+            <div className="px-2 py-3 text-center text-xs text-foreground/40">
+              No workspaces yet.
+            </div>
+          ) : (
+            workspaces.map((w) => (
+              <button
+                key={w.id}
+                type="button"
+                onClick={() => setSelectedWorkspaceId(w.id)}
+                className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-foreground/[0.04]"
+              >
+                <WorkspaceIcon
+                  workspace={w}
+                  size="xs"
+                  className="ring-1 ring-foreground/10"
+                />
+                <span className="min-w-0 flex-1 truncate">{w.name}</span>
+                {w.id === selectedWorkspaceId ? (
+                  <Check className="size-3.5 shrink-0 text-foreground/60" />
+                ) : null}
+              </button>
+            ))
+          )}
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
