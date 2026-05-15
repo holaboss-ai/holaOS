@@ -1,13 +1,12 @@
 import { useSetAtom } from "jotai";
 import {
   ChevronDown,
-  FileText,
   Globe,
-  LayoutDashboard,
   Package,
   Plus,
   X,
 } from "lucide-react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,21 +14,35 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { useWorkspaceBrowser } from "@/components/panes/useWorkspaceBrowser";
 import { cn } from "@/lib/utils";
 import { newTabOpenAtom } from "./state/ui";
 
 export function TopChrome() {
   const openNewTab = useSetAtom(newTabOpenAtom);
+  const { browserState } = useWorkspaceBrowser("user");
+
+  const handleSelectTab = (id: string) => {
+    void window.electronAPI.browser.setActiveTab(id);
+  };
+  const handleCloseTab = (id: string) => {
+    void window.electronAPI.browser.closeTab(id);
+  };
+
   return (
     <header className="window-drag flex h-10 shrink-0 items-center gap-1 border-b border-border px-3">
-      <Tab title="Engagement" icon={<LayoutDashboard className="size-3.5" />} />
-      <Tab title="launch brief" icon={<FileText className="size-3.5" />} active />
-      <Tab title="linkedin.com" icon={<Globe className="size-3.5" />} />
-      <Tab
-        title="linkedin.com"
-        icon={<Globe className="size-3.5" />}
-        driver="agent"
-      />
+      {browserState.tabs.map((tab) => (
+        <Tab
+          key={tab.id}
+          id={tab.id}
+          title={tab.title || hostFromUrl(tab.url) || "New Tab"}
+          faviconUrl={tab.faviconUrl}
+          loading={tab.loading}
+          active={tab.id === browserState.activeTabId}
+          onSelect={handleSelectTab}
+          onClose={handleCloseTab}
+        />
+      ))}
       <ScratchGroupChip />
       <Button
         variant="ghost"
@@ -44,21 +57,41 @@ export function TopChrome() {
   );
 }
 
+function hostFromUrl(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "";
+  }
+}
+
 function Tab({
+  id,
   title,
-  icon,
+  faviconUrl,
+  loading,
   active,
   driver,
+  onSelect,
+  onClose,
 }: {
+  id: string;
   title: string;
-  icon: React.ReactNode;
+  faviconUrl?: string;
+  loading?: boolean;
   active?: boolean;
   driver?: "agent" | "watch";
+  onSelect: (id: string) => void;
+  onClose: (id: string) => void;
 }) {
+  const [faviconError, setFaviconError] = useState(false);
+  const showFavicon = Boolean(faviconUrl) && !faviconError && !loading;
+
   return (
     <div
       role="tab"
       aria-selected={active}
+      onClick={() => onSelect(id)}
       className={cn(
         "window-no-drag group/tab flex h-7 max-w-[180px] cursor-default items-center rounded-md px-2.5 text-sm transition-colors",
         active
@@ -67,7 +100,21 @@ function Tab({
       )}
     >
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
-        {icon}
+        <span
+          aria-hidden
+          className="grid size-3.5 shrink-0 place-items-center text-foreground/60"
+        >
+          {showFavicon ? (
+            <img
+              src={faviconUrl}
+              alt=""
+              className="size-3.5 rounded-[2px] object-contain"
+              onError={() => setFaviconError(true)}
+            />
+          ) : (
+            <Globe className="size-3.5" />
+          )}
+        </span>
         <span className="flex-1 truncate">{title}</span>
         {driver === "agent" ? (
           <span
@@ -85,6 +132,10 @@ function Tab({
           type="button"
           aria-label="Close tab"
           tabIndex={-1}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose(id);
+          }}
           className="grid size-3.5 shrink-0 place-items-center rounded-full bg-foreground/10 text-foreground/60 opacity-0 transition-opacity duration-200 ease-out hover:bg-foreground/20 hover:text-foreground group-hover/tab:opacity-100"
         >
           <X className="size-2.5" strokeWidth={2.5} />
