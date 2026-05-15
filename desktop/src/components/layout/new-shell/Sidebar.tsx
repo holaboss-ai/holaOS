@@ -1,9 +1,8 @@
-import { useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import {
   ChevronDown,
-  Globe,
+  Clock3,
   Inbox,
-  LayoutDashboard,
   Loader2,
   Package,
   Plus,
@@ -35,22 +34,58 @@ import { SectionLabel } from "./shared";
 import {
   appsOpenAtom,
   artifactsOpenAtom,
+  automationsOpenAtom,
   createWorkspaceOpenAtom,
   inboxOpenAtom,
   marketplaceOpenAtom,
   publishOpenAtom,
   searchOpenAtom,
+  sessionsOpenAtom,
   settingsOpenAtom,
+  settingsSectionAtom,
 } from "./state/ui";
+import { useTaskProposals } from "./useTaskProposals";
+import {
+  useRecentBrowserHistory,
+  useWorkspaceCronjobs,
+  useWorkspaceSkills,
+} from "./useWorkspaceLists";
+
+function hostFromUrl(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "";
+  }
+}
 
 export function Sidebar() {
   const { installedApps } = useWorkspaceDesktop();
+  const { selectedWorkspaceId } = useWorkspaceSelection();
+
   const setArtifactsOpen = useSetAtom(artifactsOpenAtom);
   const setInboxOpen = useSetAtom(inboxOpenAtom);
+  const setAutomationsOpen = useSetAtom(automationsOpenAtom);
+  const setSessionsOpen = useSetAtom(sessionsOpenAtom);
   const setAppsOpen = useSetAtom(appsOpenAtom);
   const setMarketplaceOpen = useSetAtom(marketplaceOpenAtom);
   const setSettingsOpen = useSetAtom(settingsOpenAtom);
   const setSearchOpen = useSetAtom(searchOpenAtom);
+  const setSettingsSection = useSetAtom(settingsSectionAtom);
+
+  const artifactsOpen = useAtomValue(artifactsOpenAtom);
+  const inboxOpen = useAtomValue(inboxOpenAtom);
+  const automationsOpen = useAtomValue(automationsOpenAtom);
+  const sessionsOpen = useAtomValue(sessionsOpenAtom);
+  const appsOpen = useAtomValue(appsOpenAtom);
+  const marketplaceOpen = useAtomValue(marketplaceOpenAtom);
+  const settingsOpen = useAtomValue(settingsOpenAtom);
+
+  const skills = useWorkspaceSkills(selectedWorkspaceId || null);
+  const cronjobs = useWorkspaceCronjobs(selectedWorkspaceId || null);
+  const recents = useRecentBrowserHistory(7);
+  const { proposals } = useTaskProposals(selectedWorkspaceId || null);
+  const unreadInbox = proposals.length;
 
   return (
     <aside
@@ -68,72 +103,126 @@ export function Sidebar() {
           </NavItem>
           <NavItem
             icon={<Inbox />}
+            badge={unreadInbox > 0 ? unreadInbox : undefined}
+            active={inboxOpen}
             onClick={() => setInboxOpen(true)}
           >
             Inbox
           </NavItem>
           <NavItem
             icon={<Package />}
+            active={artifactsOpen}
             onClick={() => setArtifactsOpen(true)}
           >
             Artifacts
           </NavItem>
         </SidebarGroup>
 
-        <SidebarGroup>
-          <SectionLabel>Recents</SectionLabel>
-          <NavItem indent>LinkedIn launch</NavItem>
-          <NavItem indent>brand voice memo</NavItem>
-          <NavItem indent>weekly digest</NavItem>
-        </SidebarGroup>
+        {recents.length > 0 ? (
+          <SidebarGroup>
+            <SectionLabel>Recents</SectionLabel>
+            {recents.map((entry) => (
+              <RecentRow key={entry.id} entry={entry} />
+            ))}
+          </SidebarGroup>
+        ) : null}
 
-        <SidebarGroup>
-          <SectionLabel>Pinned</SectionLabel>
-          <NavItem indent icon={<LayoutDashboard />}>
-            Engagement
-          </NavItem>
-          <NavItem indent icon={<Globe />}>
-            Competitor X
-          </NavItem>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SectionLabel>
-            Skills
-            <span className="ml-auto text-foreground/30">12</span>
-          </SectionLabel>
-          <SectionLabel>
-            Automations
-            <span className="ml-auto text-foreground/30">4</span>
-          </SectionLabel>
-        </SidebarGroup>
+        {skills.length > 0 || cronjobs.length > 0 ? (
+          <SidebarGroup>
+            {skills.length > 0 ? (
+              <SectionLabel>
+                Skills
+                <span className="ml-auto text-foreground/30">
+                  {skills.length}
+                </span>
+              </SectionLabel>
+            ) : null}
+            {cronjobs.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setAutomationsOpen(true)}
+                className={cn(
+                  "flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs font-medium tracking-wide text-foreground/40 uppercase transition-colors hover:bg-foreground/[0.04]",
+                  automationsOpen && "bg-foreground/[0.07]",
+                )}
+              >
+                <span>Automations</span>
+                <span className="ml-auto text-foreground/30">
+                  {cronjobs.length}
+                </span>
+              </button>
+            ) : null}
+          </SidebarGroup>
+        ) : null}
 
         <div className="mt-auto" />
 
         <SidebarGroup>
           <NavItem
             icon={<Wrench />}
-            badge={installedApps.length}
+            badge={installedApps.length > 0 ? installedApps.length : undefined}
+            active={appsOpen}
             onClick={() => setAppsOpen(true)}
           >
             Apps
           </NavItem>
           <NavItem
             icon={<Store />}
+            active={marketplaceOpen}
             onClick={() => setMarketplaceOpen(true)}
           >
             Marketplace
           </NavItem>
           <NavItem
+            icon={<Clock3 />}
+            active={sessionsOpen}
+            onClick={() => setSessionsOpen(true)}
+          >
+            Sessions
+          </NavItem>
+          <NavItem
             icon={<Settings />}
-            onClick={() => setSettingsOpen(true)}
+            active={settingsOpen}
+            onClick={() => {
+              setSettingsSection("settings");
+              setSettingsOpen(true);
+            }}
           >
             Settings
           </NavItem>
         </SidebarGroup>
       </div>
-      <AccountFoot />
+      <AccountFoot
+        onOpenAccount={() => {
+          setSettingsSection("account");
+          setSettingsOpen(true);
+        }}
+      />
     </aside>
+  );
+}
+
+function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
+  const { selectedWorkspaceId } = useWorkspaceSelection();
+  const title = entry.title || hostFromUrl(entry.url) || entry.url;
+  const handleOpen = async () => {
+    if (selectedWorkspaceId) {
+      await window.electronAPI.browser.setActiveWorkspace(
+        selectedWorkspaceId,
+        "user",
+      );
+    }
+    await window.electronAPI.browser.newTab(entry.url);
+  };
+  return (
+    <button
+      type="button"
+      onClick={() => void handleOpen()}
+      title={title}
+      className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.04]"
+    >
+      <span className="truncate">{title}</span>
+    </button>
   );
 }
 
@@ -217,6 +306,7 @@ function WorkspaceSwitcher() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search workspaces"
+              autoFocus
               className="h-8 rounded-md pl-8 text-xs focus-visible:ring-0"
             />
           </div>
@@ -362,17 +452,22 @@ function NavItem({
   );
 }
 
-function AccountFoot() {
+function AccountFoot({ onOpenAccount }: { onOpenAccount: () => void }) {
   const { data } = useDesktopAuthSession();
   const user = data?.user ?? null;
   const label = user?.name ?? user?.email ?? "Not signed in";
 
   return (
-    <div className="flex h-10 shrink-0 items-center gap-2 px-3">
+    <button
+      type="button"
+      onClick={onOpenAccount}
+      title="Open account settings"
+      className="flex h-10 shrink-0 items-center gap-2 px-3 text-left transition-colors hover:bg-foreground/[0.04]"
+    >
       <div className="size-5 shrink-0 overflow-hidden rounded-full ring-1 ring-inset ring-foreground/10">
         <UserAvatar user={user} />
       </div>
       <span className="flex-1 truncate text-sm">{label}</span>
-    </div>
+    </button>
   );
 }
