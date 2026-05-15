@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 export type ChatAttachment = SessionInputAttachmentPayload;
-export type ChatPaneVariant = "default" | "onboarding";
+export type ChatPaneVariant = "default" | "onboarding" | "embedded";
 
 export type ChatAssistantSegment =
   | {

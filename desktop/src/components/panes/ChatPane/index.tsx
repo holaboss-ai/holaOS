@@ -2963,6 +2963,7 @@ export function ChatPane({
     new Set(),
   );
   const isOnboardingVariant = variant === "onboarding";
+  const isEmbeddedVariant = variant === "embedded";
   const pendingFocusRequestKeyRef = useRef<number | null>(focusRequestKey);
   const lastHandledSessionJumpRequestKeyRef = useRef(0);
   const lastHandledExternalSessionOpenRequestKeyRef = useRef(0);
@@ -6894,16 +6895,6 @@ export function ChatPane({
     visibleConfiguredProviderModelGroups.some(
       (providerGroup) => providerGroup.pending,
     );
-  const providerModelLabelCounts = new Map<string, number>();
-  for (const providerGroup of visibleConfiguredProviderModelGroups) {
-    for (const model of providerGroup.models) {
-      const modelLabel = runtimeModelDisplayLabel(model);
-      providerModelLabelCounts.set(
-        modelLabel,
-        (providerModelLabelCounts.get(modelLabel) ?? 0) + 1,
-      );
-    }
-  }
   const runtimeDefaultModel =
     runtimeConfig?.defaultModel?.trim() || DEFAULT_RUNTIME_MODEL;
   const requiresModelProviderSetup =
@@ -6924,15 +6915,10 @@ export function ChatPane({
           label: providerGroup.providerLabel,
           options: providerGroup.models.map((model) => {
             const modelLabel = runtimeModelDisplayLabel(model);
-            const needsProviderPrefix =
-              visibleConfiguredProviderModelGroups.length > 1 &&
-              (providerModelLabelCounts.get(modelLabel) ?? 0) > 1;
             return {
               value: model.token,
               label: modelLabel,
-              selectedLabel: needsProviderPrefix
-                ? `${providerGroup.providerLabel} · ${modelLabel}`
-                : modelLabel,
+              selectedLabel: modelLabel,
               searchText: `${providerGroup.providerLabel} ${modelLabel} ${model.token}`,
               disabled: providerGroup.pending,
               statusLabel: providerGroup.pending ? "Pending" : undefined,
@@ -7403,12 +7389,9 @@ export function ChatPane({
     };
   }, [hasMessages]);
 
-  return (
-    <PaneCard
-      className={isOnboardingVariant ? "w-full border-primary/20" : "w-full"}
-    >
-      <div className="relative flex h-full min-h-0 min-w-0 flex-col">
-        <div className="theme-chat-composer-glow pointer-events-none absolute inset-x-8 bottom-0 h-44 rounded-full blur-2xl" />
+  const innerContent = (
+    <div className="relative flex h-full min-h-0 min-w-0 flex-col">
+      <div className="theme-chat-composer-glow pointer-events-none absolute inset-x-8 bottom-0 h-44 rounded-full blur-2xl" />
 
         {isOnboardingVariant && selectedWorkspace ? (
           <div className="shrink-0 px-4 pt-4 sm:px-5">
@@ -7967,6 +7950,22 @@ export function ChatPane({
           />
         </div>
       </div>
+    </div>
+  );
+
+  if (isEmbeddedVariant) {
+    return (
+      <div className="relative flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden">
+        {innerContent}
+      </div>
+    );
+  }
+
+  return (
+    <PaneCard
+      className={isOnboardingVariant ? "w-full border-primary/20" : "w-full"}
+    >
+      {innerContent}
     </PaneCard>
   );
 }
