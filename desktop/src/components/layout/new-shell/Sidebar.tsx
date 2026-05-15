@@ -32,10 +32,15 @@ import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { cn } from "@/lib/utils";
 import { SectionLabel } from "./shared";
-import { createWorkspaceOpenAtom, publishOpenAtom } from "./state/ui";
+import {
+  artifactsOpenAtom,
+  createWorkspaceOpenAtom,
+  publishOpenAtom,
+} from "./state/ui";
 
 export function Sidebar() {
   const { installedApps } = useWorkspaceDesktop();
+  const setArtifactsOpen = useSetAtom(artifactsOpenAtom);
 
   return (
     <aside
@@ -49,7 +54,12 @@ export function Sidebar() {
           <NavItem icon={<Inbox />} badge={2}>
             Inbox
           </NavItem>
-          <NavItem icon={<Package />}>Artifacts</NavItem>
+          <NavItem
+            icon={<Package />}
+            onClick={() => setArtifactsOpen(true)}
+          >
+            Artifacts
+          </NavItem>
         </SidebarGroup>
 
         <SidebarGroup>
@@ -282,18 +292,21 @@ function NavItem({
   badge,
   indent,
   active,
+  onClick,
   children,
 }: {
   icon?: React.ReactNode;
   badge?: number;
   indent?: boolean;
   active?: boolean;
+  onClick?: () => void;
   children: React.ReactNode;
 }) {
   return (
     <Button
       variant="ghost"
       size="sm"
+      onClick={onClick}
       className={cn(
         "h-auto justify-start gap-2 px-2 py-[5px] text-sm font-normal text-foreground",
         active && "bg-foreground/[0.07] text-foreground",

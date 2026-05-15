@@ -8,3 +8,15 @@ export const publishOpenAtom = atom(false);
 
 /** Is the create-new-workspace panel open? */
 export const createWorkspaceOpenAtom = atom(false);
+
+/** Is the Inbox overlay open? */
+export const inboxOpenAtom = atom(false);
+
+/** Is the Artifacts overlay open? */
+export const artifactsOpenAtom = atom(false);
+
+/** Is the Automations overlay open? */
+export const automationsOpenAtom = atom(false);
+
+/** Is the Sessions overlay open? */
+export const sessionsOpenAtom = atom(false);

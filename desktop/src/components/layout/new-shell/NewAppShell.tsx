@@ -11,6 +11,7 @@ import {
 import { Center } from "./Center";
 import { ChatPanel } from "./ChatPanel";
 import { NewTabDialog } from "./NewTabDialog";
+import { Overlays } from "./Overlays";
 import { Sidebar } from "./Sidebar";
 import {
   createWorkspaceOpenAtom,
@@ -61,6 +62,7 @@ function NewAppShellContent() {
         </div>
       </div>
       <NewTabDialog />
+      <Overlays />
       {selectedWorkspaceId ? (
         <PublishScreen
           open={publishOpen}
