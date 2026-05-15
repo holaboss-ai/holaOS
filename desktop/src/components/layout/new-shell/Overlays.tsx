@@ -84,32 +84,34 @@ function PaneOverlay({
     <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Backdrop
-          className="fixed inset-0 z-40 bg-foreground/20 backdrop-blur-sm data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0"
-          style={{
-            animationDuration: "180ms",
-            animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
-          }}
+          className="fixed inset-0 z-40 bg-foreground/30 opacity-0 transition-opacity duration-[200ms] data-open:opacity-100"
+          style={{ transitionTimingFunction: "cubic-bezier(0.32, 0.72, 0, 1)" }}
         />
         <DialogPrimitive.Popup
-          className={`fixed top-1/2 left-1/2 z-40 flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl outline-none ring-1 ring-foreground/5 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.98] data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[0.98] ${SIZE_CLASS[size]}`}
-          style={{
-            animationDuration: "220ms",
-            animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
-          }}
+          className="group fixed inset-0 z-40 grid place-items-center opacity-0 outline-none transition-opacity duration-[220ms] data-open:opacity-100"
+          style={{ transitionTimingFunction: "cubic-bezier(0.32, 0.72, 0, 1)" }}
         >
-          <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
-            <span className="text-sm font-medium">{title}</span>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Close"
-              onClick={() => setOpen(false)}
-              className="text-foreground/60"
-            >
-              <X className="size-3.5" />
-            </Button>
+          <div
+            className={`flex scale-[0.96] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl ring-1 ring-foreground/5 transition-transform duration-[240ms] group-data-[open]:scale-100 ${SIZE_CLASS[size]}`}
+            style={{
+              transitionTimingFunction: "cubic-bezier(0.32, 0.72, 0, 1)",
+              willChange: "transform",
+            }}
+          >
+            <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
+              <span className="text-sm font-medium">{title}</span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Close"
+                onClick={() => setOpen(false)}
+                className="text-foreground/60"
+              >
+                <X className="size-3.5" />
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
           </div>
-          <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
         </DialogPrimitive.Popup>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
