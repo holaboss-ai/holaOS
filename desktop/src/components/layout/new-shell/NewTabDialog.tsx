@@ -1,11 +1,7 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useAtom } from "jotai";
-import {
-  CornerDownLeft,
-  FileText,
-  Globe,
-  LayoutDashboard,
-} from "lucide-react";
+import { CornerDownLeft, Globe, Search } from "lucide-react";
+import { useState } from "react";
 import {
   Command,
   CommandEmpty,
@@ -17,48 +13,42 @@ import {
 import { Kbd } from "@/components/ui/kbd";
 import { newTabOpenAtom } from "./state/ui";
 
-type RecentTabType = "browser" | "doc" | "dashboard";
+function looksLikeUrl(input: string): boolean {
+  if (!input) return false;
+  if (input.startsWith("http://") || input.startsWith("https://")) return true;
+  if (input.includes(" ")) return false;
+  return /^[^\s]+\.[^\s]+$/.test(input);
+}
 
-const RECENTLY_CLOSED: Array<{
-  id: string;
-  type: RecentTabType;
-  title: string;
-  sub: string;
-  when: string;
-}> = [
-  {
-    id: "r1",
-    type: "browser",
-    title: "Joshua Li · LinkedIn",
-    sub: "linkedin.com/in/joshli",
-    when: "2h",
-  },
-  {
-    id: "r2",
-    type: "dashboard",
-    title: "Engagement",
-    sub: "Dashboard",
-    when: "1d",
-  },
-  {
-    id: "r3",
-    type: "doc",
-    title: "launch brief",
-    sub: "Doc",
-    when: "3d",
-  },
-];
-
-function iconForType(type: RecentTabType) {
-  if (type === "browser") return <Globe />;
-  if (type === "dashboard") return <LayoutDashboard />;
-  return <FileText />;
+function normalizeUrl(input: string): string {
+  if (input.startsWith("http://") || input.startsWith("https://")) {
+    return input;
+  }
+  if (looksLikeUrl(input)) {
+    return `https://${input}`;
+  }
+  return `https://www.google.com/search?q=${encodeURIComponent(input)}`;
 }
 
 export function NewTabDialog() {
   const [open, setOpen] = useAtom(newTabOpenAtom);
+  const [query, setQuery] = useState("");
+  const trimmed = query.trim();
+  const isUrlLike = looksLikeUrl(trimmed);
+
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (!next) setQuery("");
+  };
+
+  const handleOpenInput = async () => {
+    if (!trimmed) return;
+    await window.electronAPI.browser.newTab(normalizeUrl(trimmed));
+    handleOpenChange(false);
+  };
+
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
+    <DialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Backdrop
           className="fixed inset-0 z-[90] bg-foreground/20 backdrop-blur-sm data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0"
@@ -75,62 +65,44 @@ export function NewTabDialog() {
           }}
         >
           <Command className="bg-transparent">
-            <CommandInput placeholder="Search or enter URL..." />
+            <CommandInput
+              value={query}
+              onValueChange={setQuery}
+              placeholder="Search or enter URL..."
+            />
             <CommandList className="max-h-[420px] px-1.5 pt-1 pb-2">
-              <CommandEmpty>No matches.</CommandEmpty>
-              <CommandGroup heading="Recently closed">
-                {RECENTLY_CLOSED.map((item) => (
+              {trimmed ? null : (
+                <CommandEmpty>
+                  Type a URL or search query to open a new tab.
+                </CommandEmpty>
+              )}
+              {trimmed ? (
+                <CommandGroup heading={isUrlLike ? "Open URL" : "Search"}>
                   <CommandItem
-                    key={item.id}
-                    value={`${item.title} ${item.sub}`}
+                    value={trimmed}
+                    onSelect={() => void handleOpenInput()}
                     className="group/cmd-item gap-2.5 py-1.5"
                   >
                     <span
                       aria-hidden
                       className="grid size-5 shrink-0 place-items-center rounded-[5px] bg-foreground/[0.06] text-foreground/55 ring-1 ring-inset ring-foreground/5 [&_svg]:size-3"
                     >
-                      {iconForType(item.type)}
+                      {isUrlLike ? <Globe /> : <Search />}
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                      <span className="truncate text-sm">{item.title}</span>
+                      <span className="truncate text-sm">
+                        {isUrlLike ? trimmed : `Search "${trimmed}"`}
+                      </span>
                       <span className="truncate text-xs text-foreground/40">
-                        {item.sub}
+                        {isUrlLike
+                          ? "Open as browser tab"
+                          : "google.com/search"}
                       </span>
                     </span>
-                    <span className="text-xs tabular-nums text-foreground/35 transition-opacity duration-200 ease-out group-data-[selected=true]/cmd-item:opacity-0">
-                      {item.when}
-                    </span>
-                    <CornerDownLeft className="-ml-4 size-3 text-foreground/40 opacity-0 transition-opacity duration-200 ease-out group-data-[selected=true]/cmd-item:opacity-100" />
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-              <CommandGroup heading="Create new">
-                {(
-                  [
-                    { id: "new-doc", icon: FileText, label: "New Doc" },
-                    {
-                      id: "new-dash",
-                      icon: LayoutDashboard,
-                      label: "New Dashboard",
-                    },
-                  ] as const
-                ).map(({ id, icon: Icon, label }) => (
-                  <CommandItem
-                    key={id}
-                    value={label}
-                    className="group/cmd-item gap-2.5 py-1.5"
-                  >
-                    <span
-                      aria-hidden
-                      className="grid size-5 shrink-0 place-items-center rounded-[5px] bg-foreground/[0.06] text-foreground/55 ring-1 ring-inset ring-foreground/5"
-                    >
-                      <Icon className="size-3" />
-                    </span>
-                    <span className="flex-1 truncate text-sm">{label}</span>
                     <CornerDownLeft className="size-3 text-foreground/40 opacity-0 transition-opacity duration-200 ease-out group-data-[selected=true]/cmd-item:opacity-100" />
                   </CommandItem>
-                ))}
-              </CommandGroup>
+                </CommandGroup>
+              ) : null}
             </CommandList>
             <div className="flex items-center justify-between border-t border-border bg-foreground/[0.02] px-3 py-2 text-xs text-foreground/40">
               <span className="flex items-center gap-1.5">
