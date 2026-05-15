@@ -43,14 +43,14 @@ function PaneOverlay({
             animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
           }}
         >
-          <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
+          <div className="window-drag flex h-10 shrink-0 items-center justify-between border-b border-border pr-3 pl-20">
             <span className="text-sm font-medium">{title}</span>
             <Button
               variant="ghost"
               size="icon-sm"
               aria-label="Close"
               onClick={() => setOpen(false)}
-              className="text-foreground/60"
+              className="window-no-drag text-foreground/60"
             >
               <X className="size-3.5" />
             </Button>
