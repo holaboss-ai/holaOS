@@ -1,6 +1,7 @@
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   ChevronDown,
+  FileText,
   Globe,
   Loader2,
   Package,
@@ -20,6 +21,14 @@ import {
 import { useWorkspaceBrowser } from "@/components/panes/useWorkspaceBrowser";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { cn } from "@/lib/utils";
+import {
+  TabContextMenu,
+  type TabContextMenuTarget,
+} from "./TabContextMenu";
+import {
+  activeInternalTabIdAtom,
+  internalTabsAtom,
+} from "./state/internalTabs";
 import { newTabOpenAtom, sidebarCollapsedAtom } from "./state/ui";
 
 export function TopChrome() {
@@ -28,8 +37,16 @@ export function TopChrome() {
   const { browserState } = useWorkspaceBrowser("user");
   const sidebarCollapsed = useAtomValue(sidebarCollapsedAtom);
   const setSidebarCollapsed = useSetAtom(sidebarCollapsedAtom);
+  const [internalTabs, setInternalTabs] = useAtom(internalTabsAtom);
+  const [activeInternalTabId, setActiveInternalTabId] = useAtom(
+    activeInternalTabIdAtom,
+  );
+  const [menuTarget, setMenuTarget] = useState<TabContextMenuTarget | null>(
+    null,
+  );
 
-  const handleSelectTab = (id: string) => {
+  const handleSelectBrowserTab = (id: string) => {
+    setActiveInternalTabId(null);
     if (selectedWorkspaceId) {
       void window.electronAPI.browser.setActiveWorkspace(
         selectedWorkspaceId,
@@ -38,9 +55,81 @@ export function TopChrome() {
     }
     void window.electronAPI.browser.setActiveTab(id);
   };
-  const handleCloseTab = (id: string) => {
+
+  const handleCloseBrowserTab = (id: string) => {
     void window.electronAPI.browser.closeTab(id);
   };
+
+  const handleSelectInternalTab = (id: string) => {
+    setActiveInternalTabId(id);
+  };
+
+  const handleCloseInternalTab = (id: string) => {
+    setInternalTabs((prev) => {
+      const next = prev.filter((t) => t.id !== id);
+      if (activeInternalTabId === id) {
+        // Activate the previous sibling if any, else clear (revert to browser).
+        const idx = prev.findIndex((t) => t.id === id);
+        const fallback = next[idx - 1] ?? next[0] ?? null;
+        setActiveInternalTabId(fallback?.id ?? null);
+      }
+      return next;
+    });
+  };
+
+  const openContextMenu =
+    (list: "browser" | "internal", tabId: string) =>
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setMenuTarget({ list, tabId, x: e.clientX, y: e.clientY });
+    };
+
+  const buildContextActions = () => {
+    if (!menuTarget) return null;
+    const browserTabs = browserState.tabs;
+    const browserIds = browserTabs.map((t) => t.id);
+    const internalIds = internalTabs.map((t) => t.id);
+    const allIds = [...browserIds, ...internalIds];
+    const targetGlobalIdx = allIds.indexOf(menuTarget.tabId);
+    if (targetGlobalIdx === -1) return null;
+    const idsLeft = allIds.slice(0, targetGlobalIdx);
+    const idsRight = allIds.slice(targetGlobalIdx + 1);
+    const idsOthers = [...idsLeft, ...idsRight];
+
+    const closeMany = (ids: string[]) => {
+      const internalSet = new Set(internalIds);
+      const browserToClose = ids.filter((id) => !internalSet.has(id));
+      const internalToClose = ids.filter((id) => internalSet.has(id));
+      for (const id of browserToClose) {
+        void window.electronAPI.browser.closeTab(id);
+      }
+      if (internalToClose.length > 0) {
+        setInternalTabs((prev) =>
+          prev.filter((t) => !internalToClose.includes(t.id)),
+        );
+        if (
+          activeInternalTabId &&
+          internalToClose.includes(activeInternalTabId)
+        ) {
+          setActiveInternalTabId(null);
+        }
+      }
+    };
+
+    return {
+      onClose: () => {
+        if (menuTarget.list === "browser") handleCloseBrowserTab(menuTarget.tabId);
+        else handleCloseInternalTab(menuTarget.tabId);
+      },
+      onCloseOthers: () => closeMany(idsOthers),
+      onCloseToLeft: () => closeMany(idsLeft),
+      onCloseToRight: () => closeMany(idsRight),
+      canCloseLeft: idsLeft.length > 0,
+      canCloseRight: idsRight.length > 0,
+      canCloseOthers: idsOthers.length > 0,
+    };
+  };
+  const ctxActions = buildContextActions();
 
   const agentTabCount = browserState.tabCounts.agent;
 
@@ -75,9 +164,23 @@ export function TopChrome() {
           title={tab.title || hostFromUrl(tab.url) || "New Tab"}
           faviconUrl={tab.faviconUrl}
           loading={tab.loading}
-          active={tab.id === browserState.activeTabId}
-          onSelect={handleSelectTab}
-          onClose={handleCloseTab}
+          active={
+            tab.id === browserState.activeTabId && !activeInternalTabId
+          }
+          onSelect={handleSelectBrowserTab}
+          onClose={handleCloseBrowserTab}
+          onContextMenu={openContextMenu("browser", tab.id)}
+        />
+      ))}
+      {internalTabs.map((tab) => (
+        <InternalTabChip
+          key={tab.id}
+          id={tab.id}
+          label={tab.label}
+          active={tab.id === activeInternalTabId}
+          onSelect={handleSelectInternalTab}
+          onClose={handleCloseInternalTab}
+          onContextMenu={openContextMenu("internal", tab.id)}
         />
       ))}
       {agentTabCount > 0 ? <ScratchGroupChip /> : null}
@@ -90,7 +193,77 @@ export function TopChrome() {
       >
         <Plus className="size-3.5" />
       </Button>
+      {menuTarget && ctxActions ? (
+        <TabContextMenu
+          target={menuTarget}
+          actions={ctxActions}
+          canCloseLeft={ctxActions.canCloseLeft}
+          canCloseRight={ctxActions.canCloseRight}
+          canCloseOthers={ctxActions.canCloseOthers}
+          onDismiss={() => setMenuTarget(null)}
+        />
+      ) : null}
     </header>
+  );
+}
+
+function InternalTabChip({
+  id,
+  label,
+  active,
+  onSelect,
+  onClose,
+  onContextMenu,
+}: {
+  id: string;
+  label: string;
+  active?: boolean;
+  onSelect: (id: string) => void;
+  onClose: (id: string) => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <div
+      role="tab"
+      aria-selected={active}
+      title={label}
+      onClick={() => onSelect(id)}
+      onContextMenu={onContextMenu}
+      onMouseDown={(e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          onClose(id);
+        }
+      }}
+      className={cn(
+        "window-no-drag group/tab flex h-7 max-w-[180px] cursor-default items-center rounded-md px-2.5 text-sm transition-colors",
+        active
+          ? "bg-foreground/[0.07] text-foreground"
+          : "text-foreground/60 hover:bg-foreground/[0.04]",
+      )}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <FileText className="size-3.5 shrink-0 text-foreground/55" />
+        <span className="flex-1 truncate">{label}</span>
+      </div>
+      <div
+        aria-hidden
+        className="ml-0 w-0 shrink-0 overflow-hidden transition-[width,margin-left] duration-300 ease-out-expo group-hover/tab:ml-1.5 group-hover/tab:w-3.5"
+      >
+        <button
+          type="button"
+          aria-label="Close tab"
+          tabIndex={-1}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose(id);
+          }}
+          className="grid size-3.5 shrink-0 place-items-center rounded-full bg-foreground/10 text-foreground/60 opacity-0 transition-opacity duration-200 ease-out hover:bg-foreground/20 hover:text-foreground group-hover/tab:opacity-100"
+        >
+          <X className="size-2.5" strokeWidth={2.5} />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -111,6 +284,7 @@ function Tab({
   driver,
   onSelect,
   onClose,
+  onContextMenu,
 }: {
   id: string;
   title: string;
@@ -120,6 +294,7 @@ function Tab({
   driver?: "agent" | "watch";
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }) {
   const [faviconError, setFaviconError] = useState(false);
   const showFavicon = Boolean(faviconUrl) && !faviconError && !loading;
@@ -130,6 +305,7 @@ function Tab({
       aria-selected={active}
       title={title}
       onClick={() => onSelect(id)}
+      onContextMenu={onContextMenu}
       onMouseDown={(e) => {
         if (e.button === 1) {
           e.preventDefault();

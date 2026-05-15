@@ -1,5 +1,6 @@
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
+import { activeInternalTabIdAtom } from "./internalTabs";
 
 /** Is the sidebar collapsed (icon-only / hidden)? Persists across sessions. */
 export const sidebarCollapsedAtom = atomWithStorage(
@@ -64,5 +65,6 @@ export const browserViewSuspendedAtom = atom(
     get(automationsOpenAtom) ||
     get(sessionsOpenAtom) ||
     get(settingsOpenAtom) ||
-    get(marketplaceOpenAtom),
+    get(marketplaceOpenAtom) ||
+    get(activeInternalTabIdAtom) !== null,
 );

@@ -4,16 +4,28 @@ import { useState } from "react";
 import { BrowserPane } from "@/components/panes/BrowserPane";
 import { useWorkspaceBrowser } from "@/components/panes/useWorkspaceBrowser";
 import { Input } from "@/components/ui/input";
+import { FilePreviewPane } from "./FilePreviewPane";
+import {
+  activeInternalTabIdAtom,
+  internalTabsAtom,
+} from "./state/internalTabs";
 import { browserViewSuspendedAtom } from "./state/ui";
 
 export function Center() {
   const { browserState } = useWorkspaceBrowser("user");
   const hasActiveTab = browserState.tabs.length > 0;
   const suspendNativeView = useAtomValue(browserViewSuspendedAtom);
+  const activeInternalTabId = useAtomValue(activeInternalTabIdAtom);
+  const internalTabs = useAtomValue(internalTabsAtom);
+  const activeInternal = activeInternalTabId
+    ? internalTabs.find((t) => t.id === activeInternalTabId) ?? null
+    : null;
 
   return (
     <main className="flex min-w-[480px] flex-1 flex-col overflow-hidden">
-      {hasActiveTab ? (
+      {activeInternal ? (
+        <FilePreviewPane filePath={activeInternal.filePath} />
+      ) : hasActiveTab ? (
         <BrowserPane
           variant="embedded"
           suspendNativeView={suspendNativeView}

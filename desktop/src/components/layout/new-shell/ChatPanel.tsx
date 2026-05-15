@@ -1,34 +1,69 @@
-import { useSetAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import { useCallback, useMemo } from "react";
 import { ChatPane } from "@/components/panes/ChatPane";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { sessionsOpenAtom } from "./state/ui";
+import {
+  activeInternalTabIdAtom,
+  fileNameFromPath,
+  internalTabsAtom,
+  makeInternalTabId,
+} from "./state/internalTabs";
 
 export function ChatPanel() {
   const setSessionsOpen = useSetAtom(sessionsOpenAtom);
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const { installedApps } = useWorkspaceDesktop();
+  const [internalTabs, setInternalTabs] = useAtom(internalTabsAtom);
+  const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
 
   const installedAppIds = useMemo(
     () => new Set(installedApps.map((a) => a.id)),
     [installedApps],
   );
 
-  const openInTab = useCallback(
+  const openUrlInBrowserTab = useCallback(
     async (url: string) => {
       if (!selectedWorkspaceId || !url.trim()) return;
       try {
+        setActiveInternalTabId(null);
         await window.electronAPI.browser.setActiveWorkspace(
           selectedWorkspaceId,
           "user",
         );
         await window.electronAPI.browser.newTab(url);
       } catch {
-        // non-fatal; user can retry
+        // non-fatal
       }
     },
-    [selectedWorkspaceId],
+    [selectedWorkspaceId, setActiveInternalTabId],
+  );
+
+  const openFileInInternalTab = useCallback(
+    (rawPath: string) => {
+      const normalized = rawPath.replace(/^file:\/\//, "");
+      let decoded = normalized;
+      try {
+        decoded = decodeURI(normalized);
+      } catch {
+        // tolerate already-decoded inputs
+      }
+      const existing = internalTabs.find((t) => t.filePath === decoded);
+      if (existing) {
+        setActiveInternalTabId(existing.id);
+        return;
+      }
+      const tab = {
+        id: makeInternalTabId(),
+        kind: "file" as const,
+        filePath: decoded,
+        label: fileNameFromPath(decoded),
+      };
+      setInternalTabs((prev) => [...prev, tab]);
+      setActiveInternalTabId(tab.id);
+    },
+    [internalTabs, setActiveInternalTabId, setInternalTabs],
   );
 
   const handleOpenOutput = useCallback(
@@ -66,33 +101,30 @@ export function ChatPanel() {
             moduleId,
             path,
           );
-          await openInTab(url);
+          await openUrlInBrowserTab(url);
         } catch {
-          // fall through to file_path fallback
+          // fall through to file fallback
         }
         return;
       }
       if (output.file_path) {
-        await openInTab(`file://${encodeURI(output.file_path)}`);
+        openFileInInternalTab(output.file_path);
       }
     },
-    [selectedWorkspaceId, installedAppIds, openInTab],
+    [
+      selectedWorkspaceId,
+      installedAppIds,
+      openUrlInBrowserTab,
+      openFileInInternalTab,
+    ],
   );
 
   const handleOpenLocalLink = useCallback(
-    async (href: string) => {
-      let raw = href.trim();
-      if (!raw) return;
-      if (raw.toLowerCase().startsWith("file://")) raw = raw.slice(7);
-      let decoded = raw;
-      try {
-        decoded = decodeURI(raw);
-      } catch {
-        // tolerate already-decoded inputs
-      }
-      await openInTab(`file://${encodeURI(decoded)}`);
+    (href: string) => {
+      if (!href.trim()) return;
+      openFileInInternalTab(href);
     },
-    [openInTab],
+    [openFileInInternalTab],
   );
 
   return (
@@ -101,7 +133,7 @@ export function ChatPanel() {
         variant="embedded"
         onOpenSessions={() => setSessionsOpen(true)}
         onOpenOutput={handleOpenOutput}
-        onOpenLinkInBrowser={openInTab}
+        onOpenLinkInBrowser={openUrlInBrowserTab}
         onOpenLocalLink={handleOpenLocalLink}
       />
     </aside>
