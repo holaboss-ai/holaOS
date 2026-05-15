@@ -209,6 +209,8 @@ function AppsSection() {
     }
   };
 
+  const EASE = "cubic-bezier(0.32, 0.72, 0, 1)";
+
   return (
     <>
       <Button
@@ -217,13 +219,6 @@ function AppsSection() {
         onClick={() => setExpanded((v) => !v)}
         className="h-auto justify-start gap-2 px-2 py-[5px] text-sm font-normal text-foreground hover:bg-foreground/[0.04]"
       >
-        <span className="grid size-3.5 shrink-0 place-items-center text-foreground/60">
-          {expanded ? (
-            <ChevronDown className="size-3.5" />
-          ) : (
-            <ChevronRight className="size-3.5" />
-          )}
-        </span>
         <Wrench className="size-3.5 shrink-0 text-foreground/60" />
         <span className="flex-1 truncate text-left">Apps</span>
         {installedApps.length > 0 ? (
@@ -231,61 +226,85 @@ function AppsSection() {
             {installedApps.length}
           </span>
         ) : null}
+        <ChevronRight
+          className="size-3.5 shrink-0 text-foreground/40"
+          style={{
+            transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
+            transition: `transform 200ms ${EASE}`,
+          }}
+        />
       </Button>
 
-      {expanded ? (
-        <div className="flex flex-col gap-0.5">
-          {installedApps.map((app) => {
-            const providerId =
-              appCatalog.find((c) => c.app_id === app.id)?.provider_id ??
-              null;
-            const display = resolveAppDisplay(
-              providerId,
-              composioToolkitsByProvider,
-            );
-            const label = display.name ?? app.label;
-            const error = app.error?.trim();
-            const status: "ready" | "loading" | "error" = error
-              ? "error"
-              : app.ready
-                ? "ready"
-                : "loading";
-            return (
-              <button
-                key={app.id}
-                type="button"
-                onClick={() => void openApp(app.id)}
-                disabled={status !== "ready"}
-                title={app.summary || label}
-                className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/80 transition-colors hover:bg-foreground/[0.04] disabled:cursor-default disabled:opacity-60"
-              >
-                <AppIcon
-                  iconUrl={display.logo}
-                  appId={app.id}
-                  providerId={providerId}
-                  label={label}
-                  size="row"
-                />
-                <span className="min-w-0 flex-1 truncate">{label}</span>
-                {status === "loading" ? (
-                  <StatusDot variant="info" pulse title="Starting" />
-                ) : null}
-                {status === "error" ? (
-                  <StatusDot variant="destructive" title={error || "Error"} />
-                ) : null}
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => setMarketplaceOpen(true)}
-            className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/55 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+      <div
+        aria-hidden={!expanded}
+        className="grid"
+        style={{
+          gridTemplateRows: expanded ? "1fr" : "0fr",
+          transition: `grid-template-rows 220ms ${EASE}`,
+        }}
+      >
+        <div className="overflow-hidden">
+          <div
+            className="flex flex-col gap-0.5 pt-0.5"
+            style={{
+              opacity: expanded ? 1 : 0,
+              transition: `opacity 180ms ${EASE}`,
+            }}
           >
-            <Plus className="size-3.5 shrink-0" />
-            <span className="truncate">Browse marketplace</span>
-          </button>
+            {installedApps.map((app) => {
+              const providerId =
+                appCatalog.find((c) => c.app_id === app.id)?.provider_id ??
+                null;
+              const display = resolveAppDisplay(
+                providerId,
+                composioToolkitsByProvider,
+              );
+              const label = display.name ?? app.label;
+              const error = app.error?.trim();
+              const status: "ready" | "loading" | "error" = error
+                ? "error"
+                : app.ready
+                  ? "ready"
+                  : "loading";
+              return (
+                <button
+                  key={app.id}
+                  type="button"
+                  onClick={() => void openApp(app.id)}
+                  disabled={status !== "ready"}
+                  tabIndex={expanded ? 0 : -1}
+                  title={app.summary || label}
+                  className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/80 transition-colors hover:bg-foreground/[0.04] disabled:cursor-default disabled:opacity-60"
+                >
+                  <AppIcon
+                    iconUrl={display.logo}
+                    appId={app.id}
+                    providerId={providerId}
+                    label={label}
+                    size="row"
+                  />
+                  <span className="min-w-0 flex-1 truncate">{label}</span>
+                  {status === "loading" ? (
+                    <StatusDot variant="info" pulse title="Starting" />
+                  ) : null}
+                  {status === "error" ? (
+                    <StatusDot variant="destructive" title={error || "Error"} />
+                  ) : null}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setMarketplaceOpen(true)}
+              tabIndex={expanded ? 0 : -1}
+              className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/55 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+            >
+              <Plus className="size-3.5 shrink-0" />
+              <span className="truncate">Browse marketplace</span>
+            </button>
+          </div>
         </div>
-      ) : null}
+      </div>
     </>
   );
 }
