@@ -148,7 +148,7 @@ function MarketplaceOverlay() {
       size="xl"
     >
       <div className="h-full overflow-y-auto">
-        <MarketplacePane />
+        <MarketplacePane variant="embedded" />
       </div>
     </PaneOverlay>
   );

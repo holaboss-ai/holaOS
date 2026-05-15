@@ -8,6 +8,7 @@ import {
   MoreHorizontal,
   Package,
   Plus,
+  RotateCw,
   Search,
   Settings,
   Trash2,
@@ -33,6 +34,7 @@ import { StatusDot } from "@/components/ui/status-dot";
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import { WorkspaceIconPicker } from "@/components/ui/workspace-icon-picker";
 import { AppIcon } from "@/components/marketplace/AppIcon";
+import type { WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
 import { resolveAppDisplay, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { cn } from "@/lib/utils";
@@ -190,8 +192,12 @@ function SidebarExpanded() {
 }
 
 function AppsSection() {
-  const { installedApps, appCatalog, composioToolkitsByProvider } =
-    useWorkspaceDesktop();
+  const {
+    installedApps,
+    appCatalog,
+    composioToolkitsByProvider,
+    removeInstalledApp,
+  } = useWorkspaceDesktop();
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const [expanded, setExpanded] = useAtom(appsExpandedAtom);
   const setMarketplaceOpen = useSetAtom(marketplaceOpenAtom);
@@ -210,6 +216,23 @@ function AppsSection() {
       await window.electronAPI.browser.newTab(url);
     } catch {
       // status pip on the row already reflects non-ready apps
+    }
+  };
+
+  const reloadApp = async (appId: string) => {
+    try {
+      await window.electronAPI.appSurface.reload(appId);
+    } catch {
+      // fall through; status pip will re-reflect once lifecycle settles
+    }
+  };
+
+  const uninstallApp = async (appId: string, label: string) => {
+    if (!window.confirm(`Uninstall '${label}'?`)) return;
+    try {
+      await removeInstalledApp(appId);
+    } catch {
+      // error surface lives in the workspace context; nothing useful here
     }
   };
 
@@ -262,30 +285,19 @@ function AppsSection() {
                   ? "ready"
                   : "loading";
               return (
-                <button
+                <AppRow
                   key={app.id}
-                  type="button"
-                  onClick={() => void openApp(app.id)}
-                  disabled={status !== "ready"}
-                  tabIndex={expanded ? 0 : -1}
-                  title={app.summary || label}
-                  className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-6 text-left text-xs text-foreground/80 transition-colors hover:bg-foreground/[0.04] disabled:cursor-default disabled:opacity-60"
-                >
-                  <AppIcon
-                    iconUrl={display.logo}
-                    appId={app.id}
-                    providerId={providerId}
-                    label={label}
-                    size="row"
-                  />
-                  <span className="min-w-0 flex-1 truncate">{label}</span>
-                  {status === "loading" ? (
-                    <StatusDot variant="info" pulse title="Starting" />
-                  ) : null}
-                  {status === "error" ? (
-                    <StatusDot variant="destructive" title={error || "Error"} />
-                  ) : null}
-                </button>
+                  app={app}
+                  label={label}
+                  providerId={providerId}
+                  iconUrl={display.logo}
+                  status={status}
+                  errorMessage={error || null}
+                  expanded={expanded}
+                  onOpen={() => void openApp(app.id)}
+                  onReload={() => void reloadApp(app.id)}
+                  onUninstall={() => void uninstallApp(app.id, label)}
+                />
               );
             })}
             <button
@@ -301,6 +313,110 @@ function AppsSection() {
         </div>
       </div>
     </>
+  );
+}
+
+function AppRow({
+  app,
+  label,
+  providerId,
+  iconUrl,
+  status,
+  errorMessage,
+  expanded,
+  onOpen,
+  onReload,
+  onUninstall,
+}: {
+  app: WorkspaceInstalledAppDefinition;
+  label: string;
+  providerId: string | null;
+  iconUrl: string | null;
+  status: "ready" | "loading" | "error";
+  errorMessage: string | null;
+  expanded: boolean;
+  onOpen: () => void;
+  onReload: () => void;
+  onUninstall: () => void;
+}) {
+  const tooltip =
+    status === "error" && errorMessage
+      ? errorMessage
+      : status === "loading"
+        ? `${label} — starting…`
+        : app.summary || label;
+  return (
+    <div
+      role="group"
+      className="group/app-row relative flex items-center rounded-[6px] transition-colors hover:bg-foreground/[0.04]"
+    >
+      <button
+        type="button"
+        onClick={() => {
+          if (status === "ready") onOpen();
+        }}
+        tabIndex={expanded ? 0 : -1}
+        title={tooltip}
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-[6px] px-2 py-[5px] pl-6 text-left text-xs text-foreground/80 transition-colors disabled:cursor-default"
+      >
+        <AppIcon
+          iconUrl={iconUrl}
+          appId={app.id}
+          providerId={providerId}
+          label={label}
+          size="row"
+        />
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            status === "error" && "text-foreground/55",
+          )}
+        >
+          {label}
+        </span>
+        {status === "loading" ? (
+          <StatusDot variant="info" pulse title="Starting" />
+        ) : null}
+        {status === "error" ? (
+          <StatusDot
+            variant="destructive"
+            title={errorMessage || "Error"}
+          />
+        ) : null}
+      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <button
+              type="button"
+              aria-label="App actions"
+              tabIndex={expanded ? 0 : -1}
+              onClick={(e) => e.stopPropagation()}
+              className="absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded text-foreground/50 opacity-0 transition-opacity hover:bg-foreground/[0.06] hover:text-foreground group-hover/app-row:opacity-100 aria-expanded:opacity-100"
+            >
+              <MoreHorizontal className="size-3.5" />
+            </button>
+          }
+        />
+        <DropdownMenuContent align="start" sideOffset={4}>
+          <DropdownMenuItem
+            onClick={onOpen}
+            disabled={status !== "ready"}
+          >
+            <Plus className="size-3.5" />
+            Open in new tab
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onReload}>
+            <RotateCw className="size-3.5" />
+            Reload
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onUninstall} variant="destructive">
+            <Trash2 className="size-3.5" />
+            Uninstall
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 

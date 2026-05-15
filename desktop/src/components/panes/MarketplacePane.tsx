@@ -31,9 +31,18 @@ function providerDisplayName(provider: string): string {
 
 interface MarketplacePaneProps {
   initialTab?: "templates" | "apps";
+  /**
+   * When true, the outer card chrome (bg-muted, border, rounded-xl,
+   * shadow-xs) is dropped so the pane embeds cleanly inside an
+   * already-bordered surface such as the new-shell PaneOverlay.
+   */
+  variant?: "default" | "embedded";
 }
 
-export function MarketplacePane({ initialTab = "templates" }: MarketplacePaneProps = {}) {
+export function MarketplacePane({
+  initialTab = "templates",
+  variant = "default",
+}: MarketplacePaneProps = {}) {
   const {
     marketplaceTemplates,
     isLoadingMarketplaceTemplates,
@@ -226,7 +235,11 @@ export function MarketplacePane({ initialTab = "templates" }: MarketplacePanePro
   return (
     <Tabs
       defaultValue={initialTab}
-      className="flex h-full min-h-0 p-6 min-w-0 flex-col overflow-hidden bg-muted shadow-xs border border-border rounded-xl"
+      className={
+        variant === "embedded"
+          ? "flex h-full min-h-0 p-6 min-w-0 flex-col overflow-hidden"
+          : "flex h-full min-h-0 p-6 min-w-0 flex-col overflow-hidden bg-muted shadow-xs border border-border rounded-xl"
+      }
     >
       <div className="max-w-4xl mx-auto w-full">
         <TabsList>
