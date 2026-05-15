@@ -385,38 +385,43 @@ function AppRow({
           />
         ) : null}
       </button>
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <button
-              type="button"
-              aria-label="App actions"
-              tabIndex={expanded ? 0 : -1}
-              onClick={(e) => e.stopPropagation()}
-              className="absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded text-foreground/50 opacity-0 transition-opacity hover:bg-foreground/[0.06] hover:text-foreground group-hover/app-row:opacity-100 aria-expanded:opacity-100"
+      <div
+        aria-hidden
+        className="mr-0 w-0 shrink-0 overflow-hidden transition-[width,margin-right] duration-200 ease-out-expo group-hover/app-row:mr-1 group-hover/app-row:w-5 group-has-[[aria-expanded=true]]/app-row:mr-1 group-has-[[aria-expanded=true]]/app-row:w-5"
+      >
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                aria-label="App actions"
+                tabIndex={expanded ? 0 : -1}
+                onClick={(e) => e.stopPropagation()}
+                className="grid size-5 place-items-center rounded text-foreground/50 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+              >
+                <MoreHorizontal className="size-3.5" />
+              </button>
+            }
+          />
+          <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
+            <DropdownMenuItem
+              onClick={onOpen}
+              disabled={status !== "ready"}
             >
-              <MoreHorizontal className="size-3.5" />
-            </button>
-          }
-        />
-        <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
-          <DropdownMenuItem
-            onClick={onOpen}
-            disabled={status !== "ready"}
-          >
-            <Plus className="size-3.5" />
-            Open in new tab
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={onReload}>
-            <RotateCw className="size-3.5" />
-            Reload
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={onUninstall} variant="destructive">
-            <Trash2 className="size-3.5" />
-            Uninstall
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+              <Plus className="size-3.5" />
+              Open in new tab
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onReload}>
+              <RotateCw className="size-3.5" />
+              Reload
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onUninstall} variant="destructive">
+              <Trash2 className="size-3.5" />
+              Uninstall
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </div>
   );
 }
@@ -481,37 +486,42 @@ function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
         </span>
         <span className="truncate">{title}</span>
       </button>
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <button
-              type="button"
-              aria-label="Recent actions"
-              onClick={(e) => e.stopPropagation()}
-              className="absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded text-foreground/50 opacity-0 transition-opacity hover:bg-foreground/[0.06] hover:text-foreground group-hover/recent:opacity-100 aria-expanded:opacity-100"
+      <div
+        aria-hidden
+        className="mr-0 w-0 shrink-0 overflow-hidden transition-[width,margin-right] duration-200 ease-out-expo group-hover/recent:mr-1 group-hover/recent:w-5 group-has-[[aria-expanded=true]]/recent:mr-1 group-has-[[aria-expanded=true]]/recent:w-5"
+      >
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                aria-label="Recent actions"
+                onClick={(e) => e.stopPropagation()}
+                className="grid size-5 place-items-center rounded text-foreground/50 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+              >
+                <MoreHorizontal className="size-3.5" />
+              </button>
+            }
+          />
+          <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
+            <DropdownMenuItem onClick={() => void handleOpen()}>
+              <Plus className="size-3.5" />
+              Open in new tab
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => void handleCopy()}>
+              <Copy className="size-3.5" />
+              Copy URL
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => void handleRemove()}
+              variant="destructive"
             >
-              <MoreHorizontal className="size-3.5" />
-            </button>
-          }
-        />
-        <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
-          <DropdownMenuItem onClick={() => void handleOpen()}>
-            <Plus className="size-3.5" />
-            Open in new tab
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => void handleCopy()}>
-            <Copy className="size-3.5" />
-            Copy URL
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => void handleRemove()}
-            variant="destructive"
-          >
-            <Trash2 className="size-3.5" />
-            Remove from history
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+              <Trash2 className="size-3.5" />
+              Remove from history
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </div>
   );
 }
