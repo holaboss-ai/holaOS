@@ -1,4 +1,4 @@
-import { useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import {
   ChevronDown,
   Globe,
@@ -18,12 +18,13 @@ import {
 import { useWorkspaceBrowser } from "@/components/panes/useWorkspaceBrowser";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { cn } from "@/lib/utils";
-import { newTabOpenAtom } from "./state/ui";
+import { newTabOpenAtom, sidebarCollapsedAtom } from "./state/ui";
 
 export function TopChrome() {
   const openNewTab = useSetAtom(newTabOpenAtom);
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const { browserState } = useWorkspaceBrowser("user");
+  const sidebarCollapsed = useAtomValue(sidebarCollapsedAtom);
 
   const handleSelectTab = (id: string) => {
     if (selectedWorkspaceId) {
@@ -41,7 +42,12 @@ export function TopChrome() {
   const agentTabCount = browserState.tabCounts.agent;
 
   return (
-    <header className="window-drag flex h-10 shrink-0 items-center gap-1 border-b border-border px-3">
+    <header
+      className={cn(
+        "window-drag flex h-10 shrink-0 items-center gap-1 border-b border-border pr-3",
+        sidebarCollapsed ? "pl-20" : "pl-3",
+      )}
+    >
       {browserState.tabs.map((tab) => (
         <Tab
           key={tab.id}

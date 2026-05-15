@@ -60,11 +60,37 @@ function hostFromUrl(url: string): string {
 
 export function Sidebar() {
   const collapsed = useAtomValue(sidebarCollapsedAtom);
-  if (collapsed) return <SidebarRail />;
+  if (collapsed) return <SidebarFloating />;
   return <SidebarExpanded />;
 }
 
-function SidebarExpanded() {
+function SidebarFloating() {
+  const [hovering, setHovering] = useState(false);
+  return (
+    <>
+      <div
+        aria-hidden
+        onMouseEnter={() => setHovering(true)}
+        className="fixed top-0 left-0 z-30 h-screen w-2"
+      />
+      <div
+        onMouseEnter={() => setHovering(true)}
+        onMouseLeave={() => setHovering(false)}
+        className={cn(
+          "fixed top-0 left-0 z-40 flex h-screen w-[260px]",
+          hovering ? "translate-x-0 shadow-2xl" : "-translate-x-full",
+        )}
+        style={{
+          transition: "transform 220ms cubic-bezier(0.16, 1, 0.3, 1)",
+        }}
+      >
+        <SidebarExpanded floating />
+      </div>
+    </>
+  );
+}
+
+function SidebarExpanded({ floating = false }: { floating?: boolean }) {
   const { installedApps } = useWorkspaceDesktop();
   const { selectedWorkspaceId } = useWorkspaceSelection();
 
@@ -94,9 +120,12 @@ function SidebarExpanded() {
     <aside
       data-pane-card="true"
       data-pane-role="sidebar"
-      className="flex w-[260px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground backdrop-blur-sm"
+      className={cn(
+        "flex flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground backdrop-blur-sm",
+        floating ? "h-full w-full" : "w-[260px] shrink-0",
+      )}
     >
-      <WorkspaceSwitcher />
+      <WorkspaceSwitcher floating={floating} />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
         <SidebarGroup>
           <NavItem
@@ -217,7 +246,7 @@ function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
   );
 }
 
-function WorkspaceSwitcher() {
+function WorkspaceSwitcher({ floating = false }: { floating?: boolean }) {
   const { selectedWorkspaceId, setSelectedWorkspaceId } =
     useWorkspaceSelection();
   const {
@@ -393,12 +422,18 @@ function WorkspaceSwitcher() {
       </Popover>
       <button
         type="button"
-        aria-label="Collapse sidebar"
-        title="Collapse sidebar (⌘\\)"
-        onClick={() => setCollapsed(true)}
+        aria-label={floating ? "Pin sidebar open" : "Collapse sidebar"}
+        title={
+          floating ? "Pin sidebar open (⌘\\)" : "Collapse sidebar (⌘\\)"
+        }
+        onClick={() => setCollapsed(!floating)}
         className="window-no-drag ml-1 grid size-6 shrink-0 place-items-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
       >
-        <PanelLeftClose className="size-3.5" />
+        {floating ? (
+          <PanelLeftOpen className="size-3.5" />
+        ) : (
+          <PanelLeftClose className="size-3.5" />
+        )}
       </button>
     </div>
   );
@@ -453,132 +488,3 @@ function NavItem({
   );
 }
 
-function SidebarRail() {
-  const { selectedWorkspace } = useWorkspaceDesktop();
-  const { selectedWorkspaceId } = useWorkspaceSelection();
-
-  const setCollapsed = useSetAtom(sidebarCollapsedAtom);
-  const setSearchOpen = useSetAtom(searchOpenAtom);
-  const setInboxOpen = useSetAtom(inboxOpenAtom);
-  const setArtifactsOpen = useSetAtom(artifactsOpenAtom);
-  const setAppsOpen = useSetAtom(appsOpenAtom);
-  const setMarketplaceOpen = useSetAtom(marketplaceOpenAtom);
-  const setSettingsOpen = useSetAtom(settingsOpenAtom);
-  const setSettingsSection = useSetAtom(settingsSectionAtom);
-
-  const inboxOpen = useAtomValue(inboxOpenAtom);
-  const artifactsOpen = useAtomValue(artifactsOpenAtom);
-  const appsOpen = useAtomValue(appsOpenAtom);
-  const marketplaceOpen = useAtomValue(marketplaceOpenAtom);
-  const settingsOpen = useAtomValue(settingsOpenAtom);
-
-  const { proposals } = useTaskProposals(selectedWorkspaceId || null);
-  const unreadInbox = proposals.length;
-
-  return (
-    <aside
-      data-pane-card="true"
-      data-pane-role="sidebar"
-      className="flex w-[60px] shrink-0 flex-col items-center border-r border-sidebar-border bg-sidebar text-sidebar-foreground backdrop-blur-sm"
-    >
-      <div className="window-drag h-[70px] w-full" />
-      <button
-        type="button"
-        aria-label="Expand sidebar"
-        title="Expand sidebar (⌘\\)"
-        onClick={() => setCollapsed(false)}
-        className="window-no-drag mb-2 grid size-8 shrink-0 place-items-center rounded-md text-foreground/55 transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
-      >
-        <PanelLeftOpen className="size-4" />
-      </button>
-      <div className="my-1 h-px w-7 bg-border" />
-      {selectedWorkspace ? (
-        <div
-          className="mb-1 grid size-8 place-items-center rounded-md"
-          title={selectedWorkspace.name}
-        >
-          <WorkspaceIcon
-            workspace={selectedWorkspace}
-            size="sm"
-            className="ring-1 ring-foreground/10"
-          />
-        </div>
-      ) : null}
-      <RailIcon
-        icon={<Search />}
-        label="Search (⌘K)"
-        onClick={() => setSearchOpen(true)}
-      />
-      <RailIcon
-        icon={<Inbox />}
-        label="Inbox"
-        active={inboxOpen}
-        badge={unreadInbox > 0}
-        onClick={() => setInboxOpen(true)}
-      />
-      <RailIcon
-        icon={<Package />}
-        label="Artifacts"
-        active={artifactsOpen}
-        onClick={() => setArtifactsOpen(true)}
-      />
-      <div className="mt-auto" />
-      <RailIcon
-        icon={<Wrench />}
-        label="Apps"
-        active={appsOpen}
-        onClick={() => setAppsOpen(true)}
-      />
-      <RailIcon
-        icon={<Store />}
-        label="Marketplace"
-        active={marketplaceOpen}
-        onClick={() => setMarketplaceOpen(true)}
-      />
-      <RailIcon
-        icon={<Settings />}
-        label="Settings"
-        active={settingsOpen}
-        onClick={() => {
-          setSettingsSection("settings");
-          setSettingsOpen(true);
-        }}
-      />
-      <div className="h-2 shrink-0" />
-    </aside>
-  );
-}
-
-function RailIcon({
-  icon,
-  label,
-  badge,
-  active,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  badge?: boolean;
-  active?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      onClick={onClick}
-      className={cn(
-        "relative my-0.5 grid size-8 place-items-center rounded-md text-foreground/65 transition-colors [&_svg]:size-4",
-        active
-          ? "bg-foreground/[0.07] text-foreground"
-          : "hover:bg-foreground/[0.04] hover:text-foreground",
-      )}
-    >
-      {icon}
-      {badge ? (
-        <span className="absolute top-1 right-1 size-1.5 rounded-full bg-primary" />
-      ) : null}
-    </button>
-  );
-}
