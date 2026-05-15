@@ -868,7 +868,9 @@ export function BrowserPane({
                         : "text-muted-foreground"
                     }
                   />
-                  {!isNarrowPane ? <span>{visibleBrowserLabel}</span> : null}
+                  {!isNarrowPane && !isEmbeddedVariant ? (
+                    <span>{visibleBrowserLabel}</span>
+                  ) : null}
                 </Button>
               </div>
 
@@ -881,7 +883,7 @@ export function BrowserPane({
                   buttonVariant="outline"
                   open={browserProfileImportDialogOpen}
                   onOpenChange={setBrowserProfileImportDialogOpen}
-                  showLabel={!isNarrowPane}
+                  showLabel={!isNarrowPane && !isEmbeddedVariant}
                 />
                 <Button
                   type="button"
@@ -898,7 +900,9 @@ export function BrowserPane({
                   ) : (
                     <Camera size={13} />
                   )}
-                  {!isNarrowPane ? <span>Capture</span> : null}
+                  {!isNarrowPane && !isEmbeddedVariant ? (
+                    <span>Capture</span>
+                  ) : null}
                 </Button>
                 <Button
                   ref={moreButtonRef}
@@ -918,7 +922,9 @@ export function BrowserPane({
                   }}
                 >
                   <MoreHorizontal size={14} />
-                  {!isNarrowPane ? <span>More</span> : null}
+                  {!isNarrowPane && !isEmbeddedVariant ? (
+                    <span>More</span>
+                  ) : null}
                   {activeDownloadCount > 0 ? (
                     <Badge className="absolute -right-1 -top-1 h-4 min-w-4 px-1 text-xs font-bold leading-none">
                       {activeDownloadCount}
