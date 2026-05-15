@@ -854,7 +854,7 @@ export function BrowserPane({
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
+                  size={isEmbeddedVariant ? "icon-sm" : "sm"}
                   onClick={() => onSelectBrowserSpace(alternateBrowserSpace)}
                   className="shrink-0 bg-background/80 text-xs"
                   aria-label={`Switch to ${alternateBrowserLabel} browser`}
@@ -879,7 +879,7 @@ export function BrowserPane({
               >
                 <BrowserProfileImportButton
                   buttonClassName="shrink-0"
-                  buttonSize="sm"
+                  buttonSize={isEmbeddedVariant ? "icon-sm" : "sm"}
                   buttonVariant="outline"
                   open={browserProfileImportDialogOpen}
                   onOpenChange={setBrowserProfileImportDialogOpen}
@@ -888,7 +888,7 @@ export function BrowserPane({
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
+                  size={isEmbeddedVariant ? "icon-sm" : "sm"}
                   className="shrink-0 gap-1.5"
                   aria-label="Copy browser screenshot"
                   title="Copy browser screenshot"
@@ -908,7 +908,7 @@ export function BrowserPane({
                   ref={moreButtonRef}
                   type="button"
                   variant="outline"
-                  size="sm"
+                  size={isEmbeddedVariant ? "icon-sm" : "sm"}
                   className="relative shrink-0 gap-1.5"
                   aria-label="More browser options"
                   title="More options"
