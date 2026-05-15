@@ -39,6 +39,7 @@ import {
   inboxOpenAtom,
   marketplaceOpenAtom,
   publishOpenAtom,
+  searchOpenAtom,
   settingsOpenAtom,
 } from "./state/ui";
 
@@ -49,6 +50,7 @@ export function Sidebar() {
   const setAppsOpen = useSetAtom(appsOpenAtom);
   const setMarketplaceOpen = useSetAtom(marketplaceOpenAtom);
   const setSettingsOpen = useSetAtom(settingsOpenAtom);
+  const setSearchOpen = useSetAtom(searchOpenAtom);
 
   return (
     <aside
@@ -58,7 +60,12 @@ export function Sidebar() {
       <WorkspaceSwitcher />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
         <SidebarGroup>
-          <NavItem icon={<Search />}>Search</NavItem>
+          <NavItem
+            icon={<Search />}
+            onClick={() => setSearchOpen(true)}
+          >
+            Search
+          </NavItem>
           <NavItem
             icon={<Inbox />}
             onClick={() => setInboxOpen(true)}

@@ -3,6 +3,9 @@ import { atom } from "jotai";
 /** Is the new-tab command palette dialog open? */
 export const newTabOpenAtom = atom(false);
 
+/** Is the cmd+K universal Search palette open? */
+export const searchOpenAtom = atom(false);
+
 /** Is the Publish-to-Store screen open? */
 export const publishOpenAtom = atom(false);
 
@@ -43,6 +46,7 @@ export const settingsSectionAtom = atom<
 export const browserViewSuspendedAtom = atom(
   (get) =>
     get(newTabOpenAtom) ||
+    get(searchOpenAtom) ||
     get(publishOpenAtom) ||
     get(createWorkspaceOpenAtom) ||
     get(inboxOpenAtom) ||
