@@ -56,39 +56,25 @@ function hostFromUrl(url: string): string {
   }
 }
 
+const SIDEBAR_WIDTH = 260;
+const SIDEBAR_TRANSITION = "240ms cubic-bezier(0.16, 1, 0.3, 1)";
+
 export function Sidebar() {
   const collapsed = useAtomValue(sidebarCollapsedAtom);
-  if (collapsed) return <SidebarFloating />;
-  return <SidebarExpanded />;
-}
-
-function SidebarFloating() {
-  const [hovering, setHovering] = useState(false);
   return (
-    <>
-      <div
-        aria-hidden
-        onMouseEnter={() => setHovering(true)}
-        className="fixed top-0 left-0 z-30 h-screen w-2"
-      />
-      <div
-        onMouseEnter={() => setHovering(true)}
-        onMouseLeave={() => setHovering(false)}
-        className={cn(
-          "fixed top-0 left-0 z-40 flex h-screen w-[260px]",
-          hovering ? "translate-x-0 shadow-2xl" : "-translate-x-full",
-        )}
-        style={{
-          transition: "transform 220ms cubic-bezier(0.16, 1, 0.3, 1)",
-        }}
-      >
-        <SidebarExpanded floating />
-      </div>
-    </>
+    <div
+      className="flex shrink-0 overflow-hidden"
+      style={{
+        width: collapsed ? 0 : SIDEBAR_WIDTH,
+        transition: `width ${SIDEBAR_TRANSITION}`,
+      }}
+    >
+      <SidebarExpanded />
+    </div>
   );
 }
 
-function SidebarExpanded({ floating = false }: { floating?: boolean }) {
+function SidebarExpanded() {
   const { installedApps } = useWorkspaceDesktop();
   const { selectedWorkspaceId } = useWorkspaceSelection();
 
@@ -118,10 +104,7 @@ function SidebarExpanded({ floating = false }: { floating?: boolean }) {
     <aside
       data-pane-card="true"
       data-pane-role="sidebar"
-      className={cn(
-        "flex flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground backdrop-blur-sm",
-        floating ? "h-full w-full" : "w-[260px] shrink-0",
-      )}
+      className="flex h-full w-[260px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground backdrop-blur-sm"
     >
       <WorkspaceSwitcher />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">

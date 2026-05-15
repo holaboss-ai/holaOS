@@ -46,10 +46,11 @@ export function TopChrome() {
 
   return (
     <header
-      className={cn(
-        "window-drag flex h-10 shrink-0 items-center gap-1 border-b border-border pr-3",
-        sidebarCollapsed ? "pl-20" : "pl-2",
-      )}
+      className="window-drag flex h-10 shrink-0 items-center gap-1 border-b border-border pr-3"
+      style={{
+        paddingLeft: sidebarCollapsed ? "5rem" : "0.5rem",
+        transition: "padding-left 240ms cubic-bezier(0.16, 1, 0.3, 1)",
+      }}
     >
       <button
         type="button"
