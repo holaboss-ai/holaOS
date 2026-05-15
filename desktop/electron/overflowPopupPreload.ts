@@ -5,6 +5,6 @@ contextBridge.exposeInMainWorld("overflowPopup", {
     ipcRenderer.invoke("browser:overflowOpenDownloads") as Promise<void>,
   openHistory: () =>
     ipcRenderer.invoke("browser:overflowOpenHistory") as Promise<void>,
-  importChrome: () =>
-    ipcRenderer.invoke("browser:overflowImportChrome") as Promise<void>,
+  openImportProfile: () =>
+    ipcRenderer.invoke("browser:overflowOpenImportProfile") as Promise<void>,
 });

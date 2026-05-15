@@ -464,24 +464,31 @@ function createOverflowPopupHtml(themeCss: string): string {
       body {
         margin: 0;
         background: transparent;
+        font-size: 13px;
+        line-height: 1.3;
       }
       .panel {
-        margin: 10px;
-        border-radius: 12px;
+        margin: 8px;
+        border-radius: 10px;
         padding: 4px;
       }
       .item {
         display: flex;
         width: 100%;
         align-items: center;
-        gap: 10px;
+        gap: 8px;
         border: 0;
-        border-radius: 8px;
+        border-radius: 6px;
         background: transparent;
-        padding: 7px 10px;
-        font-size: 12.5px;
+        padding: 6px 8px;
+        font-size: 13px;
         text-align: left;
-        cursor: pointer;
+        cursor: default;
+        color: var(--popup-text);
+        transition: background-color 120ms ease;
+      }
+      .item:hover {
+        background: var(--popup-hover);
       }
       .icon {
         width: 14px;
@@ -509,15 +516,15 @@ function createOverflowPopupHtml(themeCss: string): string {
         <span class="icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
         <span>History</span>
       </button>
-      <button class="item" id="chrome-import">
-        <span class="icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/></svg></span>
-        <span>Import Chrome</span>
+      <button class="item" id="import-profile">
+        <span class="icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m8 7 4-4 4 4"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg></span>
+        <span>Import browser profile</span>
       </button>
     </div>
     <script>
       document.getElementById("downloads").addEventListener("click", () => window.overflowPopup.openDownloads());
       document.getElementById("history").addEventListener("click", () => window.overflowPopup.openHistory());
-      document.getElementById("chrome-import").addEventListener("click", () => window.overflowPopup.importChrome());
+      document.getElementById("import-profile").addEventListener("click", () => window.overflowPopup.openImportProfile());
     </script>
   </body>
 </html>`;

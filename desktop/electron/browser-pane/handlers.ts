@@ -682,6 +682,11 @@ export function installBrowserPaneIpcHandlers(deps: BrowserPaneIpcDeps): void {
     }
   });
 
+  ipcMain.handle("browser:overflowOpenImportProfile", () => {
+    popups.hideOverflowPopup();
+    getMainWindow()?.webContents.send("browser:openImportProfile");
+  });
+
   ipcMain.handle("browser:overflowImportChrome", async () => {
     popups.hideOverflowPopup();
     try {

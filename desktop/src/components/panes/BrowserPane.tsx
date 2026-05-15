@@ -12,9 +12,6 @@ import {
   Camera,
   ChevronLeft,
   ChevronRight,
-  Clock3,
-  CloudUpload,
-  Download,
   FolderOpen,
   Globe,
   ListTree,
@@ -27,12 +24,6 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { PaneCard } from "@/components/ui/PaneCard";
 import { browserSurfaceStatusSummary } from "@/components/panes/browserSessionUi";
 import { BrowserProfileImportButton } from "@/components/panes/BrowserProfileImportButton";
@@ -140,6 +131,14 @@ export function BrowserPane({
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const [browserProfileImportDialogOpen, setBrowserProfileImportDialogOpen] =
     useState(false);
+
+  // The native overflow popup's "Import browser profile" item dispatches
+  // this event back through main; open the React-side dialog when we get it.
+  useEffect(() => {
+    return window.electronAPI.browser.onOpenImportProfile(() => {
+      setBrowserProfileImportDialogOpen(true);
+    });
+  }, []);
   const [paneWidth, setPaneWidth] = useState(0);
   const [browserState, setBrowserState] =
     useState<BrowserTabListPayload>(INITIAL_STATE);
@@ -1029,65 +1028,29 @@ export function BrowserPane({
                       <Camera size={13} />
                     )}
                   </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      render={
-                        <Button
-                          ref={moreButtonRef}
-                          type="button"
-                          variant="outline"
-                          size="icon-sm"
-                          className="relative shrink-0"
-                          aria-label="More browser options"
-                          title="More options"
-                        >
-                          <MoreHorizontal size={14} />
-                          {activeDownloadCount > 0 ? (
-                            <Badge className="absolute -right-1 -top-1 h-4 min-w-4 px-1 text-xs font-bold leading-none">
-                              {activeDownloadCount}
-                            </Badge>
-                          ) : null}
-                        </Button>
-                      }
-                    />
-                    <DropdownMenuContent align="end" sideOffset={6}>
-                      <DropdownMenuItem
-                        onClick={() => {
-                          const bounds = getButtonBounds(moreButtonRef.current);
-                          if (!bounds) return;
-                          void window.electronAPI.browser.toggleDownloadsPopup(
-                            bounds,
-                          );
-                        }}
-                      >
-                        <Download className="size-3.5" />
-                        Downloads
-                        {activeDownloadCount > 0 ? (
-                          <span className="ml-auto text-xs tabular-nums text-foreground/40">
-                            {activeDownloadCount}
-                          </span>
-                        ) : null}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => {
-                          const bounds = getButtonBounds(moreButtonRef.current);
-                          if (!bounds) return;
-                          void window.electronAPI.browser.toggleHistoryPopup(
-                            bounds,
-                          );
-                        }}
-                      >
-                        <Clock3 className="size-3.5" />
-                        History
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => setBrowserProfileImportDialogOpen(true)}
-                      >
-                        <CloudUpload className="size-3.5" />
-                        Import browser profile
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <Button
+                    ref={moreButtonRef}
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    className="relative shrink-0"
+                    aria-label="More browser options"
+                    title="More options"
+                    onClick={() => {
+                      const bounds = getButtonBounds(moreButtonRef.current);
+                      if (!bounds) return;
+                      void window.electronAPI.browser.toggleOverflowPopup(
+                        bounds,
+                      );
+                    }}
+                  >
+                    <MoreHorizontal size={14} />
+                    {activeDownloadCount > 0 ? (
+                      <Badge className="absolute -right-1 -top-1 h-4 min-w-4 px-1 text-xs font-bold leading-none">
+                        {activeDownloadCount}
+                      </Badge>
+                    ) : null}
+                  </Button>
                 </div>
               ) : null}
             </form>

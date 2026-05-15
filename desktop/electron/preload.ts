@@ -1637,6 +1637,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
       const wrapped = (_event: Electron.IpcRendererEvent, index: number) => listener(index);
       ipcRenderer.on("browser:addressSuggestionChosen", wrapped);
       return () => ipcRenderer.removeListener("browser:addressSuggestionChosen", wrapped);
+    },
+    onOpenImportProfile: (listener: () => void) => {
+      const wrapped = () => listener();
+      ipcRenderer.on("browser:openImportProfile", wrapped);
+      return () => ipcRenderer.removeListener("browser:openImportProfile", wrapped);
     }
   }
 });
