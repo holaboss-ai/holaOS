@@ -25,10 +25,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { StatusDot } from "@/components/ui/status-dot";
-import { UserAvatar } from "@/components/ui/UserAvatar";
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import { WorkspaceIconPicker } from "@/components/ui/workspace-icon-picker";
-import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { cn } from "@/lib/utils";
@@ -201,12 +199,6 @@ function SidebarExpanded() {
           </NavItem>
         </SidebarGroup>
       </div>
-      <AccountFoot
-        onOpenAccount={() => {
-          setSettingsSection("account");
-          setSettingsOpen(true);
-        }}
-      />
     </aside>
   );
 }
@@ -471,31 +463,9 @@ function NavItem({
   );
 }
 
-function AccountFoot({ onOpenAccount }: { onOpenAccount: () => void }) {
-  const { data } = useDesktopAuthSession();
-  const user = data?.user ?? null;
-  const label = user?.name ?? user?.email ?? "Not signed in";
-
-  return (
-    <button
-      type="button"
-      onClick={onOpenAccount}
-      title="Open account settings"
-      className="flex h-10 shrink-0 items-center gap-2 px-3 text-left transition-colors hover:bg-foreground/[0.04]"
-    >
-      <div className="size-5 shrink-0 overflow-hidden rounded-full ring-1 ring-inset ring-foreground/10">
-        <UserAvatar user={user} />
-      </div>
-      <span className="flex-1 truncate text-sm">{label}</span>
-    </button>
-  );
-}
-
 function SidebarRail() {
   const { selectedWorkspace } = useWorkspaceDesktop();
   const { selectedWorkspaceId } = useWorkspaceSelection();
-  const { data } = useDesktopAuthSession();
-  const user = data?.user ?? null;
 
   const setCollapsed = useSetAtom(sidebarCollapsedAtom);
   const setSearchOpen = useSetAtom(searchOpenAtom);
@@ -591,19 +561,7 @@ function SidebarRail() {
           setSettingsOpen(true);
         }}
       />
-      <button
-        type="button"
-        title="Account"
-        onClick={() => {
-          setSettingsSection("account");
-          setSettingsOpen(true);
-        }}
-        className="my-2 grid size-7 place-items-center rounded-full ring-1 ring-inset ring-foreground/10 transition-opacity hover:opacity-80"
-      >
-        <div className="size-7 shrink-0 overflow-hidden rounded-full">
-          <UserAvatar user={user} />
-        </div>
-      </button>
+      <div className="h-2 shrink-0" />
     </aside>
   );
 }
