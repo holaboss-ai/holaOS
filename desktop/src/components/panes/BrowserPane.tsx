@@ -875,7 +875,7 @@ export function BrowserPane({
               </div>
 
               <div
-                className={`relative flex shrink-0 items-center gap-1 ${isCompactPane ? "" : "ml-auto"}`}
+                className={`relative flex shrink-0 items-center gap-1 ${isEmbeddedVariant || !isCompactPane ? "ml-auto" : ""}`}
               >
                 <BrowserProfileImportButton
                   buttonClassName="shrink-0"
