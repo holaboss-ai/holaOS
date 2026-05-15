@@ -24,6 +24,17 @@ export const sessionsOpenAtom = atom(false);
 /** Is the Settings full-screen overlay open? */
 export const settingsOpenAtom = atom(false);
 
+/** Is the Marketplace overlay open? */
+export const marketplaceOpenAtom = atom(false);
+
+/** Is the Apps gallery overlay open? */
+export const appsOpenAtom = atom(false);
+
+/** Active section inside the Settings overlay. */
+export const settingsSectionAtom = atom<
+  "account" | "billing" | "providers" | "integrations" | "submissions" | "settings"
+>("settings");
+
 /**
  * True when any overlay is open. BrowserPane reads this to detach the
  * native BrowserView; otherwise the OS-level webview paints on top of
@@ -38,5 +49,7 @@ export const browserViewSuspendedAtom = atom(
     get(artifactsOpenAtom) ||
     get(automationsOpenAtom) ||
     get(sessionsOpenAtom) ||
-    get(settingsOpenAtom),
+    get(settingsOpenAtom) ||
+    get(marketplaceOpenAtom) ||
+    get(appsOpenAtom),
 );

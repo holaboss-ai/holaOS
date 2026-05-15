@@ -1,19 +1,28 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { useAtom, type PrimitiveAtom } from "jotai";
+import { useAtom, useSetAtom, type PrimitiveAtom } from "jotai";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
+import { AppsGallery } from "@/components/marketplace/AppsGallery";
+import { OperationsInboxPane } from "@/components/layout/OperationsDrawer";
+import { SettingsScreenRoot } from "@/components/layout/SettingsScreenRoot";
 import { ArtifactsPane } from "@/components/panes/ArtifactsPane";
 import { AutomationsPane } from "@/components/panes/AutomationsPane";
-import { OperationsInboxPane } from "@/components/layout/OperationsDrawer";
+import { MarketplacePane } from "@/components/panes/MarketplacePane";
 import { SubagentSessionsPane } from "@/components/panes/SubagentSessionsPane";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import {
+  appsOpenAtom,
   artifactsOpenAtom,
   automationsOpenAtom,
   inboxOpenAtom,
+  marketplaceOpenAtom,
   sessionsOpenAtom,
+  settingsOpenAtom,
+  settingsSectionAtom,
 } from "./state/ui";
+import { useSettingsState } from "./useSettingsState";
 import { useTaskProposals } from "./useTaskProposals";
 
 export function Overlays() {
@@ -23,6 +32,9 @@ export function Overlays() {
       <ArtifactsOverlay />
       <AutomationsOverlay />
       <SessionsOverlay />
+      <AppsOverlay />
+      <MarketplaceOverlay />
+      <SettingsOverlay />
     </>
   );
 }
@@ -110,6 +122,67 @@ function SessionsOverlay() {
   return (
     <PaneOverlay openAtom={sessionsOpenAtom} title="Sessions">
       <SubagentSessionsPane workspaceId={selectedWorkspaceId || null} />
+    </PaneOverlay>
+  );
+}
+
+function AppsOverlay() {
+  return (
+    <PaneOverlay openAtom={appsOpenAtom} title="Apps">
+      <div className="h-full overflow-y-auto">
+        <AppsGallery />
+      </div>
+    </PaneOverlay>
+  );
+}
+
+function MarketplaceOverlay() {
+  return (
+    <PaneOverlay openAtom={marketplaceOpenAtom} title="Marketplace">
+      <div className="h-full overflow-y-auto">
+        <MarketplacePane />
+      </div>
+    </PaneOverlay>
+  );
+}
+
+function SettingsOverlay() {
+  const setOpen = useSetAtom(settingsOpenAtom);
+  const [section, setSection] = useAtom(settingsSectionAtom);
+  const settings = useSettingsState();
+  const [appVersion, setAppVersion] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.electronAPI?.appUpdate
+      ?.getLatestVersion()
+      .then((status) => {
+        if (!cancelled) setAppVersion(status?.currentVersion ?? "");
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <PaneOverlay openAtom={settingsOpenAtom} title="Settings">
+      <SettingsScreenRoot
+        activeSection={section}
+        appVersion={appVersion}
+        onSectionChange={setSection}
+        onBackToApp={() => setOpen(false)}
+        colorScheme={settings.colorScheme}
+        onColorSchemeChange={settings.onColorSchemeChange}
+        themeVariant={settings.themeVariant}
+        themeVariants={settings.themeVariants}
+        onThemeVariantChange={settings.onThemeVariantChange}
+        workspaceCardsPerRow={settings.cardsPerRow}
+        onWorkspaceCardsPerRowChange={settings.onCardsPerRowChange}
+        desktopNotificationsEnabled={settings.notificationsEnabled}
+        onDesktopNotificationsChange={settings.onNotificationsChange}
+        onOpenExternalUrl={settings.onOpenExternalUrl}
+      />
     </PaneOverlay>
   );
 }

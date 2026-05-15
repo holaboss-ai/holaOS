@@ -33,16 +33,22 @@ import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { cn } from "@/lib/utils";
 import { SectionLabel } from "./shared";
 import {
+  appsOpenAtom,
   artifactsOpenAtom,
   createWorkspaceOpenAtom,
   inboxOpenAtom,
+  marketplaceOpenAtom,
   publishOpenAtom,
+  settingsOpenAtom,
 } from "./state/ui";
 
 export function Sidebar() {
   const { installedApps } = useWorkspaceDesktop();
   const setArtifactsOpen = useSetAtom(artifactsOpenAtom);
   const setInboxOpen = useSetAtom(inboxOpenAtom);
+  const setAppsOpen = useSetAtom(appsOpenAtom);
+  const setMarketplaceOpen = useSetAtom(marketplaceOpenAtom);
+  const setSettingsOpen = useSetAtom(settingsOpenAtom);
 
   return (
     <aside
@@ -98,11 +104,25 @@ export function Sidebar() {
         <div className="mt-auto" />
 
         <SidebarGroup>
-          <NavItem icon={<Wrench />} badge={installedApps.length}>
+          <NavItem
+            icon={<Wrench />}
+            badge={installedApps.length}
+            onClick={() => setAppsOpen(true)}
+          >
             Apps
           </NavItem>
-          <NavItem icon={<Store />}>Marketplace</NavItem>
-          <NavItem icon={<Settings />}>Settings</NavItem>
+          <NavItem
+            icon={<Store />}
+            onClick={() => setMarketplaceOpen(true)}
+          >
+            Marketplace
+          </NavItem>
+          <NavItem
+            icon={<Settings />}
+            onClick={() => setSettingsOpen(true)}
+          >
+            Settings
+          </NavItem>
         </SidebarGroup>
       </div>
       <AccountFoot />
