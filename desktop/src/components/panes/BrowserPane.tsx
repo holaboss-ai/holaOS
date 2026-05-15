@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  CloudUpload,
   Download,
   FolderOpen,
   Globe,
@@ -1078,6 +1079,12 @@ export function BrowserPane({
                       >
                         <Clock3 className="size-3.5" />
                         History
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => setBrowserProfileImportDialogOpen(true)}
+                      >
+                        <CloudUpload className="size-3.5" />
+                        Import browser profile
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
