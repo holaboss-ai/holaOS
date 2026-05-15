@@ -2,8 +2,10 @@ import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   ChevronDown,
   ChevronRight,
+  Copy,
   Inbox,
   Loader2,
+  MoreHorizontal,
   Package,
   Plus,
   Search,
@@ -16,6 +18,12 @@ import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Popover,
   PopoverContent,
@@ -299,6 +307,7 @@ function AppsSection() {
 function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const title = entry.title || hostFromUrl(entry.url) || entry.url;
+
   const handleOpen = async () => {
     if (selectedWorkspaceId) {
       await window.electronAPI.browser.setActiveWorkspace(
@@ -308,15 +317,68 @@ function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
     }
     await window.electronAPI.browser.newTab(entry.url);
   };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(entry.url);
+    } catch {
+      // tolerate clipboard rejection — non-fatal
+    }
+  };
+
+  const handleRemove = async () => {
+    try {
+      await window.electronAPI.browser.removeHistoryEntry(entry.id);
+    } catch {
+      // history list will refresh on the next event
+    }
+  };
+
   return (
-    <button
-      type="button"
-      onClick={() => void handleOpen()}
-      title={title}
-      className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] text-left text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.04]"
+    <div
+      role="group"
+      className="group/recent relative flex items-center rounded-[6px] transition-colors hover:bg-foreground/[0.04]"
     >
-      <span className="truncate">{title}</span>
-    </button>
+      <button
+        type="button"
+        onClick={() => void handleOpen()}
+        title={title}
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-[6px] px-2 py-[5px] text-left text-xs text-foreground/70"
+      >
+        <span className="truncate">{title}</span>
+      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <button
+              type="button"
+              aria-label="Recent actions"
+              onClick={(e) => e.stopPropagation()}
+              className="absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded text-foreground/50 opacity-0 transition-opacity hover:bg-foreground/[0.06] hover:text-foreground group-hover/recent:opacity-100 aria-expanded:opacity-100"
+            >
+              <MoreHorizontal className="size-3.5" />
+            </button>
+          }
+        />
+        <DropdownMenuContent align="start" sideOffset={4}>
+          <DropdownMenuItem onClick={() => void handleOpen()}>
+            <Plus className="size-3.5" />
+            Open in new tab
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => void handleCopy()}>
+            <Copy className="size-3.5" />
+            Copy URL
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => void handleRemove()}
+            variant="destructive"
+          >
+            <Trash2 className="size-3.5" />
+            Remove from history
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 
