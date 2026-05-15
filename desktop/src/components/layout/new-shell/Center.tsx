@@ -1,11 +1,20 @@
 import { Search } from "lucide-react";
 import { useState } from "react";
+import { useWorkspaceBrowser } from "@/components/panes/useWorkspaceBrowser";
+import { BrowserPane } from "@/components/panes/BrowserPane";
 import { Input } from "@/components/ui/input";
 
 export function Center() {
+  const { browserState } = useWorkspaceBrowser("user");
+  const hasActiveTab = browserState.tabs.length > 0;
+
   return (
     <main className="flex min-w-[480px] flex-1 flex-col overflow-hidden">
-      <NewTabLanding />
+      {hasActiveTab ? (
+        <BrowserPane variant="embedded" />
+      ) : (
+        <NewTabLanding />
+      )}
     </main>
   );
 }

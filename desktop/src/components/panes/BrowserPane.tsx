@@ -112,15 +112,22 @@ function normalizeUrl(rawInput: string) {
   return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
 }
 
+export type BrowserPaneVariant = "default" | "embedded";
+
 interface BrowserPaneProps {
   suspendNativeView?: boolean;
   layoutSyncKey?: string;
+  /** "embedded" skips the PaneCard wrapper and the in-pane tab strip;
+   *  used by shells that provide their own tab bar (the new shell does). */
+  variant?: BrowserPaneVariant;
 }
 
 export function BrowserPane({
   suspendNativeView = false,
   layoutSyncKey = "",
+  variant = "default",
 }: BrowserPaneProps) {
+  const isEmbeddedVariant = variant === "embedded";
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const [browserProfileImportDialogOpen, setBrowserProfileImportDialogOpen] =
     useState(false);
@@ -742,10 +749,10 @@ export function BrowserPane({
     }
   };
 
-  return (
-    <PaneCard title="" className="shadow-2xs">
+  const innerBody = (
       <div ref={paneRef} className="flex h-full min-h-0 flex-col">
         <div className="shrink-0 border-b border-border px-2 py-1.5">
+          {isEmbeddedVariant ? null : (
           <div className="mb-1.5 flex items-center gap-1.5 overflow-x-auto pb-0.5">
             {browserState.tabs.map((tab) => {
               const isActive = tab.id === activeTab.id;
@@ -799,6 +806,7 @@ export function BrowserPane({
               <Plus size={12} />
             </Button>
           </div>
+          )}
 
           <div
             className={`mb-1 flex min-w-0 ${isCompactPane ? "flex-col gap-1.5" : "items-center gap-1"}`}
@@ -1087,6 +1095,19 @@ export function BrowserPane({
           </div>
         </div>
       </div>
+  );
+
+  if (isEmbeddedVariant) {
+    return (
+      <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">
+        {innerBody}
+      </div>
+    );
+  }
+
+  return (
+    <PaneCard title="" className="shadow-2xs">
+      {innerBody}
     </PaneCard>
   );
 }
