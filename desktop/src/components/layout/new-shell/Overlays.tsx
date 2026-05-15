@@ -155,7 +155,7 @@ function SettingsOverlay() {
   useEffect(() => {
     let cancelled = false;
     void window.electronAPI?.appUpdate
-      ?.getLatestVersion()
+      ?.getStatus()
       .then((status) => {
         if (!cancelled) setAppVersion(status?.currentVersion ?? "");
       })
