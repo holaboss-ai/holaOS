@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Eye, Loader2, Pencil } from "lucide-react";
-import { SimpleMarkdown } from "@/components/marketplace/SimpleMarkdown";
+import { Loader2 } from "lucide-react";
+import { MarkdownEditor as TiptapMarkdownEditor } from "@holaboss/editor";
 import { PresentationPreview } from "@/components/panes/PresentationPreview";
 import { SpreadsheetEditor } from "@/components/panes/SpreadsheetEditor";
 import { Button } from "@/components/ui/button";
@@ -193,67 +193,35 @@ function MarkdownEditor({ preview, workspaceId, onUpdated }: EditorSurfaceProps)
     workspaceId,
     onUpdated,
   );
-  const [mode, setMode] = useState<"preview" | "edit">("preview");
   const editable = preview.isEditable;
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-3">
-        <ToggleButton
-          active={mode === "preview"}
-          onClick={() => setMode("preview")}
-        >
-          <Eye className="size-3.5" />
-          Preview
-        </ToggleButton>
-        {editable ? (
-          <ToggleButton
-            active={mode === "edit"}
-            onClick={() => setMode("edit")}
-          >
-            <Pencil className="size-3.5" />
-            Edit
-          </ToggleButton>
+      <div className="flex h-9 shrink-0 items-center justify-end gap-2 border-b border-border px-3">
+        {dirty ? (
+          <span className="text-[11px] text-muted-foreground">Unsaved</span>
         ) : null}
-        <div className="ml-auto flex items-center gap-2">
-          {dirty ? (
-            <span className="text-[11px] text-muted-foreground">
-              Unsaved
-            </span>
-          ) : null}
-          {editable && dirty ? (
-            <Button
-              size="xs"
-              variant="default"
-              disabled={saving}
-              onClick={() => void save()}
-            >
-              {saving ? <Loader2 className="size-3 animate-spin" /> : null}
-              Save
-            </Button>
-          ) : null}
-        </div>
+        {editable && dirty ? (
+          <Button
+            size="xs"
+            variant="default"
+            disabled={saving}
+            onClick={() => void save()}
+          >
+            {saving ? <Loader2 className="size-3 animate-spin" /> : null}
+            Save
+          </Button>
+        ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        {mode === "preview" ? (
-          <div className="mx-auto max-w-3xl px-10 py-12">
-            <SimpleMarkdown className="file-preview-markdown">
-              {draft}
-            </SimpleMarkdown>
-          </div>
-        ) : (
-          <textarea
-            aria-label={`Edit ${preview.name}`}
+        <div className="mx-auto max-w-3xl px-10 py-8">
+          <TiptapMarkdownEditor
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={setDraft}
             readOnly={!editable}
-            spellCheck={false}
-            className={cn(
-              "h-full min-h-full w-full resize-none border-0 bg-muted px-6 py-5 font-mono text-[13px] leading-6 text-foreground outline-none",
-              !editable && "cursor-default opacity-80",
-            )}
+            placeholder="Press / for commands…"
           />
-        )}
+        </div>
       </div>
     </div>
   );
@@ -307,27 +275,3 @@ function TextEditor({ preview, workspaceId, onUpdated }: EditorSurfaceProps) {
   );
 }
 
-function ToggleButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex h-6 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
-        active
-          ? "bg-foreground/[0.08] text-foreground"
-          : "text-foreground/55 hover:bg-foreground/[0.04] hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
