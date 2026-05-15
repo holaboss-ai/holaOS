@@ -398,7 +398,7 @@ function AppRow({
             </button>
           }
         />
-        <DropdownMenuContent align="start" sideOffset={4}>
+        <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
           <DropdownMenuItem
             onClick={onOpen}
             disabled={status !== "ready"}
@@ -476,7 +476,7 @@ function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
             </button>
           }
         />
-        <DropdownMenuContent align="start" sideOffset={4}>
+        <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
           <DropdownMenuItem onClick={() => void handleOpen()}>
             <Plus className="size-3.5" />
             Open in new tab
