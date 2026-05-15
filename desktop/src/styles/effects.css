@@ -65,6 +65,18 @@ html[data-platform="win32"][data-theme$="-dark"] [data-pane-card="true"] {
   background: color-mix(in oklch, var(--card) 78%, transparent);
 }
 
+/* Kill focus ring on nav-style buttons in the sidebar. The orange
+   ring-ring/50 that Button's cva base applies on :focus-visible
+   reads as an error/destructive state when Esc returns focus to the
+   last-clicked item; active state + hover already convey selection. */
+[data-pane-role="sidebar"] button:focus-visible,
+[data-pane-role="sidebar"] [role="button"]:focus-visible {
+  outline: none;
+  box-shadow: none;
+  --tw-ring-shadow: 0 0 #0000;
+  --tw-ring-offset-shadow: 0 0 #0000;
+}
+
 /* Sidebar uses its own token so it can sit a notch darker than --card and
    read as recessed chrome (vs. an elevated content card). Override per-mode
    so the dark pane-card rule above doesn't claim the surface. */

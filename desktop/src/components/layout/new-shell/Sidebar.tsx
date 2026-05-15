@@ -149,7 +149,7 @@ function SidebarExpanded() {
                 type="button"
                 onClick={() => setAutomationsOpen(true)}
                 className={cn(
-                  "flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs font-medium tracking-wide text-foreground/40 uppercase outline-none transition-colors hover:bg-foreground/[0.04] focus-visible:ring-0",
+                  "flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs font-medium tracking-wide text-foreground/40 uppercase transition-colors hover:bg-foreground/[0.04]",
                   automationsOpen && "bg-foreground/[0.07]",
                 )}
               >
@@ -211,7 +211,7 @@ function AppsSection() {
         variant="ghost"
         size="sm"
         onClick={() => setExpanded((v) => !v)}
-        className="h-auto justify-start gap-2 px-2 py-[5px] text-sm font-normal text-foreground outline-none hover:bg-foreground/[0.04] focus-visible:ring-0"
+        className="h-auto justify-start gap-2 px-2 py-[5px] text-sm font-normal text-foreground hover:bg-foreground/[0.04]"
       >
         <Wrench className="size-3.5 shrink-0 text-foreground/60" />
         <span className="flex-1 truncate text-left">Apps</span>
@@ -261,7 +261,7 @@ function AppsSection() {
                   disabled={status !== "ready"}
                   tabIndex={expanded ? 0 : -1}
                   title={app.summary || label}
-                  className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/80 outline-none transition-colors hover:bg-foreground/[0.04] focus-visible:ring-0 disabled:cursor-default disabled:opacity-60"
+                  className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/80 transition-colors hover:bg-foreground/[0.04] disabled:cursor-default disabled:opacity-60"
                 >
                   <AppIcon
                     iconUrl={display.logo}
@@ -284,7 +284,7 @@ function AppsSection() {
               type="button"
               onClick={() => setMarketplaceOpen(true)}
               tabIndex={expanded ? 0 : -1}
-              className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/55 outline-none transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:ring-0"
+              className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/55 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
             >
               <Plus className="size-3.5 shrink-0" />
               <span className="truncate">Browse marketplace</span>
@@ -313,7 +313,7 @@ function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
       type="button"
       onClick={() => void handleOpen()}
       title={title}
-      className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/70 outline-none transition-colors hover:bg-foreground/[0.04] focus-visible:ring-0"
+      className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.04]"
     >
       <span className="truncate">{title}</span>
     </button>
@@ -401,7 +401,7 @@ function WorkspaceSwitcher() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search workspaces"
               autoFocus
-              className="h-8 rounded-md pl-8 text-xs focus-visible:ring-0"
+              className="h-8 rounded-md pl-8 text-xs"
             />
           </div>
 
@@ -524,7 +524,7 @@ function NavItem({
       size="sm"
       onClick={onClick}
       className={cn(
-        "h-auto justify-start gap-2 px-2 py-[5px] text-sm font-normal text-foreground outline-none focus-visible:ring-0",
+        "h-auto justify-start gap-2 px-2 py-[5px] text-sm font-normal text-foreground",
         active && "bg-foreground/[0.07] text-foreground",
         !active && "hover:bg-foreground/[0.04]",
         indent && "pl-7",
