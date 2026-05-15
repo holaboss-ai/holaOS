@@ -851,44 +851,46 @@ export function BrowserPane({
                     <RefreshCcw size={13} />
                   )}
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size={isEmbeddedVariant ? "icon-sm" : "sm"}
-                  onClick={() => onSelectBrowserSpace(alternateBrowserSpace)}
-                  className="shrink-0 bg-background/80 text-xs"
-                  aria-label={`Switch to ${alternateBrowserLabel} browser`}
-                  title={`Switch to ${alternateBrowserLabel} browser`}
-                >
-                  <VisibleBrowserIcon
-                    size={12}
-                    className={
-                      visibleBrowserSpace === "agent"
-                        ? "text-primary"
-                        : "text-muted-foreground"
-                    }
-                  />
-                  {!isNarrowPane && !isEmbeddedVariant ? (
-                    <span>{visibleBrowserLabel}</span>
-                  ) : null}
-                </Button>
+                {!isEmbeddedVariant ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onSelectBrowserSpace(alternateBrowserSpace)}
+                    className="shrink-0 bg-background/80 text-xs"
+                    aria-label={`Switch to ${alternateBrowserLabel} browser`}
+                    title={`Switch to ${alternateBrowserLabel} browser`}
+                  >
+                    <VisibleBrowserIcon
+                      size={12}
+                      className={
+                        visibleBrowserSpace === "agent"
+                          ? "text-primary"
+                          : "text-muted-foreground"
+                      }
+                    />
+                    {!isNarrowPane ? (
+                      <span>{visibleBrowserLabel}</span>
+                    ) : null}
+                  </Button>
+                ) : null}
               </div>
 
               <div
-                className={`relative flex shrink-0 items-center gap-1 ${isEmbeddedVariant || !isCompactPane ? "ml-auto" : ""}`}
+                className={`relative flex shrink-0 items-center gap-1 ${!isCompactPane ? "ml-auto" : ""} ${isEmbeddedVariant ? "hidden" : ""}`}
               >
                 <BrowserProfileImportButton
                   buttonClassName="shrink-0"
-                  buttonSize={isEmbeddedVariant ? "icon-sm" : "sm"}
+                  buttonSize="sm"
                   buttonVariant="outline"
                   open={browserProfileImportDialogOpen}
                   onOpenChange={setBrowserProfileImportDialogOpen}
-                  showLabel={!isNarrowPane && !isEmbeddedVariant}
+                  showLabel={!isNarrowPane}
                 />
                 <Button
                   type="button"
                   variant="outline"
-                  size={isEmbeddedVariant ? "icon-sm" : "sm"}
+                  size="sm"
                   className="shrink-0 gap-1.5"
                   aria-label="Copy browser screenshot"
                   title="Copy browser screenshot"
@@ -900,15 +902,13 @@ export function BrowserPane({
                   ) : (
                     <Camera size={13} />
                   )}
-                  {!isNarrowPane && !isEmbeddedVariant ? (
-                    <span>Capture</span>
-                  ) : null}
+                  {!isNarrowPane ? <span>Capture</span> : null}
                 </Button>
                 <Button
                   ref={moreButtonRef}
                   type="button"
                   variant="outline"
-                  size={isEmbeddedVariant ? "icon-sm" : "sm"}
+                  size="sm"
                   className="relative shrink-0 gap-1.5"
                   aria-label="More browser options"
                   title="More options"
@@ -922,9 +922,7 @@ export function BrowserPane({
                   }}
                 >
                   <MoreHorizontal size={14} />
-                  {!isNarrowPane && !isEmbeddedVariant ? (
-                    <span>More</span>
-                  ) : null}
+                  {!isNarrowPane ? <span>More</span> : null}
                   {activeDownloadCount > 0 ? (
                     <Badge className="absolute -right-1 -top-1 h-4 min-w-4 px-1 text-xs font-bold leading-none">
                       {activeDownloadCount}
@@ -1004,6 +1002,67 @@ export function BrowserPane({
                   ) : null}
                 </div>
               </div>
+              {isEmbeddedVariant ? (
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    onClick={() => onSelectBrowserSpace(alternateBrowserSpace)}
+                    className="shrink-0 bg-background/80"
+                    aria-label={`Switch to ${alternateBrowserLabel} browser`}
+                    title={`Switch to ${alternateBrowserLabel} browser`}
+                  >
+                    <VisibleBrowserIcon
+                      size={12}
+                      className={
+                        visibleBrowserSpace === "agent"
+                          ? "text-primary"
+                          : "text-muted-foreground"
+                      }
+                    />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    className="shrink-0"
+                    aria-label="Copy browser screenshot"
+                    title="Copy browser screenshot"
+                    onClick={() => void captureScreenshotToClipboard()}
+                    disabled={!activeTab.initialized}
+                  >
+                    {screenshotCapturePending ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <Camera size={13} />
+                    )}
+                  </Button>
+                  <Button
+                    ref={moreButtonRef}
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    className="relative shrink-0"
+                    aria-label="More browser options"
+                    title="More options"
+                    onClick={() => {
+                      const bounds = getButtonBounds(moreButtonRef.current);
+                      if (!bounds) return;
+                      void window.electronAPI.browser.toggleOverflowPopup(
+                        bounds,
+                      );
+                    }}
+                  >
+                    <MoreHorizontal size={14} />
+                    {activeDownloadCount > 0 ? (
+                      <Badge className="absolute -right-1 -top-1 h-4 min-w-4 px-1 text-xs font-bold leading-none">
+                        {activeDownloadCount}
+                      </Badge>
+                    ) : null}
+                  </Button>
+                </div>
+              ) : null}
             </form>
           </div>
           <BrowserCaptureStatusToast message={actionStatus} />
