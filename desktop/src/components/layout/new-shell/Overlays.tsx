@@ -4,22 +4,47 @@ import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { ArtifactsPane } from "@/components/panes/ArtifactsPane";
 import { AutomationsPane } from "@/components/panes/AutomationsPane";
+import { OperationsInboxPane } from "@/components/layout/OperationsDrawer";
 import { SubagentSessionsPane } from "@/components/panes/SubagentSessionsPane";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import {
   artifactsOpenAtom,
   automationsOpenAtom,
+  inboxOpenAtom,
   sessionsOpenAtom,
 } from "./state/ui";
+import { useTaskProposals } from "./useTaskProposals";
 
 export function Overlays() {
   return (
     <>
+      <InboxOverlay />
       <ArtifactsOverlay />
       <AutomationsOverlay />
       <SessionsOverlay />
     </>
+  );
+}
+
+function InboxOverlay() {
+  const { selectedWorkspaceId } = useWorkspaceSelection();
+  const { proposals, isLoading, statusMessage, action, accept, dismiss } =
+    useTaskProposals(selectedWorkspaceId || null);
+  return (
+    <PaneOverlay openAtom={inboxOpenAtom} title="Inbox">
+      <div className="h-full overflow-y-auto">
+        <OperationsInboxPane
+          proposals={proposals}
+          isLoadingProposals={isLoading}
+          proposalStatusMessage={statusMessage}
+          proposalAction={action}
+          onAcceptProposal={accept}
+          onDismissProposal={dismiss}
+          hasWorkspace={Boolean(selectedWorkspaceId)}
+        />
+      </div>
+    </PaneOverlay>
   );
 }
 

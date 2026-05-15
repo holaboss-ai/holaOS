@@ -35,12 +35,14 @@ import { SectionLabel } from "./shared";
 import {
   artifactsOpenAtom,
   createWorkspaceOpenAtom,
+  inboxOpenAtom,
   publishOpenAtom,
 } from "./state/ui";
 
 export function Sidebar() {
   const { installedApps } = useWorkspaceDesktop();
   const setArtifactsOpen = useSetAtom(artifactsOpenAtom);
+  const setInboxOpen = useSetAtom(inboxOpenAtom);
 
   return (
     <aside
@@ -51,7 +53,10 @@ export function Sidebar() {
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
         <SidebarGroup>
           <NavItem icon={<Search />}>Search</NavItem>
-          <NavItem icon={<Inbox />} badge={2}>
+          <NavItem
+            icon={<Inbox />}
+            onClick={() => setInboxOpen(true)}
+          >
             Inbox
           </NavItem>
           <NavItem

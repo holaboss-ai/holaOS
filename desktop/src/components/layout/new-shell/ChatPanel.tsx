@@ -3,12 +3,14 @@ import { ChatPane } from "@/components/panes/ChatPane";
 import {
   artifactsOpenAtom,
   automationsOpenAtom,
+  inboxOpenAtom,
   sessionsOpenAtom,
 } from "./state/ui";
 
 export function ChatPanel() {
   const setArtifactsOpen = useSetAtom(artifactsOpenAtom);
   const setAutomationsOpen = useSetAtom(automationsOpenAtom);
+  const setInboxOpen = useSetAtom(inboxOpenAtom);
   const setSessionsOpen = useSetAtom(sessionsOpenAtom);
 
   return (
@@ -17,6 +19,7 @@ export function ChatPanel() {
         variant="embedded"
         onOpenArtifacts={() => setArtifactsOpen(true)}
         onOpenAutomations={() => setAutomationsOpen(true)}
+        onOpenInbox={() => setInboxOpen(true)}
         onOpenSessions={() => setSessionsOpen(true)}
       />
     </aside>
