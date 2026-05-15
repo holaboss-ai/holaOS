@@ -432,12 +432,29 @@ function outputVisualTheme(kind: OutputVisualKind): {
 export function OutputArtifactIcon({
   output,
   size = "md",
+  variant = "tile",
 }: {
   output: WorkspaceOutputRecordPayload;
   size?: "sm" | "md";
+  /**
+   * "tile" (default): tinted rounded square with the icon inset —
+   * matches the legacy reply-scoped modal.
+   * "bare": just the colored icon, no surrounding tile. Used by
+   * the Linear-style slim row list in ArtifactsPane.
+   */
+  variant?: "tile" | "bare";
 }) {
   const kind = outputVisualKind(output);
   const { Icon, tileClass, iconClass } = outputVisualTheme(kind);
+  if (variant === "bare") {
+    const iconSize = size === "sm" ? 14 : 16;
+    return (
+      <Icon
+        size={iconSize}
+        className={`shrink-0 ${iconClass}`}
+      />
+    );
+  }
   const tileSize = size === "sm" ? "size-7" : "size-9";
   const iconSize = size === "sm" ? 14 : 16;
   return (

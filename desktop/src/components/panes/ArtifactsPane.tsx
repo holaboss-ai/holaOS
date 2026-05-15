@@ -209,7 +209,7 @@ export function ArtifactsPane({
               : "No artifacts match this filter."}
           </div>
         ) : (
-          <div className="grid gap-2">
+          <div className="-mx-1 flex flex-col">
             {filteredOutputs.map((output) => {
               const kindLabel = outputKindLabel(output);
               const changeLabel = outputChangeLabel(output);
@@ -219,19 +219,17 @@ export function ArtifactsPane({
                   type="button"
                   onClick={() => onOpenOutput?.(output)}
                   disabled={!onOpenOutput}
-                  className="group flex w-full min-w-0 items-start gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-colors hover:bg-accent/40 disabled:cursor-default disabled:hover:bg-card"
+                  className="group flex h-9 w-full min-w-0 items-center gap-2.5 rounded-md px-2 text-left transition-colors hover:bg-foreground/[0.04] disabled:cursor-default disabled:hover:bg-transparent"
                 >
-                  <OutputArtifactIcon output={output} />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {kindLabel}
-                    </div>
-                    <div className="truncate text-sm font-medium text-foreground">
-                      {output.title || "Untitled artifact"}
-                    </div>
-                  </div>
+                  <OutputArtifactIcon output={output} variant="bare" />
+                  <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                    {output.title || "Untitled artifact"}
+                  </span>
+                  <span className="shrink-0 truncate text-xs text-muted-foreground">
+                    {kindLabel}
+                  </span>
                   {changeLabel ? (
-                    <span className="shrink-0 self-center rounded-full border border-border px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground/70">
                       {changeLabel}
                     </span>
                   ) : null}
