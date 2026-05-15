@@ -1,9 +1,8 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useAtom, useSetAtom, type PrimitiveAtom } from "jotai";
-import { AppWindow, ExternalLink, X } from "lucide-react";
+import { X } from "lucide-react";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useState } from "react";
-import { AppIcon } from "@/components/marketplace/AppIcon";
+import { useEffect, useState } from "react";
 import { OperationsInboxPane } from "@/components/layout/OperationsDrawer";
 import { SettingsScreenRoot } from "@/components/layout/SettingsScreenRoot";
 import { ArtifactsPane } from "@/components/panes/ArtifactsPane";
@@ -11,13 +10,8 @@ import { AutomationsPane } from "@/components/panes/AutomationsPane";
 import { MarketplacePane } from "@/components/panes/MarketplacePane";
 import { SubagentSessionsPane } from "@/components/panes/SubagentSessionsPane";
 import { Button } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
-import { StatusDot } from "@/components/ui/status-dot";
-import type { WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
-import { resolveAppDisplay, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import {
-  appsOpenAtom,
   artifactsOpenAtom,
   automationsOpenAtom,
   inboxOpenAtom,
@@ -36,7 +30,6 @@ export function Overlays() {
       <ArtifactsOverlay />
       <AutomationsOverlay />
       <SessionsOverlay />
-      <AppsOverlay />
       <MarketplaceOverlay />
       <SettingsOverlay />
     </>
@@ -153,159 +146,6 @@ function SessionsOverlay() {
   );
 }
 
-function AppsOverlay() {
-  const {
-    installedApps,
-    selectedWorkspace,
-    appCatalog,
-    composioToolkitsByProvider,
-  } = useWorkspaceDesktop();
-  const setAppsOpen = useSetAtom(appsOpenAtom);
-  const setMarketplaceOpen = useSetAtom(marketplaceOpenAtom);
-
-  const openApp = useCallback(
-    async (appId: string) => {
-      if (!selectedWorkspace) return;
-      try {
-        const url = await window.electronAPI.appSurface.resolveUrl(
-          selectedWorkspace.id,
-          appId,
-        );
-        await window.electronAPI.browser.setActiveWorkspace(
-          selectedWorkspace.id,
-          "user",
-        );
-        await window.electronAPI.browser.newTab(url);
-        setAppsOpen(false);
-      } catch {
-        // surfacing this error inline is overkill — the app row's status
-        // pip will already reflect a non-ready state.
-      }
-    },
-    [selectedWorkspace, setAppsOpen],
-  );
-
-  const browseMarketplace = () => {
-    setAppsOpen(false);
-    setMarketplaceOpen(true);
-  };
-
-  return (
-    <PaneOverlay openAtom={appsOpenAtom} title="Apps" size="md">
-      <div className="flex h-full min-h-0 flex-col p-5">
-        {!selectedWorkspace ? (
-          <p className="text-sm text-muted-foreground">
-            Select a workspace to manage apps.
-          </p>
-        ) : installedApps.length === 0 ? (
-          <EmptyState
-            icon={AppWindow}
-            size="md"
-            title="No apps installed yet."
-            description="Install modules from the Marketplace to add capabilities to this workspace."
-            className="mt-6"
-            action={
-              <Button size="sm" onClick={browseMarketplace}>
-                Browse marketplace
-              </Button>
-            }
-          />
-        ) : (
-          <>
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">
-                {installedApps.length} installed
-              </span>
-              <Button variant="ghost" size="sm" onClick={browseMarketplace}>
-                Browse marketplace
-              </Button>
-            </div>
-            <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
-              <div className="flex flex-col gap-1.5">
-                {installedApps.map((app) => {
-                  const providerId =
-                    appCatalog.find((c) => c.app_id === app.id)
-                      ?.provider_id ?? null;
-                  const display = resolveAppDisplay(
-                    providerId,
-                    composioToolkitsByProvider,
-                  );
-                  return (
-                    <InstalledAppRow
-                      key={app.id}
-                      app={app}
-                      label={display.name ?? app.label}
-                      iconUrl={display.logo}
-                      providerId={providerId}
-                      onOpen={() => void openApp(app.id)}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    </PaneOverlay>
-  );
-}
-
-function InstalledAppRow({
-  app,
-  label,
-  iconUrl,
-  providerId,
-  onOpen,
-}: {
-  app: WorkspaceInstalledAppDefinition;
-  label: string;
-  iconUrl: string | null;
-  providerId: string | null;
-  onOpen: () => void;
-}) {
-  const error = app.error?.trim();
-  const status: "ready" | "loading" | "error" = error
-    ? "error"
-    : app.ready
-      ? "ready"
-      : "loading";
-  return (
-    <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5 transition-colors hover:bg-accent/40">
-      <AppIcon
-        iconUrl={iconUrl}
-        appId={app.id}
-        providerId={providerId}
-        label={label}
-        size="card"
-      />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="truncate text-sm font-medium">{label}</span>
-          {status === "loading" ? (
-            <StatusDot variant="info" pulse title="Starting" />
-          ) : null}
-          {status === "error" ? (
-            <StatusDot variant="destructive" title={error || "Error"} />
-          ) : null}
-        </div>
-        {app.summary ? (
-          <p className="truncate text-xs text-muted-foreground">
-            {app.summary}
-          </p>
-        ) : null}
-      </div>
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={status !== "ready"}
-        onClick={onOpen}
-      >
-        <ExternalLink className="size-3.5" />
-        Open
-      </Button>
-    </div>
-  );
-}
 
 function MarketplaceOverlay() {
   return (

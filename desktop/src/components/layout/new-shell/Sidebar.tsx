@@ -1,13 +1,13 @@
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   ChevronDown,
+  ChevronRight,
   Inbox,
   Loader2,
   Package,
   Plus,
   Search,
   Settings,
-  Store,
   Trash2,
   Upload,
   Wrench,
@@ -24,12 +24,13 @@ import {
 import { StatusDot } from "@/components/ui/status-dot";
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import { WorkspaceIconPicker } from "@/components/ui/workspace-icon-picker";
-import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import { AppIcon } from "@/components/marketplace/AppIcon";
+import { resolveAppDisplay, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { cn } from "@/lib/utils";
 import { SectionLabel } from "./shared";
 import {
-  appsOpenAtom,
+  appsExpandedAtom,
   artifactsOpenAtom,
   automationsOpenAtom,
   createWorkspaceOpenAtom,
@@ -75,14 +76,11 @@ export function Sidebar() {
 }
 
 function SidebarExpanded() {
-  const { installedApps } = useWorkspaceDesktop();
   const { selectedWorkspaceId } = useWorkspaceSelection();
 
   const setArtifactsOpen = useSetAtom(artifactsOpenAtom);
   const setInboxOpen = useSetAtom(inboxOpenAtom);
   const setAutomationsOpen = useSetAtom(automationsOpenAtom);
-  const setAppsOpen = useSetAtom(appsOpenAtom);
-  const setMarketplaceOpen = useSetAtom(marketplaceOpenAtom);
   const setSettingsOpen = useSetAtom(settingsOpenAtom);
   const setSearchOpen = useSetAtom(searchOpenAtom);
   const setSettingsSection = useSetAtom(settingsSectionAtom);
@@ -90,8 +88,6 @@ function SidebarExpanded() {
   const artifactsOpen = useAtomValue(artifactsOpenAtom);
   const inboxOpen = useAtomValue(inboxOpenAtom);
   const automationsOpen = useAtomValue(automationsOpenAtom);
-  const appsOpen = useAtomValue(appsOpenAtom);
-  const marketplaceOpen = useAtomValue(marketplaceOpenAtom);
   const settingsOpen = useAtomValue(settingsOpenAtom);
 
   const skills = useWorkspaceSkills(selectedWorkspaceId || null);
@@ -130,6 +126,7 @@ function SidebarExpanded() {
           >
             Artifacts
           </NavItem>
+          <AppsSection />
         </SidebarGroup>
 
         {recents.length > 0 ? (
@@ -173,21 +170,6 @@ function SidebarExpanded() {
 
         <SidebarGroup>
           <NavItem
-            icon={<Wrench />}
-            badge={installedApps.length > 0 ? installedApps.length : undefined}
-            active={appsOpen}
-            onClick={() => setAppsOpen(true)}
-          >
-            Apps
-          </NavItem>
-          <NavItem
-            icon={<Store />}
-            active={marketplaceOpen}
-            onClick={() => setMarketplaceOpen(true)}
-          >
-            Marketplace
-          </NavItem>
-          <NavItem
             icon={<Settings />}
             active={settingsOpen}
             onClick={() => {
@@ -200,6 +182,111 @@ function SidebarExpanded() {
         </SidebarGroup>
       </div>
     </aside>
+  );
+}
+
+function AppsSection() {
+  const { installedApps, appCatalog, composioToolkitsByProvider } =
+    useWorkspaceDesktop();
+  const { selectedWorkspaceId } = useWorkspaceSelection();
+  const [expanded, setExpanded] = useAtom(appsExpandedAtom);
+  const setMarketplaceOpen = useSetAtom(marketplaceOpenAtom);
+
+  const openApp = async (appId: string) => {
+    if (!selectedWorkspaceId) return;
+    try {
+      const url = await window.electronAPI.appSurface.resolveUrl(
+        selectedWorkspaceId,
+        appId,
+      );
+      await window.electronAPI.browser.setActiveWorkspace(
+        selectedWorkspaceId,
+        "user",
+      );
+      await window.electronAPI.browser.newTab(url);
+    } catch {
+      // status pip on the row already reflects non-ready apps
+    }
+  };
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setExpanded((v) => !v)}
+        className="h-auto justify-start gap-2 px-2 py-[5px] text-sm font-normal text-foreground hover:bg-foreground/[0.04]"
+      >
+        <span className="grid size-3.5 shrink-0 place-items-center text-foreground/60">
+          {expanded ? (
+            <ChevronDown className="size-3.5" />
+          ) : (
+            <ChevronRight className="size-3.5" />
+          )}
+        </span>
+        <Wrench className="size-3.5 shrink-0 text-foreground/60" />
+        <span className="flex-1 truncate text-left">Apps</span>
+        {installedApps.length > 0 ? (
+          <span className="text-xs text-foreground/40">
+            {installedApps.length}
+          </span>
+        ) : null}
+      </Button>
+
+      {expanded ? (
+        <div className="flex flex-col gap-0.5">
+          {installedApps.map((app) => {
+            const providerId =
+              appCatalog.find((c) => c.app_id === app.id)?.provider_id ??
+              null;
+            const display = resolveAppDisplay(
+              providerId,
+              composioToolkitsByProvider,
+            );
+            const label = display.name ?? app.label;
+            const error = app.error?.trim();
+            const status: "ready" | "loading" | "error" = error
+              ? "error"
+              : app.ready
+                ? "ready"
+                : "loading";
+            return (
+              <button
+                key={app.id}
+                type="button"
+                onClick={() => void openApp(app.id)}
+                disabled={status !== "ready"}
+                title={app.summary || label}
+                className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/80 transition-colors hover:bg-foreground/[0.04] disabled:cursor-default disabled:opacity-60"
+              >
+                <AppIcon
+                  iconUrl={display.logo}
+                  appId={app.id}
+                  providerId={providerId}
+                  label={label}
+                  size="row"
+                />
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                {status === "loading" ? (
+                  <StatusDot variant="info" pulse title="Starting" />
+                ) : null}
+                {status === "error" ? (
+                  <StatusDot variant="destructive" title={error || "Error"} />
+                ) : null}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => setMarketplaceOpen(true)}
+            className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-7 text-left text-xs text-foreground/55 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+          >
+            <Plus className="size-3.5 shrink-0" />
+            <span className="truncate">Browse marketplace</span>
+          </button>
+        </div>
+      ) : null}
+    </>
   );
 }
 

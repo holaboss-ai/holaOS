@@ -11,7 +11,6 @@ import {
   Plus,
   Settings,
   Store,
-  Wrench,
 } from "lucide-react";
 import {
   Command,
@@ -27,7 +26,6 @@ import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import {
-  appsOpenAtom,
   artifactsOpenAtom,
   automationsOpenAtom,
   createWorkspaceOpenAtom,
@@ -83,7 +81,6 @@ function SearchContent({ onSelect }: { onSelect: () => void }) {
   const setArtifactsOpen = useSetAtom(artifactsOpenAtom);
   const setAutomationsOpen = useSetAtom(automationsOpenAtom);
   const setSessionsOpen = useSetAtom(sessionsOpenAtom);
-  const setAppsOpen = useSetAtom(appsOpenAtom);
   const setMarketplaceOpen = useSetAtom(marketplaceOpenAtom);
   const setSettingsOpen = useSetAtom(settingsOpenAtom);
   const setCreateWorkspaceOpen = useSetAtom(createWorkspaceOpenAtom);
@@ -180,11 +177,6 @@ function SearchContent({ onSelect }: { onSelect: () => void }) {
             label="Open Sessions"
             icon={<FileText />}
             onSelect={wrap(() => setSessionsOpen(true))}
-          />
-          <ActionItem
-            label="Open Apps"
-            icon={<Wrench />}
-            onSelect={wrap(() => setAppsOpen(true))}
           />
           <ActionItem
             label="Open Marketplace"

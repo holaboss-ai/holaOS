@@ -37,8 +37,11 @@ export const settingsOpenAtom = atom(false);
 /** Is the Marketplace overlay open? */
 export const marketplaceOpenAtom = atom(false);
 
-/** Is the Apps gallery overlay open? */
-export const appsOpenAtom = atom(false);
+/** Is the Apps expandable group in the sidebar expanded? Persists. */
+export const appsExpandedAtom = atomWithStorage(
+  "holaboss-new-shell-apps-expanded-v1",
+  true,
+);
 
 /** Active section inside the Settings overlay. */
 export const settingsSectionAtom = atom<
@@ -61,6 +64,5 @@ export const browserViewSuspendedAtom = atom(
     get(automationsOpenAtom) ||
     get(sessionsOpenAtom) ||
     get(settingsOpenAtom) ||
-    get(marketplaceOpenAtom) ||
-    get(appsOpenAtom),
+    get(marketplaceOpenAtom),
 );
