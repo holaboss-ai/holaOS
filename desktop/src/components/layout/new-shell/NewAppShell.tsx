@@ -1,5 +1,8 @@
 import { useSetAtom } from "jotai";
 import { useEffect } from "react";
+import { DesktopBillingProvider } from "@/lib/billing/useDesktopBilling";
+import { WorkspaceDesktopProvider } from "@/lib/workspaceDesktop";
+import { WorkspaceSelectionProvider } from "@/lib/workspaceSelection";
 import { Center } from "./Center";
 import { ChatPanel } from "./ChatPanel";
 import { NewTabDialog } from "./NewTabDialog";
@@ -8,6 +11,18 @@ import { newTabOpenAtom } from "./state/ui";
 import { TopChrome } from "./TopChrome";
 
 export function NewAppShell() {
+  return (
+    <WorkspaceSelectionProvider>
+      <WorkspaceDesktopProvider>
+        <DesktopBillingProvider>
+          <NewAppShellContent />
+        </DesktopBillingProvider>
+      </WorkspaceDesktopProvider>
+    </WorkspaceSelectionProvider>
+  );
+}
+
+function NewAppShellContent() {
   const setNewTabOpen = useSetAtom(newTabOpenAtom);
 
   // Cmd/Ctrl + T → new tab palette
