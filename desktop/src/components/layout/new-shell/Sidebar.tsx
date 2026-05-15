@@ -19,12 +19,15 @@ import {
 } from "@/components/ui/popover";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
+import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { cn } from "@/lib/utils";
 import { SectionLabel } from "./shared";
 
 export function Sidebar() {
+  const { installedApps } = useWorkspaceDesktop();
+
   return (
     <aside
       data-pane-card="true"
@@ -71,7 +74,9 @@ export function Sidebar() {
         <div className="mt-auto" />
 
         <SidebarGroup>
-          <NavItem icon={<Wrench />}>Apps</NavItem>
+          <NavItem icon={<Wrench />} badge={installedApps.length}>
+            Apps
+          </NavItem>
           <NavItem icon={<Store />}>Marketplace</NavItem>
           <NavItem icon={<Settings />}>Settings</NavItem>
         </SidebarGroup>
@@ -201,12 +206,16 @@ function NavItem({
 }
 
 function AccountFoot() {
+  const { data } = useDesktopAuthSession();
+  const user = data?.user ?? null;
+  const label = user?.name ?? user?.email ?? "Not signed in";
+
   return (
     <div className="flex h-10 shrink-0 items-center gap-2 px-3">
       <div className="size-5 shrink-0 overflow-hidden rounded-full ring-1 ring-inset ring-foreground/10">
-        <UserAvatar user={{ id: "joshua", name: "Joshua" }} />
+        <UserAvatar user={user} />
       </div>
-      <span className="flex-1 truncate text-sm">Joshua</span>
+      <span className="flex-1 truncate text-sm">{label}</span>
     </div>
   );
 }
