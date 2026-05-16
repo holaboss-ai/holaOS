@@ -422,7 +422,7 @@ function FullSessionsView({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 px-4 pt-3 pb-2 sm:px-5">
+      <div className="shrink-0 px-4 pt-3 pb-2">
         <div className="relative">
           <Search
             size={13}
@@ -464,7 +464,7 @@ function FullSessionsView({
           })}
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 sm:px-3">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
         {errorMessage ? (
           <div className="mx-2 my-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
             {errorMessage}
