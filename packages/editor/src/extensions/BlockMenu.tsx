@@ -10,7 +10,7 @@ import type { Editor } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
 
 import {
-  IconChevronDown,
+  IconChevronRight,
   IconCopy,
   IconTrash,
 } from "../icons";
@@ -139,7 +139,7 @@ export function BlockMenu({
           aria-expanded={turnIntoOpen}
         >
           <span className="hb-block-menu__item-label">Turn into</span>
-          <IconChevronDown className="hb-block-menu__chevron" />
+          <IconChevronRight className="hb-block-menu__chevron" />
         </button>
         {turnIntoOpen ? (
           <div role="menu" className="hb-block-menu__submenu">

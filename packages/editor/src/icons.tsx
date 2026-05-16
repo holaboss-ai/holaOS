@@ -167,6 +167,12 @@ export const IconChevronDown = (p: IconProps) => (
   </svg>
 );
 
+export const IconChevronRight = (p: IconProps) => (
+  <svg {...base({ strokeWidth: 2.5 })} {...p}>
+    <polyline points="9 6 15 12 9 18" />
+  </svg>
+);
+
 export const IconPlus = (p: IconProps) => (
   <svg {...base({ strokeWidth: 2.25 })} {...p}>
     <line x1="12" y1="5" x2="12" y2="19" />
