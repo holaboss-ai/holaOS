@@ -134,7 +134,10 @@ function SessionsOverlay() {
   const { selectedWorkspaceId } = useWorkspaceSelection();
   return (
     <PaneOverlay openAtom={sessionsOpenAtom} title="Sessions">
-      <SubagentSessionsPane workspaceId={selectedWorkspaceId || null} />
+      <SubagentSessionsPane
+        workspaceId={selectedWorkspaceId || null}
+        variant="full"
+      />
     </PaneOverlay>
   );
 }

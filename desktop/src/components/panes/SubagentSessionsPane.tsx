@@ -6,6 +6,7 @@ import {
   Clock3,
   Loader2,
   MessageCircle,
+  Search,
   WandSparkles,
 } from "lucide-react";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
@@ -87,6 +88,65 @@ function formatSessionUpdatedLabel(session: AgentSessionRecordPayload) {
     day: "2-digit",
     hour: "numeric",
     minute: "2-digit",
+  });
+}
+
+function sessionTimestampMs(session: AgentSessionRecordPayload): number {
+  const raw = Date.parse(session.updated_at || session.created_at || "");
+  return Number.isNaN(raw) ? 0 : raw;
+}
+
+/** Bucket label used for grouping in the full-variant timeline. */
+function sessionDateBucket(ms: number): string {
+  if (ms <= 0) return "Earlier";
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(ms);
+  const targetMidnight = new Date(
+    target.getFullYear(),
+    target.getMonth(),
+    target.getDate(),
+  );
+  const dayDelta = Math.floor(
+    (today.getTime() - targetMidnight.getTime()) / 86_400_000,
+  );
+  if (dayDelta <= 0) return "Today";
+  if (dayDelta === 1) return "Yesterday";
+  if (dayDelta < 7) return "Last 7 days";
+  if (
+    target.getFullYear() === now.getFullYear() &&
+    target.getMonth() === now.getMonth()
+  ) {
+    return "Earlier this month";
+  }
+  return "Earlier";
+}
+
+const BUCKET_ORDER: ReadonlyArray<string> = [
+  "Today",
+  "Yesterday",
+  "Last 7 days",
+  "Earlier this month",
+  "Earlier",
+];
+
+function formatSessionTimeOnly(ms: number): string {
+  if (ms <= 0) return "";
+  const target = new Date(ms);
+  const now = new Date();
+  if (
+    target.getFullYear() === now.getFullYear() &&
+    target.getMonth() === now.getMonth() &&
+    target.getDate() === now.getDate()
+  ) {
+    return target.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+  return target.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
   });
 }
 
@@ -296,79 +356,206 @@ export function SubagentSessionsPane({
   }
 
   return (
+    <FullSessionsView
+      sessions={sessions}
+      filteredSessions={filteredSessions}
+      isLoading={isLoading}
+      errorMessage={errorMessage}
+      activeFilter={activeFilter}
+      onFilterChange={setActiveFilter}
+      onOpenSession={onOpenSession}
+    />
+  );
+}
+
+function FullSessionsView({
+  sessions,
+  filteredSessions,
+  isLoading,
+  errorMessage,
+  activeFilter,
+  onFilterChange,
+  onOpenSession,
+}: {
+  sessions: AgentSessionRecordPayload[];
+  filteredSessions: AgentSessionRecordPayload[];
+  isLoading: boolean;
+  errorMessage: string;
+  activeFilter: InspectableSessionFilter;
+  onFilterChange: (next: InspectableSessionFilter) => void;
+  onOpenSession?: (session: AgentSessionRecordPayload) => void;
+}) {
+  const [query, setQuery] = useState("");
+
+  const searched = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return filteredSessions;
+    return filteredSessions.filter((s) => {
+      const title = (s.title ?? "").toLowerCase();
+      const fallback = inspectableRunSessionLabel(s).toLowerCase();
+      return title.includes(q) || fallback.includes(q);
+    });
+  }, [filteredSessions, query]);
+
+  const grouped = useMemo(() => {
+    const buckets = new Map<string, AgentSessionRecordPayload[]>();
+    for (const s of searched) {
+      const ms = sessionTimestampMs(s);
+      const bucket = sessionDateBucket(ms);
+      const list = buckets.get(bucket) ?? [];
+      list.push(s);
+      buckets.set(bucket, list);
+    }
+    return BUCKET_ORDER.filter((b) => buckets.has(b)).map(
+      (b) => [b, buckets.get(b) ?? []] as const,
+    );
+  }, [searched]);
+
+  const emptyForReason =
+    sessions.length === 0
+      ? "No agent sessions yet — kick one off from chat."
+      : searched.length === 0 && query.trim()
+        ? `No sessions match "${query.trim()}".`
+        : searched.length === 0
+          ? "No sessions match this filter."
+          : null;
+
+  return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 px-4 py-3 sm:px-5">
-        <div className="flex flex-wrap items-center gap-1">
+      <div className="shrink-0 px-4 pt-3 pb-2 sm:px-5">
+        <div className="relative">
+          <Search
+            size={13}
+            className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-muted-foreground"
+          />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search sessions…"
+            aria-label="Search sessions"
+            className="h-8 w-full rounded-md border border-border bg-transparent pr-2 pl-7 text-xs text-foreground placeholder:text-muted-foreground focus-visible:border-foreground/20 focus-visible:outline-none"
+          />
+        </div>
+        <div className="mt-2 flex items-center gap-1 overflow-x-auto">
           {(
             [
-              ["all", "All", MessageCircle],
-              ["subagent", "Subagents", Bot],
-              ["cronjob", "Cronjobs", Clock3],
-              ["task_proposal", "Task proposals", WandSparkles],
+              ["all", "All"],
+              ["subagent", "Subagents"],
+              ["cronjob", "Cronjobs"],
+              ["task_proposal", "Task proposals"],
             ] as const
-          ).map(([filterId, label, Icon]) => {
+          ).map(([filterId, label]) => {
             const isActive = activeFilter === filterId;
             return (
               <button
                 key={filterId}
                 type="button"
-                onClick={() => setActiveFilter(filterId)}
-                className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors ${
+                onClick={() => onFilterChange(filterId)}
+                className={
                   isActive
-                    ? "bg-fg-8 text-foreground"
-                    : "text-muted-foreground hover:bg-fg-2 hover:text-foreground"
-                }`}
+                    ? "inline-flex h-6 items-center rounded-full bg-foreground/[0.08] px-2.5 text-[11px] font-medium text-foreground"
+                    : "inline-flex h-6 items-center rounded-full px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+                }
               >
-                <Icon size={13} />
-                <span>{label}</span>
+                {label}
               </button>
             );
           })}
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 sm:px-5">
-        {filteredSessions.length === 0 ? (
-          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
-            No matching sessions yet.
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 sm:px-3">
+        {errorMessage ? (
+          <div className="mx-2 my-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+            {errorMessage}
+          </div>
+        ) : null}
+        {emptyForReason ? (
+          <div className="flex h-full min-h-[160px] items-center justify-center px-6 text-center text-sm text-muted-foreground">
+            {isLoading && sessions.length === 0 ? (
+              <span className="inline-flex items-center gap-2">
+                <Loader2 className="size-4 animate-spin" />
+                Loading sessions…
+              </span>
+            ) : (
+              emptyForReason
+            )}
           </div>
         ) : (
-          <div className="divide-y divide-border border-y border-border">
-            {filteredSessions.map((session) => {
-              const title =
-                session.title?.trim() || inspectableRunSessionLabel(session);
-              const archived = Boolean((session.archived_at || "").trim());
-              const updatedLabel = formatSessionUpdatedLabel(session);
-              const kindLabel = archived
-                ? "Archived"
-                : inspectableRunSessionLabel(session);
-              const isTaskProposal =
-                inspectableRunSessionCategory(session) === "task_proposal" &&
-                !archived;
-              const meta = updatedLabel
-                ? `${kindLabel} · ${updatedLabel}`
-                : kindLabel;
-              return (
-                <button
-                  key={session.session_id}
-                  type="button"
-                  onClick={() => onOpenSession?.(session)}
-                  className="group flex w-full min-w-0 items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-fg-2"
-                >
-                  {isTaskProposal ? (
-                    <StatusDot variant="warning" size="sm" />
-                  ) : null}
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-                    {title}
-                  </span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {meta}
-                  </span>
-                </button>
-              );
-            })}
+          <div className="flex flex-col gap-3 pt-1">
+            {grouped.map(([bucket, items]) => (
+              <div key={bucket} className="flex flex-col">
+                <div className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-foreground/40">
+                  {bucket}
+                </div>
+                {items.map((session) => (
+                  <SessionRow
+                    key={session.session_id}
+                    session={session}
+                    onOpen={() => onOpenSession?.(session)}
+                  />
+                ))}
+              </div>
+            ))}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function SessionRow({
+  session,
+  onOpen,
+}: {
+  session: AgentSessionRecordPayload;
+  onOpen: () => void;
+}) {
+  const title = session.title?.trim() || inspectableRunSessionLabel(session);
+  const archived = Boolean((session.archived_at || "").trim());
+  const category = inspectableRunSessionCategory(session);
+  const isTaskProposal = category === "task_proposal" && !archived;
+  const ms = sessionTimestampMs(session);
+  const time = formatSessionTimeOnly(ms);
+  const subtitle = archived
+    ? "Archived"
+    : isTaskProposal
+      ? "Task proposal"
+      : inspectableRunSessionLabel(session);
+  const Icon =
+    category === "task_proposal"
+      ? WandSparkles
+      : category === "cronjob"
+        ? Clock3
+        : archived
+          ? Archive
+          : Bot;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group flex h-9 w-full min-w-0 items-center gap-2.5 rounded-md px-2 text-left transition-colors hover:bg-foreground/[0.04]"
+    >
+      <Icon
+        size={14}
+        className={
+          archived
+            ? "shrink-0 text-foreground/40"
+            : "shrink-0 text-foreground/65"
+        }
+      />
+      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+        {title}
+      </span>
+      {isTaskProposal ? (
+        <StatusDot variant="warning" size="sm" />
+      ) : null}
+      <span className="shrink-0 truncate text-xs text-muted-foreground">
+        {subtitle}
+      </span>
+      <span className="shrink-0 truncate text-xs text-muted-foreground/70 tabular-nums">
+        {time}
+      </span>
+    </button>
   );
 }
