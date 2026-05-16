@@ -154,6 +154,22 @@ const WORKSPACE_APP_ENDPOINT_PROBE_CHECKS = [
 ] as const;
 const REPORT_FILE_EXTENSION = ".html";
 const REPORT_MIME_TYPE = "text/html";
+export const ONBOARDING_ALIGNMENT_STATE = "aligning";
+export const ONBOARDING_AWAITING_ALIGNMENT_APPROVAL_STATE =
+  "awaiting_alignment_approval";
+export const ONBOARDING_IMPLEMENTING_STATE = "implementing";
+export const ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE =
+  "awaiting_verification_acceptance";
+export const ONBOARDING_COMPLETED_STATE = "completed";
+export const ONBOARDING_ABANDONED_STATE = "abandoned";
+export const ONBOARDING_WORKFLOW_STATES = new Set<string>([
+  ONBOARDING_ALIGNMENT_STATE,
+  ONBOARDING_AWAITING_ALIGNMENT_APPROVAL_STATE,
+  ONBOARDING_IMPLEMENTING_STATE,
+  ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE,
+  ONBOARDING_COMPLETED_STATE,
+  ONBOARDING_ABANDONED_STATE,
+]);
 
 type WorkspaceAppEndpointProbeCheck = (typeof WORKSPACE_APP_ENDPOINT_PROBE_CHECKS)[number];
 
@@ -969,6 +985,24 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS: RuntimeAgentToolDefinition[] = [
     method: "GET",
     path: "/api/v1/capabilities/runtime-tools/onboarding/status",
     description: runtimeToolBaseDefinition("holaboss_onboarding_status").description
+  },
+  {
+    id: runtimeToolBaseDefinition("holaboss_create_alignment_question").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/onboarding/alignment-question",
+    description: runtimeToolBaseDefinition("holaboss_create_alignment_question").description
+  },
+  {
+    id: runtimeToolBaseDefinition("holaboss_create_alignment_report").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/onboarding/alignment-report",
+    description: runtimeToolBaseDefinition("holaboss_create_alignment_report").description
+  },
+  {
+    id: runtimeToolBaseDefinition("holaboss_create_verification_report").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/onboarding/verification-report",
+    description: runtimeToolBaseDefinition("holaboss_create_verification_report").description
   },
   {
     id: runtimeToolBaseDefinition("holaboss_onboarding_complete").id,
@@ -2197,11 +2231,120 @@ export function normalizeDelivery(params: {
   };
 }
 
+function parseStoredOnboardingReport(
+  raw: string | null | undefined,
+): JsonValue | null {
+  const normalized = normalizedString(raw);
+  if (!normalized) {
+    return null;
+  }
+  try {
+    return JSON.parse(normalized) as JsonValue;
+  } catch {
+    return null;
+  }
+}
+
+type OnboardingAlignmentQuestionOption = {
+  id: string;
+  label: string;
+  description?: string | null;
+  answer_text?: string | null;
+  recommended?: boolean;
+};
+
+type OnboardingAlignmentQuestion = {
+  title?: string | null;
+  prompt: string;
+  details?: string | null;
+  allow_notes?: boolean;
+  notes_placeholder?: string | null;
+  options: OnboardingAlignmentQuestionOption[];
+};
+
+function sanitizeAlignmentQuestionOption(
+  value: Record<string, unknown>,
+  index: number,
+): OnboardingAlignmentQuestionOption {
+  const id = normalizedString(value.id) || `option_${index + 1}`;
+  const label = normalizedString(value.label);
+  if (!label) {
+    throw new Error(`question.options[${index}].label is required`);
+  }
+  return {
+    id,
+    label,
+    description: normalizedString(value.description) || null,
+    answer_text: normalizedString(value.answer_text) || null,
+    recommended: value.recommended === true,
+  };
+}
+
+function sanitizeAlignmentQuestion(
+  value: Record<string, unknown>,
+): OnboardingAlignmentQuestion {
+  const prompt = normalizedString(value.prompt);
+  if (!prompt) {
+    throw new Error("question.prompt is required");
+  }
+  if (!Array.isArray(value.options) || value.options.length < 2) {
+    throw new Error("question.options must contain at least two options");
+  }
+  const options = value.options.map((item, index) => {
+    if (!isRecord(item)) {
+      throw new Error(`question.options[${index}] must be an object`);
+    }
+    return sanitizeAlignmentQuestionOption(item, index);
+  });
+  return {
+    title: normalizedString(value.title) || null,
+    prompt,
+    details: normalizedString(value.details) || null,
+    allow_notes: value.allow_notes === true,
+    notes_placeholder: normalizedString(value.notes_placeholder) || null,
+    options,
+  };
+}
+
+function parseStoredAlignmentQuestion(
+  raw: string | null | undefined,
+): OnboardingAlignmentQuestion | null {
+  const parsed = parseStoredOnboardingReport(raw);
+  if (!isRecord(parsed)) {
+    return null;
+  }
+  try {
+    return sanitizeAlignmentQuestion(parsed);
+  } catch {
+    return null;
+  }
+}
+
+export function effectiveOnboardingState(workspace: WorkspaceRecord): string | null {
+  const normalized = normalizedString(workspace.onboardingState);
+  if (normalized) {
+    return normalized;
+  }
+  if (workspace.onboardingStatus === "completed") {
+    return ONBOARDING_COMPLETED_STATE;
+  }
+  if (workspace.onboardingStatus === "pending") {
+    return ONBOARDING_ALIGNMENT_STATE;
+  }
+  return null;
+}
+
 export function onboardingPayload(workspace: WorkspaceRecord): JsonObject {
   return {
     workspace_id: workspace.id,
     onboarding_status: workspace.onboardingStatus,
+    onboarding_state: effectiveOnboardingState(workspace),
     onboarding_session_id: workspace.onboardingSessionId,
+    alignment_question: parseStoredAlignmentQuestion(
+      workspace.onboardingAlignmentQuestion,
+    ) as unknown as JsonValue | null,
+    alignment_report: parseStoredOnboardingReport(workspace.onboardingAlignmentReport),
+    verification_report: parseStoredOnboardingReport(workspace.onboardingVerificationReport),
     onboarding_completed_at: workspace.onboardingCompletedAt,
     onboarding_completion_summary: workspace.onboardingCompletionSummary,
     onboarding_requested_at: workspace.onboardingRequestedAt,
@@ -2443,7 +2586,244 @@ export class RuntimeAgentToolsService {
   }
 
   onboardingStatus(workspaceId: string): JsonObject {
-    return onboardingPayload(this.requireWorkspace(workspaceId));
+    const scope = this.resolveOnboardingFlowScope(workspaceId);
+    return {
+      ...onboardingPayload(scope.source),
+      lab_workspace_id: scope.lab?.id ?? null,
+      lab_purpose: scope.lab?.labPurpose ?? null,
+      lab_status: scope.lab?.labStatus ?? null,
+    };
+  }
+
+  createAlignmentQuestion(params: {
+    workspaceId: string;
+    question: Record<string, unknown>;
+  }): JsonObject {
+    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    this.requireOnboardingState(scope.source, [ONBOARDING_ALIGNMENT_STATE]);
+    let question: OnboardingAlignmentQuestion;
+    try {
+      question = sanitizeAlignmentQuestion(params.question);
+    } catch (error) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "alignment_question_invalid",
+        error instanceof Error ? error.message : "alignment question is invalid",
+      );
+    }
+    const source = this.syncOnboardingFlow(scope, {
+      onboardingAlignmentQuestion: JSON.stringify(question),
+    });
+    return {
+      ...onboardingPayload(source),
+      lab_workspace_id: scope.lab.id,
+      lab_purpose: scope.lab.labPurpose,
+      lab_status: scope.lab.labStatus,
+    };
+  }
+
+  answerAlignmentQuestion(params: {
+    workspaceId: string;
+    optionId: string;
+    notes?: string | null;
+  }): JsonObject {
+    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    this.requireOnboardingState(scope.source, [ONBOARDING_ALIGNMENT_STATE]);
+    const question = parseStoredAlignmentQuestion(
+      scope.source.onboardingAlignmentQuestion,
+    );
+    if (!question) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "alignment_question_not_active",
+        "no active alignment question is awaiting an answer",
+      );
+    }
+    const optionId = normalizedString(params.optionId);
+    const option = question.options.find((item) => item.id === optionId);
+    if (!option) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "alignment_question_option_invalid",
+        "selected alignment question option is invalid",
+      );
+    }
+    const sessionId = normalizedString(scope.source.onboardingSessionId);
+    if (!sessionId) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "onboarding_session_not_configured",
+        "onboarding session is not configured",
+      );
+    }
+    if (
+      !this.store.getSession({
+        workspaceId: scope.lab.id,
+        sessionId,
+      })
+    ) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "onboarding_session_not_found",
+        "onboarding session could not be found in the active lab",
+      );
+    }
+    const noteText = normalizedString(params.notes) || "";
+    const answerText = option.answer_text || option.label;
+    const queuedText = noteText
+      ? `${answerText}\n\nAdditional notes: ${noteText}`
+      : answerText;
+    this.store.ensureRuntimeState({
+      workspaceId: scope.lab.id,
+      sessionId,
+      status: "QUEUED",
+    });
+    const input = this.store.enqueueInput({
+      workspaceId: scope.lab.id,
+      sessionId,
+      payload: {
+        text: queuedText,
+        attachments: [],
+        image_urls: [],
+        model: null,
+        thinking_value: null,
+        context: {
+          source: "alignment_question",
+          question_prompt: question.prompt,
+          option_id: option.id,
+          option_label: option.label,
+          notes: noteText || null,
+        },
+      },
+    });
+    this.store.updateRuntimeState({
+      workspaceId: scope.lab.id,
+      sessionId,
+      status: "QUEUED",
+      currentInputId: input.inputId,
+      currentWorkerId: null,
+      leaseUntil: null,
+      heartbeatAt: null,
+      lastError: null,
+    });
+    const source = this.syncOnboardingFlow(scope, {
+      onboardingAlignmentQuestion: null,
+    });
+    this.options.queueWorker?.wake();
+    return {
+      ...onboardingPayload(source),
+      lab_workspace_id: scope.lab.id,
+      lab_purpose: scope.lab.labPurpose,
+      lab_status: scope.lab.labStatus,
+    };
+  }
+
+  createAlignmentReport(params: {
+    workspaceId: string;
+    report: Record<string, unknown>;
+  }): JsonObject {
+    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    this.requireOnboardingState(scope.source, [ONBOARDING_ALIGNMENT_STATE]);
+    if (Object.keys(params.report).length === 0) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "alignment_report_required",
+        "alignment report must be a non-empty object",
+      );
+    }
+    const serialized = JSON.stringify(params.report);
+    const source = this.syncOnboardingFlow(scope, {
+      onboardingState: ONBOARDING_AWAITING_ALIGNMENT_APPROVAL_STATE,
+      onboardingAlignmentQuestion: null,
+      onboardingAlignmentReport: serialized,
+      onboardingVerificationReport: null,
+    });
+    return {
+      ...onboardingPayload(source),
+      lab_workspace_id: scope.lab.id,
+      lab_purpose: scope.lab.labPurpose,
+      lab_status: scope.lab.labStatus,
+    };
+  }
+
+  approveAlignment(params: { workspaceId: string }): JsonObject {
+    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    this.requireOnboardingState(scope.source, [
+      ONBOARDING_AWAITING_ALIGNMENT_APPROVAL_STATE,
+    ]);
+    const source = this.syncOnboardingFlow(scope, {
+      onboardingState: ONBOARDING_IMPLEMENTING_STATE,
+      onboardingAlignmentQuestion: null,
+      onboardingVerificationReport: null,
+    });
+    return {
+      ...onboardingPayload(source),
+      lab_workspace_id: scope.lab.id,
+      lab_purpose: scope.lab.labPurpose,
+      lab_status: scope.lab.labStatus,
+    };
+  }
+
+  requestAlignmentRevision(params: { workspaceId: string }): JsonObject {
+    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    this.requireOnboardingState(scope.source, [
+      ONBOARDING_AWAITING_ALIGNMENT_APPROVAL_STATE,
+    ]);
+    const source = this.syncOnboardingFlow(scope, {
+      onboardingState: ONBOARDING_ALIGNMENT_STATE,
+      onboardingAlignmentQuestion: null,
+    });
+    return {
+      ...onboardingPayload(source),
+      lab_workspace_id: scope.lab.id,
+      lab_purpose: scope.lab.labPurpose,
+      lab_status: scope.lab.labStatus,
+    };
+  }
+
+  createVerificationReport(params: {
+    workspaceId: string;
+    report: Record<string, unknown>;
+  }): JsonObject {
+    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    this.requireOnboardingState(scope.source, [ONBOARDING_IMPLEMENTING_STATE]);
+    if (Object.keys(params.report).length === 0) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "verification_report_required",
+        "verification report must be a non-empty object",
+      );
+    }
+    const serialized = JSON.stringify(params.report);
+    const source = this.syncOnboardingFlow(scope, {
+      onboardingState: ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE,
+      onboardingAlignmentQuestion: null,
+      onboardingVerificationReport: serialized,
+    });
+    return {
+      ...onboardingPayload(source),
+      lab_workspace_id: scope.lab.id,
+      lab_purpose: scope.lab.labPurpose,
+      lab_status: scope.lab.labStatus,
+    };
+  }
+
+  requestVerificationRevision(params: { workspaceId: string }): JsonObject {
+    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    this.requireOnboardingState(scope.source, [
+      ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE,
+    ]);
+    const source = this.syncOnboardingFlow(scope, {
+      onboardingState: ONBOARDING_ALIGNMENT_STATE,
+      onboardingAlignmentQuestion: null,
+      onboardingVerificationReport: null,
+    });
+    return {
+      ...onboardingPayload(source),
+      lab_workspace_id: scope.lab.id,
+      lab_purpose: scope.lab.labPurpose,
+      lab_status: scope.lab.labStatus,
+    };
   }
 
   completeOnboarding(params: {
@@ -2452,9 +2832,22 @@ export class RuntimeAgentToolsService {
     requestedBy?: string | null;
   }): JsonObject {
     const workspace = this.requireWorkspace(params.workspaceId);
+    const state = effectiveOnboardingState(workspace);
+    if (
+      normalizedString(workspace.onboardingState) &&
+      state &&
+      state !== ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE
+    ) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "onboarding_state_conflict",
+        `onboarding can only be completed from ${ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE}`,
+      );
+    }
     const now = utcNowIso();
     const updated = this.store.updateWorkspace(workspace.id, {
       onboardingStatus: "completed",
+      onboardingState: ONBOARDING_COMPLETED_STATE,
       onboardingCompletedAt: now,
       onboardingCompletionSummary: params.summary,
       onboardingRequestedAt: now,
@@ -4159,6 +4552,86 @@ export class RuntimeAgentToolsService {
       sessionId: run.childSessionId,
     });
     return !childSession?.archivedAt;
+  }
+
+  private resolveOnboardingFlowScope(workspaceId: string): {
+    source: WorkspaceRecord;
+    lab: WorkspaceRecord | null;
+  } {
+    const workspace = this.requireWorkspace(workspaceId);
+    if (
+      workspace.workspaceRole === "draft_lab" &&
+      workspace.labPurpose === "workspace_onboarding"
+    ) {
+      const sourceWorkspaceId = normalizedString(workspace.sourceWorkspaceId);
+      const source = sourceWorkspaceId
+        ? this.store.getWorkspace(sourceWorkspaceId)
+        : null;
+      if (!source) {
+        throw new RuntimeAgentToolsServiceError(
+          404,
+          "source_workspace_not_found",
+          "source workspace not found",
+        );
+      }
+      return { source, lab: workspace };
+    }
+    const activeLab = this.store.getActiveWorkspaceLab(workspace.id);
+    if (activeLab?.labPurpose === "workspace_onboarding") {
+      return { source: workspace, lab: activeLab };
+    }
+    return { source: workspace, lab: null };
+  }
+
+  private requireActiveOnboardingLab(workspaceId: string): {
+    source: WorkspaceRecord;
+    lab: WorkspaceRecord;
+  } {
+    const scope = this.resolveOnboardingFlowScope(workspaceId);
+    if (!scope.lab) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "onboarding_lab_not_active",
+        "active workspace onboarding lab not found",
+      );
+    }
+    return { source: scope.source, lab: scope.lab };
+  }
+
+  private requireOnboardingState(
+    workspace: WorkspaceRecord,
+    allowedStates: string[],
+  ): string {
+    const currentState = effectiveOnboardingState(workspace);
+    if (!currentState || !allowedStates.includes(currentState)) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "onboarding_state_conflict",
+        `expected onboarding state ${allowedStates.join(" or ")}, got ${currentState ?? "unset"}`,
+      );
+    }
+    return currentState;
+  }
+
+  private syncOnboardingFlow(
+    scope: { source: WorkspaceRecord; lab: WorkspaceRecord | null },
+    fields: {
+      onboardingState?: string | null;
+      onboardingAlignmentQuestion?: string | null;
+      onboardingAlignmentReport?: string | null;
+      onboardingVerificationReport?: string | null;
+      onboardingCompletedAt?: string | null;
+      onboardingCompletionSummary?: string | null;
+      onboardingRequestedAt?: string | null;
+      onboardingRequestedBy?: string | null;
+      onboardingStatus?: string | null;
+    },
+  ): WorkspaceRecord {
+    const source = this.store.updateWorkspace(scope.source.id, fields);
+    if (scope.lab) {
+      this.store.updateWorkspace(scope.lab.id, fields);
+    }
+    return source;
   }
 
   private requireWorkspace(workspaceId: string): WorkspaceRecord {

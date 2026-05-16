@@ -7,7 +7,11 @@ export type WorkspaceRecord = {
   harness: string | null;
   error_message: string | null;
   onboarding_status: string;
+  onboarding_state?: string | null;
   onboarding_session_id: string | null;
+  alignment_question?: Record<string, unknown> | null;
+  alignment_report?: Record<string, unknown> | null;
+  verification_report?: Record<string, unknown> | null;
   onboarding_completed_at: string | null;
   onboarding_completion_summary: string | null;
   onboarding_requested_at: string | null;

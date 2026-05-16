@@ -112,6 +112,11 @@ import { BrokerError, IntegrationBrokerService } from "./integration-broker.js";
 import { OAuthService } from "./oauth-service.js";
 import { ComposioService } from "./composio-service.js";
 import {
+  effectiveOnboardingState,
+  ONBOARDING_ABANDONED_STATE,
+  ONBOARDING_ALIGNMENT_STATE,
+  ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE,
+  ONBOARDING_COMPLETED_STATE,
   onboardingPayload,
   RuntimeAgentToolsService,
   RuntimeAgentToolsServiceError,
@@ -842,7 +847,17 @@ function workspaceRecordPayload(
     harness: workspace.harness,
     error_message: workspace.errorMessage,
     onboarding_status: workspace.onboardingStatus,
+    onboarding_state: effectiveOnboardingState(workspace),
     onboarding_session_id: workspace.onboardingSessionId,
+    alignment_question: parsedWorkspaceReportPayload(
+      workspace.onboardingAlignmentQuestion,
+    ),
+    alignment_report: parsedWorkspaceReportPayload(
+      workspace.onboardingAlignmentReport,
+    ),
+    verification_report: parsedWorkspaceReportPayload(
+      workspace.onboardingVerificationReport,
+    ),
     onboarding_completed_at: workspace.onboardingCompletedAt,
     onboarding_completion_summary: workspace.onboardingCompletionSummary,
     onboarding_requested_at: workspace.onboardingRequestedAt,
@@ -920,6 +935,18 @@ function resolveWorkspaceFolderStateForPayload(
 ): "healthy" | "missing" | null {
   try {
     return store.workspaceFolderState(workspaceId);
+  } catch {
+    return null;
+  }
+}
+
+function parsedWorkspaceReportPayload(raw: string | null | undefined): unknown | null {
+  const normalized = typeof raw === "string" ? raw.trim() : "";
+  if (!normalized) {
+    return null;
+  }
+  try {
+    return JSON.parse(normalized);
   } catch {
     return null;
   }
@@ -2047,6 +2074,10 @@ function ensureWorkspaceLab(params: {
     harness: source.harness ?? resolvedWorkspaceHarness(source),
     status: "active",
     onboardingStatus: "not_required",
+    onboardingState:
+      params.purpose === "workspace_onboarding" ? ONBOARDING_ALIGNMENT_STATE : null,
+    onboardingAlignmentReport: null,
+    onboardingVerificationReport: null,
     workspaceRole: "draft_lab",
     sourceWorkspaceId: source.id,
     labPurpose: params.purpose,
@@ -2078,7 +2109,12 @@ function ensureWorkspaceLab(params: {
     });
     params.store.updateWorkspace(source.id, {
       onboardingStatus: "pending",
+      onboardingState: ONBOARDING_ALIGNMENT_STATE,
       onboardingSessionId: session.sessionId,
+      onboardingAlignmentReport: null,
+      onboardingVerificationReport: null,
+      onboardingCompletedAt: null,
+      onboardingCompletionSummary: null,
       onboardingRequestedAt: utcNowIso(),
       onboardingRequestedBy: "workspace_user",
     });
@@ -2161,6 +2197,8 @@ async function completeWorkspaceLab(params: {
   const completedAt = utcNowIso();
   const updatedLab = params.store.updateWorkspace(lab.id, {
     status: "archived",
+    onboardingState:
+      lab.labPurpose === "workspace_onboarding" ? ONBOARDING_COMPLETED_STATE : lab.onboardingState,
     labStatus: "merged",
   });
   archiveWorkspaceLabSessions({
@@ -2171,6 +2209,7 @@ async function completeWorkspaceLab(params: {
   const sourceUpdates: Parameters<RuntimeStateStore["updateWorkspace"]>[1] = {};
   if (lab.labPurpose === "workspace_onboarding") {
     sourceUpdates.onboardingStatus = "completed";
+    sourceUpdates.onboardingState = ONBOARDING_COMPLETED_STATE;
     sourceUpdates.onboardingCompletedAt = completedAt;
     sourceUpdates.onboardingCompletionSummary = params.summary;
     sourceUpdates.onboardingRequestedBy = "workspace_user";
@@ -2211,6 +2250,7 @@ async function abandonWorkspaceLab(params: {
   if (lab.labPurpose === "workspace_onboarding") {
     updatedSource = params.store.updateWorkspace(source.id, {
       onboardingStatus: "completed",
+      onboardingState: ONBOARDING_ABANDONED_STATE,
       onboardingCompletedAt: utcNowIso(),
       onboardingCompletionSummary:
         params.summary?.trim() || "Workspace onboarding abandoned without merging",
@@ -2236,6 +2276,8 @@ async function abandonWorkspaceLab(params: {
   const archivedAt = utcNowIso();
   const updatedLab = params.store.updateWorkspace(lab.id, {
     status: "archived",
+    onboardingState:
+      lab.labPurpose === "workspace_onboarding" ? ONBOARDING_ABANDONED_STATE : lab.onboardingState,
     labStatus: "abandoned",
   });
   archiveWorkspaceLabSessions({
@@ -4991,26 +5033,151 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         headers: request.headers as Record<string, unknown>,
         query: isRecord(request.query) ? request.query : null
       });
-      const workspace = store.getWorkspace(workspaceId);
-      if (workspace?.workspaceRole === "draft_lab") {
-        const sourceWorkspaceId = workspace.sourceWorkspaceId?.trim() || "";
-        const source = sourceWorkspaceId ? store.getWorkspace(sourceWorkspaceId) : null;
-        if (!source) {
-          return sendError(reply, 404, "source workspace not found");
-        }
-        return {
-          ...onboardingPayload(source),
-          lab_workspace_id: workspace.id,
-          lab_purpose: workspace.labPurpose,
-          lab_status: workspace.labStatus,
-        };
-      }
       return runtimeAgentToolsService.onboardingStatus(workspaceId);
     } catch (error) {
       if (error instanceof RuntimeAgentToolsServiceError) {
         return sendError(reply, error.statusCode, error.message);
       }
       return sendError(reply, 400, error instanceof Error ? error.message : "runtime onboarding status failed");
+    }
+  });
+
+  app.post("/api/v1/capabilities/runtime-tools/onboarding/alignment-report", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      return runtimeAgentToolsService.createAlignmentReport({
+        workspaceId,
+        report: requiredDict(request.body.report, "report"),
+      });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime alignment report failed");
+    }
+  });
+
+  app.post("/api/v1/capabilities/runtime-tools/onboarding/alignment-question", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      return runtimeAgentToolsService.createAlignmentQuestion({
+        workspaceId,
+        question: requiredDict(request.body.question, "question"),
+      });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime alignment question failed");
+    }
+  });
+
+  app.post("/api/v1/capabilities/runtime-tools/onboarding/alignment-question/answer", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      return runtimeAgentToolsService.answerAlignmentQuestion({
+        workspaceId,
+        optionId: requiredString(request.body.option_id, "option_id"),
+        notes: nullableString(request.body.notes),
+      });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime alignment question answer failed");
+    }
+  });
+
+  app.post("/api/v1/capabilities/runtime-tools/onboarding/alignment/approve", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      return runtimeAgentToolsService.approveAlignment({ workspaceId });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime alignment approval failed");
+    }
+  });
+
+  app.post("/api/v1/capabilities/runtime-tools/onboarding/alignment/revise", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      return runtimeAgentToolsService.requestAlignmentRevision({ workspaceId });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime alignment revision failed");
+    }
+  });
+
+  app.post("/api/v1/capabilities/runtime-tools/onboarding/verification-report", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      return runtimeAgentToolsService.createVerificationReport({
+        workspaceId,
+        report: requiredDict(request.body.report, "report"),
+      });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime verification report failed");
+    }
+  });
+
+  app.post("/api/v1/capabilities/runtime-tools/onboarding/verification/revise", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      return runtimeAgentToolsService.requestVerificationRevision({ workspaceId });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime verification revision failed");
     }
   });
 
@@ -5025,6 +5192,14 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       });
       const workspace = store.getWorkspace(workspaceId);
       if (workspace?.workspaceRole === "draft_lab") {
+        const currentState = effectiveOnboardingState(workspace);
+        if (currentState !== ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE) {
+          return sendError(
+            reply,
+            409,
+            `onboarding can only be completed from ${ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE}`,
+          );
+        }
         const result = await completeWorkspaceLab({
           store,
           labId: workspace.id,
@@ -6812,7 +6987,17 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         harness: requiredString(request.body.harness, "harness"),
         status: optionalString(request.body.status) ?? "provisioning",
         onboardingStatus: optionalString(request.body.onboarding_status) ?? "not_required",
+        onboardingState: nullableString(request.body.onboarding_state) ?? null,
         onboardingSessionId: nullableString(request.body.onboarding_session_id) ?? null,
+        onboardingAlignmentQuestion: isRecord(request.body.alignment_question)
+          ? JSON.stringify(request.body.alignment_question)
+          : null,
+        onboardingAlignmentReport: isRecord(request.body.alignment_report)
+          ? JSON.stringify(request.body.alignment_report)
+          : null,
+        onboardingVerificationReport: isRecord(request.body.verification_report)
+          ? JSON.stringify(request.body.verification_report)
+          : null,
         errorMessage: nullableString(request.body.error_message) ?? null,
         workspacePath: optionalString(request.body.workspace_path),
         workspaceRole: optionalString(request.body.workspace_role) ?? "source",
@@ -6970,6 +7155,18 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
     const params = request.params as { labId: string };
     try {
+      const workspace = store.getWorkspace(params.labId);
+      if (
+        workspace?.labPurpose === "workspace_onboarding" &&
+        effectiveOnboardingState(workspace) !==
+          ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE
+      ) {
+        return sendError(
+          reply,
+          409,
+          `onboarding can only be completed from ${ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE}`,
+        );
+      }
       return labPayload(
         await completeWorkspaceLab({
           store,
@@ -7022,8 +7219,26 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       if (hasOwn(request.body, "onboarding_status")) {
         fields.onboardingStatus = nullableString(request.body.onboarding_status);
       }
+      if (hasOwn(request.body, "onboarding_state")) {
+        fields.onboardingState = nullableString(request.body.onboarding_state);
+      }
       if (hasOwn(request.body, "onboarding_session_id")) {
         fields.onboardingSessionId = nullableString(request.body.onboarding_session_id);
+      }
+      if (hasOwn(request.body, "alignment_question")) {
+        fields.onboardingAlignmentQuestion = isRecord(request.body.alignment_question)
+          ? JSON.stringify(request.body.alignment_question)
+          : null;
+      }
+      if (hasOwn(request.body, "alignment_report")) {
+        fields.onboardingAlignmentReport = isRecord(request.body.alignment_report)
+          ? JSON.stringify(request.body.alignment_report)
+          : null;
+      }
+      if (hasOwn(request.body, "verification_report")) {
+        fields.onboardingVerificationReport = isRecord(request.body.verification_report)
+          ? JSON.stringify(request.body.verification_report)
+          : null;
       }
       if (hasOwn(request.body, "onboarding_completed_at")) {
         fields.onboardingCompletedAt = nullableString(request.body.onboarding_completed_at);

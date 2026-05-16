@@ -91,6 +91,44 @@ test("buildAgentCapabilityManifest classifies tools, skills, and MCP aliases", (
   assert.equal(toolMap.skill, true);
 });
 
+test("buildAgentCapabilityManifest keeps workspace-onboarding review mutations out of the model surface", () => {
+  const manifest = buildAgentCapabilityManifest({
+    harnessId: "pi",
+    sessionKind: "workspace_onboarding",
+    browserToolsAvailable: false,
+    runtimeToolIds: [
+      "holaboss_create_alignment_question",
+      "holaboss_create_alignment_report",
+      "holaboss_create_verification_report",
+      "holaboss_onboarding_complete",
+    ],
+    defaultTools: ["read", "edit"],
+    extraTools: [
+      "holaboss_create_alignment_question",
+      "holaboss_create_alignment_report",
+      "holaboss_create_verification_report",
+      "holaboss_onboarding_complete",
+    ],
+    workspaceSkillIds: [],
+    resolvedMcpToolRefs: [],
+  });
+
+  assert.deepEqual(
+    manifest.runtime_tools.map((capability) => capability.callable_name).sort(),
+    [
+      "holaboss_create_alignment_question",
+      "holaboss_create_alignment_report",
+      "holaboss_create_verification_report",
+    ],
+  );
+  assert.equal(
+    manifest.capabilities.some(
+      (capability) => capability.callable_name === "holaboss_onboarding_complete",
+    ),
+    false,
+  );
+});
+
 test("buildAgentCapabilityManifest applies tool server id mappings to MCP callable names", () => {
   const manifest = buildAgentCapabilityManifest({
     defaultTools: ["read"],

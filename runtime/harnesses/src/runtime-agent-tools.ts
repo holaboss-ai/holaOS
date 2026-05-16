@@ -5,8 +5,27 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     policy: "inspect"
   },
   {
+    id: "holaboss_create_alignment_report",
+    description:
+      "Persist the current onboarding alignment report for the current workspace and move the controller into alignment review.",
+    policy: "mutate"
+  },
+  {
+    id: "holaboss_create_alignment_question",
+    description:
+      "Persist a multiple-choice onboarding alignment question for the current workspace and pause for the user's inline answer.",
+    policy: "mutate"
+  },
+  {
+    id: "holaboss_create_verification_report",
+    description:
+      "Persist the current onboarding verification report for the current workspace and move the controller into verification review.",
+    policy: "mutate"
+  },
+  {
     id: "holaboss_onboarding_complete",
-    description: "Mark local workspace onboarding complete with a summary.",
+    description:
+      "After the user explicitly accepts the verification result, complete workspace onboarding and merge the lab when applicable.",
     policy: "mutate"
   },
   {

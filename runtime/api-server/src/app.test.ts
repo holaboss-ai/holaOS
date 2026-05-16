@@ -17,6 +17,7 @@ import * as tar from "tar";
 
 import { buildRuntimeApiServer, type BuildRuntimeApiServerOptions } from "./app.js";
 import { appLocalNpmCacheDir, buildAppSetupEnv } from "./app-setup-env.js";
+import { ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE } from "./runtime-agent-tools.js";
 import {
   parseInstalledAppRuntime,
   removeWorkspaceMcpRegistryEntry,
@@ -937,6 +938,171 @@ test("runtime tools capability routes expose local onboarding and cronjob action
     });
     assert.equal(listedJobs.statusCode, 200);
     assert.equal(listedJobs.json().count, 1);
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
+test("workspace onboarding runtime tools persist alignment and verification states", async () => {
+  const root = makeTempDir("hb-runtime-api-workspace-onboarding-flow-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  });
+  const source = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  try {
+    const lab = await app.inject({
+      method: "POST",
+      url: `/api/v1/workspaces/${source.id}/labs`,
+      payload: { purpose: "workspace_onboarding" },
+    });
+    assert.equal(lab.statusCode, 200);
+    const labId = lab.json().lab.id as string;
+
+    const initialStatus = await app.inject({
+      method: "GET",
+      url: "/api/v1/capabilities/runtime-tools/onboarding/status",
+      headers: {
+        "x-holaboss-workspace-id": labId,
+      },
+    });
+    assert.equal(initialStatus.statusCode, 200);
+    assert.equal(initialStatus.json().onboarding_state, "aligning");
+    assert.equal(initialStatus.json().alignment_question, null);
+    assert.equal(initialStatus.json().alignment_report, null);
+
+    const question = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/onboarding/alignment-question",
+      headers: {
+        "x-holaboss-workspace-id": labId,
+      },
+      payload: {
+        question: {
+          prompt: "Which shape should the first version optimize for?",
+          options: [
+            { id: "fast", label: "Fast setup", answer_text: "Optimize for fast setup first." },
+            { id: "deep", label: "Deep automation", answer_text: "Optimize for deep automation first." },
+          ],
+          allow_notes: true,
+        },
+      },
+    });
+    assert.equal(question.statusCode, 200);
+    assert.equal(
+      question.json().alignment_question.prompt,
+      "Which shape should the first version optimize for?",
+    );
+
+    const answered = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/onboarding/alignment-question/answer",
+      headers: {
+        "x-holaboss-workspace-id": labId,
+      },
+      payload: {
+        option_id: "fast",
+        notes: "Keep the first version minimal.",
+      },
+    });
+    assert.equal(answered.statusCode, 200);
+    assert.equal(answered.json().alignment_question, null);
+    const latestSource = store.getWorkspace(source.id);
+    assert.ok(latestSource?.onboardingSessionId);
+    const queuedSessionId = latestSource.onboardingSessionId as string;
+    const queuedRuntimeState = store.getRuntimeState({
+      workspaceId: labId,
+      sessionId: queuedSessionId,
+    });
+    assert.equal(queuedRuntimeState?.status, "QUEUED");
+    const queued = queuedRuntimeState?.currentInputId
+      ? store.getInput({
+          workspaceId: labId,
+          inputId: queuedRuntimeState.currentInputId,
+        })
+      : null;
+    assert.equal(
+      (queued?.payload.text as string | undefined) ?? "",
+      "Optimize for fast setup first.\n\nAdditional notes: Keep the first version minimal.",
+    );
+
+    const alignment = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/onboarding/alignment-report",
+      headers: {
+        "x-holaboss-workspace-id": labId,
+      },
+      payload: {
+        report: {
+          summary: "Set up a lightweight CRM workspace",
+          apps_to_install: ["notion"],
+          apps_to_create: ["deal-tracker"],
+        },
+      },
+    });
+    assert.equal(alignment.statusCode, 200);
+    assert.equal(
+      alignment.json().onboarding_state,
+      "awaiting_alignment_approval",
+    );
+    assert.equal(
+      alignment.json().alignment_report.summary,
+      "Set up a lightweight CRM workspace",
+    );
+
+    const implementing = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/onboarding/alignment/approve",
+      headers: {
+        "x-holaboss-workspace-id": labId,
+      },
+      payload: {},
+    });
+    assert.equal(implementing.statusCode, 200);
+    assert.equal(implementing.json().onboarding_state, "implementing");
+
+    const verification = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/onboarding/verification-report",
+      headers: {
+        "x-holaboss-workspace-id": labId,
+      },
+      payload: {
+        report: {
+          summary: "Installed notion and scaffolded deal-tracker",
+          verification_checks: ["app builds", "workspace files created"],
+        },
+      },
+    });
+    assert.equal(verification.statusCode, 200);
+    assert.equal(
+      verification.json().onboarding_state,
+      "awaiting_verification_acceptance",
+    );
+    assert.equal(
+      verification.json().verification_report.summary,
+      "Installed notion and scaffolded deal-tracker",
+    );
+
+    const revised = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/onboarding/verification/revise",
+      headers: {
+        "x-holaboss-workspace-id": labId,
+      },
+      payload: {},
+    });
+    assert.equal(revised.statusCode, 200);
+    assert.equal(revised.json().onboarding_state, "aligning");
+    assert.equal(revised.json().verification_report, null);
   } finally {
     await app.close();
     store.close();
@@ -3710,6 +3876,12 @@ test("workspace lab routes create hidden drafts and merge accepted design state"
     connectionId: githubConnection.connectionId,
     isDefault: false,
   });
+  store.updateWorkspace(createdPayload.lab.id, {
+    onboardingState: ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE,
+  });
+  store.updateWorkspace(source.id, {
+    onboardingState: ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE,
+  });
 
   const completed = await app.inject({
     method: "POST",
@@ -3839,6 +4011,12 @@ test("workspace lab keeps copied cronjobs inert and restores their recommended e
       },
     ],
   );
+  store.updateWorkspace(labId, {
+    onboardingState: ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE,
+  });
+  store.updateWorkspace(source.id, {
+    onboardingState: ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE,
+  });
 
   const completed = await app.inject({
     method: "POST",
@@ -3936,6 +4114,12 @@ test("archiving a workspace lab stops registered apps and clears lab app runtime
   store.allocateAppPort({ workspaceId: onboardingLabId, appId: `${appId}__http` });
   store.allocateAppPort({ workspaceId: onboardingLabId, appId: `${appId}__mcp` });
   assert.equal(store.listAppPorts({ workspaceId: onboardingLabId }).length, 2);
+  store.updateWorkspace(onboardingLabId, {
+    onboardingState: ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE,
+  });
+  store.updateWorkspace(source.id, {
+    onboardingState: ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE,
+  });
 
   const merged = await app.inject({
     method: "POST",

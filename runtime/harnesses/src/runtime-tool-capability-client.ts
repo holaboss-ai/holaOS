@@ -9,6 +9,12 @@ import {
 
 const RUNTIME_TOOLS_CAPABILITY_STATUS_PATH = "/api/v1/capabilities/runtime-tools";
 const RUNTIME_TOOLS_ONBOARDING_STATUS_PATH = "/api/v1/capabilities/runtime-tools/onboarding/status";
+const RUNTIME_TOOLS_ONBOARDING_ALIGNMENT_QUESTION_PATH =
+  "/api/v1/capabilities/runtime-tools/onboarding/alignment-question";
+const RUNTIME_TOOLS_ONBOARDING_ALIGNMENT_REPORT_PATH =
+  "/api/v1/capabilities/runtime-tools/onboarding/alignment-report";
+const RUNTIME_TOOLS_ONBOARDING_VERIFICATION_REPORT_PATH =
+  "/api/v1/capabilities/runtime-tools/onboarding/verification-report";
 const RUNTIME_TOOLS_ONBOARDING_COMPLETE_PATH = "/api/v1/capabilities/runtime-tools/onboarding/complete";
 const RUNTIME_TOOLS_CRONJOBS_PATH = "/api/v1/capabilities/runtime-tools/cronjobs";
 const RUNTIME_TOOLS_SUBAGENTS_PATH = "/api/v1/capabilities/runtime-tools/subagents";
@@ -575,6 +581,30 @@ function requestPlan(
   switch (toolId) {
     case "holaboss_onboarding_status":
       return { method: "GET", requestPath: RUNTIME_TOOLS_ONBOARDING_STATUS_PATH };
+    case "holaboss_create_alignment_question": {
+      const params = isRecord(toolParams) ? toolParams : {};
+      return {
+        method: "POST",
+        requestPath: RUNTIME_TOOLS_ONBOARDING_ALIGNMENT_QUESTION_PATH,
+        body: {
+          question: params.question,
+        },
+      };
+    }
+    case "holaboss_create_alignment_report":
+    case "holaboss_create_verification_report": {
+      const params = isRecord(toolParams) ? toolParams : {};
+      return {
+        method: "POST",
+        requestPath:
+          toolId === "holaboss_create_alignment_report"
+            ? RUNTIME_TOOLS_ONBOARDING_ALIGNMENT_REPORT_PATH
+            : RUNTIME_TOOLS_ONBOARDING_VERIFICATION_REPORT_PATH,
+        body: {
+          report: params.report,
+        },
+      };
+    }
     case "holaboss_onboarding_complete": {
       const params = isRecord(toolParams) ? toolParams : {};
       return {

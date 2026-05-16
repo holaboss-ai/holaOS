@@ -779,8 +779,18 @@ test("composeAgentPrompt keeps onboarding sessions free of subagent delegation d
 test("composeAgentPrompt gives workspace onboarding its own design-lab prompt", () => {
   const capabilityManifest = buildAgentCapabilityManifest({
     defaultTools: ["read", "edit", "bash"],
-    extraTools: ["holaboss_delegate_task", "holaboss_onboarding_complete"],
-    runtimeToolIds: ["holaboss_delegate_task", "holaboss_onboarding_complete"],
+    extraTools: [
+      "holaboss_delegate_task",
+      "holaboss_create_alignment_question",
+      "holaboss_create_alignment_report",
+      "holaboss_create_verification_report",
+    ],
+    runtimeToolIds: [
+      "holaboss_delegate_task",
+      "holaboss_create_alignment_question",
+      "holaboss_create_alignment_report",
+      "holaboss_create_verification_report",
+    ],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
     toolServerIdMap: {},
@@ -788,7 +798,12 @@ test("composeAgentPrompt gives workspace onboarding its own design-lab prompt", 
 
   const prompt = composeAgentPrompt("You are concise.", {
     defaultTools: ["read", "edit", "bash"],
-    extraTools: ["holaboss_delegate_task", "holaboss_onboarding_complete"],
+    extraTools: [
+      "holaboss_delegate_task",
+      "holaboss_create_alignment_question",
+      "holaboss_create_alignment_report",
+      "holaboss_create_verification_report",
+    ],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
     sessionKind: "workspace_onboarding",
@@ -811,10 +826,15 @@ test("composeAgentPrompt gives workspace onboarding its own design-lab prompt", 
   assert.match(prompt.systemPrompt, /wait for user confirmation/);
   assert.match(prompt.systemPrompt, /Delegate implementation to subagents only after the user confirms the design report/);
   assert.match(prompt.systemPrompt, /Keep the onboarding thread conversational and uncluttered/);
-  assert.match(prompt.systemPrompt, /Do not use main-session-style parallel UX/);
+  assert.match(prompt.systemPrompt, /holaboss_create_alignment_question/);
+  assert.match(prompt.systemPrompt, /multiple-choice question/);
   assert.match(prompt.systemPrompt, /waiting for implementation results before moving to verification/);
   assert.match(prompt.systemPrompt, /verification report/);
   assert.match(prompt.systemPrompt, /verified implementation/);
+  assert.match(prompt.systemPrompt, /alignment review card/);
+  assert.match(prompt.systemPrompt, /verification review card/);
+  assert.doesNotMatch(prompt.systemPrompt, /holaboss_approve_alignment/);
+  assert.doesNotMatch(prompt.systemPrompt, /holaboss_onboarding_complete/);
   assert.doesNotMatch(prompt.systemPrompt, /This is an onboarding session\./);
 });
 

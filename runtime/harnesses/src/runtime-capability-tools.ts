@@ -87,6 +87,34 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
   switch (toolId) {
     case "holaboss_onboarding_status":
       return { type: "object", properties: {}, additionalProperties: false };
+    case "holaboss_create_alignment_question":
+      return {
+        type: "object",
+        properties: {
+          question: {
+            type: "object",
+            description:
+              "Structured multiple-choice onboarding question with prompt, options, and optional note handling.",
+            additionalProperties: true,
+          },
+        },
+        required: ["question"],
+        additionalProperties: false,
+      };
+    case "holaboss_create_alignment_report":
+    case "holaboss_create_verification_report":
+      return {
+        type: "object",
+        properties: {
+          report: {
+            type: "object",
+            description: "Structured onboarding report payload.",
+            additionalProperties: true,
+          },
+        },
+        required: ["report"],
+        additionalProperties: false,
+      };
     case "holaboss_onboarding_complete":
       return {
         type: "object",

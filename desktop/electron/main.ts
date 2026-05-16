@@ -2620,7 +2620,11 @@ interface WorkspaceRecordPayload {
   harness: string | null;
   error_message: string | null;
   onboarding_status: string;
+  onboarding_state?: string | null;
   onboarding_session_id: string | null;
+  alignment_question?: Record<string, unknown> | null;
+  alignment_report?: Record<string, unknown> | null;
+  verification_report?: Record<string, unknown> | null;
   onboarding_completed_at: string | null;
   onboarding_completion_summary: string | null;
   onboarding_requested_at: string | null;
@@ -2652,6 +2656,22 @@ interface WorkspaceListResponsePayload {
   total: number;
   limit: number;
   offset: number;
+}
+
+interface WorkspaceOnboardingStatusPayload {
+  workspace_id: string;
+  onboarding_status: string;
+  onboarding_state: string | null;
+  alignment_question: Record<string, unknown> | null;
+  alignment_report: Record<string, unknown> | null;
+  verification_report: Record<string, unknown> | null;
+  onboarding_completed_at: string | null;
+  onboarding_completion_summary: string | null;
+  onboarding_requested_at: string | null;
+  onboarding_requested_by: string | null;
+  lab_workspace_id?: string | null;
+  lab_purpose?: string | null;
+  lab_status?: string | null;
 }
 
 interface DiagnosticsExportRequestPayload {
@@ -14973,6 +14993,101 @@ async function queueSessionInput(
   return response;
 }
 
+async function getOnboardingStatus(
+  workspaceId: string,
+): Promise<WorkspaceOnboardingStatusPayload> {
+  return requestWorkspaceRuntimeJson<WorkspaceOnboardingStatusPayload>(
+    workspaceId,
+    {
+      method: "GET",
+      path: "/api/v1/capabilities/runtime-tools/onboarding/status",
+      params: {
+        workspace_id: workspaceId,
+      },
+    },
+  );
+}
+
+async function approveOnboardingAlignment(
+  workspaceId: string,
+): Promise<WorkspaceOnboardingStatusPayload> {
+  return requestWorkspaceRuntimeJson<WorkspaceOnboardingStatusPayload>(
+    workspaceId,
+    {
+      method: "POST",
+      path: "/api/v1/capabilities/runtime-tools/onboarding/alignment/approve",
+      payload: {
+        workspace_id: workspaceId,
+      },
+    },
+  );
+}
+
+async function answerOnboardingAlignmentQuestion(
+  workspaceId: string,
+  payload: { optionId: string; notes?: string | null },
+): Promise<WorkspaceOnboardingStatusPayload> {
+  return requestWorkspaceRuntimeJson<WorkspaceOnboardingStatusPayload>(
+    workspaceId,
+    {
+      method: "POST",
+      path: "/api/v1/capabilities/runtime-tools/onboarding/alignment-question/answer",
+      payload: {
+        workspace_id: workspaceId,
+        option_id: payload.optionId,
+        notes: payload.notes ?? undefined,
+      },
+    },
+  );
+}
+
+async function requestOnboardingAlignmentRevision(
+  workspaceId: string,
+): Promise<WorkspaceOnboardingStatusPayload> {
+  return requestWorkspaceRuntimeJson<WorkspaceOnboardingStatusPayload>(
+    workspaceId,
+    {
+      method: "POST",
+      path: "/api/v1/capabilities/runtime-tools/onboarding/alignment/revise",
+      payload: {
+        workspace_id: workspaceId,
+      },
+    },
+  );
+}
+
+async function requestOnboardingVerificationRevision(
+  workspaceId: string,
+): Promise<WorkspaceOnboardingStatusPayload> {
+  return requestWorkspaceRuntimeJson<WorkspaceOnboardingStatusPayload>(
+    workspaceId,
+    {
+      method: "POST",
+      path: "/api/v1/capabilities/runtime-tools/onboarding/verification/revise",
+      payload: {
+        workspace_id: workspaceId,
+      },
+    },
+  );
+}
+
+async function completeOnboarding(
+  workspaceId: string,
+  payload: { summary: string; requestedBy?: string | null },
+): Promise<WorkspaceOnboardingStatusPayload | WorkspaceLabResponsePayload> {
+  return requestWorkspaceRuntimeJson<
+    WorkspaceOnboardingStatusPayload | WorkspaceLabResponsePayload
+  >(workspaceId, {
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/onboarding/complete",
+    payload: {
+      workspace_id: workspaceId,
+      summary: payload.summary,
+      requested_by: payload.requestedBy ?? undefined,
+    },
+  });
+}
+
 async function pauseSessionRun(
   payload: HolabossPauseSessionRunPayload,
 ): Promise<PauseSessionRunResponsePayload> {
@@ -22578,6 +22693,47 @@ app.whenReady().then(async () => {
     ["main"],
     async (_event, payload: HolabossQueueSessionInputPayload) =>
       queueSessionInput(payload),
+  );
+  handleTrustedIpc(
+    "workspace:getOnboardingStatus",
+    ["main"],
+    async (_event, workspaceId: string) => getOnboardingStatus(workspaceId),
+  );
+  handleTrustedIpc(
+    "workspace:answerOnboardingAlignmentQuestion",
+    ["main"],
+    async (
+      _event,
+      workspaceId: string,
+      payload: { optionId: string; notes?: string | null },
+    ) => answerOnboardingAlignmentQuestion(workspaceId, payload),
+  );
+  handleTrustedIpc(
+    "workspace:approveOnboardingAlignment",
+    ["main"],
+    async (_event, workspaceId: string) =>
+      approveOnboardingAlignment(workspaceId),
+  );
+  handleTrustedIpc(
+    "workspace:requestOnboardingAlignmentRevision",
+    ["main"],
+    async (_event, workspaceId: string) =>
+      requestOnboardingAlignmentRevision(workspaceId),
+  );
+  handleTrustedIpc(
+    "workspace:requestOnboardingVerificationRevision",
+    ["main"],
+    async (_event, workspaceId: string) =>
+      requestOnboardingVerificationRevision(workspaceId),
+  );
+  handleTrustedIpc(
+    "workspace:completeOnboarding",
+    ["main"],
+    async (
+      _event,
+      workspaceId: string,
+      payload: { summary: string; requestedBy?: string | null },
+    ) => completeOnboarding(workspaceId, payload),
   );
   handleTrustedIpc(
     "workspace:pauseSessionRun",

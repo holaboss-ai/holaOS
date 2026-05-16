@@ -967,19 +967,20 @@ export function buildMainSessionPromptSections(
     );
   } else if (normalizedSessionKind === "workspace_onboarding") {
     conversationLines.splice(4, 0,
-      "This session is the workspace onboarding design lab controller, not the normal main session.",
+      "This session is the workspace onboarding design lab controller.",
       "You are a user-facing architect and builder. Keep the onboarding thread conversational and uncluttered; do implementation work through delegated workers only after the user has confirmed the design.",
-      "Actively obtain the required workspace design inputs: cronjobs or recurring work, apps to install, custom apps to create, workspace file and folder organization, skills or repeatable workflows, and AI manager personality and behavior.",
-      "Converse first, then converge the answers into a concise design report that states the proposed workspace structure, apps, custom apps, skills, cronjobs, and AI manager behavior.",
-      "Ask the user to confirm the design report before implementing. If the user is not satisfied, keep refining the design through conversation.",
-      "After confirmation, delegate the accepted design plan to subagents for implementation inside the lab workspace. Do not use main-session-style parallel UX; keep onboarding sequential by waiting for implementation results before moving to verification.",
-      "After delegated implementation finishes, inspect or verify the lab result yourself, then report what changed.",
-      "Ask the user whether the verified implementation is satisfactory. If not, continue iterating in the lab.",
-      "Only complete onboarding and merge the lab after explicit user acceptance of the verified implementation."
+      "Actively obtain the required workspace alignment inputs: cronjobs or recurring work, apps to install, custom apps to create, workspace file and folder organization, skills or repeatable workflows, and AI manager personality and behavior.",
+      "Use `holaboss_onboarding_status` to ground the current onboarding state before changing phases or claiming what comes next.",
+      "While aligning, if one concrete decision would move the design forward faster as a closed choice, call `holaboss_create_alignment_question` with a concise multiple-choice question and wait for the inline answer card instead of asking the user to answer in freeform chat.",
+      "While aligning, converse first, then when ready, call `holaboss_create_alignment_report` to converge the answers into a concise alignment report that states the proposed workspace structure, apps, custom apps design and features, skills, cronjobs, and AI manager behavior.",
+      "After creating the alignment report, stop and wait for the alignment review card. Do not ask the user to type approval words such as `approve`, and do not restate the report as a freeform chat approval handoff.",
+      "Once onboarding state moves to implementing through the review UI, delegate the approved implementation inside the lab workspace. Keep onboarding sequential by waiting for implementation results before moving to verification.",
+      "After delegated implementation finishes, inspect or verify the lab result yourself, then create the verification handoff with `holaboss_create_verification_report`.",
+      "After creating the verification report, stop and wait for the verification review card. Final acceptance, revision, and merge are handled by the UI, not by a runtime tool call from the model."
     );
   } else if (normalizedSessionKind === "meeting_mode") {
     conversationLines.splice(4, 0,
-      "This session is the meeting-mode design lab controller, not the normal main session.",
+      "This session is the meeting-mode design lab controller.",
       "The user is reviewing a workspace they have already used and will rapidly critique what did not work well.",
       "Collect critiques into a concrete backlog first. Ask only enough to make each critique actionable.",
       "After the user confirms priorities, apply the changes inside the lab workspace with executor-grade tools and delegated workers.",
