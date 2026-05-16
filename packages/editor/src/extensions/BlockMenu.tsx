@@ -44,6 +44,19 @@ export function BlockMenu({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [turnIntoOpen, setTurnIntoOpen] = useState(false);
+  // Snapshot the active block at open time. DragHandle's onNodeChange
+  // fires { node: null, pos: 0 } the instant the cursor leaves the
+  // editor scope to hover this portaled menu, which would otherwise
+  // make every menu action no-op (the early `if (!node) return` in
+  // onDuplicate / onDelete / Turn-into). Capturing here keeps the
+  // action anchored to whichever block the user pointed at.
+  const snapshotRef = useRef<{ node: PMNode | null; pos: number }>({
+    node: null,
+    pos: 0,
+  });
+  useLayoutEffect(() => {
+    if (open) snapshotRef.current = { ...nodeRef.current };
+  }, [open, nodeRef]);
 
   // Position the menu under the anchor.
   useLayoutEffect(() => {
@@ -86,7 +99,7 @@ export function BlockMenu({
   };
 
   const onDuplicate = () => {
-    const { node, pos } = nodeRef.current;
+    const { node, pos } = snapshotRef.current;
     if (!node) return;
     const insertAt = pos + node.nodeSize;
     editor
@@ -98,7 +111,7 @@ export function BlockMenu({
   };
 
   const onDelete = () => {
-    const { node, pos } = nodeRef.current;
+    const { node, pos } = snapshotRef.current;
     if (!node) return;
     editor
       .chain()
@@ -142,9 +155,10 @@ export function BlockMenu({
                   className="hb-block-menu__subitem"
                   onClick={() => {
                     // Anchor the change to the block the drag handle was
-                    // pointing at — not whatever the editor's current
-                    // selection happens to be (which may be elsewhere).
-                    const { node, pos } = nodeRef.current;
+                    // pointing at when the menu opened — not nodeRef
+                    // (which DragHandle nulls when the pointer leaves
+                    // the editor to hover this portaled menu).
+                    const { node, pos } = snapshotRef.current;
                     if (!node) return;
                     editor.commands.setTextSelection(pos + 1);
                     opt.apply(editor);

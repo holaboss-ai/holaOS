@@ -29,6 +29,7 @@ import {
   activeInternalTabIdAtom,
   internalTabsAtom,
 } from "./state/internalTabs";
+import { removeRecentFileByPathAtom } from "./state/recentFiles";
 import { newTabOpenAtom, sidebarCollapsedAtom } from "./state/ui";
 
 export function TopChrome() {
@@ -41,6 +42,7 @@ export function TopChrome() {
   const [activeInternalTabId, setActiveInternalTabId] = useAtom(
     activeInternalTabIdAtom,
   );
+  const removeRecentFileByPath = useSetAtom(removeRecentFileByPathAtom);
   const [menuTarget, setMenuTarget] = useState<TabContextMenuTarget | null>(
     null,
   );
@@ -116,6 +118,11 @@ export function TopChrome() {
       }
     };
 
+    const targetInternal =
+      menuTarget.list === "internal"
+        ? internalTabs.find((t) => t.id === menuTarget.tabId) ?? null
+        : null;
+
     return {
       onClose: () => {
         if (menuTarget.list === "browser") handleCloseBrowserTab(menuTarget.tabId);
@@ -124,6 +131,28 @@ export function TopChrome() {
       onCloseOthers: () => closeMany(idsOthers),
       onCloseToLeft: () => closeMany(idsLeft),
       onCloseToRight: () => closeMany(idsRight),
+      onDeleteFile: targetInternal
+        ? () => {
+            const tab = targetInternal;
+            if (
+              !window.confirm(
+                `Delete '${tab.label}'? This moves the file to the trash and can't be undone from here.`,
+              )
+            ) {
+              return;
+            }
+            void window.electronAPI.fs
+              .deletePath(tab.filePath, selectedWorkspaceId ?? null)
+              .then(() => {
+                handleCloseInternalTab(tab.id);
+                removeRecentFileByPath(tab.filePath);
+              })
+              .catch(() => {
+                // surfaced via OS notification when applicable; nothing
+                // useful to render inline.
+              });
+          }
+        : undefined,
       canCloseLeft: idsLeft.length > 0,
       canCloseRight: idsRight.length > 0,
       canCloseOthers: idsOthers.length > 0,

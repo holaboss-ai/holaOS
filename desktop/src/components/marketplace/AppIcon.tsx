@@ -1,3 +1,4 @@
+import { Code2 } from "lucide-react";
 import { useState } from "react";
 import { providerIcon } from "@/components/onboarding/constants";
 
@@ -104,6 +105,16 @@ export function AppIcon({
 
   if (stage === "local" && localSvg) {
     return <span className={containerClass}>{localSvg}</span>;
+  }
+
+  // Row-size fallback skips the letter chip — sidebar lists read cleaner
+  // with a uniform muted-glyph icon than with one-off colored initials.
+  if (size === "row") {
+    return (
+      <span className={containerClass}>
+        <Code2 className="size-3.5 text-foreground/55" />
+      </span>
+    );
   }
 
   return (

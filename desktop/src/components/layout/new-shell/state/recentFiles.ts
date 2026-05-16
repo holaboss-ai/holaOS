@@ -62,3 +62,13 @@ export const removeRecentFileAtom = atom(null, (get, set, id: string) => {
     get(recentFilesAtom).filter((e) => e.id !== id),
   );
 });
+
+export const removeRecentFileByPathAtom = atom(
+  null,
+  (get, set, filePath: string) => {
+    set(
+      recentFilesAtom,
+      get(recentFilesAtom).filter((e) => e.filePath !== filePath),
+    );
+  },
+);

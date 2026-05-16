@@ -14,6 +14,8 @@ export interface TabContextMenuActions {
   onCloseOthers(): void;
   onCloseToLeft(): void;
   onCloseToRight(): void;
+  /** Only present for internal (file) tabs. */
+  onDeleteFile?(): void;
 }
 
 interface TabContextMenuProps {
@@ -80,6 +82,14 @@ export function TabContextMenu({
       >
         Close tabs to the right
       </MenuItem>
+      {actions.onDeleteFile ? (
+        <>
+          <div role="separator" className="my-1 h-px bg-border" />
+          <MenuItem onSelect={wrap(actions.onDeleteFile)} variant="destructive">
+            Delete file…
+          </MenuItem>
+        </>
+      ) : null}
     </div>,
     document.body,
   );
@@ -88,10 +98,12 @@ export function TabContextMenu({
 function MenuItem({
   disabled,
   onSelect,
+  variant = "default",
   children,
 }: {
   disabled?: boolean;
   onSelect(): void;
+  variant?: "default" | "destructive";
   children: React.ReactNode;
 }) {
   return (
@@ -102,7 +114,11 @@ function MenuItem({
       onClick={() => {
         if (!disabled) onSelect();
       }}
-      className="flex h-7 items-center px-2.5 text-left text-xs text-foreground transition-colors hover:bg-foreground/[0.05] disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+      className={
+        variant === "destructive"
+          ? "flex h-7 items-center px-2.5 text-left text-xs text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+          : "flex h-7 items-center px-2.5 text-left text-xs text-foreground transition-colors hover:bg-foreground/[0.05] disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+      }
     >
       {children}
     </button>
