@@ -91,6 +91,13 @@
   margin: 0;
 }
 
+/* Bold renders as medium (500), matching the desktop's
+   --font-weight-bold token. 700 reads too heavy next to body copy
+   in the dense Notion-style block layout. */
+.hb-md-editor .ProseMirror :is(strong, b) {
+  font-weight: 500;
+}
+
 /* Headings — Notion uses tighter top margins, larger weight */
 .hb-md-editor .ProseMirror :is(h1, h2, h3, h4, h5, h6) {
   font-weight: 600;
