@@ -131,7 +131,7 @@ function SearchContent({ onSelect }: { onSelect: () => void }) {
             {workspaces.map((w) => (
               <CommandItem
                 key={`ws-${w.id}`}
-                value={`workspace ${w.name}`}
+                value={`workspace:${w.id} ${w.name}`}
                 onSelect={wrap(() => setSelectedWorkspaceId(w.id))}
                 className="group/cmd-item gap-2.5 py-1.5"
               >
@@ -262,7 +262,7 @@ function TabRow({
   const host = hostFromUrl(tab.url) || tab.url;
   return (
     <CommandItem
-      value={`tab ${title} ${host}`}
+      value={`${driverLabel ?? "user"}-tab:${tab.id} ${title} ${host}`}
       onSelect={() => void onSelect()}
       className="group/cmd-item gap-2.5 py-1.5"
     >
