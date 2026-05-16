@@ -1,4 +1,4 @@
-import { Boxes, Clock3, Inbox, MessageCircle } from "lucide-react";
+import { Boxes, Clock3, History, Inbox } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -64,7 +64,7 @@ export function ChatHeader({
                     aria-label="Sessions"
                     className="text-muted-foreground hover:text-foreground"
                   >
-                    <MessageCircle className="size-4" />
+                    <History className="size-4" />
                   </Button>
                 }
               />
