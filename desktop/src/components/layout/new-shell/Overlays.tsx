@@ -83,10 +83,10 @@ function PaneOverlay({
         <DialogPrimitive.Backdrop className="fixed inset-0 z-40 bg-foreground/30 opacity-0 transition-opacity duration-snappy ease-emphasized data-open:opacity-100" />
         <DialogPrimitive.Popup className="group fixed inset-0 z-40 grid place-items-center opacity-0 outline-none transition-opacity duration-base ease-emphasized data-open:opacity-100">
           <div
-            className={`flex scale-[0.96] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl ring-1 ring-foreground/5 transition-transform duration-stride ease-emphasized group-data-[open]:scale-100 ${SIZE_CLASS[size]}`}
+            className={`flex scale-[0.96] flex-col overflow-hidden rounded-xl border border-border bg-muted shadow-2xl ring-1 ring-foreground/5 transition-transform duration-stride ease-emphasized group-data-[open]:scale-100 ${SIZE_CLASS[size]}`}
             style={{ willChange: "transform" }}
           >
-            <div className="relative flex shrink-0 items-center px-4 pt-3.5 pb-1.5">
+            <div className="relative flex shrink-0 items-center px-4 pt-3 pb-2">
               <span className="text-sm font-medium text-foreground/90">
                 {title}
               </span>
@@ -100,7 +100,9 @@ function PaneOverlay({
                 <X className="size-3.5" />
               </Button>
             </div>
-            <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+            <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/50 bg-background">
+              {children}
+            </div>
           </div>
         </DialogPrimitive.Popup>
       </DialogPrimitive.Portal>
