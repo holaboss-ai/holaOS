@@ -4,6 +4,10 @@
   "description": "SDK for building Holaboss app modules — 5 orthogonal primitives (connection / resource / action / sync / start), declarative state machines, typed bridge, pluggable state backend.",
   "private": true,
   "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "test": "bun test",
     "example": "bun run examples/pinterest/run.ts"
