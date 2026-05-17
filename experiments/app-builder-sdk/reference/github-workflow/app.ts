@@ -1,4 +1,13 @@
-// GitHub Issues — workflow lifecycle + side-effect actions.
+// SDK REFERENCE — NOT a production module.
+//
+// Purpose: demonstrate the "workflow" shape — 6-state lifecycle
+// (draft/open/in_progress/closed/reopened/failed), reversible state
+// transitions (close↔reopen), and side-effect actions that don't mutate
+// row.status (comment, assign).
+//
+// Copy this directory as a template when building a real
+// workflow-shape app (issue tracker / CRM lead pipeline / ticket
+// system); do not deploy it as-is.
 
 import { createApp, z, type CreateAppOptions } from "../../src/index.ts"
 import { GITHUB } from "./provider.ts"

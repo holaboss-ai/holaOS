@@ -1,7 +1,7 @@
 // Interactive demo for the Slack app.
 // Walks: send_message → edit_message → react → delete_message
 // against a fake transport, printing the row, dashboard card, and audit log
-// at each step. Run with: `bun run examples/slack/run.ts`
+// at each step. Run with: `bun run reference/slack-messaging/run.ts`
 
 import { buildSlackApp } from "./app.ts"
 import { createBridge, type TransportFn } from "../../src/bridge.ts"

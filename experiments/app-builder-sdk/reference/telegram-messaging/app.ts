@@ -1,3 +1,19 @@
+// SDK REFERENCE — NOT a production module.
+//
+// Purpose: demonstrate that the SDK supports messaging-shape apps with
+// integer external IDs (Telegram message_id is int — see RowOf doc in
+// types.ts for the stringify pattern). Built end-to-end by a cold
+// subagent given ONLY the SDK meta-skill + the user request "add
+// Telegram" — first time pass, 0 `as any`, 9 unit tests. Useful as a
+// "did our agent-build flow really work" artifact.
+//
+// Known: real-API E2E NOT run yet (Composio proxy path convention for
+// Telegram bot tokens is unverified — depends on whether Composio's
+// `API_KEY` auth toolkit injects the token into the URL path).
+//
+// Copy this directory as a template when building a real Telegram /
+// Discord / bot-style messaging module; do not deploy it as-is.
+//
 // Telegram — messaging app (bot API). Same shape as Slack: chats + messages,
 // custom state alphabet, side-effect react action.
 //

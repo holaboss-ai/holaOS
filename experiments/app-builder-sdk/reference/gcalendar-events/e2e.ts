@@ -13,7 +13,7 @@
 //   COMPOSIO_GCAL_ACCOUNT_ID  skip auto-discovery
 //   TEST_CALENDAR_ID          use this calendar instead of "primary"
 //
-// Run: bun run examples/gcalendar/e2e.ts
+// Run: bun run reference/gcalendar-events/e2e.ts
 
 import { buildGcalendarApp } from "./app.ts"
 import { createBridge, type BridgeClient } from "../../src/index.ts"

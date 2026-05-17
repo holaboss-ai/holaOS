@@ -2,12 +2,12 @@
 
 import { describe, test, expect } from "bun:test"
 import { createBridge, type TransportFn } from "../src/bridge.ts"
-import { PINTEREST } from "../examples/pinterest/provider.ts"
-import { GITHUB } from "../examples/github-issues/provider.ts"
-import { SLACK } from "../examples/slack/provider.ts"
-import { buildPinterestApp } from "../examples/pinterest/app.ts"
-import { buildGithubIssuesApp } from "../examples/github-issues/app.ts"
-import { buildSlackApp } from "../examples/slack/app.ts"
+import { PINTEREST } from "../reference/pinterest-publishing/provider.ts"
+import { GITHUB } from "../reference/github-workflow/provider.ts"
+import { SLACK } from "../reference/slack-messaging/provider.ts"
+import { buildPinterestApp } from "../reference/pinterest-publishing/app.ts"
+import { buildGithubIssuesApp } from "../reference/github-workflow/app.ts"
+import { buildSlackApp } from "../reference/slack-messaging/app.ts"
 import type { AppHandleInternal } from "../src/app.ts"
 
 let calls: Array<{ method: string; url: string; body?: any }> = []

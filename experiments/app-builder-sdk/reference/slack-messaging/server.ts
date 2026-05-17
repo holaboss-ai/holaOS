@@ -12,7 +12,7 @@
 //   - Workspace gets a slack-v2 app entry, MCP tools become available to agent
 //   - Agent calls slack_send_message → SDK → broker → real Slack
 //
-// To generate this app's app.runtime.yaml: bun run examples/slack/manifest.ts
+// To generate this app's app.runtime.yaml: bun run reference/slack-messaging/manifest.ts
 
 import { buildSlackApp } from "./app.ts"
 import {

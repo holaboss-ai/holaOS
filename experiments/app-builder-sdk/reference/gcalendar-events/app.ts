@@ -1,8 +1,15 @@
-// Google Calendar — event-shape app.
+// SDK REFERENCE — NOT a production module.
+//
+// Purpose: demonstrate the "event-with-time" shape — resources that carry
+// their own start_time/end_time (distinct from automations scheduling),
+// recurring events (RRULE), RSVP as side-effect action.
 //
 // Event start_time/end_time are intrinsic event attributes (the user books
 // a meeting for March 5 at 2pm). This is NOT the "schedule this action to
 // run later" concept — that lives in Holaboss automations.
+//
+// Copy this directory as a template when building a real calendar / event
+// module; do not deploy it as-is.
 
 import { createApp, z, type CreateAppOptions } from "../../src/index.ts"
 import { GCALENDAR } from "./provider.ts"

@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test"
 import { createBridge, type TransportFn } from "../src/bridge.ts"
-import { PINTEREST } from "../examples/pinterest/provider.ts"
-import { buildPinterestApp } from "../examples/pinterest/app.ts"
+import { PINTEREST } from "../reference/pinterest-publishing/provider.ts"
+import { buildPinterestApp } from "../reference/pinterest-publishing/app.ts"
 import type { AppHandleInternal } from "../src/app.ts"
 
 let calls: Array<{ method: string; url: string; body?: any }> = []

@@ -9,7 +9,7 @@ import { mkdtempSync, unlinkSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { buildAppRuntimeManifest } from "../src/runtime/manifest.ts"
-import { buildSlackApp } from "../examples/slack/app.ts"
+import { buildSlackApp } from "../reference/slack-messaging/app.ts"
 import type { AppHandleInternal } from "../src/app.ts"
 
 describe("manifest generator — buildAppRuntimeManifest", () => {
@@ -65,14 +65,14 @@ describe("manifest generator — buildAppRuntimeManifest", () => {
   })
 })
 
-describe("production entry point — examples/slack/server.ts boots end-to-end", () => {
+describe("production entry point — reference/slack-messaging/server.ts boots end-to-end", () => {
   test("spawns server.ts with env, /mcp/health responds, SIGTERM shuts down cleanly", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "slack-v2-e2e-"))
     const dbPath = join(tmp, "workspace.db")
     const port = 31099 + Math.floor(Math.random() * 1000)  // avoid collisions
 
     // Spawn the real production entry — same way holaOS runtime would
-    const child = spawn("bun", ["run", "examples/slack/server.ts"], {
+    const child = spawn("bun", ["run", "reference/slack-messaging/server.ts"], {
       cwd: "/Users/joshua/holaboss-ai/holaboss/holaOS/experiments/app-builder-sdk",
       env: {
         ...process.env,
@@ -133,7 +133,7 @@ describe("production entry point — examples/slack/server.ts boots end-to-end",
   }, 15000)
 
   test("entry point refuses to start without WORKSPACE_DB_PATH", async () => {
-    const child = spawn("bun", ["run", "examples/slack/server.ts"], {
+    const child = spawn("bun", ["run", "reference/slack-messaging/server.ts"], {
       cwd: "/Users/joshua/holaboss-ai/holaboss/holaOS/experiments/app-builder-sdk",
       env: {
         ...process.env,

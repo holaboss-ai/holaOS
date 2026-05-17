@@ -9,8 +9,8 @@ import { tmpdir } from "node:os"
 import { SqliteStateBackend } from "../src/runtime/state-backend-sqlite.ts"
 import { RuntimeState } from "../src/runtime/state.ts"
 import { createApp, z, createBridge, type TransportFn } from "../src/index.ts"
-import { PINTEREST } from "../examples/pinterest/provider.ts"
-import { buildPinterestApp } from "../examples/pinterest/app.ts"
+import { PINTEREST } from "../reference/pinterest-publishing/provider.ts"
+import { buildPinterestApp } from "../reference/pinterest-publishing/app.ts"
 import type { AppHandleInternal } from "../src/app.ts"
 
 let tmpDir: string

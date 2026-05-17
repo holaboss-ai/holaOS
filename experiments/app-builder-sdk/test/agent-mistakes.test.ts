@@ -6,7 +6,7 @@
 
 import { describe, test, expect } from "bun:test"
 import { createApp, z } from "../src/index.ts"
-import { SLACK } from "../examples/slack/provider.ts"
+import { SLACK } from "../reference/slack-messaging/provider.ts"
 
 function freshApp() {
   const app = createApp({ id: "slack", provider: SLACK })

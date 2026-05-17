@@ -25,30 +25,35 @@ src/                      ← THE SDK — ~11 files, ~1100 lines. Touched only
 ├── types.ts                all type definitions
 ├── app.ts                  createApp + 5 primitive registrars
 ├── bridge.ts               BridgeClient + createBridge (transport contract)
-├── bridge-transports/      optional transport adapters (bearer / composio-direct)
+├── bridge-transports/      bearer / composio-direct / runtime-broker
 └── runtime/                internal execution: action-runner, sync-runner,
-                            state, db-view
+                            state backends (in-memory + sqlite), mcp-server,
+                            manifest helper
 
-examples/<app>/           ← APP MODULES — fully self-contained. Each app
-│                            owns its provider, business logic, tests, e2e.
-│                            Adding a new platform = create one new directory
-│                            here. SDK doesn't change.
-├── provider.ts             ProviderRegistry constant (baseUrl, allowedHosts, ...)
-├── app.ts                  business logic (createApp + resource/action calls)
-│                            Per-provider quirks (Slack body.ok pattern, 60s
-│                            window, etc.) are inline comments at the call
-│                            site they apply to — single source of truth.
-├── e2e.ts                  real-API end-to-end runner (optional)
-└── (other files as the app needs)
+reference/<shape>-<provider>/  ← SDK REFERENCE APPS (NOT production code).
+                                  Demo + test fixtures + agent templates.
+                                  Each illustrates one app shape:
+                                    pinterest-publishing
+                                    slack-messaging
+                                    github-workflow
+                                    gcalendar-events
+                                    telegram-messaging
+                                  Read these to learn the SDK; copy them to
+                                  bootstrap a new module; do NOT ship them
+                                  unmodified.
 
-test/<app>.test.ts        ← UNIT TESTS — mock transport, no network.
+test/<area>.test.ts        ← UNIT + INTEGRATION TESTS
 ```
 
-**This layout means**:
-- Marketplace / third-party / agent-generated apps live entirely in
-  `examples/<app>/` (or wherever the host runtime mounts them).
-- SDK is independently versioned; an app pinning SDK 1.2.0 doesn't have to
-  upgrade to use a new app authored against SDK 1.3.0.
+**Three places code about Holaboss apps can live**:
+
+| Location | Role | Status |
+|---|---|---|
+| `experiments/app-builder-sdk/reference/<shape>/` | **SDK reference** — demos, test fixtures, agent templates. Used to validate SDK design across shapes. | Spike phase |
+| `hola-boss-apps/<name>/` | **Production app modules** — legacy bridge-SDK-era apps shipped to users. ~20 modules. | Stable, runs in workspaces today |
+| `<workspace>/apps/<id>/` | **Workspace-installed apps** — what a user's actual workspace contains. Materialized via marketplace install or agent-build skill. | Per-workspace |
+
+Reference apps are **not** production apps. If a reference and a production app share a name (e.g. `reference/slack-messaging/` vs `hola-boss-apps/slack/`), they cover different ground — different tool names, different coverage. See each `app.ts`'s top-of-file banner for what it demonstrates.
 
 > Note on Holaboss "skills": this SDK does NOT define a per-app SKILL.md
 > convention — the real Holaboss skill system lives at
@@ -76,11 +81,11 @@ ActionDef / SyncDef doc comments for the SDK ↔ Automations boundary.
 
 | File | Shape | Tests |
 |---|---|---|
-| [`examples/pinterest/app.ts`](./examples/pinterest/app.ts) | publishing (multi-step + reversible) | 5 |
-| [`examples/slack/app.ts`](./examples/slack/app.ts) | messaging (custom states, side-effect react, 3 prod quirks fixed) | 11 |
-| [`examples/github-issues/app.ts`](./examples/github-issues/app.ts) | workflow (6-state lifecycle) | 7 |
-| [`examples/gcalendar/app.ts`](./examples/gcalendar/app.ts) | event-with-time (RSVP, recurring) | 9 |
-| [`examples/telegram/app.ts`](./examples/telegram/app.ts) | messaging (cold-subagent-built; integer IDs; no schedule) | 9 |
+| [`reference/pinterest-publishing/app.ts`](./reference/pinterest-publishing/app.ts) | publishing (multi-step + reversible) | 5 |
+| [`reference/slack-messaging/app.ts`](./reference/slack-messaging/app.ts) | messaging (custom states, side-effect react, 3 prod quirks fixed) | 11 |
+| [`reference/github-workflow/app.ts`](./reference/github-workflow/app.ts) | workflow (6-state lifecycle) | 7 |
+| [`reference/gcalendar-events/app.ts`](./reference/gcalendar-events/app.ts) | event-with-time (RSVP, recurring) | 9 |
+| [`reference/telegram-messaging/app.ts`](./reference/telegram-messaging/app.ts) | messaging (cold-subagent-built; integer IDs; no schedule) | 9 |
 | `test/sync.test.ts` | sync E2E across 3 apps | 8 |
 | `test/agent-mistakes.test.ts` | compile + runtime double-guard | 8 |
 | `test/sqlite-backend.test.ts` | SqliteStateBackend parity + persistence + isolation + integration | 4 |
@@ -119,7 +124,7 @@ cd experiments/app-builder-sdk
 export COMPOSIO_API_KEY=ck_...
 export COMPOSIO_SLACK_ACCOUNT_ID=ca_...   # from workspace.db, see e2e.ts header
 export TEST_SLACK_CHANNEL=C0123ABCD
-bun run examples/slack/e2e.ts
+bun run reference/slack-messaging/e2e.ts
 ```
 
 Sends real messages to your Slack workspace via `createComposioDirectTransport`.
@@ -178,7 +183,7 @@ pattern via `row.external_id` short-circuit.
 7. **Three `as unknown` casts in `src/app.ts`** at storage boundaries (action
    and sync registration). These widen agent-precise types to a generic
    `Record<string, unknown>` shape so the storage arrays can be homogeneous.
-   Each is annotated with intent. **Agent code (examples/) has zero `as
+   Each is annotated with intent. **Agent code (reference/) has zero `as
    any`.**
 
 ## Origin

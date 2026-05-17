@@ -3,7 +3,7 @@
 
 import { describe, test, expect } from "bun:test"
 import { createApp, z, createBridge, type TransportFn } from "../src/index.ts"
-import { PINTEREST } from "../examples/pinterest/provider.ts"
+import { PINTEREST } from "../reference/pinterest-publishing/provider.ts"
 import type { AppHandleInternal } from "../src/app.ts"
 
 const transport: TransportFn = async () => ({ status: 200, body: { id: "extern_42" } })

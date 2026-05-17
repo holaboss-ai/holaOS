@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test"
 import { createBridge, type TransportFn } from "../src/bridge.ts"
-import { SLACK } from "../examples/slack/provider.ts"
-import { buildSlackApp } from "../examples/slack/app.ts"
+import { SLACK } from "../reference/slack-messaging/provider.ts"
+import { buildSlackApp } from "../reference/slack-messaging/app.ts"
 import type { AppHandleInternal } from "../src/app.ts"
 
 let calls: Array<{ method: string; url: string; body?: any }> = []

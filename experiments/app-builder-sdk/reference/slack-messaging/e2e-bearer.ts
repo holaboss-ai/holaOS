@@ -6,7 +6,7 @@
 //   SLACK_BEARER_TOKEN   xoxb-... or xoxp-... (Slack token from your app/install)
 //   TEST_SLACK_CHANNEL   channel id
 //
-// Run: bun run examples/slack/e2e-bearer.ts
+// Run: bun run reference/slack-messaging/e2e-bearer.ts
 
 import { buildSlackApp } from "./app.ts"
 import { createBridge } from "../../src/bridge.ts"

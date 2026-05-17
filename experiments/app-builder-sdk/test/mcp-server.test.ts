@@ -4,8 +4,8 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test"
 import { startMcpServer, type StartedMcpServer } from "../src/runtime/mcp-server.ts"
 import { createBridge, type TransportFn } from "../src/index.ts"
-import { SLACK } from "../examples/slack/provider.ts"
-import { buildSlackApp } from "../examples/slack/app.ts"
+import { SLACK } from "../reference/slack-messaging/provider.ts"
+import { buildSlackApp } from "../reference/slack-messaging/app.ts"
 import type { AppHandleInternal } from "../src/app.ts"
 
 let server: StartedMcpServer

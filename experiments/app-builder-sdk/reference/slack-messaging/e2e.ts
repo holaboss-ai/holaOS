@@ -9,7 +9,7 @@
 //   COMPOSIO_SLACK_ACCOUNT_ID   skip auto-discovery (use this id directly)
 //   TEST_SLACK_CHANNEL          send to this channel instead of self-DM
 //
-// Run: bun run examples/slack/e2e.ts
+// Run: bun run reference/slack-messaging/e2e.ts
 
 import { buildSlackApp } from "./app.ts"
 import { createBridge, type BridgeClient } from "../../src/index.ts"

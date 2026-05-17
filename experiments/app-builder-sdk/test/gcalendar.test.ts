@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test"
 import { createBridge, type TransportFn } from "../src/bridge.ts"
-import { GCALENDAR } from "../examples/gcalendar/provider.ts"
-import { buildGcalendarApp } from "../examples/gcalendar/app.ts"
+import { GCALENDAR } from "../reference/gcalendar-events/provider.ts"
+import { buildGcalendarApp } from "../reference/gcalendar-events/app.ts"
 import type { AppHandleInternal } from "../src/app.ts"
 
 let calls: Array<{ method: string; url: string; body?: any }> = []

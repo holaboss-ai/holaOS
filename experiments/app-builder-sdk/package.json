@@ -10,7 +10,7 @@
   },
   "scripts": {
     "test": "bun test",
-    "example": "bun run examples/pinterest/run.ts"
+    "example": "bun run reference/pinterest-publishing/run.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

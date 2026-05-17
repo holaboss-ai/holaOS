@@ -1,14 +1,31 @@
-// Slack — messaging app. Declares its own state alphabet.
+// SDK REFERENCE — NOT a production module.
 //
-// Important Slack-specific contract: Slack returns errors as HTTP 200 with
-// { ok: false, error: "..." } in the body, NOT as 4xx/5xx. SDK's BridgeClient
-// only maps HTTP status to typed errors, so each action must additionally
-// check r.data.ok via `slackUnwrap` below.
+// Purpose: demonstrate the "messaging" shape via Slack — custom state
+// alphabet (draft/scheduled/sent/edited/deleted/failed), side-effect
+// actions (react), provider quirks (body.ok pattern, DM channel
+// resolution, 60s scheduled-message cancellation window), real reverse
+// handler. Also serves as the SDK's test fixture and the most-stressed
+// example (3 real production quirks were found and fixed via real-API
+// E2E against live Slack).
 //
-// Important Slack-specific behavior: when channel_id is a user_id (DM-self),
-// Slack auto-resolves it to a DM channel id ("D0..."). The response carries
-// that resolved channel; we persist it back so subsequent edit/delete/react
-// use the channel id Slack actually addresses, not the user_id.
+// For a production Slack module: see hola-boss-apps/slack/ (legacy
+// @holaboss/bridge SDK, ~600 lines, broader tool coverage including
+// list_channels / search_messages / list_users / send_dm). To replace
+// it, write a new workspace app under <workspace>/apps/ or
+// hola-boss-apps/ that uses this reference as a template plus the full
+// v1 tool surface — NOT a job for this reference dir.
+//
+// Per-provider Slack quirks (kept as inline comments at the call sites
+// they apply to; no separate SKILL.md — that conflicts with Holaboss's
+// real skill system at runtime/harnesses/src/embedded-skills/):
+//   - Slack returns errors as HTTP 200 + { ok:false, error:"..." }, not
+//     4xx/5xx. Every action checks body.ok via `slackUnwrap` below.
+//   - chat.postMessage with channel=user_id auto-resolves to a DM
+//     channel ("D0..."); we persist the resolved channel back to the
+//     row so subsequent edit/delete/react use the right id.
+//   - chat.deleteScheduledMessage rejects with
+//     invalid_scheduled_message_id if <60s remain before post_at —
+//     schedule with sufficient lead time.
 
 import { createApp, z, type CreateAppOptions, type ProxyResult, type BridgeError } from "../../src/index.ts"
 import { SLACK } from "./provider.ts"

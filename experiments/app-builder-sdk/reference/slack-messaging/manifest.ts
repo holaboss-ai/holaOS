@@ -1,7 +1,7 @@
 // Generates app.runtime.yaml for the Slack v2 module.
 //
-// Run: bun run examples/slack/manifest.ts
-// Output: writes examples/slack/app.runtime.yaml
+// Run: bun run reference/slack-messaging/manifest.ts
+// Output: writes reference/slack-messaging/app.runtime.yaml
 
 import { writeFileSync } from "node:fs"
 import { join, dirname } from "node:path"

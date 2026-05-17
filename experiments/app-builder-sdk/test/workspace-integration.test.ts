@@ -53,13 +53,13 @@ describe("Workspace integration — slack v2 installed via file: dep", () => {
           .replace(/from\s+"\.\.\/\.\.\/src\/index\.ts"/g, 'from "@holaboss/app-builder-sdk"')
           .replace(/from\s+"\.\.\/\.\.\/src\/types\.ts"/g, 'from "@holaboss/app-builder-sdk"')
       for (const f of ["app.ts", "provider.ts", "server.ts"]) {
-        const src = readFileSync(join(SDK_DIR, "examples/slack", f), "utf-8")
+        const src = readFileSync(join(SDK_DIR, "reference/slack-messaging", f), "utf-8")
         writeFileSync(join(appDir, f), rewriteImports(src))
       }
       // Non-code asset, copy verbatim
       writeFileSync(
         join(appDir, "app.runtime.yaml"),
-        readFileSync(join(SDK_DIR, "examples/slack/app.runtime.yaml"), "utf-8"),
+        readFileSync(join(SDK_DIR, "reference/slack-messaging/app.runtime.yaml"), "utf-8"),
       )
 
       // Step 1: lifecycle.setup

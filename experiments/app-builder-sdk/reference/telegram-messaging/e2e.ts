@@ -11,7 +11,7 @@
 //   COMPOSIO_USER_ID                  scope account listing to a specific user
 //   COMPOSIO_TELEGRAM_ACCOUNT_ID      skip auto-discovery
 //
-// Run: bun run examples/telegram/e2e.ts
+// Run: bun run reference/telegram-messaging/e2e.ts
 
 import { buildTelegramApp } from "./app.ts"
 import { createBridge, type BridgeClient } from "../../src/index.ts"

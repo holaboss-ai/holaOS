@@ -1,4 +1,11 @@
-// Pinterest — publishing-shape app with multi-step publish.
+// SDK REFERENCE — NOT a production module.
+//
+// Purpose: demonstrate the "publishing" shape — multi-step actions with
+// persisted checkpoints (upload media → create pin), reversible actions
+// (delete on cancel), and the row.external_id idempotency pattern.
+//
+// Copy this directory as a template when building a real publishing-shape
+// app; do not deploy it as-is.
 
 import { createApp, z, type CreateAppOptions } from "../../src/index.ts"
 import { PINTEREST } from "./provider.ts"
