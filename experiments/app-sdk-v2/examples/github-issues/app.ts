@@ -147,9 +147,10 @@ export function buildGithubIssuesApp() {
         const r = await bridge.call<{ reactions?: { total_count?: number }; comments?: number }>(
           "GET", `/repos/${i.repo_full_name}/issues/${i.external_id}`,
         )
-        if (r.kind === "ok") active.push({ issue_id: i.id, raw: r.data })
+        if (r.kind === "error") return { ok: false, error: r }
+        active.push({ issue_id: i.id, raw: r.data })
       }
-      return active
+      return { ok: true, items: active }
     },
     upsert: { key: "issue_id" },
     normalize: raw => ({

@@ -138,7 +138,8 @@ export function buildSlackApp() {
       const r = await bridge.call<{ channels: { id: string; name: string }[] }>(
         "GET", "/conversations.list",
       )
-      return r.kind === "ok" ? r.data.channels : []
+      if (r.kind === "error") return { ok: false, error: r }
+      return { ok: true, items: r.data.channels }
     },
     upsert: { key: "id" },
     normalize: raw => ({ id: raw.id, name: raw.name }),

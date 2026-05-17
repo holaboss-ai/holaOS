@@ -18,19 +18,19 @@ import { RuntimeState } from "./runtime/state.ts"
 import { runAction } from "./runtime/action-runner.ts"
 import { runSync, type SyncRunResult } from "./runtime/sync-runner.ts"
 
-interface RegisteredAction<
-  TSchema extends ZodTypeAny = ZodTypeAny,
-  States extends StateTuple = StateTuple,
-  I = any,
-> {
-  resource: ResourceHandle<TSchema, States>
+// Storage shape — homogeneous so the actions[] array can hold registrations
+// from different resources/schemas. Agent-facing type safety lives at the
+// app.action<TS, S, I>(...) call site, not at storage. The runtime operates
+// on Record<string, unknown> rows by design, so widening here is honest.
+interface RegisteredAction {
+  resource: ResourceHandle<ZodTypeAny, StateTuple>
   name: string
-  def: ActionDef<RowOf<TSchema>, States, I>
+  def: ActionDef<Record<string, unknown>, StateTuple, Record<string, unknown>>
 }
 
 interface RegisteredSync {
   name: string
-  def: SyncDef<any, any, any>
+  def: SyncDef<ZodTypeAny, unknown, unknown>
 }
 
 export interface AppHandleInternal extends AppHandle {
@@ -119,14 +119,27 @@ export function createApp(config: AppConfig): AppHandleInternal {
         `[${config.id}] action ${name}: reversible.toState '${def.reversible.toState}' not in resource '${res.name}' states`,
       )
     }
-    actions.push({ resource: res, name, def } as unknown as RegisteredAction)
+    // Single intentional widening at storage boundary — runtime operates on
+    // Record<string, unknown> rows, so the precise TSchema/I types are
+    // discarded here. The agent's compile-time guarantee lives at the
+    // app.action<TSchema, States, I>(...) call above; storage doesn't need it.
+    actions.push({
+      resource: res as unknown as ResourceHandle<ZodTypeAny, StateTuple>,
+      name,
+      def: def as unknown as ActionDef<Record<string, unknown>, StateTuple, Record<string, unknown>>,
+    })
   }
 
   function sync<TSchema extends ZodTypeAny, RAW, N>(
     name: string,
     def: SyncDef<TSchema, RAW, N>,
   ): void {
-    syncs.push({ name, def: def as any })
+    // Storage widens: runtime calls fetch/normalize generically. Agent-side
+    // typing was preserved at the app.sync<TSchema, RAW, N>(...) call above.
+    syncs.push({
+      name,
+      def: def as unknown as SyncDef<ZodTypeAny, unknown, unknown>,
+    })
   }
 
   async function start(): Promise<void> {
@@ -238,9 +251,9 @@ export function createApp(config: AppConfig): AppHandleInternal {
         resourceName: reg.resource.name,
         resourceDef: reg.resource.def,
         actionName: reg.name,
-        actionDef: reg.def as any,
+        actionDef: reg.def,
         rowId,
-        input: (input ?? {}) as any,
+        input: (input ?? {}) as Record<string, unknown>,
         bridge,
         state,
       })
@@ -261,10 +274,10 @@ export function createApp(config: AppConfig): AppHandleInternal {
           },
         }
       }
-      const reverseDef: ActionDef<any, any, any> = {
+      const reverseDef: ActionDef<Record<string, unknown>, StateTuple, Record<string, unknown>> = {
         fromStates: [reg.def.toState as string],
         toState: reg.def.reversible.toState,
-        run: reg.def.reversible.run as any,
+        run: reg.def.reversible.run,
       }
       return runAction({
         appId: config.id,
@@ -273,7 +286,7 @@ export function createApp(config: AppConfig): AppHandleInternal {
         actionName: `cancel_${reg.name}`,
         actionDef: reverseDef,
         rowId,
-        input: {} as any,
+        input: {},
         bridge,
         state,
       })

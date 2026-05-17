@@ -198,7 +198,8 @@ export function buildGcalendarApp() {
           end?: { dateTime?: string; date?: string }
         }[]
       }>("GET", "/calendars/primary/events?singleEvents=false&maxResults=50")
-      return r.kind === "ok" ? r.data.items : []
+      if (r.kind === "error") return { ok: false, error: r }
+      return { ok: true, items: r.data.items }
     },
     upsert: { key: "id" },
     normalize: raw => ({

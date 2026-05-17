@@ -104,7 +104,7 @@ describe("Sync — runs fetch + upsert + normalize end-to-end", () => {
     expect(records[0]!.normalized).toEqual({ id: "C1", name: "general" })
   })
 
-  test("Sync fetch error: surfaces as notification, syncRecords stays empty", async () => {
+  test("Sync UPSTREAM ERROR: r.ok=false, notification raised, NOT confused with 'empty success'", async () => {
     calls = []
     scriptedResponses = []
     const { app } = buildSlackApp() as unknown as { app: AppHandleInternal }
@@ -112,10 +112,45 @@ describe("Sync — runs fetch + upsert + normalize end-to-end", () => {
     scriptedResponses.push({ status: 500, body: { error: "internal" } })
 
     const r = await app._runSync("channel_directory", createBridge({ provider: SLACK, transport }))
-    // sync's fetch returns [] on non-ok (the Slack example chose this); upsert sees 0 items
+    expect(r.ok).toBe(false)                  // ← was the regression: silently true before
+    expect(r.error?.code).toBe("upstream_error")
+
+    // Notification raised so automations / agent can react
+    const notif = app.state().notifications.find(n => n.summary.includes("channel_directory"))
+    expect(notif).toBeDefined()
+    expect(notif!.level).toBe("error")
+    expect(notif!.agentHint).toContain("retry")
+  })
+
+  test("Sync UPSTREAM SUCCESS WITH EMPTY: r.ok=true, fetched=0 — distinct from upstream error", async () => {
+    calls = []
+    scriptedResponses = []
+    const { app } = buildSlackApp() as unknown as { app: AppHandleInternal }
+
+    // 200 with empty list = legitimately nothing to sync
+    scriptedResponses.push({ status: 200, body: { channels: [] } })
+
+    const r = await app._runSync("channel_directory", createBridge({ provider: SLACK, transport }))
     expect(r.ok).toBe(true)
     expect(r.fetched).toBe(0)
     expect(r.upserted).toBe(0)
+    // No error notification for legitimate empty result
+    const errNotifs = app.state().notifications.filter(n => n.level === "error")
+    expect(errNotifs).toHaveLength(0)
+  })
+
+  test("Sync AUTH ERROR: notification hints 'reconnect'", async () => {
+    calls = []
+    scriptedResponses = []
+    const { app } = buildSlackApp() as unknown as { app: AppHandleInternal }
+
+    scriptedResponses.push({ status: 401, body: { error: "token expired" } })
+
+    const r = await app._runSync("channel_directory", createBridge({ provider: SLACK, transport }))
+    expect(r.ok).toBe(false)
+    expect(r.error?.code).toBe("not_connected")
+    const notif = app.state().notifications.find(n => n.level === "error")
+    expect(notif?.agentHint).toContain("reconnect")
   })
 
   test("Sync against unknown name throws", async () => {

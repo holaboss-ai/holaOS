@@ -85,7 +85,7 @@ export async function runAction(
     const stepStart = Date.now()
     let result: StepResult
     try {
-      result = await step.run(ctx as any)
+      result = await step.run(ctx)
     } catch (e) {
       result = {
         fail: {
@@ -176,7 +176,7 @@ function syncOutput(
   externalId?: string,
 ): void {
   if (!emit || emit.surface === "none") return
-  const enriched = { ...rowData, external_id: externalId }
+  const enriched = { ...rowData, id: rowId, status, external_id: externalId }
   const summary = emit.summary?.(enriched) ?? null
   const deepLink = emit.deepLink?.(enriched) ?? null
   state.upsertOutput({

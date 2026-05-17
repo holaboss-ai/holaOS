@@ -59,25 +59,41 @@ intermediate state (e.g. `media_id` from a prior failed publish attempt) must
 safely no-op the already-completed steps. The 4 examples demonstrate the
 pattern via `row.external_id` short-circuit.
 
-## Known weaknesses
+## Known weaknesses (honestly listed after a cold review pass)
 
 1. **Idempotency is by convention, not by type.** Agent could write a
-   non-idempotent action; type system won't catch it. Future: optional
-   `idempotencyKey: (row) => row.external_id` hook for runtime short-circuit.
+   non-idempotent action; type system won't catch it. Examples demonstrate
+   the `row.external_id` short-circuit pattern. Future: optional
+   `idempotencyKey: (row) => row.external_id` hook so SDK can short-circuit
+   automatically.
 
 2. **`askUser` protocol not designed.** No way for an action mid-step to pause
-   and ask the user to choose a value. Pinterest stress-test surfaced this:
-   "agent calls list_boards, user picks one, then publish continues" has no
-   primitive yet. Requires runtime turn-suspend coordination.
+   and ask the user to choose a value. Requires runtime turn-suspend
+   coordination — single-handed SDK can't define it cleanly.
 
 3. **`app.start()` is a 1-line check.** Real implementation (start MCP SSE
-   server, register with runtime registry, etc.) lands when this SDK is wired
-   into the actual Holaboss runtime.
+   server, register with runtime, etc.) lands when this SDK is wired into the
+   actual Holaboss runtime.
 
 4. **Reverse tool naming convention.** Defaults to
-   `<app>_cancel_<action>_<resource>`, or `<toolName>_reverse` if `toolName`
-   was overridden on the forward action. Documented here, not in the type
-   signature.
+   `<app>_cancel_<action>_<resource>`, or `<toolName>_reverse` when `toolName`
+   was overridden on the forward action. Convention not encoded in types.
+
+5. **`DbView.where()` supports scalar equality only** (string/number/boolean/
+   null). Type system enforces via `ScalarFilter<T>` — passing an array or
+   object as a where condition won't compile. Array-membership / object-deep
+   queries need a separate primitive if/when needed.
+
+6. **Sync record retention.** When a row is deleted (state="deleted") or an
+   external resource disappears from sync results, prior sync records stay in
+   `state.syncRecords` with dangling `attachedRowId`. Needs a retention
+   policy. Low priority — only matters once SyncRecord drives UI.
+
+7. **Three `as unknown` casts in `src/app.ts`** at storage boundaries (action
+   and sync registration). These widen agent-precise types to a generic
+   `Record<string, unknown>` shape so the storage arrays can be homogeneous.
+   Each is annotated with intent. **Agent code (examples/) has zero `as
+   any`.**
 
 ## Origin
 

@@ -1,5 +1,10 @@
 // Executes a registered sync.
 // SDK does NOT schedule — automations or tests call runSync().
+//
+// fetch() MUST return { ok: true, items } | { ok: false, error }. The runner
+// distinguishes "upstream returned 0 items" (ok: true, items: []) from
+// "upstream failed" (ok: false) — the latter triggers app.notify and reports
+// failure to the caller so automations can retry intelligently.
 
 import type { BridgeClient, ResourceHandle, SyncDef } from "../types.ts"
 import type { RuntimeState } from "./state.ts"
@@ -27,9 +32,9 @@ export async function runSync(opts: RunSyncOpts): Promise<SyncRunResult> {
   state.pushAudit("sync.start", { app: appId, sync: syncName })
 
   const db = createDbView(state)
-  let rawList: unknown[]
+  let fetchResult
   try {
-    rawList = await syncDef.fetch({ bridge, db })
+    fetchResult = await syncDef.fetch({ bridge, db })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     state.pushAudit("sync.end", {
@@ -38,12 +43,30 @@ export async function runSync(opts: RunSyncOpts): Promise<SyncRunResult> {
     })
     state.pushNotification({
       level: "warning",
-      summary: `${appId} sync '${syncName}' failed: ${msg}`,
+      summary: `${appId} sync '${syncName}' threw: ${msg}`,
       agentHint: "Sync will retry on next automation tick.",
     })
-    return { ok: false, fetched: 0, upserted: 0, error: { code: "fetch_failed", message: msg } }
+    return { ok: false, fetched: 0, upserted: 0, error: { code: "fetch_threw", message: msg } }
   }
 
+  if (!fetchResult.ok) {
+    const err = fetchResult.error
+    state.pushAudit("sync.end", {
+      app: appId, sync: syncName, outcome: "fail",
+      total_ms: Date.now() - startTime, error: err,
+    })
+    const isAuth = err.code === "not_connected"
+    state.pushNotification({
+      level: "error",
+      summary: `${appId} sync '${syncName}' upstream failed: ${err.message}`,
+      agentHint: isAuth
+        ? "Connection expired; ask user to reconnect."
+        : "Sync will retry on next automation tick.",
+    })
+    return { ok: false, fetched: 0, upserted: 0, error: { code: err.code, message: err.message } }
+  }
+
+  const rawList = fetchResult.items
   const keyField = syncDef.upsert.key
   let upserted = 0
   for (const raw of rawList) {
@@ -56,12 +79,9 @@ export async function runSync(opts: RunSyncOpts): Promise<SyncRunResult> {
     try {
       normalized = syncDef.normalize(raw) as Record<string, unknown>
     } catch {
-      // skip rows that don't normalize cleanly; sync as a whole still ok
       continue
     }
 
-    // attachedRowId: if attachTo is provided, the normalized record's key
-    // should match a row's id (or external_id). Try id match first.
     let attachedRowId = ""
     if (syncDef.attachTo) {
       const attachResource = syncDef.attachTo as ResourceHandle<any, any>
@@ -71,13 +91,7 @@ export async function runSync(opts: RunSyncOpts): Promise<SyncRunResult> {
       attachedRowId = matched?.id ?? ""
     }
 
-    state.upsertSyncRecord({
-      syncName,
-      attachedRowId,
-      key,
-      raw: r,
-      normalized,
-    })
+    state.upsertSyncRecord({ syncName, attachedRowId, key, raw: r, normalized })
     upserted++
   }
 

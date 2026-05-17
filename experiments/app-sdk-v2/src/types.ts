@@ -142,24 +142,43 @@ export interface ActionDef<TRow, States extends StateTuple, I = {}> {
 // A sync is just a special background action that automations triggers on a
 // `schedule` hint. The SDK provides the execution machinery (DbView, upsert,
 // normalize); the SDK does NOT internally schedule.
+//
+// fetch() MUST return an explicit ok/error union — the SDK distinguishes
+// "upstream succeeded with 0 items" from "upstream failed". Returning an empty
+// array on failure (the old pattern) would silently mask outages from
+// dashboards and automations retry logic.
+
+export type SyncFetchResult<TRaw> =
+  | { ok: true; items: TRaw[] }
+  | { ok: false; error: BridgeError | { kind: "error"; code: string; message: string } }
 
 export interface SyncDef<TSchema extends ZodTypeAny, TRaw, TNormalized> {
   /** Hint to automations (cron expression). SDK does not enforce. */
   schedule: string
   /** The resource these metrics attach to (for deep_link / aggregation). */
   attachTo?: ResourceHandle<TSchema, any>
-  fetch: (ctx: { bridge: BridgeClient; db: DbView }) => Promise<TRaw[]>
+  fetch: (ctx: { bridge: BridgeClient; db: DbView }) => Promise<SyncFetchResult<TRaw>>
   upsert: { key: keyof TRaw & string }
   normalize: (raw: TRaw) => TNormalized
 }
 
 // ─── DbView ────────────────────────────────────────────────────────────────
+//
+// where() supports scalar-equality filtering only. Arrays / objects are
+// excluded at the type level because the runtime uses === comparison and
+// can't meaningfully match deeply.
+
+type ScalarValue = string | number | boolean | null | undefined
+type ScalarKeys<T> = {
+  [K in keyof T]-?: T[K] extends ScalarValue ? K : never
+}[keyof T]
+type ScalarFilter<T> = Partial<Pick<T, ScalarKeys<T>>>
 
 export interface DbView {
   query<TSchema extends ZodTypeAny, States extends StateTuple>(
     resource: ResourceHandle<TSchema, States>,
   ): {
-    where: (cond: Partial<RowOf<TSchema> & { status: States[number] }>) => {
+    where: (cond: ScalarFilter<RowOf<TSchema> & { status: States[number] }>) => {
       recent: (window: string) => RowOf<TSchema>[]
       all: () => RowOf<TSchema>[]
     }

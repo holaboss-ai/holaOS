@@ -17,10 +17,14 @@ export function createDbView(state: RuntimeState): DbView {
           external_id: r.externalId,
         }) as RowOf<TSchema>)
 
-      function applyWhere(cond: Partial<RowOf<TSchema> & { status: string }>) {
+      function applyWhere(cond: Record<string, unknown>) {
         const rows = allRows().filter(r => {
           for (const [k, v] of Object.entries(cond)) {
-            if ((r as any)[k] !== v) return false
+            // Scalar equality only — DbView's where() type restricts callers
+            // at compile time (ScalarFilter). This runtime check exists for
+            // untyped JS callers that bypass the type.
+            const got = (r as Record<string, unknown>)[k]
+            if (got !== v) return false
           }
           return true
         })

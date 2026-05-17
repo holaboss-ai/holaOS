@@ -120,9 +120,10 @@ export function buildPinterestApp() {
           "GET",
           `/pins/${p.external_id}/analytics?metric_types=SAVE,PIN_CLICK,IMPRESSION,OUTBOUND_CLICK`,
         )
-        if (r.kind === "ok") results.push({ pin_id: p.id, raw: r.data })
+        if (r.kind === "error") return { ok: false, error: r }
+        results.push({ pin_id: p.id, raw: r.data })
       }
-      return results
+      return { ok: true, items: results }
     },
     upsert: { key: "pin_id" },
     normalize: raw => ({
