@@ -11,6 +11,10 @@ export { z } from "zod"
 export { SqliteStateBackend } from "./runtime/state-backend-sqlite.ts"
 export type { SqliteStateBackendOpts } from "./runtime/state-backend-sqlite.ts"
 
+// MCP server (production boot)
+export { startMcpServer } from "./runtime/mcp-server.ts"
+export type { StartMcpServerOpts, StartedMcpServer } from "./runtime/mcp-server.ts"
+
 // Bridge transports (pick the one that matches your deployment)
 export { createBearerTokenTransport } from "./bridge-transports/bearer.ts"
 export type { BearerTokenOpts } from "./bridge-transports/bearer.ts"
