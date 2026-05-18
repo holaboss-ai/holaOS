@@ -35,6 +35,24 @@ Mental model:
 
 Full type contract: `experiments/app-builder-sdk/src/types.ts`. Public exports: `experiments/app-builder-sdk/src/index.ts`.
 
+### `provider.id` vs `composioToolkit` — DO NOT CONFUSE
+
+`ProviderRegistry` has two id-like fields and getting them wrong is the most common cause of `integration_not_bound` 404s at the broker.
+
+- `id`: must match `integration_connections.provider_id` (what desktop OAuth writes when the user connects the provider). Also the lookup key that `createRuntimeBrokerTransport({ provider })` and `upsertBinding(integration_key)` use. Sample values: `"slack"`, `"discord"`, `"github"`, `"gmail"`, `"linkedin"`. Singular noun, the way the provider markets itself.
+- `composioToolkit`: Composio's internal toolkit slug, used by Composio to pick the right API client. Sometimes equal to `id` (Slack), sometimes not (Discord's bot toolkit is `"discordbot"`; Google Calendar is `"googlecalendar"`; LinkedIn is `"linkedin"` for OAuth and there may be variants).
+
+Mistake pattern: agent picks the Composio toolkit slug as `provider.id` because that's what they found in Composio's docs. Result: `broker_proxy → integration_not_bound: no <slug> binding for workspace` because the OAuth flow registered the connection under a different `provider_id` and the binding integration_key is set from that.
+
+Discovery rule: check the existing OAuth provider id BEFORE writing the provider file:
+
+```
+sqlite3 ~/.holaboss-desktop/sandbox-host/state/control-plane.db \
+  "SELECT DISTINCT provider_id FROM integration_connections;"
+```
+
+Use the value from the existing schema. If the user has never connected this provider before, default `provider.id` to the way Composio's connect URL spells it (matches what the desktop OAuth handler will store).
+
 ## Pick a reference shape
 
 Copy the closest reference dir as your template; don't write from scratch. All references are at `experiments/app-builder-sdk/reference/<shape>/`.
