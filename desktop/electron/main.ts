@@ -10369,7 +10369,8 @@ async function composioProxyFetch<TData>(
  */
 interface ProxyWhoamiConfig {
   url: string;
-  method: "GET";
+  method: "GET" | "POST";
+  body?: unknown;
   extract: (data: unknown) => Partial<ExtractedIdentity>;
 }
 
@@ -10449,6 +10450,27 @@ const PROVIDER_PROXY_WHOAMI: Record<string, ProxyWhoamiConfig> = {
       };
     },
   },
+  // Slack's Web API uses POST for everything (the body can be empty). auth.test
+  // returns { ok, user, user_id, team, team_id, url } — handle is `user`, team
+  // becomes a useful display name suffix. No email or avatar from this endpoint
+  // (would need a second users.info call); leaving them null is fine because
+  // composioAccountStatusEnriched only re-stores when at least one field is
+  // populated, and handle alone is enough for dedupe.
+  slack: {
+    url: "https://slack.com/api/auth.test",
+    method: "POST",
+    body: {},
+    extract: (raw) => {
+      const u = raw as Record<string, unknown> | null;
+      if (!u) return {};
+      const user = pickString(u.user);
+      const team = pickString(u.team);
+      return {
+        handle: user,
+        displayName: user && team ? `${user} (${team})` : (user ?? team),
+      };
+    },
+  },
 };
 
 async function tryProxyWhoami(
@@ -10468,6 +10490,7 @@ async function tryProxyWhoami(
       connectedAccountId,
       config.url,
       config.method,
+      config.body,
     );
     if (!data) {
       console.warn(
