@@ -12,7 +12,7 @@ Use this skill whenever the user wants a new holaOS app. Two shapes both ship th
 
 The SDK core (5 primitives below) is identical for both shapes. The dashboard shape adds a `src/client/` directory; that's the only structural delta.
 
-Reference doc for the product intent: `docs/pm/app-vibe-coding.md` (vibe-coding flow + the 4-layer UI constraint hierarchy below).
+All supplemental files named in this skill are bundled beside this `SKILL.md`. Treat those paths as skill-local references that are safe to use in packaged runtimes; do not guess at repo-root paths.
 
 ## When NOT to use this skill
 
@@ -36,7 +36,7 @@ Mental model:
 - `sync` = periodic upstream read that upserts records keyed by external id
 - HOW (steps / states / reversal) lives in the SDK. WHEN (scheduling, retry) lives in Holaboss automations — **the SDK never schedules**.
 
-Full type contract: `experiments/app-builder-sdk/src/types.ts`. Public exports: `experiments/app-builder-sdk/src/index.ts`.
+Full type contract: `sdk/types.ts`. Public exports: `sdk/index.ts`.
 
 ### `provider.id` MUST be the Composio toolkit slug
 
@@ -71,7 +71,7 @@ The legacy `composioToolkit` field on `ProviderRegistry` is **deprecated**. Do n
 
 The SDK's default `startMcpServer({ httpPort, ... })` ships a one-screen "headless module" placeholder on the http port. That placeholder is **only acceptable for integration-only modules** (Slack-style MCP-driven flows). The moment the user asks for a dashboard / list view / kanban / calendar / "let me see my X", **you must replace the placeholder with a real shadcn UI under `src/client/`**. The placeholder is what makes vibe-coded apps look ugly — the user has flagged it explicitly.
 
-The product constraints come from `docs/pm/app-vibe-coding.md`. Distilled, four layers from strict to loose:
+The product constraints are distilled below from the original vibe-coding design review. Treat this section as the source of truth for the UI constraints in packaged runtimes.
 
 ### L1 — shadcn registry is the ONLY component source
 
@@ -139,7 +139,7 @@ After writing the dashboard, eyeball it against an existing healthy holaOS pane 
 
 ## Pick a reference shape
 
-Copy the closest reference dir as your template; don't write from scratch. All references are at `experiments/app-builder-sdk/reference/<shape>/`.
+Copy the closest bundled reference dir as your template; don't write from scratch. All backend references are at `reference/<shape>/`.
 
 The existing references are **integration-only** (no `src/client/`). Use them for the backend skeleton (`app.ts`, `provider.ts`, `server.ts`, `app.runtime.yaml`) — they're correct. For dashboard apps, layer `src/client/` on top per the "Dashboard / workspace-pane UI" section above; no dashboard-shape reference exists yet, so model the visual after the desktop's healthy panes (marketplace / integrations) and the L1-L4 constraints.
 
@@ -216,12 +216,12 @@ After writing the 4 files into `<workspace>/apps/<app_id>/`, do these in order. 
   "private": true,
   "type": "module",
   "dependencies": {
-    "@holaboss/app-builder-sdk": "file:/absolute/path/to/holaOS/experiments/app-builder-sdk"
+    "@holaboss/app-builder-sdk": "file:/absolute/path/to/<app-builder-sdk-skill-dir>/sdk-package"
   }
 }
 ```
 
-Why absolute, not relative: the path is per-machine, so the agent must read `$HOME` or the repo root from a known constant (the runtime exposes the workspace root) and write the absolute string. Relative paths break across worktrees.
+Prefer the bundled `sdk-package` path beside this skill. Do not assume a repo checkout exists. The dependency path still needs to be absolute because the SDK package lives outside the workspace and relative paths break across worktrees.
 
 ### 2. `bun install` once in the app dir
 
@@ -244,7 +244,7 @@ env_contract:
   - "MCP_PORT"
 ```
 
-`mcp.tools` list must match what `app.derivedTools()` returns. The derivation rules from `experiments/app-builder-sdk/src/app.ts:165-238` are:
+`mcp.tools` list must match what `app.derivedTools()` returns. The derivation rules from `sdk/app.ts:165-238` are:
 - `<app_id>_connection_status` — always
 - For each resource: `<app_id>_list_<plural>`, `<app_id>_get_<resource>`, and (if `refreshEvery + fetch` declared) `<app_id>_refresh_<plural>`
 - For each action: `<app_id>_<action_name>_<resource_name>` (or `def.toolName` override), plus `<app_id>_cancel_<action>_<resource>` for reversible
@@ -355,19 +355,19 @@ Run all of these. Stop at the first failure and report the symptom verbatim, don
 
 ### Always
 
-1. `docs/pm/app-vibe-coding.md` — product intent + L1-L4 UI constraint hierarchy (the doc this skill is downstream of).
-2. `experiments/app-builder-sdk/README.md` — top-level overview
-3. `experiments/app-builder-sdk/src/index.ts` — public surface
-4. `experiments/app-builder-sdk/src/types.ts` — full type contract, including `RowOf` and the integer-id stringify note
+1. `sdk/README.txt` — top-level overview bundled for packaged runtimes
+2. `sdk/index.ts` — public surface
+3. `sdk/types.ts` — full type contract, including `RowOf` and the integer-id stringify note
+4. `sdk/app.ts` — derived tool naming, primitive wiring, and registration behavior
 
 ### For the backend shape (both integration-only and dashboard apps need this)
 
-5. `experiments/app-builder-sdk/reference/<shape>/app.ts` — copy + adapt; pick the shape that matches the user's request (messaging / publishing / workflow / event-with-time)
-6. `experiments/app-builder-sdk/reference/slack-messaging/server.ts` + `app.runtime.yaml` — copy + adapt; this is the only reference that ships a complete `server.ts`
-7. `experiments/app-builder-sdk/test/mcp-server.test.ts` — what derived tools / `connection_status` / refresh / sync_status are expected to do; useful as oracle when writing a new app's tests
+5. `reference/<shape>/app.ts` — copy + adapt; pick the shape that matches the user's request (messaging / publishing / workflow / event-with-time)
+6. `reference/slack-messaging/server.ts` + `reference/slack-messaging/app.runtime.yaml` — copy + adapt; this is the only bundled reference that ships a complete `server.ts`
+7. `sdk/mcp-server.test.ts` — what derived tools / `connection_status` / refresh / sync_status are expected to do; useful as oracle when writing a new app's tests
 
 ### For dashboard apps (additionally)
 
-8. `holaOS/desktop/components.json` — the holaOS-locked shadcn registry version. Match it in the app's own `components.json` so primitives stay aligned.
-9. `holaOS/desktop/src/styles/themes/` — the CSS variable tokens (`--background` / `--primary` / `--radius` / etc.). Use these; do not invent new ones.
-10. Any existing healthy holaOS pane (e.g. the marketplace / integrations panes under `holaOS/desktop/src/components/panes/`) — these are the visual reference for "looks like one family".
+8. `ui-reference/components.json` — the holaOS-locked shadcn registry version. Match it in the app's own `components.json` so primitives stay aligned.
+9. `ui-reference/tokens.css` and `ui-reference/themes/holaos.css` — the shared CSS variable tokens (`--background` / `--primary` / `--radius` / etc.). Use these; do not invent new ones.
+10. Compare against the current live desktop panes if available, but do not leave the workspace or guess repo-root source paths just to locate pane source files.
