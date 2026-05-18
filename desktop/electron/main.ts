@@ -13646,6 +13646,103 @@ async function getLocalWorkspaceLifecycle(
   return getWorkspaceLifecycleViaRuntime(assertSafeWorkspaceId(workspaceId));
 }
 
+const CARD_SUMMARY_TASK_STATUSES = [
+  "running",
+  "queued",
+  "waiting_on_user",
+  "failed",
+];
+
+function cardLifecycleStateFromPayload(
+  payload: WorkspaceLifecyclePayload,
+): "starting" | "ready" | "error" {
+  if (payload.blocking_apps.length > 0) {
+    return "error";
+  }
+  if (payload.reason && payload.reason.trim()) {
+    return "error";
+  }
+  if (payload.ready) {
+    return "ready";
+  }
+  return "starting";
+}
+
+function emptyCardTaskCounts(): WorkspaceCardSummaryTaskCountsPayload {
+  return { running: 0, queued: 0, waiting_on_user: 0, failed: 0 };
+}
+
+function tallyCardTaskCounts(
+  tasks: BackgroundTaskRecordPayload[],
+): WorkspaceCardSummaryTaskCountsPayload {
+  const counts = emptyCardTaskCounts();
+  for (const task of tasks) {
+    const status = (task.status || "").trim().toLowerCase();
+    if (status === "running") {
+      counts.running += 1;
+    } else if (status === "queued") {
+      counts.queued += 1;
+    } else if (status === "waiting_on_user") {
+      counts.waiting_on_user += 1;
+    } else if (status === "failed") {
+      counts.failed += 1;
+    }
+  }
+  return counts;
+}
+
+async function buildWorkspaceCardSummary(
+  workspaceId: string,
+): Promise<WorkspaceCardSummaryPayload> {
+  const [lifecycleResult, tasksResult] = await Promise.allSettled([
+    getLocalWorkspaceLifecycle(workspaceId),
+    listBackgroundTasks({
+      workspaceId,
+      statuses: CARD_SUMMARY_TASK_STATUSES,
+      limit: 200,
+    }),
+  ]);
+
+  const lifecycle =
+    lifecycleResult.status === "fulfilled"
+      ? cardLifecycleStateFromPayload(lifecycleResult.value)
+      : "ready";
+
+  const taskCounts =
+    tasksResult.status === "fulfilled"
+      ? tallyCardTaskCounts(tasksResult.value.tasks)
+      : emptyCardTaskCounts();
+
+  return {
+    workspace_id: workspaceId,
+    lifecycle,
+    task_counts: taskCounts,
+  };
+}
+
+async function listWorkspaceCardSummaries(
+  workspaceIds: string[],
+): Promise<WorkspaceCardSummariesResponsePayload> {
+  const ids = Array.from(
+    new Set(
+      workspaceIds.map((id) => id.trim()).filter(Boolean),
+    ),
+  );
+  if (ids.length === 0) {
+    return { summaries: [] };
+  }
+  const results = await Promise.allSettled(
+    ids.map((id) => buildWorkspaceCardSummary(id)),
+  );
+  const summaries: WorkspaceCardSummaryPayload[] = [];
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      summaries.push(result.value);
+    }
+  }
+  return { summaries };
+}
+
 async function openLocalWorkspace(
   workspaceId: string,
 ): Promise<WorkspaceOpenSessionPayload> {
@@ -22296,6 +22393,12 @@ app.whenReady().then(async () => {
     ["main"],
     async (_event, workspaceId: string) =>
       desktopWorkspaceControlPlane.getWorkspaceLifecycle(workspaceId),
+  );
+  handleTrustedIpc(
+    "workspace:listWorkspaceCardSummaries",
+    ["main"],
+    async (_event, workspaceIds: string[]) =>
+      listWorkspaceCardSummaries(workspaceIds),
   );
   handleTrustedIpc(
     "workspace:activateWorkspace",

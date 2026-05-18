@@ -1321,6 +1321,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("workspace:listWorkspacesCached") as Promise<WorkspaceListResponsePayload>,
     getWorkspaceLifecycle: (workspaceId: string) =>
       ipcRenderer.invoke("workspace:getWorkspaceLifecycle", workspaceId) as Promise<WorkspaceLifecyclePayload>,
+    listWorkspaceCardSummaries: (workspaceIds: string[]) =>
+      ipcRenderer.invoke(
+        "workspace:listWorkspaceCardSummaries",
+        workspaceIds,
+      ) as Promise<WorkspaceCardSummariesResponsePayload>,
     activateWorkspace: (workspaceId: string) =>
       ipcRenderer.invoke("workspace:activateWorkspace", workspaceId) as Promise<WorkspaceLifecyclePayload>,
     openWorkspace: (workspaceId: string) =>
