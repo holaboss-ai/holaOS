@@ -186,4 +186,63 @@ describe("runtime-broker transport", () => {
     expect(sent.request.endpoint).toBe("https://api.github.com/user")
     expect("body" in sent.request).toBe(false)   // body field absent, not "body: undefined"
   })
+
+  // Holaboss session crashes Hono auth middleware → Worker bubbles up a generic
+  // 500 wrapped by runtime's ComposioService. The transport recognises the
+  // signature and recasts to 401 so bridge.ts maps to `not_connected` and the
+  // agent surfaces "please re-login to Holaboss" instead of "upstream 500".
+  test("Hono auth crash (500 with 'Composio proxy via Hono failed' detail) recast to 401", async () => {
+    const transport = createRuntimeBrokerTransport({
+      brokerUrl: "http://localhost:8080",
+      grant: "grant:x:x:x",
+      provider: "slack",
+      fetchImpl: mockFetch(),
+    })
+    scriptedResponses.push({
+      status: 500,
+      body: { detail: "Composio proxy via Hono failed: 500 Internal Server Error" },
+    })
+
+    const result = await transport({ method: "GET", url: "https://slack.com/api/auth.test" })
+    expect(result.status).toBe(401)
+    const body = result.body as Record<string, unknown>
+    expect(body.error).toBe("holaboss_session_invalid")
+    expect(String(body.message)).toMatch(/log in to holaboss/i)
+    expect(body.broker_status).toBe(500)
+    expect((body.broker_body as Record<string, unknown>).detail).toMatch(/Composio proxy via Hono failed/)
+  })
+
+  test("Hono 401 (clean unauthorized) also recast — same signature in error body", async () => {
+    const transport = createRuntimeBrokerTransport({
+      brokerUrl: "http://localhost:8080",
+      grant: "grant:x:x:x",
+      provider: "slack",
+      fetchImpl: mockFetch(),
+    })
+    scriptedResponses.push({
+      status: 500,
+      body: { detail: "Composio proxy via Hono failed: 401 {\"error\":\"unauthorized\"}" },
+    })
+
+    const result = await transport({ method: "POST", url: "https://slack.com/api/chat.postMessage", body: {} })
+    expect(result.status).toBe(401)
+    expect((result.body as Record<string, unknown>).error).toBe("holaboss_session_invalid")
+  })
+
+  test("non-Hono broker errors (grant_invalid) NOT recast — pass through unchanged", async () => {
+    const transport = createRuntimeBrokerTransport({
+      brokerUrl: "http://localhost:8080",
+      grant: "grant:bad",
+      provider: "slack",
+      fetchImpl: mockFetch(),
+    })
+    scriptedResponses.push({
+      status: 401,
+      body: { error: "grant_invalid", message: "app grant is malformed" },
+    })
+
+    const result = await transport({ method: "GET", url: "https://slack.com/api/auth.test" })
+    expect(result.status).toBe(401)
+    expect((result.body as Record<string, unknown>).error).toBe("grant_invalid")  // NOT holaboss_session_invalid
+  })
 })

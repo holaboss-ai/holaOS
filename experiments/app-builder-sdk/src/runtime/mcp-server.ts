@@ -12,11 +12,10 @@
 //   - <app>_get_<resource>              fetches one by id
 //   - <app>_<action>_<resource>         invokes a registered action
 //   - <app>_cancel_<action>_<resource>  invokes a reversible action's reverse
-//   - <app>_connection_status           reports app.connection() state
+//   - <app>_connection_status           probes provider whoami via bridge
+//   - <app>_refresh_<plural>            (for resources with refreshEvery+fetch)
+//   - <app>_<sync>_sync_status          reads last sync run from audit
 //   - <app>_snapshot                    compact situational read
-//
-// Sync tools (`_sync_status`, `_refresh_*`) are derived as descriptors but
-// not yet wired to handlers — left as TODO for Iter 4.
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js"
@@ -109,25 +108,32 @@ export async function startMcpServer(opts: StartMcpServerOpts): Promise<StartedM
 function registerTools(mcp: McpServer, app: AppHandleInternal, bridge: BridgeClient): void {
   const appId = app.config.id
 
-  // Connection
+  // Connection — probe provider.whoamiPath via bridge.
   mcp.registerTool(
     `${appId}_connection_status`,
     {
       title: "Connection status",
-      description: `Check whether ${appId} is connected and ready to call.`,
+      description: `Check whether ${appId} is connected and ready to call (probes the provider's whoami endpoint).`,
       inputSchema: {},
     },
-    async () => textResult({
-      // Placeholder — real implementation hooks runtime's integration_connections table
-      app_id: appId,
-      connected: true,
-      note: "Iter 3 stub — wire to runtime integration_connections in Iter 4",
-    }),
+    async () => textResult(await probeConnection(app, bridge)),
   )
 
-  // Per-resource: create / list / get
+  // Per-resource: create / list / get / (refresh if refreshEvery + fetch declared)
   for (const [resourceName, resource] of app._resources) {
     const inputShapeForCreate = extractShape(resource.schema)
+
+    if (resource.def.refreshEvery && resource.def.fetch) {
+      mcp.registerTool(
+        `${appId}_refresh_${plural(resourceName)}`,
+        {
+          title: `Refresh ${resourceName} cache`,
+          description: `Re-pull ${resourceName} list from upstream and upsert into local cache.`,
+          inputSchema: {},
+        },
+        async () => textResult(await refreshResource(app, resource, bridge)),
+      )
+    }
 
     mcp.registerTool(
       `${appId}_create_${resourceName}`,
@@ -240,21 +246,114 @@ function registerTools(mcp: McpServer, app: AppHandleInternal, bridge: BridgeCli
     async () => textResult(buildSnapshot(app)),
   )
 
-  // Sync status (descriptor only for Iter 3; runtime-driven sync execution is Iter 4)
+  // Sync status — read last sync.start/sync.end from audit + record count.
   for (const sync of app._syncs) {
     mcp.registerTool(
       `${appId}_${sync.name}_sync_status`,
       {
         title: `${sync.name} sync status`,
-        description: `Status of the ${sync.name} sync (last run, errors). Iter 3: descriptor only.`,
+        description: `Last-run status of the ${sync.name} sync (started_at, outcome, fetched, upserted, error).`,
         inputSchema: {},
       },
-      async () => textResult({
-        sync_name: sync.name,
-        schedule: sync.def.schedule,
-        note: "Iter 3 stub — sync execution moves to Iter 4 / automations layer",
-      }),
+      async () => textResult(readSyncStatus(app, sync.name)),
     )
+  }
+}
+
+// ─── Tool handlers extracted for clarity / unit reuse ──────────────────────
+
+async function probeConnection(app: AppHandleInternal, bridge: BridgeClient) {
+  const appId = app.config.id
+  const whoamiPath = app.config.provider.whoamiPath
+  if (!whoamiPath) {
+    return {
+      app_id: appId,
+      connected: null,
+      reason: "no_probe_defined",
+      message: `provider '${app.config.provider.id}' has no whoamiPath — connection cannot be verified`,
+    }
+  }
+  const r = await bridge.call("GET", whoamiPath)
+  if (r.kind === "ok") {
+    return { app_id: appId, connected: true as const, identity: r.data }
+  }
+  return {
+    app_id: appId,
+    connected: false as const,
+    reason: r.code,
+    message: r.message,
+    upstream_status: r.upstreamStatus,
+    reauth_url: r.reauthUrl,
+  }
+}
+
+async function refreshResource(
+  app: AppHandleInternal,
+  resource: { name: string; schema: unknown; def: { fetch?: (ctx: { bridge: BridgeClient }) => Promise<unknown[]>; initialState: string } },
+  bridge: BridgeClient,
+) {
+  const fetchFn = resource.def.fetch
+  if (!fetchFn) {
+    return { ok: false, error: { code: "no_fetch_defined", message: `${resource.name} has refreshEvery but no fetch()` } }
+  }
+  let items: unknown[]
+  try {
+    items = await fetchFn({ bridge })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return { ok: false, error: { code: "fetch_threw", message: msg } }
+  }
+  const existing = app._state.rowsByResource(resource.name)
+  const initialState = resource.def.initialState
+  let inserted = 0
+  let updated = 0
+  for (const raw of items) {
+    if (!raw || typeof raw !== "object") continue
+    const data = raw as Record<string, unknown>
+    const key = data.id !== undefined ? String(data.id) : null
+    const match = key ? existing.find(r => String(r.data.id ?? "") === key) : undefined
+    if (match) {
+      app._state.updateRow(match.id, { data, status: initialState })
+      updated++
+    } else {
+      app._state.insertRow(resource.name, data, initialState)
+      inserted++
+    }
+  }
+  return { ok: true, fetched: items.length, inserted, updated }
+}
+
+function readSyncStatus(app: AppHandleInternal, syncName: string) {
+  const snap = app._state.snapshot()
+  const matching = snap.audit.filter(e =>
+    (e.event === "sync.start" || e.event === "sync.end") && e.fields.sync === syncName,
+  )
+  const lastStart = [...matching].reverse().find(e => e.event === "sync.start")
+  const lastEnd = [...matching].reverse().find(e => e.event === "sync.end")
+  const sync = app._syncs.find(s => s.name === syncName)
+  const recordsTotal = snap.syncRecords.filter(r => r.syncName === syncName).length
+
+  if (!lastEnd && !lastStart) {
+    return {
+      sync_name: syncName,
+      schedule: sync?.def.schedule ?? null,
+      has_ever_run: false,
+      records_total: recordsTotal,
+    }
+  }
+  const endFields = (lastEnd?.fields ?? {}) as Record<string, unknown>
+  return {
+    sync_name: syncName,
+    schedule: sync?.def.schedule ?? null,
+    has_ever_run: true,
+    started_at: lastStart?.at,
+    ended_at: lastEnd?.at,
+    outcome: endFields.outcome ?? null,
+    fetched: endFields.fetched ?? null,
+    upserted: endFields.upserted ?? null,
+    total_ms: endFields.total_ms ?? null,
+    error: endFields.error ?? null,
+    records_total: recordsTotal,
   }
 }
 

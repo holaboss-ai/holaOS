@@ -78,6 +78,28 @@ export function createRuntimeBrokerTransport(opts: RuntimeBrokerOpts): Transport
       const text = await r.text().catch(() => "")
       let parsed: unknown = null
       try { parsed = text ? JSON.parse(text) : null } catch { parsed = { _raw: text } }
+
+      // Recast Hono-upstream auth failures to 401 so bridge.ts maps them to
+      // `not_connected` and the agent surfaces "please re-login to Holaboss"
+      // instead of a generic upstream 5xx. The cookie-crash signature is a 5xx
+      // from runtime's ComposioService wrapping Hono's response — the error
+      // string "Composio proxy via Hono failed: ..." is stable across the
+      // crash and the auth-rejection paths (see runtime/api-server/src/
+      // composio-service.ts).
+      if (isHonoAuthFailure(r.status, parsed)) {
+        return {
+          status: 401,
+          body: {
+            error: "holaboss_session_invalid",
+            message:
+              "Holaboss session is invalid or expired. Log in to Holaboss in the desktop app, " +
+              "then restart desktop so the runtime picks up a fresh auth cookie.",
+            broker_status: r.status,
+            broker_body: parsed,
+          },
+          headers: {},
+        }
+      }
       return { status: r.status, body: parsed, headers: {} }
     }
 
@@ -93,4 +115,16 @@ export function createRuntimeBrokerTransport(opts: RuntimeBrokerOpts): Transport
       headers: payload.headers ?? {},
     }
   }
+}
+
+function isHonoAuthFailure(brokerStatus: number, body: unknown): boolean {
+  if (brokerStatus < 400) return false
+  if (!body || typeof body !== "object") return false
+  const r = body as Record<string, unknown>
+  const candidate =
+    (typeof r.detail === "string" ? r.detail : null) ??
+    (typeof r.message === "string" ? r.message : null) ??
+    (typeof r.error === "string" ? r.error : null)
+  if (!candidate) return false
+  return /Composio proxy via Hono failed/i.test(candidate)
 }

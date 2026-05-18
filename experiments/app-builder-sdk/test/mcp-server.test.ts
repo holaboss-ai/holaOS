@@ -142,6 +142,153 @@ describe("MCP server — boot + tool registration + routing", () => {
     expect(snap.rows_by_resource.message).toBeDefined()
     await session.close()
   })
+
+  // ── connection_status: real whoami probe (was a stub returning connected:true) ──
+
+  test("connection_status probes provider.whoamiPath via bridge → connected:true", async () => {
+    scriptedResponses.push({ status: 200, body: { ok: true, user: "U123", team: "T999" } })
+    const session = await openSseSession(baseUrl)
+    const result = await mcpCallTool(baseUrl, session.sessionId, "slack_connection_status", {})
+    expect(result.isError).toBeFalsy()
+    const body = JSON.parse(result.content[0]!.text!)
+    expect(body.connected).toBe(true)
+    expect(body.app_id).toBe("slack")
+    expect(body.identity).toEqual({ ok: true, user: "U123", team: "T999" })
+    await session.close()
+  })
+
+  test("connection_status surfaces upstream auth failure → connected:false + reason", async () => {
+    // Bridge returns 401 → BridgeError code "not_connected"
+    scriptedResponses.push({
+      status: 401,
+      body: { error: "holaboss_session_invalid", message: "Holaboss session is invalid or expired." },
+    })
+    const session = await openSseSession(baseUrl)
+    const result = await mcpCallTool(baseUrl, session.sessionId, "slack_connection_status", {})
+    expect(result.isError).toBeFalsy()
+    const body = JSON.parse(result.content[0]!.text!)
+    expect(body.connected).toBe(false)
+    expect(body.reason).toBe("not_connected")
+    expect(String(body.message)).toMatch(/Holaboss session/i)
+    expect(body.upstream_status).toBe(401)
+    await session.close()
+  })
+
+  // ── refresh_<resource>: re-pulls fetch() and upserts cache rows ──
+
+  test("refresh_channels calls bridge.fetch and upserts new channels", async () => {
+    // 2 channels returned from /conversations.list
+    scriptedResponses.push({
+      status: 200,
+      body: { ok: true, channels: [
+        { id: "C_NEW1", name: "general", is_private: false },
+        { id: "C_NEW2", name: "random", is_private: false },
+      ] },
+    })
+    const session = await openSseSession(baseUrl)
+    const result = await mcpCallTool(baseUrl, session.sessionId, "slack_refresh_channels", {})
+    expect(result.isError).toBeFalsy()
+    const body = JSON.parse(result.content[0]!.text!)
+    expect(body.ok).toBe(true)
+    expect(body.fetched).toBe(2)
+    expect(body.inserted).toBe(2)
+    expect(body.updated).toBe(0)
+
+    // Confirm rows actually landed
+    const channels = app._state.rowsByResource("channel")
+    expect(channels.some(r => r.data.id === "C_NEW1")).toBe(true)
+    expect(channels.some(r => r.data.id === "C_NEW2")).toBe(true)
+    await session.close()
+  })
+
+  test("refresh_channels updates existing channel (idempotent by data.id)", async () => {
+    // First call: insert
+    scriptedResponses.push({
+      status: 200,
+      body: { ok: true, channels: [{ id: "C_DUP", name: "dup-original", is_private: false }] },
+    })
+    const sess1 = await openSseSession(baseUrl)
+    await mcpCallTool(baseUrl, sess1.sessionId, "slack_refresh_channels", {})
+    await sess1.close()
+
+    // Second call: same id, different name → should update
+    scriptedResponses.push({
+      status: 200,
+      body: { ok: true, channels: [{ id: "C_DUP", name: "dup-renamed", is_private: true }] },
+    })
+    const sess2 = await openSseSession(baseUrl)
+    const result = await mcpCallTool(baseUrl, sess2.sessionId, "slack_refresh_channels", {})
+    const body = JSON.parse(result.content[0]!.text!)
+    expect(body.updated).toBe(1)
+    expect(body.inserted).toBe(0)
+
+    const dup = app._state.rowsByResource("channel").filter(r => r.data.id === "C_DUP")
+    expect(dup.length).toBe(1)
+    expect(dup[0]!.data.name).toBe("dup-renamed")
+    await sess2.close()
+  })
+
+  // ── <sync>_sync_status: reads from audit (was a descriptor stub) ──
+
+  test("sync_status returns has_ever_run:false before any sync ran", async () => {
+    // Use a fresh app instance so audit is empty for this sync
+    const { app: fresh } = buildSlackApp() as unknown as { app: AppHandleInternal }
+    const freshBridge = createBridge({ provider: SLACK, transport })
+    const freshServer = await startMcpServer({ app: fresh, port: 0, bridge: freshBridge })
+    const session = await openSseSession(`http://localhost:${freshServer.port}`)
+    const result = await mcpCallTool(
+      `http://localhost:${freshServer.port}`,
+      session.sessionId,
+      "slack_channel_directory_sync_status",
+      {},
+    )
+    expect(result.isError).toBeFalsy()
+    const body = JSON.parse(result.content[0]!.text!)
+    expect(body.has_ever_run).toBe(false)
+    expect(body.sync_name).toBe("channel_directory")
+    expect(body.schedule).toBe("0 * * * *")
+    expect(body.records_total).toBe(0)
+    await session.close()
+    await freshServer.close()
+  })
+
+  test("sync_status returns has_ever_run:true + outcome after audit recorded", async () => {
+    // Simulate a successful sync run by writing audit entries directly
+    app._state.pushAudit("sync.start", { app: "slack", sync: "channel_directory" })
+    app._state.pushAudit("sync.end", {
+      app: "slack", sync: "channel_directory",
+      outcome: "ok", fetched: 5, upserted: 5, total_ms: 142,
+    })
+    app._state.upsertSyncRecord({
+      syncName: "channel_directory", attachedRowId: "", key: "C1",
+      raw: { id: "C1" }, normalized: { id: "C1", name: "n" },
+    })
+
+    const session = await openSseSession(baseUrl)
+    const result = await mcpCallTool(baseUrl, session.sessionId, "slack_channel_directory_sync_status", {})
+    expect(result.isError).toBeFalsy()
+    const body = JSON.parse(result.content[0]!.text!)
+    expect(body.has_ever_run).toBe(true)
+    expect(body.outcome).toBe("ok")
+    expect(body.fetched).toBe(5)
+    expect(body.upserted).toBe(5)
+    expect(body.total_ms).toBe(142)
+    expect(body.records_total).toBe(1)
+    expect(body.started_at).toBeTruthy()
+    expect(body.ended_at).toBeTruthy()
+    await session.close()
+  })
+
+  test("tools/list includes refresh + sync_status (no longer descriptor-only)", async () => {
+    const session = await openSseSession(baseUrl)
+    const tools = await mcpListTools(baseUrl, session.sessionId)
+    const names = tools.map(t => t.name)
+    expect(names).toContain("slack_refresh_channels")              // resource has refreshEvery + fetch
+    expect(names).toContain("slack_channel_directory_sync_status")  // sync registered
+    // Message resource has NO refreshEvery → no refresh tool
+    expect(names).not.toContain("slack_refresh_messages")
+    await session.close()
+  })
 })
 
 // ─── MCP JSON-RPC client helpers (no @modelcontextprotocol/sdk client dep) ───
