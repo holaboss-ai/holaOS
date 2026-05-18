@@ -10,7 +10,6 @@
     "runtime/harnesses",
     "runtime/state-store",
     "sdk/app-sdk",
-    "sdk/bridge",
     "sdk/runtime-client",
     "website/docs"
   ],
@@ -52,10 +51,6 @@
     "runtime:api-server:typecheck": "bun --filter=@holaboss/runtime-api-server run typecheck",
     "runtime:clean": "node scripts/remove-paths.mjs out/runtime-linux out/runtime-macos out/runtime-windows out/runtime-root runtime/out",
     "runtime:test": "bun --filter=@holaboss/runtime-state-store run test && bun --filter=@holaboss/runtime-harness-host run test && bun --filter=@holaboss/runtime-api-server run test",
-    "sdk:bridge:install": "bun install",
-    "sdk:bridge:build": "bun --filter=@holaboss/bridge run build",
-    "sdk:bridge:test": "bun --filter=@holaboss/bridge run test",
-    "sdk:bridge:typecheck": "bun --filter=@holaboss/bridge run typecheck",
     "sdk:app-sdk:install": "bun install",
     "sdk:app-sdk:build": "bun --filter=@holaboss/app-sdk run build",
     "sdk:app-sdk:test": "bun --filter=@holaboss/app-sdk run test",
