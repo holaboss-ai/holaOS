@@ -314,18 +314,20 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /Use surfaced capabilities to inspect before mutating when possible, and verify results before claiming success\./);
   assert.match(prompt.systemPrompt, /Treat explicit user requirements, verification targets, and deliverable shape as completion criteria for direct and delegated work, not optional detail\./);
   assert.match(prompt.systemPrompt, /Do not report work as done, verified, or already satisfied unless direct inspection, direct tool results, or grounded child results confirm it\./);
-  assert.match(prompt.systemPrompt, /Treat user requests as workspace-native by default\. Prefer direct workspace execution in this session when the necessary surfaced tools are available; delegate when the work is long-running, parallel, blocking, risky, or better isolated\./i);
+  assert.match(prompt.systemPrompt, /Treat user requests as workspace-native by default\. Prefer direct workspace execution in this session when the necessary surfaced tools are available\. Keep work inline unless it clearly fits delegated research or app-building\./i);
+  assert.match(prompt.systemPrompt, /Use delegation primarily for research and app work: delegate evidence-heavy research, investigation, comparison, or fresh information gathering when a separate execution branch is useful, and delegate app creation or substantial app modification when the work should produce or update a workspace app\./i);
+  assert.match(prompt.systemPrompt, /Outside research and app-building, delegate only when the user explicitly asks for background execution or the task genuinely must continue outside the current turn\./i);
   assert.match(prompt.systemPrompt, /Do not infer task impossibility from missing direct tools\. If this run lacks a needed capability but delegated subagents can do it, delegate instead of falling back to a manual workaround\./i);
   assert.match(prompt.systemPrompt, /Workspace apps are the workspace-native software surface\. Apps include catalog-provided integration apps that can be installed directly, plus user-created apps that may compose data and functions from other apps\./i);
   assert.match(prompt.systemPrompt, /prefer the direct surfaced app\/runtime\/MCP route first; delegate or install\/build through the workspace route only when the direct path is unavailable or the job should branch\./i);
-  assert.match(prompt.systemPrompt, /For app creation or modification, use direct tools when the work is small and surfaced; otherwise delegate with the app-builder skill as the detailed execution guide instead of encoding app-building mechanics in the chat\./i);
+  assert.match(prompt.systemPrompt, /For app creation or substantial app modification, prefer `holaboss_delegate_task` with the app-builder skill as the detailed execution guide unless the change is small enough to complete directly with surfaced tools\./i);
   assert.match(prompt.systemPrompt, /Do not turn a named app or product request into a desktop install, browser-open, manual setup, or generic option list before checking the direct workspace-native route or delegated workspace route\./i);
   assert.match(prompt.systemPrompt, /Ask clarifying questions only when ambiguity affects user intent, safety, consent, credentials, account selection, or other user-owned context; do not ask merely because a preferred tool is missing from this run\./i);
   assert.match(prompt.systemPrompt, /When a clarifying question is truly needed, make it grounded in the user's words, current session context, workspace state, or tool\/subagent evidence; ask only for the concrete missing fact that blocks routing or execution\./);
   assert.match(prompt.systemPrompt, /Clarifying questions must be grounded in the current workspace\/session context or a concrete tool\/subagent result\. Do not ask abstract option-list questions or introduce unsupported alternatives from general product knowledge; inspect, execute, or delegate first when the current context is insufficient\./);
   assert.match(prompt.systemPrompt, /If the delegated executor snapshot already shows a concrete additional capability family for the request, route against that capability instead of asking a generic tool-discovery question\./);
   assert.match(prompt.systemPrompt, /When the user asks for fresh execution, fresh investigation, or a new deliverable, do not answer from prior chat memory alone; inspect, execute, or delegate first\./);
-  assert.match(prompt.systemPrompt, /For browser control, web research, terminal work, or other execution work, use direct tools when surfaced and delegate when the job should continue in background or needs isolation\./i);
+  assert.match(prompt.systemPrompt, /For browser control, terminal work, or other execution work, use direct tools when surfaced\. Do not delegate them by default unless they are part of delegated research, part of app-building work, or genuinely need background continuation\./i);
   assert.match(prompt.systemPrompt, /Default delegated browser work to the agent browser\./);
   assert.match(prompt.systemPrompt, /set `use_user_browser_surface: true` on `holaboss_delegate_task`/i);
   assert.match(prompt.systemPrompt, /If the user asks for work that needs capabilities this run does not have directly, but delegated subagents can do it, delegate instead of replying that this run lacks those tools\./);
@@ -362,21 +364,21 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /If content only exists in chat, in a plan, or in queued or delegated work, describe it as drafted, outlined, queued, or in progress; do not say it was created, saved, attached, sent, verified, or is already there\./);
   assert.match(prompt.systemPrompt, /If delegated work immediately comes back waiting on user input, say it is blocked on that step and ask only for what is needed to continue\./);
   assert.match(prompt.systemPrompt, /If delegated work finishes early enough to merge into the same reply, state the completion once instead of also describing it as newly started or queued\./);
-  assert.match(prompt.systemPrompt, /If the user asks for a report, brief, memo, digest, recap, write-up, or other deliverable that would be longer than a short chat reply, prefer producing it as an artifact through delegated background work/i);
-  assert.match(prompt.systemPrompt, /When the user asks for a report-style deliverable, prefer delegating it so the result comes back as an artifact/i);
+  assert.match(prompt.systemPrompt, /Do not treat report length alone as a reason to delegate or create an artifact\./i);
+  assert.match(prompt.systemPrompt, /Use a delegated task or workspace artifact when the underlying work already fits delegated research, app-building, or an explicit artifact\/workspace route; otherwise answer inline when that best fits the request\./i);
   assert.match(prompt.systemPrompt, /Acknowledge what matters in the user's message before diving into execution or results\./);
   assert.match(prompt.systemPrompt, /Lead with the answer, reaction, instead of process narration/);
   assert.match(prompt.systemPrompt, /Prefer short sentences and plain language; use headings or numbered lists only when structure genuinely helps\./);
   assert.match(prompt.systemPrompt, /Use contractions and natural transitions when they fit\./);
   assert.match(prompt.systemPrompt, /Avoid repetitive canned phrasing or stiff assistant boilerplate/);
   assert.match(prompt.systemPrompt, /Prefer surfaced MCP\/app tools over opening the web app, browser exploration, or web research when they can satisfy the request, including when the user supplies a URL for that system; use browser\/web around an MCP-backed system only for UI verification, requested independent confirmation, or after the MCP path is blocked\./);
-  assert.match(prompt.systemPrompt, /Do not paste long document, HTML, markdown, or report bodies into chat\./);
+  assert.match(prompt.systemPrompt, /Avoid pasting very long document, HTML, or markdown bodies into chat when a workspace artifact is the better surface\./);
   assert.match(prompt.systemPrompt, /Use surfaced capabilities to inspect before mutating workspace, app, browser, or runtime state whenever possible\./);
   assert.match(prompt.systemPrompt, /After edits, shell commands, browser actions, MCP mutations, or runtime mutations, run a follow-up inspection or verification step before claiming success\./);
-  assert.match(prompt.systemPrompt, /Use coordination capabilities to track progress, consult available skills, delegate long-running or parallel work, or ask for clarification instead of keeping hidden state\./);
+  assert.match(prompt.systemPrompt, /Use coordination capabilities to track progress, consult available skills, delegate research or app-building work when appropriate, or ask for clarification instead of keeping hidden state\./);
   assert.ok(
     prompt.contextMessages.some((message) =>
-      /This front session can execute directly with the surfaced tools above\. Use `holaboss_delegate_task` when the work is better handled as background, parallel, or isolated execution\./.test(message),
+      /This front session can execute directly with the surfaced tools above\. Use `holaboss_delegate_task` mainly for research or app-building work, or when background continuation is explicitly needed\./.test(message),
     ),
   );
   assert.doesNotMatch(prompt.systemPrompt, /front-of-house coordinator with only a partial direct capability surface/i);

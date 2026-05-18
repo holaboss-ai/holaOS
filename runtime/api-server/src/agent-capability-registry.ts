@@ -1350,7 +1350,7 @@ export function renderCapabilityPolicyCorePromptSection(
     lines.push(
       "Use surfaced capabilities to inspect before mutating workspace, app, browser, or runtime state whenever possible.",
       "After edits, shell commands, browser actions, MCP mutations, or runtime mutations, run a follow-up inspection or verification step before claiming success.",
-      "Use coordination capabilities to track progress, consult available skills, delegate long-running or parallel work, or ask for clarification instead of keeping hidden state.",
+      "Use coordination capabilities to track progress, consult available skills, delegate research or app-building work when appropriate, or ask for clarification instead of keeping hidden state.",
       "If a capability is not surfaced in the runtime context for this run, do not assume it is available.",
     );
     return lines.join("\n");
@@ -1394,9 +1394,10 @@ export function renderCapabilityToolRoutingPromptSection(
   }
   if (manifest.runtime_tools.some((capability) => capability.id === "holaboss_delegate_task")) {
     ensureHeading();
-    lines.push("Delegation routing: use `holaboss_delegate_task` when work is long-running, parallelizable, blocking, risky, or better isolated than this session.");
+    lines.push("Delegation routing: keep work inline by default. Use `holaboss_delegate_task` primarily for research and investigation work that benefits from a separate execution branch, or for creating apps and making substantial app modifications.");
+    lines.push("Outside research and app-building, delegate only when the user explicitly asks for background execution or the task genuinely must continue outside the current turn.");
     lines.push("Direct execution is allowed in this session when the surfaced tools can satisfy the request cleanly; do not delegate just because work is executable.");
-    lines.push("Deliverable routing: when the user asks for a report, brief, memo, digest, recap, or other long-form deliverable, prefer `holaboss_delegate_task` so the result is produced as an artifact and the main chat stays concise.");
+    lines.push("Do not treat deliverable length alone as a delegation signal; keep long-form answers inline unless the underlying task already fits delegated research, app-building, or an explicit artifact/workspace route.");
     lines.push("Treat user requests as workspace-native by default. Prefer the direct surfaced workspace route first; if the required capability is not surfaced or the job should branch into background execution, delegate the workspace path unless the user explicitly asks for non-workspace handling.");
     lines.push("Do not turn a named app or product request into a desktop install, browser-open, manual setup, or generic option list before checking the direct workspace-native route or delegated workspace route.");
     lines.push("Do not infer task impossibility from missing direct tools. Treat missing direct execution capabilities as a delegation signal, not as a reason to ask the user for a manual fallback.");
@@ -1483,7 +1484,7 @@ export function renderCapabilityAvailabilityContextPromptSection(
     manifest.runtime_tools.some((capability) => capability.id === "holaboss_delegate_task")
   ) {
     lines.push(
-      "This front session can execute directly with the surfaced tools above. Use `holaboss_delegate_task` when the work is better handled as background, parallel, or isolated execution.",
+      "This front session can execute directly with the surfaced tools above. Use `holaboss_delegate_task` mainly for research or app-building work, or when background continuation is explicitly needed.",
     );
   }
   return lines.join("\n");
