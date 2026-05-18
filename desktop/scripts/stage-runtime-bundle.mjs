@@ -115,10 +115,43 @@ async function validateStageDir() {
   log(`staged runtime ready at ${stageDir} (platform=${packageMetadata.platform}, createdAt=${createdAt})`);
 }
 
+// Incremental copy gate: the upstream packager script writes a
+// .cache-key into its OUTPUT_ROOT. If our staged copy carries the same
+// key already, the underlying ~800MB cp is pointless. Skip and reuse
+// the existing stage. Bypass with HOLABOSS_RUNTIME_FORCE_STAGE=1.
+async function tryReuseStagedBundle(sourceDir) {
+  if (process.env.HOLABOSS_RUNTIME_FORCE_STAGE === "1") {
+    return false;
+  }
+  const sourceKeyPath = path.join(sourceDir, ".cache-key");
+  const stageKeyPath = path.join(stageDir, ".cache-key");
+  try {
+    const [sourceKey, stageKey] = await Promise.all([
+      fs.readFile(sourceKeyPath, "utf-8"),
+      fs.readFile(stageKeyPath, "utf-8"),
+    ]);
+    if (sourceKey.trim() === stageKey.trim()) {
+      log(`stage cache hit (${sourceKey.trim().slice(0, 12)}…) — skipping copy`);
+      return true;
+    }
+  } catch {
+    // Missing key on either side — fall through to a real copy.
+  }
+  return false;
+}
+
 async function stageRuntimeBundle() {
   const runtimeDir = process.env.HOLABOSS_RUNTIME_DIR?.trim();
   const runtimeTarball = process.env.HOLABOSS_RUNTIME_TARBALL?.trim();
   const runtimeBundleUrl = process.env.HOLABOSS_RUNTIME_BUNDLE_URL?.trim();
+
+  // Fast path: when the source is a local dir AND its .cache-key matches
+  // our staged copy's .cache-key, we don't need to do anything. Validate
+  // the existing stage and return.
+  if (runtimeDir && (await tryReuseStagedBundle(path.resolve(runtimeDir)))) {
+    await validateStageDir();
+    return;
+  }
 
   await ensureCleanStageDir();
 

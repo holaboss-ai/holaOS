@@ -81,6 +81,61 @@ function runNpmCommand(args, options = {}) {
   runCommand(command, [...argsPrefix, ...args], options);
 }
 
+function runBunCommand(args, options = {}) {
+  runCommand("bun", args, options);
+}
+
+// Sibling-staged workspace packages — when the source declares
+// `"@holaboss/runtime-state-store": "workspace:*"` and we stage
+// state-store as a sibling dir in the output root, rewrite the dep
+// to file:../state-store so `bun install` in the staged dir resolves
+// it without needing the outer workspace.
+const WORKSPACE_SIBLING_REWRITES = {
+  "@holaboss/runtime-state-store": "file:../state-store",
+};
+
+// Postinstall lifecycle scripts only run for packages listed here
+// under Bun's untrusted-by-default security model. Mirrors the root
+// trustedDependencies so native rebuilds (better-sqlite3 et al.)
+// happen inside the staged package too.
+const STAGED_TRUSTED_DEPENDENCIES = [
+  "better-sqlite3",
+  "@napi-rs/canvas",
+];
+
+function rewriteStagedPackageJson(targetPackageJsonPath) {
+  if (!existsSync(targetPackageJsonPath)) {
+    return;
+  }
+  const pkg = JSON.parse(readFileSync(targetPackageJsonPath, "utf8"));
+  let mutated = false;
+  for (const section of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+    const block = pkg[section];
+    if (!block || typeof block !== "object") continue;
+    for (const [name, version] of Object.entries(block)) {
+      if (typeof version !== "string") continue;
+      if (version === "workspace:*" || version.startsWith("workspace:")) {
+        const rewrite = WORKSPACE_SIBLING_REWRITES[name];
+        if (rewrite) {
+          block[name] = rewrite;
+          mutated = true;
+        }
+      }
+    }
+  }
+  const trusted = new Set(pkg.trustedDependencies ?? []);
+  for (const dep of STAGED_TRUSTED_DEPENDENCIES) {
+    if (!trusted.has(dep)) {
+      trusted.add(dep);
+      mutated = true;
+    }
+  }
+  if (mutated) {
+    pkg.trustedDependencies = [...trusted].sort();
+    writeFileSync(targetPackageJsonPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  }
+}
+
 export function resolveRuntimeVersion() {
   const packageJsonPath = path.join(runtimeRoot, "api-server", "package.json");
   const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
@@ -102,6 +157,16 @@ function resolveGitSha() {
   }
 }
 
+// Two-build pattern (bun-based):
+//   1. Source-only stage (copy package.json + src + tsconfig + scripts)
+//   2. Devbuild stage: bun install (full deps) + bun run build → dist/
+//   3. Production prune: rewrite to omit-dev list + bun install --production
+//   4. Drop src/, tsconfig.json, tsup.config.ts — what ships is dist/ + prod node_modules
+//
+// Why bun: roughly 5-10× faster than `npm ci` for the same cold-install,
+// and unlike npm ci it doesn't require a package-lock.json (we deleted
+// all per-package lockfiles when the monorepo moved to a single root
+// bun.lock during the Step 1/2 migration).
 function stageNodePackage(outputRoot, packageDir, outputName) {
   if (!existsSync(path.join(packageDir, "package.json"))) {
     return;
@@ -110,15 +175,25 @@ function stageNodePackage(outputRoot, packageDir, outputName) {
   const targetDir = path.join(outputRoot, outputName);
   mkdirSync(targetDir, { recursive: true });
   copyIfPresent(path.join(packageDir, "package.json"), path.join(targetDir, "package.json"));
-  copyIfPresent(path.join(packageDir, "package-lock.json"), path.join(targetDir, "package-lock.json"));
   copyIfPresent(path.join(packageDir, "tsconfig.json"), path.join(targetDir, "tsconfig.json"));
   copyIfPresent(path.join(packageDir, "tsup.config.ts"), path.join(targetDir, "tsup.config.ts"));
   copyIfPresent(path.join(packageDir, "scripts"), path.join(targetDir, "scripts"));
   copyIfPresent(path.join(packageDir, "src"), path.join(targetDir, "src"));
 
-  runNpmCommand(["ci"], { cwd: targetDir });
-  runNpmCommand(["run", "build"], { cwd: targetDir });
-  runNpmCommand(["prune", "--omit=dev"], { cwd: targetDir });
+  // Rewrite workspace:* refs to file:../<sibling> so bun install can
+  // resolve them inside the staged tree, and inject trustedDependencies
+  // so postinstall scripts (native rebuilds) actually run.
+  rewriteStagedPackageJson(path.join(targetDir, "package.json"));
+
+  // Full install (devDeps included) to get the build toolchain (tsup, tsx,
+  // typescript) available for the build step.
+  runBunCommand(["install"], { cwd: targetDir });
+  runBunCommand(["run", "build"], { cwd: targetDir });
+  // Production prune: blow away node_modules and re-install with --production
+  // so devDeps stop shipping. Cheaper than `npm prune --omit=dev` because
+  // bun's resolver doesn't have to figure out what's transitive-dev.
+  rmSync(path.join(targetDir, "node_modules"), { recursive: true, force: true });
+  runBunCommand(["install", "--production"], { cwd: targetDir });
 
   rmSync(path.join(targetDir, "src"), { recursive: true, force: true });
   rmSync(path.join(targetDir, "tsconfig.json"), { force: true });
@@ -133,13 +208,9 @@ function stageSourcePackage(outputRoot, packageDir, outputName) {
   const targetDir = path.join(outputRoot, outputName);
   mkdirSync(targetDir, { recursive: true });
   copyIfPresent(path.join(packageDir, "package.json"), path.join(targetDir, "package.json"));
-  copyIfPresent(path.join(packageDir, "package-lock.json"), path.join(targetDir, "package-lock.json"));
   copyIfPresent(path.join(packageDir, "src"), path.join(targetDir, "src"));
 
-  if (existsSync(path.join(targetDir, "package-lock.json"))) {
-    runNpmCommand(["ci", "--omit=dev"], { cwd: targetDir });
-    return;
-  }
+  rewriteStagedPackageJson(path.join(targetDir, "package.json"));
 
   const packageJson = JSON.parse(readFileSync(path.join(targetDir, "package.json"), "utf8"));
   const hasDependencies =
@@ -149,7 +220,7 @@ function stageSourcePackage(outputRoot, packageDir, outputName) {
     typeof packageJson.dependencies === "object" &&
     Object.keys(packageJson.dependencies).length > 0;
   if (hasDependencies) {
-    runNpmCommand(["install", "--omit=dev"], { cwd: targetDir });
+    runBunCommand(["install", "--production"], { cwd: targetDir });
   }
 }
 

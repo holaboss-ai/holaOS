@@ -37,6 +37,58 @@ resolve_output_root() {
 require_cmd git
 OUTPUT_ROOT="$(resolve_output_root "${OUTPUT_ROOT}")"
 
+# ─── Incremental cache gate ─────────────────────────────────────────────
+# Compute a content hash over everything that influences the bundle and
+# compare against .cache-key inside the existing OUTPUT_ROOT. On hit, skip
+# the whole rebuild — the output is already current. Bypass with
+# HOLABOSS_RUNTIME_FORCE_REBUILD=1.
+compute_cache_key() {
+  local files=()
+  while IFS= read -r f; do
+    files+=("$f")
+  done < <(
+    {
+      find "${RUNTIME_ROOT}/api-server/src" \
+           "${RUNTIME_ROOT}/state-store/src" \
+           "${RUNTIME_ROOT}/harness-host/src" \
+           "${RUNTIME_ROOT}/harnesses/src" \
+           -type f 2>/dev/null
+      ls "${RUNTIME_ROOT}/api-server/package.json" \
+         "${RUNTIME_ROOT}/state-store/package.json" \
+         "${RUNTIME_ROOT}/harness-host/package.json" \
+         "${RUNTIME_ROOT}/harnesses/package.json" \
+         "${RUNTIME_ROOT}/api-server/tsconfig.json" \
+         "${RUNTIME_ROOT}/state-store/tsconfig.json" \
+         "${RUNTIME_ROOT}/harness-host/tsconfig.json" \
+         "${RUNTIME_ROOT}/api-server/tsup.config.ts" \
+         "${RUNTIME_ROOT}/state-store/tsup.config.ts" \
+         "${RUNTIME_ROOT}/harness-host/tsup.config.ts" \
+         "${SCRIPT_DIR}/build_runtime_root.mjs" \
+         "${SCRIPT_DIR}/package_macos_runtime.sh" \
+         "${SCRIPT_DIR}/stage_python_runtime.mjs" \
+         "${SCRIPT_DIR}/prune_packaged_tree.sh" \
+         "${REPO_ROOT}/bun.lock" \
+         2>/dev/null
+    } | sort -u
+  )
+  if [ "${#files[@]}" -eq 0 ]; then
+    printf 'no-inputs\n'
+    return
+  fi
+  printf '%s\0' "${files[@]}" | xargs -0 shasum -a 256 | sort | shasum -a 256 | awk '{print $1}'
+}
+
+CACHE_KEY="$(compute_cache_key)"
+CACHE_KEY_PATH="${OUTPUT_ROOT}/.cache-key"
+
+if [ "${HOLABOSS_RUNTIME_FORCE_REBUILD:-0}" != "1" ] \
+   && [ -f "${CACHE_KEY_PATH}" ] \
+   && [ "$(cat "${CACHE_KEY_PATH}" 2>/dev/null || true)" = "${CACHE_KEY}" ]; then
+  echo "[package_macos_runtime] cache hit (${CACHE_KEY:0:12}…) → reusing ${OUTPUT_ROOT}"
+  exit 0
+fi
+echo "[package_macos_runtime] cache miss → rebuilding into ${OUTPUT_ROOT}"
+
 NODE_RUNTIME_DIR="${OUTPUT_ROOT}/node-runtime"
 PYTHON_RUNTIME_DIR="${OUTPUT_ROOT}/python-runtime"
 BIN_DIR="${OUTPUT_ROOT}/bin"
@@ -76,9 +128,18 @@ TOOLCHAIN_ID_RAW="macos-node${NODE_VERSION}-npm${NPM_VERSION}-python${PYTHON_VER
 TOOLCHAIN_ID="$(printf '%s' "${TOOLCHAIN_ID_RAW}" | tr -c '[:alnum:]._-' '_')"
 
 if [ "${SKIP_NODE_DEPS}" != "1" ]; then
-  require_cmd npm
+  require_cmd bun
   mkdir -p "${BUILD_NODE_RUNTIME_DIR}"
-  npm install --prefix "${BUILD_NODE_RUNTIME_DIR}" "node@${NODE_VERSION}" "npm@${NPM_VERSION}"
+  # Bootstrap the bundled Node/npm binaries via bun — vastly faster than
+  # `npm install` because bun's resolver + extractor is parallel.
+  (
+    cd "${BUILD_NODE_RUNTIME_DIR}"
+    # bun add needs a package.json to write into; create a minimal one.
+    if [ ! -f package.json ]; then
+      printf '{"name":"holaboss-runtime-node-bundle","private":true}\n' > package.json
+    fi
+    bun add "node@${NODE_VERSION}" "npm@${NPM_VERSION}"
+  )
 fi
 
 if [ "${SKIP_NODE_DEPS}" != "1" ]; then
@@ -139,5 +200,9 @@ cat > "${PACKAGE_METADATA_PATH}" <<EOF
   "bundled_python_target": "${PYTHON_TARGET}"
 }
 EOF
+
+# Persist the cache key — read at the top of the next run to short-circuit
+# this whole pipeline when inputs haven't changed.
+printf '%s\n' "${CACHE_KEY}" > "${CACHE_KEY_PATH}"
 
 echo "packaged macOS runtime bundle at ${OUTPUT_ROOT}" >&2
