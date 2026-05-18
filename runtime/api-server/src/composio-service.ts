@@ -26,7 +26,14 @@ export class ComposioService {
 
   constructor(config: ComposioServiceConfig) {
     this.honoBaseUrl = config.honoBaseUrl.replace(/\/+$/, "");
-    this.authCookie = config.authCookie;
+    // Better Auth's Electron client returns the cookie header as `; name=value`
+    // (leading "; " — used to splice onto an existing Cookie header). When we
+    // pass this verbatim as a fresh `Cookie:` header, Hono on Cloudflare Workers
+    // sees a leading empty cookie pair and the session-auth middleware crashes
+    // → the Worker bubbles a generic 500 "Internal Server Error" instead of a
+    // clean 401. Strip the leading `; ` (and any other leading whitespace /
+    // semicolons) so the header starts with the first real `name=value` pair.
+    this.authCookie = config.authCookie.replace(/^[\s;]+/, "");
     this.fetchImpl = config.fetchImpl ?? fetch;
   }
 

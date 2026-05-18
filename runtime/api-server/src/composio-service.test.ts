@@ -106,6 +106,65 @@ test("proxyRequest falls back to the HTTP status when the Hono payload omits sta
   assert.equal(result.headers["x-test"], "1");
 });
 
+test("constructor strips leading '; ' from authCookie (Better Auth Electron client quirk)", async () => {
+  // Better Auth's Electron client returns the cookie header as `; name=value` so
+  // it can be spliced onto an existing Cookie header. When passed verbatim as a
+  // fresh Cookie header the leading empty pair crashes Hono's auth middleware
+  // on Cloudflare Workers (Worker bubbles a generic 500 instead of clean 401).
+  const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    calls.push({ input, init });
+    return jsonResponse({ data: null, status: 200, headers: {} });
+  };
+  const service = createService(fetchImpl, {
+    authCookie: "; __Secure-better-auth.session_token=abc.def.ghi"
+  });
+  await service.proxyRequest({
+    connectedAccountId: "ca_1",
+    method: "GET",
+    endpoint: "https://slack.com/api/auth.test"
+  });
+  const headers = calls[0]?.init?.headers as Record<string, string>;
+  assert.equal(headers.Cookie, "__Secure-better-auth.session_token=abc.def.ghi");
+});
+
+test("constructor strips multiple leading semicolons + whitespace", async () => {
+  const fetchImpl: typeof fetch = async () =>
+    jsonResponse({ data: null, status: 200, headers: {} });
+  const service = createService(fetchImpl, { authCookie: " ;; ; hb_session=x; other=y" });
+  const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+  const trackingFetch: typeof fetch = async (input, init) => {
+    calls.push({ input, init });
+    return fetchImpl(input, init);
+  };
+  const tracked = createService(trackingFetch, { authCookie: " ;; ; hb_session=x; other=y" });
+  await tracked.proxyRequest({
+    connectedAccountId: "ca_2",
+    method: "GET",
+    endpoint: "https://api.test/whoami"
+  });
+  const headers = calls[0]?.init?.headers as Record<string, string>;
+  assert.equal(headers.Cookie, "hb_session=x; other=y");
+  // sanity: original service also has the stripped value (constructor-side, not call-site)
+  void service;
+});
+
+test("constructor leaves a normal cookie untouched", async () => {
+  const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    calls.push({ input, init });
+    return jsonResponse({ data: null, status: 200, headers: {} });
+  };
+  const service = createService(fetchImpl, { authCookie: "hb_session=plain; other=x" });
+  await service.proxyRequest({
+    connectedAccountId: "ca_3",
+    method: "GET",
+    endpoint: "https://api.test/whoami"
+  });
+  const headers = calls[0]?.init?.headers as Record<string, string>;
+  assert.equal(headers.Cookie, "hb_session=plain; other=x");
+});
+
 test("proxyRequest throws a descriptive error when the Hono proxy call fails", async () => {
   const fetchImpl: typeof fetch = async () => {
     return new Response("rate limited", { status: 429 });
