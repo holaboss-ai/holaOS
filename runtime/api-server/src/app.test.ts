@@ -7072,92 +7072,95 @@ test("app install, list, build-status, and setup routes preserve local payload s
       }
     }
   });
-
-  const created = await app.inject({
-    method: "POST",
-    url: "/api/v1/workspaces",
-    payload: {
-      name: "Workspace Apps",
-      harness: "pi",
-      status: "active"
-    }
-  });
-  const workspace = created.json().workspace as { id: string };
-
-  const install = await app.inject({
-    method: "POST",
-    url: "/api/v1/apps/install",
-    payload: {
-      app_id: "demo-app",
-      workspace_id: workspace.id,
-      files: [
-        {
-          path: "app.runtime.yaml",
-          content_base64: Buffer.from(
-            [
-              "app_id: demo-app",
-              "mcp:",
-              "  port: 4100",
-              "lifecycle:",
-              "  start: npm run dev"
-            ].join("\n"),
-            "utf8"
-          ).toString("base64")
-        }
-      ]
-    }
-  });
-  assert.equal(install.statusCode, 200);
-  assert.deepEqual(install.json(), {
-    app_id: "demo-app",
-    status: "enabled",
-    detail: "App installed and running",
-    ready: true,
-    error: null
-  });
-  assert.equal(lifecycleCalls.length, 1);
-
-  const listed = await app.inject({
-    method: "GET",
-    url: `/api/v1/apps?workspace_id=${workspace.id}`
-  });
-  assert.equal(listed.statusCode, 200);
-  assert.deepEqual(listed.json(), {
-    apps: [
-      {
-        app_id: "demo-app",
-        config_path: "apps/demo-app/app.runtime.yaml",
-        lifecycle: { start: "npm run dev" },
-        build_status: "running",
-        ready: true,
-        error: null
+  try {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/workspaces",
+      payload: {
+        name: "Workspace Apps",
+        harness: "pi",
+        status: "active"
       }
-    ],
-    count: 1
-  });
+    });
+    const workspace = created.json().workspace as { id: string };
 
-  const buildStatus = await app.inject({
-    method: "GET",
-    url: `/api/v1/apps/demo-app/build-status?workspace_id=${workspace.id}`
-  });
-  assert.equal(buildStatus.statusCode, 200);
-  assert.equal(buildStatus.json().status, "running");
+    const install = await app.inject({
+      method: "POST",
+      url: "/api/v1/apps/install",
+      payload: {
+        app_id: "demo-app",
+        workspace_id: workspace.id,
+        files: [
+          {
+            path: "app.runtime.yaml",
+            content_base64: Buffer.from(
+              [
+                "app_id: demo-app",
+                "mcp:",
+                "  port: 4100",
+                "lifecycle:",
+                "  start: npm run dev"
+              ].join("\n"),
+              "utf8"
+            ).toString("base64")
+          }
+        ]
+      }
+    });
+    assert.equal(install.statusCode, 200);
+    assert.deepEqual(install.json(), {
+      app_id: "demo-app",
+      status: "enabled",
+      detail: "App installed and running",
+      ready: true,
+      error: null
+    });
+    assert.equal(lifecycleCalls.length, 1);
 
-  const setup = await app.inject({
-    method: "POST",
-    url: "/api/v1/apps/demo-app/setup",
-    payload: { workspace_id: workspace.id }
-  });
-  assert.equal(setup.statusCode, 200);
-  assert.deepEqual(setup.json(), {
-    app_id: "demo-app",
-    status: "no_setup_command",
-    detail: "No lifecycle.setup defined",
-    ports: {}
-  });
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/apps?workspace_id=${workspace.id}`
+    });
+    assert.equal(listed.statusCode, 200);
+    assert.deepEqual(listed.json(), {
+      apps: [
+        {
+          app_id: "demo-app",
+          name: null,
+          config_path: "apps/demo-app/app.runtime.yaml",
+          lifecycle: { start: "npm run dev" },
+          build_status: "running",
+          ready: true,
+          error: null,
+          integrations: []
+        }
+      ],
+      count: 1
+    });
 
-  await app.close();
-  store.close();
+    const buildStatus = await app.inject({
+      method: "GET",
+      url: `/api/v1/apps/demo-app/build-status?workspace_id=${workspace.id}`
+    });
+    assert.equal(buildStatus.statusCode, 200);
+    assert.equal(buildStatus.json().status, "running");
+
+    const setup = await app.inject({
+      method: "POST",
+      url: "/api/v1/apps/demo-app/setup",
+      payload: { workspace_id: workspace.id }
+    });
+    assert.equal(setup.statusCode, 200);
+    assert.deepEqual(setup.json(), {
+      app_id: "demo-app",
+      status: "no_setup_command",
+      detail: "No lifecycle.setup defined",
+      ports: {}
+    });
+  } finally {
+    await app.close();
+    store.close();
+  }
 });
 
 test("app list and build-status infer pending when installed app has setup but no build record yet", async () => {
@@ -7198,35 +7201,38 @@ test("app list and build-status infer pending when installed app has setup but n
     "utf8"
   );
   const app = buildTestRuntimeApiServer({ store });
+  try {
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/apps?workspace_id=${workspace.id}`
+    });
+    assert.equal(listed.statusCode, 200);
+    assert.deepEqual(listed.json(), {
+      apps: [
+        {
+          app_id: "demo-app",
+          name: null,
+          config_path: "apps/demo-app/app.runtime.yaml",
+          lifecycle: { setup: "npm install" },
+          build_status: "pending",
+          ready: false,
+          error: null,
+          integrations: []
+        }
+      ],
+      count: 1
+    });
 
-  const listed = await app.inject({
-    method: "GET",
-    url: `/api/v1/apps?workspace_id=${workspace.id}`
-  });
-  assert.equal(listed.statusCode, 200);
-  assert.deepEqual(listed.json(), {
-    apps: [
-      {
-        app_id: "demo-app",
-        config_path: "apps/demo-app/app.runtime.yaml",
-        lifecycle: { setup: "npm install" },
-        build_status: "pending",
-        ready: false,
-        error: null
-      }
-    ],
-    count: 1
-  });
-
-  const buildStatus = await app.inject({
-    method: "GET",
-    url: `/api/v1/apps/demo-app/build-status?workspace_id=${workspace.id}`
-  });
-  assert.equal(buildStatus.statusCode, 200);
-  assert.deepEqual(buildStatus.json(), { status: "pending" });
-
-  await app.close();
-  store.close();
+    const buildStatus = await app.inject({
+      method: "GET",
+      url: `/api/v1/apps/demo-app/build-status?workspace_id=${workspace.id}`
+    });
+    assert.equal(buildStatus.statusCode, 200);
+    assert.deepEqual(buildStatus.json(), { status: "pending" });
+  } finally {
+    await app.close();
+    store.close();
+  }
 });
 
 test("queue route persists input and runtime state without writing session history until claim", async () => {
