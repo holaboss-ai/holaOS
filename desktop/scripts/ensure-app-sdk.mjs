@@ -5,7 +5,6 @@ import { runNpm } from "./npm-runner.mjs";
 
 const desktopRoot = process.cwd();
 const appSdkRoot = path.resolve(desktopRoot, "..", "sdk", "app-sdk");
-const appSdkNodeModulesPath = path.join(appSdkRoot, "node_modules");
 const appSdkSourceInputs = [
   path.join(appSdkRoot, "package.json"),
   path.join(appSdkRoot, "tsdown.config.ts"),
@@ -51,17 +50,6 @@ const newestOutputStamp = Math.max(
 const outputsStale = outputsExist && newestSourceStamp > newestOutputStamp;
 
 if (!outputsExist || outputsStale) {
-  if (!fs.existsSync(appSdkNodeModulesPath)) {
-    console.log(
-      "[ensure-app-sdk] installing sdk/app-sdk dependencies for local desktop usage.",
-    );
-    runNpm(["install"], {
-      cwd: appSdkRoot,
-      stdio: "inherit",
-      env: process.env,
-    });
-  }
-
   console.log(
     outputsExist
       ? "[ensure-app-sdk] sdk/app-sdk build is stale; rebuilding."

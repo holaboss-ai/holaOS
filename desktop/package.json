@@ -10,7 +10,7 @@
   "main": "out/dist-electron/main.cjs",
   "scripts": {
     "clean": "node ../scripts/remove-paths.mjs out build",
-    "rebuild:native": "node ./node_modules/@electron/rebuild/lib/cli.js -f -w better-sqlite3",
+    "rebuild:native": "node scripts/rebuild-native.mjs",
     "predev": "node scripts/ensure-app-sdk.mjs && node scripts/ensure-runtime-client.mjs && node scripts/ensure-editor.mjs && node scripts/validate-dev-env.mjs && kill-port 5173 && npm run rebuild:native && node scripts/ensure-runtime-bundle.mjs && node scripts/patch-electron-plist.mjs",
     "prebuild": "node scripts/ensure-app-sdk.mjs && node scripts/ensure-runtime-client.mjs && node scripts/ensure-editor.mjs",
     "pretypecheck": "node scripts/ensure-app-sdk.mjs && node scripts/ensure-runtime-client.mjs && node scripts/ensure-editor.mjs",

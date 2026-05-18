@@ -142,18 +142,24 @@ if [ "${SKIP_NODE_DEPS}" != "1" ]; then
   )
 fi
 
-if [ "${SKIP_NODE_DEPS}" != "1" ]; then
-  PATH="${BUILD_NODE_RUNTIME_DIR}/node_modules/node/bin:${BUILD_NODE_RUNTIME_DIR}/node_modules/.bin:${PATH}" \
-    "${BUILD_NODE_BIN}" "${SCRIPT_DIR}/build_runtime_root.mjs" "${STAGING_ROOT}/runtime-root"
-else
-  require_cmd node
-  node "${SCRIPT_DIR}/build_runtime_root.mjs" "${STAGING_ROOT}/runtime-root"
-fi
-
+# Build directly into the final ${OUTPUT_ROOT}/runtime. We used to build into
+# ${STAGING_ROOT}/runtime-root and then `cp -R` to OUTPUT_ROOT, but bun's
+# `file:../state-store` workspace deps end up as symlinks with absolute paths
+# pointing back at STAGING_ROOT. The EXIT trap then deletes STAGING_ROOT and
+# every symlink in OUTPUT_ROOT becomes dangling → runtime fails to import
+# @holaboss/runtime-state-store with ERR_MODULE_NOT_FOUND.
 rm -rf "${OUTPUT_ROOT}"
 mkdir -p "${OUTPUT_ROOT}"
 mkdir -p "${BIN_DIR}"
-cp -R "${STAGING_ROOT}/runtime-root" "${OUTPUT_ROOT}/runtime"
+
+if [ "${SKIP_NODE_DEPS}" != "1" ]; then
+  PATH="${BUILD_NODE_RUNTIME_DIR}/node_modules/node/bin:${BUILD_NODE_RUNTIME_DIR}/node_modules/.bin:${PATH}" \
+    "${BUILD_NODE_BIN}" "${SCRIPT_DIR}/build_runtime_root.mjs" "${OUTPUT_ROOT}/runtime"
+else
+  require_cmd node
+  node "${SCRIPT_DIR}/build_runtime_root.mjs" "${OUTPUT_ROOT}/runtime"
+fi
+
 "${SCRIPT_DIR}/prune_packaged_tree.sh" "${OUTPUT_ROOT}/runtime" "macos"
 
 if [ "${SKIP_NODE_DEPS}" != "1" ]; then

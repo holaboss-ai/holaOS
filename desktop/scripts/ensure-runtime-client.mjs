@@ -5,7 +5,6 @@ import { runNpm } from "./npm-runner.mjs";
 
 const desktopRoot = process.cwd();
 const sdkRoot = path.resolve(desktopRoot, "..", "sdk", "runtime-client");
-const sdkNodeModulesPath = path.join(sdkRoot, "node_modules");
 const sdkSourceInputs = [
   path.join(sdkRoot, "package.json"),
   path.join(sdkRoot, "tsdown.config.ts"),
@@ -51,17 +50,6 @@ const newestOutputStamp = Math.max(
 const outputsStale = outputsExist && newestSourceStamp > newestOutputStamp;
 
 if (!outputsExist || outputsStale) {
-  if (!fs.existsSync(sdkNodeModulesPath)) {
-    console.log(
-      "[ensure-runtime-client] installing sdk/runtime-client dependencies for local desktop usage.",
-    );
-    runNpm(["install"], {
-      cwd: sdkRoot,
-      stdio: "inherit",
-      env: process.env,
-    });
-  }
-
   console.log(
     outputsExist
       ? "[ensure-runtime-client] sdk/runtime-client build is stale; rebuilding."

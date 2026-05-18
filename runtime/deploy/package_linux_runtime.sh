@@ -75,18 +75,22 @@ esac
 TOOLCHAIN_ID_RAW="linux-node${NODE_VERSION}-npm${NPM_VERSION}-python${PYTHON_VERSION}-${PYTHON_TARGET}"
 TOOLCHAIN_ID="$(printf '%s' "${TOOLCHAIN_ID_RAW}" | tr -c '[:alnum:]._-' '_')"
 
+# Build directly into ${OUTPUT_ROOT}/runtime — bun's `file:../state-store`
+# workspace deps install as absolute-path symlinks, so staging-then-cp leaves
+# them pointing at a temp dir that the EXIT trap then nukes (ERR_MODULE_NOT_FOUND
+# at runtime startup). Skipping the staging copy keeps the targets valid.
 run_build_runtime_root() {
   local attempt=1
   local max_attempts=3
 
   while true; do
-    rm -rf "${STAGING_ROOT}/runtime-root"
+    rm -rf "${OUTPUT_ROOT}/runtime"
     if [ "${SKIP_NODE_DEPS}" != "1" ]; then
       PATH="${BUILD_NODE_RUNTIME_DIR}/node_modules/node/bin:${BUILD_NODE_RUNTIME_DIR}/node_modules/.bin:${PATH}" \
-        "${BUILD_NODE_BIN}" "${SCRIPT_DIR}/build_runtime_root.mjs" "${STAGING_ROOT}/runtime-root" && return 0
+        "${BUILD_NODE_BIN}" "${SCRIPT_DIR}/build_runtime_root.mjs" "${OUTPUT_ROOT}/runtime" && return 0
     else
       require_cmd node
-      node "${SCRIPT_DIR}/build_runtime_root.mjs" "${STAGING_ROOT}/runtime-root" && return 0
+      node "${SCRIPT_DIR}/build_runtime_root.mjs" "${OUTPUT_ROOT}/runtime" && return 0
     fi
 
     if [ "${attempt}" -ge "${max_attempts}" ]; then
@@ -105,12 +109,12 @@ if [ "${SKIP_NODE_DEPS}" != "1" ]; then
   npm install --prefix "${BUILD_NODE_RUNTIME_DIR}" "node@${NODE_VERSION}" "npm@${NPM_VERSION}"
 fi
 
-run_build_runtime_root
-
 rm -rf "${OUTPUT_ROOT}"
 mkdir -p "${OUTPUT_ROOT}"
 mkdir -p "${BIN_DIR}"
-cp -R "${STAGING_ROOT}/runtime-root" "${OUTPUT_ROOT}/runtime"
+
+run_build_runtime_root
+
 "${SCRIPT_DIR}/prune_packaged_tree.sh" "${OUTPUT_ROOT}/runtime" "linux"
 
 if [ "${SKIP_NODE_DEPS}" != "1" ]; then
