@@ -382,7 +382,7 @@ function AppRow({
       ? errorMessage
       : status === "loading"
         ? `${label} — starting…`
-        : app.summary || label;
+        : label;
   return (
     <div
       role="group"
