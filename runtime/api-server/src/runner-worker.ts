@@ -206,6 +206,10 @@ function harnessTimeoutSeconds(payload: Record<string, unknown>): number | null 
   return normalized > 0 ? normalized : null;
 }
 
+function usesSlidingHarnessDeadline(payload: Record<string, unknown>): boolean {
+  return normalizeSessionKind(payload) === "subagent";
+}
+
 function normalizeRuntimeApiHost(value: string): string {
   const trimmed = value.trim();
   if (!trimmed || trimmed === "0.0.0.0" || trimmed === "::") {
@@ -480,6 +484,17 @@ export async function executeRunnerRequest(
   let timeout: NodeJS.Timeout | null = null;
   let hardDeadlineAtMs = Date.now() + timeoutMs;
   let postStartDeadlineApplied = false;
+  const refreshPostStartDeadline = () => {
+    if (postStartHarnessTimeoutSeconds === null) {
+      return;
+    }
+    scheduleHardTimeoutAt(
+      Math.max(
+        hardDeadlineAtMs,
+        Date.now() + postStartHarnessTimeoutSeconds * 1000 + postStartTimeoutGraceMs
+      )
+    );
+  };
   const scheduleHardTimeoutAt = (deadlineAtMs: number) => {
     hardDeadlineAtMs = deadlineAtMs;
     if (timeout) {
@@ -559,12 +574,13 @@ export async function executeRunnerRequest(
           postStartHarnessTimeoutSeconds !== null
         ) {
           postStartDeadlineApplied = true;
-          scheduleHardTimeoutAt(
-            Math.max(
-              hardDeadlineAtMs,
-              Date.now() + postStartHarnessTimeoutSeconds * 1000 + postStartTimeoutGraceMs
-            )
-          );
+          refreshPostStartDeadline();
+        } else if (
+          postStartDeadlineApplied &&
+          usesSlidingHarnessDeadline(payload) &&
+          !TERMINAL_EVENT_TYPES.has(parsed.event_type as string)
+        ) {
+          refreshPostStartDeadline();
         }
         if (options.onEvent) {
           await options.onEvent(parsed);
@@ -587,12 +603,13 @@ export async function executeRunnerRequest(
           postStartHarnessTimeoutSeconds !== null
         ) {
           postStartDeadlineApplied = true;
-          scheduleHardTimeoutAt(
-            Math.max(
-              hardDeadlineAtMs,
-              Date.now() + postStartHarnessTimeoutSeconds * 1000 + postStartTimeoutGraceMs
-            )
-          );
+          refreshPostStartDeadline();
+        } else if (
+          postStartDeadlineApplied &&
+          usesSlidingHarnessDeadline(payload) &&
+          !TERMINAL_EVENT_TYPES.has(parsed.event_type as string)
+        ) {
+          refreshPostStartDeadline();
         }
         if (options.onEvent) {
           await options.onEvent(parsed);

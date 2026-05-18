@@ -178,6 +178,47 @@ test("runtime queue worker executes different sessions concurrently while preser
   store.close();
 });
 
+test("runtime queue worker defaults to five concurrent sessions", async () => {
+  const root = makeTempDir("hb-runtime-queue-worker-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  for (let index = 0; index < 6; index += 1) {
+    store.enqueueInput({
+      workspaceId: "workspace-1",
+      sessionId: `session-${index + 1}`,
+      priority: 10 - index,
+      payload: { text: `task-${index + 1}` }
+    });
+  }
+
+  let active = 0;
+  let maxActive = 0;
+  const worker = new RuntimeQueueWorker({
+    store,
+    executeClaimedInput: async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      active -= 1;
+    }
+  });
+
+  const processed = await worker.processAvailableInputsOnce();
+
+  assert.equal(processed, 5);
+  assert.equal(maxActive, 5);
+  await worker.close();
+  store.close();
+});
+
 test("runtime queue worker claims later queued work from another session while one session is already active", async () => {
   const root = makeTempDir("hb-runtime-queue-worker-");
   const store = new RuntimeStateStore({

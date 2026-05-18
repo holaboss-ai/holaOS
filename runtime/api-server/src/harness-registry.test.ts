@@ -12,6 +12,7 @@ import {
 
 const ORIGINAL_ENV = {
   HOLABOSS_HARNESS_RUN_TIMEOUT_S: process.env.HOLABOSS_HARNESS_RUN_TIMEOUT_S,
+  HOLABOSS_SUBAGENT_HARNESS_RUN_TIMEOUT_S: process.env.HOLABOSS_SUBAGENT_HARNESS_RUN_TIMEOUT_S,
   HOLABOSS_TASK_PROPOSAL_HARNESS_RUN_TIMEOUT_S: process.env.HOLABOSS_TASK_PROPOSAL_HARNESS_RUN_TIMEOUT_S
 };
 
@@ -20,6 +21,12 @@ afterEach(() => {
     delete process.env.HOLABOSS_HARNESS_RUN_TIMEOUT_S;
   } else {
     process.env.HOLABOSS_HARNESS_RUN_TIMEOUT_S = ORIGINAL_ENV.HOLABOSS_HARNESS_RUN_TIMEOUT_S;
+  }
+  if (ORIGINAL_ENV.HOLABOSS_SUBAGENT_HARNESS_RUN_TIMEOUT_S === undefined) {
+    delete process.env.HOLABOSS_SUBAGENT_HARNESS_RUN_TIMEOUT_S;
+  } else {
+    process.env.HOLABOSS_SUBAGENT_HARNESS_RUN_TIMEOUT_S =
+      ORIGINAL_ENV.HOLABOSS_SUBAGENT_HARNESS_RUN_TIMEOUT_S;
   }
   if (ORIGINAL_ENV.HOLABOSS_TASK_PROPOSAL_HARNESS_RUN_TIMEOUT_S === undefined) {
     delete process.env.HOLABOSS_TASK_PROPOSAL_HARNESS_RUN_TIMEOUT_S;
@@ -51,6 +58,7 @@ test("requireRuntimeHarnessAdapter rejects unsupported harnesses", () => {
 
 test("requireRuntimeHarnessPlugin uses extended timeouts for task proposal runs", () => {
   process.env.HOLABOSS_HARNESS_RUN_TIMEOUT_S = "45";
+  process.env.HOLABOSS_SUBAGENT_HARNESS_RUN_TIMEOUT_S = "900";
   process.env.HOLABOSS_TASK_PROPOSAL_HARNESS_RUN_TIMEOUT_S = "600";
 
   const plugin = requireRuntimeHarnessPlugin("pi");
@@ -65,6 +73,18 @@ test("requireRuntimeHarnessPlugin uses extended timeouts for task proposal runs"
       }
     }),
     45
+  );
+  assert.equal(
+    plugin.timeoutSeconds({
+      request: {
+        workspace_id: "workspace-1",
+        session_id: "subagent-1",
+        session_kind: "subagent",
+        input_id: "input-1a",
+        instruction: "Investigate the issue"
+      }
+    }),
+    900
   );
   assert.equal(
     plugin.timeoutSeconds({

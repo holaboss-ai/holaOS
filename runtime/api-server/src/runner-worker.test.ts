@@ -445,6 +445,35 @@ test("executeRunnerRequest gives a started harness its own timeout budget before
   );
 });
 
+test("executeRunnerRequest refreshes subagent harness deadlines when real progress continues", async () => {
+  process.env.SANDBOX_AGENT_RUN_TIMEOUT_S = "1";
+  process.env.SANDBOX_AGENT_RUN_IDLE_TIMEOUT_S = "10";
+  process.env.SANDBOX_AGENT_RUN_POST_START_GRACE_S = "0";
+
+  setNodeRunnerTemplate([
+    "process.stdout.write(JSON.stringify({ session_id: 'session-1', input_id: 'input-1', sequence: 1, event_type: 'run_started', payload: { instruction_preview: 'hello' } }) + '\\n');",
+    "setTimeout(() => {",
+    "  process.stdout.write(JSON.stringify({ session_id: 'session-1', input_id: 'input-1', sequence: 2, event_type: 'message_update', payload: { delta: 'still working' } }) + '\\n');",
+    "}, 400);",
+    "setTimeout(() => {",
+    "  process.stdout.write(JSON.stringify({ session_id: 'session-1', input_id: 'input-1', sequence: 3, event_type: 'run_completed', payload: { status: 'success' } }) + '\\n');",
+    "}, 1200);"
+  ]);
+
+  const execution = await executeRunnerRequest(
+    payload({ session_kind: "subagent", harness_timeout_seconds: 1 }),
+    {}
+  );
+
+  assert.equal(execution.stderr, "");
+  assert.equal(execution.returnCode, 0);
+  assert.equal(execution.sawTerminal, true);
+  assert.deepEqual(
+    execution.events.map((event) => event.event_type),
+    ["run_started", "message_update", "run_completed"]
+  );
+});
+
 test("current runtime api url prefers explicit value", () => {
   process.env.SANDBOX_RUNTIME_API_URL = "http://127.0.0.1:5060";
   process.env.SANDBOX_RUNTIME_API_PORT = "9999";

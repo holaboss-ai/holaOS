@@ -20,7 +20,7 @@ import { captureRuntimeException } from "./runtime-sentry.js";
 const DEFAULT_CLAIMED_BY = "sandbox-agent-ts-worker";
 const DEFAULT_LEASE_SECONDS = 300;
 const DEFAULT_POLL_INTERVAL_MS = 1000;
-const DEFAULT_MAX_CONCURRENCY = 2;
+const DEFAULT_MAX_CONCURRENCY = 5;
 const DEFAULT_CLAIM_STALE_HEARTBEAT_MS = 20_000;
 const TERMINAL_EVENT_TYPES = new Set(["run_completed", "run_failed"]);
 const SESSION_CHECKPOINT_JOB_TYPE = "session_checkpoint";

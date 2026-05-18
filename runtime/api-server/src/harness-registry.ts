@@ -115,7 +115,14 @@ function timeoutSecondsFromEnv(envName: string, defaultValue: number): number {
 
 function defaultHarnessTimeoutSeconds(sessionKind: string | null | undefined): number {
   const baseTimeoutSeconds = timeoutSecondsFromEnv("HOLABOSS_HARNESS_RUN_TIMEOUT_S", 1800);
-  if (normalizeSessionKind(sessionKind) !== "task_proposal") {
+  const normalizedSessionKind = normalizeSessionKind(sessionKind);
+  if (normalizedSessionKind === "subagent") {
+    return timeoutSecondsFromEnv(
+      "HOLABOSS_SUBAGENT_HARNESS_RUN_TIMEOUT_S",
+      Math.max(baseTimeoutSeconds, 7200)
+    );
+  }
+  if (normalizedSessionKind !== "task_proposal") {
     return baseTimeoutSeconds;
   }
   return timeoutSecondsFromEnv(
