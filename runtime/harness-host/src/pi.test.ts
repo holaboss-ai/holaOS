@@ -3,9 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { createRequire } from "node:module";
 
 import JSZip from "jszip";
-import ExcelJS from "exceljs";
 import { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
 import { fauxAssistantMessage, registerFauxProvider, type Model } from "@mariozechner/pi-ai";
 import { streamOpenAIResponses } from "../node_modules/@mariozechner/pi-ai/dist/providers/openai-responses.js";
@@ -35,6 +35,26 @@ import {
   workspaceBoundaryViolationForToolCall,
   runPi
 } from "./pi.js";
+
+interface XlsxPopulateCell {
+  value(value: unknown): XlsxPopulateCell;
+}
+
+interface XlsxPopulateWorksheet {
+  cell(row: number, column: number): XlsxPopulateCell;
+}
+
+interface XlsxPopulateWorkbook {
+  sheet(indexOrName: number | string): XlsxPopulateWorksheet | undefined;
+  outputAsync(): Promise<Buffer | Uint8Array | ArrayBuffer>;
+}
+
+interface XlsxPopulateStatic {
+  fromBlankAsync(): Promise<XlsxPopulateWorkbook>;
+}
+
+const nodeRequire = createRequire(import.meta.url);
+const XlsxPopulate = nodeRequire("xlsx-populate") as XlsxPopulateStatic;
 
 function baseRequest(): HarnessHostPiRequest {
   return {
@@ -388,13 +408,24 @@ async function createPptxBuffer(slides: string[]): Promise<Buffer> {
 }
 
 async function createXlsxBuffer(rows: string[][]): Promise<Buffer> {
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet("Sheet1");
-  rows.forEach((row) => {
-    worksheet.addRow(row);
+  const workbook = await XlsxPopulate.fromBlankAsync();
+  const worksheet = workbook.sheet(0);
+  if (!worksheet) {
+    throw new Error("Failed to create default workbook sheet.");
+  }
+  rows.forEach((row, rowIndex) => {
+    row.forEach((value, columnIndex) => {
+      worksheet.cell(rowIndex + 1, columnIndex + 1).value(value);
+    });
   });
-  const output = await workbook.xlsx.writeBuffer();
-  return Buffer.isBuffer(output) ? output : Buffer.from(output);
+  const output = await workbook.outputAsync();
+  if (Buffer.isBuffer(output)) {
+    return output;
+  }
+  if (output instanceof Uint8Array) {
+    return Buffer.from(output);
+  }
+  return Buffer.from(output);
 }
 
 function createPdfBuffer(text: string): Buffer {

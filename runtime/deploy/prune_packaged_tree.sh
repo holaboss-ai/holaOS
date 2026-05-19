@@ -91,11 +91,18 @@ prune_koffi_binaries() {
   esac
 }
 
+prune_dangling_symlinks() {
+  local root="$1"
+
+  find "${root}" -type l ! -exec test -e {} \; -delete
+}
+
 before_count="$(count_files "${TARGET_ROOT}")"
 prune_common_runtime_files "${TARGET_ROOT}"
 if [ -n "${TARGET_PLATFORM}" ]; then
   prune_koffi_binaries "${TARGET_ROOT}" "${TARGET_PLATFORM}"
 fi
+prune_dangling_symlinks "${TARGET_ROOT}"
 after_count="$(count_files "${TARGET_ROOT}")"
 
 echo "pruned packaged tree at ${TARGET_ROOT} (${before_count} -> ${after_count} files)" >&2

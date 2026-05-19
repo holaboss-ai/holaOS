@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 
 import {
   extractImages,
@@ -11,10 +12,29 @@ import {
   renderPageAsImage,
   type StructuredTextItem,
 } from "unpdf";
-import ExcelJS from "exceljs";
 import JSZip from "jszip";
 
 import type { HarnessInputAttachmentPayload } from "./types.js";
+
+interface XlsxPopulateRange {
+  value(): unknown;
+}
+
+interface XlsxPopulateWorksheet {
+  name(): string;
+  usedRange(): XlsxPopulateRange | undefined;
+}
+
+interface XlsxPopulateWorkbook {
+  sheets(): XlsxPopulateWorksheet[];
+}
+
+interface XlsxPopulateStatic {
+  fromDataAsync(data: Buffer | Uint8Array | ArrayBuffer): Promise<XlsxPopulateWorkbook>;
+}
+
+const nodeRequire = createRequire(import.meta.url);
+const XlsxPopulate = nodeRequire("xlsx-populate") as XlsxPopulateStatic;
 
 export interface HarnessInlineImageContent {
   type: "image";
@@ -165,6 +185,43 @@ function escapeXmlText(value: string): string {
 
 function escapeXmlAttribute(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function normalizeWorkbookCellText(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  if (
+    typeof value === "object" &&
+    "text" in value &&
+    typeof (value as { text?: unknown }).text === "function"
+  ) {
+    const textValue = (value as { text: () => unknown }).text();
+    return typeof textValue === "string" ? textValue : String(textValue ?? "");
+  }
+  return String(value);
+}
+
+function workbookRowsFromUsedRange(range: XlsxPopulateRange | undefined): string[][] {
+  if (!range) {
+    return [];
+  }
+
+  const matrix = range.value();
+  const rows = Array.isArray(matrix)
+    ? matrix.map((row) => (Array.isArray(row) ? row : [row]))
+    : [[matrix]];
+
+  return rows.map((row) => row.map((cell) => normalizeWorkbookCellText(cell)));
 }
 
 function isPdfAttachment(attachment: HarnessInputAttachmentPayload): boolean {
@@ -440,33 +497,32 @@ async function extractPptxAttachmentText(buffer: Buffer, fileName: string): Prom
 }
 
 async function extractExcelAttachmentText(buffer: Buffer, fileName: string): Promise<string> {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(
-    buffer as unknown as Parameters<ExcelJS.Workbook["xlsx"]["load"]>[0],
-  );
+  const workbook = await XlsxPopulate.fromDataAsync(buffer);
   let extractedText = `<excel filename="${escapeXmlAttribute(fileName)}">`;
-  workbook.eachSheet((worksheet, index) => {
+  workbook.sheets().forEach((worksheet, index) => {
+    const worksheetRows = workbookRowsFromUsedRange(worksheet.usedRange());
     const csvRows: string[] = [];
-    worksheet.eachRow({ includeEmpty: false }, (row) => {
-      const cells: string[] = [];
-      row.eachCell({ includeEmpty: true }, (cell, columnNumber) => {
-        const raw = cell.text ?? "";
-        cells[columnNumber - 1] = /[",\n\r]/.test(raw)
-          ? `"${raw.replace(/"/g, "\"\"")}"`
-          : raw;
-      });
-
+    for (const row of worksheetRows) {
+      const cells = [...row];
       let lastNonEmptyIndex = cells.length - 1;
       while (lastNonEmptyIndex >= 0 && cells[lastNonEmptyIndex] === "") {
         lastNonEmptyIndex -= 1;
       }
       const normalized = cells.slice(0, lastNonEmptyIndex + 1);
       if (normalized.length > 0) {
-        csvRows.push(normalized.join(","));
+        csvRows.push(
+          normalized
+            .map((raw) => (
+              /[",\n\r]/.test(raw)
+                ? `"${raw.replace(/"/g, "\"\"")}"`
+                : raw
+            ))
+            .join(","),
+        );
       }
-    });
+    }
 
-    extractedText += `\n<sheet name="${escapeXmlAttribute(worksheet.name)}" index="${index}">\n${csvRows.join("\n").trim()}\n</sheet>`;
+    extractedText += `\n<sheet name="${escapeXmlAttribute(worksheet.name())}" index="${index}">\n${csvRows.join("\n").trim()}\n</sheet>`;
   });
   extractedText += "\n</excel>";
   return normalizeExtractedText(extractedText);

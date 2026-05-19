@@ -29,10 +29,10 @@
     "@napi-rs/canvas": "^0.1.100",
     "@sentry/node": "^10.48.0",
     "@sinclair/typebox": "^0.34.41",
-    "exceljs": "^4.4.0",
     "jszip": "^3.10.1",
     "mcporter": "^0.7.3",
     "openai": "^6.26.0",
-    "unpdf": "^1.6.1"
+    "unpdf": "^1.6.1",
+    "xlsx-populate": "^1.21.0"
   }
 }

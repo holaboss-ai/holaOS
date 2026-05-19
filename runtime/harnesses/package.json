@@ -4,8 +4,8 @@
   "type": "module",
   "dependencies": {
     "@napi-rs/canvas": "^0.1.100",
-    "exceljs": "^4.4.0",
     "jszip": "^3.10.1",
-    "unpdf": "^1.6.1"
+    "unpdf": "^1.6.1",
+    "xlsx-populate": "^1.21.0"
   }
 }

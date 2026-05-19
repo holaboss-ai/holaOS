@@ -89,12 +89,12 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { URL, pathToFileURL } from "node:url";
-import ExcelJS from "exceljs";
 import JSZip from "jszip";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
@@ -215,6 +215,39 @@ const APP_DISPLAY_NAME = "holaOS";
 const MAC_APP_MENU_PRODUCT_LABEL = "holaOS";
 const AUTH_CALLBACK_PROTOCOL = "ai.holaboss.app";
 const DESKTOP_LAUNCH_ID = randomUUID();
+const nodeRequire = createRequire(__filename);
+
+interface XlsxPopulateCell {
+  address(): string;
+  value(): unknown;
+  value(value: unknown): XlsxPopulateCell;
+  hyperlink(): string | undefined;
+  hyperlink(hyperlink: string): XlsxPopulateCell;
+}
+
+interface XlsxPopulateRange {
+  value(): unknown;
+}
+
+interface XlsxPopulateWorksheet {
+  name(): string;
+  cell(row: number, column: number): XlsxPopulateCell;
+  usedRange(): XlsxPopulateRange | undefined;
+  hyperlink(address: string): string | undefined;
+  hyperlink(address: string, hyperlink: string | null | undefined): XlsxPopulateWorksheet;
+}
+
+interface XlsxPopulateWorkbook {
+  sheet(indexOrName: number | string): XlsxPopulateWorksheet | undefined;
+  sheets(): XlsxPopulateWorksheet[];
+  outputAsync(): Promise<Buffer | Uint8Array | ArrayBuffer>;
+}
+
+interface XlsxPopulateStatic {
+  fromDataAsync(data: Buffer | Uint8Array | ArrayBuffer): Promise<XlsxPopulateWorkbook>;
+}
+
+const XlsxPopulate = nodeRequire("xlsx-populate") as XlsxPopulateStatic;
 Sentry.setTags({
   desktop_launch_id: DESKTOP_LAUNCH_ID,
   process_kind: "electron_main",
@@ -17496,6 +17529,14 @@ function toPreviewTableCellValue(value: unknown): string {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? "" : value.toISOString();
   }
+  if (
+    typeof value === "object" &&
+    "text" in value &&
+    typeof (value as { text?: unknown }).text === "function"
+  ) {
+    const textValue = (value as { text: () => unknown }).text();
+    return typeof textValue === "string" ? textValue : String(textValue ?? "");
+  }
   return String(value);
 }
 
@@ -18056,25 +18097,129 @@ async function stripWorkbookVisualArtifactsForPreview(
   return Buffer.from(sanitizedBuffer);
 }
 
-function worksheetPreviewRows(worksheet: ExcelJS.Worksheet): {
+function workbookRangeRows(range: XlsxPopulateRange | undefined): unknown[][] {
+  if (!range) {
+    return [];
+  }
+
+  const matrix = range.value();
+  if (!Array.isArray(matrix)) {
+    return [[matrix]];
+  }
+
+  return matrix.map((row) => (Array.isArray(row) ? row : [row]));
+}
+
+function workbookOutputToBuffer(
+  output: Buffer | Uint8Array | ArrayBuffer,
+): Buffer {
+  if (Buffer.isBuffer(output)) {
+    return output;
+  }
+  if (output instanceof Uint8Array) {
+    return Buffer.from(output);
+  }
+  return Buffer.from(output);
+}
+
+function parseCsvRows(text: string): string[][] {
+  if (!text) {
+    return [];
+  }
+
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentCell = "";
+  let inQuotes = false;
+  let sawAnyCharacter = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    sawAnyCharacter = true;
+
+    if (inQuotes) {
+      if (char === '"') {
+        if (text[index + 1] === '"') {
+          currentCell += '"';
+          index += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        currentCell += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+      continue;
+    }
+    if (char === ",") {
+      currentRow.push(currentCell);
+      currentCell = "";
+      continue;
+    }
+    if (char === "\r" || char === "\n") {
+      currentRow.push(currentCell);
+      rows.push(currentRow);
+      currentRow = [];
+      currentCell = "";
+      if (char === "\r" && text[index + 1] === "\n") {
+        index += 1;
+      }
+      continue;
+    }
+
+    currentCell += char;
+  }
+
+  if (
+    sawAnyCharacter &&
+    (
+      currentCell.length > 0 ||
+      currentRow.length > 0 ||
+      (!text.endsWith("\n") && !text.endsWith("\r"))
+    )
+  ) {
+    currentRow.push(currentCell);
+    rows.push(currentRow);
+  }
+
+  return rows;
+}
+
+function serializeCsvCell(value: string): string {
+  return /[",\n\r]/.test(value)
+    ? `"${value.replace(/"/g, "\"\"")}"`
+    : value;
+}
+
+function stringifyCsvRows(rows: string[][]): string {
+  return rows
+    .map((row) => row.map((cell) => serializeCsvCell(cell)).join(","))
+    .join("\r\n");
+}
+
+function worksheetPreviewRows(worksheet: XlsxPopulateWorksheet): {
   rows: string[][];
   links: (string | null)[][];
 } {
   const rows: string[][] = [];
   const links: (string | null)[][] = [];
-  worksheet.eachRow({ includeEmpty: false }, (row) => {
-    const values: string[] = [];
-    const rowLinks: (string | null)[] = [];
-    row.eachCell({ includeEmpty: true }, (cell, columnNumber) => {
-      values[columnNumber - 1] = toPreviewTableCellValue(cell.text);
-      rowLinks[columnNumber - 1] = normalizePreviewTableLinkTarget(
-        typeof cell.hyperlink === "string" ? cell.hyperlink : cell.text,
-      );
+  const worksheetRows = workbookRangeRows(worksheet.usedRange());
+
+  worksheetRows.forEach((row, rowIndex) => {
+    const values = row.map((cell) => toPreviewTableCellValue(cell));
+    const rowLinks = values.map((value, columnIndex) => {
+      const hyperlink = worksheet.cell(rowIndex + 1, columnIndex + 1).hyperlink();
+      return normalizePreviewTableLinkTarget(hyperlink ?? value);
     });
     const trimmedValues = trimTrailingEmptyTableCells(values);
     rows.push(trimmedValues);
     links.push(trimTrailingEmptyTableLinkRow(rowLinks, trimmedValues.length));
   });
+
   return { rows, links };
 }
 
@@ -18248,20 +18393,22 @@ function sourceLinksFromTablePreviewSheet(
 }
 
 function applyPreviewSheetEditsToWorksheet(
-  worksheet: ExcelJS.Worksheet,
+  worksheet: XlsxPopulateWorksheet,
   sheet: FilePreviewTableSheetPayload,
 ) {
   const sourceRows = sourceRowsFromTablePreviewSheet(sheet);
   const sourceLinks = sourceLinksFromTablePreviewSheet(sheet);
   for (const [rowIndex, row] of sourceRows.entries()) {
-    const worksheetRow = worksheet.getRow(rowIndex + 1);
     for (const [columnIndex, value] of row.entries()) {
+      const cell = worksheet.cell(rowIndex + 1, columnIndex + 1);
       const hyperlink = sourceLinks[rowIndex]?.[columnIndex] ?? null;
-      worksheetRow.getCell(columnIndex + 1).value = hyperlink
-        ? { text: value, hyperlink }
-        : value;
+      cell.value(value);
+      if (hyperlink) {
+        cell.hyperlink(hyperlink);
+      } else {
+        worksheet.hyperlink(cell.address(), undefined);
+      }
     }
-    worksheetRow.commit();
   }
 }
 
@@ -18269,22 +18416,8 @@ async function writeCsvTablePreview(
   absolutePath: string,
   sheet: FilePreviewTableSheetPayload,
 ): Promise<void> {
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet(sheet.name || "Sheet 1");
   const sourceRows = sourceRowsFromTablePreviewSheet(sheet);
-  if (sourceRows.length > 0) {
-    worksheet.addRows(sourceRows);
-  }
-  const outputBuffer = await workbook.csv.writeBuffer({
-    sheetName: worksheet.name,
-    formatterOptions: {
-      delimiter: ",",
-      quote: '"',
-      escape: '"',
-      rowDelimiter: "\r\n",
-    },
-  });
-  await fs.writeFile(absolutePath, Buffer.from(outputBuffer as ArrayBuffer));
+  await fs.writeFile(absolutePath, stringifyCsvRows(sourceRows), "utf-8");
 }
 
 async function writeWorkbookTablePreview(
@@ -18292,44 +18425,36 @@ async function writeWorkbookTablePreview(
   buffer: Buffer,
   tableSheets: FilePreviewTableSheetPayload[],
 ): Promise<void> {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(
-    buffer as unknown as Parameters<ExcelJS.Workbook["xlsx"]["load"]>[0],
-  );
+  const workbook = await XlsxPopulate.fromDataAsync(buffer);
 
   for (const sheet of tableSheets) {
-    const worksheet = workbook.worksheets[sheet.index];
+    const worksheet = workbook.sheet(sheet.index);
     if (!worksheet) {
       continue;
     }
     applyPreviewSheetEditsToWorksheet(worksheet, sheet);
   }
 
-  const outputBuffer = await workbook.xlsx.writeBuffer();
-  await fs.writeFile(absolutePath, Buffer.from(outputBuffer as ArrayBuffer));
+  const outputBuffer = await workbook.outputAsync();
+  await fs.writeFile(absolutePath, workbookOutputToBuffer(outputBuffer));
 }
 
 async function buildWorkbookPreviewSheets(
   buffer: Buffer,
 ): Promise<FilePreviewTableSheetPayload[]> {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(
-    buffer as unknown as Parameters<ExcelJS.Workbook["xlsx"]["load"]>[0],
-  );
+  const workbook = await XlsxPopulate.fromDataAsync(buffer);
+  const worksheets = workbook.sheets();
 
-  const worksheets = workbook.worksheets.slice(0, MAX_TABLE_PREVIEW_SHEETS);
-  return worksheets.map((worksheet, sheetIndex) =>
-    {
-      const preview = worksheetPreviewRows(worksheet);
-      return tablePreviewSheetFromRows(
-        worksheet.name,
-        sheetIndex,
-        preview.rows,
-        preview.links,
-        workbook.worksheets.length,
-      );
-    },
-  );
+  return worksheets.slice(0, MAX_TABLE_PREVIEW_SHEETS).map((worksheet, sheetIndex) => {
+    const preview = worksheetPreviewRows(worksheet);
+    return tablePreviewSheetFromRows(
+      worksheet.name(),
+      sheetIndex,
+      preview.rows,
+      preview.links,
+      worksheets.length,
+    );
+  });
 }
 
 async function buildWorkbookPreviewSheetsWithFallback(
@@ -18360,30 +18485,16 @@ async function buildWorkbookPreviewSheetsWithFallback(
 async function buildCsvPreviewSheets(
   buffer: Buffer,
 ): Promise<FilePreviewTableSheetPayload[]> {
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = await workbook.csv.read(
-    Readable.from([buffer.toString("utf8")]),
-    {
-      parserOptions: {
-        delimiter: ",",
-        quote: '"',
-        escape: '"',
-        trim: false,
-      },
-    },
+  const rows = parseCsvRows(buffer.toString("utf8").replace(/^\uFEFF/, ""));
+  const normalizedRows = rows.map((row) =>
+    trimTrailingEmptyTableCells(
+      row.map((cell) => toPreviewTableCellValue(cell)),
+    ),
   );
+  const links = normalizedRows.map((row) => row.map(() => null));
 
   return [
-    (() => {
-      const preview = worksheetPreviewRows(worksheet);
-      return tablePreviewSheetFromRows(
-        worksheet.name,
-        0,
-        preview.rows,
-        preview.links,
-        1,
-      );
-    })(),
+    tablePreviewSheetFromRows("Sheet 1", 0, normalizedRows, links, 1),
   ];
 }
 

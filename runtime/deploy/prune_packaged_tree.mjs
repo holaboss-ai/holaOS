@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { lstatSync, readdirSync, rmSync } from "node:fs";
+import { lstatSync, readdirSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -144,6 +144,23 @@ function pruneNodePackageBinaryMirrors(rootPath) {
   }
 }
 
+function pruneDanglingSymlinks(rootPath) {
+  for (const entry of readdirSync(rootPath, { withFileTypes: true })) {
+    const entryPath = path.join(rootPath, entry.name);
+    if (entry.isSymbolicLink()) {
+      try {
+        statSync(entryPath);
+      } catch {
+        rmSync(entryPath, { force: true });
+      }
+      continue;
+    }
+    if (entry.isDirectory()) {
+      pruneDanglingSymlinks(entryPath);
+    }
+  }
+}
+
 function hasAnyNodeExecutable(nodeBinDir) {
   try {
     for (const entry of readdirSync(nodeBinDir, { withFileTypes: true })) {
@@ -171,6 +188,7 @@ export function prunePackagedTree(targetRoot, targetPlatform = "") {
   if (targetPlatform) {
     pruneKoffiBinaries(resolvedRoot, targetPlatform);
   }
+  pruneDanglingSymlinks(resolvedRoot);
   const afterCount = countFiles(resolvedRoot);
   console.error(`pruned packaged tree at ${resolvedRoot} (${beforeCount} -> ${afterCount} files)`);
 }

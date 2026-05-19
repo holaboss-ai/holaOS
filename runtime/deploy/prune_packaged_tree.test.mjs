@@ -108,3 +108,38 @@ test("prunePackagedTree keeps node-bin package mirrors until the staged node exe
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("prunePackagedTree removes dangling symlinks left behind by file pruning", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hb-prune-dangling-links-"));
+  const realDistDir = path.join(root, "runtime", "state-store", "dist");
+  const linkedDistDir = path.join(
+    root,
+    "runtime",
+    "api-server",
+    "node_modules",
+    "@holaboss",
+    "runtime-state-store",
+    "dist",
+  );
+  const liveTargetPath = path.join(realDistDir, "index.mjs");
+  const prunedTargetPath = path.join(realDistDir, "index.d.ts");
+  const liveLinkPath = path.join(linkedDistDir, "index.mjs");
+  const prunedLinkPath = path.join(linkedDistDir, "index.d.ts");
+
+  try {
+    fs.mkdirSync(realDistDir, { recursive: true });
+    fs.mkdirSync(linkedDistDir, { recursive: true });
+    fs.writeFileSync(liveTargetPath, "export {};\n", "utf8");
+    fs.writeFileSync(prunedTargetPath, "export {};\n", "utf8");
+    fs.symlinkSync(liveTargetPath, liveLinkPath);
+    fs.symlinkSync(prunedTargetPath, prunedLinkPath);
+
+    prunePackagedTree(root, "macos");
+
+    assert.equal(fs.existsSync(liveLinkPath), true);
+    assert.equal(fs.existsSync(prunedTargetPath), false);
+    assert.equal(fs.existsSync(prunedLinkPath), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

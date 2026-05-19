@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ExcelJS Replacement Implementation Notes</title>
+  </head>
+  <body>
+    <h1>ExcelJS Replacement Implementation Notes</h1>
+    <h2>Design decisions</h2>
+    <ul>
+      <li>Replaced <code>exceljs</code> with <code>xlsx-populate</code> for <code>.xlsx</code> load/edit/save paths because it avoids the legacy <code>exceljs -&gt; unzipper -&gt; fstream</code> packaging chain and is designed to preserve existing workbook structure when re-saving.</li>
+      <li>Kept CSV handling out of the spreadsheet library replacement and moved it to local parser/serializer helpers so desktop spreadsheet previews no longer depend on workbook-level CSV support.</li>
+      <li>Used <code>createRequire(__filename)</code> in the Electron main process so the packaged CommonJS main bundle can load <code>xlsx-populate</code> without relying on ESM-only <code>import.meta.url</code> behavior.</li>
+    </ul>
+    <h2>Deviations</h2>
+    <ul>
+      <li>The replacement preserves the existing <code>.xls</code> behavior instead of expanding support. Legacy <code>.xls</code> files remain preview-only in the inline editor.</li>
+      <li>Cell display text for some advanced Excel formats now comes from normalized raw workbook values instead of <code>exceljs</code>'s formatted <code>cell.text</code> output.</li>
+    </ul>
+    <h2>Tradeoffs</h2>
+    <ul>
+      <li><code>xlsx-populate</code> is a better fit for in-place workbook edits and packaging compatibility, but it exposes less built-in display formatting than <code>exceljs</code>.</li>
+      <li>Local CSV parsing is narrower than a full CSV package, but it removes another transitive dependency path and matches the current inline editor scope.</li>
+      <li>The runtime bundle prune step now removes dangling workspace symlinks after stripping <code>.d.ts</code> and sourcemap files, which keeps Electron packaging stable but makes the pruning logic slightly more opinionated about broken links in staged output.</li>
+    </ul>
+    <h2>Open questions</h2>
+    <ul>
+      <li>If richer Excel display formatting becomes important in previews, we may want a dedicated formatting layer on top of the workbook reader instead of depending on workbook-library display strings.</li>
+    </ul>
+  </body>
+</html>
