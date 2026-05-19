@@ -69,46 +69,113 @@ The legacy `composioToolkit` field on `ProviderRegistry` is **deprecated**. Do n
 
 ## Dashboard / workspace-pane UI (vibe-coded apps)
 
-The SDK's default `startMcpServer({ httpPort, ... })` ships a one-screen "headless module" placeholder on the http port. That placeholder is **only acceptable for integration-only modules** (Slack-style MCP-driven flows). The moment the user asks for a dashboard / list view / kanban / calendar / "let me see my X", **you must replace the placeholder with a real shadcn UI under `src/client/`**. The placeholder is what makes vibe-coded apps look ugly — the user has flagged it explicitly.
+The SDK's default `startMcpServer({ httpPort, ... })` ships a one-screen "headless module" placeholder on the http port. That placeholder is **only acceptable for integration-only modules** (Slack-style MCP-driven flows). The moment the user asks for a dashboard / list view / kanban / calendar / "let me see my X", you must replace the placeholder with a real dashboard built on `@holaboss/ui`.
 
-The product constraints are distilled below from the original vibe-coding design review. Treat this section as the source of truth for the UI constraints in packaged runtimes.
+### The rule: import `@holaboss/ui`, do not redefine primitives
 
-### L1 — shadcn registry is the ONLY component source
+`@holaboss/ui` is a bundled library shipped beside this SKILL.md as `ui-package/`. It provides every primitive, layout, and CSS token your dashboard needs. **Do not generate shadcn primitives, copy a `components/ui/` directory, write your own Card, or import any other component library**. If `@holaboss/ui` is missing something, surface it to the SDK team instead of inventing a local replacement — visual drift is the failure mode the library exists to prevent.
 
-Bring shadcn primitives in via the holaOS-locked registry version (set in the app's `components.json`). No other component library (Material UI, Ant, Chakra, etc.). No raw `<div>` styled with custom classes either — use `Card`, `Button`, `Input`, `Select`, `Table`, `Dialog`, `Sheet`, `Tabs`, `Popover`, `Accordion`, `Dropdown`, `Badge`, `Avatar`, etc.
+Install it like the app-builder-sdk itself:
 
-### L2 — theme tokens are immutable
+```json
+// dashboard app's package.json
+"dependencies": {
+  "@holaboss/app-builder-sdk": "file:/absolute/path/to/<app-builder-sdk-skill-dir>/sdk-package",
+  "@holaboss/ui": "file:/absolute/path/to/<app-builder-sdk-skill-dir>/ui-package"
+}
+```
 
-Colors, font sizes, spacing, radii **all** come from CSS variables wired up by the holaOS theme (`--background`, `--foreground`, `--primary`, `--muted`, `--accent`, `--border`, `--radius`, etc.). No inline `style={{ color: "#f12711" }}`. No custom CSS files. No new Tailwind colors. If a value is missing from the token palette, it's a SDK gap to escalate — do not patch it locally.
+Then `bun install` once. Both packages live beside this skill; the path is per-machine, so read `$HOME` or the surfaced skill directory at write-time and write the absolute string.
 
-### L3 — prefer opinionated layouts when they exist
+### Tokens are immutable
 
-The platform is rolling out a small library of "long like a family" layout components: `AppShell`, `ResourceList`, `ResourceDetail`, `ResourceKanban`, `ResourceCalendar`. If they're available (check `@holaboss/app-builder-sdk` exports at write-time), reach for them first — they consume an `app.resource()` declaration and render the right UI with zero boilerplate. If they're NOT yet exported, **do not invent your own AppShell with `<div>` + Tailwind**. Compose shadcn primitives directly in a single route file: `Card` + `Tabs` + `Table` is the safe minimum, and it upgrades cleanly when the layouts land.
+Mount the holaOS tokens at the dashboard root:
 
-### L4 — free compose within L1+L2
+```tsx
+// src/client/routes/__root.tsx
+import "@holaboss/ui/tokens.css";
+import "@holaboss/ui/themes/holaos.css";
+```
 
-Within those two ironclad layers, you have full freedom: drop in `Dialog` for confirmations, `Popover` for filters, `Tabs` for view switching. Different apps should be visually distinguishable (a content planner ≠ a CRM) but everyone in the workspace should "look like one family".
+Colors, font sizes, spacing, radii all come from CSS variables wired up by these two stylesheets (`--background`, `--foreground`, `--primary`, `--muted`, `--accent`, `--border`, `--radius`, etc.). No inline `style={{ color: "#f12711" }}`. No custom CSS files. No new Tailwind colors. If a value is missing from the token palette, escalate to the SDK team — do not patch it locally.
 
-### Practical scaffolding (today, no AppShell yet)
+### Catalog of what `@holaboss/ui` ships
 
-For a dashboard app, `src/client/` is a TanStack Start surface that serves the workspace iframe:
+**Primitives** (drop-in shadcn-style components):
+- `Button`, `Card` (+ `CardHeader/Title/Description/Content/Footer/Action`), `Input`, `Label`
+- `Select` family, `Switch`, `Tabs` family, `DropdownMenu` family, `Popover` family
+- `Alert` (+ `AlertTitle/Description/Action`), `Badge`, `Tooltip` family
+- `EmptyState`, `StatusDot`, `Kbd`
+
+**Layouts** (composition primitives — reach for these instead of hand-rolling):
+- `DashboardShell` — sticky-header chrome + scrollable content
+- `PageHeader` — title + description + action row
+- `Section` — title + description over a content block
+- `FilterBar` — search input + filter chip slot + actions
+- `DataTable` — typed columns, click-row handler, built-in loading + empty states
+- `StatPill` — small metric (label + value + optional trend / icon / tone)
+- `LoadingState` — skeleton variants (`rows` / `list` / `card`)
+- `ErrorState` — error display with optional retry
+
+**Utility**: `cn(...)` for class merging.
+
+### Scaffolding a dashboard app
 
 ```
 src/client/
-├── components.json          # locked shadcn registry pinned in app.runtime.yaml
 ├── routes/
-│   ├── __root.tsx          # imports the global theme.css (CSS variables)
-│   └── index.tsx           # ResourceList-style table by default
-├── components/
-│   └── ui/                  # shadcn primitives — generated via shadcn CLI, NOT hand-written
-└── lib/utils.ts             # cn() helper (shadcn convention)
+│   ├── __root.tsx          # imports @holaboss/ui/tokens.css + @holaboss/ui/themes/holaos.css
+│   └── index.tsx           # dashboard root — uses DashboardShell + DataTable
+└── lib/                    # app-specific code only; no components/ui/
+```
+
+A minimal dashboard route:
+
+```tsx
+import {
+  DashboardShell,
+  PageHeader,
+  FilterBar,
+  DataTable,
+  Button,
+} from "@holaboss/ui";
+
+export default function Dashboard() {
+  return (
+    <DashboardShell
+      header={
+        <>
+          <PageHeader
+            title="Issues"
+            description="GitHub issues synced into the workspace"
+            actions={<Button size="sm">Refresh</Button>}
+          />
+          <FilterBar
+            search={search}
+            onSearchChange={setSearch}
+            actions={<Button size="sm" variant="outline">New issue</Button>}
+          />
+        </>
+      }
+    >
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        isLoading={isLoading}
+        emptyTitle="No issues yet"
+        onRowClick={(r) => navigate(`/issues/${r.id}`)}
+      />
+    </DashboardShell>
+  );
+}
 ```
 
 Wire it up by:
 
 1. Start TanStack Start (or simple Bun.serve serving a Vite-built dashboard) on `env.PORT` from the same `server.ts` that boots the MCP server on `env.MCP_PORT`. The desktop's iframe loads whatever the http port serves.
 2. The dashboard reads the app's own SQLite (the table `app.resource()` declared) via TanStack Start server functions — same DB the MCP tools mutate. **Never duplicate state.**
-3. Mount the global theme stylesheet at the top of `__root.tsx`. Without it the shadcn tokens fall back to defaults and the app looks alien.
+3. Mount `@holaboss/ui/tokens.css` and `@holaboss/ui/themes/holaos.css` at the top of `__root.tsx`. Without them the tokens fall back to defaults and the app looks alien.
 
 ### Schema migration (from PM doc)
 
@@ -126,26 +193,29 @@ Each schema change is a version; the user must be able to roll back.
 
 ### UI anti-patterns (failure modes the user flagged)
 
-- **Raw HTML with hand-written Tailwind classes for whole layouts.** The default placeholder is exactly this and it looked terrible. Always start from `Card` + `Table` + `Tabs`.
-- **Inline `style={{ ... }}`** anywhere except `style={{ width: ... }}` for measured layout (resize observers etc.). Colors / spacing / radii never inline.
+- **Generating a `components/ui/` directory or running `shadcn add`** — that path is gone. Import primitives from `@holaboss/ui` instead.
+- **Raw HTML with hand-written Tailwind classes for whole layouts.** Reach for `DashboardShell` + `PageHeader` + `DataTable` + `EmptyState` first.
+- **Inline `style={{ ... }}`** anywhere except `style={{ width: ... }}` for measured layout (resize observers, etc.). Colors / spacing / radii never inline.
 - **Hardcoded hex colors / px values for spacing or radii.** Use the theme tokens; if missing, surface to the SDK team.
-- **A new component library** (radix-ui standalone, headless-ui, react-aria) — shadcn already wraps Radix; that's the only path.
-- **A single-page dashboard with 3+ deeply nested `div`s of custom flexbox.** Use shadcn's `Card`, `Separator`, `Tabs` — they encode the platform's spacing rhythm.
+- **A new component library** (Material UI, Ant, Chakra, react-aria, etc.) — `@holaboss/ui` wraps the workspace-canonical primitives; that's the only path.
+- **Hand-rolling a loading skeleton, empty state, or error state.** Use `LoadingState`, `EmptyState`, `ErrorState`.
+- **A single-page dashboard with 3+ deeply nested `div`s of custom flexbox.** Use `Section` + `Card` + `Tabs` — they encode the platform's spacing rhythm.
 - **Per-app dark mode toggle / theme picker.** Theme is workspace-level; the app inherits via CSS variables and does nothing.
 
 ### Reviewer pass
 
-After writing the dashboard, eyeball it against an existing healthy holaOS pane (e.g. the marketplace pane, the integrations pane). It should feel like the same product. If it doesn't, you've broken L1 or L2 — re-check.
+After writing the dashboard, eyeball it against an existing healthy holaOS pane (e.g. the marketplace pane, the integrations pane). It should feel like the same product. If it doesn't, you've imported something from outside `@holaboss/ui` or redefined a primitive — re-check.
 
 ## Pick a reference shape
 
 Copy the closest bundled reference dir as your template; don't write from scratch. All backend references are at `reference/<shape>/`.
 
-The existing references are **integration-only** (no `src/client/`). Use them for the backend skeleton (`app.ts`, `provider.ts`, `server.ts`, `app.runtime.yaml`) — they're correct. For dashboard apps, layer `src/client/` on top per the "Dashboard / workspace-pane UI" section above; no dashboard-shape reference exists yet, so model the visual after the desktop's healthy panes (marketplace / integrations) and the L1-L4 constraints.
+Backend references (`slack-messaging`, `pinterest-publishing`, `github-workflow`, `gcalendar-events`, `telegram-messaging`) are integration-only (no `src/client/`). Use them for the backend skeleton (`app.ts`, `provider.ts`, `server.ts`, `app.runtime.yaml`) — they're correct. For dashboard-shape apps, `reference/dashboard/` is the canonical starting point: it ships the full `src/client/` shape on top of `@holaboss/ui` plus a minimal backend.
 
 | Shape | Reference | Use when the request looks like |
 |---|---|---|
-| **messaging** | `slack-messaging/` | Send / edit / delete / react on a message; chat-like provider (Discord, Telegram, IRC, SMS). Has custom state alphabet + side-effect actions + reversible scheduled send. **Also the only reference with full `server.ts` + `app.runtime.yaml`** — copy those two files verbatim into any new module regardless of shape. |
+| **dashboard** | `dashboard/` | Anything with a list / table / kanban / calendar / "let me see my X" — agent-built workspace pane. Ships the canonical `src/client/` shape on top of `@holaboss/ui`. Combine with one of the backend shapes below for the actual data plane. |
+| **messaging** | `slack-messaging/` | Send / edit / delete / react on a message; chat-like provider (Discord, Telegram, IRC, SMS). Has custom state alphabet + side-effect actions + reversible scheduled send. **Also the only backend reference with full `server.ts` + `app.runtime.yaml`** — copy those two files verbatim into any new module regardless of shape. |
 | **publishing** | `pinterest-publishing/` | Multi-step upload-then-publish + reversible cancel; idempotency via `row.external_id` short-circuit. Use for any "create draft → confirm → publish → can be deleted" flow (image / video / blog posts). |
 | **workflow** | `github-workflow/` | Multi-state lifecycle (`draft / open / in_progress / closed / reopened / failed`), reversible close↔reopen, side-effect actions (`comment`, `assign`) that don't change row.status. CRM leads / issue trackers / ticketing systems. |
 | **event-with-time** | `gcalendar-events/` | Resources carry their own `start_time/end_time` (intrinsic, not "schedule this action later"); RSVP as side-effect; recurring (RRULE). Use for calendar / booking / appointment modules. |
@@ -367,6 +437,8 @@ Run all of these. Stop at the first failure and report the symptom verbatim, don
 
 ### For dashboard apps (additionally)
 
-7. `ui-reference/components.json` — the holaOS-locked shadcn registry version. Match it in the app's own `components.json` so primitives stay aligned.
-8. `ui-reference/tokens.css` and `ui-reference/themes/holaos.css` — the shared CSS variable tokens (`--background` / `--primary` / `--radius` / etc.). Use these; do not invent new ones.
-9. Compare against the current live desktop panes if available, but do not leave the workspace or guess repo-root source paths just to locate pane source files.
+7. `ui-package/package.json` — confirms the dependency entry point. Install via `bun add file:<skill-dir>/ui-package` (absolute path).
+8. `ui-package/src/index.ts` — full export surface: every primitive + layout you can import from `@holaboss/ui`.
+9. `ui-package/src/tokens/tokens.css` and `ui-package/src/tokens/themes/holaos.css` — the shared CSS variable tokens. These are bundled into the package and must be imported at the dashboard root via `@holaboss/ui/tokens.css` and `@holaboss/ui/themes/holaos.css`.
+10. `reference/dashboard/` — minimal end-to-end dashboard reference; copy as the starting point for any dashboard-shape app and adapt the columns / actions.
+11. Compare against the current live desktop panes if available, but do not leave the workspace or guess repo-root source paths just to locate pane source files.
