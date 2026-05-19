@@ -569,7 +569,9 @@ function RecentFileRow({ entry }: { entry: RecentFile }) {
   const removeRecentFile = useSetAtom(removeRecentFileAtom);
 
   const handleOpen = () => {
-    const existing = internalTabs.find((t) => t.filePath === entry.filePath);
+    const existing = internalTabs.find(
+      (t) => t.kind === "file" && t.filePath === entry.filePath,
+    );
     if (existing) {
       setActiveInternalTabId(existing.id);
       return;

@@ -1,12 +1,17 @@
 #!/usr/bin/env node
-// Regenerate runtime/harnesses/src/embedded-skills/app-builder-sdk/{sdk-package,reference,ui-package}/
-// from the workspace sources at sdk/app-builder-sdk/ and sdk/ui/.
+// Regenerate runtime/harnesses/src/embedded-skills/app-builder-sdk/{sdk-package,reference}/
+// from the workspace source at sdk/app-builder-sdk/.
 //
 // The embedded snapshot ships inside packaged runtimes so SKILL.md's path
 // citations stay valid without a repo checkout. Run this whenever you change
-// sdk/app-builder-sdk/{src,reference,README*,package.json,tsconfig.json} or
-// any sdk/ui source. CI can wire `git diff --exit-code` after this script to
-// enforce snapshot freshness.
+// sdk/app-builder-sdk/{src,reference,README*,package.json,tsconfig.json}. CI
+// can wire `git diff --exit-code` after this script to enforce snapshot
+// freshness.
+//
+// `@holaboss/ui` is NOT snapshotted here — it ships to npm and agents install
+// it the normal way (`bun add @holaboss/ui`). Only the app-builder SDK gets
+// the file:-snapshot treatment because it's lockstep-versioned with the
+// runtime.
 
 import {
   cpSync,
@@ -40,11 +45,6 @@ const sdkSnapshot = path.join(skillRoot, "sdk-package");
 // Top-level rather than nested under sdk-package so SKILL.md citations are
 // short and the prune step doesn't filter them (they live outside test/).
 const referenceSnapshot = path.join(skillRoot, "reference");
-
-// ui-package: installable @holaboss/ui snapshot agents `bun add file:`
-// against for dashboards. Mirrors sdk/ui/.
-const uiSource = path.join(repoRoot, "sdk", "ui");
-const uiSnapshot = path.join(skillRoot, "ui-package");
 
 function log(message) {
   process.stdout.write(`[sync-embedded-skills] ${message}\n`);
@@ -90,22 +90,4 @@ function syncSdkPackage() {
   log(`synced sdk/app-builder-sdk -> ${sdkSnapshot}`);
 }
 
-function syncUiPackage() {
-  if (!existsSync(uiSource)) {
-    process.stderr.write(`[sync-embedded-skills] ui source not found: ${uiSource}\n`);
-    process.exit(1);
-  }
-  // ui-package/ snapshot: src/ + package.json + tsup.config.ts + tsconfig.json.
-  // No test/ or dist/ ship in the embedded snapshot — the installable form
-  // builds in the consuming app via the file: dep + bun install.
-  rmSync(uiSnapshot, { recursive: true, force: true });
-  mkdirSync(uiSnapshot, { recursive: true });
-  copyTree(path.join(uiSource, "src"), path.join(uiSnapshot, "src"));
-  copyFile(path.join(uiSource, "package.json"), path.join(uiSnapshot, "package.json"));
-  copyFile(path.join(uiSource, "tsconfig.json"), path.join(uiSnapshot, "tsconfig.json"));
-  copyFile(path.join(uiSource, "tsup.config.ts"), path.join(uiSnapshot, "tsup.config.ts"));
-  log(`synced sdk/ui -> ${uiSnapshot}`);
-}
-
 syncSdkPackage();
-syncUiPackage();

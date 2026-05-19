@@ -73,19 +73,23 @@ The SDK's default `startMcpServer({ httpPort, ... })` ships a one-screen "headle
 
 ### The rule: import `@holaboss/ui`, do not redefine primitives
 
-`@holaboss/ui` is a bundled library shipped beside this SKILL.md as `ui-package/`. It provides every primitive, layout, and CSS token your dashboard needs. **Do not generate shadcn primitives, copy a `components/ui/` directory, write your own Card, or import any other component library**. If `@holaboss/ui` is missing something, surface it to the SDK team instead of inventing a local replacement — visual drift is the failure mode the library exists to prevent.
+`@holaboss/ui` is a public npm package. It provides every primitive, layout, and CSS token your dashboard needs. **Do not generate shadcn primitives, copy a `components/ui/` directory, write your own Card, or import any other component library**. If `@holaboss/ui` is missing something, surface it to the SDK team instead of inventing a local replacement — visual drift is the failure mode the library exists to prevent.
 
-Install it like the app-builder-sdk itself:
+Install:
 
-```json
-// dashboard app's package.json
-"dependencies": {
-  "@holaboss/app-builder-sdk": "file:/absolute/path/to/<app-builder-sdk-skill-dir>/sdk-package",
-  "@holaboss/ui": "file:/absolute/path/to/<app-builder-sdk-skill-dir>/ui-package"
-}
+```bash
+cd <app-dir>
+bun add @holaboss/ui
 ```
 
-Then `bun install` once. Both packages live beside this skill; the path is per-machine, so read `$HOME` or the surfaced skill directory at write-time and write the absolute string.
+The app-builder-sdk itself still installs via `file:` because it's lockstep-versioned with the runtime; `@holaboss/ui` is independent and rolls forward like any normal npm dep. The resulting `package.json` looks like:
+
+```json
+"dependencies": {
+  "@holaboss/app-builder-sdk": "file:/absolute/path/to/<app-builder-sdk-skill-dir>/sdk-package",
+  "@holaboss/ui": "^0.1.0"
+}
+```
 
 ### Tokens are immutable
 
@@ -437,8 +441,6 @@ Run all of these. Stop at the first failure and report the symptom verbatim, don
 
 ### For dashboard apps (additionally)
 
-7. `ui-package/package.json` — confirms the dependency entry point. Install via `bun add file:<skill-dir>/ui-package` (absolute path).
-8. `ui-package/src/index.ts` — full export surface: every primitive + layout you can import from `@holaboss/ui`.
-9. `ui-package/src/tokens/tokens.css` and `ui-package/src/tokens/themes/holaos.css` — the shared CSS variable tokens. These are bundled into the package and must be imported at the dashboard root via `@holaboss/ui/tokens.css` and `@holaboss/ui/themes/holaos.css`.
-10. `reference/dashboard/` — minimal end-to-end dashboard reference; copy as the starting point for any dashboard-shape app and adapt the columns / actions.
-11. Compare against the current live desktop panes if available, but do not leave the workspace or guess repo-root source paths just to locate pane source files.
+7. `@holaboss/ui` on npmjs.com — public package with the full primitive + layout catalog. Install via `bun add @holaboss/ui`. Import via `import { DashboardShell, DataTable, ... } from "@holaboss/ui"` and the tokens via `import "@holaboss/ui/tokens.css"` + `import "@holaboss/ui/themes/holaos.css"` at the dashboard root.
+8. `reference/dashboard/` — minimal end-to-end dashboard reference; copy as the starting point for any dashboard-shape app and adapt the columns / actions.
+9. Compare against the current live desktop panes if available, but do not leave the workspace or guess repo-root source paths just to locate pane source files.

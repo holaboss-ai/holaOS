@@ -322,8 +322,10 @@ test("embedded app-builder-sdk skill only references bundled local assets", () =
   // duplicates and no nested sdk-package/reference/ duplicates.
   assert.doesNotMatch(skillBody, /`sdk\/[^`]+`/);
   assert.doesNotMatch(skillBody, /`sdk-package\/reference\//);
-  // The ui-reference/ stub was replaced by an installable ui-package/.
+  // @holaboss/ui ships to npm — there is no embedded ui-package/ snapshot,
+  // and the ui-reference/ stub from earlier iterations is gone too.
   assert.doesNotMatch(skillBody, /`ui-reference\//);
+  assert.doesNotMatch(skillBody, /`ui-package\//);
 
   for (const relativePath of [
     "sdk-package/README.txt",
@@ -334,10 +336,7 @@ test("embedded app-builder-sdk skill only references bundled local assets", () =
     "reference/pinterest-publishing/app.ts",
     "reference/slack-messaging/server.ts",
     "reference/slack-messaging/app.runtime.yaml",
-    "ui-package/package.json",
-    "ui-package/src/index.ts",
-    "ui-package/src/tokens/tokens.css",
-    "ui-package/src/tokens/themes/holaos.css",
+    "reference/dashboard/src/client/routes/index.tsx",
   ]) {
     assert.equal(
       fs.existsSync(path.join(skillDir, relativePath)),

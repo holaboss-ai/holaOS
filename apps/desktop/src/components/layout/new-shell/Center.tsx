@@ -24,7 +24,14 @@ export function Center() {
   return (
     <main className="flex min-w-[480px] flex-1 flex-col overflow-hidden">
       {activeInternal ? (
-        <FilePreviewPane filePath={activeInternal.filePath} />
+        activeInternal.kind === "image" ? (
+          <EphemeralImagePane
+            dataUrl={activeInternal.dataUrl}
+            name={activeInternal.label}
+          />
+        ) : (
+          <FilePreviewPane filePath={activeInternal.filePath} />
+        )
       ) : hasActiveTab ? (
         <BrowserPane
           variant="embedded"
@@ -34,6 +41,24 @@ export function Center() {
         <NewTabLanding />
       )}
     </main>
+  );
+}
+
+function EphemeralImagePane({
+  dataUrl,
+  name,
+}: {
+  dataUrl: string;
+  name: string;
+}) {
+  return (
+    <div className="flex h-full items-center justify-center overflow-auto bg-muted p-6">
+      <img
+        src={dataUrl}
+        alt={name}
+        className="max-h-full max-w-full rounded-lg object-contain shadow-sm"
+      />
+    </div>
   );
 }
 

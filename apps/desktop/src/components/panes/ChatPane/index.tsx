@@ -2697,6 +2697,10 @@ interface ChatPaneProps {
   onOpenOutput?: (output: WorkspaceOutputRecordPayload) => void;
   onSyncFileDisplayFromAgentOperation?: (path: string) => void;
   onImageAttachmentPreviewOpenChange?: (open: boolean) => void;
+  /** When provided, image-attachment clicks delegate to the shell instead
+   *  of opening the in-pane modal. Used by the new shell to route into a
+   *  center-pane tab so the native BrowserView naturally suspends. */
+  onPreviewImageAttachment?: (attachment: AttachmentListItem) => void;
   focusRequestKey?: number;
   variant?: ChatPaneVariant;
   onOpenLinkInBrowser?: (url: string) => void;
@@ -2741,6 +2745,7 @@ export function ChatPane({
   onOpenOutput,
   onSyncFileDisplayFromAgentOperation,
   onImageAttachmentPreviewOpenChange,
+  onPreviewImageAttachment,
   focusRequestKey = 0,
   variant = "default",
   onOpenLinkInBrowser,
@@ -6718,6 +6723,11 @@ export function ChatPane({
 
     const attachmentPath = attachment.workspace_path?.trim() || "";
     if (!attachment.file && !attachmentPath) {
+      return;
+    }
+
+    if (onPreviewImageAttachment) {
+      onPreviewImageAttachment(attachment);
       return;
     }
 
