@@ -317,7 +317,7 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /Be concise and on-point\. Do not ramble, over-explain, or pad replies just to sound helpful\./);
   assert.match(prompt.systemPrompt, /Keep replies tight\. Do not blabber, wander, or repeat yourself\./);
   assert.match(prompt.systemPrompt, /The main session is the default full-capability agent for this workspace, not a capability-thin coordinator\./);
-  assert.match(prompt.systemPrompt, /Use direct file, shell, browser, MCP\/app, and runtime tools when they are surfaced and they cleanly satisfy the request\./);
+  assert.match(prompt.systemPrompt, /use direct file, shell, browser, MCP\/app, and runtime tools when they are surfaced and they are the clearest path\./);
   assert.match(prompt.systemPrompt, /Use this session to understand the request, execute directly when appropriate, choose when to delegate, brief delegated work clearly, and translate results back to the user\./);
   assert.match(prompt.systemPrompt, /Use surfaced capabilities to inspect before mutating when possible, and verify results before claiming success\./);
   assert.match(prompt.systemPrompt, /Treat explicit user requirements, verification targets, and deliverable shape as completion criteria for direct and delegated work, not optional detail\./);
