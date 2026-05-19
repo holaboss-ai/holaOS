@@ -1062,6 +1062,11 @@ function projectRuntimeToolIdsForSession(params: {
   if (normalized === "main_session") {
     return [...params.runtimeToolIds];
   }
+  if (normalized === "subagent") {
+    return params.runtimeToolIds.filter(
+      (toolId) => !SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS.has(toolId),
+    );
+  }
   return params.runtimeToolIds.filter(
     (toolId) =>
       !SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS.has(toolId) &&
@@ -1082,6 +1087,16 @@ function projectExtraToolIdsForSession(params: {
   if (normalized === "main_session") {
     return Array.from(
       new Set([...defaultExtraTools(params.harnessId), ...params.extraToolIds]),
+    );
+  }
+  if (normalized === "subagent") {
+    return Array.from(
+      new Set([
+        ...defaultExtraTools(params.harnessId),
+        ...params.extraToolIds.filter(
+          (toolId) => !SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS.has(toolId),
+        ),
+      ]),
     );
   }
   return Array.from(

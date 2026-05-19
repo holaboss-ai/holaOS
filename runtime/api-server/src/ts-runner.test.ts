@@ -1552,7 +1552,7 @@ test("runTsRunnerCli exposes workspace-instructions updates only to main workspa
   assert.deepEqual(
     (capturedProjectRequest as { delegated_runtime_tool_ids?: string[] })
       .delegated_runtime_tool_ids,
-    [],
+    ["holaboss_update_workspace_instructions"],
   );
 });
 
@@ -1624,6 +1624,80 @@ test("runTsRunnerCli keeps workspace-instructions updates out of onboarding sess
   assert.deepEqual(
     (capturedProjectRequest as { extra_tools: string[] }).extra_tools,
     [],
+  );
+});
+
+test("runTsRunnerCli exposes workspace-instructions updates to subagent sessions", async () => {
+  setTempSandboxRoot("hb-ts-runner-workspace-instructions-subagent-");
+  let capturedProjectRequest: AgentRuntimeConfigCliRequest | null = null;
+
+  const exitCode = await runTsRunnerCli(
+    [
+      "--request-base64",
+      encodeRequest({
+        ...baseRequest(),
+        session_kind: "subagent",
+      }),
+    ],
+    {
+      deps: {
+        ...testDeps({
+          pluginOverrides: {
+            stageRuntimeTools: () => ({
+              changed: false,
+              toolIds: [
+                "holaboss_update_workspace_instructions",
+                "holaboss_delegate_task",
+              ],
+            }),
+          },
+        }),
+        projectAgentRuntimeConfig: (request) => {
+          capturedProjectRequest = request;
+          return {
+            provider_id: "openai",
+            model_id: "gpt-5.4",
+            mode: "code",
+            system_prompt: "You are concise.",
+            model_client: {
+              model_proxy_provider: "openai_compatible",
+              api_key: "token",
+              base_url: "http://127.0.0.1:4000/openai/v1",
+              default_headers: { "X-Test": "1" },
+            },
+            tools: { read: true },
+            workspace_tool_ids: [],
+            workspace_skill_ids: [],
+            output_schema_member_id: null,
+            output_format: null,
+            workspace_config_checksum: "checksum-1",
+          };
+        },
+      },
+      io: {
+        stdout: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+        stderr: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+      },
+    },
+  );
+
+  assert.equal(exitCode, 0);
+  assert.ok(capturedProjectRequest);
+  assert.deepEqual(
+    (capturedProjectRequest as { runtime_tool_ids: string[] }).runtime_tool_ids,
+    ["holaboss_update_workspace_instructions"],
+  );
+  assert.deepEqual(
+    (capturedProjectRequest as { extra_tools: string[] }).extra_tools,
+    ["web_search", "holaboss_update_workspace_instructions"],
   );
 });
 

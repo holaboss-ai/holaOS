@@ -711,6 +711,41 @@ test("composeBaseAgentPrompt instructs direct sessions to record durable workspa
   );
 });
 
+test("composeAgentPrompt instructs subagents to record durable workspace knowledge into AGENTS.md when the tool is available", () => {
+  const capabilityManifest = buildAgentCapabilityManifest({
+    defaultTools: ["read"],
+    extraTools: ["holaboss_update_workspace_instructions"],
+    runtimeToolIds: ["holaboss_update_workspace_instructions"],
+    workspaceSkillIds: [],
+    resolvedMcpToolRefs: [],
+    toolServerIdMap: {},
+  });
+
+  const prompt = composeAgentPrompt("You are concise.", {
+    defaultTools: ["read"],
+    extraTools: ["holaboss_update_workspace_instructions"],
+    workspaceSkillIds: [],
+    resolvedMcpToolRefs: [],
+    sessionKind: "subagent",
+    sessionMode: "code",
+    harnessId: "pi",
+    capabilityManifest,
+  });
+
+  assert.match(
+    prompt.systemPrompt,
+    /Record durable workspace knowledge in root `AGENTS\.md` with `holaboss_update_workspace_instructions` when it is clearly stable, likely to recur, or explicitly confirmed by the user/i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /durable requirements or preferences, verified commands or procedures, stable facts, conventions, decisions, and recurring blockers/i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state\. When in doubt, leave it out until the pattern repeats or the user confirms it should persist\./i,
+  );
+});
+
 test("composeAgentPrompt keeps main sessions free of todo doctrine even if todo tools are present", () => {
   const capabilityManifest = buildAgentCapabilityManifest({
     defaultTools: ["read", "todoread", "todowrite", "holaboss_scratchpad_read", "holaboss_scratchpad_write"],
