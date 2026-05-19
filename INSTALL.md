@@ -27,7 +27,7 @@ By default, that script:
 - installs `git` if it is missing
 - installs Node.js `24` plus `npm` if they are missing
 - clones the repo into `~/holaboss-ai`
-- creates `desktop/.env` from `desktop/.env.example` if needed
+- creates `apps/desktop/.env` from `apps/desktop/.env.example` if needed
 - runs `npm run desktop:install`
 - runs `npm run desktop:prepare-runtime:local`
 - runs `npm run desktop:typecheck`
@@ -107,17 +107,17 @@ Use the root wrapper script so installation stays aligned with the repo:
 npm run desktop:install
 ```
 
-This installs the dependencies for the Electron desktop app under `desktop/`.
+This installs the dependencies for the Electron desktop app under `apps/desktop/`.
 
 ## Create The Desktop Environment File
 
-If `desktop/.env` does not exist yet, create it from the example file:
+If `apps/desktop/.env` does not exist yet, create it from the example file:
 
 ```bash
-cp desktop/.env.example desktop/.env
+cp apps/desktop/.env.example apps/desktop/.env
 ```
 
-The public OSS repository already includes default values in `desktop/.env.example`. Copy it as-is unless a human operator gives you replacement environment values.
+The public OSS repository already includes default values in `apps/desktop/.env.example`. Copy it as-is unless a human operator gives you replacement environment values.
 
 ## Prepare The Local Runtime
 
@@ -151,7 +151,7 @@ This launches:
 - the Electron main/preload watcher
 - the Electron app
 
-You do not need to run a manual `prepare` step for the normal dev path. `npm run desktop:dev` runs the desktop `predev` hook first, and that hook automatically checks for a staged runtime bundle under `desktop/out/runtime-<platform>`. If the bundle is missing or stale relative to the local runtime sources, it automatically runs `npm run desktop:prepare-runtime:local`.
+You do not need to run a manual `prepare` step for the normal dev path. `npm run desktop:dev` runs the desktop `predev` hook first, and that hook automatically checks for a staged runtime bundle under `apps/desktop/out/runtime-<platform>`. If the bundle is missing or stale relative to the local runtime sources, it automatically runs `npm run desktop:prepare-runtime:local`.
 
 ## Optional Runtime Validation
 
@@ -174,7 +174,7 @@ If you want to stage the runtime from local source explicitly ahead of time, run
 npm run desktop:prepare-runtime:local
 ```
 
-This builds the runtime bundle from your local source checkout and stages it into `desktop/out/runtime-<platform>`.
+This builds the runtime bundle from your local source checkout and stages it into `apps/desktop/out/runtime-<platform>`.
 
 If local runtime staging from source is not wanted and the environment should use the latest released runtime bundle for the current host platform instead, run:
 
@@ -182,7 +182,7 @@ If local runtime staging from source is not wanted and the environment should us
 npm run desktop:prepare-runtime
 ```
 
-That command stages the latest published runtime bundle for the current platform from GitHub Releases into `desktop/out/runtime-<platform>`.
+That command stages the latest published runtime bundle for the current platform from GitHub Releases into `apps/desktop/out/runtime-<platform>`.
 
 Important:
 
@@ -204,7 +204,7 @@ For the equivalent manual fresh setup, the expected command sequence is:
 git clone https://github.com/holaboss-ai/holaOS.git
 cd holaboss-ai
 npm run desktop:install
-cp desktop/.env.example desktop/.env
+cp apps/desktop/.env.example apps/desktop/.env
 npm run desktop:prepare-runtime:local
 npm run desktop:typecheck
 npm run desktop:dev

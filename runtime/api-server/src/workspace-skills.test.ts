@@ -318,20 +318,20 @@ test("embedded app-builder-sdk skill only references bundled local assets", () =
   assert.doesNotMatch(skillBody, /docs\/pm\/app-vibe-coding\.md/);
   assert.doesNotMatch(skillBody, /experiments\/app-builder-sdk\//);
   assert.doesNotMatch(skillBody, /holaOS\/desktop\//);
+  // Snapshot lives as a single canonical sdk-package/ tree; no flat sdk/
+  // duplicates and no nested sdk-package/reference/ duplicates.
+  assert.doesNotMatch(skillBody, /`sdk\/[^`]+`/);
+  assert.doesNotMatch(skillBody, /`sdk-package\/reference\//);
 
   for (const relativePath of [
-    "sdk/README.txt",
-    "sdk/app.ts",
-    "sdk/index.ts",
-    "sdk/types.ts",
-    "sdk/mcp-server.test.ts",
-    "reference/pinterest-publishing/app.ts",
-    "reference/slack-messaging/server.ts",
-    "reference/slack-messaging/app.runtime.yaml",
+    "sdk-package/README.txt",
     "sdk-package/package.json",
     "sdk-package/src/index.ts",
     "sdk-package/src/types.ts",
-    "sdk-package/reference/github-workflow/app.ts",
+    "sdk-package/src/app.ts",
+    "reference/pinterest-publishing/app.ts",
+    "reference/slack-messaging/server.ts",
+    "reference/slack-messaging/app.runtime.yaml",
     "ui-reference/components.json",
     "ui-reference/tokens.css",
     "ui-reference/themes/holaos.css",

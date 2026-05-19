@@ -18,10 +18,11 @@
 import { describe, test, expect } from "bun:test"
 import { spawn, spawnSync } from "node:child_process"
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, rmSync } from "node:fs"
-import { join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { tmpdir } from "node:os"
+import { fileURLToPath } from "node:url"
 
-const SDK_DIR = "/Users/joshua/holaboss-ai/holaboss/holaOS/experiments/app-builder-sdk"
+const SDK_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 
 describe("Workspace integration — slack v2 installed via file: dep", () => {
   test("bun install resolves SDK via file:, server boots, /mcp/health responds", async () => {

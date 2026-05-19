@@ -3,14 +3,14 @@
   "private": true,
   "packageManager": "bun@1.3.6",
   "workspaces": [
-    "desktop",
-    "experiments/app-builder-sdk",
-    "packages/*",
+    "apps/desktop",
     "runtime/api-server",
     "runtime/harness-host",
     "runtime/harnesses",
     "runtime/state-store",
+    "sdk/app-builder-sdk",
     "sdk/app-sdk",
+    "sdk/editor",
     "sdk/runtime-client",
     "website/docs"
   ],
@@ -23,7 +23,7 @@
     "esbuild"
   ],
   "scripts": {
-    "clean": "node scripts/remove-paths.mjs out desktop/build runtime/out",
+    "clean": "node scripts/remove-paths.mjs out apps/desktop/build runtime/out",
     "dev": "bun run desktop:dev",
     "docs:dev": "bun --filter=docs-next run dev",
     "docs:test": "bun --filter=docs-next run test",
@@ -32,7 +32,7 @@
     "docs:preview": "bun --filter=docs-next run preview",
     "docs:deploy:staging": "bun --filter=docs-next run deploy:staging",
     "docs:deploy:production": "bun --filter=docs-next run deploy:production",
-    "desktop:clean": "node scripts/remove-paths.mjs desktop/out desktop/build",
+    "desktop:clean": "node scripts/remove-paths.mjs apps/desktop/out apps/desktop/build",
     "desktop:install": "bun install",
     "desktop:prepare": "bun --filter=@holaboss/app-sdk run build",
     "desktop:dev": "bun --filter=holaboss-local run dev",

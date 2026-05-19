@@ -47,11 +47,11 @@ fi
 echo "==> Running desktop dependency install"
 npm run desktop:install
 
-if [[ ! -f desktop/.env ]]; then
-  echo "==> Creating desktop/.env from desktop/.env.example"
-  cp desktop/.env.example desktop/.env
+if [[ ! -f apps/desktop/.env ]]; then
+  echo "==> Creating apps/desktop/.env from apps/desktop/.env.example"
+  cp apps/desktop/.env.example apps/desktop/.env
 else
-  echo "==> desktop/.env already exists; leaving it unchanged"
+  echo "==> apps/desktop/.env already exists; leaving it unchanged"
 fi
 
 echo "==> Staging local runtime bundle"

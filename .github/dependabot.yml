@@ -7,7 +7,7 @@ updates:
     open-pull-requests-limit: 0
 
   - package-ecosystem: "npm"
-    directory: "/desktop"
+    directory: "/apps/desktop"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 0

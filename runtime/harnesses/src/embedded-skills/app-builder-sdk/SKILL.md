@@ -36,7 +36,7 @@ Mental model:
 - `sync` = periodic upstream read that upserts records keyed by external id
 - HOW (steps / states / reversal) lives in the SDK. WHEN (scheduling, retry) lives in Holaboss automations — **the SDK never schedules**.
 
-Full type contract: `sdk/types.ts`. Public exports: `sdk/index.ts`.
+Full type contract: `sdk-package/src/types.ts`. Public exports: `sdk-package/src/index.ts`.
 
 ### `provider.id` MUST be the Composio toolkit slug
 
@@ -244,7 +244,7 @@ env_contract:
   - "MCP_PORT"
 ```
 
-`mcp.tools` list must match what `app.derivedTools()` returns. The derivation rules from `sdk/app.ts:165-238` are:
+`mcp.tools` list must match what `app.derivedTools()` returns. The derivation rules from `sdk-package/src/app.ts:165-238` are:
 - `<app_id>_connection_status` — always
 - For each resource: `<app_id>_list_<plural>`, `<app_id>_get_<resource>`, and (if `refreshEvery + fetch` declared) `<app_id>_refresh_<plural>`
 - For each action: `<app_id>_<action_name>_<resource_name>` (or `def.toolName` override), plus `<app_id>_cancel_<action>_<resource>` for reversible
@@ -355,19 +355,18 @@ Run all of these. Stop at the first failure and report the symptom verbatim, don
 
 ### Always
 
-1. `sdk/README.txt` — top-level overview bundled for packaged runtimes
-2. `sdk/index.ts` — public surface
-3. `sdk/types.ts` — full type contract, including `RowOf` and the integer-id stringify note
-4. `sdk/app.ts` — derived tool naming, primitive wiring, and registration behavior
+1. `sdk-package/README.txt` — top-level overview bundled for packaged runtimes
+2. `sdk-package/src/index.ts` — public surface
+3. `sdk-package/src/types.ts` — full type contract, including `RowOf` and the integer-id stringify note
+4. `sdk-package/src/app.ts` — derived tool naming, primitive wiring, and registration behavior
 
 ### For the backend shape (both integration-only and dashboard apps need this)
 
 5. `reference/<shape>/app.ts` — copy + adapt; pick the shape that matches the user's request (messaging / publishing / workflow / event-with-time)
 6. `reference/slack-messaging/server.ts` + `reference/slack-messaging/app.runtime.yaml` — copy + adapt; this is the only bundled reference that ships a complete `server.ts`
-7. `sdk/mcp-server.test.ts` — what derived tools / `connection_status` / refresh / sync_status are expected to do; useful as oracle when writing a new app's tests
 
 ### For dashboard apps (additionally)
 
-8. `ui-reference/components.json` — the holaOS-locked shadcn registry version. Match it in the app's own `components.json` so primitives stay aligned.
-9. `ui-reference/tokens.css` and `ui-reference/themes/holaos.css` — the shared CSS variable tokens (`--background` / `--primary` / `--radius` / etc.). Use these; do not invent new ones.
-10. Compare against the current live desktop panes if available, but do not leave the workspace or guess repo-root source paths just to locate pane source files.
+7. `ui-reference/components.json` — the holaOS-locked shadcn registry version. Match it in the app's own `components.json` so primitives stay aligned.
+8. `ui-reference/tokens.css` and `ui-reference/themes/holaos.css` — the shared CSS variable tokens (`--background` / `--primary` / `--radius` / etc.). Use these; do not invent new ones.
+9. Compare against the current live desktop panes if available, but do not leave the workspace or guess repo-root source paths just to locate pane source files.

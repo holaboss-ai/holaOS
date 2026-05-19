@@ -49,7 +49,7 @@ test/<area>.test.ts        ← UNIT + INTEGRATION TESTS
 
 | Location | Role | Status |
 |---|---|---|
-| `experiments/app-builder-sdk/reference/<shape>/` | **SDK reference** — demos, test fixtures, agent templates. Used to validate SDK design across shapes. | Spike phase |
+| `sdk/app-builder-sdk/reference/<shape>/` | **SDK reference** — demos, test fixtures, agent templates. Used to validate SDK design across shapes. | Spike phase |
 | `hola-boss-apps/<name>/` | **Production app modules** — legacy bridge-SDK-era apps shipped to users. ~20 modules. | Stable, runs in workspaces today |
 | `<workspace>/apps/<id>/` | **Workspace-installed apps** — what a user's actual workspace contains. Materialized via marketplace install or agent-build skill. | Per-workspace |
 
@@ -120,7 +120,7 @@ separate from this SDK.
 ## Real E2E (single command, no Holaboss backend required)
 
 ```bash
-cd experiments/app-builder-sdk
+cd sdk/app-builder-sdk
 export COMPOSIO_API_KEY=ck_...
 export COMPOSIO_SLACK_ACCOUNT_ID=ca_...   # from workspace.db, see e2e.ts header
 export TEST_SLACK_CHANNEL=C0123ABCD

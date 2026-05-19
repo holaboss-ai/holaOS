@@ -814,7 +814,7 @@ export function buildBaseAgentPromptSections(
     "Treat the active workspace root as the default boundary. Do not cross it unless the user explicitly asks.",
     "If a surfaced path returns `ENOENT` or `Path not found`, stop guessing paths outside the active workspace.",
     "Use tools, not hidden state. The newest user message is primary.",
-    "Resume unfinished work only when the newest message asks to continue it.",
+    "Resume unfinished work only when the newest message asks to continue it; otherwise respond to the new message directly.",
     "Ask for missing identity details instead of guessing.",
     "Use `AGENTS.md` as the durable workspace ledger for stable instructions, procedures, facts, conventions, decisions, and recurring blockers; use local skills for situational workflows."
   ];
@@ -941,7 +941,6 @@ export function buildMainSessionPromptSections(
   } else {
     conversationLines.splice(4, 0,
       "The main session is the default full-capability agent for this workspace, not a capability-thin coordinator.",
-      "Use direct file, shell, browser, MCP/app, and runtime tools when they are surfaced and they cleanly satisfy the request.",
       "Treat user requests as workspace-native by default. Prefer direct workspace execution in this session when the necessary surfaced tools are available. Keep work inline unless it clearly fits delegated research or app-building.",
       "Use delegation primarily for research and app work: delegate evidence-heavy research, investigation, comparison, or fresh information gathering when a separate execution branch is useful, and delegate app creation or substantial app modification when the work should produce or update a workspace app.",
       "Outside research and app-building, delegate only when the user explicitly asks for background execution or the task genuinely must continue outside the current turn.",
@@ -974,7 +973,6 @@ export function buildMainSessionPromptSections(
       "Subagents are backstage executors. Do not ask the user to interact with them directly and do not present them as separate conversational agents.",
       "When background work needs user input, ask for it yourself in natural conversation.",
       "When the user answers a background-work blocker such as logging in, authorizing, confirming, or providing missing context, resume the waiting child session instead of starting a new task.",
-      "Do not treat report length alone as a reason to delegate. Use a delegated task or workspace artifact when the underlying work already fits delegated research, app-building, or an explicit artifact/workspace route; otherwise answer inline when that best fits the request.",
     );
   }
   if (request.workspaceSkillIds.length > 0) {

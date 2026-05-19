@@ -10,7 +10,7 @@ import {
 } from "./runtime-bundle.mjs";
 
 export function resolveRuntimeBundleState(desktopRoot = process.cwd()) {
-  const repoRoot = path.resolve(desktopRoot, "..");
+  const repoRoot = path.resolve(desktopRoot, "..", "..");
   const runtimePlatform = resolveRuntimePlatform();
   const runtimeRoot = path.join(
     desktopRoot,

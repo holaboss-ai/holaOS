@@ -4,17 +4,17 @@ import path from "node:path";
 import { runNpm } from "./npm-runner.mjs";
 
 const desktopRoot = process.cwd();
-const sdkRoot = path.resolve(desktopRoot, "..", "sdk", "runtime-client");
-const sdkSourceInputs = [
-  path.join(sdkRoot, "package.json"),
-  path.join(sdkRoot, "tsdown.config.ts"),
-  path.join(sdkRoot, "src"),
+const appSdkRoot = path.resolve(desktopRoot, "..", "..", "sdk", "app-sdk");
+const appSdkSourceInputs = [
+  path.join(appSdkRoot, "package.json"),
+  path.join(appSdkRoot, "tsdown.config.ts"),
+  path.join(appSdkRoot, "src"),
 ];
-const sdkRequiredOutputs = [
-  path.join(sdkRoot, "dist", "index.js"),
-  path.join(sdkRoot, "dist", "index.d.ts"),
-  path.join(sdkRoot, "dist", "core.js"),
-  path.join(sdkRoot, "dist", "core.d.ts"),
+const appSdkRequiredOutputs = [
+  path.join(appSdkRoot, "dist", "index.js"),
+  path.join(appSdkRoot, "dist", "index.d.ts"),
+  path.join(appSdkRoot, "dist", "core.js"),
+  path.join(appSdkRoot, "dist", "core.d.ts"),
 ];
 
 function newestExistingMtime(targetPath) {
@@ -37,26 +37,26 @@ function newestExistingMtime(targetPath) {
 }
 
 function allOutputsExist() {
-  return sdkRequiredOutputs.every((targetPath) => fs.existsSync(targetPath));
+  return appSdkRequiredOutputs.every((targetPath) => fs.existsSync(targetPath));
 }
 
 const outputsExist = allOutputsExist();
 const newestSourceStamp = Math.max(
-  ...sdkSourceInputs.map((targetPath) => newestExistingMtime(targetPath)),
+  ...appSdkSourceInputs.map((targetPath) => newestExistingMtime(targetPath)),
 );
 const newestOutputStamp = Math.max(
-  ...sdkRequiredOutputs.map((targetPath) => newestExistingMtime(targetPath)),
+  ...appSdkRequiredOutputs.map((targetPath) => newestExistingMtime(targetPath)),
 );
 const outputsStale = outputsExist && newestSourceStamp > newestOutputStamp;
 
 if (!outputsExist || outputsStale) {
   console.log(
     outputsExist
-      ? "[ensure-runtime-client] sdk/runtime-client build is stale; rebuilding."
-      : "[ensure-runtime-client] sdk/runtime-client build output missing; building.",
+      ? "[ensure-app-sdk] sdk/app-sdk build is stale; rebuilding."
+      : "[ensure-app-sdk] sdk/app-sdk build output missing; building.",
   );
   runNpm(["run", "build"], {
-    cwd: sdkRoot,
+    cwd: appSdkRoot,
     stdio: "inherit",
     env: process.env,
   });

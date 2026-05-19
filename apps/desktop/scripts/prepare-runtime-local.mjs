@@ -14,8 +14,8 @@ const repoRoot = process.cwd();
 const runtimePlatform = resolveRuntimePlatform();
 const explicitRuntimeRepoRoot = process.env.HOLABOSS_OSS_ROOT || process.env.HOLABOSS_RUNTIME_REPO_ROOT;
 const localRuntimeRepoRoot = repoRoot;
-const monorepoRuntimeRepoRoot = path.resolve(repoRoot, "..");
-const legacySiblingRuntimeRepoRoot = path.resolve(repoRoot, "../hola-boss-oss");
+const monorepoRuntimeRepoRoot = path.resolve(repoRoot, "..", "..");
+const legacySiblingRuntimeRepoRoot = path.resolve(repoRoot, "..", "..", "..", "hola-boss-oss");
 const packagerFileNames = localRuntimePackagerFileNames(runtimePlatform);
 const inferredRuntimeRepoRoot = hasPackagerAtRoot(localRuntimeRepoRoot, packagerFileNames)
   ? localRuntimeRepoRoot

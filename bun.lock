@@ -5,7 +5,7 @@
     "": {
       "name": "hola-boss-oss",
     },
-    "desktop": {
+    "apps/desktop": {
       "name": "holaboss-local",
       "version": "0.1.0",
       "dependencies": {
@@ -67,58 +67,6 @@
         "typescript": "^5.9.3",
         "vite": "^8.0.6",
         "wait-on": "^8.0.5",
-      },
-    },
-    "experiments/app-builder-sdk": {
-      "name": "@holaboss/app-builder-sdk",
-      "version": "0.0.1",
-      "dependencies": {
-        "@modelcontextprotocol/sdk": "^1.27.1",
-        "zod": "^3.23.0",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.4.0",
-      },
-    },
-    "packages/editor": {
-      "name": "@holaboss/editor",
-      "version": "0.0.1",
-      "dependencies": {
-        "@tiptap/core": "^3.0.0",
-        "@tiptap/extension-bubble-menu": "^3.22.5",
-        "@tiptap/extension-code-block-lowlight": "^3.22.5",
-        "@tiptap/extension-collaboration": "^3.22.5",
-        "@tiptap/extension-drag-handle": "^3.22.5",
-        "@tiptap/extension-drag-handle-react": "^3.22.5",
-        "@tiptap/extension-node-range": "^3.22.5",
-        "@tiptap/extension-placeholder": "^3.0.0",
-        "@tiptap/extension-table": "^3.22.5",
-        "@tiptap/extension-table-cell": "^3.22.5",
-        "@tiptap/extension-table-header": "^3.22.5",
-        "@tiptap/extension-table-row": "^3.22.5",
-        "@tiptap/extension-task-item": "^3.0.0",
-        "@tiptap/extension-task-list": "^3.0.0",
-        "@tiptap/markdown": "^3.0.0",
-        "@tiptap/pm": "^3.0.0",
-        "@tiptap/react": "^3.0.0",
-        "@tiptap/starter-kit": "^3.0.0",
-        "@tiptap/suggestion": "^3.0.0",
-        "@tiptap/y-tiptap": "^3.0.0",
-        "lowlight": "^3.3.0",
-        "tippy.js": "^6.3.7",
-        "y-protocols": "^1.0.6",
-        "yjs": "^13.6.0",
-      },
-      "devDependencies": {
-        "@types/react": "^19.1.0",
-        "@types/react-dom": "^19.1.0",
-        "tsup": "^8.3.0",
-        "typescript": "^5.6.0",
-      },
-      "peerDependencies": {
-        "react": "^18.0.0 || ^19.0.0",
-        "react-dom": "^18.0.0 || ^19.0.0",
       },
     },
     "runtime/api-server": {
@@ -212,6 +160,18 @@
         "typescript": "^5.9.3",
       },
     },
+    "sdk/app-builder-sdk": {
+      "name": "@holaboss/app-builder-sdk",
+      "version": "0.0.1",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.27.1",
+        "zod": "^3.23.0",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.4.0",
+      },
+    },
     "sdk/app-sdk": {
       "name": "@holaboss/app-sdk",
       "version": "0.1.1",
@@ -238,6 +198,46 @@
       "optionalPeers": [
         "@tanstack/react-query",
       ],
+    },
+    "sdk/editor": {
+      "name": "@holaboss/editor",
+      "version": "0.0.1",
+      "dependencies": {
+        "@tiptap/core": "^3.0.0",
+        "@tiptap/extension-bubble-menu": "^3.22.5",
+        "@tiptap/extension-code-block-lowlight": "^3.22.5",
+        "@tiptap/extension-collaboration": "^3.22.5",
+        "@tiptap/extension-drag-handle": "^3.22.5",
+        "@tiptap/extension-drag-handle-react": "^3.22.5",
+        "@tiptap/extension-node-range": "^3.22.5",
+        "@tiptap/extension-placeholder": "^3.0.0",
+        "@tiptap/extension-table": "^3.22.5",
+        "@tiptap/extension-table-cell": "^3.22.5",
+        "@tiptap/extension-table-header": "^3.22.5",
+        "@tiptap/extension-table-row": "^3.22.5",
+        "@tiptap/extension-task-item": "^3.0.0",
+        "@tiptap/extension-task-list": "^3.0.0",
+        "@tiptap/markdown": "^3.0.0",
+        "@tiptap/pm": "^3.0.0",
+        "@tiptap/react": "^3.0.0",
+        "@tiptap/starter-kit": "^3.0.0",
+        "@tiptap/suggestion": "^3.0.0",
+        "@tiptap/y-tiptap": "^3.0.0",
+        "lowlight": "^3.3.0",
+        "tippy.js": "^6.3.7",
+        "y-protocols": "^1.0.6",
+        "yjs": "^13.6.0",
+      },
+      "devDependencies": {
+        "@types/react": "^19.1.0",
+        "@types/react-dom": "^19.1.0",
+        "tsup": "^8.3.0",
+        "typescript": "^5.6.0",
+      },
+      "peerDependencies": {
+        "react": "^18.0.0 || ^19.0.0",
+        "react-dom": "^18.0.0 || ^19.0.0",
+      },
     },
     "sdk/runtime-client": {
       "name": "@holaboss/runtime-client",
@@ -614,11 +614,11 @@
 
     "@hapi/topo": ["@hapi/topo@6.0.2", "", { "dependencies": { "@hapi/hoek": "^11.0.2" } }, "sha512-KR3rD5inZbGMrHmgPxsJ9dbi6zEK+C3ZwUwTa+eMwWLz7oijWUTWD2pMSNNYJAU6Qq+65NkxXjqHr/7LM2Xkqg=="],
 
-    "@holaboss/app-builder-sdk": ["@holaboss/app-builder-sdk@workspace:experiments/app-builder-sdk"],
+    "@holaboss/app-builder-sdk": ["@holaboss/app-builder-sdk@workspace:sdk/app-builder-sdk"],
 
     "@holaboss/app-sdk": ["@holaboss/app-sdk@workspace:sdk/app-sdk"],
 
-    "@holaboss/editor": ["@holaboss/editor@workspace:packages/editor"],
+    "@holaboss/editor": ["@holaboss/editor@workspace:sdk/editor"],
 
     "@holaboss/runtime-api-server": ["@holaboss/runtime-api-server@workspace:runtime/api-server"],
 
@@ -2278,7 +2278,7 @@
 
     "highlight.js": ["highlight.js@11.11.1", "", {}, "sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w=="],
 
-    "holaboss-local": ["holaboss-local@workspace:desktop"],
+    "holaboss-local": ["holaboss-local@workspace:apps/desktop"],
 
     "hono": ["hono@4.12.19", "", {}, "sha512-xa3eYXYXx68XTT4hZ7dRzsXBhaq85ToSrlUJNoR0gwz/1Ap/CNwX47wfvV7pc/xWhjKVVkLT7zBJy8chhNguqQ=="],
 
