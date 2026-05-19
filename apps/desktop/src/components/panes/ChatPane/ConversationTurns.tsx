@@ -24,13 +24,6 @@ export function ConversationTurns<Message extends ChatMessage>({
   onToggleTraceStep,
   onLinkClick,
   onLocalLinkClick,
-  memoryProposalAction,
-  editingMemoryProposalId,
-  memoryProposalDrafts,
-  onEditMemoryProposal,
-  onMemoryProposalDraftChange,
-  onAcceptMemoryProposal,
-  onDismissMemoryProposal,
   assistantFooterAccessoryMessageId = null,
   assistantFooterAccessory = null,
   getMessageWrapperClassName,
@@ -50,18 +43,6 @@ export function ConversationTurns<Message extends ChatMessage>({
   onToggleTraceStep: (stepId: string) => void;
   onLinkClick?: (url: string) => void;
   onLocalLinkClick?: (href: string) => void;
-  memoryProposalAction: {
-    proposalId: string;
-    action: "accept" | "dismiss";
-  } | null;
-  editingMemoryProposalId: string | null;
-  memoryProposalDrafts: Record<string, string>;
-  onEditMemoryProposal: (message: Message, proposalId: string) => void;
-  onMemoryProposalDraftChange: (proposalId: string, value: string) => void;
-  onAcceptMemoryProposal: (proposal: MemoryUpdateProposalRecordPayload) => void;
-  onDismissMemoryProposal: (
-    proposal: MemoryUpdateProposalRecordPayload,
-  ) => void;
   assistantFooterAccessoryMessageId?: string | null;
   assistantFooterAccessory?: ReactNode;
   getMessageWrapperClassName?: (message: Message) => string | undefined;
@@ -109,19 +90,9 @@ export function ConversationTurns<Message extends ChatMessage>({
               tone={message.tone ?? "default"}
               segments={message.segments ?? []}
               executionItems={message.executionItems ?? []}
-              memoryProposals={message.memoryProposals ?? []}
               outputs={message.outputs ?? []}
               pendingIntegrations={message.pendingIntegrations ?? []}
               onAfterIntegrationBind={onAfterIntegrationBind}
-              memoryProposalAction={memoryProposalAction}
-              editingMemoryProposalId={editingMemoryProposalId}
-              memoryProposalDrafts={memoryProposalDrafts}
-              onEditMemoryProposal={(proposalId) =>
-                onEditMemoryProposal(message, proposalId)
-              }
-              onMemoryProposalDraftChange={onMemoryProposalDraftChange}
-              onAcceptMemoryProposal={onAcceptMemoryProposal}
-              onDismissMemoryProposal={onDismissMemoryProposal}
               onOpenOutput={onOpenOutput}
               onOpenAllArtifacts={onOpenAllArtifacts}
               collapsedTraceByStepId={collapsedTraceByStepId}
@@ -159,15 +130,7 @@ export function ConversationTurns<Message extends ChatMessage>({
           tone={liveAssistantTurn.tone ?? "default"}
           segments={liveAssistantTurn.segments}
           executionItems={liveAssistantTurn.executionItems}
-          memoryProposals={[]}
           outputs={[]}
-          memoryProposalAction={memoryProposalAction}
-          editingMemoryProposalId={editingMemoryProposalId}
-          memoryProposalDrafts={memoryProposalDrafts}
-          onEditMemoryProposal={() => undefined}
-          onMemoryProposalDraftChange={onMemoryProposalDraftChange}
-          onAcceptMemoryProposal={onAcceptMemoryProposal}
-          onDismissMemoryProposal={onDismissMemoryProposal}
           onOpenOutput={onOpenOutput}
           onOpenAllArtifacts={onOpenAllArtifacts}
           collapsedTraceByStepId={collapsedTraceByStepId}

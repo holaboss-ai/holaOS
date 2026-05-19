@@ -536,57 +536,6 @@ interface TaskProposalAcceptResponsePayload {
   input: EnqueueSessionInputResponsePayload;
 }
 
-type MemoryUpdateProposalKind = "preference" | "identity" | "profile";
-type MemoryUpdateProposalState = "pending" | "accepted" | "dismissed";
-
-interface MemoryUpdateProposalRecordPayload {
-  proposal_id: string;
-  workspace_id: string;
-  session_id: string;
-  input_id: string;
-  proposal_kind: MemoryUpdateProposalKind;
-  target_key: string;
-  title: string;
-  summary: string;
-  payload: Record<string, unknown>;
-  evidence: string | null;
-  confidence: number | null;
-  source_message_id: string | null;
-  state: MemoryUpdateProposalState;
-  persisted_memory_id: string | null;
-  created_at: string;
-  updated_at: string;
-  accepted_at: string | null;
-  dismissed_at: string | null;
-}
-
-interface MemoryUpdateProposalListRequestPayload {
-  workspaceId: string;
-  sessionId?: string | null;
-  inputId?: string | null;
-  state?: MemoryUpdateProposalState | null;
-  limit?: number;
-  offset?: number;
-}
-
-interface MemoryUpdateProposalListResponsePayload {
-  proposals: MemoryUpdateProposalRecordPayload[];
-  count: number;
-}
-
-interface MemoryUpdateProposalAcceptPayload {
-  proposalId: string;
-  summary?: string | null;
-}
-
-interface MemoryUpdateProposalAcceptResponsePayload {
-  proposal: MemoryUpdateProposalRecordPayload;
-}
-
-interface MemoryUpdateProposalDismissResponsePayload {
-  proposal: MemoryUpdateProposalRecordPayload;
-}
-
 interface CronjobDeliveryPayload {
   mode: string;
   channel: string;
@@ -1394,12 +1343,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("workspace:archiveBackgroundTask", payload) as Promise<ArchiveBackgroundTaskResponsePayload>,
     acceptTaskProposal: (payload: TaskProposalAcceptPayload) =>
       ipcRenderer.invoke("workspace:acceptTaskProposal", payload) as Promise<TaskProposalAcceptResponsePayload>,
-    listMemoryUpdateProposals: (payload: MemoryUpdateProposalListRequestPayload) =>
-      ipcRenderer.invoke("workspace:listMemoryUpdateProposals", payload) as Promise<MemoryUpdateProposalListResponsePayload>,
-    acceptMemoryUpdateProposal: (payload: MemoryUpdateProposalAcceptPayload) =>
-      ipcRenderer.invoke("workspace:acceptMemoryUpdateProposal", payload) as Promise<MemoryUpdateProposalAcceptResponsePayload>,
-    dismissMemoryUpdateProposal: (workspaceId: string, proposalId: string) =>
-      ipcRenderer.invoke("workspace:dismissMemoryUpdateProposal", workspaceId, proposalId) as Promise<MemoryUpdateProposalDismissResponsePayload>,
     updateTaskProposalState: (workspaceId: string, proposalId: string, state: string) =>
       ipcRenderer.invoke("workspace:updateTaskProposalState", workspaceId, proposalId, state) as Promise<TaskProposalStateUpdatePayload>,
     ensureMainSession: (workspaceId: string) =>

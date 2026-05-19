@@ -304,7 +304,7 @@ test("workspace control center loads the latest main-session history slice and r
   assert.match(source, /turnInputIdsFromHistoryMessages\(historyMessages\)/);
   assert.match(source, /window\.electronAPI\.workspace\.getSessionOutputEvents\(\{/);
   assert.match(source, /window\.electronAPI\.workspace\.listOutputs\(\{/);
-  assert.match(source, /window\.electronAPI\.workspace\.listMemoryUpdateProposals\(\{/);
+  assert.doesNotMatch(source, /window\.electronAPI\.workspace\.listMemoryUpdateProposals\(\{/);
   assert.match(source, /chatMessagesFromSessionState\(\{/);
   assert.match(source, /showExecutionInternals: false,/);
 });

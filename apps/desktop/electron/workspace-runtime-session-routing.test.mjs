@@ -4,7 +4,7 @@ import test from "node:test";
 
 const MAIN_PATH = new URL("./main.ts", import.meta.url);
 
-test("workspace-scoped proposals, background tasks, memory, notifications, cronjobs, and outputs route through workspace runtime sessions", async () => {
+test("workspace-scoped proposals, background tasks, notifications, cronjobs, and outputs route through workspace runtime sessions", async () => {
   const source = await readFile(MAIN_PATH, "utf8");
 
   assert.match(
@@ -23,18 +23,10 @@ test("workspace-scoped proposals, background tasks, memory, notifications, cronj
     source,
     /async function archiveBackgroundTask\([\s\S]*?requestWorkspaceRuntimeJson<ArchiveBackgroundTaskResponsePayload>\(\s*payload\.workspaceId,[\s\S]*?archive`/,
   );
-  assert.match(
-    source,
-    /async function listMemoryUpdateProposals\([\s\S]*?requestWorkspaceRuntimeJson<MemoryUpdateProposalListResponsePayload>\(\s*payload\.workspaceId,[\s\S]*?path: "\/api\/v1\/memory-update-proposals"/,
-  );
-  assert.match(
-    source,
-    /async function acceptMemoryUpdateProposal\([\s\S]*?requestWorkspaceRuntimeJson<MemoryUpdateProposalAcceptResponsePayload>\(\s*payload\.workspaceId,[\s\S]*?accept`/,
-  );
-  assert.match(
-    source,
-    /async function dismissMemoryUpdateProposal\([\s\S]*?requestWorkspaceRuntimeJson<MemoryUpdateProposalDismissResponsePayload>\(\s*workspaceId,[\s\S]*?dismiss`/,
-  );
+  assert.doesNotMatch(source, /async function listMemoryUpdateProposals\(/);
+  assert.doesNotMatch(source, /async function acceptMemoryUpdateProposal\(/);
+  assert.doesNotMatch(source, /async function dismissMemoryUpdateProposal\(/);
+  assert.doesNotMatch(source, /\/api\/v1\/memory-update-proposals/);
   assert.match(
     source,
     /async function listNotifications\([\s\S]*?workspaceId\?\.trim\(\)\s*\?\s*await requestWorkspaceRuntimeJson<RuntimeNotificationListResponsePayload>\(/,

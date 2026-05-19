@@ -13,7 +13,6 @@ export const EMPTY_ATTACHMENTS: ChatAttachment[] = [];
 export const EMPTY_SEGMENTS: ChatAssistantSegment[] = [];
 export const EMPTY_EXECUTION_ITEMS: ChatExecutionTimelineItem[] = [];
 export const EMPTY_OUTPUTS: WorkspaceOutputRecordPayload[] = [];
-export const EMPTY_MEMORY_PROPOSALS: MemoryUpdateProposalRecordPayload[] = [];
 
 export const STREAM_ATTACH_PENDING = "__stream_attach_pending__";
 export const STREAM_TELEMETRY_LIMIT = 240;

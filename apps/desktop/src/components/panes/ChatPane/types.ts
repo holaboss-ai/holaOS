@@ -24,7 +24,6 @@ export interface ChatMessage {
   segments?: ChatAssistantSegment[];
   executionItems?: ChatExecutionTimelineItem[];
   outputs?: WorkspaceOutputRecordPayload[];
-  memoryProposals?: MemoryUpdateProposalRecordPayload[];
   pendingIntegrations?: ChatPendingIntegration[];
 }
 

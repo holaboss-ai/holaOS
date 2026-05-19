@@ -608,23 +608,14 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
         previewInputIds.length > 0
           ? await Promise.all(
               previewInputIds.map(async (inputId) => {
-                const [
-                  outputEventsResult,
-                  outputListResult,
-                  memoryProposalListResult,
-                ] = await Promise.allSettled([
+                const [outputEventsResult, outputListResult] =
+                  await Promise.allSettled([
                   window.electronAPI.workspace.getSessionOutputEvents({
                     workspaceId,
                     sessionId,
                     inputId,
                   }),
                   window.electronAPI.workspace.listOutputs({
-                    workspaceId,
-                    sessionId,
-                    inputId,
-                    limit: PREVIEW_OUTPUT_LIMIT,
-                  }),
-                  window.electronAPI.workspace.listMemoryUpdateProposals({
                     workspaceId,
                     sessionId,
                     inputId,
@@ -640,10 +631,6 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
                     outputListResult.status === "fulfilled"
                       ? outputListResult.value.items
                       : [],
-                  memoryProposals:
-                    memoryProposalListResult.status === "fulfilled"
-                      ? memoryProposalListResult.value.proposals
-                      : [],
                 };
               }),
             )
@@ -656,9 +643,6 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
           historyMessages,
           outputEvents: previewArtifacts.flatMap((entry) => entry.outputEvents),
           outputs: previewArtifacts.flatMap((entry) => entry.outputs),
-          memoryProposals: previewArtifacts.flatMap(
-            (entry) => entry.memoryProposals,
-          ),
           showExecutionInternals: false,
         }) as PreviewChatMessage[],
       );
@@ -1298,15 +1282,6 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
                 collapsedTraceByStepId={{}}
                 onToggleTraceStep={(_stepId) => undefined}
                 onLinkClick={handleOpenExternalUrl}
-                memoryProposalAction={null}
-                editingMemoryProposalId={null}
-                memoryProposalDrafts={{}}
-                onEditMemoryProposal={(_message, _proposalId) => undefined}
-                onMemoryProposalDraftChange={(_proposalId, _value) =>
-                  undefined
-                }
-                onAcceptMemoryProposal={(_proposal) => undefined}
-                onDismissMemoryProposal={(_proposal) => undefined}
                 getMessageWrapperClassName={(message) =>
                   cn(message.optimistic ? "opacity-80" : "")
                 }

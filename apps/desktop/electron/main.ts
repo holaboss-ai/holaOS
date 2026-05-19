@@ -2806,58 +2806,6 @@ interface EnsureWorkspaceMainSessionResponsePayload {
   migrated_legacy_session_count: number;
 }
 
-type MemoryUpdateProposalKind = "preference" | "identity" | "profile";
-type MemoryUpdateProposalState = "pending" | "accepted" | "dismissed";
-
-interface MemoryUpdateProposalRecordPayload {
-  proposal_id: string;
-  workspace_id: string;
-  session_id: string;
-  input_id: string;
-  proposal_kind: MemoryUpdateProposalKind;
-  target_key: string;
-  title: string;
-  summary: string;
-  payload: Record<string, unknown>;
-  evidence: string | null;
-  confidence: number | null;
-  source_message_id: string | null;
-  state: MemoryUpdateProposalState;
-  persisted_memory_id: string | null;
-  created_at: string;
-  updated_at: string;
-  accepted_at: string | null;
-  dismissed_at: string | null;
-}
-
-interface MemoryUpdateProposalListRequestPayload {
-  workspaceId: string;
-  sessionId?: string | null;
-  inputId?: string | null;
-  state?: MemoryUpdateProposalState | null;
-  limit?: number;
-  offset?: number;
-}
-
-interface MemoryUpdateProposalListResponsePayload {
-  proposals: MemoryUpdateProposalRecordPayload[];
-  count: number;
-}
-
-interface MemoryUpdateProposalAcceptPayload {
-  proposalId: string;
-  workspaceId: string;
-  summary?: string | null;
-}
-
-interface MemoryUpdateProposalAcceptResponsePayload {
-  proposal: MemoryUpdateProposalRecordPayload;
-}
-
-interface MemoryUpdateProposalDismissResponsePayload {
-  proposal: MemoryUpdateProposalRecordPayload;
-}
-
 interface RemoteTaskProposalGenerationResponsePayload {
   accepted: boolean;
   accepted_count: number;
@@ -9867,29 +9815,6 @@ async function archiveBackgroundTask(
   );
 }
 
-async function listMemoryUpdateProposals(
-  payload: MemoryUpdateProposalListRequestPayload,
-): Promise<MemoryUpdateProposalListResponsePayload> {
-  if (!payload.workspaceId.trim()) {
-    return { proposals: [], count: 0 };
-  }
-  return requestWorkspaceRuntimeJson<MemoryUpdateProposalListResponsePayload>(
-    payload.workspaceId,
-    {
-      method: "GET",
-      path: "/api/v1/memory-update-proposals",
-      params: {
-        workspace_id: payload.workspaceId,
-        session_id: payload.sessionId ?? undefined,
-        input_id: payload.inputId ?? undefined,
-        state: payload.state ?? undefined,
-        limit: payload.limit ?? 200,
-        offset: payload.offset ?? 0,
-      },
-    },
-  );
-}
-
 async function acceptTaskProposal(
   payload: TaskProposalAcceptPayload,
 ): Promise<TaskProposalAcceptResponsePayload> {
@@ -9907,38 +9832,6 @@ async function acceptTaskProposal(
         created_by: payload.created_by,
         priority: payload.priority ?? 0,
         model: payload.model ?? null,
-      },
-    },
-  );
-}
-
-async function acceptMemoryUpdateProposal(
-  payload: MemoryUpdateProposalAcceptPayload,
-): Promise<MemoryUpdateProposalAcceptResponsePayload> {
-  return requestWorkspaceRuntimeJson<MemoryUpdateProposalAcceptResponsePayload>(
-    payload.workspaceId,
-    {
-      method: "POST",
-      path: `/api/v1/memory-update-proposals/${encodeURIComponent(payload.proposalId)}/accept`,
-      payload: {
-        workspace_id: payload.workspaceId,
-        summary: payload.summary ?? undefined,
-      },
-    },
-  );
-}
-
-async function dismissMemoryUpdateProposal(
-  workspaceId: string,
-  proposalId: string,
-): Promise<MemoryUpdateProposalDismissResponsePayload> {
-  return requestWorkspaceRuntimeJson<MemoryUpdateProposalDismissResponsePayload>(
-    workspaceId,
-    {
-      method: "POST",
-      path: `/api/v1/memory-update-proposals/${encodeURIComponent(proposalId)}/dismiss`,
-      payload: {
-        workspace_id: workspaceId,
       },
     },
   );
@@ -22777,24 +22670,6 @@ app.whenReady().then(async () => {
     ["main"],
     async (_event, payload: TaskProposalAcceptPayload) =>
       acceptTaskProposal(payload),
-  );
-  handleTrustedIpc(
-    "workspace:listMemoryUpdateProposals",
-    ["main"],
-    async (_event, payload: MemoryUpdateProposalListRequestPayload) =>
-      listMemoryUpdateProposals(payload),
-  );
-  handleTrustedIpc(
-    "workspace:acceptMemoryUpdateProposal",
-    ["main"],
-    async (_event, payload: MemoryUpdateProposalAcceptPayload) =>
-      acceptMemoryUpdateProposal(payload),
-  );
-  handleTrustedIpc(
-    "workspace:dismissMemoryUpdateProposal",
-    ["main"],
-    async (_event, workspaceId: string, proposalId: string) =>
-      dismissMemoryUpdateProposal(workspaceId, proposalId),
   );
   handleTrustedIpc(
     "workspace:updateTaskProposalState",

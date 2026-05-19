@@ -1277,19 +1277,15 @@ test("chat thread uses the full pane width for normal messages", async () => {
   assert.doesNotMatch(source, /<article className="max-w-\[760px\]">/);
 });
 
-test("chat pane renders run-scoped memory proposal cards with accept dismiss and edit actions", async () => {
+test("chat pane no longer requests or renders memory proposal review UI", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /window\.electronAPI\.workspace\.listMemoryUpdateProposals\(\{/);
-  assert.match(source, /memoryProposalsByInputId/);
-  assert.match(source, /nextMessage\.memoryProposals = turnMemoryProposals/);
-  assert.match(source, /AssistantTurnMemoryProposals/);
-  assert.match(source, /window\.electronAPI\.workspace\.acceptMemoryUpdateProposal\(\{/);
-  assert.match(
-    source,
-    /window\.electronAPI\.workspace\.dismissMemoryUpdateProposal\(\s*proposal\.proposal_id,\s*\)/,
-  );
-  assert.match(source, /Edit memory proposal/);
+  assert.doesNotMatch(source, /window\.electronAPI\.workspace\.listMemoryUpdateProposals\(\{/);
+  assert.doesNotMatch(source, /memoryProposalsByInputId/);
+  assert.doesNotMatch(source, /AssistantTurnMemoryProposals/);
+  assert.doesNotMatch(source, /window\.electronAPI\.workspace\.acceptMemoryUpdateProposal\(\{/);
+  assert.doesNotMatch(source, /window\.electronAPI\.workspace\.dismissMemoryUpdateProposal\(/);
+  assert.doesNotMatch(source, /Edit memory proposal/);
 });
 
 test("chat pane surfaces context-budget diagnostics from terminal event payloads", async () => {

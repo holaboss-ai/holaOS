@@ -150,7 +150,6 @@ import {
   EMPTY_SEGMENTS,
   EMPTY_EXECUTION_ITEMS,
   EMPTY_OUTPUTS,
-  EMPTY_MEMORY_PROPOSALS,
   STREAM_ATTACH_PENDING,
   STREAM_TELEMETRY_LIMIT,
   TOOL_TRACE_TERMINAL_PHASES,
@@ -513,8 +512,7 @@ function hasRenderableAssistantTurn(
     hasRenderableMessageContent(message.text, message.attachments ?? []) ||
     hasVisibleOutputSegment ||
     (showExecutionInternals && hasExecutionOnlyContent) ||
-    (message.outputs?.length ?? 0) > 0 ||
-    (message.memoryProposals?.length ?? 0) > 0
+    (message.outputs?.length ?? 0) > 0
   );
 }
 
@@ -626,7 +624,6 @@ export function chatMessagesFromSessionState(params: {
   historyMessages: SessionHistoryMessagePayload[];
   outputEvents: SessionOutputEventPayload[];
   outputs: WorkspaceOutputRecordPayload[];
-  memoryProposals: MemoryUpdateProposalRecordPayload[];
   knownAssistantInputIds?: Set<string>;
   showExecutionInternals: boolean;
   showBootstrapPhaseTrace?: boolean;
@@ -636,10 +633,6 @@ export function chatMessagesFromSessionState(params: {
     SessionOutputEventPayload[]
   >();
   const outputsByInputId = new Map<string, WorkspaceOutputRecordPayload[]>();
-  const memoryProposalsByInputId = new Map<
-    string,
-    MemoryUpdateProposalRecordPayload[]
-  >();
   for (const event of params.outputEvents) {
     const inputId = event.input_id.trim();
     if (!inputId) {
@@ -662,18 +655,6 @@ export function chatMessagesFromSessionState(params: {
       existing.push(output);
     } else {
       outputsByInputId.set(inputId, [output]);
-    }
-  }
-  for (const proposal of params.memoryProposals) {
-    const inputId = proposal.input_id.trim();
-    if (!inputId) {
-      continue;
-    }
-    const existing = memoryProposalsByInputId.get(inputId);
-    if (existing) {
-      existing.push(proposal);
-    } else {
-      memoryProposalsByInputId.set(inputId, [proposal]);
     }
   }
 
@@ -710,9 +691,6 @@ export function chatMessagesFromSessionState(params: {
             },
           );
           const turnOutputs = sortOutputs(outputsByInputId.get(inputId) ?? []);
-          const turnMemoryProposals = sortMemoryUpdateProposals(
-            memoryProposalsByInputId.get(inputId) ?? [],
-          );
           if (restoredAssistantState.segments) {
             nextMessage.segments = restoredAssistantState.segments;
             nextMessage.text = "";
@@ -727,9 +705,6 @@ export function chatMessagesFromSessionState(params: {
           ) {
             nextMessage.text = restoredAssistantState.failureText;
             nextMessage.tone = "error";
-          }
-          if (turnMemoryProposals.length > 0) {
-            nextMessage.memoryProposals = turnMemoryProposals;
           }
           if (turnOutputs.length > 0) {
             nextMessage.outputs = turnOutputs;
@@ -756,9 +731,6 @@ export function chatMessagesFromSessionState(params: {
           },
         );
         const turnOutputs = sortOutputs(outputsByInputId.get(userInputId) ?? []);
-        const turnMemoryProposals = sortMemoryUpdateProposals(
-          memoryProposalsByInputId.get(userInputId) ?? [],
-        );
         const syntheticAssistantMessage: ChatMessage = {
           id: `assistant-${userInputId}`,
           role: "assistant",
@@ -779,8 +751,6 @@ export function chatMessagesFromSessionState(params: {
             ? undefined
             : restoredAssistantState.executionItems,
           outputs: turnOutputs.length > 0 ? turnOutputs : undefined,
-          memoryProposals:
-            turnMemoryProposals.length > 0 ? turnMemoryProposals : undefined,
           pendingIntegrations: restoredAssistantState.pendingIntegrations,
         };
         if (
@@ -803,19 +773,6 @@ export function chatMessagesFromSessionState(params: {
             })
           : hasRenderableMessageContent(message.text, message.attachments ?? [])),
     );
-}
-
-function sortMemoryUpdateProposals(
-  proposals: MemoryUpdateProposalRecordPayload[],
-) {
-  return [...proposals].sort((left, right) => {
-    const leftTime = Date.parse(left.created_at || "") || 0;
-    const rightTime = Date.parse(right.created_at || "") || 0;
-    if (leftTime !== rightTime) {
-      return leftTime - rightTime;
-    }
-    return left.title.localeCompare(right.title);
-  });
 }
 
 function attachmentUploadPayload(
@@ -1467,15 +1424,6 @@ function mergeSessionOutputs(
 ) {
   return sortOutputs(
     mergeUniqueByKey(existing, incoming, (output) => output.id),
-  );
-}
-
-function mergeMemoryUpdateProposals(
-  existing: MemoryUpdateProposalRecordPayload[],
-  incoming: MemoryUpdateProposalRecordPayload[],
-) {
-  return sortMemoryUpdateProposals(
-    mergeUniqueByKey(existing, incoming, (proposal) => proposal.proposal_id),
   );
 }
 
@@ -2954,21 +2902,11 @@ export function ChatPane({
   >("session");
   const [imageAttachmentPreview, setImageAttachmentPreview] =
     useState<ImageAttachmentPreviewState | null>(null);
-  const [memoryProposalAction, setMemoryProposalAction] = useState<{
-    proposalId: string;
-    action: "accept" | "dismiss";
-  } | null>(null);
   const [queuedSessionInputs, setQueuedSessionInputs] = useState<
     QueuedSessionInput[]
   >([]);
   const [pendingOptimisticUserMessages, setPendingOptimisticUserMessages] =
     useState<PendingOptimisticUserMessage[]>([]);
-  const [editingMemoryProposalId, setEditingMemoryProposalId] = useState<
-    string | null
-  >(null);
-  const [memoryProposalDrafts, setMemoryProposalDrafts] = useState<
-    Record<string, string>
-  >({});
   const [desktopMainSession, setDesktopMainSession] =
     useState<AgentSessionRecordPayload | null>(null);
   const [sessionRecordOverrides, setSessionRecordOverrides] = useState<
@@ -3402,9 +3340,6 @@ export function ChatPane({
     setArtifactBrowserScopedOutputs(null);
     setArtifactBrowserScope("session");
     setBackgroundDeliveryStatusMessage("");
-    setMemoryProposalAction(null);
-    setEditingMemoryProposalId(null);
-    setMemoryProposalDrafts({});
     loadedHistoryOutputEventsRef.current = [];
     mainSessionEventBatchInputIdsRef.current.clear();
     pendingHistoryPrependRestoreRef.current = null;
@@ -3466,14 +3401,12 @@ export function ChatPane({
     historyMessages: SessionHistoryMessagePayload[],
     outputEvents: SessionOutputEventPayload[],
     outputs: WorkspaceOutputRecordPayload[],
-    memoryProposals: MemoryUpdateProposalRecordPayload[],
     knownAssistantInputIds: Set<string> = new Set(),
   ): ChatMessage[] {
     return chatMessagesFromSessionState({
       historyMessages,
       outputEvents,
       outputs,
-      memoryProposals,
       knownAssistantInputIds,
       showExecutionInternals:
         shouldShowExecutionInternalsForSession(sessionId),
@@ -3519,11 +3452,9 @@ export function ChatPane({
         warnings: [] as string[],
         outputEvents: [] as SessionOutputEventPayload[],
         outputs: [] as WorkspaceOutputRecordPayload[],
-        memoryProposals: [] as MemoryUpdateProposalRecordPayload[],
         renderedMessages: historyMessagesFromSessionState(
           params.sessionId,
           historyMessages,
-          [],
           [],
           [],
           options?.knownAssistantInputIds,
@@ -3534,26 +3465,19 @@ export function ChatPane({
     const auxiliaryHistoryWarnings: string[] = [];
     const artifactResponses = await Promise.all(
       assistantInputIds.map(async (inputId) => {
-        const [outputEventsResult, outputListResult, memoryProposalListResult] =
-          await Promise.allSettled([
-            window.electronAPI.workspace.getSessionOutputEvents({
-              workspaceId: params.workspaceId,
-              sessionId: params.sessionId,
-              inputId,
-            }),
-            window.electronAPI.workspace.listOutputs({
-              workspaceId: params.workspaceId,
-              sessionId: params.sessionId,
-              inputId,
-              limit: 200,
-            }),
-            window.electronAPI.workspace.listMemoryUpdateProposals({
-              workspaceId: params.workspaceId,
-              sessionId: params.sessionId,
-              inputId,
-              limit: 200,
-            }),
-          ]);
+        const [outputEventsResult, outputListResult] = await Promise.allSettled([
+          window.electronAPI.workspace.getSessionOutputEvents({
+            workspaceId: params.workspaceId,
+            sessionId: params.sessionId,
+            inputId,
+          }),
+          window.electronAPI.workspace.listOutputs({
+            workspaceId: params.workspaceId,
+            sessionId: params.sessionId,
+            inputId,
+            limit: 200,
+          }),
+        ]);
         if (outputEventsResult.status !== "fulfilled") {
           auxiliaryHistoryWarnings.push(
             optionalHistoryLoadErrorMessage(
@@ -3570,14 +3494,6 @@ export function ChatPane({
             ),
           );
         }
-        if (memoryProposalListResult.status !== "fulfilled") {
-          auxiliaryHistoryWarnings.push(
-            optionalHistoryLoadErrorMessage(
-              "Memory proposals",
-              memoryProposalListResult.reason,
-            ),
-          );
-        }
         return {
           outputEvents:
             outputEventsResult.status === "fulfilled"
@@ -3586,10 +3502,6 @@ export function ChatPane({
           outputs:
             outputListResult.status === "fulfilled"
               ? outputListResult.value.items
-              : [],
-          memoryProposals:
-            memoryProposalListResult.status === "fulfilled"
-              ? memoryProposalListResult.value.proposals
               : [],
         };
       }),
@@ -3606,10 +3518,6 @@ export function ChatPane({
       [],
       artifactResponses.flatMap((entry) => entry.outputs),
     );
-    const memoryProposals = mergeMemoryUpdateProposals(
-      [],
-      artifactResponses.flatMap((entry) => entry.memoryProposals),
-    );
 
     return {
       history,
@@ -3617,13 +3525,11 @@ export function ChatPane({
       warnings: auxiliaryHistoryWarnings,
       outputEvents,
       outputs,
-      memoryProposals,
       renderedMessages: historyMessagesFromSessionState(
         params.sessionId,
         historyMessages,
         outputEvents,
         outputs,
-        memoryProposals,
         options?.knownAssistantInputIds,
       ),
     };
@@ -4178,80 +4084,6 @@ export function ChatPane({
       readOnly: false,
     });
     return true;
-  }
-
-  const updateMemoryProposalDraft = useCallback(
-    (proposalId: string, value: string) => {
-      setMemoryProposalDrafts((prev) => ({
-        ...prev,
-        [proposalId]: value,
-      }));
-    },
-    [],
-  );
-
-  async function handleAcceptMemoryProposal(
-    proposal: MemoryUpdateProposalRecordPayload,
-  ) {
-    if (!selectedWorkspaceId) {
-      return;
-    }
-    const nextSummary = (
-      memoryProposalDrafts[proposal.proposal_id] ?? proposal.summary
-    ).trim();
-    if (!nextSummary) {
-      setChatErrorMessage("Memory proposal summary cannot be empty.");
-      return;
-    }
-    setMemoryProposalAction({
-      proposalId: proposal.proposal_id,
-      action: "accept",
-    });
-    try {
-      await window.electronAPI.workspace.acceptMemoryUpdateProposal({
-        proposalId: proposal.proposal_id,
-        workspaceId: proposal.workspace_id,
-        summary: nextSummary,
-      });
-      setEditingMemoryProposalId((current) =>
-        current === proposal.proposal_id ? null : current,
-      );
-      scheduleConversationRefresh(proposal.session_id, selectedWorkspaceId);
-    } catch (error) {
-      setChatErrorMessage(normalizeErrorMessage(error));
-    } finally {
-      setMemoryProposalAction((current) =>
-        current?.proposalId === proposal.proposal_id ? null : current,
-      );
-    }
-  }
-
-  async function handleDismissMemoryProposal(
-    proposal: MemoryUpdateProposalRecordPayload,
-  ) {
-    if (!selectedWorkspaceId) {
-      return;
-    }
-    setMemoryProposalAction({
-      proposalId: proposal.proposal_id,
-      action: "dismiss",
-    });
-    try {
-      await window.electronAPI.workspace.dismissMemoryUpdateProposal(
-        proposal.workspace_id,
-        proposal.proposal_id,
-      );
-      setEditingMemoryProposalId((current) =>
-        current === proposal.proposal_id ? null : current,
-      );
-      scheduleConversationRefresh(proposal.session_id, selectedWorkspaceId);
-    } catch (error) {
-      setChatErrorMessage(normalizeErrorMessage(error));
-    } finally {
-      setMemoryProposalAction((current) =>
-        current?.proposalId === proposal.proposal_id ? null : current,
-      );
-    }
   }
 
   const toggleTraceStep = useCallback((stepId: string) => {
@@ -7736,31 +7568,6 @@ export function ChatPane({
                     onToggleTraceStep={toggleTraceStep}
                     onLinkClick={onOpenLinkInBrowser}
                     onLocalLinkClick={onOpenLocalLink}
-                    memoryProposalAction={memoryProposalAction}
-                    editingMemoryProposalId={editingMemoryProposalId}
-                    memoryProposalDrafts={memoryProposalDrafts}
-                    onEditMemoryProposal={(message, proposalId) => {
-                      setEditingMemoryProposalId((current) => {
-                        const next =
-                          current === proposalId ? null : proposalId;
-                        if (next === proposalId) {
-                          const proposal = (
-                            message.memoryProposals ?? []
-                          ).find((item) => item.proposal_id === proposalId);
-                          if (proposal) {
-                            setMemoryProposalDrafts((prev) => ({
-                              ...prev,
-                              [proposalId]:
-                                prev[proposalId] ?? proposal.summary,
-                            }));
-                          }
-                        }
-                        return next;
-                      });
-                    }}
-                    onMemoryProposalDraftChange={updateMemoryProposalDraft}
-                    onAcceptMemoryProposal={handleAcceptMemoryProposal}
-                    onDismissMemoryProposal={handleDismissMemoryProposal}
                     assistantFooterAccessoryMessageId={
                       lastCompletedAssistantMessageId
                     }

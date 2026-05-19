@@ -9,7 +9,6 @@ import type {
   ChatMessage,
 } from "../types";
 import { AssistantTurnActionsMenu } from "./ActionsMenu";
-import { AssistantTurnMemoryProposals } from "./MemoryProposals";
 import { AssistantTurnOutputs } from "./Outputs";
 import {
   AssistantTurnIntegrationConnects,
@@ -49,12 +48,8 @@ export const AssistantTurn = memo(AssistantTurnComponent, (prev, next) =>
   prev.tone === next.tone &&
   prev.segments === next.segments &&
   prev.executionItems === next.executionItems &&
-  prev.memoryProposals === next.memoryProposals &&
   prev.outputs === next.outputs &&
   prev.pendingIntegrations === next.pendingIntegrations &&
-  prev.memoryProposalAction === next.memoryProposalAction &&
-  prev.editingMemoryProposalId === next.editingMemoryProposalId &&
-  prev.memoryProposalDrafts === next.memoryProposalDrafts &&
   prev.collapsedTraceByStepId === next.collapsedTraceByStepId &&
   prev.live === next.live &&
   prev.status === next.status &&
@@ -71,17 +66,9 @@ function AssistantTurnComponent({
   tone = "default",
   segments,
   executionItems,
-  memoryProposals,
   outputs,
   pendingIntegrations = [],
   onAfterIntegrationBind,
-  memoryProposalAction,
-  editingMemoryProposalId,
-  memoryProposalDrafts,
-  onEditMemoryProposal,
-  onMemoryProposalDraftChange,
-  onAcceptMemoryProposal,
-  onDismissMemoryProposal,
   onOpenOutput,
   onOpenAllArtifacts,
   collapsedTraceByStepId,
@@ -104,22 +91,9 @@ function AssistantTurnComponent({
   tone?: ChatMessage["tone"];
   segments: ChatAssistantSegment[];
   executionItems: ChatExecutionTimelineItem[];
-  memoryProposals: MemoryUpdateProposalRecordPayload[];
   outputs: WorkspaceOutputRecordPayload[];
   pendingIntegrations?: AssistantTurnPendingIntegration[];
   onAfterIntegrationBind?: () => void;
-  memoryProposalAction: {
-    proposalId: string;
-    action: "accept" | "dismiss";
-  } | null;
-  editingMemoryProposalId: string | null;
-  memoryProposalDrafts: Record<string, string>;
-  onEditMemoryProposal: (proposalId: string) => void;
-  onMemoryProposalDraftChange: (proposalId: string, value: string) => void;
-  onAcceptMemoryProposal: (proposal: MemoryUpdateProposalRecordPayload) => void;
-  onDismissMemoryProposal: (
-    proposal: MemoryUpdateProposalRecordPayload,
-  ) => void;
   onOpenOutput?: (output: WorkspaceOutputRecordPayload) => void;
   onOpenAllArtifacts: (outputs: WorkspaceOutputRecordPayload[]) => void;
   collapsedTraceByStepId: Record<string, boolean>;
@@ -306,19 +280,6 @@ function AssistantTurnComponent({
 
         {footerAccessory ? (
           <div className="mt-2 flex justify-start">{footerAccessory}</div>
-        ) : null}
-
-        {memoryProposals.length > 0 ? (
-          <AssistantTurnMemoryProposals
-            proposals={memoryProposals}
-            proposalAction={memoryProposalAction}
-            editingProposalId={editingMemoryProposalId}
-            drafts={memoryProposalDrafts}
-            onEditProposal={onEditMemoryProposal}
-            onDraftChange={onMemoryProposalDraftChange}
-            onAcceptProposal={onAcceptMemoryProposal}
-            onDismissProposal={onDismissMemoryProposal}
-          />
         ) : null}
 
         {outputs.length > 0 ? (
