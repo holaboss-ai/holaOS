@@ -1314,6 +1314,7 @@ interface RuntimeNotificationListOptionsPayload {
     template_commit?: string | null;
     template_apps?: string[];
     workspace_onboarding_mode?: "start" | "skip" | null;
+    workspace_onboarding_engine?: "deterministic" | "agentic" | null;
     workspace_path?: string | null;
   }
 
@@ -1855,6 +1856,12 @@ interface RuntimeNotificationListOptionsPayload {
       ) => Promise<StageSessionAttachmentsResponsePayload>;
       queueSessionInput: (payload: HolabossQueueSessionInputPayload) => Promise<EnqueueSessionInputResponsePayload>;
       getOnboardingStatus: (workspaceId: string) => Promise<WorkspaceOnboardingStatusPayload>;
+      continueDeterministicOnboarding: (
+        workspaceId: string
+      ) => Promise<WorkspaceResponsePayload>;
+      skipWorkspaceOnboarding: (
+        workspaceId: string
+      ) => Promise<WorkspaceResponsePayload>;
       answerOnboardingAlignmentQuestion: (
         workspaceId: string,
         payload: {

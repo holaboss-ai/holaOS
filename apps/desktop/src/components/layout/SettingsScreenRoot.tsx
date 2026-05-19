@@ -57,6 +57,11 @@ import {
 } from "@/components/ui/tooltip";
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import { useIsDarkTheme } from "@/lib/themeAttr";
+import {
+  loadWorkspaceOnboardingPreference,
+  persistWorkspaceOnboardingPreference,
+  type WorkspaceOnboardingPreference,
+} from "@/features/workspace-onboarding/preferences";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 
 import type {
@@ -894,6 +899,10 @@ function ExperimentalPanel() {
       return false;
     }
   });
+  const [workspaceOnboardingPreference, setWorkspaceOnboardingPreference] =
+    useState<WorkspaceOnboardingPreference>(
+      loadWorkspaceOnboardingPreference,
+    );
   const [confirmEnableOpen, setConfirmEnableOpen] = useState(false);
 
   const apply = (next: boolean) => {
@@ -924,6 +933,29 @@ function ExperimentalPanel() {
               apply(false);
             }
           }}
+        />
+        <SettingsMenuSelectRow
+          label="Workspace onboarding mode"
+          description="Controls what Start onboarding uses for new empty workspaces. Deterministic is the default release path; agentic stays opt-in while under construction."
+          value={workspaceOnboardingPreference}
+          onValueChange={(value) => {
+            const nextValue =
+              value === "agentic" ? "agentic" : "deterministic";
+            persistWorkspaceOnboardingPreference(nextValue);
+            setWorkspaceOnboardingPreference(nextValue);
+          }}
+          options={[
+            {
+              value: "deterministic",
+              label: "Deterministic",
+              description: "Centered intro card with a lightweight continue flow.",
+            },
+            {
+              value: "agentic",
+              label: "Agentic",
+              description: "Lab-backed conversational onboarding still under active construction.",
+            },
+          ]}
         />
       </SettingsCard>
       <ConfirmDialog

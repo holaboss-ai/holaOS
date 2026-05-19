@@ -30,6 +30,7 @@ import { TopTabsBar } from "@/components/layout/TopTabsBar";
 import { WorkspaceControlCenter } from "@/components/layout/WorkspaceControlCenter";
 import { WorkspaceAppsDialog } from "@/components/layout/WorkspaceAppsDialog";
 import { FirstWorkspacePane } from "@/components/onboarding";
+import { WorkspaceOnboardingSurface } from "@/features/workspace-onboarding/WorkspaceOnboardingSurface";
 import { AppSurfacePane } from "@/components/panes/AppSurfacePane";
 import { BrowserPane } from "@/components/panes/BrowserPane";
 import { ArtifactsPane } from "@/components/panes/ArtifactsPane";
@@ -41,7 +42,6 @@ import {
 } from "@/components/panes/FileExplorerPane";
 import { InternalSurfacePane } from "@/components/panes/InternalSurfacePane";
 import { MissingWorkspacePane } from "@/components/panes/MissingWorkspacePane";
-import { OnboardingPane } from "@/components/panes/OnboardingPane";
 import { SubagentSessionsPane } from "@/components/panes/SubagentSessionsPane";
 import { SpaceApplicationsExplorerPane } from "@/components/panes/SpaceApplicationsExplorerPane";
 import { SpaceBrowserDisplayPane } from "@/components/panes/SpaceBrowserDisplayPane";
@@ -1397,15 +1397,30 @@ function WorkspaceStartupErrorPane({ message }: { message: string }) {
 }
 
 function WorkspaceOnboardingTakeover({
+  onOpenOutput,
+  onSyncFileDisplayFromAgentOperation,
+  onImageAttachmentPreviewOpenChange,
   focusRequestKey,
 }: {
+  onOpenOutput?: (output: WorkspaceOutputRecordPayload) => void;
+  onSyncFileDisplayFromAgentOperation?: (path: string) => void;
+  onImageAttachmentPreviewOpenChange?: (open: boolean) => void;
   focusRequestKey: number;
 }) {
   return (
     <section className="relative flex h-full min-h-0 min-w-0 overflow-hidden">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_16%,rgba(247,90,84,0.1),transparent_28%),radial-gradient(circle_at_88%_10%,rgba(247,170,126,0.08),transparent_24%),radial-gradient(circle_at_50%_100%,rgba(247,90,84,0.06),transparent_34%)]" />
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-        <OnboardingPane focusRequestKey={focusRequestKey} />
+        <WorkspaceOnboardingSurface
+          onOpenOutput={onOpenOutput}
+          onSyncFileDisplayFromAgentOperation={
+            onSyncFileDisplayFromAgentOperation
+          }
+          onImageAttachmentPreviewOpenChange={
+            onImageAttachmentPreviewOpenChange
+          }
+          focusRequestKey={focusRequestKey}
+        />
       </div>
     </section>
   );
@@ -4719,7 +4734,7 @@ function AppShellContent() {
         );
       }
       return onboardingModeActive ? (
-        <OnboardingPane
+        <WorkspaceOnboardingSurface
           onOpenOutput={handleOpenWorkspaceOutput}
           onSyncFileDisplayFromAgentOperation={
             handleSyncAgentOperationFileDisplay
@@ -5496,7 +5511,14 @@ function AppShellContent() {
         ) : !hasWorkspaces ? (
           <FirstWorkspacePane />
         ) : showOnboardingTakeover ? (
-          <WorkspaceOnboardingTakeover focusRequestKey={chatFocusRequestKey} />
+          <WorkspaceOnboardingTakeover
+            onOpenOutput={handleOpenWorkspaceOutput}
+            onSyncFileDisplayFromAgentOperation={
+              handleSyncAgentOperationFileDisplay
+            }
+            onImageAttachmentPreviewOpenChange={setChatImagePreviewOpen}
+            focusRequestKey={chatFocusRequestKey}
+          />
         ) : controlCenterMode ? (
           <WorkspaceControlCenter
             workspaces={workspaces}

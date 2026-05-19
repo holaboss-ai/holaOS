@@ -11,3 +11,22 @@ test("settings screen observes app updates without starting a new check", async 
   assert.match(source, /window\.electronAPI\.appUpdate\.onStateChange/);
   assert.doesNotMatch(source, /window\.electronAPI\.appUpdate\.checkNow\(\)/);
 });
+
+test("experimental settings expose the workspace onboarding mode preference", async () => {
+  const source = await readFile(SETTINGS_SCREEN_ROOT_PATH, "utf8");
+
+  assert.match(
+    source,
+    /loadWorkspaceOnboardingPreference,\s*persistWorkspaceOnboardingPreference,/,
+  );
+  assert.match(
+    source,
+    /<SettingsMenuSelectRow[\s\S]*label="Workspace onboarding mode"/,
+  );
+  assert.match(
+    source,
+    /persistWorkspaceOnboardingPreference\(nextValue\)/,
+  );
+  assert.match(source, /value: "deterministic"/);
+  assert.match(source, /value: "agentic"/);
+});

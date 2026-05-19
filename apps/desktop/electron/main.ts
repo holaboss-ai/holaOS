@@ -3299,6 +3299,7 @@ interface HolabossCreateWorkspacePayload {
   /** App names from template metadata, used for integration resolution without materialization. */
   template_apps?: string[];
   workspace_onboarding_mode?: "start" | "skip" | null;
+  workspace_onboarding_engine?: "deterministic" | "agentic" | null;
   /** Optional absolute path for the workspace's on-disk folder. When provided, the runtime registers this
    * as the workspace root instead of the default managed location. */
   workspace_path?: string | null;
@@ -14406,6 +14407,17 @@ async function createLocalWorkspace(
     const workspaceOnboardPath = path.join(workspaceDir, "ONBOARD.md");
     const wantsEmptyOnboardingScaffold =
       payload.template_mode === "empty_onboarding";
+    const requestedWorkspaceOnboardingEngine =
+      templateMode === "empty" &&
+      payload.workspace_onboarding_mode === "start" &&
+      !wantsEmptyOnboardingScaffold &&
+      payload.workspace_onboarding_engine === "agentic"
+        ? "agentic"
+        : templateMode === "empty" &&
+            payload.workspace_onboarding_mode === "start" &&
+            !wantsEmptyOnboardingScaffold
+          ? "deterministic"
+          : null;
     if (templateMode === "empty") {
       await fs.mkdir(path.join(workspaceDir, "skills"), { recursive: true });
       await fs.writeFile(workspaceAgentsPath, "", "utf-8");
@@ -14477,11 +14489,12 @@ async function createLocalWorkspace(
     }
 
     let onboardingStatus = "NOT_REQUIRED";
+    let onboardingState: string | null = null;
     let onboardingSessionId: string | null = null;
-    const wantsWorkspaceOnboarding =
-      templateMode === "empty" &&
-      payload.workspace_onboarding_mode === "start" &&
-      !wantsEmptyOnboardingScaffold;
+    const wantsDeterministicWorkspaceOnboarding =
+      requestedWorkspaceOnboardingEngine === "deterministic";
+    const wantsAgenticWorkspaceOnboarding =
+      requestedWorkspaceOnboardingEngine === "agentic";
     const skipsWorkspaceOnboarding =
       templateMode === "empty" &&
       payload.workspace_onboarding_mode === "skip" &&
@@ -14499,8 +14512,14 @@ async function createLocalWorkspace(
       onboardingStatus = "NOT_REQUIRED";
       onboardingSessionId = null;
     }
+    if (wantsDeterministicWorkspaceOnboarding) {
+      onboardingStatus = "PENDING";
+      onboardingState = "deterministic_intro";
+      onboardingSessionId = null;
+    }
     if (!onboardingSessionId && skipsWorkspaceOnboarding) {
       onboardingStatus = "COMPLETED";
+      onboardingState = null;
     }
 
     stageLog("activate_workspace.start", { workspaceId, onboardingStatus });
@@ -14509,6 +14528,7 @@ async function createLocalWorkspace(
       updated = await runtimeClient.workspaces.update(workspaceId, {
         status: "active",
         onboarding_status: onboardingStatus.toLowerCase(),
+        onboarding_state: onboardingState,
         onboarding_session_id: onboardingSessionId,
         ...(skipsWorkspaceOnboarding
           ? {
@@ -14641,7 +14661,7 @@ async function createLocalWorkspace(
           .catch(() => updated);
       }
     }
-    if (wantsWorkspaceOnboarding) {
+    if (wantsAgenticWorkspaceOnboarding) {
       try {
         const onboardingLab = await requestWorkspaceRuntimeJson<{
           lab?: { id?: string | null } | null;
@@ -15226,6 +15246,100 @@ async function getOnboardingStatus(
         workspace_id: workspaceId,
       },
     },
+  );
+}
+
+async function continueDeterministicOnboarding(
+  workspaceId: string,
+): Promise<WorkspaceResponsePayload> {
+  const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
+  const current = await runtimeClient.workspaces.get(safeWorkspaceId);
+  const onboardingSessionId =
+    current.workspace.onboarding_session_id?.trim() || "";
+  if (onboardingSessionId) {
+    throw new Error(
+      "Deterministic onboarding is only available for non-agentic onboarding workspaces.",
+    );
+  }
+  const status = (current.workspace.onboarding_status || "").trim().toLowerCase();
+  if (status === "completed" || status === "not_required") {
+    return withWorkspaceResponseLocation(current);
+  }
+  return withWorkspaceResponseLocation(
+    await runtimeClient.workspaces.update(safeWorkspaceId, {
+      onboarding_status: "completed",
+      onboarding_state: null,
+      onboarding_completed_at: new Date().toISOString(),
+      onboarding_completion_summary: "Deterministic onboarding completed",
+      onboarding_requested_by: "workspace_user",
+      error_message: null,
+    }),
+  );
+}
+
+async function skipWorkspaceOnboarding(
+  workspaceId: string,
+): Promise<WorkspaceResponsePayload> {
+  const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
+  const current = await runtimeClient.workspaces.get(safeWorkspaceId);
+  const currentWorkspace = current.workspace;
+  const status = (currentWorkspace.onboarding_status || "").trim().toLowerCase();
+  if (status === "completed" || status === "not_required") {
+    return withWorkspaceResponseLocation(current);
+  }
+
+  const workspaceRole = (currentWorkspace.workspace_role || "")
+    .trim()
+    .toLowerCase();
+  const sourceWorkspaceId =
+    workspaceRole === "draft_lab"
+      ? currentWorkspace.source_workspace_id?.trim() || safeWorkspaceId
+      : safeWorkspaceId;
+  let labWorkspaceId =
+    workspaceRole === "draft_lab" ? safeWorkspaceId : "";
+
+  if (!labWorkspaceId) {
+    try {
+      const onboardingStatus = await getOnboardingStatus(sourceWorkspaceId);
+      labWorkspaceId = onboardingStatus.lab_workspace_id?.trim() || "";
+    } catch {
+      labWorkspaceId = "";
+    }
+  }
+
+  if (labWorkspaceId) {
+    const abandoned = await requestWorkspaceRuntimeJson<WorkspaceLabResponsePayload>(
+      sourceWorkspaceId,
+      {
+        method: "POST",
+        path: `/api/v1/workspace-labs/${encodeURIComponent(labWorkspaceId)}/abandon`,
+        payload: {
+          summary: "Workspace onboarding skipped",
+        },
+      },
+    );
+    if (abandoned.source) {
+      return withWorkspaceResponseLocation({
+        workspace: abandoned.source,
+      });
+    }
+    return withWorkspaceResponseLocation(
+      await runtimeClient.workspaces.get(sourceWorkspaceId),
+    );
+  }
+
+  return withWorkspaceResponseLocation(
+    await runtimeClient.workspaces.update(sourceWorkspaceId, {
+      onboarding_status: "completed",
+      onboarding_state: currentWorkspace.onboarding_session_id?.trim()
+        ? "abandoned"
+        : null,
+      onboarding_session_id: null,
+      onboarding_completed_at: new Date().toISOString(),
+      onboarding_completion_summary: "Workspace onboarding skipped",
+      onboarding_requested_by: "workspace_user",
+      error_message: null,
+    }),
   );
 }
 
@@ -22972,6 +23086,18 @@ app.whenReady().then(async () => {
     "workspace:getOnboardingStatus",
     ["main"],
     async (_event, workspaceId: string) => getOnboardingStatus(workspaceId),
+  );
+  handleTrustedIpc(
+    "workspace:continueDeterministicOnboarding",
+    ["main"],
+    async (_event, workspaceId: string) =>
+      continueDeterministicOnboarding(workspaceId),
+  );
+  handleTrustedIpc(
+    "workspace:skipWorkspaceOnboarding",
+    ["main"],
+    async (_event, workspaceId: string) =>
+      skipWorkspaceOnboarding(workspaceId),
   );
   handleTrustedIpc(
     "workspace:answerOnboardingAlignmentQuestion",

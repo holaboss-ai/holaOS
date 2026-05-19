@@ -153,3 +153,26 @@ test("workspace creation can copy an existing workspace browser profile or impor
   assert.match(source, /setWorkspaceCreatePhase\("copying_browser_profile"\);/);
   assert.match(source, /setWorkspaceCreatePhase\("importing_browser_profile"\);/);
 });
+
+test("workspace creation forwards the persisted onboarding engine for start mode", async () => {
+  const source = await readFile(WORKSPACE_DESKTOP_PATH, "utf8");
+
+  assert.match(
+    source,
+    /const requestedOnboardingEngine =[\s\S]*requestedOnboardingMode === "start"[\s\S]*loadWorkspaceOnboardingPreference\(\)/,
+  );
+  assert.match(
+    source,
+    /workspace_onboarding_engine: requestedOnboardingEngine/,
+  );
+});
+
+test("workspace desktop exposes a shared skip onboarding action", async () => {
+  const source = await readFile(WORKSPACE_DESKTOP_PATH, "utf8");
+
+  assert.match(source, /skipWorkspaceOnboarding: \(\) => Promise<void>;/);
+  assert.match(
+    source,
+    /async function skipWorkspaceOnboarding\(\) \{[\s\S]*window\.electronAPI\.workspace\.skipWorkspaceOnboarding\(\s*selectedWorkspaceId,\s*\)[\s\S]*await loadWorkspaceData\(\{ preserveSelection: true, allowEmpty: true \}\);[\s\S]*\}/,
+  );
+});

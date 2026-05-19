@@ -1456,6 +1456,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("workspace:queueSessionInput", payload) as Promise<EnqueueSessionInputResponsePayload>,
     getOnboardingStatus: (workspaceId: string) =>
       ipcRenderer.invoke("workspace:getOnboardingStatus", workspaceId) as Promise<WorkspaceOnboardingStatusPayload>,
+    continueDeterministicOnboarding: (workspaceId: string) =>
+      ipcRenderer.invoke("workspace:continueDeterministicOnboarding", workspaceId) as Promise<WorkspaceResponsePayload>,
+    skipWorkspaceOnboarding: (workspaceId: string) =>
+      ipcRenderer.invoke("workspace:skipWorkspaceOnboarding", workspaceId) as Promise<WorkspaceResponsePayload>,
     answerOnboardingAlignmentQuestion: (
       workspaceId: string,
       payload: {

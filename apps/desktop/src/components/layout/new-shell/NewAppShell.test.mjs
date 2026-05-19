@@ -7,7 +7,10 @@ const NEW_APP_SHELL_PATH = new URL("./NewAppShell.tsx", import.meta.url);
 test("experimental shell swaps into onboarding takeover mode for onboarding workspaces", async () => {
   const source = await readFile(NEW_APP_SHELL_PATH, "utf8");
 
-  assert.match(source, /import \{ OnboardingPane \} from "@\/components\/panes\/OnboardingPane";/);
+  assert.match(
+    source,
+    /import \{ WorkspaceOnboardingSurface \} from "@\/features\/workspace-onboarding\/WorkspaceOnboardingSurface";/,
+  );
   assert.match(
     source,
     /const \{ onboardingModeActive \} = useWorkspaceDesktop\(\);/,
@@ -18,6 +21,6 @@ test("experimental shell swaps into onboarding takeover mode for onboarding work
   );
   assert.match(
     source,
-    /function ExperimentalWorkspaceOnboardingTakeover\(\) \{[\s\S]*<OnboardingPane \/>[\s\S]*\}/,
+    /function ExperimentalWorkspaceOnboardingTakeover\(\) \{[\s\S]*<WorkspaceOnboardingSurface \/>[\s\S]*\}/,
   );
 });

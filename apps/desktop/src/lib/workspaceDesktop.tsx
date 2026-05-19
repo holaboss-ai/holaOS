@@ -12,6 +12,7 @@ import {
 import { trackUmamiEvent } from "@/lib/analytics/umami";
 import { getMarketplaceAppSdkClient } from "@/lib/app-sdk-client";
 import { type AuthSession, useDesktopAuthSession } from "@/lib/auth/authClient";
+import { loadWorkspaceOnboardingPreference } from "@/features/workspace-onboarding/preferences";
 import { hydrateInstalledWorkspaceApps, type WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 
@@ -87,7 +88,8 @@ const LOCAL_OSS_TEMPLATE_USER_ID = "local-oss";
 const DEFAULT_WORKSPACE_HARNESS: WorkspaceHarnessId = "pi";
 const BOOTSTRAP_IPC_TIMEOUT_MS = 8_000;
 type TemplateSourceMode = "local" | "marketplace" | "empty" | "empty_onboarding";
-export type FirstWorkspaceStep = "welcome" | "name" | "folder" | "onboard";
+export type FirstWorkspaceStep = "welcome" | "name" | "folder";
+export type WorkspaceOnboardingEngine = "deterministic" | "agentic";
 type LifecycleStepState = "pending" | "current" | "done" | "error";
 type WorkspaceListLoadSource = "auto" | "live" | "cached";
 type WorkspaceBrowserBootstrapMode = "fresh" | "copy_workspace" | "import_browser";
@@ -200,11 +202,14 @@ interface WorkspaceDesktopContextValue {
     message: string;
   } | null;
   onboardingModeActive: boolean;
+  onboardingEngine: WorkspaceOnboardingEngine | null;
   sessionModeLabel: string;
   sessionTargetId: string;
   refreshWorkspaceData: () => Promise<void>;
   chooseTemplateFolder: () => Promise<void>;
   createWorkspace: (options?: { workspaceOnboardingMode?: "start" | "skip" }) => Promise<void>;
+  continueDeterministicOnboarding: () => Promise<void>;
+  skipWorkspaceOnboarding: () => Promise<void>;
   deleteWorkspace: (workspaceId: string) => Promise<void>;
   updateWorkspaceAppearance: (
     workspaceId: string,
@@ -295,15 +300,17 @@ function normalizedOnboardingStatus(workspace: WorkspaceRecordPayload | null): s
   return (workspace?.onboarding_status || "").trim().toLowerCase();
 }
 
-function isOnboardingMode(workspace: WorkspaceRecordPayload | null): boolean {
+function onboardingEngineForWorkspace(
+  workspace: WorkspaceRecordPayload | null,
+): WorkspaceOnboardingEngine | null {
   if (!workspace) {
-    return false;
+    return null;
+  }
+  if (!ONBOARDING_ACTIVE_STATUSES.has(normalizedOnboardingStatus(workspace))) {
+    return null;
   }
   const onboardingSessionId = (workspace.onboarding_session_id || "").trim();
-  if (!onboardingSessionId) {
-    return false;
-  }
-  return ONBOARDING_ACTIVE_STATUSES.has(normalizedOnboardingStatus(workspace));
+  return onboardingSessionId ? "agentic" : "deterministic";
 }
 
 export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) {
@@ -386,6 +393,10 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     () => marketplaceTemplates.find((template) => template.name === selectedMarketplaceTemplateName) ?? null,
     [marketplaceTemplates, selectedMarketplaceTemplateName]
   );
+  const onboardingEngine = useMemo(
+    () => onboardingEngineForWorkspace(selectedWorkspace),
+    [selectedWorkspace],
+  );
 
   useEffect(() => {
     const currentSourceWorkspaceId = browserBootstrapSourceWorkspaceId.trim();
@@ -455,9 +466,9 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     };
   }, []);
 
-  const onboardingModeActive = useMemo(() => isOnboardingMode(selectedWorkspace), [selectedWorkspace]);
-  const sessionModeLabel = onboardingModeActive ? "onboarding" : "session";
-  const sessionTargetId = onboardingModeActive
+  const onboardingModeActive = onboardingEngine !== null;
+  const sessionModeLabel = onboardingEngine === "agentic" ? "onboarding" : "session";
+  const sessionTargetId = onboardingEngine === "agentic"
     ? (selectedWorkspace?.onboarding_session_id || "").trim()
     : "";
   const runtimeReadyForWorkspaceData = runtimeStatus?.status === "running";
@@ -821,13 +832,23 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
           ...(customWorkspacePath ? { workspace_path: customWorkspacePath } : {})
         });
       } else if (templateSourceMode === "empty" || templateSourceMode === "empty_onboarding") {
+        const requestedOnboardingMode = options.workspaceOnboardingMode;
+        const requestedOnboardingEngine =
+          templateSourceMode === "empty" && requestedOnboardingMode === "start"
+            ? loadWorkspaceOnboardingPreference()
+            : null;
         response = await window.electronAPI.workspace.createWorkspace({
           holaboss_user_id: resolvedUserId || LOCAL_OSS_TEMPLATE_USER_ID,
           harness: selectedCreateHarness,
           name: trimmedWorkspaceName,
           template_mode: templateSourceMode === "empty_onboarding" ? "empty_onboarding" : "empty",
-          ...(templateSourceMode === "empty" && options.workspaceOnboardingMode
-            ? { workspace_onboarding_mode: options.workspaceOnboardingMode }
+          ...(templateSourceMode === "empty" && requestedOnboardingMode
+            ? { workspace_onboarding_mode: requestedOnboardingMode }
+            : {}),
+          ...(requestedOnboardingEngine
+            ? {
+                workspace_onboarding_engine: requestedOnboardingEngine,
+              }
             : {}),
           ...(customWorkspacePath ? { workspace_path: customWorkspacePath } : {})
         });
@@ -909,6 +930,42 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     } finally {
       setIsCreatingWorkspace(false);
       setWorkspaceCreatePhase("creating_workspace");
+    }
+  }
+
+  async function continueDeterministicOnboarding() {
+    if (!selectedWorkspaceId) {
+      throw new Error("Select a workspace first.");
+    }
+    setWorkspaceErrorMessage("");
+    try {
+      const response =
+        await window.electronAPI.workspace.continueDeterministicOnboarding(
+          selectedWorkspaceId,
+        );
+      upsertWorkspaceRecord(response.workspace);
+      await loadWorkspaceData({ preserveSelection: true, allowEmpty: true });
+    } catch (error) {
+      setWorkspaceErrorMessage(normalizeErrorMessage(error));
+      throw error;
+    }
+  }
+
+  async function skipWorkspaceOnboarding() {
+    if (!selectedWorkspaceId) {
+      throw new Error("Select a workspace first.");
+    }
+    setWorkspaceErrorMessage("");
+    try {
+      const response =
+        await window.electronAPI.workspace.skipWorkspaceOnboarding(
+          selectedWorkspaceId,
+        );
+      upsertWorkspaceRecord(response.workspace);
+      await loadWorkspaceData({ preserveSelection: true, allowEmpty: true });
+    } catch (error) {
+      setWorkspaceErrorMessage(normalizeErrorMessage(error));
+      throw error;
     }
   }
 
@@ -1851,11 +1908,14 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       lifecycleSteps,
       setupStatus,
       onboardingModeActive,
+      onboardingEngine,
       sessionModeLabel,
       sessionTargetId,
       refreshWorkspaceData,
       chooseTemplateFolder,
       createWorkspace,
+      continueDeterministicOnboarding,
+      skipWorkspaceOnboarding,
       deleteWorkspace,
       updateWorkspaceAppearance,
       removeInstalledApp,
@@ -1917,6 +1977,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       lifecycleSteps,
       setupStatus,
       onboardingModeActive,
+      onboardingEngine,
       sessionModeLabel,
       sessionTargetId,
       workspaceAppsReady,
@@ -1929,6 +1990,8 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       chooseWorkspaceRelocationFolder,
       activateWorkspace,
       createWorkspace,
+      continueDeterministicOnboarding,
+      skipWorkspaceOnboarding,
       deleteWorkspace,
       updateWorkspaceAppearance,
       removeInstalledApp,

@@ -1,5 +1,5 @@
-import { Folder, FolderOpen, Plug, Sparkles, Wand2, X, Zap } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Folder, FolderOpen, Plug, Sparkles, X, Zap } from "lucide-react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { firstWorkspacePaneSectionClassName } from "@/components/layout/firstWorkspacePaneLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,19 +27,17 @@ interface FirstWorkspacePaneProps {
 }
 
 // Step index + total are variant-aware: panel variant skips Welcome and so
-// the visible flow is 3 steps (name → folder → onboard) starting at 1, while
-// the full takeover is 4 steps (welcome → name → folder → onboard) starting at 1.
+// the visible flow is 2 steps (name → folder) starting at 1, while the full
+// takeover is 3 steps (welcome → name → folder) starting at 1.
 const STEP_INDEX_FULL: Record<SimpleStep, number> = {
   welcome: 1,
   name: 2,
   folder: 3,
-  onboard: 4,
 };
 const STEP_INDEX_PANEL: Record<SimpleStep, number> = {
   welcome: 0, // unreachable in panel variant
   name: 1,
   folder: 2,
-  onboard: 3,
 };
 
 /**
@@ -85,11 +83,12 @@ export function FirstWorkspacePane({
     useState(false);
   const [authGateError, setAuthGateError] = useState("");
 
-  useEffect(() => {
-    if (isPanelVariant && firstWorkspaceStep === "welcome") {
-      setFirstWorkspaceStep("name");
+  useLayoutEffect(() => {
+    if (!isPanelVariant) {
+      return;
     }
-  }, [isPanelVariant, firstWorkspaceStep, setFirstWorkspaceStep]);
+    setFirstWorkspaceStep("name");
+  }, [isPanelVariant, setFirstWorkspaceStep]);
 
   useEffect(() => {
     if (!isAuthContinuationPending || !isSignedIn) {
@@ -122,7 +121,7 @@ export function FirstWorkspacePane({
   const [folderChoice, setFolderChoice] = useState<FolderChoice>(() =>
     selectedWorkspaceFolder?.rootPath ? "custom" : "default",
   );
-  const totalSteps = isPanelVariant ? 3 : 4;
+  const totalSteps = isPanelVariant ? 2 : 3;
   const stepIndexMap = isPanelVariant ? STEP_INDEX_PANEL : STEP_INDEX_FULL;
 
   // Pin defaults on mount so any prior session's marketplace/copy state can't
@@ -191,14 +190,10 @@ export function FirstWorkspacePane({
     }
   }
 
-  function handleContinueFromFolder() {
+  function handleCreateWorkspace() {
     if (createDisabled) {
       return;
     }
-    setStep("onboard");
-  }
-
-  function handleCreate() {
     trackUmamiEvent("first_workspace_create_started", {
       folder_choice: folderChoice,
       onboarding_mode: "start",
@@ -207,22 +202,6 @@ export function FirstWorkspacePane({
       trackUmamiEvent("first_workspace_created", {
         folder_choice: folderChoice,
         onboarding_mode: "start",
-      });
-      if (isPanelVariant) {
-        onClose?.();
-      }
-    });
-  }
-
-  function handleSkipOnboarding() {
-    trackUmamiEvent("first_workspace_create_started", {
-      folder_choice: folderChoice,
-      onboarding_mode: "skip",
-    });
-    void createWorkspace({ workspaceOnboardingMode: "skip" }).then(() => {
-      trackUmamiEvent("first_workspace_created", {
-        folder_choice: folderChoice,
-        onboarding_mode: "skip",
       });
       if (isPanelVariant) {
         onClose?.();
@@ -241,9 +220,7 @@ export function FirstWorkspacePane({
       : "Connect holaOS";
 
   const shellOnBack =
-    step === "onboard"
-      ? () => setStep("folder")
-      : step === "folder"
+    step === "folder"
       ? () => setStep("name")
       : step === "name" && !isPanelVariant
         ? () => setStep("welcome")
@@ -345,8 +322,8 @@ export function FirstWorkspacePane({
             description="Files run locally on this machine. Use the default location or pick a folder you control."
             errorMessage={workspaceErrorMessage || null}
             primary={{
-              label: "Continue",
-              onClick: handleContinueFromFolder,
+              label: "Create workspace",
+              onClick: handleCreateWorkspace,
               disabled: createDisabled,
             }}
             secondary={{
@@ -413,35 +390,7 @@ export function FirstWorkspacePane({
               ) : null}
             </div>
           </WorkspaceWizardLayout>
-        ) : (
-          <WorkspaceWizardLayout
-            aboveTitle={
-              <div className="mx-auto flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Wand2 className="size-5" />
-              </div>
-            }
-            errorMessage={workspaceErrorMessage || null}
-            primary={{
-              label: "Start onboarding",
-              onClick: handleCreate,
-              disabled: createDisabled,
-            }}
-            secondary={{
-              label: "Back",
-              onClick: () => setStep("folder"),
-            }}
-            stepIndex={stepIndexMap.onboard}
-            stepTotal={totalSteps}
-            tertiary={{
-              label: "Skip",
-              onClick: handleSkipOnboarding,
-            }}
-            title="Ready to onboard?"
-            width="md"
-          >
-            {null}
-          </WorkspaceWizardLayout>
-        )}
+        ) : null}
       </section>
     </OnboardingShell>
   );
