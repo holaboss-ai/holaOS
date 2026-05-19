@@ -16,16 +16,16 @@ export default defineConfig({
     // prefix-matched and would break subpath imports.
     alias: [
       // Editor package: load from source so Vite owns the module graph and
-      // HMR works on every save in packages/editor/src/. The dist/ is only
+      // HMR works on every save in sdk/editor/src/. The dist/ is only
       // for non-Vite consumers (tests, packaging) and is built via tsup.
       {
         find: /^@holaboss\/editor$/,
-        replacement: path.resolve(__dirname, "../packages/editor/src/index.ts")
+        replacement: path.resolve(__dirname, "../sdk/editor/src/index.ts")
       },
       // Stylesheet subpath — same reason: load source so CSS edits HMR.
       {
         find: /^@holaboss\/editor\/styles\.css$/,
-        replacement: path.resolve(__dirname, "../packages/editor/src/styles.css")
+        replacement: path.resolve(__dirname, "../sdk/editor/src/styles.css")
       },
       { find: "@", replacement: path.resolve(__dirname, "src") }
     ],

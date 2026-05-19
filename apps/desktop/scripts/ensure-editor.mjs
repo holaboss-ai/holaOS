@@ -4,17 +4,17 @@ import path from "node:path";
 import { runNpm } from "./npm-runner.mjs";
 
 const desktopRoot = process.cwd();
-const appSdkRoot = path.resolve(desktopRoot, "..", "sdk", "app-sdk");
-const appSdkSourceInputs = [
-  path.join(appSdkRoot, "package.json"),
-  path.join(appSdkRoot, "tsdown.config.ts"),
-  path.join(appSdkRoot, "src"),
+const editorRoot = path.resolve(desktopRoot, "..", "..", "sdk", "editor");
+const editorSourceInputs = [
+  path.join(editorRoot, "package.json"),
+  path.join(editorRoot, "tsup.config.ts"),
+  path.join(editorRoot, "src"),
 ];
-const appSdkRequiredOutputs = [
-  path.join(appSdkRoot, "dist", "index.js"),
-  path.join(appSdkRoot, "dist", "index.d.ts"),
-  path.join(appSdkRoot, "dist", "core.js"),
-  path.join(appSdkRoot, "dist", "core.d.ts"),
+const editorRequiredOutputs = [
+  path.join(editorRoot, "dist", "index.js"),
+  path.join(editorRoot, "dist", "index.cjs"),
+  path.join(editorRoot, "dist", "index.d.ts"),
+  path.join(editorRoot, "dist", "styles.css"),
 ];
 
 function newestExistingMtime(targetPath) {
@@ -37,26 +37,26 @@ function newestExistingMtime(targetPath) {
 }
 
 function allOutputsExist() {
-  return appSdkRequiredOutputs.every((targetPath) => fs.existsSync(targetPath));
+  return editorRequiredOutputs.every((targetPath) => fs.existsSync(targetPath));
 }
 
 const outputsExist = allOutputsExist();
 const newestSourceStamp = Math.max(
-  ...appSdkSourceInputs.map((targetPath) => newestExistingMtime(targetPath)),
+  ...editorSourceInputs.map((targetPath) => newestExistingMtime(targetPath)),
 );
 const newestOutputStamp = Math.max(
-  ...appSdkRequiredOutputs.map((targetPath) => newestExistingMtime(targetPath)),
+  ...editorRequiredOutputs.map((targetPath) => newestExistingMtime(targetPath)),
 );
 const outputsStale = outputsExist && newestSourceStamp > newestOutputStamp;
 
 if (!outputsExist || outputsStale) {
   console.log(
     outputsExist
-      ? "[ensure-app-sdk] sdk/app-sdk build is stale; rebuilding."
-      : "[ensure-app-sdk] sdk/app-sdk build output missing; building.",
+      ? "[ensure-editor] sdk/editor build is stale; rebuilding."
+      : "[ensure-editor] sdk/editor build output missing; building.",
   );
   runNpm(["run", "build"], {
-    cwd: appSdkRoot,
+    cwd: editorRoot,
     stdio: "inherit",
     env: process.env,
   });

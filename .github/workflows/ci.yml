@@ -315,7 +315,7 @@ jobs:
           fi
 
       - name: Build desktop code for macOS release
-        working-directory: desktop
+        working-directory: apps/desktop
         shell: bash
         env:
           HOLABOSS_RELEASE_TAG: ${{ env.RELEASE_TAG }}
@@ -349,7 +349,7 @@ jobs:
 
       - name: Upload desktop Sentry source maps
         if: ${{ env.SENTRY_AUTH_TOKEN != '' }}
-        working-directory: desktop
+        working-directory: apps/desktop
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
@@ -362,7 +362,7 @@ jobs:
 
       - name: Build signed macOS app bundle
         id: build_signed_app
-        working-directory: desktop
+        working-directory: apps/desktop
         shell: bash
         env:
           HOLABOSS_RELEASE_TAG: ${{ env.RELEASE_TAG }}
@@ -378,7 +378,7 @@ jobs:
             --config.mac.notarize=false
           app_path="$(find out/release -maxdepth 2 -name '*.app' -print -quit)"
           if [ -z "${app_path}" ]; then
-            echo "no .app bundle found under desktop/out/release" >&2
+            echo "no .app bundle found under apps/desktop/out/release" >&2
             exit 1
           fi
           app_path="$(cd "$(dirname "${app_path}")" && pwd)/$(basename "${app_path}")"
@@ -392,7 +392,7 @@ jobs:
           echo "app_path=${packaged_app}" >> "${GITHUB_OUTPUT}"
 
       - name: Validate signed macOS app bundle
-        working-directory: desktop
+        working-directory: apps/desktop
         run: |
           app_path="${{ steps.build_signed_app.outputs.app_path }}"
           if [ -z "${app_path}" ] || [ ! -d "${app_path}" ]; then
@@ -402,7 +402,7 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "${app_path}"
 
       - name: Notarize signed macOS app bundle
-        working-directory: desktop
+        working-directory: apps/desktop
         shell: bash
         run: |
           app_path="${{ steps.build_signed_app.outputs.app_path }}"
@@ -456,7 +456,7 @@ jobs:
           xcrun stapler validate "${app_path}"
 
       - name: Build macOS desktop release artifacts from notarized app bundle
-        working-directory: desktop
+        working-directory: apps/desktop
         shell: bash
         env:
           HOLABOSS_RELEASE_TAG: ${{ env.RELEASE_TAG }}
@@ -484,15 +484,15 @@ jobs:
           else
             primary_manifest_name="latest-mac.yml"
           fi
-          dmg_path="$(find desktop/out/release -maxdepth 1 -name '*.dmg' -print -quit)"
-          zip_path="$(find desktop/out/release -maxdepth 1 -name '*.zip' ! -name '*.blockmap' -print -quit)"
-          manifest_path="desktop/out/release/${primary_manifest_name}"
+          dmg_path="$(find apps/desktop/out/release -maxdepth 1 -name '*.dmg' -print -quit)"
+          zip_path="$(find apps/desktop/out/release -maxdepth 1 -name '*.zip' ! -name '*.blockmap' -print -quit)"
+          manifest_path="apps/desktop/out/release/${primary_manifest_name}"
           if [ -z "${dmg_path}" ]; then
-            echo "no DMG found in desktop/out/release" >&2
+            echo "no DMG found in apps/desktop/out/release" >&2
             exit 1
           fi
           if [ -z "${zip_path}" ]; then
-            echo "no macOS zip found in desktop/out/release" >&2
+            echo "no macOS zip found in apps/desktop/out/release" >&2
             exit 1
           fi
           if [ ! -f "${manifest_path}" ]; then
@@ -500,7 +500,7 @@ jobs:
             exit 1
           fi
           if [ "${primary_channel}" = "latest" ]; then
-            beta_manifest_path="desktop/out/release/beta-mac.yml"
+            beta_manifest_path="apps/desktop/out/release/beta-mac.yml"
             cp "${manifest_path}" "${beta_manifest_path}"
             if [ ! -f "${beta_manifest_path}" ]; then
               echo "beta-mac.yml was not generated for stable-channel compatibility" >&2
@@ -531,22 +531,22 @@ jobs:
       - name: Normalize macOS desktop release asset names
         shell: bash
         run: |
-          dmg_path="$(find desktop/out/release -maxdepth 1 -name '*.dmg' -print -quit)"
+          dmg_path="$(find apps/desktop/out/release -maxdepth 1 -name '*.dmg' -print -quit)"
           if [ -z "${dmg_path}" ]; then
-            echo "no DMG found in desktop/out/release" >&2
+            echo "no DMG found in apps/desktop/out/release" >&2
             exit 1
           fi
-          cp "${dmg_path}" "desktop/out/release/${DESKTOP_RELEASE_ASSET_NAME}"
+          cp "${dmg_path}" "apps/desktop/out/release/${DESKTOP_RELEASE_ASSET_NAME}"
 
       - name: Upload macOS desktop release artifacts
         uses: actions/upload-artifact@v7
         with:
           name: ${{ env.DESKTOP_ASSET_PREFIX }}-${{ inputs.release_tag }}
           path: |
-            desktop/out/release/${{ env.DESKTOP_RELEASE_ASSET_NAME }}
-            desktop/out/release/*.zip
-            desktop/out/release/*.blockmap
-            desktop/out/release/*-mac.yml
+            apps/desktop/out/release/${{ env.DESKTOP_RELEASE_ASSET_NAME }}
+            apps/desktop/out/release/*.zip
+            apps/desktop/out/release/*.blockmap
+            apps/desktop/out/release/*-mac.yml
           if-no-files-found: error
 
   release-windows-desktop:
@@ -721,7 +721,7 @@ jobs:
 
       - name: Build Windows desktop installer
         id: build_windows_installer
-        working-directory: desktop
+        working-directory: apps/desktop
         shell: pwsh
         env:
           HOLABOSS_RELEASE_TAG: ${{ env.RELEASE_TAG }}
@@ -782,18 +782,18 @@ jobs:
 
           if (-not $installer) {
             if (Test-Path -LiteralPath "out/release") {
-              Write-Host "Contents of desktop/out/release:"
+              Write-Host "Contents of apps/desktop/out/release:"
               Get-ChildItem -Path out/release -Recurse |
                 Select-Object FullName, Length |
                 Format-Table -AutoSize
             } else {
-              Write-Host "desktop/out/release does not exist."
+              Write-Host "apps/desktop/out/release does not exist."
             }
-            throw "No Windows installer .exe was produced under desktop/out/release."
+            throw "No Windows installer .exe was produced under apps/desktop/out/release."
           }
 
           if (-not (Test-Path -LiteralPath (Join-Path $PWD "out/runtime-windows"))) {
-            throw "No staged Windows runtime bundle was produced under desktop/out/runtime-windows."
+            throw "No staged Windows runtime bundle was produced under apps/desktop/out/runtime-windows."
           }
 
           $installerPath = $installer.FullName
@@ -829,7 +829,7 @@ jobs:
 
       - name: Upload desktop Sentry source maps
         if: ${{ env.SENTRY_AUTH_TOKEN != '' }}
-        working-directory: desktop
+        working-directory: apps/desktop
         shell: bash
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -846,7 +846,7 @@ jobs:
         run: |
           $primaryChannel = if ($env:RELEASE_CHANNEL) { $env:RELEASE_CHANNEL } else { "latest" }
           $manifestName = if ($primaryChannel -eq "beta") { "beta.yml" } else { "latest.yml" }
-          $manifestPath = Join-Path $PWD "desktop/out/release/$manifestName"
+          $manifestPath = Join-Path $PWD "apps/desktop/out/release/$manifestName"
           if (-not (Test-Path -LiteralPath $manifestPath)) {
             throw "$manifestName was not generated"
           }
@@ -858,14 +858,14 @@ jobs:
           }
 
           if ($primaryChannel -eq "latest") {
-            $betaManifestPath = Join-Path $PWD "desktop/out/release/beta.yml"
+            $betaManifestPath = Join-Path $PWD "apps/desktop/out/release/beta.yml"
             Copy-Item -LiteralPath $manifestPath -Destination $betaManifestPath -Force
             if (-not (Test-Path -LiteralPath $betaManifestPath)) {
               throw "beta.yml was not generated for stable-channel compatibility"
             }
           }
 
-          $stableBlockmapPath = Join-Path $PWD "desktop/out/release/$stableInstallerName.blockmap"
+          $stableBlockmapPath = Join-Path $PWD "apps/desktop/out/release/$stableInstallerName.blockmap"
           if (-not (Test-Path -LiteralPath $stableBlockmapPath)) {
             throw "No Windows blockmap was produced for $stableInstallerName."
           }
@@ -875,10 +875,10 @@ jobs:
         with:
           name: ${{ env.DESKTOP_ASSET_PREFIX }}-${{ inputs.release_tag }}
           path: |
-            desktop/out/release/${{ env.DESKTOP_RELEASE_ASSET_NAME }}
-            desktop/out/release/${{ env.DESKTOP_RELEASE_ASSET_NAME }}.blockmap
-            desktop/out/release/latest.yml
-            desktop/out/release/beta.yml
+            apps/desktop/out/release/${{ env.DESKTOP_RELEASE_ASSET_NAME }}
+            apps/desktop/out/release/${{ env.DESKTOP_RELEASE_ASSET_NAME }}.blockmap
+            apps/desktop/out/release/latest.yml
+            apps/desktop/out/release/beta.yml
           if-no-files-found: error
 
   publish-release:

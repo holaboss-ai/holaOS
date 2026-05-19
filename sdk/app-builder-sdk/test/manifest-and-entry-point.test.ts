@@ -6,11 +6,14 @@
 import { describe, test, expect } from "bun:test"
 import { spawn } from "node:child_process"
 import { mkdtempSync, unlinkSync, readFileSync } from "node:fs"
-import { join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { tmpdir } from "node:os"
+import { fileURLToPath } from "node:url"
 import { buildAppRuntimeManifest } from "../src/runtime/manifest.ts"
 import { buildSlackApp } from "../reference/slack-messaging/app.ts"
 import type { AppHandleInternal } from "../src/app.ts"
+
+const SDK_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 
 describe("manifest generator — buildAppRuntimeManifest", () => {
   test("derives Slack manifest from app declaration with all expected sections", () => {
@@ -73,7 +76,7 @@ describe("production entry point — reference/slack-messaging/server.ts boots e
 
     // Spawn the real production entry — same way holaOS runtime would
     const child = spawn("bun", ["run", "reference/slack-messaging/server.ts"], {
-      cwd: "/Users/joshua/holaboss-ai/holaboss/holaOS/experiments/app-builder-sdk",
+      cwd: SDK_DIR,
       env: {
         ...process.env,
         WORKSPACE_DB_PATH: dbPath,
@@ -134,7 +137,7 @@ describe("production entry point — reference/slack-messaging/server.ts boots e
 
   test("entry point refuses to start without WORKSPACE_DB_PATH", async () => {
     const child = spawn("bun", ["run", "reference/slack-messaging/server.ts"], {
-      cwd: "/Users/joshua/holaboss-ai/holaboss/holaOS/experiments/app-builder-sdk",
+      cwd: SDK_DIR,
       env: {
         ...process.env,
         WORKSPACE_DB_PATH: "",   // explicitly empty
