@@ -1458,7 +1458,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("workspace:getOnboardingStatus", workspaceId) as Promise<WorkspaceOnboardingStatusPayload>,
     answerOnboardingAlignmentQuestion: (
       workspaceId: string,
-      payload: { optionId: string; notes?: string | null },
+      payload: {
+        optionId?: string | null;
+        responseText?: string | null;
+        notes?: string | null;
+        answers?: Array<{
+          questionId?: string | null;
+          optionId?: string | null;
+          responseText?: string | null;
+          notes?: string | null;
+        }>;
+      },
     ) =>
       ipcRenderer.invoke(
         "workspace:answerOnboardingAlignmentQuestion",

@@ -528,8 +528,11 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     setWorkspaceLifecycleWorkspaceId(lifecycle.workspace.id);
     setWorkspaceAppsReadyState(noAppsRequireStartup || lifecycle.ready);
     setWorkspaceBlockingReasonState(noAppsRequireStartup ? "" : (lifecycle.phase_detail || lifecycle.reason || "").trim());
+    upsertWorkspaceRecord(lifecycle.workspace);
+  }
+
+  function upsertWorkspaceRecord(nextWorkspace: WorkspaceRecordPayload) {
     setWorkspaces((current) => {
-      const nextWorkspace = lifecycle.workspace;
       const existingIndex = current.findIndex((workspace) => workspace.id === nextWorkspace.id);
       if (existingIndex === -1) {
         return [nextWorkspace, ...current];
@@ -844,6 +847,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       setNewWorkspaceName("");
       setSelectedWorkspaceFolder(null);
       await loadWorkspaceData({ preserveSelection: false, allowEmpty: true });
+      upsertWorkspaceRecord(response.workspace);
       const createdWorkspaceId = response.workspace.id;
       setSelectedWorkspaceId(createdWorkspaceId);
 

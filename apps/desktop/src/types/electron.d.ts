@@ -1857,7 +1857,17 @@ interface RuntimeNotificationListOptionsPayload {
       getOnboardingStatus: (workspaceId: string) => Promise<WorkspaceOnboardingStatusPayload>;
       answerOnboardingAlignmentQuestion: (
         workspaceId: string,
-        payload: { optionId: string; notes?: string | null }
+        payload: {
+          optionId?: string | null;
+          responseText?: string | null;
+          notes?: string | null;
+          answers?: Array<{
+            questionId?: string | null;
+            optionId?: string | null;
+            responseText?: string | null;
+            notes?: string | null;
+          }>;
+        }
       ) => Promise<WorkspaceOnboardingStatusPayload>;
       approveOnboardingAlignment: (workspaceId: string) => Promise<WorkspaceOnboardingStatusPayload>;
       requestOnboardingAlignmentRevision: (workspaceId: string) => Promise<WorkspaceOnboardingStatusPayload>;

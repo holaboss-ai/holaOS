@@ -78,6 +78,53 @@ test("onboarding chat opens active lab controller sessions while normal chat can
   );
 });
 
+test("onboarding chat enters the onboarding session immediately and omits the onboarding banner chrome", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  assert.match(
+    source,
+    /const workspaceOnboardingSessionId =\s*\(\s*selectedWorkspace\?\.onboarding_session_id \|\| ""\s*\)\.trim\(\);/,
+  );
+  assert.match(
+    source,
+    /const nextSessionId =[\s\S]*\|\|\s*\(isOnboardingVariant \? workspaceOnboardingSessionId : ""\)\s*\|\|[\s\S]*mainSessionResponse\.session\?\.session_id\?\.trim\(\)/,
+  );
+  assert.doesNotMatch(
+    source,
+    /text-\[10px\] font-medium uppercase text-primary">\s*Workspace onboarding/,
+  );
+  assert.doesNotMatch(source, /onboardingStatusTone\(/);
+  assert.doesNotMatch(source, /onboardingStatusLabel\(/);
+});
+
+test("onboarding chat uses a survey-style alignment card with navigation and freeform response drafts", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  assert.match(
+    source,
+    /const \[onboardingQuestionSlideIndex, setOnboardingQuestionSlideIndex\] =\s*useState\(0\);/,
+  );
+  assert.match(
+    source,
+    /const \[onboardingQuestionDrafts, setOnboardingQuestionDrafts\] = useState<\s*Record<string, OnboardingAlignmentQuestionDraft>\s*>\(\{\}\);/,
+  );
+  assert.match(source, /type OnboardingAlignmentQuestionDraft = \{/);
+  assert.match(source, /allowFreeform: item\.allow_freeform !== false,/);
+  assert.match(
+    source,
+    /const answeredAlignmentQuestionCount = alignmentQuestionItems\.filter\(\(question\) =>[\s\S]*onboardingAlignmentQuestionIsAnswered\(onboardingQuestionDrafts\[question\.id\]\)/,
+  );
+  assert.match(
+    source,
+    /Move between questions, review earlier responses, then submit the whole set\./,
+  );
+  assert.match(source, /Natural language response/);
+  assert.match(source, /placeholder=\{activeAlignmentQuestion\.freeformPlaceholder\}/);
+  assert.match(source, /Previous/);
+  assert.match(source, /Next/);
+  assert.match(source, /Submit answers/);
+});
+
 test("chat pane blocks lab controller input while owned subagents are executing", async () => {
   const source = await readFile(sourcePath, "utf8");
 

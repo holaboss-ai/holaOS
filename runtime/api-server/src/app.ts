@@ -5096,8 +5096,23 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       });
       return runtimeAgentToolsService.answerAlignmentQuestion({
         workspaceId,
-        optionId: requiredString(request.body.option_id, "option_id"),
+        optionId: optionalString(request.body.option_id),
+        responseText: optionalString(request.body.response_text),
         notes: nullableString(request.body.notes),
+        answers:
+          Array.isArray(request.body.answers)
+            ? request.body.answers.map((item, index) => {
+                if (!isRecord(item)) {
+                  throw new Error(`answers[${index}] must be an object`);
+                }
+                return {
+                  question_id: optionalString(item.question_id),
+                  option_id: optionalString(item.option_id),
+                  response_text: optionalString(item.response_text),
+                  notes: nullableString(item.notes),
+                };
+              })
+            : null,
       });
     } catch (error) {
       if (error instanceof RuntimeAgentToolsServiceError) {

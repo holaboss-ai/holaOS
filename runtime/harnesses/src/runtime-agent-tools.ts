@@ -13,7 +13,7 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
   {
     id: "holaboss_create_alignment_question",
     description:
-      "Persist a multiple-choice onboarding alignment question for the current workspace and pause for the user's inline answer.",
+      "Persist one or more multiple-choice onboarding alignment questions for the current workspace and pause for the user's inline answer card. Questions may allow freeform responses in addition to option picks.",
     policy: "mutate"
   },
   {

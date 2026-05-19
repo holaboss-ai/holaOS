@@ -14643,15 +14643,18 @@ async function createLocalWorkspace(
     }
     if (wantsWorkspaceOnboarding) {
       try {
-        await requestWorkspaceRuntimeJson<{
+        const onboardingLab = await requestWorkspaceRuntimeJson<{
           lab?: { id?: string | null } | null;
+          source?: WorkspaceRecordPayload | null;
           session?: { session_id?: string | null } | null;
         }>(workspaceId, {
           method: "POST",
           path: `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/labs`,
           payload: { purpose: "workspace_onboarding" },
         });
-        updated = await runtimeClient.workspaces.get(workspaceId).catch(() => updated);
+        updated = onboardingLab.source
+          ? { workspace: onboardingLab.source }
+          : await runtimeClient.workspaces.get(workspaceId).catch(() => updated);
       } catch (error) {
         updated = await runtimeClient.workspaces
           .update(workspaceId, {
@@ -15243,7 +15246,17 @@ async function approveOnboardingAlignment(
 
 async function answerOnboardingAlignmentQuestion(
   workspaceId: string,
-  payload: { optionId: string; notes?: string | null },
+  payload: {
+    optionId?: string | null;
+    responseText?: string | null;
+    notes?: string | null;
+    answers?: Array<{
+      questionId?: string | null;
+      optionId?: string | null;
+      responseText?: string | null;
+      notes?: string | null;
+    }>;
+  },
 ): Promise<WorkspaceOnboardingStatusPayload> {
   return requestWorkspaceRuntimeJson<WorkspaceOnboardingStatusPayload>(
     workspaceId,
@@ -15252,8 +15265,17 @@ async function answerOnboardingAlignmentQuestion(
       path: "/api/v1/capabilities/runtime-tools/onboarding/alignment-question/answer",
       payload: {
         workspace_id: workspaceId,
-        option_id: payload.optionId,
+        option_id: payload.optionId ?? undefined,
+        response_text: payload.responseText ?? undefined,
         notes: payload.notes ?? undefined,
+        answers: Array.isArray(payload.answers)
+          ? payload.answers.map((answer) => ({
+              question_id: answer.questionId ?? undefined,
+              option_id: answer.optionId ?? undefined,
+              response_text: answer.responseText ?? undefined,
+              notes: answer.notes ?? undefined,
+            }))
+          : undefined,
       },
     },
   );
@@ -22957,7 +22979,17 @@ app.whenReady().then(async () => {
     async (
       _event,
       workspaceId: string,
-      payload: { optionId: string; notes?: string | null },
+      payload: {
+        optionId?: string | null;
+        responseText?: string | null;
+        notes?: string | null;
+        answers?: Array<{
+          questionId?: string | null;
+          optionId?: string | null;
+          responseText?: string | null;
+          notes?: string | null;
+        }>;
+      },
     ) => answerOnboardingAlignmentQuestion(workspaceId, payload),
   );
   handleTrustedIpc(

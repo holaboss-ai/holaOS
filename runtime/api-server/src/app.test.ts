@@ -998,7 +998,7 @@ test("workspace onboarding runtime tools persist alignment and verification stat
     });
     assert.equal(question.statusCode, 200);
     assert.equal(
-      question.json().alignment_question.prompt,
+      question.json().alignment_question.questions[0].prompt,
       "Which shape should the first version optimize for?",
     );
 
