@@ -3215,6 +3215,7 @@ export function ChatPane({
   const messagesRef = useRef<HTMLDivElement>(null);
   const messagesContentRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const onboardingQuestionTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerBlockRef = useRef<HTMLDivElement>(null);
   // When the outer pane is mid-width-transition, freeze the inner
@@ -4987,6 +4988,8 @@ export function ChatPane({
     };
   }, [
     isOnboardingVariant,
+    selectedWorkspace?.alignment_question,
+    selectedWorkspace?.onboarding_state,
     sessionJumpRequestKey,
     sessionJumpSessionId,
     selectedWorkspaceId,
@@ -7632,19 +7635,12 @@ export function ChatPane({
       option: OnboardingAlignmentQuestionOption,
     ) => {
       setOnboardingQuestionError("");
+      onboardingQuestionTextareaRef.current?.blur();
       setOnboardingQuestionDraft(question.id, (current) => {
-        const previouslySelectedOption = question.options.find(
-          (item) => item.id === current.optionId,
-        );
-        const shouldPrefillResponse =
-          !current.responseText.trim() ||
-          current.responseText === (previouslySelectedOption?.answerText || "");
         return {
           ...current,
           optionId: option.id,
-          responseText: shouldPrefillResponse
-            ? option.answerText
-            : current.responseText,
+          responseText: "",
         };
       });
     },
@@ -7700,11 +7696,11 @@ export function ChatPane({
               <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                 {`Question ${safeOnboardingQuestionSlideIndex + 1}/${alignmentQuestionCount} (${unansweredAlignmentQuestionCount} unanswered)`}
               </div>
-              <div className="mt-1 text-sm font-medium text-foreground">
-                {activeAlignmentQuestion.title ||
-                  alignmentQuestion?.title ||
-                  "Help the onboarding agent decide the next alignment step"}
-              </div>
+              {activeAlignmentQuestion.title || alignmentQuestion?.title ? (
+                <div className="mt-1 text-sm font-medium text-foreground">
+                  {activeAlignmentQuestion.title || alignmentQuestion?.title}
+                </div>
+              ) : null}
             </div>
             <div className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-primary">
               {answeredAlignmentQuestionCount > 0
@@ -7814,14 +7810,30 @@ export function ChatPane({
                 Natural language response
               </div>
               <textarea
+                ref={onboardingQuestionTextareaRef}
                 value={activeAlignmentQuestionDraft.responseText}
+                onFocus={() => {
+                  setOnboardingQuestionError("");
+                  setOnboardingQuestionDraft(
+                    activeAlignmentQuestion.id,
+                    (current) =>
+                      current.optionId
+                        ? {
+                            ...current,
+                            optionId: "",
+                          }
+                        : current,
+                  );
+                }}
                 onChange={(event) => {
+                  const nextResponseText = event.target.value;
                   setOnboardingQuestionError("");
                   setOnboardingQuestionDraft(
                     activeAlignmentQuestion.id,
                     (current) => ({
                       ...current,
-                      responseText: event.target.value,
+                      optionId: nextResponseText.trim() ? "" : current.optionId,
+                      responseText: nextResponseText,
                     }),
                   );
                 }}
@@ -7860,11 +7872,6 @@ export function ChatPane({
             </div>
           ) : null}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-2">
-            <div className="text-xs text-muted-foreground">
-              {alignmentQuestionCount > 1
-                ? "Move between questions, review earlier responses, then submit the whole set."
-                : "Choose an option, answer in your own words, or do both."}
-            </div>
             <div className="flex flex-wrap items-center gap-2">
               {alignmentQuestionCount > 1 ? (
                 <Button

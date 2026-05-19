@@ -89,6 +89,10 @@ test("onboarding chat enters the onboarding session immediately and omits the on
     source,
     /const nextSessionId =[\s\S]*\|\|\s*\(isOnboardingVariant \? workspaceOnboardingSessionId : ""\)\s*\|\|[\s\S]*mainSessionResponse\.session\?\.session_id\?\.trim\(\)/,
   );
+  assert.match(
+    source,
+    /\}, \[\s*isOnboardingVariant,\s*selectedWorkspace\?\.alignment_question,\s*selectedWorkspace\?\.onboarding_state,\s*sessionJumpRequestKey,\s*sessionJumpSessionId,\s*selectedWorkspaceId,\s*selectedWorkspace\?\.onboarding_session_id,\s*selectedWorkspace\?\.onboarding_status,\s*\]\);/,
+  );
   assert.doesNotMatch(
     source,
     /text-\[10px\] font-medium uppercase text-primary">\s*Workspace onboarding/,
@@ -114,12 +118,29 @@ test("onboarding chat uses a survey-style alignment card with navigation and fre
     source,
     /const answeredAlignmentQuestionCount = alignmentQuestionItems\.filter\(\(question\) =>[\s\S]*onboardingAlignmentQuestionIsAnswered\(onboardingQuestionDrafts\[question\.id\]\)/,
   );
-  assert.match(
-    source,
-    /Move between questions, review earlier responses, then submit the whole set\./,
-  );
   assert.match(source, /Natural language response/);
   assert.match(source, /placeholder=\{activeAlignmentQuestion\.freeformPlaceholder\}/);
+  assert.match(source, /onboardingQuestionTextareaRef\.current\?\.blur\(\);/);
+  assert.match(
+    source,
+    /optionId:\s*option\.id,\s*responseText:\s*""/,
+  );
+  assert.match(
+    source,
+    /onFocus=\{\(\) => \{[\s\S]*current\.optionId[\s\S]*optionId:\s*""/,
+  );
+  assert.match(
+    source,
+    /optionId:\s*nextResponseText\.trim\(\) \? "" : current\.optionId,\s*responseText:\s*nextResponseText/,
+  );
+  assert.doesNotMatch(
+    source,
+    /Help the onboarding agent decide the next alignment step/,
+  );
+  assert.doesNotMatch(
+    source,
+    /Choose an option, answer in your own words, or do both\./,
+  );
   assert.match(source, /Previous/);
   assert.match(source, /Next/);
   assert.match(source, /Submit answers/);

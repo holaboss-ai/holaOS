@@ -1002,6 +1002,53 @@ test("workspace onboarding runtime tools persist alignment and verification stat
       "Which shape should the first version optimize for?",
     );
 
+    const questionDeck = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/onboarding/alignment-question",
+      headers: {
+        "x-holaboss-workspace-id": labId,
+      },
+      payload: {
+        question: {
+          title: "Resolve the remaining setup choices",
+          allow_freeform: true,
+          questions: [
+            {
+              title: "How hands-on should the workspace be with recurring campaign work?",
+              choices: [
+                { id: "manual", label: "Mostly manual" },
+                { id: "scheduled", label: "Scheduled assistant" },
+              ],
+            },
+            {
+              prompt: "Which channel matters first?",
+              options: [
+                { id: "twitter", label: "Twitter/X", answer: "Prioritize Twitter/X first." },
+                { id: "email", label: "Email", answer: "Prioritize email first." },
+              ],
+            },
+          ],
+        },
+      },
+    });
+    assert.equal(questionDeck.statusCode, 200);
+    assert.equal(
+      questionDeck.json().alignment_question.title,
+      "Resolve the remaining setup choices",
+    );
+    assert.equal(
+      questionDeck.json().alignment_question.questions[0].prompt,
+      "How hands-on should the workspace be with recurring campaign work?",
+    );
+    assert.equal(
+      questionDeck.json().alignment_question.questions[0].options[0].label,
+      "Mostly manual",
+    );
+    assert.equal(
+      questionDeck.json().alignment_question.questions[1].options[0].answer_text,
+      "Prioritize Twitter/X first.",
+    );
+
     const answered = await app.inject({
       method: "POST",
       url: "/api/v1/capabilities/runtime-tools/onboarding/alignment-question/answer",

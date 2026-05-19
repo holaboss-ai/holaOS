@@ -2266,17 +2266,25 @@ type OnboardingAlignmentQuestionAnswer = {
 function sanitizeAlignmentQuestionOption(
   value: Record<string, unknown>,
   index: number,
+  path = "question.options",
 ): OnboardingAlignmentQuestionOption {
   const id = normalizedString(value.id) || `option_${index + 1}`;
-  const label = normalizedString(value.label);
+  const label =
+    normalizedString(value.label) ||
+    normalizedString(value.title) ||
+    normalizedString(value.text);
   if (!label) {
-    throw new Error(`question.options[${index}].label is required`);
+    throw new Error(`${path}[${index}].label is required`);
   }
   return {
     id,
     label,
     description: normalizedString(value.description) || null,
-    answer_text: normalizedString(value.answer_text) || null,
+    answer_text:
+      normalizedString(value.answer_text) ||
+      normalizedString(value.answer) ||
+      normalizedString(value.value) ||
+      null,
     recommended: value.recommended === true,
   };
 }
@@ -2285,24 +2293,38 @@ function sanitizeAlignmentQuestionItem(
   value: Record<string, unknown>,
   index: number,
   defaults?: Partial<OnboardingAlignmentQuestionItem>,
+  path = "question",
 ): OnboardingAlignmentQuestionItem {
   const id = normalizedString(value.id) || defaults?.id || `question_${index + 1}`;
-  const prompt = normalizedString(value.prompt);
+  const explicitTitle = normalizedString(value.title);
+  const prompt =
+    normalizedString(value.prompt) ||
+    normalizedString(value.question) ||
+    normalizedString(value.text) ||
+    explicitTitle;
   if (!prompt) {
-    throw new Error("question.prompt is required");
+    throw new Error(`${path}.prompt is required`);
   }
-  if (!Array.isArray(value.options) || value.options.length < 2) {
-    throw new Error("question.options must contain at least two options");
+  const optionsValue = Array.isArray(value.options)
+    ? value.options
+    : Array.isArray(value.choices)
+      ? value.choices
+      : null;
+  if (!optionsValue || optionsValue.length < 2) {
+    throw new Error(`${path}.options must contain at least two options`);
   }
-  const options = value.options.map((item, index) => {
+  const options = optionsValue.map((item, index) => {
     if (!isRecord(item)) {
-      throw new Error(`question.options[${index}] must be an object`);
+      throw new Error(`${path}.options[${index}] must be an object`);
     }
-    return sanitizeAlignmentQuestionOption(item, index);
+    return sanitizeAlignmentQuestionOption(item, index, `${path}.options`);
   });
   return {
     id,
-    title: normalizedString(value.title) || defaults?.title || null,
+    title:
+      explicitTitle && explicitTitle !== prompt
+        ? explicitTitle
+        : defaults?.title || null,
     prompt,
     details: normalizedString(value.details) || defaults?.details || null,
     allow_notes:
@@ -2334,12 +2356,22 @@ function sanitizeAlignmentQuestion(
     allow_freeform: value.allow_freeform !== false,
     freeform_placeholder: normalizedString(value.freeform_placeholder) || null,
   };
-  if (Array.isArray(value.questions) && value.questions.length > 0) {
-    const questions = value.questions.map((item, index) => {
+  const questionItems = Array.isArray(value.questions)
+    ? value.questions
+    : Array.isArray(value.items)
+      ? value.items
+      : null;
+  if (questionItems && questionItems.length > 0) {
+    const questions = questionItems.map((item, index) => {
       if (!isRecord(item)) {
         throw new Error(`question.questions[${index}] must be an object`);
       }
-      return sanitizeAlignmentQuestionItem(item, index, defaults);
+      return sanitizeAlignmentQuestionItem(
+        item,
+        index,
+        defaults,
+        `question.questions[${index}]`,
+      );
     });
     return {
       title: defaults.title || null,
@@ -2350,7 +2382,7 @@ function sanitizeAlignmentQuestion(
   return {
     title: defaults.title || null,
     details: defaults.details || null,
-    questions: [sanitizeAlignmentQuestionItem(value, 0, defaults)],
+    questions: [sanitizeAlignmentQuestionItem(value, 0, defaults, "question")],
   };
 }
 

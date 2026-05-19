@@ -83,6 +83,88 @@ function runtimeToolLabel(toolId: RuntimeAgentToolId): string {
     .join(" ");
 }
 
+function alignmentQuestionOptionSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "Optional stable option id." },
+      label: { type: "string", description: "Visible answer label shown to the user." },
+      description: { type: "string", description: "Optional helper detail for this option." },
+      answer_text: {
+        type: "string",
+        description: "Optional normalized answer text to store instead of the visible label.",
+      },
+      recommended: { type: "boolean", description: "Mark the recommended default option." },
+    },
+    required: ["label"],
+    additionalProperties: false,
+  };
+}
+
+function alignmentQuestionItemSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "Optional stable question id." },
+      title: { type: "string", description: "Optional short heading above the prompt." },
+      prompt: { type: "string", description: "Required question text shown to the user." },
+      details: { type: "string", description: "Optional supporting detail under the prompt." },
+      allow_notes: { type: "boolean", description: "Allow a short notes field." },
+      notes_placeholder: { type: "string", description: "Optional notes input placeholder." },
+      allow_freeform: {
+        type: "boolean",
+        description: "Allow a natural-language answer box in addition to options.",
+      },
+      freeform_placeholder: {
+        type: "string",
+        description: "Optional placeholder for the freeform answer box.",
+      },
+      options: {
+        type: "array",
+        description: "Two or more answer choices.",
+        minItems: 2,
+        items: alignmentQuestionOptionSchema(),
+      },
+    },
+    required: ["prompt", "options"],
+    additionalProperties: false,
+  };
+}
+
+function alignmentQuestionDeckSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      title: { type: "string", description: "Optional deck heading above the questions." },
+      details: { type: "string", description: "Optional deck-level context." },
+      allow_notes: {
+        type: "boolean",
+        description: "Default notes toggle inherited by questions unless overridden.",
+      },
+      notes_placeholder: {
+        type: "string",
+        description: "Default notes placeholder inherited by questions unless overridden.",
+      },
+      allow_freeform: {
+        type: "boolean",
+        description: "Default freeform-answer toggle inherited by questions unless overridden.",
+      },
+      freeform_placeholder: {
+        type: "string",
+        description: "Default freeform placeholder inherited by questions unless overridden.",
+      },
+      questions: {
+        type: "array",
+        description: "One or more structured alignment questions.",
+        minItems: 1,
+        items: alignmentQuestionItemSchema(),
+      },
+    },
+    required: ["questions"],
+    additionalProperties: false,
+  };
+}
+
 function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unknown> {
   switch (toolId) {
     case "holaboss_onboarding_status":
@@ -92,10 +174,9 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         type: "object",
         properties: {
           question: {
-            type: "object",
             description:
-              "Structured multiple-choice onboarding question with prompt, options, and optional note handling.",
-            additionalProperties: true,
+              "Structured onboarding question payload. Use either one question object with `prompt` and `options`, or a deck object with `questions: [...]` where each item also has `prompt` and `options`.",
+            anyOf: [alignmentQuestionItemSchema(), alignmentQuestionDeckSchema()],
           },
         },
         required: ["question"],
@@ -972,6 +1053,15 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
 }
 
 function runtimeToolPromptGuidelines(toolId: RuntimeAgentToolId): string[] {
+  if (toolId === "holaboss_create_alignment_question") {
+    return [
+      "Pass `question` as either a single question object or a deck object with `questions: [...]`.",
+      "Every question item must include a human-readable `prompt` and at least two `options` with `label` fields.",
+      "Use `title` only as a short heading; do not rely on `title` alone when you can provide a clearer `prompt`.",
+      "Use `allow_freeform: true` when the user may answer in their own words instead of only choosing an option.",
+      "Keep question decks short and tightly related, usually 2-5 questions.",
+    ];
+  }
   if (toolId === "download_url") {
     return [
       "Use `download_url` when you already have a direct asset URL and need the file saved into the workspace.",
