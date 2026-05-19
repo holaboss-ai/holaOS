@@ -1,0 +1,45 @@
+app_id: "slack"
+name: "Slack"
+slug: "slack"
+
+lifecycle:
+  setup: "bun install"
+  start: "bun run server.ts"
+  stop: "kill $(lsof -t -i :${MCP_PORT:-3099} 2>/dev/null) 2>/dev/null || true"
+
+healthchecks:
+  mcp:
+    path: /mcp/health
+    timeout_s: 30
+
+mcp:
+  enabled: true
+  transport: http-sse
+  port: 3099
+  path: /mcp/sse
+  tools:
+    - slack_connection_status
+    - slack_list_channels
+    - slack_get_channel
+    - slack_refresh_channels
+    - slack_list_messages
+    - slack_get_message
+    - slack_send_message_message
+    - slack_schedule_send_message
+    - slack_cancel_schedule_send_message
+    - slack_edit_message_message
+    - slack_delete_message_message
+    - slack_react
+    - slack_channel_directory_sync_status
+    - slack_snapshot
+
+integration:
+  destination: "slack"
+  credential_source: "platform"
+
+env_contract:
+  - "HOLABOSS_WORKSPACE_ID"
+  - "WORKSPACE_DB_PATH"
+  - "HOLABOSS_INTEGRATION_BROKER_URL"
+  - "HOLABOSS_APP_GRANT"
+  - "MCP_PORT"
