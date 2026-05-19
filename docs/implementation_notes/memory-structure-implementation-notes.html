@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Memory Structure Implementation Notes</title>
+  </head>
+  <body>
+    <h1>Memory Structure Implementation Notes</h1>
+    <h2>Design decisions</h2>
+    <ul>
+      <li>Removed the external memory proposal HTTP routes before replacing the backend so proposal review is no longer part of the supported runtime surface.</li>
+      <li>Removed the bridge-layer <code>workspace.memory.*</code> native job handlers as an explicit cut toward a tree-native backend with fewer legacy entry points.</li>
+    </ul>
+    <h2>Deviations</h2>
+    <ul>
+      <li>Left the underlying proposal record types and proposal creation internals in place for now. This change removes the exposed APIs first and avoids coupling the initial cleanup to the larger backend rewrite.</li>
+    </ul>
+    <h2>Tradeoffs</h2>
+    <ul>
+      <li>This keeps the first step small and testable, but it means there is still dormant proposal-related backend code that will need removal in a later pass.</li>
+    </ul>
+    <h2>Open questions</h2>
+    <ul>
+      <li>None at this stage.</li>
+    </ul>
+  </body>
+</html>

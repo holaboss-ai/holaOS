@@ -4997,59 +4997,6 @@ test("cronjobs, task proposals, and session state routes preserve local payload 
   assert.equal(updatedProposal.json().proposal.state, "accepted");
   assert.equal(updatedProposal.json().proposal.proposal_source, "proactive");
 
-  store.ensureSession({
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    kind: "main_session",
-    title: "Main"
-  });
-  store.createMemoryUpdateProposal({
-    proposalId: "memory-proposal-1",
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    inputId: "input-1",
-    proposalKind: "preference",
-    targetKey: "response-style",
-    title: "Response style preference",
-    summary: "Prefer concise responses.",
-    payload: {
-      preference_type: "response_style",
-      style: "concise",
-    },
-    evidence: "Please keep responses concise.",
-    confidence: 0.99,
-    sourceMessageId: "user-input-1",
-    createdAt: "2026-04-03T10:00:00.000Z"
-  });
-
-  const listedMemoryProposals = await app.inject({
-    method: "GET",
-    url: `/api/v1/memory-update-proposals?workspace_id=${workspace.id}&session_id=session-main`
-  });
-  const acceptedMemoryProposal = await app.inject({
-    method: "POST",
-    url: "/api/v1/memory-update-proposals/memory-proposal-1/accept",
-    payload: {
-      workspace_id: workspace.id,
-      summary: "Prefer concise responses."
-    }
-  });
-  const dismissedMemoryProposal = await app.inject({
-    method: "POST",
-    url: "/api/v1/memory-update-proposals/memory-proposal-1/dismiss",
-    payload: {
-      workspace_id: workspace.id
-    }
-  });
-
-  assert.equal(listedMemoryProposals.statusCode, 200);
-  assert.equal(listedMemoryProposals.json().count, 1);
-  assert.equal(acceptedMemoryProposal.statusCode, 200);
-  assert.equal(acceptedMemoryProposal.json().proposal.state, "accepted");
-  assert.equal(acceptedMemoryProposal.json().proposal.persisted_memory_id, "user-preference:response-style");
-  assert.equal(store.getMemoryEntry({ memoryId: "user-preference:response-style" })?.summary, "Prefer concise responses.");
-  assert.equal(dismissedMemoryProposal.statusCode, 409);
-
   await app.close();
   store.close();
 });
