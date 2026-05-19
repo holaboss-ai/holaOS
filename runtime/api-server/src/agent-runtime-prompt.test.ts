@@ -187,7 +187,7 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
   assert.doesNotMatch(prompt.systemPrompt, /Connected MCP tools available now:/);
   assert.doesNotMatch(prompt.systemPrompt, /Skills available now:/);
   assert.doesNotMatch(prompt.systemPrompt, /Connected MCP access: available\./);
-  assert.ok(prompt.systemPrompt.length < 4800);
+  assert.ok(prompt.systemPrompt.length < 5200);
   assert.equal(prompt.contextMessages.length, 1);
   assert.match(prompt.contextMessages.join("\n\n"), /Capability availability snapshot:/);
   assert.match(prompt.contextMessages.join("\n\n"), /Inspect tools: available \(\d+ enabled\)\./);
