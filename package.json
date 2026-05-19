@@ -12,6 +12,7 @@
     "sdk/app-sdk",
     "sdk/editor",
     "sdk/runtime-client",
+    "sdk/ui",
     "website/docs"
   ],
   "trustedDependencies": [
