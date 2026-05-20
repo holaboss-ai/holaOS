@@ -8,8 +8,9 @@ export interface DurableMemoryExtractionContext {
   workspaceId: string;
   sessionId: string;
   inputId: string;
-  instruction: string;
-  assistantText: string;
+  batchTurnCount: number;
+  batchUserInstructions: string[];
+  batchAssistantResponses: string[];
   recentUserMessages: string[];
   recentTurnSummaries: string[];
 }
@@ -114,23 +115,28 @@ export async function extractDurableMemoryCandidatesFromModel(
   }
   const payload = await queryMemoryModelJson(context.modelClient, {
     systemPrompt:
-      "Extract contextual durable memory from this turn. Return strict JSON only with this shape: " +
+      "Extract contextual durable memory from this batch of completed turns. Return strict JSON only with this shape: " +
       '{"memories":[{"scope":"workspace","memory_type":"fact|procedure|blocker|reference","subject_key":"string","title":"string","summary":"string","tags":["string"],"evidence":"string","confidence":0.0}]}. ' +
       "Only include contextual memories worth retrieving later when the relevant subject comes up again. " +
       "Include customer, project, person, vendor, or system facts; subject-specific procedures tied to a concrete customer, project, workflow, or operating context; and durable decisions, outcomes, blockers, or references likely to matter later. " +
+      "Set subject_key to identify one durable memory item, not just the overall entity or customer name. " +
       "Do not include workspace-wide defaults, rules, conventions, response-style preferences, recurring commands, default verification/build/test commands, default release or verification procedures, or general operating instructions that should instead live in AGENTS.md. " +
-      "Do not include temporary runtime details, one-off requests, transient execution state, or near-paraphrases of the same memory from this turn. " +
+      "Do not include temporary runtime details, one-off requests, transient execution state, or near-paraphrases of the same memory within this batch. " +
       "Prefer memories about a concrete subject, not generic workspace behavior. " +
-      "Only include memories that were explicitly stated or strongly implied by the user or assistant in the current turn. " +
-      "Use recent context only to disambiguate or corroborate what changed in the current turn. " +
+      "Only include memories that were explicitly stated or strongly implied by the user or assistant within the current batch. " +
+      "Use recent context only to disambiguate or corroborate what changed in the current batch. " +
       "Do not re-emit unchanged memories solely because they appear in recent context. " +
       "If a candidate sounds like something the agent should obey by default on nearly every future run, exclude it.",
     userPrompt: [
       `Workspace ID: ${context.workspaceId}`,
       `Session ID: ${context.sessionId}`,
       `Input ID: ${context.inputId}`,
+      `Batch turn count: ${context.batchTurnCount}`,
       "",
-      `Current user instruction: ${context.instruction}`,
+      "User instructions in this batch:",
+      ...(context.batchUserInstructions.length > 0
+        ? context.batchUserInstructions.map((line) => `- ${line}`)
+        : ["- none"]),
       "",
       "Recent user messages:",
       ...(context.recentUserMessages.length > 0 ? context.recentUserMessages.map((line) => `- ${line}`) : ["- none"]),
@@ -138,8 +144,10 @@ export async function extractDurableMemoryCandidatesFromModel(
       "Recent turn summaries:",
       ...(context.recentTurnSummaries.length > 0 ? context.recentTurnSummaries.map((line) => `- ${line}`) : ["- none"]),
       "",
-      "Latest assistant response:",
-      context.assistantText || "none",
+      "Assistant responses in this batch:",
+      ...(context.batchAssistantResponses.length > 0
+        ? context.batchAssistantResponses.map((line) => `- ${line}`)
+        : ["- none"]),
     ].join("\n"),
     timeoutMs: 8000,
   });

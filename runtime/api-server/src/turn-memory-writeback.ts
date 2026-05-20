@@ -55,10 +55,10 @@ interface ModelDurableCandidate {
   durableCandidate: DurableMemoryCandidate;
 }
 
-interface TurnWritebackContext {
-  assistantText: string;
+interface TurnWritebackBatchContext {
+  batchAssistantTexts: string[];
+  batchTurnResults: TurnResultRecord[];
   recentTurnSummaries: string[];
-  turnResult: TurnResultRecord;
   recentUserMessages: SessionMessageRecord[];
 }
 
@@ -67,6 +67,8 @@ export interface TurnMemoryWritebackModelContext {
   instruction?: string | null;
 }
 
+const TURN_BATCH_SIZE = 3;
+const BATCH_CURSOR_KEY_PREFIX = "interaction_memory_batch_processed_count:";
 const RECENT_TURNS_LIMIT = 5;
 const RECENT_USER_MESSAGES_LIMIT = 6;
 const MODEL_EXTRACTION_MIN_CONFIDENCE = 0.82;
@@ -87,6 +89,38 @@ function clippedText(value: string, maxChars: number): string {
     return normalized;
   }
   return `${normalized.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
+}
+
+function tokenizeSubject(value: string): string[] {
+  const matches = value.match(/[a-z0-9]{2,}/gi);
+  return matches ? matches.map((token) => token.toLowerCase()) : [];
+}
+
+function refinedExtractedSubjectKey(candidate: ExtractedDurableMemoryCandidate): string {
+  const base = candidate.subjectKey.trim();
+  if (!base) {
+    return base;
+  }
+  const baseTokens = new Set(tokenizeSubject(base));
+  if (baseTokens.size === 0) {
+    return base;
+  }
+  const suffixTokens: string[] = [];
+  const seen = new Set<string>();
+  for (const token of tokenizeSubject(candidate.title)) {
+    if (baseTokens.has(token) || seen.has(token)) {
+      continue;
+    }
+    seen.add(token);
+    suffixTokens.push(token);
+    if (suffixTokens.length >= 6) {
+      break;
+    }
+  }
+  if (suffixTokens.length === 0) {
+    return base;
+  }
+  return `${base}:${suffixTokens.join("-")}`;
 }
 
 export interface ResponseStylePreference {
@@ -209,9 +243,21 @@ function durableCandidateFromExtracted(params: {
   };
 }
 
+function sessionBatchCursorKey(sessionId: string): string {
+  return `${BATCH_CURSOR_KEY_PREFIX}${sessionId}`;
+}
+
+function processedTurnBatchCount(value: string | null): number {
+  if (!value) {
+    return 0;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
 async function extractedDurableMemoryCandidates(params: {
-  turnResult: TurnResultRecord;
-  assistantText: string;
+  batchTurnResults: TurnResultRecord[];
+  batchAssistantTexts: string[];
   recentUserMessages: SessionMessageRecord[];
   recentTurnSummaries: string[];
   modelContext?: TurnMemoryWritebackModelContext | null;
@@ -219,16 +265,25 @@ async function extractedDurableMemoryCandidates(params: {
   if (!params.modelContext?.modelClient) {
     return [];
   }
+  const batchLastTurn = params.batchTurnResults[params.batchTurnResults.length - 1];
+  if (!batchLastTurn) {
+    return [];
+  }
   const recentUserMessages = params.recentUserMessages
-    .slice(-4)
+    .slice(-Math.max(4, params.batchTurnResults.length))
     .map((message) => clippedText(message.text, 220));
+  const batchUserInstructions = recentUserMessages.slice(-params.batchTurnResults.length);
+  if (batchUserInstructions.length === 0 && params.modelContext.instruction?.trim()) {
+    batchUserInstructions.push(clippedText(params.modelContext.instruction, 220));
+  }
   const extractionContext: DurableMemoryExtractionContext = {
     modelClient: params.modelContext.modelClient,
-    workspaceId: params.turnResult.workspaceId,
-    sessionId: params.turnResult.sessionId,
-    inputId: params.turnResult.inputId,
-    instruction: params.modelContext.instruction?.trim() || recentUserMessages[recentUserMessages.length - 1] || "",
-    assistantText: clippedText(params.assistantText, 1400),
+    workspaceId: batchLastTurn.workspaceId,
+    sessionId: batchLastTurn.sessionId,
+    inputId: batchLastTurn.inputId,
+    batchTurnCount: params.batchTurnResults.length,
+    batchUserInstructions,
+    batchAssistantResponses: params.batchAssistantTexts.map((text) => clippedText(text, 600)).filter(Boolean),
     recentUserMessages,
     recentTurnSummaries: params.recentTurnSummaries.slice(0, 4),
   };
@@ -236,8 +291,11 @@ async function extractedDurableMemoryCandidates(params: {
   return extracted.map((candidate) => ({
     extractedCandidate: candidate,
     durableCandidate: durableCandidateFromExtracted({
-      turnResult: params.turnResult,
-      extracted: candidate,
+      turnResult: batchLastTurn,
+      extracted: {
+        ...candidate,
+        subjectKey: refinedExtractedSubjectKey(candidate),
+      },
     }),
   }));
 }
@@ -260,25 +318,41 @@ function acceptedModelDurableCandidates(params: {
   return accepted;
 }
 
-function loadTurnWritebackContext(store: RuntimeStateStore, turnResult: TurnResultRecord): TurnWritebackContext {
-  // Keep turn_results as a deterministic execution ledger. Any short summary
-  // used by background writeback is ephemeral evidence, not persisted state.
-  const assistantText = assistantTextFromTurnArtifacts(store, turnResult);
-  const recentTurns = store.listTurnResults({
-    workspaceId: turnResult.workspaceId,
-    sessionId: turnResult.sessionId,
-    limit: RECENT_TURNS_LIMIT,
-    offset: 0,
-  });
-  const recentUserMessages = recentUserMessagesForTurn(store, turnResult, RECENT_USER_MESSAGES_LIMIT);
+function loadTurnWritebackBatchContext(params: {
+  store: RuntimeStateStore;
+  batchTurnResults: TurnResultRecord[];
+  processedTurnCount: number;
+}): TurnWritebackBatchContext {
+  const batchLastTurn = params.batchTurnResults[params.batchTurnResults.length - 1];
+  if (!batchLastTurn) {
+    return {
+      batchAssistantTexts: [],
+      batchTurnResults: [],
+      recentTurnSummaries: [],
+      recentUserMessages: [],
+    };
+  }
+  const recentUserMessages = recentUserMessagesForTurn(params.store, batchLastTurn, RECENT_USER_MESSAGES_LIMIT);
+  const recentTurns = params.processedTurnCount > 0
+    ? params.store.listTurnResults({
+        workspaceId: batchLastTurn.workspaceId,
+        sessionId: batchLastTurn.sessionId,
+        status: "completed",
+        order: "asc",
+        limit: Math.min(RECENT_TURNS_LIMIT, params.processedTurnCount),
+        offset: Math.max(0, params.processedTurnCount - RECENT_TURNS_LIMIT),
+      })
+    : [];
   return {
-    assistantText,
+    batchAssistantTexts: params.batchTurnResults
+      .map((turnResult) => assistantTextFromTurnArtifacts(params.store, turnResult))
+      .map((text) => compactWhitespace(text))
+      .filter(Boolean),
+    batchTurnResults: params.batchTurnResults,
     recentTurnSummaries: recentTurns
-      .slice(0, 4)
       .map((item) => item.assistantText)
       .map((item) => clippedText(item, 220))
       .filter((summary): summary is string => Boolean(summary)),
-    turnResult,
     recentUserMessages,
   };
 }
@@ -354,72 +428,113 @@ export async function writeTurnDurableMemory(params: {
   modelContext?: TurnMemoryWritebackModelContext | null;
 }): Promise<TurnResultRecord> {
   void params.memoryService;
-  const context = loadTurnWritebackContext(params.store, params.turnResult);
-  const extractedCandidates = await extractedDurableMemoryCandidates({
-    turnResult: context.turnResult,
-    assistantText: context.assistantText,
-    recentUserMessages: context.recentUserMessages,
-    recentTurnSummaries: context.recentTurnSummaries,
-    modelContext: params.modelContext ?? null,
-  });
-  const durableCandidates = acceptedModelDurableCandidates({
-    modelCandidates: extractedCandidates,
-  });
-  if (durableCandidates.length === 0) {
+  if (!params.modelContext?.modelClient) {
     return (
       params.store.getTurnResult({
-        workspaceId: context.turnResult.workspaceId,
-        inputId: context.turnResult.inputId,
-      }) ?? context.turnResult
+        workspaceId: params.turnResult.workspaceId,
+        inputId: params.turnResult.inputId,
+      }) ?? params.turnResult
     );
   }
-  const embeddingClient = createRecallEmbeddingModelClient({
-    workspaceId: context.turnResult.workspaceId,
-    sessionId: context.turnResult.sessionId,
-    inputId: context.turnResult.inputId,
-  });
-  const summaryModelClient = params.modelContext?.modelClient ?? null;
-  const touchedEntityIds = new Set<string>();
 
-  for (const candidate of durableCandidates) {
-    const persisted = await persistInteractionCandidate({
-      store: params.store,
-      workspaceId: context.turnResult.workspaceId,
-      candidate: {
-        subjectKey: candidate.subjectKey,
-        title: candidate.title,
-        summary: candidate.summary,
-        content: candidate.content,
-        tags: candidate.tags,
-        memoryType: candidate.memoryType,
-        sourceType: candidate.sourceType,
-        sourceEventId: context.turnResult.inputId,
-        sourceMessageId: candidate.sourceMessageId ?? null,
-        sourceTurnInputId: context.turnResult.inputId,
-        observedAt: candidate.observedAt ?? null,
-        confidence: candidate.confidence ?? null,
-      },
-      modelClient: params.modelContext?.modelClient ?? null,
-      embeddingClient,
+  const cursorKey = sessionBatchCursorKey(params.turnResult.sessionId);
+  let processedTurnCount = processedTurnBatchCount(
+    params.store.getWorkspaceRuntimeMetadata({
+      workspaceId: params.turnResult.workspaceId,
+      key: cursorKey,
+    }),
+  );
+
+  while (true) {
+    const batchTurnResults = params.store.listTurnResults({
+      workspaceId: params.turnResult.workspaceId,
+      sessionId: params.turnResult.sessionId,
+      status: "completed",
+      order: "asc",
+      limit: TURN_BATCH_SIZE,
+      offset: processedTurnCount,
     });
-    if (persisted.outcome !== "noop_duplicate") {
-      touchedEntityIds.add(persisted.entity.entityId);
+    if (batchTurnResults.length < TURN_BATCH_SIZE) {
+      break;
     }
-  }
-  for (const entityId of touchedEntityIds) {
-    await rebuildInteractionEntityTree({
+
+    const context = loadTurnWritebackBatchContext({
       store: params.store,
-      workspaceId: context.turnResult.workspaceId,
-      entityId,
-      summaryModelClient,
-      embeddingClient,
+      batchTurnResults,
+      processedTurnCount,
+    });
+    const batchLastTurn = context.batchTurnResults[context.batchTurnResults.length - 1];
+    if (!batchLastTurn) {
+      break;
+    }
+    const extractedCandidates = await extractedDurableMemoryCandidates({
+      batchTurnResults: context.batchTurnResults,
+      batchAssistantTexts: context.batchAssistantTexts,
+      recentUserMessages: context.recentUserMessages,
+      recentTurnSummaries: context.recentTurnSummaries,
+      modelContext: params.modelContext ?? null,
+    });
+    const durableCandidates = acceptedModelDurableCandidates({
+      modelCandidates: extractedCandidates,
+    });
+    if (durableCandidates.length > 0) {
+      const embeddingClient = createRecallEmbeddingModelClient({
+        workspaceId: batchLastTurn.workspaceId,
+        sessionId: batchLastTurn.sessionId,
+        inputId: batchLastTurn.inputId,
+      });
+      const summaryModelClient = params.modelContext.modelClient ?? null;
+      const touchedEntityIds = new Set<string>();
+
+      for (const candidate of durableCandidates) {
+        const persisted = await persistInteractionCandidate({
+          store: params.store,
+          workspaceId: batchLastTurn.workspaceId,
+          candidate: {
+            subjectKey: candidate.subjectKey,
+            title: candidate.title,
+            summary: candidate.summary,
+            content: candidate.content,
+            tags: candidate.tags,
+            memoryType: candidate.memoryType,
+            sourceType: candidate.sourceType,
+            sourceEventId: batchLastTurn.inputId,
+            sourceMessageId: candidate.sourceMessageId ?? null,
+            sourceTurnInputId: batchLastTurn.inputId,
+            observedAt: candidate.observedAt ?? null,
+            confidence: candidate.confidence ?? null,
+          },
+          modelClient: params.modelContext.modelClient ?? null,
+          embeddingClient,
+        });
+        if (persisted.outcome !== "noop_duplicate") {
+          touchedEntityIds.add(persisted.entity.entityId);
+        }
+      }
+      for (const entityId of touchedEntityIds) {
+        await rebuildInteractionEntityTree({
+          store: params.store,
+          workspaceId: batchLastTurn.workspaceId,
+          entityId,
+          summaryModelClient,
+          embeddingClient,
+        });
+      }
+    }
+
+    processedTurnCount += TURN_BATCH_SIZE;
+    params.store.setWorkspaceRuntimeMetadata({
+      workspaceId: params.turnResult.workspaceId,
+      key: cursorKey,
+      value: String(processedTurnCount),
     });
   }
+
   return (
     params.store.getTurnResult({
-      workspaceId: context.turnResult.workspaceId,
-      inputId: context.turnResult.inputId,
-    }) ?? context.turnResult
+      workspaceId: params.turnResult.workspaceId,
+      inputId: params.turnResult.inputId,
+    }) ?? params.turnResult
   );
 }
 

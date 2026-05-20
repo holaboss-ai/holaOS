@@ -5064,6 +5064,7 @@ export class RuntimeStateStore {
     sessionId: string;
     inputId?: string;
     status?: string;
+    order?: "asc" | "desc";
     limit?: number;
     offset?: number;
   }): TurnResultRecord[] {
@@ -5082,13 +5083,43 @@ export class RuntimeStateStore {
       query += " AND status = ?";
       values.push(params.status);
     }
+    const order = params.order === "asc" ? "ASC" : "DESC";
     query += `
-      ORDER BY datetime(COALESCE(completed_at, started_at)) DESC, created_at DESC, input_id DESC
+      ORDER BY datetime(COALESCE(completed_at, started_at)) ${order}, created_at ${order}, input_id ${order}
       LIMIT ? OFFSET ?
     `;
     values.push(params.limit ?? 100, params.offset ?? 0);
     const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToTurnResult(row));
+  }
+
+  getWorkspaceRuntimeMetadata(params: {
+    workspaceId: string;
+    key: string;
+  }): string | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<[string], { value?: string }>("SELECT value FROM workspace_runtime_metadata WHERE key = ? LIMIT 1")
+      .get(params.key);
+    return typeof row?.value === "string" ? row.value : null;
+  }
+
+  setWorkspaceRuntimeMetadata(params: {
+    workspaceId: string;
+    key: string;
+    value: string;
+    updatedAt?: string;
+  }): void {
+    this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(
+        `
+          INSERT INTO workspace_runtime_metadata (key, value, updated_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(params.key, params.value, params.updatedAt ?? utcNowIso());
   }
 
   getRuntimeUserProfile(params: { profileId?: string } = {}): RuntimeUserProfileRecord | null {

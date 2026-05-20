@@ -1,0 +1,341 @@
+{
+  "name": "interaction-memory-live-phase1",
+  "description": "Live interaction-memory evaluation set for longer batched writeback sessions, memory-tree quality, retrieval correctness, retrieval speed, and AGENTS.md leakage detection.",
+  "batch_size": 3,
+  "scenarios": [
+    {
+      "id": "customer_pine_harbor_long_session",
+      "description": "Six Pine Harbor turns should form one healthy customer tree across two writeback batches.",
+      "writer_turns": [
+        "Pine Harbor billing escalation contact is Mila Hart.",
+        "Pine Harbor billing dispute escalation procedure: 1. Open the ledger case. 2. Confirm the dispute packet. 3. Escalate to the billing lead.",
+        "Pine Harbor contract renewal owner is Denver Lane.",
+        "Pine Harbor refund hold window is 48 hours before escalation.",
+        "Pine Harbor settlement dashboard URL is https://dash.example.internal/pine-harbor/settlement.",
+        "Pine Harbor urgent finance bridge channel is #pine-harbor-finance-war-room."
+      ],
+      "expected_entities": [
+        {
+          "entity_id": "interaction:customer:pine-harbor",
+          "entity_type": "customer",
+          "canonical_name": "Pine Harbor",
+          "expected_active_leaf_count": 6,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "pine harbor",
+                "billing",
+                "mila hart"
+              ]
+            },
+            {
+              "all_terms": [
+                "pine harbor",
+                "dispute",
+                "ledger case"
+              ]
+            },
+            {
+              "all_terms": [
+                "pine harbor",
+                "contract renewal",
+                "denver lane"
+              ]
+            },
+            {
+              "all_terms": [
+                "pine harbor",
+                "refund hold",
+                "48 hours"
+              ]
+            },
+            {
+              "all_terms": [
+                "pine harbor",
+                "settlement dashboard"
+              ]
+            },
+            {
+              "all_terms": [
+                "pine harbor",
+                "finance bridge"
+              ]
+            }
+          ]
+        }
+      ],
+      "reader_queries": [
+        {
+          "query": "Who is the Pine Harbor billing escalation contact?",
+          "expected_answer_contains": [
+            "Mila Hart"
+          ],
+          "expected_retrieve_contains": [
+            "Mila Hart"
+          ]
+        },
+        {
+          "query": "What is the Pine Harbor billing dispute escalation procedure?",
+          "expected_answer_contains": [
+            "Open the ledger case",
+            "Confirm the dispute packet",
+            "Escalate to the billing lead"
+          ],
+          "expected_retrieve_contains": [
+            "Open the ledger case",
+            "Escalate to the billing lead"
+          ]
+        },
+        {
+          "query": "How long is the Pine Harbor refund hold window?",
+          "expected_answer_contains": [
+            "48 hours"
+          ],
+          "expected_retrieve_contains": [
+            "48 hours"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "Pine Harbor",
+        "Mila Hart",
+        "Denver Lane"
+      ],
+      "agents_policy": "forbid"
+    },
+    {
+      "id": "project_atlas_api_long_session",
+      "description": "Six Atlas API turns should remain contextual memory and not leak into AGENTS.md.",
+      "writer_turns": [
+        "Atlas API rollout approver is Keira Tan.",
+        "Atlas API canary rollback procedure: 1. Disable the traffic shift. 2. Revert the release flag. 3. Page the platform on-call.",
+        "Atlas API staging endpoint is atlas-staging.internal.",
+        "Atlas API release captain is Noah Bell.",
+        "Atlas API primary SLO dashboard is Grafana board atlas-api-rollout-health.",
+        "Atlas API incident bridge channel is #atlas-api-rollout."
+      ],
+      "expected_entities": [
+        {
+          "entity_id": "interaction:project:atlas-api",
+          "entity_type": "project",
+          "canonical_name": "Atlas API",
+          "expected_active_leaf_count": 6,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "atlas api",
+                "rollout approver",
+                "keira tan"
+              ]
+            },
+            {
+              "all_terms": [
+                "atlas api",
+                "rollback procedure",
+                "platform on-call"
+              ]
+            },
+            {
+              "all_terms": [
+                "atlas api",
+                "staging endpoint",
+                "atlas-staging.internal"
+              ]
+            },
+            {
+              "all_terms": [
+                "atlas api",
+                "release captain",
+                "noah bell"
+              ]
+            },
+            {
+              "all_terms": [
+                "atlas api",
+                "slo dashboard",
+                "grafana"
+              ]
+            },
+            {
+              "all_terms": [
+                "atlas api",
+                "incident bridge",
+                "#atlas-api-rollout"
+              ]
+            }
+          ]
+        }
+      ],
+      "reader_queries": [
+        {
+          "query": "Who approves Atlas API rollouts?",
+          "expected_answer_contains": [
+            "Keira Tan"
+          ],
+          "expected_retrieve_contains": [
+            "Keira Tan"
+          ]
+        },
+        {
+          "query": "What is the Atlas API canary rollback procedure?",
+          "expected_answer_contains": [
+            "Disable the traffic shift",
+            "Revert the release flag",
+            "Page the platform on-call"
+          ],
+          "expected_retrieve_contains": [
+            "Disable the traffic shift",
+            "Page the platform on-call"
+          ]
+        },
+        {
+          "query": "What is the Atlas API staging endpoint?",
+          "expected_answer_contains": [
+            "atlas-staging.internal"
+          ],
+          "expected_retrieve_contains": [
+            "atlas-staging.internal"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "Atlas API",
+        "Keira Tan",
+        "Noah Bell",
+        "atlas-staging.internal"
+      ],
+      "agents_policy": "forbid"
+    },
+    {
+      "id": "mixed_customer_session",
+      "description": "A six-turn mixed session should create two clean customer trees without cross-subject confusion.",
+      "writer_turns": [
+        "Cedar Hollow billing escalation contact is Priya Shah.",
+        "Luma Freight incident commander is Marco Ruiz.",
+        "Cedar Hollow refund hold procedure: 1. Open the ledger case. 2. Confirm the Stripe dispute event. 3. Escalate to the finance lead.",
+        "Luma Freight overnight dispatch runbook: 1. Check the dispatch board. 2. Confirm the late-load reason. 3. Escalate to the on-call dispatcher.",
+        "Cedar Hollow contract renewal owner is Helen Cho.",
+        "Luma Freight account manager is Nina Bae."
+      ],
+      "expected_entities": [
+        {
+          "entity_id": "interaction:customer:cedar-hollow",
+          "entity_type": "customer",
+          "canonical_name": "Cedar Hollow",
+          "expected_active_leaf_count": 3,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "cedar hollow",
+                "billing",
+                "priya shah"
+              ]
+            },
+            {
+              "all_terms": [
+                "cedar hollow",
+                "refund hold",
+                "stripe dispute"
+              ]
+            },
+            {
+              "all_terms": [
+                "cedar hollow",
+                "contract renewal",
+                "helen cho"
+              ]
+            }
+          ]
+        },
+        {
+          "entity_id": "interaction:customer:luma-freight",
+          "entity_type": "customer",
+          "canonical_name": "Luma Freight",
+          "expected_active_leaf_count": 3,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "luma freight",
+                "incident commander",
+                "marco ruiz"
+              ]
+            },
+            {
+              "all_terms": [
+                "luma freight",
+                "dispatch runbook",
+                "dispatch board"
+              ]
+            },
+            {
+              "all_terms": [
+                "luma freight",
+                "account manager",
+                "nina bae"
+              ]
+            }
+          ]
+        }
+      ],
+      "reader_queries": [
+        {
+          "query": "Who is the Cedar Hollow billing escalation contact?",
+          "entity_id": "interaction:customer:cedar-hollow",
+          "expected_answer_contains": [
+            "Priya Shah"
+          ],
+          "expected_retrieve_contains": [
+            "Priya Shah"
+          ]
+        },
+        {
+          "query": "What is the Cedar Hollow refund hold procedure?",
+          "entity_id": "interaction:customer:cedar-hollow",
+          "expected_answer_contains": [
+            "Open the ledger case",
+            "Confirm the Stripe dispute event",
+            "Escalate to the finance lead"
+          ],
+          "expected_retrieve_contains": [
+            "Stripe dispute event",
+            "finance lead"
+          ]
+        },
+        {
+          "query": "Who is the Luma Freight incident commander?",
+          "entity_id": "interaction:customer:luma-freight",
+          "expected_answer_contains": [
+            "Marco Ruiz"
+          ],
+          "expected_retrieve_contains": [
+            "Marco Ruiz"
+          ]
+        },
+        {
+          "query": "What is the Luma Freight overnight dispatch runbook?",
+          "entity_id": "interaction:customer:luma-freight",
+          "expected_answer_contains": [
+            "Check the dispatch board",
+            "Confirm the late-load reason",
+            "Escalate to the on-call dispatcher"
+          ],
+          "expected_retrieve_contains": [
+            "dispatch board",
+            "on-call dispatcher"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "Cedar Hollow",
+        "Priya Shah",
+        "Luma Freight",
+        "Marco Ruiz"
+      ],
+      "agents_policy": "forbid"
+    }
+  ]
+}

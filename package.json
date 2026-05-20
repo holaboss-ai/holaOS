@@ -42,6 +42,8 @@
     "desktop:prepare-runtime:local": "bun --filter=holaboss-local run prepare:runtime:local",
     "desktop:dist:mac:local": "bun --filter=holaboss-local run dist:mac:local",
     "desktop:dist:win:local": "bun --filter=holaboss-local run dist:win:local",
+    "memory:cleanup": "node scripts/memory-cleanup.mjs",
+    "memory:eval": "node scripts/memory-eval.mjs",
     "runtime:harnesses:install": "bun install",
     "runtime:harness-host:install": "bun install",
     "runtime:harness-host:build": "bun --filter=@holaboss/runtime-harness-host run build",

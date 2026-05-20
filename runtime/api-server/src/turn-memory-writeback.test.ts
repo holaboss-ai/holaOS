@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, test } from "node:test";
 
-import { RuntimeStateStore } from "@holaboss/runtime-state-store";
+import { RuntimeStateStore, type TurnResultRecord } from "@holaboss/runtime-state-store";
 
 import { FilesystemMemoryService } from "./memory.js";
 import {
@@ -205,6 +205,49 @@ function seedWorkspace(store: RuntimeStateStore): void {
   });
 }
 
+function seedCompletedTurns(params: {
+  store: RuntimeStateStore;
+  sessionId?: string;
+  turns: Array<{
+    inputId?: string;
+    userText: string;
+    assistantText: string;
+  }>;
+}): TurnResultRecord[] {
+  const sessionId = params.sessionId ?? "session-main";
+  return params.turns.map((turn, index) => {
+    const minuteToken = String(index).padStart(2, "0");
+    const inputId = turn.inputId ?? `input-${index + 1}`;
+    const createdAt = `2026-04-02T12:${minuteToken}:00.000Z`;
+    const completedAt = `2026-04-02T12:${minuteToken}:05.000Z`;
+    params.store.insertSessionMessage({
+      workspaceId: "workspace-1",
+      sessionId,
+      role: "user",
+      text: turn.userText,
+      messageId: `user-${index + 1}`,
+      createdAt,
+    });
+    return params.store.upsertTurnResult({
+      workspaceId: "workspace-1",
+      sessionId,
+      inputId,
+      startedAt: createdAt,
+      completedAt,
+      status: "completed",
+      stopReason: "ok",
+      assistantText: turn.assistantText,
+    });
+  });
+}
+
+function interactionBatchCursor(store: RuntimeStateStore, sessionId = "session-main"): string | null {
+  return store.getWorkspaceRuntimeMetadata({
+    workspaceId: "workspace-1",
+    key: `interaction_memory_batch_processed_count:${sessionId}`,
+  });
+}
+
 test("writeTurnDurableMemory does not mutate turn result summaries or write runtime continuity files", async () => {
   const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-");
   seedWorkspace(store);
@@ -262,26 +305,25 @@ test("writeTurnDurableMemory does not mutate turn result summaries or write runt
   store.close();
 });
 
-test("writeTurnDurableMemory no-ops repeated identical model-extracted candidates", async () => {
+test("writeTurnDurableMemory waits for a full three-turn batch and does not replay a processed batch", async () => {
   const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-dedupe-");
   seedWorkspace(store);
-  store.insertSessionMessage({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    role: "user",
-    text: "Remember that deploy access is currently blocked by policy.",
-    messageId: "user-1",
-    createdAt: "2026-04-02T12:00:00.000Z",
-  });
-  const turnResult = store.upsertTurnResult({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    inputId: "input-1",
-    startedAt: "2026-04-02T12:00:00.000Z",
-    completedAt: "2026-04-02T12:00:05.000Z",
-    status: "completed",
-    stopReason: "ok",
-    assistantText: "Deploy access remains blocked by policy.",
+  const [firstTurn, secondTurn, thirdTurn] = seedCompletedTurns({
+    store,
+    turns: [
+      {
+        userText: "Checking deploy permissions for the workspace.",
+        assistantText: "I reviewed the current deploy permissions.",
+      },
+      {
+        userText: "Deploy access still seems blocked by policy.",
+        assistantText: "Deploy access still appears blocked by policy.",
+      },
+      {
+        userText: "Remember that deploy access is currently blocked by policy.",
+        assistantText: "Deploy access remains blocked by policy.",
+      },
+    ],
   });
 
   await withModelExtractionResponse({
@@ -301,13 +343,29 @@ test("writeTurnDurableMemory no-ops repeated identical model-extracted candidate
       await writeTurnDurableMemory({
         store,
         memoryService,
-        turnResult,
+        turnResult: firstTurn,
+        modelContext,
+      });
+      assert.equal(listActiveInteractionLeaves(store, "workspace-1").length, 0);
+
+      await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult: secondTurn,
+        modelContext,
+      });
+      assert.equal(listActiveInteractionLeaves(store, "workspace-1").length, 0);
+
+      await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult: thirdTurn,
         modelContext,
       });
       await writeTurnDurableMemory({
         store,
         memoryService,
-        turnResult,
+        turnResult: thirdTurn,
         modelContext,
       });
     },
@@ -336,6 +394,7 @@ test("writeTurnDurableMemory no-ops repeated identical model-extracted candidate
   assert.equal(blockerLeaf.admissionConfidence, 0.95);
   assert.match(files[blockerLeaf.path], /Recurring deploy policy blocker/);
   assert.match(files[blockerLeaf.path], /blocked by workspace policy/i);
+  assert.equal(interactionBatchCursor(store), "3");
 
   store.close();
 });
@@ -343,33 +402,27 @@ test("writeTurnDurableMemory no-ops repeated identical model-extracted candidate
 test("writeTurnDurableMemory persists model-extracted workspace facts and procedures", async () => {
   const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-facts-");
   seedWorkspace(store);
-  store.insertSessionMessage({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    role: "user",
-    text: [
-      "Please keep your responses concise.",
-      "",
-      "For verification, use `npm run test`.",
-      "",
-      "Release procedure:",
-      "1. Run `npm run test`.",
-      "2. Run `npm run build`.",
-      "3. Publish the bundle.",
-    ].join("\n"),
-    messageId: "user-1",
-    createdAt: "2026-04-02T12:00:00.000Z",
-  });
-
-  const turnResult = store.upsertTurnResult({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    inputId: "input-1",
-    startedAt: "2026-04-02T12:00:00.000Z",
-    completedAt: "2026-04-02T12:00:05.000Z",
-    status: "completed",
-    stopReason: "ok",
-    assistantText: "Captured workspace-specific instructions for future runs.",
+  const [, , turnResult] = seedCompletedTurns({
+    store,
+    turns: [
+      {
+        userText: "Please keep your responses concise.",
+        assistantText: "I will keep responses concise.",
+      },
+      {
+        userText: "For verification, use `npm run test`.",
+        assistantText: "I will use `npm run test` for verification.",
+      },
+      {
+        userText: [
+          "Release procedure:",
+          "1. Run `npm run test`.",
+          "2. Run `npm run build`.",
+          "3. Publish the bundle.",
+        ].join("\n"),
+        assistantText: "Captured workspace-specific instructions for future runs.",
+      },
+    ],
   });
 
   await withModelExtractionResponse({
@@ -428,6 +481,7 @@ test("writeTurnDurableMemory persists model-extracted workspace facts and proced
   assert.equal(verificationFact?.admissionConfidence, 0.94);
   assert.equal(releaseProcedure?.sourceType, "assistant_turn");
   assert.equal(releaseProcedure?.admissionConfidence, 0.93);
+  assert.equal(interactionBatchCursor(store), "3");
 
   store.close();
 });
@@ -435,33 +489,27 @@ test("writeTurnDurableMemory persists model-extracted workspace facts and proced
 test("writeTurnDurableMemory persists model-extracted business facts and procedures", async () => {
   const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-business-");
   seedWorkspace(store);
-  store.insertSessionMessage({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    role: "user",
-    text: [
-      "Weekly sales review is every Monday at 9am.",
-      "",
-      "Invoices over $5000 require finance approval.",
-      "",
-      "Customer follow-up process:",
-      "1. Review the CRM record.",
-      "2. Draft the follow-up email.",
-      "3. Send it within 24 hours.",
-    ].join("\n"),
-    messageId: "user-1",
-    createdAt: "2026-04-02T12:00:00.000Z",
-  });
-
-  const turnResult = store.upsertTurnResult({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    inputId: "input-1",
-    startedAt: "2026-04-02T12:00:00.000Z",
-    completedAt: "2026-04-02T12:00:05.000Z",
-    status: "completed",
-    stopReason: "ok",
-    assistantText: "Captured business workflow rules for later recall.",
+  const [, , turnResult] = seedCompletedTurns({
+    store,
+    turns: [
+      {
+        userText: "Weekly sales review is every Monday at 9am.",
+        assistantText: "I noted the weekly sales review cadence.",
+      },
+      {
+        userText: "Invoices over $5000 require finance approval.",
+        assistantText: "I noted the finance approval rule.",
+      },
+      {
+        userText: [
+          "Customer follow-up process:",
+          "1. Review the CRM record.",
+          "2. Draft the follow-up email.",
+          "3. Send it within 24 hours.",
+        ].join("\n"),
+        assistantText: "Captured business workflow rules for later recall.",
+      },
+    ],
   });
 
   await withModelExtractionResponse({
@@ -534,6 +582,86 @@ test("writeTurnDurableMemory persists model-extracted business facts and procedu
   assert.equal(approvalFact?.admissionConfidence, 0.91);
   assert.equal(followUpProcedure?.sourceType, "assistant_turn");
   assert.equal(followUpProcedure?.admissionConfidence, 0.93);
+  assert.equal(interactionBatchCursor(store), "3");
+
+  store.close();
+});
+
+test("writeTurnDurableMemory keeps distinct memory items active when the extractor reuses an entity-level subject key", async () => {
+  const { store, memoryService } = makeRuntimeState("hb-turn-memory-subject-key-refine-");
+  seedWorkspace(store);
+  const [, , turnResult] = seedCompletedTurns({
+    store,
+    turns: [
+      {
+        userText: "Remember this for Pine Harbor: the billing escalation contact is Nina Patel.",
+        assistantText: "I will remember the Pine Harbor billing contact.",
+      },
+      {
+        userText: "Remember this Pine Harbor procedure: 1. Open the ledger case. 2. Confirm the Stripe dispute event. 3. Escalate to the finance lead.",
+        assistantText: "I will remember the Pine Harbor procedure.",
+      },
+      {
+        userText: "Also remember for Pine Harbor that the contract renewal owner is Mateo Cruz.",
+        assistantText: "I will remember the Pine Harbor contract renewal owner.",
+      },
+    ],
+  });
+
+  await withModelExtractionResponse({
+    memories: [
+      {
+        scope: "workspace",
+        memory_type: "fact",
+        subject_key: "pine_harbor",
+        title: "Pine Harbor billing escalation contact",
+        summary: "For Pine Harbor, the billing escalation contact is Nina Patel.",
+        tags: ["customer", "contact"],
+        evidence: "User stated: Pine Harbor billing escalation contact is Nina Patel.",
+        confidence: 0.99,
+      },
+      {
+        scope: "workspace",
+        memory_type: "procedure",
+        subject_key: "pine_harbor",
+        title: "Pine Harbor billing dispute escalation procedure",
+        summary: "For Pine Harbor, the procedure is: open the ledger case, confirm the Stripe dispute event, then escalate to the finance lead.",
+        tags: ["customer", "procedure"],
+        evidence: "User stated the Pine Harbor billing dispute escalation procedure with three concrete steps.",
+        confidence: 0.97,
+      },
+      {
+        scope: "workspace",
+        memory_type: "fact",
+        subject_key: "pine_harbor",
+        title: "Pine Harbor contract renewal owner",
+        summary: "For Pine Harbor, the contract renewal owner is Mateo Cruz.",
+        tags: ["customer", "owner"],
+        evidence: "User stated that Pine Harbor contract renewal owner is Mateo Cruz.",
+        confidence: 0.99,
+      },
+    ],
+    run: async (modelContext) => {
+      await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult,
+        modelContext,
+      });
+    },
+  });
+
+  const leaves = listActiveInteractionLeaves(store, "workspace-1").filter(
+    (leaf) => leaf.entityId === "interaction:customer:pine-harbor",
+  );
+  const subjectKeys = leaves.map((leaf) => leaf.subjectKey).sort((left, right) => left.localeCompare(right));
+
+  assert.equal(leaves.length, 3);
+  assert.deepEqual(subjectKeys, [
+    "pine_harbor:billing-dispute-escalation-procedure",
+    "pine_harbor:billing-escalation-contact",
+    "pine_harbor:contract-renewal-owner",
+  ]);
 
   store.close();
 });
@@ -541,23 +669,22 @@ test("writeTurnDurableMemory persists model-extracted business facts and procedu
 test("writeTurnDurableMemory rejects weak model-extracted durable candidates", async () => {
   const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-model-reject-");
   seedWorkspace(store);
-  store.insertSessionMessage({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    role: "user",
-    text: "Please keep your responses concise.",
-    messageId: "user-1",
-    createdAt: "2026-04-02T12:00:00.000Z",
-  });
-  const turnResult = store.upsertTurnResult({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    inputId: "input-1",
-    startedAt: "2026-04-02T12:00:00.000Z",
-    completedAt: "2026-04-02T12:00:05.000Z",
-    status: "completed",
-    stopReason: "ok",
-    assistantText: "Done.",
+  const [, , turnResult] = seedCompletedTurns({
+    store,
+    turns: [
+      {
+        userText: "Please keep your responses concise.",
+        assistantText: "I will keep responses concise.",
+      },
+      {
+        userText: "Thanks.",
+        assistantText: "Understood.",
+      },
+      {
+        userText: "Done for now.",
+        assistantText: "Done.",
+      },
+    ],
   });
 
   await withModelExtractionResponse({
@@ -587,6 +714,7 @@ test("writeTurnDurableMemory rejects weak model-extracted durable candidates", a
   assert.deepEqual(listActiveInteractionLeaves(store, "workspace-1"), []);
   assert.deepEqual(listActiveInteractionSummaries(store, "workspace-1"), []);
   assert.deepEqual(Object.keys(files), []);
+  assert.equal(interactionBatchCursor(store), "3");
 
   store.close();
 });
@@ -594,23 +722,22 @@ test("writeTurnDurableMemory rejects weak model-extracted durable candidates", a
 test("writeTurnDurableMemory accepts sufficiently confident model-extracted durable candidates", async () => {
   const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-model-accept-");
   seedWorkspace(store);
-  store.insertSessionMessage({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    role: "user",
-    text: "For verification, use `npm run test`.",
-    messageId: "user-1",
-    createdAt: "2026-04-02T12:00:00.000Z",
-  });
-  const turnResult = store.upsertTurnResult({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    inputId: "input-1",
-    startedAt: "2026-04-02T12:00:00.000Z",
-    completedAt: "2026-04-02T12:00:05.000Z",
-    status: "completed",
-    stopReason: "ok",
-    assistantText: "Captured verification guidance.",
+  const [, , turnResult] = seedCompletedTurns({
+    store,
+    turns: [
+      {
+        userText: "Run the checks before shipping.",
+        assistantText: "I will run checks before shipping.",
+      },
+      {
+        userText: "Use the standard verification workflow.",
+        assistantText: "I will use the standard verification workflow.",
+      },
+      {
+        userText: "For verification, use `npm run test`.",
+        assistantText: "Captured verification guidance.",
+      },
+    ],
   });
 
   await withModelExtractionResponse({
@@ -646,31 +773,30 @@ test("writeTurnDurableMemory accepts sufficiently confident model-extracted dura
   assert.match(files[verificationFact!.path], /npm run test:ci/);
   assert.equal(verificationFact?.entityId, "interaction:uncategorized");
   assert.equal(verificationFact?.admissionConfidence, 0.9);
+  assert.equal(interactionBatchCursor(store), "3");
 
   store.close();
 });
 
-test("writeTurnDurableMemory runs model extraction on the first completed turn when a model client is available", async () => {
-  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-model-first-turn-");
+test("writeTurnDurableMemory processes the first full three-turn batch when a model client is available", async () => {
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-model-first-batch-");
   seedWorkspace(store);
-  store.insertSessionMessage({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    role: "user",
-    text: "Remember that the primary vendor escalation contact is Alicia Park.",
-    messageId: "user-1",
-    createdAt: "2026-04-02T12:00:00.000Z",
-  });
-
-  const turnResult = store.upsertTurnResult({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    inputId: "input-1",
-    startedAt: "2026-04-02T12:00:00.000Z",
-    completedAt: "2026-04-02T12:00:05.000Z",
-    status: "completed",
-    stopReason: "ok",
-    assistantText: "Captured the escalation contact.",
+  const [firstTurn, secondTurn, thirdTurn] = seedCompletedTurns({
+    store,
+    turns: [
+      {
+        userText: "We need to remember the vendor contact.",
+        assistantText: "I will remember the vendor contact.",
+      },
+      {
+        userText: "This is specifically for future escalation handling.",
+        assistantText: "Understood.",
+      },
+      {
+        userText: "Remember that the primary vendor escalation contact is Alicia Park.",
+        assistantText: "Captured the escalation contact.",
+      },
+    ],
   });
 
   await withModelExtractionResponse({
@@ -690,7 +816,23 @@ test("writeTurnDurableMemory runs model extraction on the first completed turn w
       await writeTurnDurableMemory({
         store,
         memoryService,
-        turnResult,
+        turnResult: firstTurn,
+        modelContext,
+      });
+      assert.equal(listActiveInteractionLeaves(store, "workspace-1").length, 0);
+
+      await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult: secondTurn,
+        modelContext,
+      });
+      assert.equal(listActiveInteractionLeaves(store, "workspace-1").length, 0);
+
+      await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult: thirdTurn,
         modelContext,
       });
     },
@@ -704,6 +846,7 @@ test("writeTurnDurableMemory runs model extraction on the first completed turn w
   assert.ok(leaf);
   assert.match(files[leaf!.path], /Alicia Park/);
   assert.equal(leaf?.entityId, "interaction:uncategorized");
+  assert.equal(interactionBatchCursor(store), "3");
 
   store.close();
 });
@@ -821,23 +964,22 @@ test("writeTurnDurableMemory rebuilds interaction summaries after new leaves are
     workspaceId: "workspace-1",
   });
 
-  store.insertSessionMessage({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    role: "user",
-    text: "For verification, use `npm run test`.",
-    messageId: "user-1",
-    createdAt: "2026-04-09T10:01:00.000Z",
-  });
-  const turnResult = store.upsertTurnResult({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    inputId: "input-1",
-    startedAt: "2026-04-09T10:01:00.000Z",
-    completedAt: "2026-04-09T10:01:05.000Z",
-    status: "completed",
-    stopReason: "ok",
-    assistantText: "Captured verification guidance.",
+  const [, , turnResult] = seedCompletedTurns({
+    store,
+    turns: [
+      {
+        userText: "Start tracking the verification workflow.",
+        assistantText: "I started tracking the verification workflow.",
+      },
+      {
+        userText: "The verification guidance should be durable.",
+        assistantText: "I will preserve the verification guidance.",
+      },
+      {
+        userText: "For verification, use `npm run test`.",
+        assistantText: "Captured verification guidance.",
+      },
+    ],
   });
 
   await withModelExtractionResponse({
@@ -873,6 +1015,7 @@ test("writeTurnDurableMemory rebuilds interaction summaries after new leaves are
   assert.ok(verificationLeaf);
   assert.ok(files[verificationLeaf!.path]);
   assert.ok(files[summaries[0].path]);
+  assert.equal(interactionBatchCursor(store), "3");
 
   store.close();
 });
