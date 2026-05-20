@@ -27,9 +27,11 @@
       <li>Added a concrete phase-1 upsert algorithm covering chunk admission, LLM entity assignment, backend validation, duplicate no-op handling, superseding leaf creation, tree creation, and summary invalidation/rebuild.</li>
       <li>Added a retrieval design where durable memory access becomes an agent tool backed by the tree query engine, with summary-first traversal used for broad recall and leaf drill-down used for exact evidence.</li>
       <li>Explicitly chose to embed sealed intermediate summary nodes as well as leaves, using summary embeddings for branch selection and leaf embeddings for final evidence retrieval.</li>
+      <li>Updated phase-1 summary generation so interaction summary nodes use an LLM-authored summary sentence when a summary model client is available, while keeping deterministic node ids, deterministic wrapper markdown, and deterministic fallback behavior when no model client is available.</li>
       <li>Implemented phase 1 by introducing dedicated interaction-memory tables in the runtime state store for entities, leaves, summary nodes, tree edges, and node embeddings, instead of reusing the legacy <code>memory_entries</code> catalog.</li>
       <li>Cut runtime durable writeback and bootstrap recall directly over to the new interaction-memory module, so completed turns now persist interaction leaves and runner bootstrap now recalls interaction hits without going through <code>MEMORY.md</code> planning.</li>
       <li>Added a new runtime agent tool, <code>memory_retrieve</code>, as the supported agent-facing entry point for durable memory retrieval in phase 1.</li>
+      <li>Removed the desktop workspace-ready heartbeat path entirely, including the proactive ingest emit and its earlier runtime-captured context dependency, so workspace creation no longer depends on legacy proactive bootstrap behavior.</li>
     </ul>
     <h2>Deviations</h2>
     <ul>
@@ -39,6 +41,8 @@
       <li>Used deterministic summary-node bodies derived from child titles and summaries for phase 1 instead of invoking an LLM to author tree summaries. This keeps sealing synchronous and testable while the tree structure settles.</li>
       <li>Replaced the old recall-selection model flow entirely. Runner bootstrap now retrieves directly from interaction leaves and summaries, and the only model call in recall is the optional embedding request.</li>
       <li>Interaction-memory retrieval currently uses the default recall embedding model (<code>text-embedding-3-small</code>) rather than the runtime background-tasks chat model. That keeps retrieval on a stable embedding model even when the execution model differs.</li>
+      <li>Summary-node bodies are still structurally wrapped by backend templates. The LLM currently supplies the summary prose for each summary node, not the full markdown file.</li>
+      <li>Workspace creation no longer emits the legacy proactive heartbeat at all. This intentionally removes a bootstrap side effect that was only used by the deprecated proactive proposal flow.</li>
     </ul>
     <h2>Tradeoffs</h2>
     <ul>
@@ -46,6 +50,7 @@
       <li>The PRD now prefers strict tree ownership over multi-tree projections. That simplifies storage and tree semantics, but it pushes more cross-category composition into the retrieval layer.</li>
       <li>Keeping the generic file-memory abstraction alongside the new interaction backend makes the transition much less disruptive for unrelated artifact-writing flows, but it leaves the public <code>/api/v1/memory/*</code> routes semantically broader than the tree-native durable backend they now report on.</li>
       <li>Deterministic summaries avoid another model dependency in the hot path, but they produce flatter summary prose than a dedicated summarization model would.</li>
+      <li>Using an LLM only for the summary prose raises summary quality without making node identity unstable, but it still adds model latency and possible variance whenever tree rebuilds run with a summary model client.</li>
     </ul>
     <h2>Open questions</h2>
     <ul>

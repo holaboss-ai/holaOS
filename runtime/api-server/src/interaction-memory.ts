@@ -13,6 +13,7 @@ import {
 } from "@holaboss/runtime-state-store";
 
 import type { AgentRecalledMemoryContext } from "./agent-runtime-prompt.js";
+import { createBackgroundTaskMemoryModelClient } from "./background-task-model.js";
 import { queryMemoryModelEmbedding, queryMemoryModelJson, type MemoryModelClientConfig } from "./memory-model-client.js";
 import { createRecallEmbeddingModelClient } from "./recall-embedding-model.js";
 import { workspaceMemoryDir } from "./workspace-bundle-paths.js";
@@ -620,7 +621,18 @@ function summaryNodeBody(params: {
   return `${lines.join("\n").trim()}\n`;
 }
 
-function buildTempSummaryNode(params: {
+function deterministicSummaryText(params: {
+  entity: InteractionEntityRecord;
+  childCount: number;
+  childTitles: string[];
+}): string {
+  return clipText(
+    `${params.entity.canonicalName} memory slice covering ${params.childCount} nodes: ${params.childTitles.slice(0, 4).join(", ")}`,
+    240,
+  );
+}
+
+async function generateSummaryText(params: {
   entity: InteractionEntityRecord;
   children: Array<{
     kind: InteractionTreeChildKind;
@@ -631,12 +643,69 @@ function buildTempSummaryNode(params: {
   }>;
   depthFromLeaves: number;
   ordinal: number;
-}): TempSummaryNode {
+  modelClient: MemoryModelClientConfig | null;
+}): Promise<string> {
   const childTitles = params.children.map((child) => child.title);
-  const summary = clipText(
-    `${params.entity.canonicalName} memory slice covering ${params.children.length} nodes: ${childTitles.slice(0, 4).join(", ")}`,
-    240,
-  );
+  const fallback = deterministicSummaryText({
+    entity: params.entity,
+    childCount: params.children.length,
+    childTitles,
+  });
+  if (!params.modelClient) {
+    return fallback;
+  }
+
+  const payload = await queryMemoryModelJson(params.modelClient, {
+    systemPrompt: [
+      "You write concise markdown-tree summary sentences for durable memory nodes.",
+      "Return strict JSON only with this shape:",
+      '{"summary":"string"}',
+      "Write a faithful 1-3 sentence summary of the child nodes.",
+      "Do not invent facts not present in the child summaries.",
+      "Prefer concrete reusable knowledge over generic phrasing.",
+    ].join(" "),
+    userPrompt: [
+      `Entity ID: ${params.entity.entityId}`,
+      `Entity name: ${params.entity.canonicalName}`,
+      `Tree depth from leaves: ${params.depthFromLeaves}`,
+      `Branch ordinal: ${params.ordinal}`,
+      `Child count: ${params.children.length}`,
+      "",
+      "Child nodes:",
+      ...params.children.map((child, index) => [
+        `${index + 1}. Kind: ${child.kind}`,
+        `   Title: ${child.title}`,
+        `   Summary: ${child.summary}`,
+        child.excerpt ? `   Excerpt: ${clipText(child.excerpt, 280)}` : null,
+      ].filter(Boolean).join("\n")),
+    ].join("\n"),
+    timeoutMs: 8000,
+  });
+
+  const summary = typeof payload?.summary === "string" ? compactWhitespace(payload.summary) : "";
+  return summary ? clipText(summary, 320) : fallback;
+}
+
+async function buildTempSummaryNode(params: {
+  entity: InteractionEntityRecord;
+  children: Array<{
+    kind: InteractionTreeChildKind;
+    id: string;
+    title: string;
+    summary: string;
+    excerpt: string | null;
+  }>;
+  depthFromLeaves: number;
+  ordinal: number;
+  modelClient: MemoryModelClientConfig | null;
+}): Promise<TempSummaryNode> {
+  const summary = await generateSummaryText({
+    entity: params.entity,
+    children: params.children,
+    depthFromLeaves: params.depthFromLeaves,
+    ordinal: params.ordinal,
+    modelClient: params.modelClient,
+  });
   const title = params.depthFromLeaves === 1 && params.children.length > 1
     ? `${params.entity.canonicalName} root summary`
     : `${params.entity.canonicalName} branch ${params.ordinal}`;
@@ -671,11 +740,12 @@ function chunkArray<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
-function buildSummaryTreePlan(params: {
+async function buildSummaryTreePlan(params: {
   workspaceId: string;
   entity: InteractionEntityRecord;
   leaves: InteractionLeafRecord[];
-}): {
+  modelClient: MemoryModelClientConfig | null;
+}): Promise<{
   nodes: Array<{
     nodeId: string;
     level: number;
@@ -694,7 +764,7 @@ function buildSummaryTreePlan(params: {
     childId: string;
     position: number;
   }>;
-} {
+}> {
   if (params.leaves.length <= 1) {
     return { nodes: [], edges: [] };
   }
@@ -710,103 +780,111 @@ function buildSummaryTreePlan(params: {
   const layers: TempSummaryNode[][] = [];
   let current: TempSummaryChild[] = leafChildren;
   let depthFromLeaves = 1;
-  while (current.length > 1 || layers.length === 0) {
-    const layer = chunkArray(current, INTERACTION_BRANCH_FACTOR).map((group, index) =>
-      buildTempSummaryNode({
-        entity: params.entity,
-        children: group,
-        depthFromLeaves,
-        ordinal: index + 1,
-      }));
-    layers.push(layer);
-    current = layer.map((node) => ({
-      kind: "summary" as const,
-      id: node.tempId,
-      title: node.title,
-      summary: node.summary,
-      excerpt: markdownExcerpt(node.body),
-    }));
-    depthFromLeaves += 1;
-    if (current.length === 1) {
-      break;
-    }
-  }
-
-  const totalLayers = layers.length;
-  const nodeIdByTempId = new Map<string, { nodeId: string; level: number }>();
-  const nodes: Array<{
-    nodeId: string;
-    level: number;
-    ordinal: number;
-    path: string;
-    title: string;
-    summary: string;
-    body: string;
-    bodySha256: string;
-    childCount: number;
-    sealedAt: string;
-  }> = [];
-  const sealedAt = utcNowIso();
-
-  for (let layerIndex = layers.length - 1; layerIndex >= 0; layerIndex -= 1) {
-    const layer = layers[layerIndex];
-    const level = totalLayers - layerIndex;
-    for (let index = 0; index < layer.length; index += 1) {
-      const node = layer[index];
-      const childIdentity = node.children
-        .map((child) => `${child.kind}:${child.id}`)
-        .join("|");
-      const nodeId = `summary-${sha256(`${params.entity.entityId}|L${level}|${childIdentity}`).slice(0, 24)}`;
-      nodeIdByTempId.set(node.tempId, { nodeId, level });
-      nodes.push({
-        nodeId,
-        level,
-        ordinal: index + 1,
-        path: interactionSummaryRelativePath(
-          params.workspaceId,
-          params.entity.slug,
-          level,
-          nodeId,
+  const build = async () => {
+    while (current.length > 1 || layers.length === 0) {
+      const layer = await Promise.all(
+        chunkArray(current, INTERACTION_BRANCH_FACTOR).map((group, index) =>
+          buildTempSummaryNode({
+            entity: params.entity,
+            children: group,
+            depthFromLeaves,
+            ordinal: index + 1,
+            modelClient: params.modelClient,
+          }),
         ),
+      );
+      layers.push(layer);
+      current = layer.map((node) => ({
+        kind: "summary" as const,
+        id: node.tempId,
         title: node.title,
         summary: node.summary,
-        body: node.body,
-        bodySha256: sha256(node.body),
-        childCount: node.children.length,
-        sealedAt,
-      });
-    }
-  }
-
-  const edges: Array<{
-    parentNodeId: string;
-    childKind: InteractionTreeChildKind;
-    childId: string;
-    position: number;
-  }> = [];
-  for (let layerIndex = layers.length - 1; layerIndex >= 0; layerIndex -= 1) {
-    const layer = layers[layerIndex];
-    for (const tempNode of layer) {
-      const parent = nodeIdByTempId.get(tempNode.tempId);
-      if (!parent) {
-        continue;
+        excerpt: markdownExcerpt(node.body),
+      }));
+      depthFromLeaves += 1;
+      if (current.length === 1) {
+        break;
       }
-      tempNode.children.forEach((child, childIndex) => {
-        const childId =
-          child.kind === "summary"
-            ? (nodeIdByTempId.get(child.id)?.nodeId ?? child.id)
-            : child.id;
-        edges.push({
-          parentNodeId: parent.nodeId,
-          childKind: child.kind,
-          childId,
-          position: childIndex + 1,
-        });
-      });
     }
-  }
 
-  return { nodes, edges };
+    const totalLayers = layers.length;
+    const nodeIdByTempId = new Map<string, { nodeId: string; level: number }>();
+    const nodes: Array<{
+      nodeId: string;
+      level: number;
+      ordinal: number;
+      path: string;
+      title: string;
+      summary: string;
+      body: string;
+      bodySha256: string;
+      childCount: number;
+      sealedAt: string;
+    }> = [];
+    const sealedAt = utcNowIso();
+
+    for (let layerIndex = layers.length - 1; layerIndex >= 0; layerIndex -= 1) {
+      const layer = layers[layerIndex];
+      const level = totalLayers - layerIndex;
+      for (let index = 0; index < layer.length; index += 1) {
+        const node = layer[index];
+        const childIdentity = node.children
+          .map((child) => `${child.kind}:${child.id}`)
+          .join("|");
+        const nodeId = `summary-${sha256(`${params.entity.entityId}|L${level}|${childIdentity}`).slice(0, 24)}`;
+        nodeIdByTempId.set(node.tempId, { nodeId, level });
+        nodes.push({
+          nodeId,
+          level,
+          ordinal: index + 1,
+          path: interactionSummaryRelativePath(
+            params.workspaceId,
+            params.entity.slug,
+            level,
+            nodeId,
+          ),
+          title: node.title,
+          summary: node.summary,
+          body: node.body,
+          bodySha256: sha256(node.body),
+          childCount: node.children.length,
+          sealedAt,
+        });
+      }
+    }
+
+    const edges: Array<{
+      parentNodeId: string;
+      childKind: InteractionTreeChildKind;
+      childId: string;
+      position: number;
+    }> = [];
+    for (let layerIndex = layers.length - 1; layerIndex >= 0; layerIndex -= 1) {
+      const layer = layers[layerIndex];
+      for (const tempNode of layer) {
+        const parent = nodeIdByTempId.get(tempNode.tempId);
+        if (!parent) {
+          continue;
+        }
+        tempNode.children.forEach((child, childIndex) => {
+          const childId =
+            child.kind === "summary"
+              ? (nodeIdByTempId.get(child.id)?.nodeId ?? child.id)
+              : child.id;
+          edges.push({
+            parentNodeId: parent.nodeId,
+            childKind: child.kind,
+            childId,
+            position: childIndex + 1,
+          });
+        });
+      }
+    }
+
+    return { nodes, edges };
+  };
+
+  return await build();
 }
 
 async function syncNodeEmbedding(params: {
@@ -956,6 +1034,7 @@ export async function rebuildInteractionEntityTree(params: {
   store: RuntimeStateStore;
   workspaceId: string;
   entityId: string;
+  summaryModelClient?: MemoryModelClientConfig | null;
   embeddingClient?: MemoryModelClientConfig | null;
 }): Promise<void> {
   const entity = params.store.getInteractionEntity({
@@ -988,10 +1067,11 @@ export async function rebuildInteractionEntityTree(params: {
       return left.createdAt.localeCompare(right.createdAt);
     });
 
-  const plan = buildSummaryTreePlan({
+  const plan = await buildSummaryTreePlan({
     workspaceId: params.workspaceId,
     entity,
     leaves: activeLeaves,
+    modelClient: params.summaryModelClient ?? null,
   });
   for (const node of plan.nodes) {
     writeFileIfChanged(absolutePathForRelative(workspaceDir, node.path), node.body);
@@ -1034,6 +1114,12 @@ export async function rebuildAllInteractionTrees(params: {
   sessionId?: string | null;
   inputId?: string | null;
 }): Promise<{ entities: number; summaries: number }> {
+  const summaryModelClient = createBackgroundTaskMemoryModelClient({
+    workspaceId: params.workspaceId,
+    sessionId: params.sessionId ?? `memory-sync:${params.workspaceId}`,
+    inputId: params.inputId ?? `memory-sync:${params.workspaceId}`,
+    selectedModel: params.selectedModel ?? null,
+  });
   const embeddingClient = createRecallEmbeddingModelClient({
     workspaceId: params.workspaceId,
     sessionId: params.sessionId ?? `memory-sync:${params.workspaceId}`,
@@ -1053,6 +1139,7 @@ export async function rebuildAllInteractionTrees(params: {
       store: params.store,
       workspaceId: params.workspaceId,
       entityId: entity.entityId,
+      summaryModelClient,
       embeddingClient,
     });
     summaryCount += params.store.listInteractionSummaryNodes({

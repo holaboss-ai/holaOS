@@ -935,6 +935,7 @@ export async function persistDurableMemoryCandidate(params: {
     store: params.store,
     workspaceId: params.workspaceId,
     entityId: result.entity.entityId,
+    summaryModelClient: null,
     embeddingClient,
   });
   return result.leaf.path;
@@ -1003,6 +1004,7 @@ export async function writeTurnDurableMemory(params: {
     sessionId: context.turnResult.sessionId,
     inputId: context.turnResult.inputId,
   });
+  const summaryModelClient = params.modelContext?.modelClient ?? null;
   const touchedEntityIds = new Set<string>();
 
   for (const candidate of durableCandidates) {
@@ -1035,6 +1037,7 @@ export async function writeTurnDurableMemory(params: {
       store: params.store,
       workspaceId: context.turnResult.workspaceId,
       entityId,
+      summaryModelClient,
       embeddingClient,
     });
   }
