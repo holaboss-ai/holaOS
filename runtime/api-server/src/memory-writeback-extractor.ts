@@ -114,12 +114,17 @@ export async function extractDurableMemoryCandidatesFromModel(
   }
   const payload = await queryMemoryModelJson(context.modelClient, {
     systemPrompt:
-      "Extract durable memories from this turn. Return strict JSON only with this shape: " +
-      '{"memories":[{"scope":"workspace|user","memory_type":"preference|identity|fact|procedure|blocker|reference","subject_key":"string","title":"string","summary":"string","tags":["string"],"evidence":"string","confidence":0.0}]}. ' +
-      "Only include durable memories that were explicitly stated or strongly implied by the user or assistant in the current turn. " +
+      "Extract contextual durable memory from this turn. Return strict JSON only with this shape: " +
+      '{"memories":[{"scope":"workspace","memory_type":"fact|procedure|blocker|reference","subject_key":"string","title":"string","summary":"string","tags":["string"],"evidence":"string","confidence":0.0}]}. ' +
+      "Only include contextual memories worth retrieving later when the relevant subject comes up again. " +
+      "Include customer, project, person, vendor, or system facts; subject-specific procedures tied to a concrete customer, project, workflow, or operating context; and durable decisions, outcomes, blockers, or references likely to matter later. " +
+      "Do not include workspace-wide defaults, rules, conventions, response-style preferences, recurring commands, default verification/build/test commands, default release or verification procedures, or general operating instructions that should instead live in AGENTS.md. " +
+      "Do not include temporary runtime details, one-off requests, transient execution state, or near-paraphrases of the same memory from this turn. " +
+      "Prefer memories about a concrete subject, not generic workspace behavior. " +
+      "Only include memories that were explicitly stated or strongly implied by the user or assistant in the current turn. " +
       "Use recent context only to disambiguate or corroborate what changed in the current turn. " +
       "Do not re-emit unchanged memories solely because they appear in recent context. " +
-      "Do not include temporary runtime details.",
+      "If a candidate sounds like something the agent should obey by default on nearly every future run, exclude it.",
     userPrompt: [
       `Workspace ID: ${context.workspaceId}`,
       `Session ID: ${context.sessionId}`,

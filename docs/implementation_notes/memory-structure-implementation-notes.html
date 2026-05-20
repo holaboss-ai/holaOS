@@ -34,6 +34,7 @@
       <li>Removed the desktop workspace-ready heartbeat path entirely, including the proactive ingest emit and its earlier runtime-captured context dependency, so workspace creation no longer depends on legacy proactive bootstrap behavior.</li>
       <li>Removed heuristic durable-memory candidate extraction from turn writeback. Interaction memory now relies on model extraction only, and extraction runs on every completed turn when a model client is available.</li>
       <li>Narrowed the runtime prompt contract so <code>AGENTS.md</code> is framed as the workspace-wide defaults and control surface, while contextual facts and subject-specific procedures are framed as interaction-memory recall that should use <code>memory_retrieve</code>.</li>
+      <li>Narrowed the post-run memory extraction prompt so it asks only for contextual recall memory. The extractor now explicitly excludes workspace-wide defaults, recurring commands, response-style preferences, and default release or verification procedures that should instead be handled through <code>AGENTS.md</code> during the run.</li>
     </ul>
     <h2>Deviations</h2>
     <ul>
