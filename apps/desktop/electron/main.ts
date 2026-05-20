@@ -2639,12 +2639,6 @@ interface TemplateListResponsePayload {
   spotlight: SpotlightItemPayload[];
 }
 
-interface ProactiveIngestItemResultPayload {
-  status?: string;
-  event_id?: string;
-  detail?: string | null;
-}
-
 type WorkspaceLocationPayload = "local" | "cloud";
 
 interface WorkspaceRecordPayload {
@@ -2804,17 +2798,6 @@ interface EnsureWorkspaceMainSessionResponsePayload {
   session: AgentSessionRecordPayload;
   migrated_legacy_sessions: MainSessionLegacyExportPayload[];
   migrated_legacy_session_count: number;
-}
-
-interface RemoteTaskProposalGenerationResponsePayload {
-  accepted: boolean;
-  accepted_count: number;
-  event_count: number;
-  correlation_id: string;
-}
-
-interface ProactiveContextCaptureResponsePayload {
-  context: Record<string, unknown>;
 }
 
 interface TaskProposalStateUpdatePayload {
@@ -9463,123 +9446,6 @@ async function requestDesktopControlPlaneJson<T>({
   }
 }
 
-async function ingestWorkspaceHeartbeat(params: {
-  workspaceId: string;
-  actorId: string;
-  sourceRef: string;
-  correlationId: string;
-}): Promise<RemoteTaskProposalGenerationResponsePayload> {
-  const workspaceId = params.workspaceId.trim();
-  if (!workspaceId) {
-    throw new Error("workspace_id is required to ingest a heartbeat event.");
-  }
-
-  const correlationId = params.correlationId.trim();
-  if (!correlationId) {
-    throw new Error("correlation_id is required to ingest a heartbeat event.");
-  }
-
-  appendRuntimeEventLog({
-    category: "workspace",
-    event: "workspace.heartbeat.emit",
-    outcome: "start",
-    detail:
-      `workspace_id=${workspaceId} source=${params.sourceRef} ` +
-      `correlation_id=${correlationId}`,
-  });
-
-  try {
-    const bundledContext =
-      await requestWorkspaceRuntimeJson<ProactiveContextCaptureResponsePayload>(
-        workspaceId,
-        {
-          method: "POST",
-          path: "/api/v1/proactive/context/capture",
-          payload: {
-            workspace_id: workspaceId,
-          },
-          retryTransientErrors: true,
-        },
-      );
-    const results = await requestControlPlaneJson<
-      ProactiveIngestItemResultPayload[]
-    >({
-      service: "proactive",
-      method: "POST",
-      path: "/api/v1/proactive/ingest",
-      payload: {
-        events: [
-          {
-            event_id: `evt-heartbeat-${crypto.randomUUID().replace(/-/g, "")}`,
-            event_type: "heartbeat",
-            workspace_id: workspaceId,
-            actor: {
-              type: "system",
-              id: params.actorId,
-            },
-            correlation_id: correlationId,
-            origin: "system",
-            timestamp: utcNowIso(),
-            source_refs: [params.sourceRef],
-            window: "24h",
-            proposal_scope: "window",
-            captured_context: bundledContext.context,
-          },
-        ],
-      },
-    });
-    const acceptedCount = results.filter(
-      (item) => (item?.status || "").trim().toLowerCase() === "accepted",
-    ).length;
-    appendRuntimeEventLog({
-      category: "workspace",
-      event: "workspace.heartbeat.emit",
-      outcome: "success",
-      detail:
-        `workspace_id=${workspaceId} source=${params.sourceRef} ` +
-        `correlation_id=${correlationId} accepted=${acceptedCount}/${results.length}`,
-    });
-    return {
-      accepted: acceptedCount > 0,
-      accepted_count: acceptedCount,
-      event_count: results.length,
-      correlation_id: correlationId,
-    };
-  } catch (error) {
-    appendRuntimeEventLog({
-      category: "workspace",
-      event: "workspace.heartbeat.emit",
-      outcome: "error",
-      detail:
-        `workspace_id=${workspaceId} source=${params.sourceRef} ` +
-        `correlation_id=${correlationId} error=${error instanceof Error ? error.message : String(error)}`,
-    });
-    throw error;
-  }
-}
-
-async function emitWorkspaceReadyHeartbeat(params: {
-  workspaceId: string;
-  holabossUserId: string;
-}): Promise<void> {
-  const workspaceId = params.workspaceId.trim();
-  const holabossUserId = params.holabossUserId.trim();
-  if (
-    !workspaceId ||
-    !holabossUserId ||
-    holabossUserId === LOCAL_OSS_TEMPLATE_USER_ID
-  ) {
-    return;
-  }
-
-  await ingestWorkspaceHeartbeat({
-    workspaceId,
-    actorId: "desktop_workspace_create",
-    sourceRef: "workspace-created:ready",
-    correlationId: `workspace-ready-${workspaceId}`,
-  });
-}
-
 function getHolabossClientConfig(): HolabossClientConfigPayload {
   return {
     projectsUrl: projectsBaseUrl(),
@@ -14504,44 +14370,6 @@ async function createLocalWorkspace(
           })
           .catch(() => updated);
       }
-    }
-    const runtimeConfigForHeartbeat = await readRuntimeConfigFile();
-    const runtimeHeartbeatToken = runtimeModelProxyApiKeyFromConfig(
-      runtimeConfigForHeartbeat,
-    );
-    const runtimeHeartbeatUserId = (
-      runtimeConfigForHeartbeat.user_id || ""
-    ).trim();
-    const requestedHeartbeatUserId = (payload.holaboss_user_id || "").trim();
-    const shouldEmitWorkspaceReadyHeartbeat =
-      Boolean(runtimeHeartbeatToken) &&
-      Boolean(requestedHeartbeatUserId) &&
-      requestedHeartbeatUserId !== LOCAL_OSS_TEMPLATE_USER_ID &&
-      runtimeHeartbeatUserId === requestedHeartbeatUserId;
-
-    if (shouldEmitWorkspaceReadyHeartbeat) {
-      try {
-        await emitWorkspaceReadyHeartbeat({
-          workspaceId,
-          holabossUserId: requestedHeartbeatUserId,
-        });
-      } catch (error) {
-        throw new Error(
-          contextualWorkspaceCreateError(
-            "Workspace created locally, but the workspace-ready heartbeat was not confirmed",
-            error,
-          ),
-        );
-      }
-    } else {
-      appendRuntimeEventLog({
-        category: "workspace",
-        event: "workspace.heartbeat.emit",
-        outcome: "skipped",
-        detail:
-          `workspace_id=${workspaceId} skipped=no_active_runtime_binding ` +
-          `requested_user_id=${requestedHeartbeatUserId || "missing"} runtime_user_id=${runtimeHeartbeatUserId || "missing"}`,
-      });
     }
     return withWorkspaceResponseLocation(updated);
   } catch (error) {

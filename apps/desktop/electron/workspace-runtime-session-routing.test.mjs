@@ -67,10 +67,7 @@ test("workspace-scoped proposals, background tasks, notifications, cronjobs, and
     source,
     /requestWorkspaceRuntimeJson<InstallAppFromCatalogResponse>\(\s*workspaceId,[\s\S]*?path: "\/api\/v1\/apps\/install-archive"/,
   );
-  assert.match(
-    source,
-    /requestWorkspaceRuntimeJson<ProactiveContextCaptureResponsePayload>\(\s*workspaceId,[\s\S]*?path: "\/api\/v1\/proactive\/context\/capture"/,
-  );
+  assert.doesNotMatch(source, /path: "\/api\/v1\/proactive\/context\/capture"/);
 });
 
 test("workspace-scoped session lifecycle and IO APIs route through workspace runtime sessions", async () => {

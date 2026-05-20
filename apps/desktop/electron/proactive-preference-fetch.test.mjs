@@ -26,13 +26,14 @@ test("deprecated proactive workspace IPC surface is removed from the main proces
   assert.doesNotMatch(source, /"workspace:getProactiveHeartbeatConfig"/);
 });
 
-test("workspace-ready proactive heartbeat ingest remains available for internal emits", async () => {
+test("workspace-ready proactive heartbeat ingest is removed from the main process", async () => {
   const source = await readFile(MAIN_PATH, "utf8");
 
-  assert.match(source, /async function ingestWorkspaceHeartbeat\(/);
-  assert.match(source, /path: "\/api\/v1\/proactive\/context\/capture"/);
-  assert.match(source, /path: "\/api\/v1\/proactive\/ingest"/);
-  assert.match(source, /captured_context: bundledContext\.context/);
-  assert.match(source, /sourceRef: "workspace-created:ready"/);
-  assert.match(source, /workspace_id=\$\{workspaceId\} source=\$\{params\.sourceRef\}/);
+  assert.doesNotMatch(source, /async function ingestWorkspaceHeartbeat\(/);
+  assert.doesNotMatch(source, /async function emitWorkspaceReadyHeartbeat\(/);
+  assert.doesNotMatch(source, /path: "\/api\/v1\/proactive\/ingest"/);
+  assert.doesNotMatch(source, /path: "\/api\/v1\/proactive\/context\/capture"/);
+  assert.doesNotMatch(source, /captured_context:/);
+  assert.doesNotMatch(source, /workspace-created:ready/);
+  assert.doesNotMatch(source, /workspace\.heartbeat\.emit/);
 });
