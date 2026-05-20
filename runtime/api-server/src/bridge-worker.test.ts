@@ -6,7 +6,6 @@ import { test } from "node:test";
 
 import { RuntimeStateStore } from "@holaboss/runtime-state-store";
 
-import { FilesystemMemoryService } from "./memory.js";
 import {
   RuntimeRemoteBridgeWorker,
   bridgeEnabled,
@@ -335,7 +334,6 @@ test("executeBridgeJobNatively creates task proposals in the TS state store", as
     harness: "pi",
     status: "active"
   });
-  const memoryService = new FilesystemMemoryService({ workspaceRoot });
 
   const result = await executeBridgeJobNatively({
     job: {
@@ -349,8 +347,7 @@ test("executeBridgeJobNatively creates task proposals in the TS state store", as
         task_generation_rationale: "Bridge test"
       }
     },
-    store,
-    memoryService
+    store
   });
 
   assert.equal(result.status, "succeeded");
@@ -364,239 +361,4 @@ test("executeBridgeJobNatively creates task proposals in the TS state store", as
     "proactive"
   );
   store.close();
-});
-
-test("executeBridgeJobNatively captures bundled proactive workspace context", async () => {
-  const previousUser = process.env.HOLABOSS_USER_ID;
-  process.env.HOLABOSS_USER_ID = "user-1";
-
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hb-bridge-context-"));
-  const workspaceRoot = path.join(root, "workspace");
-  const store = new RuntimeStateStore({
-    dbPath: path.join(root, "runtime.db"),
-    workspaceRoot
-  });
-  store.createWorkspace({
-    workspaceId: "workspace-1",
-    name: "Workspace One",
-    harness: "pi",
-    status: "active"
-  });
-  const workspaceDir = store.workspaceDir("workspace-1");
-  fs.mkdirSync(path.join(workspaceDir, "apps", "twitter"), { recursive: true });
-  fs.writeFileSync(
-    path.join(workspaceDir, "workspace.yaml"),
-    `
-agents:
-  id: workspace.general
-  model: openai/gpt-5
-applications:
-  - app_id: twitter
-    config_path: apps/twitter/app.runtime.yaml
-mcp_registry:
-  allowlist:
-    tool_ids:
-      - twitter.performance
-  servers:
-    twitter:
-      type: remote
-      url: "http://localhost:3099/mcp"
-      enabled: true
-`.trim(),
-    "utf8"
-  );
-  fs.writeFileSync(
-    path.join(workspaceDir, "apps", "twitter", "app.runtime.yaml"),
-    `
-app_id: twitter
-healthchecks:
-  mcp:
-    path: /health
-    timeout_s: 30
-    interval_s: 5
-mcp:
-  transport: http-sse
-  port: 3099
-  path: /mcp
-env_contract:
-  - HOLABOSS_USER_ID
-`.trim(),
-    "utf8"
-  );
-  const memoryService = new FilesystemMemoryService({ workspaceRoot });
-  await memoryService.upsert({
-    workspace_id: "workspace-1",
-    path: "workspace/workspace-1/state.md",
-    content: "Past tweet performance favors concise growth hooks.",
-    append: false
-  });
-  await memoryService.upsert({
-    workspace_id: "workspace-1",
-    path: "workspace/workspace-1/runtime/latest-turn.md",
-    content: "Latest runtime turn summary.",
-    append: false
-  });
-  await memoryService.upsert({
-    workspace_id: "workspace-1",
-    path: "workspace/workspace-1/runtime/recent-turns/session-main.md",
-    content: "Recent runtime turn history.",
-    append: false
-  });
-  await memoryService.upsert({
-    workspace_id: "workspace-1",
-    path: "workspace/workspace-1/runtime/permission-blockers/deploy.md",
-    content: "Deploy is blocked by policy.",
-    append: false
-  });
-  await memoryService.upsert({
-    workspace_id: "workspace-1",
-    path: "workspace/workspace-1/knowledge/blockers/permission-deploy.md",
-    content: "# Recurring Blocker\n\nDeploy is blocked by policy.",
-    append: false
-  });
-  await memoryService.upsert({
-    workspace_id: "workspace-1",
-    path: "workspace/workspace-1/MEMORY.md",
-    content: "# Workspace Memory Index\n\n- [permission-deploy.md](knowledge/blockers/permission-deploy.md)",
-    append: false
-  });
-  await memoryService.upsert({
-    workspace_id: "workspace-1",
-    path: "preference/response-style.md",
-    content: "Respond concisely.",
-    append: false
-  });
-  await memoryService.upsert({
-    workspace_id: "workspace-1",
-    path: "preference/MEMORY.md",
-    content: "# Preference Memory Index\n\n- [response-style.md](response-style.md)",
-    append: false
-  });
-  await memoryService.upsert({
-    workspace_id: "workspace-1",
-    path: "MEMORY.md",
-    content: "# Memory Index\n\n- [Workspace workspace-1](workspace/workspace-1/MEMORY.md)",
-    append: false
-  });
-  store.upsertMemoryEntry({
-    memoryId: "workspace-blocker:deploy",
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    scope: "workspace",
-    memoryType: "blocker",
-    subjectKey: "deploy",
-    path: "workspace/workspace-1/knowledge/blockers/permission-deploy.md",
-    title: "Recurring deploy blocker",
-    summary: "Deploy is blocked by policy.",
-    tags: ["deploy", "policy"],
-    verificationPolicy: "check_before_use",
-    stalenessPolicy: "workspace_sensitive",
-    staleAfterSeconds: 1209600,
-    fingerprint: "fingerprint-workspace-blocker",
-  });
-  store.upsertMemoryEntry({
-    memoryId: "user-preference:response-style",
-    workspaceId: null,
-    sessionId: "session-main",
-    scope: "user",
-    memoryType: "preference",
-    subjectKey: "response-style",
-    path: "preference/response-style.md",
-    title: "Response style",
-    summary: "Respond concisely.",
-    tags: ["style"],
-    verificationPolicy: "none",
-    stalenessPolicy: "stable",
-    staleAfterSeconds: null,
-    fingerprint: "fingerprint-response-style",
-  });
-
-  const result = await executeBridgeJobNatively({
-    job: {
-      job_id: "job-context",
-      job_type: "workspace.context.capture",
-      workspace_id: "workspace-1",
-      payload: {
-        workspace_id: "workspace-1",
-        reason: "remote_proactive_analysis"
-      }
-    },
-    store,
-    memoryService
-  });
-
-  assert.equal(result.status, "succeeded");
-  const context = result.output?.context as Record<string, unknown>;
-  const snapshot = context.snapshot as Record<string, unknown>;
-  const memory = context.memory as Record<string, unknown>;
-  const runtimeProjections = memory.runtime_projections as Record<string, unknown>;
-  const durableIndexes = memory.durable_indexes as Record<string, unknown>;
-  const durableFiles = memory.durable_files as Record<string, unknown>;
-  const durableCatalog = memory.durable_catalog as Record<string, unknown>;
-  const debugFiles = memory.debug_files as Record<string, unknown>;
-  const derivedRuntime = memory.derived_runtime as Record<string, unknown>;
-  const toolManifest = context.tool_manifest as Record<string, unknown>;
-  assert.equal((context.workspace as Record<string, unknown>).holaboss_user_id, "user-1");
-  assert.deepEqual(snapshot.applications, ["twitter"]);
-  assert.deepEqual(snapshot.mcp_tool_ids, ["twitter.performance"]);
-  assert.equal((memory.files as Record<string, unknown>)["workspace/workspace-1/state.md"], "Past tweet performance favors concise growth hooks.");
-  assert.deepEqual(derivedRuntime.priority_file_paths, [
-    "workspace/workspace-1/runtime/latest-turn.md",
-    "workspace/workspace-1/runtime/permission-blockers/deploy.md",
-    "workspace/workspace-1/runtime/recent-turns/session-main.md",
-  ]);
-  assert.deepEqual(runtimeProjections.priority_file_paths, derivedRuntime.priority_file_paths);
-  assert.equal(
-    ((derivedRuntime.latest_turn as Record<string, unknown>)?.text as string),
-    "Latest runtime turn summary."
-  );
-  assert.equal(
-    (
-      (derivedRuntime.permission_blockers as Record<string, unknown>)[
-        "workspace/workspace-1/runtime/permission-blockers/deploy.md"
-      ] as string
-    ),
-    "Deploy is blocked by policy."
-  );
-  assert.equal(
-    (
-      (derivedRuntime.recent_turns as Record<string, unknown>)[
-        "workspace/workspace-1/runtime/recent-turns/session-main.md"
-      ] as string
-    ),
-    "Recent runtime turn history."
-  );
-  assert.equal(
-    ((derivedRuntime.response_style_preference as Record<string, unknown>)?.text as string),
-    "Respond concisely."
-  );
-  assert.equal(
-    ((durableIndexes.root as Record<string, unknown>)?.text as string),
-    "# Memory Index\n\n- [Workspace workspace-1](workspace/workspace-1/MEMORY.md)"
-  );
-  assert.equal(
-    (
-      (durableFiles.workspace_knowledge as Record<string, unknown>)[
-        "workspace/workspace-1/knowledge/blockers/permission-deploy.md"
-      ] as string
-    ),
-    "# Recurring Blocker\n\nDeploy is blocked by policy."
-  );
-  assert.equal(
-    ((durableFiles.user_scopes as Record<string, unknown>)["preference/response-style.md"] as string),
-    "Respond concisely."
-  );
-  assert.equal(durableCatalog.total_entries, 2);
-  assert.deepEqual(durableCatalog.counts_by_scope, { user: 1, workspace: 1 });
-  assert.deepEqual(durableCatalog.counts_by_type, { blocker: 1, preference: 1 });
-  assert.deepEqual(debugFiles.uncategorized_paths, ["workspace/workspace-1/state.md"]);
-  assert.ok(Array.isArray(toolManifest.tools));
-  assert.equal((toolManifest.tools as Array<Record<string, unknown>>)[0]?.tool_id, "twitter.performance");
-
-  store.close();
-  if (previousUser === undefined) {
-    delete process.env.HOLABOSS_USER_ID;
-  } else {
-    process.env.HOLABOSS_USER_ID = previousUser;
-  }
 });

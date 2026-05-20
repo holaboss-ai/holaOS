@@ -507,9 +507,6 @@ test("claimed input persists runner events, assistant text, and idle state on su
     async sync() {
       return {};
     },
-    async capture() {
-      return { files: {} };
-    },
   };
   const workspace = store.createWorkspace({
     workspaceId: "workspace-1",
@@ -4091,9 +4088,6 @@ test("claimed input resolves evolve model context from the provider background t
     },
     async sync() {
       return {};
-    },
-    async capture() {
-      return { files: {} };
     },
   };
   const workspace = store.createWorkspace({

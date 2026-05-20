@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import path from "node:path";
 
 import type {
   MemoryEntryScope,
@@ -13,6 +12,11 @@ import type {
 } from "@holaboss/runtime-state-store";
 
 import type { MemoryServiceLike } from "./memory.js";
+import {
+  persistInteractionCandidate,
+  rebuildAllInteractionTrees,
+  rebuildInteractionEntityTree,
+} from "./interaction-memory.js";
 import { governanceRuleForMemoryType } from "./memory-governance.js";
 import {
   assistantTextFromTurnArtifacts,
@@ -27,6 +31,7 @@ import {
   type ExtractedDurableMemoryCandidate,
 } from "./memory-writeback-extractor.js";
 import type { MemoryModelClientConfig } from "./memory-model-client.js";
+import { createRecallEmbeddingModelClient } from "./recall-embedding-model.js";
 
 export interface DurableMemoryCandidate {
   memoryId: string;
@@ -53,17 +58,6 @@ interface ModelDurableCandidate {
   durableCandidate: DurableMemoryCandidate;
 }
 
-type IndexedMemoryScope =
-  | { kind: "workspace"; workspaceId: string }
-  | { kind: "preference" }
-  | { kind: "identity" };
-
-interface DurableMemoryPersistResult {
-  path: string;
-  changedIndexedScopes: IndexedMemoryScope[];
-  rootCountChanged: boolean;
-}
-
 interface TurnWritebackContext {
   assistantText: string;
   compactedSummary: string | null;
@@ -83,7 +77,6 @@ export interface TurnMemoryWritebackModelContext {
 const RECENT_TURNS_LIMIT = 5;
 const RECENT_USER_MESSAGES_LIMIT = 6;
 const MODEL_EXTRACTION_INTERVAL_TURNS = 5;
-const MEMORY_INDEX_PAGE_SIZE = 250;
 const MODEL_EXTRACTION_MIN_CONFIDENCE = 0.82;
 const MODEL_EXTRACTION_MIN_CONFIDENCE_CORROBORATED = 0.6;
 const MODEL_EXTRACTION_MIN_EVIDENCE_CHARS = 36;
@@ -109,10 +102,6 @@ function titleCase(value: string): string {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
-function fingerprintText(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
-}
-
 function repeatedPermissionKnowledgePath(
   turnResult: TurnResultRecord,
   toolName: string,
@@ -121,22 +110,6 @@ function repeatedPermissionKnowledgePath(
 ): string {
   const key = blockerKey(toolName, toolId, reason);
   return `workspace/${turnResult.workspaceId}/knowledge/blockers/permission-${key}.md`;
-}
-
-function workspaceMemoryIndexPath(workspaceId: string): string {
-  return `workspace/${workspaceId}/MEMORY.md`;
-}
-
-function rootMemoryIndexPath(): string {
-  return "MEMORY.md";
-}
-
-function preferenceMemoryIndexPath(): string {
-  return "preference/MEMORY.md";
-}
-
-function identityMemoryIndexPath(): string {
-  return "identity/MEMORY.md";
 }
 
 function workspaceCommandFactPath(turnResult: TurnResultRecord, purpose: WorkspaceCommandPurpose): string {
@@ -893,411 +866,6 @@ function buildDurableMemoryCandidates(params: {
   ];
 }
 
-function renderWorkspaceMemoryIndex(params: {
-  workspaceId: string;
-  entries: DurableMemoryCandidate[];
-}): string {
-  const lines = [
-    "# Workspace Durable Memory Index",
-    "",
-    `- Workspace ID: \`${params.workspaceId}\``,
-    `- Indexed memories: ${params.entries.length}`,
-    "",
-  ];
-  if (params.entries.length === 0) {
-    lines.push("No durable workspace memories indexed yet.");
-    return `${lines.join("\n").trim()}\n`;
-  }
-  for (const entry of params.entries.sort((left, right) => left.path.localeCompare(right.path))) {
-    const relativeTarget = path.posix.relative(`workspace/${params.workspaceId}`, entry.path);
-    lines.push(renderDurableIndexLine(relativeTarget, entry));
-  }
-  return `${lines.join("\n").trim()}\n`;
-}
-
-function renderPreferenceMemoryIndex(entries: DurableMemoryCandidate[]): string {
-  const lines = [
-    "# Preference Memory Index",
-    "",
-    `- Indexed memories: ${entries.length}`,
-    "",
-  ];
-  if (entries.length === 0) {
-    lines.push("No durable preference memories indexed yet.");
-    return `${lines.join("\n").trim()}\n`;
-  }
-  for (const entry of entries.sort((left, right) => left.path.localeCompare(right.path))) {
-    const relativeTarget = path.posix.relative("preference", entry.path);
-    lines.push(renderDurableIndexLine(relativeTarget, entry));
-  }
-  return `${lines.join("\n").trim()}\n`;
-}
-
-function renderIdentityMemoryIndex(entries: DurableMemoryCandidate[]): string {
-  const lines = [
-    "# Identity Memory Index",
-    "",
-    `- Indexed memories: ${entries.length}`,
-    "",
-  ];
-  if (entries.length === 0) {
-    lines.push("No durable identity memories indexed yet.");
-    return `${lines.join("\n").trim()}\n`;
-  }
-  for (const entry of entries.sort((left, right) => left.path.localeCompare(right.path))) {
-    const relativeTarget = path.posix.relative("identity", entry.path);
-    lines.push(renderDurableIndexLine(relativeTarget, entry));
-  }
-  return `${lines.join("\n").trim()}\n`;
-}
-
-function renderRootMemoryIndex(params: {
-  workspaceIndexCounts: Array<{ workspaceId: string; count: number }>;
-  preferenceEntryCount: number;
-  identityEntryCount: number;
-}): string {
-  const lines = [
-    "# Memory Index",
-    "",
-    "Use the scoped indexes below to find durable memory. Runtime state under `workspace/<workspace-id>/runtime/` is intentionally not indexed here.",
-    "",
-  ];
-  for (const workspaceIndex of params.workspaceIndexCounts.sort((left, right) => left.workspaceId.localeCompare(right.workspaceId))) {
-    lines.push(
-      `- [Workspace ${workspaceIndex.workspaceId}](workspace/${workspaceIndex.workspaceId}/MEMORY.md) - ${workspaceIndex.count} durable workspace memories.`
-    );
-  }
-  lines.push(`- [Preferences](preference/MEMORY.md) - ${params.preferenceEntryCount} durable preference memories.`);
-  lines.push(`- [Identity](identity/MEMORY.md) - ${params.identityEntryCount} durable identity memories.`);
-  if (params.workspaceIndexCounts.every((entry) => entry.count === 0) && params.preferenceEntryCount === 0 && params.identityEntryCount === 0) {
-    lines.push("No durable memories indexed yet.");
-  }
-  return `${lines.join("\n").trim()}\n`;
-}
-
-function renderDurableIndexLine(relativeTarget: string, entry: DurableMemoryCandidate): string {
-  const metadata: string[] = [`[${entry.memoryType}]`, `[verify: ${entry.verificationPolicy}]`];
-  if (entry.tags.length > 0) {
-    metadata.push(`[tags: ${entry.tags.slice(0, 3).join(", ")}]`);
-  }
-  return `- [${entry.title}](${relativeTarget}) ${metadata.join(" ")} - ${entry.summary}`;
-}
-
-function durableIndexEntryFromRecord(record: ReturnType<RuntimeStateStore["listMemoryEntries"]>[number]): DurableMemoryCandidate {
-  return {
-    memoryId: record.memoryId,
-    scope: record.scope as "workspace" | "user",
-    memoryType: record.memoryType as MemoryEntryType,
-    subjectKey: record.subjectKey,
-    path: record.path,
-    title: record.title,
-    summary: record.summary,
-    content: "",
-    tags: record.tags,
-    verificationPolicy: record.verificationPolicy as MemoryVerificationPolicy,
-    stalenessPolicy: record.stalenessPolicy as MemoryStalenessPolicy,
-    staleAfterSeconds: record.staleAfterSeconds,
-    sourceType: record.sourceType ?? "manual",
-    observedAt: record.observedAt,
-    lastVerifiedAt: record.lastVerifiedAt,
-    confidence: record.confidence,
-  };
-}
-
-function indexedScopeKey(scope: IndexedMemoryScope): string {
-  if (scope.kind === "workspace") {
-    return `workspace:${scope.workspaceId}`;
-  }
-  return scope.kind;
-}
-
-function indexedScopeChanged(left: IndexedMemoryScope | null, right: IndexedMemoryScope | null): boolean {
-  if (!left && !right) {
-    return false;
-  }
-  if (!left || !right) {
-    return true;
-  }
-  return indexedScopeKey(left) !== indexedScopeKey(right);
-}
-
-function indexedScopeForMemory(params: {
-  scope: MemoryEntryScope;
-  memoryType: MemoryEntryType;
-  workspaceId: string | null;
-}): IndexedMemoryScope | null {
-  if (params.scope === "workspace") {
-    return params.workspaceId ? { kind: "workspace", workspaceId: params.workspaceId } : null;
-  }
-  if (params.scope !== "user") {
-    return null;
-  }
-  if (params.memoryType === "preference") {
-    return { kind: "preference" };
-  }
-  if (params.memoryType === "identity") {
-    return { kind: "identity" };
-  }
-  return null;
-}
-
-function indexedScopeForRecord(
-  record: ReturnType<RuntimeStateStore["getMemoryEntry"]>,
-): IndexedMemoryScope | null {
-  if (!record || record.status !== "active") {
-    return null;
-  }
-  return indexedScopeForMemory({
-    scope: record.scope,
-    memoryType: record.memoryType,
-    workspaceId: record.workspaceId ?? null,
-  });
-}
-
-function indexedScopeForCandidate(
-  candidate: DurableMemoryCandidate,
-  workspaceId: string,
-): IndexedMemoryScope | null {
-  return indexedScopeForMemory({
-    scope: candidate.scope,
-    memoryType: candidate.memoryType,
-    workspaceId: candidate.scope === "workspace" ? workspaceId : null,
-  });
-}
-
-function indexVisibleMetadataChanged(params: {
-  existing: NonNullable<ReturnType<RuntimeStateStore["getMemoryEntry"]>>;
-  candidate: DurableMemoryCandidate;
-  workspaceId: string;
-}): boolean {
-  return (
-    params.existing.scope !== params.candidate.scope ||
-    params.existing.memoryType !== params.candidate.memoryType ||
-    (params.existing.workspaceId ?? null) !== (params.candidate.scope === "workspace" ? params.workspaceId : null) ||
-    params.existing.path !== params.candidate.path ||
-    params.existing.title !== params.candidate.title ||
-    params.existing.summary !== params.candidate.summary ||
-    params.existing.verificationPolicy !== params.candidate.verificationPolicy ||
-    JSON.stringify(params.existing.tags ?? []) !== JSON.stringify(params.candidate.tags)
-  );
-}
-
-function listAllMemoryEntries(
-  store: RuntimeStateStore,
-  params: Parameters<RuntimeStateStore["listMemoryEntries"]>[0],
-): ReturnType<RuntimeStateStore["listMemoryEntries"]> {
-  const entries: ReturnType<RuntimeStateStore["listMemoryEntries"]> = [];
-  let offset = 0;
-  while (true) {
-    const page = store.listMemoryEntries({
-      ...params,
-      limit: MEMORY_INDEX_PAGE_SIZE,
-      offset,
-    });
-    entries.push(...page);
-    if (page.length < MEMORY_INDEX_PAGE_SIZE) {
-      break;
-    }
-    offset += MEMORY_INDEX_PAGE_SIZE;
-  }
-  return entries;
-}
-
-async function upsertMemoryFileIfChanged(params: {
-  memoryService: MemoryServiceLike;
-  workspaceId: string;
-  path: string;
-  content: string;
-}): Promise<void> {
-  const existing = await params.memoryService.get({
-    workspace_id: params.workspaceId,
-    path: params.path,
-  });
-  if ((existing.text as string | undefined) === params.content) {
-    return;
-  }
-  await params.memoryService.upsert({
-    workspace_id: params.workspaceId,
-    path: params.path,
-    content: params.content,
-    append: false,
-  });
-}
-
-async function upsertMemoryIndexes(params: {
-  store: RuntimeStateStore;
-  memoryService: MemoryServiceLike;
-  workspaceId: string;
-  changedWorkspaceIds?: string[];
-  rebuildPreference?: boolean;
-  rebuildIdentity?: boolean;
-  rebuildRoot?: boolean;
-}): Promise<string[]> {
-  const workspaceIds = Array.from(new Set(
-    params.changedWorkspaceIds !== undefined
-      ? params.changedWorkspaceIds
-      : [params.workspaceId],
-  ));
-  const rebuildPreference = params.rebuildPreference ?? true;
-  const rebuildIdentity = params.rebuildIdentity ?? true;
-  const rebuildRoot = params.rebuildRoot ?? true;
-  if (workspaceIds.length === 0 && !rebuildPreference && !rebuildIdentity && !rebuildRoot) {
-    return [];
-  }
-
-  let preferenceEntries: DurableMemoryCandidate[] | null = null;
-  let identityEntries: DurableMemoryCandidate[] | null = null;
-  const restoredPaths: string[] = [];
-  for (const workspaceId of workspaceIds) {
-    const workspaceEntries = listAllMemoryEntries(params.store, {
-      workspaceId,
-      scope: "workspace",
-      status: "active",
-    });
-    const workspaceIndexContent = renderWorkspaceMemoryIndex({
-      workspaceId,
-      entries: workspaceEntries.map(durableIndexEntryFromRecord),
-    });
-    await upsertMemoryFileIfChanged({
-      memoryService: params.memoryService,
-      workspaceId: params.workspaceId,
-      path: workspaceMemoryIndexPath(workspaceId),
-      content: workspaceIndexContent,
-    });
-    restoredPaths.push(workspaceMemoryIndexPath(workspaceId));
-  }
-
-  if (rebuildPreference || rebuildRoot) {
-    preferenceEntries = listAllMemoryEntries(params.store, {
-      scope: "user",
-      memoryType: "preference",
-      status: "active",
-    }).map(durableIndexEntryFromRecord);
-  }
-  if (rebuildPreference) {
-    const preferenceIndexContent = renderPreferenceMemoryIndex(preferenceEntries ?? []);
-    await upsertMemoryFileIfChanged({
-      memoryService: params.memoryService,
-      workspaceId: params.workspaceId,
-      path: preferenceMemoryIndexPath(),
-      content: preferenceIndexContent,
-    });
-    restoredPaths.push(preferenceMemoryIndexPath());
-  }
-
-  if (rebuildIdentity || rebuildRoot) {
-    identityEntries = listAllMemoryEntries(params.store, {
-      scope: "user",
-      memoryType: "identity",
-      status: "active",
-    }).map(durableIndexEntryFromRecord);
-  }
-  if (rebuildIdentity) {
-    const identityIndexContent = renderIdentityMemoryIndex(identityEntries ?? []);
-    await upsertMemoryFileIfChanged({
-      memoryService: params.memoryService,
-      workspaceId: params.workspaceId,
-      path: identityMemoryIndexPath(),
-      content: identityIndexContent,
-    });
-    restoredPaths.push(identityMemoryIndexPath());
-  }
-
-  if (rebuildRoot) {
-    const workspaceIndexCounts = params.store.listWorkspaceMemoryEntryCounts({
-      status: "active",
-    });
-    for (const workspaceId of workspaceIds) {
-      if (!workspaceIndexCounts.some((entry) => entry.workspaceId === workspaceId)) {
-        const workspaceEntries = listAllMemoryEntries(params.store, {
-          workspaceId,
-          scope: "workspace",
-          status: "active",
-        });
-        workspaceIndexCounts.push({
-          workspaceId,
-          count: workspaceEntries.length,
-        });
-      }
-    }
-    const rootIndexContent = renderRootMemoryIndex({
-      workspaceIndexCounts,
-      preferenceEntryCount: (preferenceEntries ?? []).length,
-      identityEntryCount: (identityEntries ?? []).length,
-    });
-    await upsertMemoryFileIfChanged({
-      memoryService: params.memoryService,
-      workspaceId: params.workspaceId,
-      path: rootMemoryIndexPath(),
-      content: rootIndexContent,
-    });
-    restoredPaths.push(rootMemoryIndexPath());
-  }
-
-  return restoredPaths;
-}
-
-async function upsertDurableMemoryCandidate(params: {
-  store: RuntimeStateStore;
-  memoryService: MemoryServiceLike;
-  workspaceId: string;
-  sessionId: string;
-  inputId: string;
-  candidate: DurableMemoryCandidate;
-}): Promise<DurableMemoryPersistResult> {
-  const existing = params.store.getMemoryEntry({
-    memoryId: params.candidate.memoryId,
-  });
-  const existingIndexedScope = indexedScopeForRecord(existing);
-  const nextIndexedScope = indexedScopeForCandidate(params.candidate, params.workspaceId);
-  const metadataChanged = !existing || indexVisibleMetadataChanged({
-    existing,
-    candidate: params.candidate,
-    workspaceId: params.workspaceId,
-  });
-  await upsertMemoryFileIfChanged({
-    memoryService: params.memoryService,
-    workspaceId: params.workspaceId,
-    path: params.candidate.path,
-    content: params.candidate.content,
-  });
-  const fingerprint = fingerprintText(params.candidate.content);
-  params.store.upsertMemoryEntry({
-    memoryId: params.candidate.memoryId,
-    workspaceId: params.candidate.scope === "workspace" ? params.workspaceId : null,
-    sessionId: params.sessionId,
-    scope: params.candidate.scope,
-    memoryType: params.candidate.memoryType,
-    subjectKey: params.candidate.subjectKey,
-    path: params.candidate.path,
-    title: params.candidate.title,
-    summary: params.candidate.summary,
-    tags: params.candidate.tags,
-    verificationPolicy: params.candidate.verificationPolicy,
-    stalenessPolicy: params.candidate.stalenessPolicy,
-    staleAfterSeconds: params.candidate.staleAfterSeconds,
-    sourceTurnInputId: params.inputId,
-    sourceMessageId: params.candidate.sourceMessageId ?? null,
-    sourceType: params.candidate.sourceType,
-    observedAt: params.candidate.observedAt,
-    lastVerifiedAt: params.candidate.lastVerifiedAt,
-    confidence: params.candidate.confidence,
-    fingerprint,
-  });
-  const changedScopes = new Map<string, IndexedMemoryScope>();
-  if (existingIndexedScope && (metadataChanged || indexedScopeKey(existingIndexedScope) !== indexedScopeKey(nextIndexedScope ?? existingIndexedScope))) {
-    changedScopes.set(indexedScopeKey(existingIndexedScope), existingIndexedScope);
-  }
-  if (nextIndexedScope && (!existingIndexedScope || metadataChanged || indexedScopeKey(existingIndexedScope) !== indexedScopeKey(nextIndexedScope))) {
-    changedScopes.set(indexedScopeKey(nextIndexedScope), nextIndexedScope);
-  }
-  return {
-    path: params.candidate.path,
-    changedIndexedScopes: Array.from(changedScopes.values()),
-    rootCountChanged: indexedScopeChanged(existingIndexedScope, nextIndexedScope),
-  };
-}
-
 function loadTurnWritebackContext(store: RuntimeStateStore, turnResult: TurnResultRecord): TurnWritebackContext {
   // Keep turn_results as a deterministic execution ledger. Any short summary
   // used by background writeback is ephemeral evidence, not persisted state.
@@ -1337,7 +905,39 @@ export async function persistDurableMemoryCandidate(params: {
   inputId: string;
   candidate: DurableMemoryCandidate;
 }): Promise<string> {
-  return (await upsertDurableMemoryCandidate(params)).path;
+  void params.memoryService;
+  const embeddingClient = createRecallEmbeddingModelClient({
+    workspaceId: params.workspaceId,
+    sessionId: params.sessionId,
+    inputId: params.inputId,
+  });
+  const result = await persistInteractionCandidate({
+    store: params.store,
+    workspaceId: params.workspaceId,
+    candidate: {
+      subjectKey: params.candidate.subjectKey,
+      title: params.candidate.title,
+      summary: params.candidate.summary,
+      content: params.candidate.content,
+      tags: params.candidate.tags,
+      memoryType: params.candidate.memoryType,
+      sourceType: params.candidate.sourceType,
+      sourceEventId: params.inputId,
+      sourceMessageId: params.candidate.sourceMessageId ?? null,
+      sourceTurnInputId: params.inputId,
+      observedAt: params.candidate.observedAt ?? null,
+      confidence: params.candidate.confidence ?? null,
+    },
+    modelClient: null,
+    embeddingClient,
+  });
+  await rebuildInteractionEntityTree({
+    store: params.store,
+    workspaceId: params.workspaceId,
+    entityId: result.entity.entityId,
+    embeddingClient,
+  });
+  return result.leaf.path;
 }
 
 export async function refreshMemoryIndexes(params: {
@@ -1345,7 +945,19 @@ export async function refreshMemoryIndexes(params: {
   memoryService: MemoryServiceLike;
   workspaceId: string;
 }): Promise<string[]> {
-  return upsertMemoryIndexes(params);
+  void params.memoryService;
+  await rebuildAllInteractionTrees({
+    store: params.store,
+    workspaceId: params.workspaceId,
+  });
+  return params.store
+    .listInteractionSummaryNodes({
+      workspaceId: params.workspaceId,
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    })
+    .map((node) => node.path);
 }
 
 export async function writeTurnDurableMemory(params: {
@@ -1354,6 +966,7 @@ export async function writeTurnDurableMemory(params: {
   turnResult: TurnResultRecord;
   modelContext?: TurnMemoryWritebackModelContext | null;
 }): Promise<TurnResultRecord> {
+  void params.memoryService;
   const context = loadTurnWritebackContext(params.store, params.turnResult);
   const heuristicDurableCandidates = buildDurableMemoryCandidates({
     assistantText: context.assistantText,
@@ -1385,40 +998,44 @@ export async function writeTurnDurableMemory(params: {
       }) ?? context.turnResult
     );
   }
-  const changedWorkspaceIds = new Set<string>();
-  let rebuildPreference = false;
-  let rebuildIdentity = false;
-  let rebuildRoot = false;
+  const embeddingClient = createRecallEmbeddingModelClient({
+    workspaceId: context.turnResult.workspaceId,
+    sessionId: context.turnResult.sessionId,
+    inputId: context.turnResult.inputId,
+  });
+  const touchedEntityIds = new Set<string>();
 
   for (const candidate of durableCandidates) {
-    const persisted = await upsertDurableMemoryCandidate({
+    const persisted = await persistInteractionCandidate({
       store: params.store,
-      memoryService: params.memoryService,
       workspaceId: context.turnResult.workspaceId,
-      sessionId: context.turnResult.sessionId,
-      inputId: context.turnResult.inputId,
-      candidate,
+      candidate: {
+        subjectKey: candidate.subjectKey,
+        title: candidate.title,
+        summary: candidate.summary,
+        content: candidate.content,
+        tags: candidate.tags,
+        memoryType: candidate.memoryType,
+        sourceType: candidate.sourceType,
+        sourceEventId: context.turnResult.inputId,
+        sourceMessageId: candidate.sourceMessageId ?? null,
+        sourceTurnInputId: context.turnResult.inputId,
+        observedAt: candidate.observedAt ?? null,
+        confidence: candidate.confidence ?? null,
+      },
+      modelClient: params.modelContext?.modelClient ?? null,
+      embeddingClient,
     });
-    for (const indexedScope of persisted.changedIndexedScopes) {
-      if (indexedScope.kind === "workspace") {
-        changedWorkspaceIds.add(indexedScope.workspaceId);
-      } else if (indexedScope.kind === "preference") {
-        rebuildPreference = true;
-      } else if (indexedScope.kind === "identity") {
-        rebuildIdentity = true;
-      }
+    if (persisted.outcome !== "noop_duplicate") {
+      touchedEntityIds.add(persisted.entity.entityId);
     }
-    rebuildRoot = rebuildRoot || persisted.rootCountChanged;
   }
-  if (changedWorkspaceIds.size > 0 || rebuildPreference || rebuildIdentity || rebuildRoot) {
-    await upsertMemoryIndexes({
+  for (const entityId of touchedEntityIds) {
+    await rebuildInteractionEntityTree({
       store: params.store,
-      memoryService: params.memoryService,
       workspaceId: context.turnResult.workspaceId,
-      changedWorkspaceIds: Array.from(changedWorkspaceIds),
-      rebuildPreference,
-      rebuildIdentity,
-      rebuildRoot,
+      entityId,
+      embeddingClient,
     });
   }
   return (

@@ -2,8 +2,6 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 import type { RuntimeStateStore } from "@holaboss/runtime-state-store";
 
-import { MemoryServiceError, type MemoryServiceLike } from "./memory.js";
-import { captureWorkspaceContext } from "./proactive-context.js";
 import { runtimeConfigHeaders } from "./runtime-config.js";
 import {
   captureRuntimeException,
@@ -264,9 +262,8 @@ function taskProposalPayload(payload: Record<string, unknown>): TaskProposalCrea
 export async function executeBridgeJobNatively(params: {
   job: ProactiveBridgeJob;
   store: RuntimeStateStore;
-  memoryService: MemoryServiceLike;
 }): Promise<ProactiveBridgeJobResult> {
-  const { job, store, memoryService } = params;
+  const { job, store } = params;
   const workspace = store.getWorkspace(job.workspace_id);
   if (!workspace || workspace.deletedAtUtc) {
     return failedJobResult(job, "workspace_not_found", `Workspace '${job.workspace_id}' was not found`);
@@ -288,21 +285,7 @@ export async function executeBridgeJobNatively(params: {
       });
       return succeededJobResult(job, { proposal_id: proposal.proposalId });
     }
-
-    if (job.job_type === "workspace.context.capture") {
-      return succeededJobResult(job, {
-        context: await captureWorkspaceContext({
-          store,
-          memoryService,
-          workspaceId: requiredStringField(job.payload, "workspace_id")
-        })
-      });
-    }
-
   } catch (error) {
-    if (error instanceof MemoryServiceError) {
-      return failedJobResult(job, "invalid_payload", error.message);
-    }
     if (error instanceof Error && /is required$/.test(error.message)) {
       return invalidPayloadResult(job, job.job_type);
     }
@@ -321,7 +304,6 @@ export interface RuntimeRemoteBridgeWorkerOptions {
   logger?: LoggerLike;
   executeJob?: (job: ProactiveBridgeJob) => Promise<ProactiveBridgeJobResult>;
   store?: RuntimeStateStore;
-  memoryService?: MemoryServiceLike;
   captureRuntimeException?: typeof captureRuntimeException;
   fetchImpl?: typeof fetch;
   baseUrl?: string;
@@ -421,10 +403,10 @@ export class RuntimeRemoteBridgeWorker implements BridgeWorkerLike {
     this.#logger = options.logger;
     this.#executeJob =
       options.executeJob ??
-      (options.store && options.memoryService
-        ? (job) => executeBridgeJobNatively({ job, store: options.store as RuntimeStateStore, memoryService: options.memoryService as MemoryServiceLike })
+      (options.store
+        ? (job) => executeBridgeJobNatively({ job, store: options.store as RuntimeStateStore })
         : (() => {
-            throw new Error("bridge worker requires executeJob or store+memoryService");
+            throw new Error("bridge worker requires executeJob or store");
           }));
     this.#captureRuntimeException =
       options.captureRuntimeException ?? captureRuntimeException;

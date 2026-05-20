@@ -9,6 +9,10 @@ import { RuntimeStateStore } from "@holaboss/runtime-state-store";
 
 import { FilesystemMemoryService } from "./memory.js";
 import {
+  globalMemoryDirForWorkspaceRoot,
+  workspaceMemoryDir,
+} from "./workspace-bundle-paths.js";
+import {
   refreshMemoryIndexes,
   writeTurnDurableMemory,
   type TurnMemoryWritebackModelContext,
@@ -30,6 +34,7 @@ function makeTempDir(prefix: string): string {
 
 function makeRuntimeState(prefix: string): {
   root: string;
+  workspaceRoot: string;
   store: RuntimeStateStore;
   memoryService: FilesystemMemoryService;
 } {
@@ -37,12 +42,100 @@ function makeRuntimeState(prefix: string): {
   const workspaceRoot = path.join(root, "workspaces");
   return {
     root,
+    workspaceRoot,
     store: new RuntimeStateStore({
       dbPath: path.join(root, "runtime.db"),
       workspaceRoot,
     }),
     memoryService: new FilesystemMemoryService({ workspaceRoot }),
   };
+}
+
+function listMarkdownFiles(root: string): string[] {
+  if (!fs.existsSync(root)) {
+    return [];
+  }
+  const stat = fs.statSync(root);
+  if (stat.isFile() && path.extname(root).toLowerCase() === ".md") {
+    return [root];
+  }
+  if (!stat.isDirectory()) {
+    return [];
+  }
+  const files: string[] = [];
+  const stack = [root];
+  while (stack.length > 0) {
+    const current = stack.pop() as string;
+    const entries = fs.readdirSync(current, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+      } else if (entry.isFile() && path.extname(entry.name).toLowerCase() === ".md") {
+        files.push(fullPath);
+      }
+    }
+  }
+  return files.sort();
+}
+
+function snapshotMemoryFiles(workspaceRoot: string, workspaceId: string): Record<string, string> {
+  const workspaceDir = path.join(workspaceRoot, workspaceId);
+  const workspaceRootDir = workspaceMemoryDir(workspaceDir);
+  const globalRootDir = globalMemoryDirForWorkspaceRoot(workspaceRoot);
+  const files: Record<string, string> = {};
+
+  for (const filePath of listMarkdownFiles(workspaceRootDir)) {
+    const relativePath = path.relative(workspaceRootDir, filePath).split(path.sep).join("/");
+    files[`workspace/${workspaceId}/${relativePath}`] = fs.readFileSync(filePath, "utf8");
+  }
+
+  const rootIndexPath = path.join(globalRootDir, "MEMORY.md");
+  if (fs.existsSync(rootIndexPath) && fs.statSync(rootIndexPath).isFile()) {
+    files["MEMORY.md"] = fs.readFileSync(rootIndexPath, "utf8");
+  }
+  if (fs.existsSync(globalRootDir) && fs.statSync(globalRootDir).isDirectory()) {
+    for (const entry of fs.readdirSync(globalRootDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!entry.isDirectory() || entry.name === "workspace") {
+        continue;
+      }
+      for (const filePath of listMarkdownFiles(path.join(globalRootDir, entry.name))) {
+        const relativePath = path.relative(globalRootDir, filePath).split(path.sep).join("/");
+        files[relativePath] = fs.readFileSync(filePath, "utf8");
+      }
+    }
+  }
+
+  return files;
+}
+
+function listActiveInteractionLeaves(store: RuntimeStateStore, workspaceId: string) {
+  return store.listInteractionLeaves({
+    workspaceId,
+    status: "active",
+    limit: 10_000,
+    offset: 0,
+  });
+}
+
+function listActiveInteractionSummaries(store: RuntimeStateStore, workspaceId: string, entityId?: string) {
+  return store.listInteractionSummaryNodes({
+    workspaceId,
+    entityId: entityId ?? null,
+    status: "active",
+    limit: 10_000,
+    offset: 0,
+  });
+}
+
+function listActiveInteractionEntities(store: RuntimeStateStore, workspaceId: string) {
+  return store.listInteractionEntities({
+    workspaceId,
+    status: "active",
+    includeSystem: true,
+    limit: 10_000,
+    offset: 0,
+  });
 }
 
 async function withModelExtractionResponse(params: {
@@ -139,7 +232,7 @@ function appendPermissionDeniedToolCall(params: {
 }
 
 test("writeTurnDurableMemory does not mutate turn result summaries or write runtime continuity files", async () => {
-  const { store, memoryService } = makeRuntimeState("hb-turn-memory-");
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-");
   seedWorkspace(store);
   store.insertSessionMessage({
     workspaceId: "workspace-1",
@@ -183,8 +276,7 @@ test("writeTurnDurableMemory does not mutate turn result summaries or write runt
     memoryService,
     turnResult,
   });
-  const captured = await memoryService.capture({ workspace_id: "workspace-1" });
-  const files = captured.files as Record<string, string>;
+  const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
   const memoryEntryIds = store.listMemoryEntries({ status: "active" }).map((entry) => entry.memoryId).sort((left, right) =>
     left.localeCompare(right)
   );
@@ -197,7 +289,7 @@ test("writeTurnDurableMemory does not mutate turn result summaries or write runt
 });
 
 test("writeTurnDurableMemory reuses stable durable blocker paths across repeated matching denials", async () => {
-  const { store, memoryService } = makeRuntimeState("hb-turn-memory-dedupe-");
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-dedupe-");
   seedWorkspace(store);
 
   const firstTurn = store.upsertTurnResult({
@@ -258,42 +350,32 @@ test("writeTurnDurableMemory reuses stable durable blocker paths across repeated
     turnResult: secondTurn,
   });
 
-  const captured = await memoryService.capture({ workspace_id: "workspace-1" });
-  const filePaths = (captured.file_paths as string[]).sort((left, right) => left.localeCompare(right));
-  const files = captured.files as Record<string, string>;
-  const durableBlockerPaths = filePaths.filter((filePath) =>
-    filePath.startsWith("workspace/workspace-1/knowledge/blockers/")
-  );
-  const memoryEntries = store.listMemoryEntries({ status: "active" });
-  const blockerEntry = memoryEntries.find((entry) => entry.memoryType === "blocker");
+  const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
+  const filePaths = Object.keys(files).sort((left, right) => left.localeCompare(right));
+  const interactionLeaves = listActiveInteractionLeaves(store, "workspace-1");
+  const interactionSummaries = listActiveInteractionSummaries(store, "workspace-1");
+  const interactionEntities = listActiveInteractionEntities(store, "workspace-1");
+  const blockerLeaf = interactionLeaves[0];
 
-  assert.deepEqual(
-    filePaths,
-    [
-      "MEMORY.md",
-      "workspace/workspace-1/MEMORY.md",
-      ...durableBlockerPaths,
-    ].sort((left, right) => left.localeCompare(right))
+  assert.deepEqual(filePaths, [blockerLeaf.path]);
+  assert.equal(interactionLeaves.length, 1);
+  assert.equal(blockerLeaf.entityId, "interaction:uncategorized");
+  assert.match(blockerLeaf.path, /workspace\/workspace-1\/interaction\/entities\/uncategorized\/leaves\/leaf-[a-f0-9]{24}\.md$/);
+  assert.equal(interactionSummaries.length, 0);
+  assert.equal(
+    interactionEntities.some((entity) => entity.entityId === "interaction:uncategorized"),
+    true,
   );
-  assert.equal(durableBlockerPaths.length, 1);
-  assert.match(durableBlockerPaths[0], /knowledge\/blockers\/permission-[a-f0-9]{16}\.md$/);
-  assert.equal(memoryEntries.some((entry) => entry.memoryType === "blocker"), true);
-  assert.equal(blockerEntry?.verificationPolicy, "check_before_use");
-  assert.equal(blockerEntry?.stalenessPolicy, "workspace_sensitive");
-  assert.equal(blockerEntry?.staleAfterSeconds, 14 * 24 * 60 * 60);
-  assert.equal(blockerEntry?.sourceType, "permission_denial");
-  assert.equal(blockerEntry?.confidence, 0.92);
-  assert.match(files[durableBlockerPaths[0]], /Recurring Permission Blocker/);
-  assert.equal(files["identity/MEMORY.md"], undefined);
-  assert.equal(files["preference/MEMORY.md"], undefined);
-  assert.match(files["workspace/workspace-1/MEMORY.md"], /Deploy permission blocker/);
-  assert.match(files["MEMORY.md"], /Workspace workspace-1/);
+  assert.equal(blockerLeaf.sourceType, "permission_denial");
+  assert.equal(blockerLeaf.admissionConfidence, 0.92);
+  assert.match(files[blockerLeaf.path], /Recurring Permission Blocker/);
+  assert.match(files[blockerLeaf.path], /workspace\.deploy/);
 
   store.close();
 });
 
 test("writeTurnDurableMemory extracts durable workspace facts and procedures from explicit instructions", async () => {
-  const { store, memoryService } = makeRuntimeState("hb-turn-memory-facts-");
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-facts-");
   seedWorkspace(store);
   store.insertSessionMessage({
     workspaceId: "workspace-1",
@@ -330,37 +412,36 @@ test("writeTurnDurableMemory extracts durable workspace facts and procedures fro
     turnResult,
   });
 
-  const captured = await memoryService.capture({ workspace_id: "workspace-1" });
-  const files = captured.files as Record<string, string>;
-  const memoryEntries = store.listMemoryEntries({ status: "active" });
-  const verificationFact = memoryEntries.find((entry) => entry.memoryType === "fact");
-  const releaseProcedure = memoryEntries.find((entry) => entry.memoryType === "procedure");
+  const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
+  const interactionLeaves = listActiveInteractionLeaves(store, "workspace-1");
+  const verificationFact = interactionLeaves.find((leaf) => leaf.title === "Verification command");
+  const releaseProcedure = interactionLeaves.find((leaf) => leaf.title === "Release procedure");
+  const releaseEntity = releaseProcedure
+    ? store.getInteractionEntity({ workspaceId: "workspace-1", entityId: releaseProcedure.entityId })
+    : null;
 
-  assert.ok(files["workspace/workspace-1/knowledge/facts/verification-command.md"]);
-  assert.ok(files["workspace/workspace-1/knowledge/procedures/release-procedure.md"]);
-  assert.match(files["workspace/workspace-1/knowledge/facts/verification-command.md"], /Workspace Fact: Verification Command/);
-  assert.match(files["workspace/workspace-1/knowledge/facts/verification-command.md"], /`npm run test`/);
-  assert.match(files["workspace/workspace-1/knowledge/procedures/release-procedure.md"], /Workspace Procedure: Release/);
-  assert.match(files["workspace/workspace-1/knowledge/procedures/release-procedure.md"], /1\. Run `npm run test`\./);
-  assert.match(files["workspace/workspace-1/knowledge/procedures/release-procedure.md"], /2\. Run `npm run build`\./);
-  assert.match(files["workspace/workspace-1/MEMORY.md"], /Verification command/);
-  assert.match(files["workspace/workspace-1/MEMORY.md"], /Release procedure/);
-  assert.equal(verificationFact?.verificationPolicy, "check_before_use");
-  assert.equal(verificationFact?.stalenessPolicy, "workspace_sensitive");
-  assert.equal(verificationFact?.staleAfterSeconds, 30 * 24 * 60 * 60);
+  assert.equal(interactionLeaves.length, 2);
+  assert.ok(verificationFact);
+  assert.ok(releaseProcedure);
+  assert.equal(verificationFact?.entityId, "interaction:uncategorized");
+  assert.equal(releaseEntity?.entityType, "workflow");
+  assert.equal(releaseEntity?.canonicalName, "Release procedure");
+  assert.match(files[verificationFact!.path], /Workspace Fact: Verification Command/);
+  assert.match(files[verificationFact!.path], /`npm run test`/);
+  assert.match(files[releaseProcedure!.path], /Workspace Procedure: Release/);
+  assert.match(files[releaseProcedure!.path], /1\. Run `npm run test`\./);
+  assert.match(files[releaseProcedure!.path], /2\. Run `npm run build`\./);
+  assert.equal(listActiveInteractionSummaries(store, "workspace-1").length, 0);
   assert.equal(verificationFact?.sourceType, "session_message");
-  assert.equal(verificationFact?.confidence, 0.94);
-  assert.equal(releaseProcedure?.verificationPolicy, "check_before_use");
-  assert.equal(releaseProcedure?.stalenessPolicy, "workspace_sensitive");
-  assert.equal(releaseProcedure?.staleAfterSeconds, 14 * 24 * 60 * 60);
+  assert.equal(verificationFact?.admissionConfidence, 0.94);
   assert.equal(releaseProcedure?.sourceType, "session_message");
-  assert.equal(releaseProcedure?.confidence, 0.93);
+  assert.equal(releaseProcedure?.admissionConfidence, 0.93);
 
   store.close();
 });
 
 test("writeTurnDurableMemory extracts durable business facts and procedures from explicit workspace instructions", async () => {
-  const { store, memoryService } = makeRuntimeState("hb-turn-memory-business-");
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-business-");
   seedWorkspace(store);
   store.insertSessionMessage({
     workspaceId: "workspace-1",
@@ -397,40 +478,39 @@ test("writeTurnDurableMemory extracts durable business facts and procedures from
     turnResult,
   });
 
-  const captured = await memoryService.capture({ workspace_id: "workspace-1" });
-  const files = captured.files as Record<string, string>;
-  const memoryEntries = store.listMemoryEntries({ status: "active" });
-  const cadenceFact = memoryEntries.find((entry) => entry.title === "Sales review cadence");
-  const approvalFact = memoryEntries.find((entry) => entry.title === "Finance approval rule");
-  const followUpProcedure = memoryEntries.find((entry) => entry.title === "Follow-up procedure");
+  const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
+  const interactionLeaves = listActiveInteractionLeaves(store, "workspace-1");
+  const cadenceFact = interactionLeaves.find((leaf) => leaf.title === "Sales review cadence");
+  const approvalFact = interactionLeaves.find((leaf) => leaf.title === "Finance approval rule");
+  const followUpProcedure = interactionLeaves.find((leaf) => leaf.title === "Follow-up procedure");
+  const uncategorizedSummaries = listActiveInteractionSummaries(store, "workspace-1", "interaction:uncategorized");
 
-  assert.ok(files["workspace/workspace-1/knowledge/facts/sales-review-cadence.md"]);
-  assert.ok(files["workspace/workspace-1/knowledge/facts/invoices-over-5000-approval-rule.md"]);
-  assert.ok(files["workspace/workspace-1/knowledge/procedures/follow-up-procedure.md"]);
-  assert.match(files["workspace/workspace-1/knowledge/facts/sales-review-cadence.md"], /Workspace Fact: Sales review cadence/);
-  assert.match(files["workspace/workspace-1/knowledge/facts/sales-review-cadence.md"], /Weekly sales review is every Monday at 9am\./);
-  assert.match(files["workspace/workspace-1/knowledge/facts/invoices-over-5000-approval-rule.md"], /Workspace Fact: Finance approval rule/);
-  assert.match(files["workspace/workspace-1/knowledge/facts/invoices-over-5000-approval-rule.md"], /Invoices over \$5000 require finance approval in this workspace\./);
-  assert.match(files["workspace/workspace-1/knowledge/procedures/follow-up-procedure.md"], /Workspace Procedure: Follow-up/);
-  assert.match(files["workspace/workspace-1/knowledge/procedures/follow-up-procedure.md"], /1\. Review the CRM record\./);
-  assert.match(files["workspace/workspace-1/MEMORY.md"], /Sales review cadence/);
-  assert.match(files["workspace/workspace-1/MEMORY.md"], /Finance approval rule/);
-  assert.match(files["workspace/workspace-1/MEMORY.md"], /Follow-up procedure/);
-  assert.equal(cadenceFact?.memoryType, "fact");
+  assert.ok(cadenceFact);
+  assert.ok(approvalFact);
+  assert.ok(followUpProcedure);
+  assert.equal(cadenceFact?.entityId, "interaction:uncategorized");
+  assert.equal(approvalFact?.entityId, "interaction:uncategorized");
+  assert.match(files[cadenceFact!.path], /Workspace Fact: Sales review cadence/);
+  assert.match(files[cadenceFact!.path], /Weekly sales review is every Monday at 9am\./);
+  assert.match(files[approvalFact!.path], /Workspace Fact: Finance approval rule/);
+  assert.match(files[approvalFact!.path], /Invoices over \$5000 require finance approval in this workspace\./);
+  assert.match(files[followUpProcedure!.path], /Workspace Procedure: Follow-up/);
+  assert.match(files[followUpProcedure!.path], /1\. Review the CRM record\./);
+  assert.equal(uncategorizedSummaries.length, 1);
+  assert.match(files[uncategorizedSummaries[0].path], /Sales review cadence/);
+  assert.match(files[uncategorizedSummaries[0].path], /Finance approval rule/);
   assert.equal(cadenceFact?.sourceType, "session_message");
-  assert.equal(cadenceFact?.confidence, 0.91);
-  assert.equal(approvalFact?.memoryType, "fact");
+  assert.equal(cadenceFact?.admissionConfidence, 0.91);
   assert.equal(approvalFact?.sourceType, "session_message");
-  assert.equal(approvalFact?.confidence, 0.91);
-  assert.equal(followUpProcedure?.memoryType, "procedure");
+  assert.equal(approvalFact?.admissionConfidence, 0.91);
   assert.equal(followUpProcedure?.sourceType, "session_message");
-  assert.equal(followUpProcedure?.confidence, 0.93);
+  assert.equal(followUpProcedure?.admissionConfidence, 0.93);
 
   store.close();
 });
 
 test("writeTurnDurableMemory rejects weak uncorroborated model-extracted durable candidates", async () => {
-  const { store, memoryService } = makeRuntimeState("hb-turn-memory-model-reject-");
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-model-reject-");
   seedWorkspace(store);
   store.insertSessionMessage({
     workspaceId: "workspace-1",
@@ -487,23 +567,16 @@ test("writeTurnDurableMemory rejects weak uncorroborated model-extracted durable
     },
   });
 
-  const captured = await memoryService.capture({ workspace_id: "workspace-1" });
-  const files = captured.files as Record<string, string>;
-  const memoryEntries = store.listMemoryEntries({ status: "active" });
-
-  assert.equal(files["workspace/workspace-1/knowledge/reference/untrusted-note.md"], undefined);
-  assert.equal(
-    memoryEntries.some((entry) => entry.path === "workspace/workspace-1/knowledge/reference/untrusted-note.md"),
-    false
-  );
-  assert.equal(files["identity/MEMORY.md"], undefined);
-  assert.equal(files["preference/MEMORY.md"], undefined);
+  const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
+  assert.deepEqual(listActiveInteractionLeaves(store, "workspace-1"), []);
+  assert.deepEqual(listActiveInteractionSummaries(store, "workspace-1"), []);
+  assert.deepEqual(Object.keys(files), []);
 
   store.close();
 });
 
 test("writeTurnDurableMemory accepts corroborated model-extracted durable candidates with relaxed threshold", async () => {
-  const { store, memoryService } = makeRuntimeState("hb-turn-memory-model-corroborated-");
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-model-corroborated-");
   seedWorkspace(store);
   store.insertSessionMessage({
     workspaceId: "workspace-1",
@@ -560,24 +633,22 @@ test("writeTurnDurableMemory accepts corroborated model-extracted durable candid
     },
   });
 
-  const captured = await memoryService.capture({ workspace_id: "workspace-1" });
-  const files = captured.files as Record<string, string>;
-  const verificationFactPath = "workspace/workspace-1/knowledge/facts/verification-command.md";
-  const verificationFact = store
-    .listMemoryEntries({ status: "active" })
-    .find((entry) => entry.path === verificationFactPath);
+  const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
+  const verificationFact = listActiveInteractionLeaves(store, "workspace-1").find(
+    (leaf) => leaf.title === "Verification command (model)",
+  );
 
-  assert.ok(files[verificationFactPath]);
-  assert.match(files[verificationFactPath], /Verification command \(model\)/);
-  assert.match(files[verificationFactPath], /npm run test:ci/);
-  assert.equal(verificationFact?.title, "Verification command (model)");
-  assert.equal(verificationFact?.confidence, 0.61);
+  assert.ok(verificationFact);
+  assert.match(files[verificationFact!.path], /Verification command \(model\)/);
+  assert.match(files[verificationFact!.path], /npm run test:ci/);
+  assert.equal(verificationFact?.entityId, "interaction:uncategorized");
+  assert.equal(verificationFact?.admissionConfidence, 0.61);
 
   store.close();
 });
 
 test("writeTurnDurableMemory skips model extraction before the first cadence turn", async () => {
-  const { store, memoryService } = makeRuntimeState("hb-turn-memory-model-cadence-skip-");
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-model-cadence-skip-");
   seedWorkspace(store);
   store.insertSessionMessage({
     workspaceId: "workspace-1",
@@ -622,18 +693,17 @@ test("writeTurnDurableMemory skips model extraction before the first cadence tur
     },
   });
 
-  const captured = await memoryService.capture({ workspace_id: "workspace-1" });
-  const files = captured.files as Record<string, string>;
+  const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
 
-  assert.equal(files["workspace/workspace-1/knowledge/facts/vendor-escalations.primary-contact.md"], undefined);
-  assert.equal(files["workspace/workspace-1/MEMORY.md"], undefined);
-  assert.deepEqual(store.listMemoryEntries({ status: "active" }), []);
+  assert.deepEqual(listActiveInteractionLeaves(store, "workspace-1"), []);
+  assert.deepEqual(listActiveInteractionSummaries(store, "workspace-1"), []);
+  assert.deepEqual(Object.keys(files), []);
 
   store.close();
 });
 
 test("writeTurnDurableMemory runs model extraction on cadence turns", async () => {
-  const { store, memoryService } = makeRuntimeState("hb-turn-memory-model-cadence-run-");
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-model-cadence-run-");
   seedWorkspace(store);
   store.insertSessionMessage({
     workspaceId: "workspace-1",
@@ -690,46 +760,64 @@ test("writeTurnDurableMemory runs model extraction on cadence turns", async () =
     },
   });
 
-  const captured = await memoryService.capture({ workspace_id: "workspace-1" });
-  const files = captured.files as Record<string, string>;
-  const memoryEntry = store
-    .listMemoryEntries({ status: "active" })
-    .find((entry) => entry.path === "workspace/workspace-1/knowledge/facts/vendor-escalations.primary-contact.md");
+  const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
+  const leaf = listActiveInteractionLeaves(store, "workspace-1").find(
+    (entry) => entry.title === "Primary vendor escalation contact",
+  );
 
-  assert.ok(files["workspace/workspace-1/knowledge/facts/vendor-escalations.primary-contact.md"]);
-  assert.match(files["workspace/workspace-1/knowledge/facts/vendor-escalations.primary-contact.md"], /Alicia Park/);
-  assert.match(files["workspace/workspace-1/MEMORY.md"], /Primary vendor escalation contact/);
-  assert.equal(memoryEntry?.title, "Primary vendor escalation contact");
+  assert.ok(leaf);
+  assert.match(files[leaf!.path], /Alicia Park/);
+  assert.equal(leaf?.entityId, "interaction:uncategorized");
 
   store.close();
 });
 
-test("refreshMemoryIndexes paginates workspace entries beyond 500 rows without truncation", async () => {
+test("refreshMemoryIndexes rebuilds large interaction trees without truncation", async () => {
   const { store, memoryService } = makeRuntimeState("hb-turn-memory-index-pagination-");
   seedWorkspace(store);
 
   for (let index = 0; index < 550; index += 1) {
     const slug = `fact-${String(index).padStart(3, "0")}`;
-    store.upsertMemoryEntry({
-      memoryId: `memory-${slug}`,
+    const leafId = `leaf-${slug}`;
+    const leafPath = `workspace/workspace-1/interaction/entities/uncategorized/leaves/${leafId}.md`;
+    store.upsertInteractionEntity({
       workspaceId: "workspace-1",
-      sessionId: "session-main",
-      scope: "workspace",
-      memoryType: "fact",
-      subjectKey: slug,
-      path: `workspace/workspace-1/knowledge/facts/${slug}.md`,
+      entityId: "interaction:uncategorized",
+      entityType: "misc",
+      canonicalName: "Uncategorized",
+      slug: "uncategorized",
+      summary: "Fallback interaction tree.",
+      aliases: [],
+      isSystem: true,
+      status: "active",
+    });
+    store.upsertInteractionLeaf({
+      workspaceId: "workspace-1",
+      leafId,
+      entityId: "interaction:uncategorized",
+      subjectKey: `fact:${slug}`,
+      path: leafPath,
       title: `Fact ${slug}`,
       summary: `Summary for ${slug}.`,
-      tags: ["scale"],
-      verificationPolicy: "check_before_use",
-      stalenessPolicy: "workspace_sensitive",
-      staleAfterSeconds: 30 * 24 * 60 * 60,
-      sourceTurnInputId: "input-seed",
-      sourceType: "manual",
-      observedAt: "2026-04-09T10:00:00.000Z",
-      lastVerifiedAt: "2026-04-09T10:00:00.000Z",
-      confidence: 0.9,
       fingerprint: `fingerprint-${slug}`,
+      bodySha256: `sha-${slug}`,
+      tags: ["scale"],
+      secondaryEntityIds: [],
+      sourceType: "manual",
+      sourceEventId: null,
+      sourceMessageId: null,
+      sourceTurnInputId: "input-seed",
+      admissionConfidence: 0.9,
+      entityConfidence: 0.9,
+      observedAt: "2026-04-09T10:00:00.000Z",
+      supersedesLeafId: null,
+      status: "active",
+    });
+    await memoryService.upsert({
+      workspace_id: "workspace-1",
+      path: leafPath,
+      content: `# Fact ${slug}\n\nSummary for ${slug}.\n`,
+      append: false,
     });
   }
 
@@ -738,76 +826,58 @@ test("refreshMemoryIndexes paginates workspace entries beyond 500 rows without t
     memoryService,
     workspaceId: "workspace-1",
   });
-  const captured = await memoryService.capture({ workspace_id: "workspace-1" });
-  const files = captured.files as Record<string, string>;
-  const workspaceIndex = files["workspace/workspace-1/MEMORY.md"];
+  const summaryNodes = listActiveInteractionSummaries(store, "workspace-1", "interaction:uncategorized");
 
-  assert.ok(restoredPaths.includes("workspace/workspace-1/MEMORY.md"));
-  assert.match(workspaceIndex, /Indexed memories: 550/);
-  assert.match(workspaceIndex, /Fact fact-000/);
-  assert.match(workspaceIndex, /Fact fact-549/);
-  assert.match(files["MEMORY.md"], /550 durable workspace memories/);
+  assert.equal(summaryNodes.length, 81);
+  assert.equal(restoredPaths.length, 81);
+  assert.equal(restoredPaths.some((entry) => entry.includes("/summaries/L1/")), true);
+  assert.equal(restoredPaths.some((entry) => entry.includes("/summaries/L4/")), true);
 
   store.close();
 });
 
-test("writeTurnDurableMemory rebuilds only changed workspace indexes and root", async () => {
-  const { store, memoryService } = makeRuntimeState("hb-turn-memory-incremental-indexes-");
+test("writeTurnDurableMemory rebuilds interaction summaries after new leaves are added", async () => {
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-incremental-indexes-");
   seedWorkspace(store);
 
-  store.upsertMemoryEntry({
-    memoryId: "preference-response-style",
-    workspaceId: null,
-    sessionId: "session-main",
-    scope: "user",
-    memoryType: "preference",
-    subjectKey: "response-style",
-    path: "preference/response-style.md",
-    title: "Response style",
-    summary: "Prefer concise responses.",
-    tags: ["style"],
-    verificationPolicy: "none",
-    stalenessPolicy: "stable",
-    staleAfterSeconds: null,
-    sourceTurnInputId: "input-seed",
-    sourceType: "manual",
-    observedAt: "2026-04-09T10:00:00.000Z",
-    lastVerifiedAt: "2026-04-09T10:00:00.000Z",
-    confidence: 0.95,
-    fingerprint: "pref-seed",
-  });
-  store.upsertMemoryEntry({
-    memoryId: "identity-name",
-    workspaceId: null,
-    sessionId: "session-main",
-    scope: "user",
-    memoryType: "identity",
-    subjectKey: "name",
-    path: "identity/name.md",
-    title: "Name",
-    summary: "Jeffrey",
-    tags: ["profile"],
-    verificationPolicy: "none",
-    stalenessPolicy: "stable",
-    staleAfterSeconds: null,
-    sourceTurnInputId: "input-seed",
-    sourceType: "manual",
-    observedAt: "2026-04-09T10:00:00.000Z",
-    lastVerifiedAt: "2026-04-09T10:00:00.000Z",
-    confidence: 0.95,
-    fingerprint: "identity-seed",
+  store.upsertInteractionEntity({
+    workspaceId: "workspace-1",
+    entityId: "interaction:uncategorized",
+    entityType: "misc",
+    canonicalName: "Uncategorized",
+    slug: "uncategorized",
+    summary: "Fallback interaction tree.",
+    aliases: [],
+    isSystem: true,
+    status: "active",
   });
   await memoryService.upsert({
     workspace_id: "workspace-1",
-    path: "preference/response-style.md",
-    content: "# Response style\n\nPrefer concise responses.\n",
+    path: "workspace/workspace-1/interaction/entities/uncategorized/leaves/leaf-existing.md",
+    content: "# Existing fact\n\nExisting memory.\n",
     append: false,
   });
-  await memoryService.upsert({
-    workspace_id: "workspace-1",
-    path: "identity/name.md",
-    content: "# Name\n\nJeffrey\n",
-    append: false,
+  store.upsertInteractionLeaf({
+    workspaceId: "workspace-1",
+    leafId: "leaf-existing",
+    entityId: "interaction:uncategorized",
+    subjectKey: "fact:existing",
+    path: "workspace/workspace-1/interaction/entities/uncategorized/leaves/leaf-existing.md",
+    title: "Existing fact",
+    summary: "Existing memory.",
+    fingerprint: "existing-fingerprint",
+    bodySha256: "existing-sha",
+    tags: ["seed"],
+    secondaryEntityIds: [],
+    sourceType: "manual",
+    sourceEventId: null,
+    sourceMessageId: null,
+    sourceTurnInputId: "input-seed",
+    admissionConfidence: 0.95,
+    entityConfidence: 0.95,
+    observedAt: "2026-04-09T10:00:00.000Z",
+    supersedesLeafId: null,
+    status: "active",
   });
   await refreshMemoryIndexes({
     store,
@@ -839,12 +909,17 @@ test("writeTurnDurableMemory rebuilds only changed workspace indexes and root", 
     memoryService,
     turnResult,
   });
-  const captured = await memoryService.capture({ workspace_id: "workspace-1" });
-  const files = captured.files as Record<string, string>;
+  const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
+  const leaves = listActiveInteractionLeaves(store, "workspace-1");
+  const summaries = listActiveInteractionSummaries(store, "workspace-1", "interaction:uncategorized");
 
-  assert.ok(files["workspace/workspace-1/MEMORY.md"]);
-  assert.ok(files["MEMORY.md"]);
-  assert.ok(files["workspace/workspace-1/knowledge/facts/verification-command.md"]);
+  assert.equal(leaves.length, 2);
+  assert.equal(summaries.length, 1);
+  assert.ok(files["workspace/workspace-1/interaction/entities/uncategorized/leaves/leaf-existing.md"]);
+  const verificationLeaf = leaves.find((leaf) => leaf.title === "Verification command");
+  assert.ok(verificationLeaf);
+  assert.ok(files[verificationLeaf!.path]);
+  assert.ok(files[summaries[0].path]);
 
   store.close();
 });

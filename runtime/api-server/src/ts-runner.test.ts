@@ -119,6 +119,69 @@ function writeMemoryFile(
   fs.writeFileSync(absPath, content, "utf8");
 }
 
+function seedInteractionEntity(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  entityId: string;
+  entityType: "project" | "workflow" | "preference" | "identity" | "person" | "customer" | "system" | "misc";
+  canonicalName: string;
+  slug: string;
+  summary?: string | null;
+  isSystem?: boolean;
+}): void {
+  params.store.upsertInteractionEntity({
+    workspaceId: params.workspaceId,
+    entityId: params.entityId,
+    entityType: params.entityType,
+    canonicalName: params.canonicalName,
+    slug: params.slug,
+    summary: params.summary ?? null,
+    aliases: [],
+    isSystem: params.isSystem ?? false,
+    status: "active",
+  });
+}
+
+function seedInteractionLeaf(params: {
+  store: RuntimeStateStore;
+  workspaceRoot: string;
+  workspaceId: string;
+  entityId: string;
+  entitySlug: string;
+  leafId: string;
+  title: string;
+  summary: string;
+  content: string;
+  subjectKey: string;
+  sourceType?: string | null;
+  observedAt?: string | null;
+}): void {
+  const relativePath = `workspace/${params.workspaceId}/interaction/entities/${params.entitySlug}/leaves/${params.leafId}.md`;
+  params.store.upsertInteractionLeaf({
+    workspaceId: params.workspaceId,
+    leafId: params.leafId,
+    entityId: params.entityId,
+    subjectKey: params.subjectKey,
+    path: relativePath,
+    title: params.title,
+    summary: params.summary,
+    fingerprint: `fingerprint-${params.leafId}`,
+    bodySha256: `sha-${params.leafId}`,
+    tags: [],
+    secondaryEntityIds: [],
+    sourceType: params.sourceType ?? null,
+    sourceEventId: null,
+    sourceMessageId: null,
+    sourceTurnInputId: "input-seed",
+    admissionConfidence: 0.9,
+    entityConfidence: 0.9,
+    observedAt: params.observedAt ?? "2026-01-01T00:00:00.000Z",
+    supersedesLeafId: null,
+    status: "active",
+  });
+  writeMemoryFile(params.workspaceRoot, relativePath, params.content);
+}
+
 function installMockRecallModelResponses(
   responses: Array<Record<string, unknown>>,
   requests?: Array<Record<string, unknown>>,
@@ -2199,7 +2262,7 @@ test("runTsRunnerCli does not emit a synthetic resume event before harness run e
   assert.equal(lines[2].event_type, "run_completed");
 });
 
-test("runTsRunnerCli derives recalled durable memory from indexed memory entries", async () => {
+test("runTsRunnerCli derives recalled durable memory from interaction trees", async () => {
   const sandboxRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "hb-ts-runner-recalled-memory-"),
   );
@@ -2233,125 +2296,51 @@ test("runTsRunnerCli derives recalled durable memory from indexed memory entries
     harness: "pi",
     status: "active",
   });
-  store.upsertMemoryEntry({
-    memoryId: "user-preference:response-style",
-    workspaceId: null,
-    sessionId: "session-1",
-    scope: "user",
-    memoryType: "preference",
-    subjectKey: "response-style",
-    path: "preference/response-style.md",
+  seedInteractionEntity({
+    store,
+    workspaceId: "workspace-1",
+    entityId: "interaction:preference:response-style",
+    entityType: "preference",
+    canonicalName: "Response style",
+    slug: "preference-response-style",
+    summary: "User-facing response preferences.",
+  });
+  seedInteractionLeaf({
+    store,
+    workspaceRoot,
+    workspaceId: "workspace-1",
+    entityId: "interaction:preference:response-style",
+    entitySlug: "preference-response-style",
+    leafId: "leaf-response-style",
     title: "User response style",
     summary: "User prefers concise responses.",
-    tags: ["concise"],
-    verificationPolicy: "none",
-    stalenessPolicy: "stable",
-    staleAfterSeconds: null,
-    sourceTurnInputId: "input-0",
-    sourceMessageId: "user-0",
-    fingerprint: "p".repeat(64),
+    content: "# User response style\n\nUser prefers concise responses.\n",
+    subjectKey: "preference:response-style",
+    sourceType: "leaf",
   });
-  store.upsertMemoryEntry({
-    memoryId: "workspace-blocker:workspace-1:deploy",
+  seedInteractionEntity({
+    store,
     workspaceId: "workspace-1",
-    sessionId: "session-1",
-    scope: "workspace",
-    memoryType: "blocker",
-    subjectKey: "permission:deploy",
-    path: "workspace/workspace-1/knowledge/blockers/deploy.md",
+    entityId: "interaction:misc:deploy-permissions",
+    entityType: "misc",
+    canonicalName: "Deploy permissions",
+    slug: "misc-deploy-permissions",
+    summary: "Deployment blockers for this workspace.",
+  });
+  seedInteractionLeaf({
+    store,
+    workspaceRoot,
+    workspaceId: "workspace-1",
+    entityId: "interaction:misc:deploy-permissions",
+    entitySlug: "misc-deploy-permissions",
+    leafId: "leaf-deploy-blocker",
     title: "Deploy permission blocker",
     summary: "Deploy calls may be denied by workspace policy.",
-    tags: ["deploy", "permission", "blocker"],
-    verificationPolicy: "check_before_use",
-    stalenessPolicy: "workspace_sensitive",
-    staleAfterSeconds: 14 * 24 * 60 * 60,
-    sourceTurnInputId: "input-0",
-    sourceMessageId: null,
-    fingerprint: "d".repeat(64),
+    content: "# Deploy permission blocker\n\nDeploy calls may be denied by workspace policy.\n",
+    subjectKey: "permission:deploy",
+    sourceType: "leaf",
   });
   store.close();
-  writeMemoryFile(
-    workspaceRoot,
-    "MEMORY.md",
-    [
-      "# Memory Index",
-      "",
-      "- [Workspace workspace-1](workspace/workspace-1/MEMORY.md) - 1 durable workspace memories.",
-      "- [Preferences](preference/MEMORY.md) - 1 durable preference memories.",
-      "- [Identity](identity/MEMORY.md) - 0 durable identity memories.",
-      "",
-    ].join("\n"),
-  );
-  writeMemoryFile(
-    workspaceRoot,
-    "workspace/workspace-1/MEMORY.md",
-    [
-      "# Workspace Durable Memory Index",
-      "",
-      "- [Deploy permission blocker](knowledge/blockers/deploy.md) [blocker] [verify: check_before_use] - Deploy calls may be denied by workspace policy.",
-      "",
-    ].join("\n"),
-  );
-  writeMemoryFile(
-    workspaceRoot,
-    "preference/MEMORY.md",
-    [
-      "# Preference Memory Index",
-      "",
-      "- [User response style](response-style.md) [preference] [verify: none] - User prefers concise responses.",
-      "",
-    ].join("\n"),
-  );
-  writeMemoryFile(
-    workspaceRoot,
-    "identity/MEMORY.md",
-    "# Identity Memory Index\n\nNo durable identity memories indexed yet.\n",
-  );
-  writeMemoryFile(
-    workspaceRoot,
-    "workspace/workspace-1/knowledge/blockers/deploy.md",
-    "# Deploy permission blocker\n\nDeploy calls may be denied by workspace policy.\n",
-  );
-  writeMemoryFile(
-    workspaceRoot,
-    "preference/response-style.md",
-    "# User response style\n\nUser prefers concise responses.\n",
-  );
-  installMockRecallModelResponses([
-    {
-      should_recall: true,
-      rewritten_query: "deploy blockers and response preferences",
-      scopes: ["workspace", "preference"],
-      memory_types: ["blocker", "preference"],
-      reason:
-        "Need durable recall for deployment blockers and user delivery preferences.",
-      primary_paths: [
-        "preference/response-style.md",
-        "workspace/workspace-1/knowledge/blockers/deploy.md",
-      ],
-      reserve_paths: [],
-      reason_by_path: {
-        "preference/response-style.md":
-          "Relevant user preference for how to answer.",
-        "workspace/workspace-1/knowledge/blockers/deploy.md":
-          "Direct blocker for deploy request.",
-      },
-    },
-    {
-      status: "sufficient",
-      final_paths: [
-        "preference/response-style.md",
-        "workspace/workspace-1/knowledge/blockers/deploy.md",
-      ],
-      expansion_paths: [],
-      reason_by_path: {
-        "preference/response-style.md":
-          "Use the user's response style when answering.",
-        "workspace/workspace-1/knowledge/blockers/deploy.md":
-          "Contains the blocker the agent must account for.",
-      },
-    },
-  ]);
 
   let capturedProjectRequest: Record<string, unknown> | null = null;
   const exitCode = await runTsRunnerCli(
@@ -2359,7 +2348,7 @@ test("runTsRunnerCli derives recalled durable memory from indexed memory entries
       "--request-base64",
       encodeRequest({
         ...baseRequest(),
-        instruction: "Please deploy after fixing permissions.",
+        instruction: "Please deploy after fixing permissions and keep the response concise.",
       }),
     ],
     {
@@ -2417,39 +2406,41 @@ test("runTsRunnerCli derives recalled durable memory from indexed memory entries
   ).recalled_memory_context;
   assert.equal(recalledMemoryContext.entries.length, 2);
   assert.deepEqual(
-    recalledMemoryContext.entries.map((entry) => ({
-      scope: entry.scope,
-      memory_type: entry.memory_type,
-      title: entry.title,
-      summary: entry.summary,
-      path: entry.path,
-      verification_policy: entry.verification_policy,
-      staleness_policy: entry.staleness_policy,
-      freshness_state: entry.freshness_state,
-      source_type: entry.source_type,
-    })),
+    recalledMemoryContext.entries
+      .map((entry) => ({
+        scope: entry.scope,
+        memory_type: entry.memory_type,
+        title: entry.title,
+        summary: entry.summary,
+        path: entry.path,
+        verification_policy: entry.verification_policy,
+        staleness_policy: entry.staleness_policy,
+        freshness_state: entry.freshness_state,
+        source_type: entry.source_type,
+      }))
+      .sort((left, right) => String(left.path).localeCompare(String(right.path))),
     [
       {
-        scope: "user",
-        memory_type: "preference",
-        title: "User response style",
-        summary: "User prefers concise responses.",
-        path: "preference/response-style.md",
-        verification_policy: "none",
-        staleness_policy: "stable",
-        freshness_state: "stable",
-        source_type: null,
-      },
-      {
-        scope: "workspace",
-        memory_type: "blocker",
+        scope: "interaction",
+        memory_type: "leaf",
         title: "Deploy permission blocker",
         summary: "Deploy calls may be denied by workspace policy.",
-        path: "workspace/workspace-1/knowledge/blockers/deploy.md",
-        verification_policy: "check_before_use",
+        path: "workspace/workspace-1/interaction/entities/misc-deploy-permissions/leaves/leaf-deploy-blocker.md",
+        verification_policy: "none",
         staleness_policy: "workspace_sensitive",
         freshness_state: "fresh",
-        source_type: null,
+        source_type: "leaf",
+      },
+      {
+        scope: "interaction",
+        memory_type: "leaf",
+        title: "User response style",
+        summary: "User prefers concise responses.",
+        path: "workspace/workspace-1/interaction/entities/preference-response-style/leaves/leaf-response-style.md",
+        verification_policy: "none",
+        staleness_policy: "workspace_sensitive",
+        freshness_state: "fresh",
+        source_type: "leaf",
       },
     ],
   );
@@ -2462,13 +2453,10 @@ test("runTsRunnerCli derives recalled durable memory from indexed memory entries
     /\d{4}-\d{2}-\d{2}T/,
   );
   assert.equal(recalledMemoryContext.selection_trace.length, 2);
-  assert.equal(
-    recalledMemoryContext.selection_trace[0]?.memory_id,
-    "user-preference:response-style",
-  );
+  assert.equal(recalledMemoryContext.selection_trace[0]?.source_type, "leaf");
 });
 
-test("runTsRunnerCli uses the provider background tasks model for recall selection calls", async () => {
+test("runTsRunnerCli uses the default recall embedding model even when background tasks model is configured", async () => {
   const sandboxRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "hb-ts-runner-recall-background-model-"),
   );
@@ -2510,53 +2498,50 @@ test("runTsRunnerCli uses the provider background tasks model for recall selecti
     harness: "pi",
     status: "active",
   });
-  store.upsertMemoryEntry({
-    memoryId: "workspace-procedure:workspace-1:deploy",
+  seedInteractionEntity({
+    store,
     workspaceId: "workspace-1",
-    sessionId: "session-1",
-    scope: "workspace",
-    memoryType: "procedure",
-    subjectKey: "deploy",
-    path: "workspace/workspace-1/knowledge/procedures/deploy.md",
+    entityId: "interaction:workflow:deploy-procedure",
+    entityType: "workflow",
+    canonicalName: "Deploy procedure",
+    slug: "workflow-deploy-procedure",
+    summary: "Deployment procedure memory.",
+  });
+  seedInteractionLeaf({
+    store,
+    workspaceRoot,
+    workspaceId: "workspace-1",
+    entityId: "interaction:workflow:deploy-procedure",
+    entitySlug: "workflow-deploy-procedure",
+    leafId: "leaf-deploy-procedure",
     title: "Deploy procedure",
     summary: "Steps for deployment.",
-    tags: ["deploy"],
-    verificationPolicy: "check_before_use",
-    stalenessPolicy: "workspace_sensitive",
-    staleAfterSeconds: 3600,
-    sourceTurnInputId: "input-0",
-    sourceMessageId: null,
-    fingerprint: "e".repeat(64),
+    content: "# Deploy procedure\n\nSteps for deployment.\n",
+    subjectKey: "procedure:deploy",
+    sourceType: "leaf",
   });
   store.close();
-  writeMemoryFile(
-    workspaceRoot,
-    "workspace/workspace-1/MEMORY.md",
-    "# Workspace Durable Memory Index\n\n- [Deploy procedure](knowledge/procedures/deploy.md) [procedure] [verify: check_before_use] - Steps for deployment.\n",
-  );
-  writeMemoryFile(
-    workspaceRoot,
-    "workspace/workspace-1/knowledge/procedures/deploy.md",
-    "# Deploy procedure\n\nSteps for deployment.\n",
-  );
   const recallRequests: Array<Record<string, unknown>> = [];
-  installMockRecallModelResponses(
-    [
+  process.env.HOLABOSS_MODEL_PROXY_BASE_URL = "http://127.0.0.1:4999";
+  process.env.HOLABOSS_SANDBOX_AUTH_TOKEN = "test-token";
+  globalThis.fetch = (async (_input, init) => {
+    if (typeof init?.body === "string") {
+      recallRequests.push(JSON.parse(init.body) as Record<string, unknown>);
+    }
+    return new Response(
+      JSON.stringify({
+        data: [
+          {
+            embedding: [0.12, 0.34, 0.56, 0.78],
+          },
+        ],
+      }),
       {
-        should_recall: true,
-        rewritten_query: "deployment steps",
-        scopes: ["workspace"],
-        memory_types: ["procedure"],
-        primary_paths: ["workspace/workspace-1/knowledge/procedures/deploy.md"],
-        reserve_paths: [],
+        status: 200,
+        headers: { "content-type": "application/json" },
       },
-      {
-        status: "sufficient",
-        final_paths: ["workspace/workspace-1/knowledge/procedures/deploy.md"],
-      },
-    ],
-    recallRequests,
-  );
+    );
+  }) as typeof fetch;
 
   const exitCode = await runTsRunnerCli(
     [
@@ -2585,8 +2570,9 @@ test("runTsRunnerCli uses the provider background tasks model for recall selecti
   );
 
   assert.equal(exitCode, 0);
-  assert.equal(recallRequests.length, 2);
-  assert.equal(recallRequests[0]?.model, "gpt-5.3-codex");
+  assert.equal(recallRequests.length, 1);
+  assert.equal(recallRequests[0]?.model, "text-embedding-3-small");
+  assert.match(String(recallRequests[0]?.input), /how do i deploy/i);
 });
 
 test("runTsRunnerCli loads pending user memory proposals into prompt context for the same input", async () => {
@@ -3317,7 +3303,7 @@ test("runTsRunnerCli honors explicit workspace-session requests to use the user 
   );
 });
 
-test("runTsRunnerCli recalls workspace memory from scoped entries even with many newer cross-workspace entries", async () => {
+test("runTsRunnerCli recalls workspace interaction memory even with many newer cross-workspace leaves", async () => {
   const sandboxRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "hb-ts-runner-recalled-memory-scope-"),
   );
@@ -3357,112 +3343,57 @@ test("runTsRunnerCli recalls workspace memory from scoped entries even with many
     harness: "pi",
     status: "active",
   });
-  store.upsertMemoryEntry({
-    memoryId: "workspace-blocker:workspace-1:deploy",
+  seedInteractionEntity({
+    store,
     workspaceId: "workspace-1",
-    sessionId: "session-1",
-    scope: "workspace",
-    memoryType: "blocker",
-    subjectKey: "permission:deploy",
-    path: "workspace/workspace-1/knowledge/blockers/deploy.md",
+    entityId: "interaction:misc:deploy-permissions",
+    entityType: "misc",
+    canonicalName: "Deploy permissions",
+    slug: "misc-deploy-permissions",
+    summary: "Deployment blockers for workspace 1.",
+  });
+  seedInteractionLeaf({
+    store,
+    workspaceRoot,
+    workspaceId: "workspace-1",
+    entityId: "interaction:misc:deploy-permissions",
+    entitySlug: "misc-deploy-permissions",
+    leafId: "leaf-workspace-1-deploy",
     title: "Deploy permission blocker",
     summary: "Deploy calls may be denied by workspace policy.",
-    tags: ["deploy", "permission", "blocker"],
-    verificationPolicy: "check_before_use",
-    stalenessPolicy: "workspace_sensitive",
-    staleAfterSeconds: 14 * 24 * 60 * 60,
-    sourceTurnInputId: "input-0",
-    sourceMessageId: null,
-    fingerprint: "w".repeat(64),
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
+    content: "# Deploy permission blocker\n\nDeploy calls may be denied by workspace policy.\n",
+    subjectKey: "permission:deploy",
+    sourceType: "leaf",
+    observedAt: "2026-01-01T00:00:00.000Z",
+  });
+  seedInteractionEntity({
+    store,
+    workspaceId: "workspace-2",
+    entityId: "interaction:misc:workspace-2-notes",
+    entityType: "misc",
+    canonicalName: "Workspace 2 notes",
+    slug: "misc-workspace-2-notes",
+    summary: "Workspace 2 filler notes.",
   });
   for (let index = 0; index < 240; index += 1) {
     const minute = String(index % 60).padStart(2, "0");
     const second = String(index % 60).padStart(2, "0");
-    store.upsertMemoryEntry({
-      memoryId: `workspace-fact:workspace-2:${index}`,
+    seedInteractionLeaf({
+      store,
+      workspaceRoot,
       workspaceId: "workspace-2",
-      sessionId: "session-2",
-      scope: "workspace",
-      memoryType: "fact",
-      subjectKey: `fact:${index}`,
-      path: `workspace/workspace-2/knowledge/facts/item-${index}.md`,
+      entityId: "interaction:misc:workspace-2-notes",
+      entitySlug: "misc-workspace-2-notes",
+      leafId: `leaf-workspace-2-${index}`,
       title: `Workspace 2 note ${index}`,
       summary: `Non-matching note ${index}.`,
-      tags: ["note"],
-      verificationPolicy: "check_before_use",
-      stalenessPolicy: "workspace_sensitive",
-      staleAfterSeconds: 30 * 24 * 60 * 60,
-      sourceTurnInputId: "input-x",
-      sourceMessageId: null,
-      fingerprint: "x".repeat(64),
-      createdAt: `2026-03-01T00:${minute}:${second}.000Z`,
-      updatedAt: `2026-03-01T00:${minute}:${second}.000Z`,
+      content: `# Workspace 2 note ${index}\n\nNon-matching note ${index}.\n`,
+      subjectKey: `fact:${index}`,
+      sourceType: "leaf",
+      observedAt: `2026-03-01T00:${minute}:${second}.000Z`,
     });
   }
   store.close();
-  writeMemoryFile(
-    workspaceRoot,
-    "MEMORY.md",
-    [
-      "# Memory Index",
-      "",
-      "- [Workspace workspace-1](workspace/workspace-1/MEMORY.md) - 1 durable workspace memories.",
-      "- [Preferences](preference/MEMORY.md) - 0 durable preference memories.",
-      "- [Identity](identity/MEMORY.md) - 0 durable identity memories.",
-      "",
-    ].join("\n"),
-  );
-  writeMemoryFile(
-    workspaceRoot,
-    "workspace/workspace-1/MEMORY.md",
-    [
-      "# Workspace Durable Memory Index",
-      "",
-      "- [Deploy permission blocker](knowledge/blockers/deploy.md) [blocker] [verify: check_before_use] - Deploy calls may be denied by workspace policy.",
-      "",
-    ].join("\n"),
-  );
-  writeMemoryFile(
-    workspaceRoot,
-    "preference/MEMORY.md",
-    "# Preference Memory Index\n\nNo durable preference memories indexed yet.\n",
-  );
-  writeMemoryFile(
-    workspaceRoot,
-    "identity/MEMORY.md",
-    "# Identity Memory Index\n\nNo durable identity memories indexed yet.\n",
-  );
-  writeMemoryFile(
-    workspaceRoot,
-    "workspace/workspace-1/knowledge/blockers/deploy.md",
-    "# Deploy permission blocker\n\nDeploy calls may be denied by workspace policy.\n",
-  );
-  installMockRecallModelResponses([
-    {
-      should_recall: true,
-      rewritten_query: "deploy permission blocker for workspace 1",
-      scopes: ["workspace"],
-      memory_types: ["blocker"],
-      reason: "Need the workspace-specific blocker before answering.",
-      primary_paths: ["workspace/workspace-1/knowledge/blockers/deploy.md"],
-      reserve_paths: [],
-      reason_by_path: {
-        "workspace/workspace-1/knowledge/blockers/deploy.md":
-          "Matches the requested deploy issue.",
-      },
-    },
-    {
-      status: "sufficient",
-      final_paths: ["workspace/workspace-1/knowledge/blockers/deploy.md"],
-      expansion_paths: [],
-      reason_by_path: {
-        "workspace/workspace-1/knowledge/blockers/deploy.md":
-          "Contains the workspace-specific blocker.",
-      },
-    },
-  ]);
 
   let capturedProjectRequest: Record<string, unknown> | null = null;
   const exitCode = await runTsRunnerCli(
@@ -3527,18 +3458,15 @@ test("runTsRunnerCli recalls workspace memory from scoped entries even with many
   assert.equal(
     recalledMemoryContext.entries.some(
       (entry) =>
-        entry.path === "workspace/workspace-1/knowledge/blockers/deploy.md",
+        entry.path ===
+          "workspace/workspace-1/interaction/entities/misc-deploy-permissions/leaves/leaf-workspace-1-deploy.md",
     ),
     true,
   );
   assert.equal(
     recalledMemoryContext.entries.every((entry) => {
       const pathValue = String(entry.path ?? "");
-      return (
-        pathValue.startsWith("workspace/workspace-1/") ||
-        pathValue.startsWith("preference/") ||
-        pathValue.startsWith("identity/")
-      );
+      return pathValue.startsWith("workspace/workspace-1/");
     }),
     true,
   );

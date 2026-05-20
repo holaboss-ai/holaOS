@@ -10,18 +10,46 @@
     <ul>
       <li>Removed the external memory proposal HTTP routes before replacing the backend so proposal review is no longer part of the supported runtime surface.</li>
       <li>Removed the bridge-layer <code>workspace.memory.*</code> native job handlers as an explicit cut toward a tree-native backend with fewer legacy entry points.</li>
+      <li>Removed the internal <code>memoryService.capture(...)</code> API because it only existed to support the old proactive context capture flow, which is no longer part of the supported memory direction.</li>
+      <li>Removed the proactive workspace context HTTP route and native bridge job path rather than preserving them on top of the new memory work.</li>
+      <li>Rewrote the PRD around one memory root with two ownership categories, <code>interaction</code> and <code>integration</code>, replacing the earlier <code>topic</code> and <code>daily_digests</code> framing.</li>
+      <li>Locked the node model so every persisted node body is markdown, source leaves are bottom-level documents with no children, and summary nodes are markdown documents that summarize either source leaves or lower summary nodes.</li>
+      <li>Added an explicit ingestion vocabulary to the PRD: <code>event</code> is the raw incoming memory signal, <code>chunk</code> is the normalized admission-stage unit, and <code>source leaf</code> is the durable markdown node created only after a chunk is admitted.</li>
+      <li>Locked the topology vocabulary to <code>memory root -&gt; tree category -&gt; tree</code>, and within each tree to <code>root summary node -&gt; intermediate summary nodes -&gt; source leaves</code>.</li>
+      <li>Chose a no-shared-leaves design. Each leaf belongs to exactly one tree, and cross-category recall is handled by the retrieval layer rather than by multi-tree leaf membership.</li>
+      <li>Attached date and time metadata to every node while explicitly keeping date out of the ownership hierarchy for v1.</li>
+      <li>Locked the lifecycle direction to <code>event -&gt; chunk -&gt; source leaf -&gt; summary node</code>, with chunks treated as transient admission-stage units and leaves treated as durable bottom-level nodes.</li>
+      <li>Locked the write-lifecycle preference so admitted source leaves are treated as immutable, and new information should usually create a new leaf with supersession metadata rather than rewriting old leaf bodies in place.</li>
+      <li>Chose an LLM-driven interaction entity assignment path for v1, where the model decides whether a chunk fits an existing entity or needs a new one, while backend code still owns canonical id generation, validation, and fallback routing.</li>
+      <li>Added an explicit interaction entity decision matrix: low admission confidence rejects the chunk, high existing-match confidence attaches to an existing entity, high new-entity confidence mints a new entity, and otherwise the durable leaf falls back to <code>interaction:uncategorized</code>.</li>
+      <li>Simplified phase 1 to interaction-only implementation. Integration trees remain part of the target architecture but are deferred from the first build.</li>
+      <li>Removed hotness from phase 1. An interaction entity becomes a tree as soon as its first admitted leaf is assigned, and summary layers are created only by seal thresholds.</li>
+      <li>Added a concrete phase-1 upsert algorithm covering chunk admission, LLM entity assignment, backend validation, duplicate no-op handling, superseding leaf creation, tree creation, and summary invalidation/rebuild.</li>
+      <li>Added a retrieval design where durable memory access becomes an agent tool backed by the tree query engine, with summary-first traversal used for broad recall and leaf drill-down used for exact evidence.</li>
+      <li>Explicitly chose to embed sealed intermediate summary nodes as well as leaves, using summary embeddings for branch selection and leaf embeddings for final evidence retrieval.</li>
+      <li>Implemented phase 1 by introducing dedicated interaction-memory tables in the runtime state store for entities, leaves, summary nodes, tree edges, and node embeddings, instead of reusing the legacy <code>memory_entries</code> catalog.</li>
+      <li>Cut runtime durable writeback and bootstrap recall directly over to the new interaction-memory module, so completed turns now persist interaction leaves and runner bootstrap now recalls interaction hits without going through <code>MEMORY.md</code> planning.</li>
+      <li>Added a new runtime agent tool, <code>memory_retrieve</code>, as the supported agent-facing entry point for durable memory retrieval in phase 1.</li>
     </ul>
     <h2>Deviations</h2>
     <ul>
       <li>Left the underlying proposal record types and proposal creation internals in place for now. This change removes the exposed APIs first and avoids coupling the initial cleanup to the larger backend rewrite.</li>
+      <li>Kept <code>/api/v1/memory/sync</code> in place for now even though the current filesystem backend only returns a success wrapper around <code>status</code>. That route can be removed or redefined once the new backend contract is in place.</li>
+      <li>Kept the generic file-oriented <code>FilesystemMemoryService</code> surface for <code>search</code>, <code>get</code>, and <code>upsert</code> so other workspace features that still write markdown artifacts can continue to use it while durable interaction memory lives in the new tree backend.</li>
+      <li>Used deterministic summary-node bodies derived from child titles and summaries for phase 1 instead of invoking an LLM to author tree summaries. This keeps sealing synchronous and testable while the tree structure settles.</li>
+      <li>Replaced the old recall-selection model flow entirely. Runner bootstrap now retrieves directly from interaction leaves and summaries, and the only model call in recall is the optional embedding request.</li>
+      <li>Interaction-memory retrieval currently uses the default recall embedding model (<code>text-embedding-3-small</code>) rather than the runtime background-tasks chat model. That keeps retrieval on a stable embedding model even when the execution model differs.</li>
     </ul>
     <h2>Tradeoffs</h2>
     <ul>
       <li>This keeps the first step small and testable, but it means there is still dormant proposal-related backend code that will need removal in a later pass.</li>
+      <li>The PRD now prefers strict tree ownership over multi-tree projections. That simplifies storage and tree semantics, but it pushes more cross-category composition into the retrieval layer.</li>
+      <li>Keeping the generic file-memory abstraction alongside the new interaction backend makes the transition much less disruptive for unrelated artifact-writing flows, but it leaves the public <code>/api/v1/memory/*</code> routes semantically broader than the tree-native durable backend they now report on.</li>
+      <li>Deterministic summaries avoid another model dependency in the hot path, but they produce flatter summary prose than a dedicated summarization model would.</li>
     </ul>
     <h2>Open questions</h2>
     <ul>
-      <li>None at this stage.</li>
+      <li>The PRD intentionally defers the exact granularity of integration trees, future hotness rules for interaction-tree materialization, the long-term fate of the generic <code>/api/v1/memory/*</code> routes, and whether later phases should upgrade summary generation from deterministic templates to model-written summaries.</li>
     </ul>
   </body>
 </html>

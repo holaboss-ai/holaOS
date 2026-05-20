@@ -50,6 +50,7 @@ import {
 } from "./session-todo.js";
 import type { TerminalSessionManagerLike } from "./terminal-session-manager.js";
 import type { QueueWorkerLike } from "./queue-worker.js";
+import { retrieveInteractionMemory } from "./interaction-memory.js";
 import { invokeWorkspaceSkill, resolveWorkspaceSkills } from "./workspace-skills.js";
 import {
   listWorkspaceApplicationPorts,
@@ -247,6 +248,18 @@ export interface RuntimeAgentToolsResumeSubagentParams {
   answer: string;
   selectedModel?: string | null;
   model?: string | null;
+}
+
+export interface RuntimeAgentToolsRetrieveMemoryParams {
+  workspaceId: string;
+  sessionId?: string | null;
+  inputId?: string | null;
+  selectedModel?: string | null;
+  query: string;
+  mode?: "mixed" | "summaries" | "leaves" | null;
+  treeId?: string | null;
+  nodeId?: string | null;
+  maxResults?: number | null;
 }
 
 export interface RuntimeAgentToolsContinueSubagentParams {
@@ -1046,6 +1059,12 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS: RuntimeAgentToolDefinition[] = [
     method: "POST",
     path: "/api/v1/capabilities/runtime-tools/web-search",
     description: runtimeToolBaseDefinition("web_search").description
+  },
+  {
+    id: runtimeToolBaseDefinition("memory_retrieve").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/memory/retrieve",
+    description: runtimeToolBaseDefinition("memory_retrieve").description
   },
   {
     id: runtimeToolBaseDefinition("todoread").id,
@@ -3447,6 +3466,40 @@ export class RuntimeAgentToolsService {
         error instanceof Error ? error.message : "web search failed"
       );
     }
+  }
+
+  async retrieveMemory(params: RuntimeAgentToolsRetrieveMemoryParams): Promise<JsonObject> {
+    this.requireWorkspace(params.workspaceId);
+    const mode = normalizedString(params.mode) as "mixed" | "summaries" | "leaves";
+    if (mode && mode !== "mixed" && mode !== "summaries" && mode !== "leaves") {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "memory_retrieve_mode_invalid",
+        "mode must be one of [\"mixed\",\"summaries\",\"leaves\"]",
+      );
+    }
+    const result = await retrieveInteractionMemory({
+      store: this.store,
+      workspaceId: params.workspaceId,
+      query: params.query,
+      mode: mode || "mixed",
+      treeId: normalizedString(params.treeId) || null,
+      nodeId: normalizedString(params.nodeId) || null,
+      maxResults: normalizedInteger(params.maxResults, 8, 1, 50),
+      selectedModel: normalizedString(params.selectedModel) || null,
+      sessionId: normalizedString(params.sessionId) || null,
+      inputId: normalizedString(params.inputId) || null,
+    });
+    return {
+      tool_id: "memory_retrieve",
+      categories: ["interaction"],
+      query: result.query,
+      mode: result.mode,
+      tree_id: result.tree_id,
+      node_id: result.node_id,
+      hits: result.hits.map((hit) => ({ ...hit })),
+      children: result.children ? result.children.map((child) => ({ ...child })) : null,
+    };
   }
 
   invokeSkill(params: RuntimeAgentToolsInvokeSkillParams): JsonObject {

@@ -27,6 +27,7 @@ import type { AppLifecycleExecutorLike } from "./app-lifecycle-worker.js";
 import { FilesystemMemoryService, type MemoryServiceLike } from "./memory.js";
 import type { RuntimeConfigServiceLike } from "./runtime-config.js";
 import type { RunnerExecutorLike } from "./runner-worker.js";
+import { workspaceMemoryDir } from "./workspace-bundle-paths.js";
 
 const tempDirs: string[] = [];
 const ORIGINAL_ENV = {
@@ -826,6 +827,11 @@ test("runtime tools capability routes expose local onboarding and cronjob action
       capabilityStatus
         .json()
         .tools.some((tool: { id: string }) => tool.id === "skill")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "memory_retrieve")
     );
     assert.ok(
       capabilityStatus
@@ -1756,6 +1762,92 @@ test("runtime skill tool resolves a workspace skill through shared runtime state
     assert.deepEqual(response.json().granted_tools, ["bash"]);
     assert.deepEqual(response.json().granted_commands, ["deploy-docs"]);
     assert.equal(response.json().tool_id, "skill");
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
+test("runtime memory_retrieve tool returns interaction leaf hits from the tree backend", async () => {
+  const root = makeTempDir("hb-runtime-api-memory-retrieve-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertInteractionEntity({
+    workspaceId: "workspace-1",
+    entityId: "interaction:workflow:deploy-procedure",
+    entityType: "workflow",
+    canonicalName: "Deploy procedure",
+    slug: "workflow-deploy-procedure",
+    summary: "Deployment procedure memory.",
+    aliases: [],
+    isSystem: false,
+    status: "active",
+  });
+  store.upsertInteractionLeaf({
+    workspaceId: "workspace-1",
+    leafId: "leaf-deploy-procedure",
+    entityId: "interaction:workflow:deploy-procedure",
+    subjectKey: "procedure:deploy",
+    path: "workspace/workspace-1/interaction/entities/workflow-deploy-procedure/leaves/leaf-deploy-procedure.md",
+    title: "Deploy procedure",
+    summary: "Steps for deployment.",
+    fingerprint: "deploy-procedure-fingerprint",
+    bodySha256: "deploy-procedure-sha",
+    tags: ["deploy"],
+    secondaryEntityIds: [],
+    sourceType: "leaf",
+    sourceEventId: null,
+    sourceMessageId: null,
+    sourceTurnInputId: "input-seed",
+    admissionConfidence: 0.9,
+    entityConfidence: 0.9,
+    observedAt: "2026-05-20T00:00:00.000Z",
+    supersedesLeafId: null,
+    status: "active",
+  });
+  const leafPath = path.join(
+    workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+    "interaction",
+    "entities",
+    "workflow-deploy-procedure",
+    "leaves",
+    "leaf-deploy-procedure.md",
+  );
+  fs.mkdirSync(path.dirname(leafPath), { recursive: true });
+  fs.writeFileSync(leafPath, "# Deploy procedure\n\nSteps for deployment.\n", "utf8");
+  const app = buildTestRuntimeApiServer({ store });
+
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/memory/retrieve",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {
+        query: "how do I deploy?",
+        mode: "leaves",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().tool_id, "memory_retrieve");
+    assert.equal(response.json().categories[0], "interaction");
+    assert.equal(response.json().hits.length, 1);
+    assert.equal(response.json().hits[0].title, "Deploy procedure");
+    assert.equal(
+      response.json().hits[0].path,
+      "workspace/workspace-1/interaction/entities/workflow-deploy-procedure/leaves/leaf-deploy-procedure.md",
+    );
   } finally {
     await app.close();
     store.close();
@@ -3177,10 +3269,6 @@ test("memory routes delegate to the memory service and preserve payloads", async
     async sync(payload) {
       calls.push({ operation: "sync", payload });
       return { workspace_id: payload.workspace_id, queued: true, reason: payload.reason };
-    },
-    async capture(payload) {
-      calls.push({ operation: "capture", payload });
-      return { workspace_id: payload.workspace_id, files: {} };
     }
   };
   const app = buildTestRuntimeApiServer({ store, memoryService });
@@ -3301,68 +3389,6 @@ test("memory routes delegate to the memory service and preserve payloads", async
 
   await app.close();
   store.close();
-});
-
-test("proactive context capture route returns the bundled workspace context", async () => {
-  const previousUserId = process.env.HOLABOSS_USER_ID;
-  process.env.HOLABOSS_USER_ID = "user-1";
-
-  const root = makeTempDir("hb-runtime-api-proactive-context-");
-  const store = new RuntimeStateStore({
-    dbPath: path.join(root, "runtime.db"),
-    workspaceRoot: path.join(root, "workspace")
-  });
-  store.createWorkspace({
-    workspaceId: "workspace-1",
-    name: "Workspace One",
-    harness: "pi",
-    status: "active"
-  });
-  const workspaceDir = store.workspaceDir("workspace-1");
-  fs.writeFileSync(
-    path.join(workspaceDir, "workspace.yaml"),
-    [
-      "applications:",
-      "  - app_id: twitter",
-      "mcp_registry:",
-      "  allowlist:",
-      "    tool_ids:",
-      "      - twitter.performance",
-    ].join("\n"),
-    "utf8"
-  );
-
-  const app = buildTestRuntimeApiServer({ store });
-
-  try {
-    const response = await app.inject({
-      method: "POST",
-      url: "/api/v1/proactive/context/capture",
-      payload: {
-        workspace_id: "workspace-1"
-      }
-    });
-
-    assert.equal(response.statusCode, 200);
-    const body = response.json() as { context: Record<string, unknown> };
-    const context = body.context;
-    const workspace = context.workspace as Record<string, unknown>;
-    const snapshot = context.snapshot as Record<string, unknown>;
-    assert.equal(workspace.id, "workspace-1");
-    assert.equal(workspace.holaboss_user_id, "user-1");
-    assert.equal(snapshot.workspace_id, "workspace-1");
-    assert.deepEqual(snapshot.applications, ["twitter"]);
-    assert.deepEqual(snapshot.mcp_tool_ids, ["twitter.performance"]);
-    assert.equal(typeof context.captured_at, "string");
-  } finally {
-    await app.close();
-    store.close();
-    if (previousUserId === undefined) {
-      delete process.env.HOLABOSS_USER_ID;
-    } else {
-      process.env.HOLABOSS_USER_ID = previousUserId;
-    }
-  }
 });
 
 test("workspace CRUD routes preserve local payload shape", async () => {

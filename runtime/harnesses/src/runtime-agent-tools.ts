@@ -93,6 +93,12 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     policy: "inspect"
   },
   {
+    id: "memory_retrieve",
+    description:
+      "Retrieve durable interaction memory from the workspace-local memory tree. Supports broad summary recall, exact leaf recall, tree-scoped retrieval, and drill-down from one summary node into its direct children.",
+    policy: "inspect"
+  },
+  {
     id: "todoread",
     description:
       "Read the current phased todo plan for the current workspace session, including the phase ids and task ids needed for later `todowrite` calls.",

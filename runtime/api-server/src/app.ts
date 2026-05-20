@@ -148,7 +148,6 @@ import {
   buildMemoryUpdateProposalsFromUserInput,
 } from "./user-memory-proposals.js";
 import { promotedWorkspaceSkillPath } from "./evolve-skill-review.js";
-import { captureWorkspaceContext } from "./proactive-context.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 50;
 const DEFAULT_BODY_LIMIT_BYTES = 10 * 1024 * 1024;
@@ -258,8 +257,7 @@ function resolveMainSessionEventWorker(
 function resolveBridgeWorker(
   options: BuildRuntimeApiServerOptions,
   app: FastifyInstance,
-  store: RuntimeStateStore,
-  memoryService: MemoryServiceLike
+  store: RuntimeStateStore
 ): BridgeWorkerLike | null {
   if (options.bridgeWorker !== undefined) {
     return options.bridgeWorker;
@@ -268,7 +266,7 @@ function resolveBridgeWorker(
     return null;
   }
   try {
-    return new RuntimeRemoteBridgeWorker({ logger: app.log, store, memoryService });
+    return new RuntimeRemoteBridgeWorker({ logger: app.log, store });
   } catch (error) {
     app.log.warn(
       {
@@ -2713,6 +2711,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   const memoryService = options.memoryService ?? new FilesystemMemoryService({
     workspaceRoot: store.workspaceRoot,
     resolveWorkspaceDir: (workspaceId) => store.workspaceDir(workspaceId),
+    store,
   });
   const runtimeConfigService = options.runtimeConfigService ?? new FileRuntimeConfigService();
   const browserToolService = options.browserToolService ?? new DesktopBrowserToolService({ artifactStore: store });
@@ -2742,7 +2741,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     store,
     queueWorker,
   );
-  const bridgeWorker = resolveBridgeWorker(options, app, store, memoryService);
+  const bridgeWorker = resolveBridgeWorker(options, app, store);
   const recallEmbeddingBackfillWorker = resolveRecallEmbeddingBackfillWorker(options, app, store, memoryService);
   const runtimeAgentToolsService = new RuntimeAgentToolsService(store, {
     workspaceRoot: store.workspaceRoot,
@@ -4873,6 +4872,54 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
   });
 
+  app.post("/api/v1/capabilities/runtime-tools/memory/retrieve", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      const sessionId = capabilitySessionId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      const result = await runtimeAgentToolsService.retrieveMemory({
+        workspaceId,
+        sessionId: sessionId || null,
+        inputId:
+          capabilityInputId({
+            headers: request.headers as Record<string, unknown>,
+            body: request.body,
+          }) || null,
+        selectedModel: capabilitySelectedModel({
+          headers: request.headers as Record<string, unknown>,
+          body: request.body,
+        }),
+        query: requiredString(request.body.query, "query"),
+        mode: nullableString(request.body.mode) as "mixed" | "summaries" | "leaves" | null,
+        treeId: nullableString(request.body.tree_id) ?? null,
+        nodeId: nullableString(request.body.node_id) ?? null,
+        maxResults: hasOwn(request.body, "max_results")
+          ? optionalInteger(request.body.max_results, 8)
+          : undefined,
+      });
+      return await maybeShapeCapabilityToolResult({
+        headers: request.headers as Record<string, unknown>,
+        toolId: "memory_retrieve",
+        payload: result,
+        workspaceId,
+        sessionId,
+      });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime memory retrieval failed");
+    }
+  });
+
   app.post("/api/v1/capabilities/runtime-tools/skill", async (request, reply) => {
     if (!isRecord(request.body)) {
       return sendError(reply, 400, "request body must be an object");
@@ -5986,30 +6033,6 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         return sendError(reply, error.statusCode, error.message);
       }
       return sendError(reply, 500, error instanceof Error ? error.message : "memory sync failed");
-    }
-  });
-
-  app.post("/api/v1/proactive/context/capture", async (request, reply) => {
-    if (!isRecord(request.body)) {
-      return sendError(reply, 400, "request body must be an object");
-    }
-    let workspaceId = "";
-    try {
-      workspaceId = requiredString(request.body.workspace_id, "workspace_id");
-      return {
-        context: await captureWorkspaceContext({
-          store,
-          memoryService,
-          workspaceId,
-        }),
-      };
-    } catch (error) {
-      if (workspaceId) {
-        const message = error instanceof Error ? error.message : "workspace context capture failed";
-        const statusCode = /\bnot found\b/i.test(message) ? 404 : 500;
-        return sendError(reply, statusCode, message);
-      }
-      return sendError(reply, 400, error instanceof Error ? error.message : "workspace_id is required");
     }
   });
 

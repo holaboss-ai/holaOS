@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { RuntimeStateStore } from "@holaboss/runtime-state-store";
+import { rebuildAllInteractionTrees } from "./interaction-memory.js";
 import {
   globalMemoryDirForWorkspaceRoot,
   migrateLegacyWorkspaceMemoryIfNeeded,
@@ -19,7 +21,6 @@ export interface MemoryServiceLike {
   upsert(payload: Record<string, unknown>): Promise<Record<string, unknown>>;
   status(payload: Record<string, unknown>): Promise<Record<string, unknown>>;
   sync(payload: Record<string, unknown>): Promise<Record<string, unknown>>;
-  capture(payload: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
 
 export class MemoryServiceError extends Error {
@@ -374,60 +375,21 @@ function statusPayload(params: {
   return payload;
 }
 
-function capturePayload(params: {
-  workspaceDir: string;
-  workspaceId: string;
-  workspaceMemoryRootDir: string;
-  globalMemoryRootDir: string;
-  migratedWorkspaceMemory?: boolean;
-}): Record<string, unknown> {
-  const status = statusPayload(params);
-  const files: Record<string, string> = {};
-  let totalChars = 0;
-  for (const filePath of workspaceMemoryFiles(params.workspaceMemoryRootDir)) {
-    const relativePath = path.posix.join(
-      workspaceScopePrefix(params.workspaceId).replace(/\/$/, ""),
-      relativePosixPath(params.workspaceMemoryRootDir, filePath),
-    );
-    try {
-      const text = fs.readFileSync(filePath, "utf8");
-      files[relativePath] = text;
-      totalChars += text.length;
-    } catch {
-      // Ignore unreadable files in bundle capture.
-    }
-  }
-  for (const filePath of globalMemoryFiles(params.globalMemoryRootDir)) {
-    const relativePath = relativePosixPath(params.globalMemoryRootDir, filePath);
-    try {
-      const text = fs.readFileSync(filePath, "utf8");
-      files[relativePath] = text;
-      totalChars += text.length;
-    } catch {
-      // Ignore unreadable files in bundle capture.
-    }
-  }
-  return {
-    status,
-    files,
-    file_paths: Object.keys(files),
-    total_files: Object.keys(files).length,
-    total_chars: totalChars
-  };
-}
-
 export interface FilesystemMemoryServiceOptions {
   workspaceRoot: string;
   resolveWorkspaceDir?: ((workspaceId: string) => string) | null;
+  store?: RuntimeStateStore | null;
 }
 
 export class FilesystemMemoryService implements MemoryServiceLike {
   readonly #workspaceRoot: string;
   readonly #resolveWorkspaceDir: ((workspaceId: string) => string) | null;
+  readonly #store: RuntimeStateStore | null;
 
   constructor(options: FilesystemMemoryServiceOptions) {
     this.#workspaceRoot = options.workspaceRoot;
     this.#resolveWorkspaceDir = options.resolveWorkspaceDir ?? null;
+    this.#store = options.store ?? null;
   }
 
   async search(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -505,13 +467,7 @@ export class FilesystemMemoryService implements MemoryServiceLike {
 
     return {
       results: results.slice(0, Math.max(1, maxResults)),
-      status: statusPayload({
-        workspaceDir: roots.workspaceDir,
-        workspaceId,
-        workspaceMemoryRootDir: roots.workspaceMemoryRootDir,
-        globalMemoryRootDir: roots.globalMemoryRootDir,
-        migratedWorkspaceMemory: roots.migratedWorkspaceMemory,
-      })
+      status: await this.status({ workspace_id: workspaceId })
     };
   }
 
@@ -601,13 +557,42 @@ export class FilesystemMemoryService implements MemoryServiceLike {
       workspaceId,
       resolveWorkspaceDir: this.#resolveWorkspaceDir,
     });
-    return statusPayload({
+    const status = statusPayload({
       workspaceDir: roots.workspaceDir,
       workspaceId,
       workspaceMemoryRootDir: roots.workspaceMemoryRootDir,
       globalMemoryRootDir: roots.globalMemoryRootDir,
       migratedWorkspaceMemory: roots.migratedWorkspaceMemory,
     });
+    if (this.#store) {
+      const entities = this.#store.listInteractionEntities({
+        workspaceId,
+        status: "active",
+        includeSystem: true,
+        limit: 10_000,
+        offset: 0,
+      });
+      const leaves = this.#store.listInteractionLeaves({
+        workspaceId,
+        status: "active",
+        limit: 10_000,
+        offset: 0,
+      });
+      const summaries = this.#store.listInteractionSummaryNodes({
+        workspaceId,
+        status: "active",
+        limit: 10_000,
+        offset: 0,
+      });
+      status.provider = "interaction_tree";
+      status.custom = {
+        ...(status.custom as Record<string, unknown>),
+        interaction_entities: entities.length,
+        interaction_leaves: leaves.length,
+        interaction_summary_nodes: summaries.length,
+      };
+    }
+    return status;
   }
 
   async sync(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -617,31 +602,21 @@ export class FilesystemMemoryService implements MemoryServiceLike {
       workspaceId,
       resolveWorkspaceDir: this.#resolveWorkspaceDir,
     });
+    let rebuilt: Record<string, unknown> | null = null;
+    if (this.#store) {
+      const result = await rebuildAllInteractionTrees({
+        store: this.#store,
+        workspaceId,
+      });
+      rebuilt = {
+        entities: result.entities,
+        summaries: result.summaries,
+      };
+    }
     return {
       success: true,
-      status: statusPayload({
-        workspaceDir: roots.workspaceDir,
-        workspaceId,
-        workspaceMemoryRootDir: roots.workspaceMemoryRootDir,
-        globalMemoryRootDir: roots.globalMemoryRootDir,
-        migratedWorkspaceMemory: roots.migratedWorkspaceMemory,
-      })
+      rebuilt,
+      status: await this.status({ workspace_id: workspaceId })
     };
-  }
-
-  async capture(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const workspaceId = requiredString(payload.workspace_id, "workspace_id");
-    const roots = resolveMemoryRoots({
-      workspaceRoot: this.#workspaceRoot,
-      workspaceId,
-      resolveWorkspaceDir: this.#resolveWorkspaceDir,
-    });
-    return capturePayload({
-      workspaceDir: roots.workspaceDir,
-      workspaceId,
-      workspaceMemoryRootDir: roots.workspaceMemoryRootDir,
-      globalMemoryRootDir: roots.globalMemoryRootDir,
-      migratedWorkspaceMemory: roots.migratedWorkspaceMemory,
-    });
   }
 }
