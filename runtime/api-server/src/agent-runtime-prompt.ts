@@ -190,6 +190,11 @@ function hasWorkspaceInstructionUpdateTool(request: ComposeBaseAgentPromptReques
   return available.has("update_workspace_instructions");
 }
 
+function hasMemoryRetrieveTool(request: ComposeBaseAgentPromptRequest): boolean {
+  const available = collectAvailableToolNames(request);
+  return available.has("memory_retrieve");
+}
+
 function hasWorkspaceAppCatalogInstallTools(request: ComposeBaseAgentPromptRequest): boolean {
   const available = collectAvailableToolNames(request);
   return available.has("workspace_apps_find") && available.has("workspace_apps_install");
@@ -816,13 +821,20 @@ export function buildBaseAgentPromptSections(
     "Use tools, not hidden state. The newest user message is primary.",
     "Resume unfinished work only when the newest message asks to continue it; otherwise respond to the new message directly.",
     "Ask for missing identity details instead of guessing.",
-    "Use `AGENTS.md` as the durable workspace ledger for stable instructions, procedures, facts, conventions, decisions, and recurring blockers; use local skills for situational workflows."
+    "Use `AGENTS.md` for workspace-wide operating rules, defaults, conventions, and recurring commands that should shape behavior by default on future runs; use local skills for situational workflows."
   ];
   if (hasWorkspaceInstructionUpdateTool(request)) {
     executionLines.push(
-      "Record durable workspace knowledge in root `AGENTS.md` with `update_workspace_instructions` when it is clearly stable, likely to recur, or explicitly confirmed by the user instead of relying only on transient context.",
-      "This includes durable requirements or preferences, verified commands or procedures, stable facts, conventions, decisions, and recurring blockers from the user, direct inspection, or grounded tool or subagent results.",
+      "Record workspace-wide operating defaults in root `AGENTS.md` with `update_workspace_instructions` when they are clearly stable, likely to recur, or explicitly confirmed by the user instead of relying only on transient context.",
+      "This includes durable requirements or preferences, verified recurring commands, default procedures, conventions, policies, decisions, and recurring blockers that should shape behavior by default in future runs.",
+      "Do not record customer facts, project facts, contacts, prior outcomes, or subject-specific procedures in `AGENTS.md` unless they are explicitly intended to become workspace-wide default instructions.",
       "Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state. When in doubt, leave it out until the pattern repeats or the user confirms it should persist."
+    );
+  }
+  if (hasMemoryRetrieveTool(request)) {
+    executionLines.push(
+      "Use `memory_retrieve` for contextual recall: prior facts, contacts, project or customer knowledge, decisions, and subject-specific procedures that should be retrieved when relevant rather than loaded by default.",
+      "When the user asks what is known about a subject, who owns a contact, what was previously decided, or how a subject-specific process works, prefer `memory_retrieve` over treating `AGENTS.md` as a general fact store."
     );
   }
   if (capabilityManifest?.browser_tools.length) {
@@ -925,13 +937,20 @@ export function buildMainSessionPromptSections(
     "Use coordination tools instead of hidden state. The newest user message is primary.",
     "Resume unfinished work only when the newest message clearly asks to continue it; otherwise respond to the new message directly.",
     "Ask for missing identity details instead of guessing.",
-    "Use `AGENTS.md` as the durable workspace ledger. Keep durable instructions, verified procedures, stable facts, conventions, decisions, and recurring blockers there; turn conditional or situational guidance into indexed local skills, using `skill-creator` when available."
+    "Use `AGENTS.md` for workspace-wide operating rules, defaults, conventions, and recurring commands that should shape behavior by default in future runs; turn conditional or situational guidance into indexed local skills, using `skill-creator` when available."
   ];
   if (hasWorkspaceInstructionUpdateTool(request)) {
     conversationLines.push(
-      "Record durable workspace knowledge in root `AGENTS.md` with `update_workspace_instructions` when it is clearly stable, likely to recur, or explicitly confirmed by the user instead of relying only on transient context.",
-      "This includes durable requirements or preferences, verified commands or procedures, stable facts, conventions, decisions, and recurring blockers from the user, direct inspection, or grounded tool or subagent results.",
+      "Record workspace-wide operating defaults in root `AGENTS.md` with `update_workspace_instructions` when they are clearly stable, likely to recur, or explicitly confirmed by the user instead of relying only on transient context.",
+      "This includes durable requirements or preferences, verified recurring commands, default procedures, conventions, policies, decisions, and recurring blockers that should shape behavior by default in future runs.",
+      "Do not record customer facts, project facts, contacts, prior outcomes, or subject-specific procedures in `AGENTS.md` unless they are explicitly intended to become workspace-wide default instructions.",
       "Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state. When in doubt, leave it out until the pattern repeats or the user confirms it should persist."
+    );
+  }
+  if (hasMemoryRetrieveTool(request)) {
+    conversationLines.push(
+      "Use `memory_retrieve` for contextual recall: prior facts, contacts, project or customer knowledge, decisions, and subject-specific procedures that should be retrieved only when relevant.",
+      "When the user asks what is known about a subject, who owns a contact, what was previously decided, or how a subject-specific process works, prefer `memory_retrieve` over treating `AGENTS.md` as a general fact store."
     );
   }
   if (normalizedSessionKind === "onboarding") {

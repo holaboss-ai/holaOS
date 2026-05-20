@@ -167,6 +167,94 @@ test("Pi runtime tools compact large capability results and preserve raw details
   assert.equal(details.model_result_bytes, new TextEncoder().encode(result.content[0]?.text ?? "").length);
 });
 
+test("Pi memory_retrieve tool executes through the local runtime capability API", async () => {
+  const requests: Array<{
+    method: string;
+    url: string;
+    workspaceId: string;
+    sessionId: string;
+    selectedModel: string;
+    resultMode: string;
+    body: string;
+  }> = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/api/v1/capabilities/runtime-tools")) {
+      return new Response(JSON.stringify({ available: true }), {
+        status: 200,
+        headers: { "content-type": "application/json; charset=utf-8" },
+      });
+    }
+
+    const body = init?.body ? String(init.body) : "";
+    requests.push({
+      method: String(init?.method ?? "GET"),
+      url,
+      workspaceId: String((init?.headers as Record<string, string> | undefined)?.["x-holaboss-workspace-id"] ?? ""),
+      sessionId: String((init?.headers as Record<string, string> | undefined)?.["x-holaboss-session-id"] ?? ""),
+      selectedModel: String(
+        (init?.headers as Record<string, string> | undefined)?.["x-holaboss-selected-model"] ?? ""
+      ),
+      resultMode: String(
+        (init?.headers as Record<string, string> | undefined)?.["x-holaboss-tool-result-mode"] ?? ""
+      ),
+      body,
+    });
+
+    if (url.endsWith("/api/v1/capabilities/runtime-tools/memory/retrieve")) {
+      return new Response(JSON.stringify({ tool_id: "memory_retrieve", hits: [{ title: "Orchid customer escalation contact" }] }), {
+        status: 200,
+        headers: { "content-type": "application/json; charset=utf-8" },
+      });
+    }
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  const tools = await resolvePiRuntimeToolDefinitions({
+    runtimeApiBaseUrl: "http://127.0.0.1:5060",
+    workspaceId: "workspace-1",
+    sessionId: "session-main",
+    selectedModel: "openai/gpt-5.4",
+    fetchImpl,
+  });
+
+  const memoryTool = tools.find((tool) => tool.name === "memory_retrieve");
+  assert.ok(memoryTool);
+  const result = await memoryTool.execute(
+    "call-1",
+    {
+      query: "Orchid customer escalation contact",
+      mode: "mixed",
+      max_results: 10,
+    },
+    undefined,
+    undefined,
+    {} as never
+  );
+
+  assert.deepEqual(requests, [
+    {
+      method: "POST",
+      url: "http://127.0.0.1:5060/api/v1/capabilities/runtime-tools/memory/retrieve",
+      workspaceId: "workspace-1",
+      sessionId: "session-main",
+      selectedModel: "openai/gpt-5.4",
+      resultMode: "preview",
+      body: JSON.stringify({
+        query: "Orchid customer escalation contact",
+        mode: "mixed",
+        max_results: 10,
+      }),
+    },
+  ]);
+  assert.equal(result.content[0]?.type, "text");
+  assert.equal(
+    result.content[0]?.text,
+    JSON.stringify({ tool_id: "memory_retrieve", hits: [{ title: "Orchid customer escalation contact" }] }, null, 2),
+  );
+  assert.deepEqual(result.details, { tool_id: "memory_retrieve" });
+});
+
 test("Pi runtime cronjob tools send instruction separately from description", async () => {
   const requests: Array<{
     method: string;

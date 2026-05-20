@@ -116,7 +116,9 @@ export async function extractDurableMemoryCandidatesFromModel(
     systemPrompt:
       "Extract durable memories from this turn. Return strict JSON only with this shape: " +
       '{"memories":[{"scope":"workspace|user","memory_type":"preference|identity|fact|procedure|blocker|reference","subject_key":"string","title":"string","summary":"string","tags":["string"],"evidence":"string","confidence":0.0}]}. ' +
-      "Only include durable memories that were explicitly stated or strongly implied by the user or assistant. " +
+      "Only include durable memories that were explicitly stated or strongly implied by the user or assistant in the current turn. " +
+      "Use recent context only to disambiguate or corroborate what changed in the current turn. " +
+      "Do not re-emit unchanged memories solely because they appear in recent context. " +
       "Do not include temporary runtime details.",
     userPrompt: [
       `Workspace ID: ${context.workspaceId}`,
@@ -170,4 +172,3 @@ export async function extractDurableMemoryCandidatesFromModel(
   }
   return candidates;
 }
-

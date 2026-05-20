@@ -308,7 +308,11 @@ test("main-session event worker inherits the owner main session model and thinki
   );
   assert.match(
     String(batchInput?.payload.text),
-    /If completed work established clearly stable or recurring verified workspace knowledge that future runs should reuse, record it in `AGENTS\.md` with `update_workspace_instructions` before replying\./i,
+    /If completed work established clearly stable workspace-wide defaults that future runs should obey by default, record them in `AGENTS\.md` with `update_workspace_instructions` before replying\./i,
+  );
+  assert.match(
+    String(batchInput?.payload.text),
+    /Use `AGENTS\.md` for rules, defaults, conventions, and recurring commands that should shape behavior by default, not as a general fact store for subject-specific knowledge\./i,
   );
   assert.match(
     String(batchInput?.payload.text),

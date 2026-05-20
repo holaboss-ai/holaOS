@@ -32,6 +32,8 @@
       <li>Cut runtime durable writeback and bootstrap recall directly over to the new interaction-memory module, so completed turns now persist interaction leaves and runner bootstrap now recalls interaction hits without going through <code>MEMORY.md</code> planning.</li>
       <li>Added a new runtime agent tool, <code>memory_retrieve</code>, as the supported agent-facing entry point for durable memory retrieval in phase 1.</li>
       <li>Removed the desktop workspace-ready heartbeat path entirely, including the proactive ingest emit and its earlier runtime-captured context dependency, so workspace creation no longer depends on legacy proactive bootstrap behavior.</li>
+      <li>Removed heuristic durable-memory candidate extraction from turn writeback. Interaction memory now relies on model extraction only, and extraction runs on every completed turn when a model client is available.</li>
+      <li>Narrowed the runtime prompt contract so <code>AGENTS.md</code> is framed as the workspace-wide defaults and control surface, while contextual facts and subject-specific procedures are framed as interaction-memory recall that should use <code>memory_retrieve</code>.</li>
     </ul>
     <h2>Deviations</h2>
     <ul>
@@ -43,6 +45,9 @@
       <li>Interaction-memory retrieval currently uses the default recall embedding model (<code>text-embedding-3-small</code>) rather than the runtime background-tasks chat model. That keeps retrieval on a stable embedding model even when the execution model differs.</li>
       <li>Summary-node bodies are still structurally wrapped by backend templates. The LLM currently supplies the summary prose for each summary node, not the full markdown file.</li>
       <li>Workspace creation no longer emits the legacy proactive heartbeat at all. This intentionally removes a bootstrap side effect that was only used by the deprecated proactive proposal flow.</li>
+      <li>Interaction durable-memory writeback no longer has deterministic heuristic fallbacks for workspace facts, procedures, or recurring blockers. Those memories now depend on the model extractor deciding they are durable enough to persist.</li>
+      <li>The current prompt still leaves automatic interaction-memory writeback as a backend path rather than an explicit agent write tool, so the prompt change only narrows where the agent should write defaults versus where it should read contextual memory.</li>
+      <li>Fixed the front-session runtime harness so <code>memory_retrieve</code> now routes through the same capability client path as the direct HTTP endpoint. The missing request-plan branch lived in <code>runtime-tool-capability-client.ts</code>.</li>
     </ul>
     <h2>Tradeoffs</h2>
     <ul>
@@ -51,10 +56,15 @@
       <li>Keeping the generic file-memory abstraction alongside the new interaction backend makes the transition much less disruptive for unrelated artifact-writing flows, but it leaves the public <code>/api/v1/memory/*</code> routes semantically broader than the tree-native durable backend they now report on.</li>
       <li>Deterministic summaries avoid another model dependency in the hot path, but they produce flatter summary prose than a dedicated summarization model would.</li>
       <li>Using an LLM only for the summary prose raises summary quality without making node identity unstable, but it still adds model latency and possible variance whenever tree rebuilds run with a summary model client.</li>
+      <li>Making interaction-memory extraction model-only removes duplicate heuristic/model leaves and makes the tree easier to inspect, but it also increases dependence on extractor prompt quality and model availability for memory growth.</li>
+      <li>Making the <code>AGENTS.md</code> vs memory distinction explicit should reduce overlap and make retrieval behavior more observable, but it also means the agent now depends more on actually invoking <code>memory_retrieve</code> for contextual recall instead of relying on prompt-preloaded workspace notes.</li>
+      <li>The retrieval surface now works in both places: direct HTTP capability calls and front-session agent tool calls go through the same runtime capability route. That reduces the chance of prompt/tool drift, but it means runtime-tool additions now need harness-client coverage as well as API-route coverage.</li>
     </ul>
     <h2>Open questions</h2>
     <ul>
       <li>The PRD intentionally defers the exact granularity of integration trees, future hotness rules for interaction-tree materialization, the long-term fate of the generic <code>/api/v1/memory/*</code> routes, and whether later phases should upgrade summary generation from deterministic templates to model-written summaries.</li>
+      <li>Model extraction currently runs on every completed turn whenever a model client is available. If that proves too expensive in production, the next decision will be whether to introduce smarter gating or a cheaper extraction model without reintroducing heuristic duplication.</li>
+      <li>Live verification now succeeds end to end for interaction-memory recall: after runtime restart, a fresh main-session agent answered Orchid contact and procedure questions correctly using only <code>memory_retrieve</code>.</li>
     </ul>
   </body>
 </html>

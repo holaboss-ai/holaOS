@@ -17,6 +17,7 @@ const RUNTIME_TOOLS_IMAGE_GENERATE_PATH = "/api/v1/capabilities/runtime-tools/im
 const RUNTIME_TOOLS_DOWNLOADS_PATH = "/api/v1/capabilities/runtime-tools/downloads";
 const RUNTIME_TOOLS_REPORTS_PATH = "/api/v1/capabilities/runtime-tools/reports";
 const RUNTIME_TOOLS_WEB_SEARCH_PATH = "/api/v1/capabilities/runtime-tools/web-search";
+const RUNTIME_TOOLS_MEMORY_RETRIEVE_PATH = "/api/v1/capabilities/runtime-tools/memory/retrieve";
 const RUNTIME_TOOLS_TODO_PATH = "/api/v1/capabilities/runtime-tools/todo";
 const RUNTIME_TOOLS_SCRATCHPAD_PATH = "/api/v1/capabilities/runtime-tools/scratchpad";
 const RUNTIME_TOOLS_WORKSPACE_INSTRUCTIONS_PATH = "/api/v1/capabilities/runtime-tools/workspace-instructions";
@@ -306,6 +307,17 @@ function createWebSearchBody(toolParams: unknown): Record<string, unknown> {
       : {}),
     ...(typeof params.text_offset === "number" ? { text_offset: params.text_offset } : {}),
     ...(typeof params.text_limit === "number" ? { text_limit: params.text_limit } : {}),
+  };
+}
+
+function createMemoryRetrieveBody(toolParams: unknown): Record<string, unknown> {
+  const params = isRecord(toolParams) ? toolParams : {};
+  return {
+    query: String(params.query ?? ""),
+    ...(optionalString(params.mode) ? { mode: optionalString(params.mode) } : {}),
+    ...(optionalString(params.tree_id) ? { tree_id: optionalString(params.tree_id) } : {}),
+    ...(optionalString(params.node_id) ? { node_id: optionalString(params.node_id) } : {}),
+    ...(typeof params.max_results === "number" ? { max_results: params.max_results } : {}),
   };
 }
 
@@ -647,6 +659,12 @@ function requestPlan(
       return { method: "POST", requestPath: RUNTIME_TOOLS_REPORTS_PATH, body: createWriteReportBody(toolParams) };
     case "web_search":
       return { method: "POST", requestPath: RUNTIME_TOOLS_WEB_SEARCH_PATH, body: createWebSearchBody(toolParams) };
+    case "memory_retrieve":
+      return {
+        method: "POST",
+        requestPath: RUNTIME_TOOLS_MEMORY_RETRIEVE_PATH,
+        body: createMemoryRetrieveBody(toolParams),
+      };
     case "skill":
       return { method: "POST", requestPath: RUNTIME_TOOLS_SKILL_PATH, body: createSkillBody(toolParams) };
     case "todoread":

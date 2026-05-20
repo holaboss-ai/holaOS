@@ -205,32 +205,6 @@ function seedWorkspace(store: RuntimeStateStore): void {
   });
 }
 
-function appendPermissionDeniedToolCall(params: {
-  store: RuntimeStateStore;
-  workspaceId: string;
-  sessionId: string;
-  inputId: string;
-  toolName?: string;
-  toolId?: string;
-  reason?: string;
-}): void {
-  params.store.appendOutputEvent({
-    workspaceId: params.workspaceId,
-    sessionId: params.sessionId,
-    inputId: params.inputId,
-    sequence: 1,
-    eventType: "tool_call",
-    payload: {
-      call_id: `call-${params.inputId}`,
-      phase: "completed",
-      error: true,
-      tool_name: params.toolName ?? "deploy",
-      tool_id: params.toolId ?? "workspace.deploy",
-      message: params.reason ?? "permission denied by policy",
-    },
-  });
-}
-
 test("writeTurnDurableMemory does not mutate turn result summaries or write runtime continuity files", async () => {
   const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-");
   seedWorkspace(store);
@@ -288,66 +262,55 @@ test("writeTurnDurableMemory does not mutate turn result summaries or write runt
   store.close();
 });
 
-test("writeTurnDurableMemory reuses stable durable blocker paths across repeated matching denials", async () => {
+test("writeTurnDurableMemory no-ops repeated identical model-extracted candidates", async () => {
   const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-dedupe-");
   seedWorkspace(store);
-
-  const firstTurn = store.upsertTurnResult({
+  store.insertSessionMessage({
+    workspaceId: "workspace-1",
+    sessionId: "session-main",
+    role: "user",
+    text: "Remember that deploy access is currently blocked by policy.",
+    messageId: "user-1",
+    createdAt: "2026-04-02T12:00:00.000Z",
+  });
+  const turnResult = store.upsertTurnResult({
     workspaceId: "workspace-1",
     sessionId: "session-main",
     inputId: "input-1",
     startedAt: "2026-04-02T12:00:00.000Z",
     completedAt: "2026-04-02T12:00:05.000Z",
-    status: "failed",
-    stopReason: "policy_denied",
-    assistantText: "",
-    permissionDenials: [
-      {
-        tool_name: "deploy",
-        tool_id: "workspace.deploy",
-        reason: "permission denied by policy",
-      },
-    ],
-  });
-  appendPermissionDeniedToolCall({
-    store,
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    inputId: "input-1",
-  });
-  await writeTurnDurableMemory({
-    store,
-    memoryService,
-    turnResult: firstTurn,
+    status: "completed",
+    stopReason: "ok",
+    assistantText: "Deploy access remains blocked by policy.",
   });
 
-  const secondTurn = store.upsertTurnResult({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    inputId: "input-2",
-    startedAt: "2026-04-02T12:05:00.000Z",
-    completedAt: "2026-04-02T12:05:04.000Z",
-    status: "failed",
-    stopReason: "policy_denied",
-    assistantText: "",
-    permissionDenials: [
+  await withModelExtractionResponse({
+    memories: [
       {
-        tool_name: "deploy",
-        tool_id: "workspace.deploy",
-        reason: "permission denied by policy",
+        scope: "workspace",
+        memory_type: "blocker",
+        subject_key: "deploy-policy-blocker",
+        title: "Recurring deploy policy blocker",
+        summary: "Deploy access is blocked by workspace policy until permissions are expanded.",
+        tags: ["deploy", "policy", "blocker"],
+        evidence: "The current turn explicitly states that deploy access is blocked by workspace policy until permissions change.",
+        confidence: 0.95,
       },
     ],
-  });
-  appendPermissionDeniedToolCall({
-    store,
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    inputId: "input-2",
-  });
-  await writeTurnDurableMemory({
-    store,
-    memoryService,
-    turnResult: secondTurn,
+    run: async (modelContext) => {
+      await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult,
+        modelContext,
+      });
+      await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult,
+        modelContext,
+      });
+    },
   });
 
   const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
@@ -359,22 +322,25 @@ test("writeTurnDurableMemory reuses stable durable blocker paths across repeated
 
   assert.deepEqual(filePaths, [blockerLeaf.path]);
   assert.equal(interactionLeaves.length, 1);
-  assert.equal(blockerLeaf.entityId, "interaction:uncategorized");
-  assert.match(blockerLeaf.path, /workspace\/workspace-1\/interaction\/entities\/uncategorized\/leaves\/leaf-[a-f0-9]{24}\.md$/);
+  assert.equal(blockerLeaf.entityId, "interaction:system:Recurring-deploy-policy-blocker");
+  assert.match(
+    blockerLeaf.path,
+    /workspace\/workspace-1\/interaction\/entities\/system-Recurring-deploy-policy-blocker\/leaves\/leaf-[a-f0-9]{24}\.md$/,
+  );
   assert.equal(interactionSummaries.length, 0);
   assert.equal(
-    interactionEntities.some((entity) => entity.entityId === "interaction:uncategorized"),
+    interactionEntities.some((entity) => entity.entityId === "interaction:system:Recurring-deploy-policy-blocker"),
     true,
   );
-  assert.equal(blockerLeaf.sourceType, "permission_denial");
-  assert.equal(blockerLeaf.admissionConfidence, 0.92);
-  assert.match(files[blockerLeaf.path], /Recurring Permission Blocker/);
-  assert.match(files[blockerLeaf.path], /workspace\.deploy/);
+  assert.equal(blockerLeaf.sourceType, "assistant_turn");
+  assert.equal(blockerLeaf.admissionConfidence, 0.95);
+  assert.match(files[blockerLeaf.path], /Recurring deploy policy blocker/);
+  assert.match(files[blockerLeaf.path], /blocked by workspace policy/i);
 
   store.close();
 });
 
-test("writeTurnDurableMemory extracts durable workspace facts and procedures from explicit instructions", async () => {
+test("writeTurnDurableMemory persists model-extracted workspace facts and procedures", async () => {
   const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-facts-");
   seedWorkspace(store);
   store.insertSessionMessage({
@@ -406,10 +372,37 @@ test("writeTurnDurableMemory extracts durable workspace facts and procedures fro
     assistantText: "Captured workspace-specific instructions for future runs.",
   });
 
-  await writeTurnDurableMemory({
-    store,
-    memoryService,
-    turnResult,
+  await withModelExtractionResponse({
+    memories: [
+      {
+        scope: "workspace",
+        memory_type: "fact",
+        subject_key: "verification-command",
+        title: "Verification command",
+        summary: "Use `npm run test` to verify this workspace before shipping changes.",
+        tags: ["verification", "command"],
+        evidence: "The current turn explicitly instructs the agent to use `npm run test` as the verification command for this workspace.",
+        confidence: 0.94,
+      },
+      {
+        scope: "workspace",
+        memory_type: "procedure",
+        subject_key: "release-procedure",
+        title: "Release procedure",
+        summary: "Release by running tests, building the bundle, and then publishing it.",
+        tags: ["release", "procedure"],
+        evidence: "The current turn explicitly lists a three-step release procedure with test, build, and publish steps for future reuse.",
+        confidence: 0.93,
+      },
+    ],
+    run: async (modelContext) => {
+      await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult,
+        modelContext,
+      });
+    },
   });
 
   const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
@@ -426,21 +419,20 @@ test("writeTurnDurableMemory extracts durable workspace facts and procedures fro
   assert.equal(verificationFact?.entityId, "interaction:uncategorized");
   assert.equal(releaseEntity?.entityType, "workflow");
   assert.equal(releaseEntity?.canonicalName, "Release procedure");
-  assert.match(files[verificationFact!.path], /Workspace Fact: Verification Command/);
+  assert.match(files[verificationFact!.path], /^# Verification command/m);
   assert.match(files[verificationFact!.path], /`npm run test`/);
-  assert.match(files[releaseProcedure!.path], /Workspace Procedure: Release/);
-  assert.match(files[releaseProcedure!.path], /1\. Run `npm run test`\./);
-  assert.match(files[releaseProcedure!.path], /2\. Run `npm run build`\./);
+  assert.match(files[releaseProcedure!.path], /^# Release procedure/m);
+  assert.match(files[releaseProcedure!.path], /running tests, building the bundle, and then publishing it/i);
   assert.equal(listActiveInteractionSummaries(store, "workspace-1").length, 0);
-  assert.equal(verificationFact?.sourceType, "session_message");
+  assert.equal(verificationFact?.sourceType, "assistant_turn");
   assert.equal(verificationFact?.admissionConfidence, 0.94);
-  assert.equal(releaseProcedure?.sourceType, "session_message");
+  assert.equal(releaseProcedure?.sourceType, "assistant_turn");
   assert.equal(releaseProcedure?.admissionConfidence, 0.93);
 
   store.close();
 });
 
-test("writeTurnDurableMemory extracts durable business facts and procedures from explicit workspace instructions", async () => {
+test("writeTurnDurableMemory persists model-extracted business facts and procedures", async () => {
   const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-business-");
   seedWorkspace(store);
   store.insertSessionMessage({
@@ -472,10 +464,47 @@ test("writeTurnDurableMemory extracts durable business facts and procedures from
     assistantText: "Captured business workflow rules for later recall.",
   });
 
-  await writeTurnDurableMemory({
-    store,
-    memoryService,
-    turnResult,
+  await withModelExtractionResponse({
+    memories: [
+      {
+        scope: "workspace",
+        memory_type: "fact",
+        subject_key: "weekly-sales-review",
+        title: "Sales review cadence",
+        summary: "Weekly sales review happens every Monday at 9am.",
+        tags: ["sales", "cadence"],
+        evidence: "The current turn explicitly states that the weekly sales review happens every Monday at 9am.",
+        confidence: 0.91,
+      },
+      {
+        scope: "workspace",
+        memory_type: "fact",
+        subject_key: "finance-approval-rule",
+        title: "Finance approval rule",
+        summary: "Invoices over $5000 require finance approval.",
+        tags: ["finance", "approval"],
+        evidence: "The current turn explicitly states that invoices over $5000 require finance approval in this workspace.",
+        confidence: 0.91,
+      },
+      {
+        scope: "workspace",
+        memory_type: "procedure",
+        subject_key: "follow-up-procedure",
+        title: "Follow-up procedure",
+        summary: "Follow up by reviewing the CRM record, drafting the email, and sending it within 24 hours.",
+        tags: ["follow-up", "procedure"],
+        evidence: "The current turn explicitly lists a three-step customer follow-up procedure with CRM review, draft, and send steps.",
+        confidence: 0.93,
+      },
+    ],
+    run: async (modelContext) => {
+      await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult,
+        modelContext,
+      });
+    },
   });
 
   const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
@@ -490,26 +519,26 @@ test("writeTurnDurableMemory extracts durable business facts and procedures from
   assert.ok(followUpProcedure);
   assert.equal(cadenceFact?.entityId, "interaction:uncategorized");
   assert.equal(approvalFact?.entityId, "interaction:uncategorized");
-  assert.match(files[cadenceFact!.path], /Workspace Fact: Sales review cadence/);
+  assert.match(files[cadenceFact!.path], /^# Sales review cadence/m);
   assert.match(files[cadenceFact!.path], /Weekly sales review is every Monday at 9am\./);
-  assert.match(files[approvalFact!.path], /Workspace Fact: Finance approval rule/);
-  assert.match(files[approvalFact!.path], /Invoices over \$5000 require finance approval in this workspace\./);
-  assert.match(files[followUpProcedure!.path], /Workspace Procedure: Follow-up/);
-  assert.match(files[followUpProcedure!.path], /1\. Review the CRM record\./);
+  assert.match(files[approvalFact!.path], /^# Finance approval rule/m);
+  assert.match(files[approvalFact!.path], /Invoices over \$5000 require finance approval\./);
+  assert.match(files[followUpProcedure!.path], /^# Follow-up procedure/m);
+  assert.match(files[followUpProcedure!.path], /reviewing the CRM record, drafting the email, and sending it within 24 hours/i);
   assert.equal(uncategorizedSummaries.length, 1);
   assert.match(files[uncategorizedSummaries[0].path], /Sales review cadence/);
   assert.match(files[uncategorizedSummaries[0].path], /Finance approval rule/);
-  assert.equal(cadenceFact?.sourceType, "session_message");
+  assert.equal(cadenceFact?.sourceType, "assistant_turn");
   assert.equal(cadenceFact?.admissionConfidence, 0.91);
-  assert.equal(approvalFact?.sourceType, "session_message");
+  assert.equal(approvalFact?.sourceType, "assistant_turn");
   assert.equal(approvalFact?.admissionConfidence, 0.91);
-  assert.equal(followUpProcedure?.sourceType, "session_message");
+  assert.equal(followUpProcedure?.sourceType, "assistant_turn");
   assert.equal(followUpProcedure?.admissionConfidence, 0.93);
 
   store.close();
 });
 
-test("writeTurnDurableMemory rejects weak uncorroborated model-extracted durable candidates", async () => {
+test("writeTurnDurableMemory rejects weak model-extracted durable candidates", async () => {
   const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-model-reject-");
   seedWorkspace(store);
   store.insertSessionMessage({
@@ -520,23 +549,10 @@ test("writeTurnDurableMemory rejects weak uncorroborated model-extracted durable
     messageId: "user-1",
     createdAt: "2026-04-02T12:00:00.000Z",
   });
-  for (let index = 1; index <= 4; index += 1) {
-    store.upsertTurnResult({
-      workspaceId: "workspace-1",
-      sessionId: "session-main",
-      inputId: `prior-${index}`,
-      startedAt: `2026-04-02T11:5${index}:00.000Z`,
-      completedAt: `2026-04-02T11:5${index}:05.000Z`,
-      status: "completed",
-      stopReason: "ok",
-      assistantText: `Prior turn ${index}.`,
-    });
-  }
-
   const turnResult = store.upsertTurnResult({
     workspaceId: "workspace-1",
     sessionId: "session-main",
-    inputId: "input-5",
+    inputId: "input-1",
     startedAt: "2026-04-02T12:00:00.000Z",
     completedAt: "2026-04-02T12:00:05.000Z",
     status: "completed",
@@ -575,8 +591,8 @@ test("writeTurnDurableMemory rejects weak uncorroborated model-extracted durable
   store.close();
 });
 
-test("writeTurnDurableMemory accepts corroborated model-extracted durable candidates with relaxed threshold", async () => {
-  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-model-corroborated-");
+test("writeTurnDurableMemory accepts sufficiently confident model-extracted durable candidates", async () => {
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-model-accept-");
   seedWorkspace(store);
   store.insertSessionMessage({
     workspaceId: "workspace-1",
@@ -586,23 +602,10 @@ test("writeTurnDurableMemory accepts corroborated model-extracted durable candid
     messageId: "user-1",
     createdAt: "2026-04-02T12:00:00.000Z",
   });
-  for (let index = 1; index <= 4; index += 1) {
-    store.upsertTurnResult({
-      workspaceId: "workspace-1",
-      sessionId: "session-main",
-      inputId: `prior-${index}`,
-      startedAt: `2026-04-02T11:5${index}:00.000Z`,
-      completedAt: `2026-04-02T11:5${index}:05.000Z`,
-      status: "completed",
-      stopReason: "ok",
-      assistantText: `Prior turn ${index}.`,
-    });
-  }
-
   const turnResult = store.upsertTurnResult({
     workspaceId: "workspace-1",
     sessionId: "session-main",
-    inputId: "input-5",
+    inputId: "input-1",
     startedAt: "2026-04-02T12:00:00.000Z",
     completedAt: "2026-04-02T12:00:05.000Z",
     status: "completed",
@@ -620,7 +623,7 @@ test("writeTurnDurableMemory accepts corroborated model-extracted durable candid
         summary: "Use `npm run test:ci` as the verification command for this workspace.",
         tags: ["verification", "command"],
         evidence: "This was explicitly provided as persistent verification guidance for the workspace.",
-        confidence: 0.61,
+        confidence: 0.9,
       },
     ],
     run: async (modelContext) => {
@@ -642,13 +645,13 @@ test("writeTurnDurableMemory accepts corroborated model-extracted durable candid
   assert.match(files[verificationFact!.path], /Verification command \(model\)/);
   assert.match(files[verificationFact!.path], /npm run test:ci/);
   assert.equal(verificationFact?.entityId, "interaction:uncategorized");
-  assert.equal(verificationFact?.admissionConfidence, 0.61);
+  assert.equal(verificationFact?.admissionConfidence, 0.9);
 
   store.close();
 });
 
-test("writeTurnDurableMemory skips model extraction before the first cadence turn", async () => {
-  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-model-cadence-skip-");
+test("writeTurnDurableMemory runs model extraction on the first completed turn when a model client is available", async () => {
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-model-first-turn-");
   seedWorkspace(store);
   store.insertSessionMessage({
     workspaceId: "workspace-1",
@@ -663,73 +666,6 @@ test("writeTurnDurableMemory skips model extraction before the first cadence tur
     workspaceId: "workspace-1",
     sessionId: "session-main",
     inputId: "input-1",
-    startedAt: "2026-04-02T12:00:00.000Z",
-    completedAt: "2026-04-02T12:00:05.000Z",
-    status: "completed",
-    stopReason: "ok",
-    assistantText: "Captured the escalation contact.",
-  });
-
-  await withModelExtractionResponse({
-    memories: [
-      {
-        scope: "workspace",
-        memory_type: "fact",
-        subject_key: "vendor-escalations.primary-contact",
-        title: "Primary vendor escalation contact",
-        summary: "Primary vendor escalation contact is Alicia Park.",
-        tags: ["vendor", "escalation"],
-        evidence: "The user explicitly stated that the primary vendor escalation contact is Alicia Park for future reference.",
-        confidence: 0.98,
-      },
-    ],
-    run: async (modelContext) => {
-      await writeTurnDurableMemory({
-        store,
-        memoryService,
-        turnResult,
-        modelContext,
-      });
-    },
-  });
-
-  const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
-
-  assert.deepEqual(listActiveInteractionLeaves(store, "workspace-1"), []);
-  assert.deepEqual(listActiveInteractionSummaries(store, "workspace-1"), []);
-  assert.deepEqual(Object.keys(files), []);
-
-  store.close();
-});
-
-test("writeTurnDurableMemory runs model extraction on cadence turns", async () => {
-  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-model-cadence-run-");
-  seedWorkspace(store);
-  store.insertSessionMessage({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    role: "user",
-    text: "Remember that the primary vendor escalation contact is Alicia Park.",
-    messageId: "user-1",
-    createdAt: "2026-04-02T12:00:00.000Z",
-  });
-
-  for (let index = 1; index <= 4; index += 1) {
-    store.upsertTurnResult({
-      workspaceId: "workspace-1",
-      sessionId: "session-main",
-      inputId: `input-${index}`,
-      startedAt: `2026-04-02T11:5${index}:00.000Z`,
-      completedAt: `2026-04-02T11:5${index}:05.000Z`,
-      status: "completed",
-      stopReason: "ok",
-      assistantText: `Prior turn ${index}.`,
-    });
-  }
-  const turnResult = store.upsertTurnResult({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    inputId: "input-5",
     startedAt: "2026-04-02T12:00:00.000Z",
     completedAt: "2026-04-02T12:00:05.000Z",
     status: "completed",
@@ -904,10 +840,27 @@ test("writeTurnDurableMemory rebuilds interaction summaries after new leaves are
     assistantText: "Captured verification guidance.",
   });
 
-  await writeTurnDurableMemory({
-    store,
-    memoryService,
-    turnResult,
+  await withModelExtractionResponse({
+    memories: [
+      {
+        scope: "workspace",
+        memory_type: "fact",
+        subject_key: "verification-command",
+        title: "Verification command",
+        summary: "Use `npm run test` to verify changes in this workspace.",
+        tags: ["verification", "command"],
+        evidence: "The current turn explicitly instructs the agent to use `npm run test` as the verification command for this workspace.",
+        confidence: 0.94,
+      },
+    ],
+    run: async (modelContext) => {
+      await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult,
+        modelContext,
+      });
+    },
   });
   const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
   const leaves = listActiveInteractionLeaves(store, "workspace-1");
