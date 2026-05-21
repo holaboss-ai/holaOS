@@ -13,6 +13,7 @@ export interface DurableMemoryExtractionContext {
   batchAssistantResponses: string[];
   recentUserMessages: string[];
   recentTurnSummaries: string[];
+  excludedRecallTurnCount: number;
 }
 
 export interface ExtractedDurableMemoryCandidate {
@@ -124,6 +125,8 @@ export async function extractDurableMemoryCandidatesFromModel(
       "Do not include temporary runtime details, one-off requests, transient execution state, or near-paraphrases of the same memory within this batch. " +
       "Prefer memories about a concrete subject, not generic workspace behavior. " +
       "Only include memories that were explicitly stated or strongly implied by the user or assistant within the current batch. " +
+      "Treat turns whose primary purpose was recalling or answering previously stored knowledge as read-only context, not as new memory evidence. " +
+      "Do not create a memory solely from an assistant answer that restates or paraphrases an already-known fact, procedure, owner, contact, threshold, or decision unless the current batch introduced a correction or new durable detail. " +
       "Use recent context only to disambiguate or corroborate what changed in the current batch. " +
       "Do not re-emit unchanged memories solely because they appear in recent context. " +
       "If a candidate sounds like something the agent should obey by default on nearly every future run, exclude it.",
@@ -132,6 +135,7 @@ export async function extractDurableMemoryCandidatesFromModel(
       `Session ID: ${context.sessionId}`,
       `Input ID: ${context.inputId}`,
       `Batch turn count: ${context.batchTurnCount}`,
+      `Excluded recall-heavy turns: ${context.excludedRecallTurnCount}`,
       "",
       "User instructions in this batch:",
       ...(context.batchUserInstructions.length > 0

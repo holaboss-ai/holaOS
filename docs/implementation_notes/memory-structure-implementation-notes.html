@@ -41,6 +41,8 @@
       <li>Started phase 2 by adding a dedicated <code>integration</code> tree family. Integration tree identity is now <code>provider + account</code>, persisted in new runtime-state tables for trees, leaves, summary nodes, edges, and embeddings.</li>
       <li>Added a separate <code>integration-memory.ts</code> backend that mirrors the interaction tree shape but skips entity assignment. Integration leaves now belong directly to one provider/account tree, and summary layers are built above those leaves with the same markdown-node contract.</li>
       <li>Generalized runtime memory retrieval into a combined workspace-memory layer. <code>memory_retrieve</code> and pre-run recalled memory can now search <code>interaction</code>, <code>integration</code>, or both categories through one wrapper.</li>
+      <li>Added a writeback-side recall filter for interaction batches. Three-turn memory extraction now excludes turns that look like reader/retrieval turns, based on <code>memory_retrieve</code> tool usage plus a question-style user prompt, and the extractor prompt now treats recalled answers as read-only context rather than new memory evidence.</li>
+      <li>Stopped duplicating current-batch user prompts into the extractor's "recent user messages" context. The extractor now gets prior-session user context separately from the current batch, which reduces accidental re-learning from the same batch.</li>
     </ul>
     <h2>Deviations</h2>
     <ul>
@@ -56,6 +58,7 @@
       <li>The current prompt still leaves automatic interaction-memory writeback as a backend path rather than an explicit agent write tool, so the prompt change only narrows where the agent should write defaults versus where it should read contextual memory.</li>
       <li>Fixed the front-session runtime harness so <code>memory_retrieve</code> now routes through the same capability client path as the direct HTTP endpoint. The missing request-plan branch lived in <code>runtime-tool-capability-client.ts</code>.</li>
       <li>Integration-event routing is still not wired in. This pass only adds the backend tree family, persistence helpers, summary rebuilds, combined retrieval, and direct API tests; no live integration ingest source uses it yet.</li>
+      <li>The initial reader-turn filter is intentionally narrow: it only excludes turns that both used <code>memory_retrieve</code> and look like recall questions. That fixes the observed eval regressions without broadly suppressing question-shaped source turns, but pre-run recalled answers without an explicit memory tool call may still need a second pass.</li>
     </ul>
     <h2>Tradeoffs</h2>
     <ul>
@@ -71,6 +74,7 @@
       <li>The evaluation runner uses direct runtime API calls plus runtime-DB inspection rather than a mock harness. That gives a realistic closed-loop experiment and a richer report, but it means the scripts depend on a live local runtime and intentionally operate against real workspace memory state.</li>
       <li>The integration backend intentionally duplicates the current interaction-tree implementation instead of extracting a shared generic tree core first. That keeps this phase lower-risk and easier to land, but it leaves obvious future refactor room once both categories stabilize.</li>
       <li>The combined retrieval wrapper currently plans categories conservatively: explicit category requests win, tree-id prefixes narrow the search when present, and otherwise it searches both categories when both have active data. That avoids brittle provenance rules in the backend, but it may do more work than a future smarter planner.</li>
+      <li>Filtering recall-heavy turns before extraction reduces duplicate leaves and keeps the batch model focused on source turns, but it also means the current fix depends on accurate turn metadata. If agent recall increasingly comes from pre-run memory instead of explicit <code>memory_retrieve</code>, we may need a stronger turn classifier later.</li>
     </ul>
     <h2>Open questions</h2>
     <ul>
@@ -78,6 +82,7 @@
       <li>Model extraction currently runs on every completed turn whenever a model client is available. If that proves too expensive in production, the next decision will be whether to introduce smarter gating or a cheaper extraction model without reintroducing heuristic duplication.</li>
       <li>Live verification now succeeds end to end for interaction-memory recall: after runtime restart, a fresh main-session agent answered Orchid contact and procedure questions correctly using only <code>memory_retrieve</code>.</li>
       <li>Phase 2 still needs the real integration ingest path. We now have the account-owned tree backend, but the next decision is which concrete integration event stream lands there first and what subject-key policy those integration leaves should use.</li>
+      <li>Reader-turn re-ingestion is only partially solved in this pass. The new filter should stop the explicit <code>memory_retrieve</code> feedback loop that showed up in eval, but we still need a follow-up live run to see whether pre-run recalled answers without a tool call are being re-learned.</li>
     </ul>
   </body>
 </html>

@@ -56,10 +56,12 @@ interface ModelDurableCandidate {
 }
 
 interface TurnWritebackBatchContext {
+  batchUserInstructions: string[];
   batchAssistantTexts: string[];
   batchTurnResults: TurnResultRecord[];
   recentTurnSummaries: string[];
   recentUserMessages: SessionMessageRecord[];
+  excludedRecallTurnCount: number;
 }
 
 export interface TurnMemoryWritebackModelContext {
@@ -255,11 +257,62 @@ function processedTurnBatchCount(value: string | null): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
+function toolNamesFromTurnResult(turnResult: TurnResultRecord): string[] {
+  const rawToolNames = turnResult.toolUsageSummary?.tool_names;
+  if (!Array.isArray(rawToolNames)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const toolNames: string[] = [];
+  for (const value of rawToolNames) {
+    if (typeof value !== "string") {
+      continue;
+    }
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    toolNames.push(normalized);
+  }
+  return toolNames;
+}
+
+function isLikelyRecallQuestion(messageText: string): boolean {
+  const normalized = compactWhitespace(messageText).toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  if (normalized.endsWith("?")) {
+    return true;
+  }
+  if (/\bwhat do we know\b/.test(normalized)) {
+    return true;
+  }
+  return /^(who|what|when|where|why|how|which|whose|whom|is|are|was|were|do|does|did|can|could|would|will|should|have|has|had)\b/.test(
+    normalized,
+  );
+}
+
+function shouldExcludeTurnFromMemoryExtraction(params: {
+  turnResult: TurnResultRecord;
+  userInstruction: string;
+}): boolean {
+  const toolNames = toolNamesFromTurnResult(params.turnResult);
+  const usedMemoryRetrieve = toolNames.some((toolName) => toolName === "memory_retrieve" || toolName === "memory.retrieve");
+  if (!usedMemoryRetrieve) {
+    return false;
+  }
+  return isLikelyRecallQuestion(params.userInstruction);
+}
+
 async function extractedDurableMemoryCandidates(params: {
   batchTurnResults: TurnResultRecord[];
+  batchUserInstructions: string[];
   batchAssistantTexts: string[];
   recentUserMessages: SessionMessageRecord[];
   recentTurnSummaries: string[];
+  excludedRecallTurnCount: number;
   modelContext?: TurnMemoryWritebackModelContext | null;
 }): Promise<ModelDurableCandidate[]> {
   if (!params.modelContext?.modelClient) {
@@ -269,10 +322,16 @@ async function extractedDurableMemoryCandidates(params: {
   if (!batchLastTurn) {
     return [];
   }
+  const batchUserInstructions = params.batchUserInstructions
+    .map((instruction) => clippedText(instruction, 220))
+    .filter(Boolean);
+  const batchAssistantResponses = params.batchAssistantTexts.map((text) => clippedText(text, 600)).filter(Boolean);
+  if (batchUserInstructions.length === 0 && batchAssistantResponses.length === 0) {
+    return [];
+  }
   const recentUserMessages = params.recentUserMessages
     .slice(-Math.max(4, params.batchTurnResults.length))
     .map((message) => clippedText(message.text, 220));
-  const batchUserInstructions = recentUserMessages.slice(-params.batchTurnResults.length);
   if (batchUserInstructions.length === 0 && params.modelContext.instruction?.trim()) {
     batchUserInstructions.push(clippedText(params.modelContext.instruction, 220));
   }
@@ -281,11 +340,12 @@ async function extractedDurableMemoryCandidates(params: {
     workspaceId: batchLastTurn.workspaceId,
     sessionId: batchLastTurn.sessionId,
     inputId: batchLastTurn.inputId,
-    batchTurnCount: params.batchTurnResults.length,
+    batchTurnCount: Math.max(0, params.batchTurnResults.length - params.excludedRecallTurnCount),
     batchUserInstructions,
-    batchAssistantResponses: params.batchAssistantTexts.map((text) => clippedText(text, 600)).filter(Boolean),
+    batchAssistantResponses,
     recentUserMessages,
     recentTurnSummaries: params.recentTurnSummaries.slice(0, 4),
+    excludedRecallTurnCount: params.excludedRecallTurnCount,
   };
   const extracted = await extractDurableMemoryCandidatesFromModel(extractionContext);
   return extracted.map((candidate) => ({
@@ -326,13 +386,17 @@ function loadTurnWritebackBatchContext(params: {
   const batchLastTurn = params.batchTurnResults[params.batchTurnResults.length - 1];
   if (!batchLastTurn) {
     return {
+      batchUserInstructions: [],
       batchAssistantTexts: [],
       batchTurnResults: [],
       recentTurnSummaries: [],
       recentUserMessages: [],
+      excludedRecallTurnCount: 0,
     };
   }
   const recentUserMessages = recentUserMessagesForTurn(params.store, batchLastTurn, RECENT_USER_MESSAGES_LIMIT);
+  const batchUserMessages = recentUserMessages.slice(-params.batchTurnResults.length);
+  const priorUserMessages = recentUserMessages.slice(0, Math.max(0, recentUserMessages.length - batchUserMessages.length));
   const recentTurns = params.processedTurnCount > 0
     ? params.store.listTurnResults({
         workspaceId: batchLastTurn.workspaceId,
@@ -343,17 +407,34 @@ function loadTurnWritebackBatchContext(params: {
         offset: Math.max(0, params.processedTurnCount - RECENT_TURNS_LIMIT),
       })
     : [];
+  const batchUserInstructions: string[] = [];
+  const batchAssistantTexts: string[] = [];
+  let excludedRecallTurnCount = 0;
+  for (let index = 0; index < params.batchTurnResults.length; index += 1) {
+    const turnResult = params.batchTurnResults[index];
+    const userInstruction = compactWhitespace(batchUserMessages[index]?.text ?? "");
+    const assistantText = compactWhitespace(assistantTextFromTurnArtifacts(params.store, turnResult));
+    if (shouldExcludeTurnFromMemoryExtraction({ turnResult, userInstruction })) {
+      excludedRecallTurnCount += 1;
+      continue;
+    }
+    if (userInstruction) {
+      batchUserInstructions.push(userInstruction);
+    }
+    if (assistantText) {
+      batchAssistantTexts.push(assistantText);
+    }
+  }
   return {
-    batchAssistantTexts: params.batchTurnResults
-      .map((turnResult) => assistantTextFromTurnArtifacts(params.store, turnResult))
-      .map((text) => compactWhitespace(text))
-      .filter(Boolean),
+    batchUserInstructions,
+    batchAssistantTexts,
     batchTurnResults: params.batchTurnResults,
     recentTurnSummaries: recentTurns
       .map((item) => item.assistantText)
       .map((item) => clippedText(item, 220))
       .filter((summary): summary is string => Boolean(summary)),
-    recentUserMessages,
+    recentUserMessages: priorUserMessages,
+    excludedRecallTurnCount,
   };
 }
 
@@ -469,9 +550,11 @@ export async function writeTurnDurableMemory(params: {
     }
     const extractedCandidates = await extractedDurableMemoryCandidates({
       batchTurnResults: context.batchTurnResults,
+      batchUserInstructions: context.batchUserInstructions,
       batchAssistantTexts: context.batchAssistantTexts,
       recentUserMessages: context.recentUserMessages,
       recentTurnSummaries: context.recentTurnSummaries,
+      excludedRecallTurnCount: context.excludedRecallTurnCount,
       modelContext: params.modelContext ?? null,
     });
     const durableCandidates = acceptedModelDurableCandidates({

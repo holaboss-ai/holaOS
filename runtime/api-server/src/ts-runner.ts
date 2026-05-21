@@ -79,7 +79,7 @@ import {
   type WorkspaceMcpSidecarCliRequest,
 } from "./workspace-mcp-sidecar.js";
 import type { CompiledWorkspaceRuntimePlan } from "./workspace-runtime-plan.js";
-import { buildRecalledInteractionMemoryContext } from "./interaction-memory.js";
+import { buildRecalledWorkspaceMemoryContext } from "./workspace-memory.js";
 import { readSessionScratchpad } from "./session-scratchpad.js";
 import { pendingUserMemoryContextFromProposals } from "./user-memory-proposals.js";
 import { NATIVE_WEB_SEARCH_TOOL_IDS } from "../../harnesses/src/native-web-search-tools.js";
@@ -543,7 +543,7 @@ async function loadRecalledMemoryContext(params: {
     return null;
   }
   try {
-    return await buildRecalledInteractionMemoryContext({
+    return await buildRecalledWorkspaceMemoryContext({
       store,
       workspaceId: params.workspaceId,
       query: params.instruction,

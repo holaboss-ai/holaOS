@@ -50,7 +50,7 @@ import {
 } from "./session-todo.js";
 import type { TerminalSessionManagerLike } from "./terminal-session-manager.js";
 import type { QueueWorkerLike } from "./queue-worker.js";
-import { retrieveInteractionMemory } from "./interaction-memory.js";
+import { retrieveWorkspaceMemory, type WorkspaceMemoryCategory } from "./workspace-memory.js";
 import { invokeWorkspaceSkill, resolveWorkspaceSkills } from "./workspace-skills.js";
 import {
   listWorkspaceApplicationPorts,
@@ -256,6 +256,7 @@ export interface RuntimeAgentToolsRetrieveMemoryParams {
   inputId?: string | null;
   selectedModel?: string | null;
   query: string;
+  categories?: WorkspaceMemoryCategory[] | null;
   mode?: "mixed" | "summaries" | "leaves" | null;
   treeId?: string | null;
   nodeId?: string | null;
@@ -3478,10 +3479,11 @@ export class RuntimeAgentToolsService {
         "mode must be one of [\"mixed\",\"summaries\",\"leaves\"]",
       );
     }
-    const result = await retrieveInteractionMemory({
+    const result = await retrieveWorkspaceMemory({
       store: this.store,
       workspaceId: params.workspaceId,
       query: params.query,
+      categories: params.categories ?? null,
       mode: mode || "mixed",
       treeId: normalizedString(params.treeId) || null,
       nodeId: normalizedString(params.nodeId) || null,
@@ -3492,7 +3494,7 @@ export class RuntimeAgentToolsService {
     });
     return {
       tool_id: "memory_retrieve",
-      categories: ["interaction"],
+      categories: result.categories,
       query: result.query,
       mode: result.mode,
       tree_id: result.tree_id,

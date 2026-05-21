@@ -1854,6 +1854,217 @@ test("runtime memory_retrieve tool returns interaction leaf hits from the tree b
   }
 });
 
+test("runtime memory_retrieve tool returns integration leaf hits from the tree backend", async () => {
+  const root = makeTempDir("hb-runtime-api-memory-retrieve-integration-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertIntegrationTree({
+    workspaceId: "workspace-1",
+    treeId: "integration:github:acct-1",
+    provider: "github",
+    accountId: "acct-1",
+    accountLabel: "Jeff GitHub",
+    slug: "github-jeff-acct-1",
+    summary: "GitHub account memory.",
+    status: "active",
+  });
+  store.upsertIntegrationLeaf({
+    workspaceId: "workspace-1",
+    leafId: "leaf-release-pr",
+    treeId: "integration:github:acct-1",
+    subjectKey: "pr:release-123",
+    path: "workspace/workspace-1/integration/accounts/github-jeff-acct-1/leaves/leaf-release-pr.md",
+    title: "Release PR #123 owner",
+    summary: "The release PR owner is Maya Chen.",
+    fingerprint: "integration-release-pr-fingerprint",
+    bodySha256: "integration-release-pr-sha",
+    tags: ["github", "release"],
+    sourceType: "github.pull_request",
+    sourceEventId: "evt-1",
+    sourceMessageId: null,
+    externalObjectId: "123",
+    externalObjectType: "pull_request",
+    admissionConfidence: 0.94,
+    observedAt: "2026-05-20T00:00:00.000Z",
+    supersedesLeafId: null,
+    status: "active",
+  });
+  const leafPath = path.join(
+    workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+    "integration",
+    "accounts",
+    "github-jeff-acct-1",
+    "leaves",
+    "leaf-release-pr.md",
+  );
+  fs.mkdirSync(path.dirname(leafPath), { recursive: true });
+  fs.writeFileSync(leafPath, "# Release PR #123 owner\n\nThe release PR owner is Maya Chen.\n", "utf8");
+  const app = buildTestRuntimeApiServer({ store });
+
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/memory/retrieve",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {
+        query: "who owns release pr 123?",
+        categories: ["integration"],
+        mode: "leaves",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().tool_id, "memory_retrieve");
+    assert.deepEqual(response.json().categories, ["integration"]);
+    assert.equal(response.json().hits.length, 1);
+    assert.equal(response.json().hits[0].title, "Release PR #123 owner");
+    assert.equal(response.json().hits[0].provider, "github");
+    assert.equal(
+      response.json().hits[0].path,
+      "workspace/workspace-1/integration/accounts/github-jeff-acct-1/leaves/leaf-release-pr.md",
+    );
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
+test("runtime memory_retrieve searches both interaction and integration trees when both exist", async () => {
+  const root = makeTempDir("hb-runtime-api-memory-retrieve-both-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertInteractionEntity({
+    workspaceId: "workspace-1",
+    entityId: "interaction:project:atlas-api",
+    entityType: "project",
+    canonicalName: "Atlas API",
+    slug: "project-atlas-api",
+    summary: "Atlas API workspace memory.",
+    aliases: [],
+    isSystem: false,
+    status: "active",
+  });
+  store.upsertInteractionLeaf({
+    workspaceId: "workspace-1",
+    leafId: "leaf-atlas-incident",
+    entityId: "interaction:project:atlas-api",
+    subjectKey: "incident-bridge",
+    path: "workspace/workspace-1/interaction/entities/project-atlas-api/leaves/leaf-atlas-incident.md",
+    title: "Atlas API incident bridge",
+    summary: "The incident bridge channel is #atlas-api-rollout.",
+    fingerprint: "atlas-incident-fingerprint",
+    bodySha256: "atlas-incident-sha",
+    tags: ["project"],
+    secondaryEntityIds: [],
+    sourceType: "manual",
+    sourceEventId: null,
+    sourceMessageId: null,
+    sourceTurnInputId: "input-seed",
+    admissionConfidence: 0.9,
+    entityConfidence: 0.9,
+    observedAt: "2026-05-20T00:00:00.000Z",
+    supersedesLeafId: null,
+    status: "active",
+  });
+  const interactionLeafPath = path.join(
+    workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+    "interaction",
+    "entities",
+    "project-atlas-api",
+    "leaves",
+    "leaf-atlas-incident.md",
+  );
+  fs.mkdirSync(path.dirname(interactionLeafPath), { recursive: true });
+  fs.writeFileSync(interactionLeafPath, "# Atlas API incident bridge\n\nThe incident bridge channel is #atlas-api-rollout.\n", "utf8");
+
+  store.upsertIntegrationTree({
+    workspaceId: "workspace-1",
+    treeId: "integration:github:acct-2",
+    provider: "github",
+    accountId: "acct-2",
+    accountLabel: "Atlas GitHub",
+    slug: "github-atlas-acct-2",
+    summary: "Atlas GitHub account memory.",
+    status: "active",
+  });
+  store.upsertIntegrationLeaf({
+    workspaceId: "workspace-1",
+    leafId: "leaf-atlas-pr-owner",
+    treeId: "integration:github:acct-2",
+    subjectKey: "release-pr-owner",
+    path: "workspace/workspace-1/integration/accounts/github-atlas-acct-2/leaves/leaf-atlas-pr-owner.md",
+    title: "Atlas API release PR owner",
+    summary: "The Atlas API release PR owner is Noah Bell.",
+    fingerprint: "atlas-pr-owner-fingerprint",
+    bodySha256: "atlas-pr-owner-sha",
+    tags: ["github"],
+    sourceType: "github.pull_request",
+    sourceEventId: "evt-2",
+    sourceMessageId: null,
+    externalObjectId: "456",
+    externalObjectType: "pull_request",
+    admissionConfidence: 0.95,
+    observedAt: "2026-05-20T00:01:00.000Z",
+    supersedesLeafId: null,
+    status: "active",
+  });
+  const integrationLeafPath = path.join(
+    workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+    "integration",
+    "accounts",
+    "github-atlas-acct-2",
+    "leaves",
+    "leaf-atlas-pr-owner.md",
+  );
+  fs.mkdirSync(path.dirname(integrationLeafPath), { recursive: true });
+  fs.writeFileSync(integrationLeafPath, "# Atlas API release PR owner\n\nThe Atlas API release PR owner is Noah Bell.\n", "utf8");
+
+  const app = buildTestRuntimeApiServer({ store });
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/memory/retrieve",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+      },
+      payload: {
+        query: "atlas api",
+        mode: "leaves",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().tool_id, "memory_retrieve");
+    assert.deepEqual(response.json().categories, ["interaction", "integration"]);
+    const titles = response.json().hits.map((hit: { title: string }) => hit.title);
+    assert.ok(titles.includes("Atlas API incident bridge"));
+    assert.ok(titles.includes("Atlas API release PR owner"));
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
 test("runtime download_url tool saves a remote asset into the workspace", async () => {
   const root = makeTempDir("hb-runtime-api-download-tools-");
   const workspaceRoot = path.join(root, "workspace");

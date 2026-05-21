@@ -140,6 +140,7 @@ function listActiveInteractionEntities(store: RuntimeStateStore, workspaceId: st
 
 async function withModelExtractionResponse(params: {
   memories: Array<Record<string, unknown>>;
+  onRequest?: (body: string) => void;
   run: (modelContext: TurnMemoryWritebackModelContext) => Promise<void>;
 }): Promise<void> {
   const server = http.createServer((request, response) => {
@@ -148,22 +149,28 @@ async function withModelExtractionResponse(params: {
       response.end();
       return;
     }
-    void request.resume();
-    response.statusCode = 200;
-    response.setHeader("content-type", "application/json");
-    response.end(
-      JSON.stringify({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({
-                memories: params.memories,
-              }),
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    request.on("end", () => {
+      params.onRequest?.(Buffer.concat(chunks).toString("utf8"));
+      response.statusCode = 200;
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  memories: params.memories,
+                }),
+              },
             },
-          },
-        ],
-      })
-    );
+          ],
+        }),
+      );
+    });
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -212,6 +219,7 @@ function seedCompletedTurns(params: {
     inputId?: string;
     userText: string;
     assistantText: string;
+    toolUsageSummary?: Record<string, unknown> | null;
   }>;
 }): TurnResultRecord[] {
   const sessionId = params.sessionId ?? "session-main";
@@ -237,6 +245,7 @@ function seedCompletedTurns(params: {
       status: "completed",
       stopReason: "ok",
       assistantText: turn.assistantText,
+      toolUsageSummary: turn.toolUsageSummary ?? undefined,
     });
   });
 }
@@ -394,6 +403,152 @@ test("writeTurnDurableMemory waits for a full three-turn batch and does not repl
   assert.equal(blockerLeaf.admissionConfidence, 0.95);
   assert.match(files[blockerLeaf.path], /Recurring deploy policy blocker/);
   assert.match(files[blockerLeaf.path], /blocked by workspace policy/i);
+  assert.equal(interactionBatchCursor(store), "3");
+
+  store.close();
+});
+
+test("writeTurnDurableMemory skips recall-only batches instead of re-learning recalled answers", async () => {
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-recall-only-");
+  seedWorkspace(store);
+  const [, , turnResult] = seedCompletedTurns({
+    store,
+    turns: [
+      {
+        userText: "Who is the Pine Harbor billing escalation contact?",
+        assistantText: "The Pine Harbor billing escalation contact is Nina Patel.",
+        toolUsageSummary: {
+          tool_names: ["memory_retrieve"],
+        },
+      },
+      {
+        userText: "What is the Pine Harbor billing dispute escalation procedure?",
+        assistantText: "Open the ledger case, confirm the Stripe dispute event, then escalate to the finance lead.",
+        toolUsageSummary: {
+          tool_names: ["memory_retrieve"],
+        },
+      },
+      {
+        userText: "Who owns Pine Harbor contract renewal?",
+        assistantText: "Mateo Cruz owns Pine Harbor contract renewal.",
+        toolUsageSummary: {
+          tool_names: ["memory_retrieve"],
+        },
+      },
+    ],
+  });
+
+  let requestCount = 0;
+  await withModelExtractionResponse({
+    memories: [
+      {
+        scope: "workspace",
+        memory_type: "fact",
+        subject_key: "pine_harbor:billing-escalation-contact",
+        title: "Pine Harbor billing escalation contact",
+        summary: "The Pine Harbor billing escalation contact is Nina Patel.",
+        tags: ["customer", "contact"],
+        evidence: "Assistant answered that Nina Patel is the Pine Harbor billing escalation contact.",
+        confidence: 0.99,
+      },
+    ],
+    onRequest: () => {
+      requestCount += 1;
+    },
+    run: async (modelContext) => {
+      await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult,
+        modelContext,
+      });
+    },
+  });
+
+  const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
+  assert.equal(requestCount, 0);
+  assert.deepEqual(listActiveInteractionLeaves(store, "workspace-1"), []);
+  assert.deepEqual(listActiveInteractionSummaries(store, "workspace-1"), []);
+  assert.deepEqual(Object.keys(files), []);
+  assert.equal(interactionBatchCursor(store), "3");
+
+  store.close();
+});
+
+test("writeTurnDurableMemory excludes recall-heavy turns from mixed extraction batches", async () => {
+  const { store, memoryService } = makeRuntimeState("hb-turn-memory-recall-mixed-");
+  seedWorkspace(store);
+  const [, , turnResult] = seedCompletedTurns({
+    store,
+    turns: [
+      {
+        userText: "Remember this for Pine Harbor: the billing escalation contact is Nina Patel.",
+        assistantText: "I will remember the Pine Harbor billing contact.",
+      },
+      {
+        userText: "Also remember for Pine Harbor that the contract renewal owner is Mateo Cruz.",
+        assistantText: "I will remember the Pine Harbor contract renewal owner.",
+      },
+      {
+        userText: "Who is the Pine Harbor billing escalation contact?",
+        assistantText: "The Pine Harbor billing escalation contact is Nina Patel.",
+        toolUsageSummary: {
+          tool_names: ["memory_retrieve"],
+        },
+      },
+    ],
+  });
+
+  const capturedRequests: string[] = [];
+  await withModelExtractionResponse({
+    memories: [
+      {
+        scope: "workspace",
+        memory_type: "fact",
+        subject_key: "pine_harbor",
+        title: "Pine Harbor billing escalation contact",
+        summary: "For Pine Harbor, the billing escalation contact is Nina Patel.",
+        tags: ["customer", "contact"],
+        evidence: "User stated that the Pine Harbor billing escalation contact is Nina Patel.",
+        confidence: 0.99,
+      },
+      {
+        scope: "workspace",
+        memory_type: "fact",
+        subject_key: "pine_harbor",
+        title: "Pine Harbor contract renewal owner",
+        summary: "For Pine Harbor, the contract renewal owner is Mateo Cruz.",
+        tags: ["customer", "owner"],
+        evidence: "User stated that the Pine Harbor contract renewal owner is Mateo Cruz.",
+        confidence: 0.99,
+      },
+    ],
+    onRequest: (body) => {
+      capturedRequests.push(body);
+    },
+    run: async (modelContext) => {
+      await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult,
+        modelContext,
+      });
+    },
+  });
+
+  assert.equal(capturedRequests.length, 1);
+  assert.match(capturedRequests[0], /Excluded recall-heavy turns: 1/);
+  assert.doesNotMatch(capturedRequests[0], /Who is the Pine Harbor billing escalation contact\?/);
+  assert.doesNotMatch(capturedRequests[0], /The Pine Harbor billing escalation contact is Nina Patel\./);
+
+  const leaves = listActiveInteractionLeaves(store, "workspace-1").filter(
+    (leaf) => leaf.entityId === "interaction:customer:pine-harbor",
+  );
+  assert.equal(leaves.length, 2);
+  assert.deepEqual(
+    leaves.map((leaf) => leaf.title).sort((left, right) => left.localeCompare(right)),
+    ["Pine Harbor billing escalation contact", "Pine Harbor contract renewal owner"],
+  );
   assert.equal(interactionBatchCursor(store), "3");
 
   store.close();

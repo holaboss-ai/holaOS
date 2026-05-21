@@ -4898,6 +4898,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           body: request.body,
         }),
         query: requiredString(request.body.query, "query"),
+        categories: Array.isArray(request.body.categories)
+          ? request.body.categories
+            .filter((value): value is string => typeof value === "string")
+            .map((value) => value.trim().toLowerCase())
+            .filter((value): value is "interaction" | "integration" => value === "interaction" || value === "integration")
+          : undefined,
         mode: nullableString(request.body.mode) as "mixed" | "summaries" | "leaves" | null,
         treeId: nullableString(request.body.tree_id) ?? null,
         nodeId: nullableString(request.body.node_id) ?? null,
