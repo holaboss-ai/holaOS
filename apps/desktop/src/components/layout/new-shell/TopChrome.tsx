@@ -2,6 +2,7 @@ import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   ChevronDown,
   Globe,
+  Image as ImageIcon,
   Loader2,
   Package,
   PanelLeftClose,
@@ -14,10 +15,10 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover";
+  SuspendingPopover as Popover,
+} from "./overlay-presence";
 import { useWorkspaceBrowser } from "@/components/panes/useWorkspaceBrowser";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { cn } from "@/lib/utils";
@@ -131,28 +132,34 @@ export function TopChrome() {
       onCloseOthers: () => closeMany(idsOthers),
       onCloseToLeft: () => closeMany(idsLeft),
       onCloseToRight: () => closeMany(idsRight),
-      onDeleteFile: targetInternal
-        ? () => {
-            const tab = targetInternal;
-            if (
-              !window.confirm(
-                `Delete '${tab.label}'? This moves the file to the trash and can't be undone from here.`,
-              )
-            ) {
-              return;
-            }
-            void window.electronAPI.fs
-              .deletePath(tab.filePath, selectedWorkspaceId ?? null)
-              .then(() => {
-                handleCloseInternalTab(tab.id);
-                removeRecentFileByPath(tab.filePath);
-              })
-              .catch(() => {
-                // surfaced via OS notification when applicable; nothing
-                // useful to render inline.
-              });
+      onDeleteFile: (() => {
+        if (!targetInternal || targetInternal.kind !== "file") {
+          return undefined;
+        }
+        const tab = targetInternal;
+        return () => {
+          if (
+            !window.confirm(
+              `Delete '${tab.label}'? This moves the file to the trash and can't be undone from here.`,
+            )
+          ) {
+            return;
           }
-        : undefined,
+          void window.electronAPI.fs
+            .deletePath(tab.filePath, selectedWorkspaceId ?? null)
+            .then(() => {
+              handleCloseInternalTab(tab.id);
+              removeRecentFileByPath({
+                filePath: tab.filePath,
+                workspaceId: selectedWorkspaceId ?? null,
+              });
+            })
+            .catch(() => {
+              // surfaced via OS notification when applicable; nothing
+              // useful to render inline.
+            });
+        };
+      })(),
       canCloseLeft: idsLeft.length > 0,
       canCloseRight: idsRight.length > 0,
       canCloseOthers: idsOthers.length > 0,
@@ -206,7 +213,7 @@ export function TopChrome() {
           key={tab.id}
           id={tab.id}
           label={tab.label}
-          filePath={tab.filePath}
+          filePath={tab.kind === "file" ? tab.filePath : null}
           active={tab.id === activeInternalTabId}
           onSelect={handleSelectInternalTab}
           onClose={handleCloseInternalTab}
@@ -248,7 +255,7 @@ function InternalTabChip({
 }: {
   id: string;
   label: string;
-  filePath: string;
+  filePath: string | null;
   active?: boolean;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
@@ -275,7 +282,11 @@ function InternalTabChip({
       )}
     >
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
-        <FileTypeIcon filePath={filePath} size={14} className="shrink-0" />
+        {filePath ? (
+          <FileTypeIcon filePath={filePath} size={14} className="shrink-0" />
+        ) : (
+          <ImageIcon className="size-3.5 shrink-0 text-foreground/60" />
+        )}
         <span className="flex-1 truncate">{label}</span>
       </div>
       <div

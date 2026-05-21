@@ -17,6 +17,7 @@ const assistantTurnSourcePath = path.join(
   "AssistantTurn",
   "index.tsx",
 );
+const chatHeaderSourcePath = path.join(__dirname, "ChatPane", "ChatHeader.tsx");
 
 test("chat pane surfaces workspace activation errors before generic app-starting copy", async () => {
   const source = await readFile(sourcePath, "utf8");
@@ -34,6 +35,153 @@ test("chat pane surfaces workspace activation errors before generic app-starting
     /const readinessMessage =[\s\S]*workspaceBlockingReason \|\|[\s\S]*workspaceErrorMessage \|\|[\s\S]*"Preparing workspace apps\.\.\."[\s\S]*"Workspace apps are still starting\."/,
   );
   assert.match(source, /workspace_error_message: workspaceErrorMessage \|\| null,/);
+});
+
+test("onboarding chat opens active lab controller sessions while normal chat can return to main", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  assert.match(
+    source,
+    /function isLabControllerSessionKind\(kind: string \| null \| undefined\) \{[\s\S]*normalized === "workspace_onboarding" \|\| normalized === "meeting_mode";/,
+  );
+  assert.match(
+    source,
+    /window\.electronAPI\.workspace\s*\.listAgentSessions\(\{\s*workspaceId: selectedWorkspaceId,\s*includeArchived: false,\s*limit: 100,\s*offset: 0,\s*\}\)/,
+  );
+  assert.match(
+    source,
+    /const activeLabControllerSession =[\s\S]*sessionRecords\.find\(\(session\) =>[\s\S]*isLabControllerSessionKind\(session\.kind\),/,
+  );
+  assert.match(
+    source,
+    /const preferredControllerSessionId =[\s\S]*: isOnboardingVariant[\s\S]*\? activeLabControllerSession\?\.session_id\?\.trim\(\) \|\|[\s\S]*onboardingSessionId[\s\S]*: "";/,
+  );
+  assert.match(
+    source,
+    /const mainSessionResponse = preferredControllerSessionId\s*\?\s*null\s*:\s*await window\.electronAPI\.workspace\.ensureMainSession\(/,
+  );
+  assert.match(
+    source,
+    /const isWorkspaceOnboardingControllerSession =[\s\S]*isOnboardingVariant[\s\S]*activeSessionIdValue === workspaceOnboardingSessionId/,
+  );
+  assert.match(
+    source,
+    /const isControllerSession =[\s\S]*isLabControllerSession \|\| isWorkspaceOnboardingControllerSession;/,
+  );
+  assert.match(
+    source,
+    /const isReadOnlyInspectionSession =[\s\S]*activeSessionReadOnly \|\|[\s\S]*\(!isViewingBoundMainSession && !isControllerSession\);/,
+  );
+  assert.match(
+    source,
+    /model: isControllerSession \? null : resolvedChatModel \|\| null,/,
+  );
+});
+
+test("onboarding chat enters the onboarding session immediately and omits the onboarding banner chrome", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  assert.match(
+    source,
+    /const workspaceOnboardingSessionId =\s*\(\s*selectedWorkspace\?\.onboarding_session_id \|\| ""\s*\)\.trim\(\);/,
+  );
+  assert.match(
+    source,
+    /const nextSessionId =[\s\S]*\|\|\s*\(isOnboardingVariant \? workspaceOnboardingSessionId : ""\)\s*\|\|[\s\S]*mainSessionResponse\.session\?\.session_id\?\.trim\(\)/,
+  );
+  assert.match(
+    source,
+    /\}, \[\s*isOnboardingVariant,\s*selectedWorkspace\?\.alignment_question,\s*selectedWorkspace\?\.onboarding_state,\s*sessionJumpRequestKey,\s*sessionJumpSessionId,\s*selectedWorkspaceId,\s*selectedWorkspace\?\.onboarding_session_id,\s*selectedWorkspace\?\.onboarding_status,\s*\]\);/,
+  );
+  assert.doesNotMatch(
+    source,
+    /text-\[10px\] font-medium uppercase text-primary">\s*Workspace onboarding/,
+  );
+  assert.doesNotMatch(source, /onboardingStatusTone\(/);
+  assert.doesNotMatch(source, /onboardingStatusLabel\(/);
+});
+
+test("onboarding chat uses a survey-style alignment card with navigation and freeform response drafts", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  assert.match(
+    source,
+    /const \[onboardingQuestionSlideIndex, setOnboardingQuestionSlideIndex\] =\s*useState\(0\);/,
+  );
+  assert.match(
+    source,
+    /const \[onboardingQuestionDrafts, setOnboardingQuestionDrafts\] = useState<\s*Record<string, OnboardingAlignmentQuestionDraft>\s*>\(\{\}\);/,
+  );
+  assert.match(source, /type OnboardingAlignmentQuestionDraft = \{/);
+  assert.match(source, /allowFreeform: item\.allow_freeform !== false,/);
+  assert.match(
+    source,
+    /const answeredAlignmentQuestionCount = alignmentQuestionItems\.filter\(\(question\) =>[\s\S]*onboardingAlignmentQuestionIsAnswered\(onboardingQuestionDrafts\[question\.id\]\)/,
+  );
+  assert.match(source, /Natural language response/);
+  assert.match(source, /placeholder=\{activeAlignmentQuestion\.freeformPlaceholder\}/);
+  assert.match(source, /onboardingQuestionTextareaRef\.current\?\.blur\(\);/);
+  assert.match(
+    source,
+    /optionId:\s*option\.id,\s*responseText:\s*""/,
+  );
+  assert.match(
+    source,
+    /onFocus=\{\(\) => \{[\s\S]*current\.optionId[\s\S]*optionId:\s*""/,
+  );
+  assert.match(
+    source,
+    /optionId:\s*nextResponseText\.trim\(\) \? "" : current\.optionId,\s*responseText:\s*nextResponseText/,
+  );
+  assert.doesNotMatch(
+    source,
+    /Help the onboarding agent decide the next alignment step/,
+  );
+  assert.doesNotMatch(
+    source,
+    /Choose an option, answer in your own words, or do both\./,
+  );
+  assert.match(source, /Previous/);
+  assert.match(source, /Next/);
+  assert.match(source, /Submit answers/);
+});
+
+test("chat pane blocks lab controller input while owned subagents are executing", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  assert.match(source, /function backgroundTaskIsExecuting\(/);
+  assert.match(
+    source,
+    /const \[\s*activeControllerSubagentExecutionCount,\s*setActiveControllerSubagentExecutionCount,\s*\] = useState\(0\);/,
+  );
+  assert.match(
+    source,
+    /const activeSessionWorkspaceId =[\s\S]*activeSessionRecord\?\.workspace_id[\s\S]*selectedWorkspaceId/,
+  );
+  assert.match(
+    source,
+    /const controllerBackgroundTasksWorkspaceId = isControllerSession[\s\S]*\? activeSessionWorkspaceId[\s\S]*: \(selectedWorkspaceId \|\| ""\)\.trim\(\);/,
+  );
+  assert.match(
+    source,
+    /window\.electronAPI\.workspace\.listBackgroundTasks\(\{\s*workspaceId,\s*ownerMainSessionId: controllerSessionId,\s*statuses: \["queued", "running"\],\s*limit: 50,\s*\}\)/,
+  );
+  assert.match(
+    source,
+    /setActiveControllerSubagentExecutionCount\(\(current\) =>[\s\S]*current === executingCount \? current : executingCount/,
+  );
+  assert.match(
+    source,
+    /const controllerSubagentExecutingDisabledReason =[\s\S]*Subagent is implementing the approved design\. Wait for it to finish before sending another message\./,
+  );
+  assert.match(
+    source,
+    /baseComposerDisabledReason \|\|\s*controllerSubagentExecutingDisabledReason \|\|/,
+  );
+  assert.match(
+    source,
+    /if \(controllerSubagentExecutingDisabledReason\) \{\s*setChatErrorMessage\(controllerSubagentExecutingDisabledReason\);\s*return;\s*\}/,
+  );
 });
 
 test("chat model picker hides holaboss models while signed out and only marks them pending after sign-in", async () => {
@@ -989,6 +1137,7 @@ test("chat pane can create a workspace session when none exists yet", async () =
 
 test("chat pane exposes an in-pane session dropdown for switching agent sessions", async () => {
   const source = await readFile(sourcePath, "utf8");
+  const chatHeaderSource = await readFile(chatHeaderSourcePath, "utf8");
 
   assert.match(source, /onOpenInbox\?: \(\) => void;/);
   assert.match(source, /onOpenSessions\?: \(\) => void;/);
@@ -1031,14 +1180,25 @@ test("chat pane exposes an in-pane session dropdown for switching agent sessions
   );
   assert.match(source, /function setLocalSessionOpenRequestState\(/);
   assert.match(source, /const openMainSession = async \(\) => \{/);
+  assert.match(source, /const openPrimaryControllerSession = async \(\) => \{/);
+  assert.match(
+    source,
+    /isOnboardingVariant \? "Onboarding session" : "Main session"/,
+  );
+  assert.match(chatHeaderSource, /aria-label="Main session"/);
+  assert.match(chatHeaderSource, /<TooltipContent>Main session<\/TooltipContent>/);
+  assert.match(
+    source,
+    /Return to the onboarding session to continue the conversation\./,
+  );
   assert.match(source, /const handleOpenReadOnlyAgentSession = \(/);
   assert.match(source, /setLocalSessionOpenRequestState\(\{\s*sessionId: mainSessionId,\s*requestKey: Date\.now\(\),\s*readOnly: false,\s*\}\);/);
   assert.match(source, /setLocalSessionOpenRequestState\(\{\s*sessionId,\s*requestKey: Date\.now\(\),\s*readOnly: true,\s*\}\);/);
   assert.match(source, /onOpenSessions=\{onOpenSessions\}/);
-  assert.match(source, /aria-label="Show sessions"/);
-  assert.match(source, /aria-label="Show inbox"/);
-  assert.match(source, /inboxUnreadCount > 0 \? \(/);
-  assert.match(source, /onClick=\{\(\) => onOpenInbox\(\)\}/);
+  assert.match(chatHeaderSource, /aria-label="Sessions"/);
+  assert.match(chatHeaderSource, /aria-label="Inbox"/);
+  assert.match(chatHeaderSource, /inboxUnreadCount > 0 \? \(/);
+  assert.match(chatHeaderSource, /onClick=\{\(\) => onOpenInbox\(\)\}/);
   assert.match(source, /onSessionOpenRequestConsumed\?\.\(requestKey\);/);
 });
 
@@ -1692,21 +1852,21 @@ test("chat pane renders inline background tasks near the top of the pane", async
 
   assert.match(
     source,
-    /!isOnboardingVariant && !isReadOnlyInspectionSession \? \(\s*<div className="pointer-events-none absolute inset-x-0 top-0 z-20">[\s\S]*<BackgroundTasksPane[\s\S]*workspaceId=\{selectedWorkspaceId\}[\s\S]*variant="inline"[\s\S]*\) : null/,
+    /!isReadOnlyInspectionSession \? \(\s*<div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-4">[\s\S]*<BackgroundTasksPane[\s\S]*workspaceId=\{controllerBackgroundTasksWorkspaceId\}[\s\S]*ownerMainSessionId=\{[\s\S]*controllerBackgroundTasksOwnerMainSessionId[\s\S]*\}[\s\S]*variant="inline"[\s\S]*\) : null/,
   );
   assert.doesNotMatch(
     source,
     /!isOnboardingVariant && !isReadOnlyInspectionSession \? \(\s*<SubagentSessionsPane[\s\S]*variant="inline"[\s\S]*\) : null/,
   );
   assert.match(source, /const handleOpenReadOnlyAgentSession = \(/);
-  assert.match(source, /aria-label="Show sessions"/);
+  assert.match(source, /onOpenSessions=\{onOpenSessions\}/);
   assert.match(
     source,
-    /className=\{`flex min-w-0 w-full flex-col gap-4 px-4 pb-3 pt-5 \$\{\s*showHistoryRestoreScreen \? "invisible" : ""\s*\}`\}/,
+    /className=\{`mx-auto flex min-w-0 w-full \$\{CHAT_LAYOUT\.contentMaxWidth\} flex-col gap-2 pl-4 pr-7 pb-3 pt-5 \$\{\s*showHistoryRestoreScreen \? "invisible" : ""\s*\}`\}/,
   );
   assert.match(
     source,
-    /className="pointer-events-none absolute inset-x-0 top-0 z-20"/,
+    /className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-4"/,
   );
   assert.doesNotMatch(source, /<CurrentTodoPanel/);
 });

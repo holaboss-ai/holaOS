@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "@holaboss/app-sdk@*"
+      - "@holaboss/ui@*"
 
   workflow_dispatch:
     inputs:
@@ -13,6 +14,7 @@ on:
         type: choice
         options:
           - app-sdk
+          - ui
       dry_run:
         description: "Dry run (skip actual publish)"
         required: false

@@ -19,6 +19,7 @@ test("workspace control plane source defines the local adapter and open-workspac
   assert.match(source, /async listWorkspaces\(\): Promise<WorkspaceListResponse> \{/);
   assert.match(source, /async listWorkspacesCached\(\): Promise<WorkspaceListResponse> \{/);
   assert.match(source, /async createWorkspace\(/);
+  assert.match(source, /async createWorkspaceLab\(/);
   assert.match(source, /async deleteWorkspace\(/);
   assert.match(source, /async activateWorkspaceRecord\(/);
   assert.match(source, /async getWorkspaceLifecycle\(/);
@@ -41,7 +42,7 @@ test("workspace IPC handlers delegate through the local workspace control plane"
   assert.match(source, /async function requestWorkspaceRuntimeJson<T>\(/);
   assert.match(
     source,
-    /const workspaceRegistry = \{\s*listCachedWorkspaces,\s*\};[\s\S]*const desktopWorkspaceControlPlane = createLocalWorkspaceControlPlane\(\{\s*listWorkspaces,\s*workspaceRegistry,\s*createWorkspace,\s*deleteWorkspace,\s*activateWorkspaceRecord,\s*getWorkspaceLifecycle,\s*openWorkspace,\s*\}\);/,
+    /const workspaceRegistry = \{\s*listCachedWorkspaces,\s*\};[\s\S]*const desktopWorkspaceControlPlane = createLocalWorkspaceControlPlane\(\{\s*listWorkspaces,\s*workspaceRegistry,\s*createWorkspace,\s*createWorkspaceLab,\s*deleteWorkspace,\s*activateWorkspaceRecord,\s*getWorkspaceLifecycle,\s*openWorkspace,\s*\}\);/,
   );
   assert.match(
     source,
@@ -89,6 +90,10 @@ test("workspace IPC handlers delegate through the local workspace control plane"
   );
   assert.match(
     source,
+    /"workspace:createWorkspaceLab"[\s\S]*desktopWorkspaceControlPlane\.createWorkspaceLab\(workspaceId, purpose\)/,
+  );
+  assert.match(
+    source,
     /"workspace:deleteWorkspace"[\s\S]*desktopWorkspaceControlPlane\.deleteWorkspace\(workspaceId, keepFiles\)/,
   );
 });
@@ -102,6 +107,10 @@ test("preload and shared Electron types expose the open-workspace session seam",
   assert.match(
     preloadSource,
     /openWorkspace: \(workspaceId: string\) =>\s*ipcRenderer\.invoke\("workspace:openWorkspace", workspaceId\) as Promise<WorkspaceOpenSessionPayload>/,
+  );
+  assert.match(
+    preloadSource,
+    /createWorkspaceLab: \(workspaceId: string, purpose: "workspace_onboarding" \| "meeting_mode"\) =>\s*ipcRenderer\.invoke\("workspace:createWorkspaceLab", workspaceId, purpose\) as Promise<WorkspaceLabResponsePayload>/,
   );
   assert.match(
     electronTypesSource,
@@ -121,5 +130,20 @@ test("preload and shared Electron types expose the open-workspace session seam",
   assert.match(
     electronTypesSource,
     /openWorkspace: \(workspaceId: string\) => Promise<WorkspaceOpenSessionPayload>;/,
+  );
+  assert.match(
+    electronTypesSource,
+    /createWorkspaceLab: \(\s*workspaceId: string,\s*purpose: "workspace_onboarding" \| "meeting_mode",\s*\) => Promise<WorkspaceLabResponsePayload>;/,
+  );
+});
+
+test("workspace Composio connect normalizes X to the Twitter toolkit slug", async () => {
+  const source = await readFile(MAIN_PATH, "utf8");
+
+  assert.match(source, /function composioToolkitSlugForProvider\(provider: string\): string \{/);
+  assert.match(source, /if \(normalized === "x"\) \{\s*return "twitter";\s*\}/);
+  assert.match(
+    source,
+    /const provider = composioToolkitSlugForProvider\(payload\.provider\);[\s\S]*provider,/,
   );
 });

@@ -1,16 +1,19 @@
 import { atom } from "jotai";
 
-/**
- * Internal (non-browser) tabs — currently only file-preview tabs.
- * Live alongside browser tabs in TopChrome; when one is active the
- * native BrowserView suspends and Center renders the preview pane.
- */
-export type InternalTab = {
-  id: string;
-  kind: "file";
-  filePath: string;
-  label: string;
-};
+export type InternalTab =
+  | {
+      id: string;
+      kind: "file";
+      filePath: string;
+      label: string;
+    }
+  | {
+      id: string;
+      kind: "image";
+      dataUrl: string;
+      label: string;
+      revokeOnClose?: boolean;
+    };
 
 export const internalTabsAtom = atom<InternalTab[]>([]);
 export const activeInternalTabIdAtom = atom<string | null>(null);

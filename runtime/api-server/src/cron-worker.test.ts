@@ -227,6 +227,53 @@ test("runtime cron worker queues due session_run cronjobs as hidden subagents an
   store.close();
 });
 
+test("runtime cron worker auto-disables enabled lab cronjobs instead of executing them", async () => {
+  const root = makeTempDir("hb-runtime-cron-worker-lab-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const workspace = store.createWorkspace({
+    workspaceId: "lab-1",
+    name: "Lab 1",
+    harness: "pi",
+    status: "active",
+    workspaceRole: "draft_lab",
+    labPurpose: "workspace_onboarding",
+    labStatus: "active",
+  });
+  const job = store.createCronjob({
+    workspaceId: workspace.id,
+    initiatedBy: "workspace_agent",
+    name: "Daily",
+    cron: "0 9 * * *",
+    description: "Daily check",
+    instruction: "Say hello",
+    enabled: true,
+    delivery: { channel: "session_run" },
+    nextRunAt: "2025-01-01T09:00:00Z",
+  });
+
+  const worker = new RuntimeCronWorker({ store });
+  const processed = await worker.processDueCronjobsOnce(new Date("2025-01-01T09:30:00Z"));
+  const updated = store.getCronjob({ workspaceId: workspace.id, jobId: job.id });
+  const runs = store.listSubagentRunsByWorkspace({ workspaceId: workspace.id });
+
+  assert.equal(processed, 0);
+  assert.ok(updated);
+  assert.equal(updated.enabled, false);
+  assert.equal(updated.nextRunAt, null);
+  assert.equal(updated.runCount, 0);
+  assert.equal(updated.lastRunAt, null);
+  assert.deepEqual(updated.metadata, {
+    author_recommended_enabled: true,
+    lab_execution_disabled: true,
+  });
+  assert.equal(runs.length, 0);
+
+  store.close();
+});
+
 test("runtime cron worker inherits the latest non-batch main-session model when the cronjob has no explicit model", async () => {
   const root = makeTempDir("hb-runtime-cron-worker-");
   const configPath = path.join(root, "state", "runtime-config.json");

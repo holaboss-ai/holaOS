@@ -14,6 +14,10 @@ import {
   AssistantTurnIntegrationConnects,
   type AssistantTurnPendingIntegration,
 } from "./IntegrationConnectCard";
+import {
+  AssistantTurnIntegrationProposals,
+  type AssistantTurnProposedIntegration,
+} from "./IntegrationProposalCard";
 import { TraceStepGroup } from "./TraceStepGroup";
 import { LiveStatusLine } from "./status";
 
@@ -50,6 +54,10 @@ export const AssistantTurn = memo(AssistantTurnComponent, (prev, next) =>
   prev.executionItems === next.executionItems &&
   prev.outputs === next.outputs &&
   prev.pendingIntegrations === next.pendingIntegrations &&
+  prev.proposedIntegrations === next.proposedIntegrations &&
+  prev.memoryProposalAction === next.memoryProposalAction &&
+  prev.editingMemoryProposalId === next.editingMemoryProposalId &&
+  prev.memoryProposalDrafts === next.memoryProposalDrafts &&
   prev.collapsedTraceByStepId === next.collapsedTraceByStepId &&
   prev.live === next.live &&
   prev.status === next.status &&
@@ -68,7 +76,16 @@ function AssistantTurnComponent({
   executionItems,
   outputs,
   pendingIntegrations = [],
+  proposedIntegrations = [],
   onAfterIntegrationBind,
+  onAfterIntegrationProposalConnected,
+  memoryProposalAction,
+  editingMemoryProposalId,
+  memoryProposalDrafts,
+  onEditMemoryProposal,
+  onMemoryProposalDraftChange,
+  onAcceptMemoryProposal,
+  onDismissMemoryProposal,
   onOpenOutput,
   onOpenAllArtifacts,
   collapsedTraceByStepId,
@@ -93,7 +110,21 @@ function AssistantTurnComponent({
   executionItems: ChatExecutionTimelineItem[];
   outputs: WorkspaceOutputRecordPayload[];
   pendingIntegrations?: AssistantTurnPendingIntegration[];
+  proposedIntegrations?: AssistantTurnProposedIntegration[];
   onAfterIntegrationBind?: () => void;
+  onAfterIntegrationProposalConnected?: (toolkitSlug: string) => void;
+  memoryProposalAction: {
+    proposalId: string;
+    action: "accept" | "dismiss";
+  } | null;
+  editingMemoryProposalId: string | null;
+  memoryProposalDrafts: Record<string, string>;
+  onEditMemoryProposal: (proposalId: string) => void;
+  onMemoryProposalDraftChange: (proposalId: string, value: string) => void;
+  onAcceptMemoryProposal: (proposal: MemoryUpdateProposalRecordPayload) => void;
+  onDismissMemoryProposal: (
+    proposal: MemoryUpdateProposalRecordPayload,
+  ) => void;
   onOpenOutput?: (output: WorkspaceOutputRecordPayload) => void;
   onOpenAllArtifacts: (outputs: WorkspaceOutputRecordPayload[]) => void;
   collapsedTraceByStepId: Record<string, boolean>;
@@ -294,6 +325,14 @@ function AssistantTurnComponent({
           <AssistantTurnIntegrationConnects
             pendingIntegrations={pendingIntegrations}
             onAfterBind={onAfterIntegrationBind}
+          />
+        ) : null}
+
+        {proposedIntegrations.length > 0 ? (
+          <AssistantTurnIntegrationProposals
+            onAfterConnect={onAfterIntegrationProposalConnected}
+            proposals={proposedIntegrations}
+            workspaceId={workspaceId}
           />
         ) : null}
       </article>

@@ -29,6 +29,16 @@ test("first workspace pane passes panel variant through to the creating view", a
   assert.match(source, /<CreatingView[\s\S]*panelVariant=\{isPanelVariant\}/);
 });
 
+test("panel create flow resets to the first panel step on every open", async () => {
+  const source = await readFile(firstWorkspacePanePath, "utf8");
+
+  assert.match(source, /import \{ useEffect, useLayoutEffect, useState \} from "react";/);
+  assert.match(
+    source,
+    /useLayoutEffect\(\(\) => \{\s*if \(!isPanelVariant\) \{\s*return;\s*\}\s*setFirstWorkspaceStep\("name"\);\s*\}, \[isPanelVariant, setFirstWorkspaceStep\]\);/,
+  );
+});
+
 test("first workspace pane runs the welcome → name → folder flow", async () => {
   const source = await readFile(firstWorkspacePanePath, "utf8");
   const workspaceDesktopSource = await readFile(workspaceDesktopPath, "utf8");
@@ -48,6 +58,7 @@ test("first workspace pane runs the welcome → name → folder flow", async () 
   assert.match(source, /title="Welcome to holaOS"/);
   assert.match(source, /title="Name your workspace"/);
   assert.match(source, /title="Where should it live\?"/);
+  assert.doesNotMatch(source, /title="Ready to onboard\?"/);
   assert.match(source, /title="Use the default folder"/);
   assert.match(source, /title="Choose a custom folder"/);
   assert.match(source, /chooseWorkspaceFolder/);
@@ -88,6 +99,11 @@ test("first workspace pane runs the welcome → name → folder flow", async () 
   assert.match(source, /setTemplateSourceMode\("empty"\)/);
   assert.doesNotMatch(source, /setTemplateSourceMode\("empty_onboarding"\)/);
   assert.match(source, /setBrowserBootstrapMode\("fresh"\)/);
+  assert.match(
+    source,
+    /void createWorkspace\(\{ workspaceOnboardingMode: "start" \}\)\.then\(\(\) => \{/,
+  );
+  assert.doesNotMatch(source, /workspaceOnboardingMode: "skip"/);
   // The simplified flow no longer reaches into browser-profile bootstrapping
   // or marketplace template browsing.
   assert.doesNotMatch(source, /BrowserProfileStep/);

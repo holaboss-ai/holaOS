@@ -410,7 +410,11 @@ interface WorkspaceRecordPayload {
   harness: string | null;
   error_message: string | null;
   onboarding_status: string;
+  onboarding_state?: string | null;
   onboarding_session_id: string | null;
+  alignment_question?: Record<string, unknown> | null;
+  alignment_report?: Record<string, unknown> | null;
+  verification_report?: Record<string, unknown> | null;
   onboarding_completed_at: string | null;
   onboarding_completion_summary: string | null;
   onboarding_requested_at: string | null;
@@ -418,10 +422,21 @@ interface WorkspaceRecordPayload {
   created_at: string | null;
   updated_at: string | null;
   deleted_at_utc: string | null;
+  workspace_role?: string | null;
+  source_workspace_id?: string | null;
+  lab_purpose?: string | null;
+  lab_status?: string | null;
 }
 
 interface WorkspaceResponsePayload {
   workspace: WorkspaceRecordPayload;
+}
+
+interface WorkspaceLabResponsePayload {
+  lab: WorkspaceRecordPayload | null;
+  source: WorkspaceRecordPayload | null;
+  session: AgentSessionRecordPayload | null;
+  created?: boolean;
 }
 
 interface WorkspaceListResponsePayload {
@@ -429,6 +444,22 @@ interface WorkspaceListResponsePayload {
   total: number;
   limit: number;
   offset: number;
+}
+
+interface WorkspaceOnboardingStatusPayload {
+  workspace_id: string;
+  onboarding_status: string;
+  onboarding_state: string | null;
+  alignment_question: Record<string, unknown> | null;
+  alignment_report: Record<string, unknown> | null;
+  verification_report: Record<string, unknown> | null;
+  onboarding_completed_at: string | null;
+  onboarding_completion_summary: string | null;
+  onboarding_requested_at: string | null;
+  onboarding_requested_by: string | null;
+  lab_workspace_id?: string | null;
+  lab_purpose?: string | null;
+  lab_status?: string | null;
 }
 
 type BrowserImportSource = "chrome" | "chromium" | "arc" | "safari";
@@ -756,6 +787,7 @@ interface HolabossCreateWorkspacePayload {
   template_name?: string | null;
   template_ref?: string | null;
   template_commit?: string | null;
+  workspace_onboarding_mode?: "start" | "skip" | null;
   workspace_path?: string | null;
 }
 
@@ -928,6 +960,76 @@ interface IntegrationBindingPayload {
 interface IntegrationUpsertBindingPayload {
   connection_id: string;
   is_default?: boolean;
+}
+
+interface ConnectionWorkspaceUsageEntry {
+  connection_id: string;
+  workspaces: Array<{
+    workspace_id: string;
+    target_type: string;
+    target_id: string;
+    integration_key: string;
+  }>;
+}
+
+interface ConnectionWorkspaceUsagePayload {
+  usage: ConnectionWorkspaceUsageEntry[];
+}
+
+interface ComposioToolkitCapability {
+  name: string;
+  description: string;
+  tool_slug: string;
+  read_only: boolean;
+}
+
+interface ComposioToolkitCapabilitiesPayload {
+  toolkits: Record<string, ComposioToolkitCapability[]>;
+}
+
+interface IntegrationStoreCatalogEntry {
+  slug: string;
+  tier: "hero" | "supported";
+  category: string;
+}
+
+interface IntegrationStoreCatalogPayload {
+  entries: IntegrationStoreCatalogEntry[];
+}
+
+interface AllWorkspaceIntegrationOverridesPayload {
+  overrides: Array<{
+    workspace_id: string;
+    toolkit_slug: string;
+    state: "disabled" | "pinned";
+    pinned_connection_id: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+}
+
+interface WorkspaceIntegrationConnectionPayload {
+  connected_account_id: string;
+  status: string;
+  user_id: string;
+  created_at: string;
+}
+
+interface WorkspaceIntegrationPayload {
+  toolkit_slug: string;
+  toolkit_name: string;
+  toolkit_logo: string | null;
+  supported: boolean;
+  tier: "hero" | "auto";
+  effective_state: "auto" | "disabled" | "pinned";
+  effective_connection_id: string | null;
+  pinned_connection_id: string | null;
+  connections: WorkspaceIntegrationConnectionPayload[];
+}
+
+interface WorkspaceIntegrationsListResponsePayload {
+  workspace_id: string;
+  integrations: WorkspaceIntegrationPayload[];
 }
 
 interface IntegrationCreateConnectionPayload {
@@ -1298,6 +1400,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getWorkspaceRoot: (workspaceId: string) => ipcRenderer.invoke("workspace:getWorkspaceRoot", workspaceId) as Promise<string>,
     createWorkspace: (payload: HolabossCreateWorkspacePayload) =>
       ipcRenderer.invoke("workspace:createWorkspace", payload) as Promise<WorkspaceResponsePayload>,
+    createWorkspaceLab: (workspaceId: string, purpose: "workspace_onboarding" | "meeting_mode") =>
+      ipcRenderer.invoke("workspace:createWorkspaceLab", workspaceId, purpose) as Promise<WorkspaceLabResponsePayload>,
     deleteWorkspace: (workspaceId: string, keepFiles?: boolean) =>
       ipcRenderer.invoke("workspace:deleteWorkspace", workspaceId, keepFiles) as Promise<WorkspaceResponsePayload>,
     updateAppearance: (
@@ -1363,6 +1467,42 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("workspace:stageSessionAttachmentPaths", payload) as Promise<StageSessionAttachmentsResponsePayload>,
     queueSessionInput: (payload: HolabossQueueSessionInputPayload) =>
       ipcRenderer.invoke("workspace:queueSessionInput", payload) as Promise<EnqueueSessionInputResponsePayload>,
+    getOnboardingStatus: (workspaceId: string) =>
+      ipcRenderer.invoke("workspace:getOnboardingStatus", workspaceId) as Promise<WorkspaceOnboardingStatusPayload>,
+    continueDeterministicOnboarding: (workspaceId: string) =>
+      ipcRenderer.invoke("workspace:continueDeterministicOnboarding", workspaceId) as Promise<WorkspaceResponsePayload>,
+    skipWorkspaceOnboarding: (workspaceId: string) =>
+      ipcRenderer.invoke("workspace:skipWorkspaceOnboarding", workspaceId) as Promise<WorkspaceResponsePayload>,
+    answerOnboardingAlignmentQuestion: (
+      workspaceId: string,
+      payload: {
+        optionId?: string | null;
+        responseText?: string | null;
+        notes?: string | null;
+        answers?: Array<{
+          questionId?: string | null;
+          optionId?: string | null;
+          responseText?: string | null;
+          notes?: string | null;
+        }>;
+      },
+    ) =>
+      ipcRenderer.invoke(
+        "workspace:answerOnboardingAlignmentQuestion",
+        workspaceId,
+        payload,
+      ) as Promise<WorkspaceOnboardingStatusPayload>,
+    approveOnboardingAlignment: (workspaceId: string) =>
+      ipcRenderer.invoke("workspace:approveOnboardingAlignment", workspaceId) as Promise<WorkspaceOnboardingStatusPayload>,
+    requestOnboardingAlignmentRevision: (workspaceId: string) =>
+      ipcRenderer.invoke("workspace:requestOnboardingAlignmentRevision", workspaceId) as Promise<WorkspaceOnboardingStatusPayload>,
+    requestOnboardingVerificationRevision: (workspaceId: string) =>
+      ipcRenderer.invoke("workspace:requestOnboardingVerificationRevision", workspaceId) as Promise<WorkspaceOnboardingStatusPayload>,
+    completeOnboarding: (
+      workspaceId: string,
+      payload: { summary: string; requestedBy?: string | null },
+    ) =>
+      ipcRenderer.invoke("workspace:completeOnboarding", workspaceId, payload) as Promise<WorkspaceOnboardingStatusPayload | WorkspaceLabResponsePayload>,
     pauseSessionRun: (payload: HolabossPauseSessionRunPayload) =>
       ipcRenderer.invoke("workspace:pauseSessionRun", payload) as Promise<PauseSessionRunResponsePayload>,
     updateQueuedSessionInput: (payload: HolabossUpdateQueuedSessionInputPayload) =>
@@ -1396,6 +1536,33 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ) as Promise<IntegrationMergeConnectionsResult>,
     deleteIntegrationBinding: (bindingId: string, workspaceId: string) =>
       ipcRenderer.invoke("workspace:deleteIntegrationBinding", bindingId, workspaceId) as Promise<{ deleted: boolean }>,
+    listConnectionWorkspaceUsage: () =>
+      ipcRenderer.invoke("workspace:listConnectionWorkspaceUsage") as Promise<ConnectionWorkspaceUsagePayload>,
+    listComposioToolkitCapabilities: () =>
+      ipcRenderer.invoke("workspace:listComposioToolkitCapabilities") as Promise<ComposioToolkitCapabilitiesPayload>,
+    listIntegrationStoreCatalog: () =>
+      ipcRenderer.invoke("workspace:listIntegrationStoreCatalog") as Promise<IntegrationStoreCatalogPayload>,
+    listAllWorkspaceIntegrationOverrides: () =>
+      ipcRenderer.invoke("workspace:listAllWorkspaceIntegrationOverrides") as Promise<AllWorkspaceIntegrationOverridesPayload>,
+    listWorkspaceIntegrations: (workspaceId: string) =>
+      ipcRenderer.invoke("workspace:listWorkspaceIntegrations", workspaceId) as Promise<WorkspaceIntegrationsListResponsePayload>,
+    setWorkspaceIntegrationOverride: (
+      workspaceId: string,
+      toolkitSlug: string,
+      payload: { state: "disabled" | "pinned"; pinned_connection_id?: string | null },
+    ) =>
+      ipcRenderer.invoke(
+        "workspace:setWorkspaceIntegrationOverride",
+        workspaceId,
+        toolkitSlug,
+        payload,
+      ) as Promise<unknown>,
+    clearWorkspaceIntegrationOverride: (workspaceId: string, toolkitSlug: string) =>
+      ipcRenderer.invoke(
+        "workspace:clearWorkspaceIntegrationOverride",
+        workspaceId,
+        toolkitSlug,
+      ) as Promise<{ deleted: boolean }>,
     restartApp: (workspaceId: string, appId: string) =>
       ipcRenderer.invoke("workspace:restartApp", workspaceId, appId) as Promise<{
         workspace_id: string;
@@ -1414,6 +1581,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("workspace:composioListToolkits") as Promise<{ toolkits: Array<{ slug: string; name: string; description: string; logo: string | null; auth_schemes: string[]; categories: string[] }> }>,
     composioListConnections: () =>
       ipcRenderer.invoke("workspace:composioListConnections") as Promise<{ connections: Array<{ id: string; toolkitSlug: string; toolkitName: string; toolkitLogo: string | null; userId: string; createdAt: string }> }>,
+    composioExecute: (params: {
+      providerSlug: string;
+      toolSlug: string;
+      arguments?: Record<string, unknown>;
+    }) =>
+      ipcRenderer.invoke("workspace:composioExecute", params) as Promise<unknown>,
+    debugComposioRuntimeTest: (params?: {
+      providerSlug?: string;
+      toolSlug?: string;
+      arguments?: Record<string, unknown>;
+    }) =>
+      ipcRenderer.invoke("workspace:debugComposioRuntimeTest", params) as Promise<unknown>,
     composioConnect: (payload: {
       provider: string;
       owner_user_id: string;
@@ -1448,6 +1627,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
         changed: boolean;
         reason?: "no_external_id" | "account_missing" | "no_new_identity";
       }>,
+    composioDeleteUpstream: (connectedAccountId: string) =>
+      ipcRenderer.invoke(
+        "workspace:composioDeleteUpstream",
+        connectedAccountId,
+      ) as Promise<{ deleted: boolean; missing: boolean }>,
+    composioMcpEnsureRunning: (workspaceId: string) =>
+      ipcRenderer.invoke(
+        "workspace:composioMcpEnsureRunning",
+        workspaceId,
+      ) as Promise<unknown>,
     resolveTemplateIntegrations: (payload: HolabossCreateWorkspacePayload) =>
       ipcRenderer.invoke("workspace:resolveTemplateIntegrations", payload) as Promise<ResolveTemplateIntegrationsResult>,
     generateTemplateContent: (params: {

@@ -65,6 +65,50 @@ test("workspace registry round trip uses hidden identity file", () => {
   store.close();
 });
 
+test("workspace labs are hidden from normal workspace listing", () => {
+  const root = makeTempDir("hb-state-store-lab-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+
+  const source = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Source",
+    harness: "pi",
+    status: "active"
+  });
+  const lab = store.createWorkspace({
+    workspaceId: "lab-1",
+    name: "Source Lab",
+    harness: "pi",
+    status: "active",
+    workspaceRole: "draft_lab",
+    sourceWorkspaceId: source.id,
+    labPurpose: "workspace_onboarding",
+    labStatus: "active"
+  });
+
+  assert.deepEqual(
+    store.listWorkspaces().map((record) => record.id),
+    [source.id]
+  );
+  assert.deepEqual(
+    store.listWorkspaceLabs({ sourceWorkspaceId: source.id }).map((record) => record.id),
+    [lab.id]
+  );
+  assert.equal(store.getActiveWorkspaceLab(source.id)?.id, lab.id);
+
+  store.updateWorkspace(lab.id, { status: "archived", labStatus: "merged" });
+  assert.equal(store.getActiveWorkspaceLab(source.id), null);
+  assert.deepEqual(
+    store.listWorkspaceLabs({ sourceWorkspaceId: source.id, activeOnly: true }),
+    []
+  );
+
+  store.close();
+});
+
 test("control-plane metadata lives in control-plane.db while runtime.db keeps the mirrored workspace registry", () => {
   const root = makeTempDir("hb-state-store-");
   const dbPath = path.join(root, "runtime.db");

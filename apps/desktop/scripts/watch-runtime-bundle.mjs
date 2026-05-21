@@ -21,7 +21,14 @@ const electronMainOutputPath = path.join(
   "dist-electron",
   "main.cjs",
 );
-const pollIntervalMs = 1000;
+// 1s poll was thrashing — a single ts edit fires several mtime updates
+// (editor write + lint format + IDE autosave + git mark) and each one
+// would individually kick off the 100+ second runtime rebuild + Electron
+// restart cycle, leaving the renderer in a reconnect loop. Slower poll +
+// a quiescence window means we wait for the source tree to stop moving
+// before we start a rebuild.
+const pollIntervalMs = 2000;
+const quiescenceWindowMs = 2500;
 
 let lastObservedSourceStamp = await newestExistingMtime(
   runtimeBundleState.runtimeSourceInputs,
@@ -88,6 +95,13 @@ async function rebuildRuntimeBundle(reason) {
   }
 }
 
+// Hold a candidate stamp until the source tree has been quiet for at
+// least `quiescenceWindowMs`. Only then do we rebuild. This collapses
+// bursts of saves (run prettier on save, lint autofix, etc.) into a
+// single rebuild and stops the cascade that wedged Electron.
+let pendingSourceStamp = lastObservedSourceStamp;
+let pendingObservedAt = 0;
+
 while (true) {
   await delay(pollIntervalMs);
   const nextSourceStamp = await newestExistingMtime(
@@ -96,9 +110,17 @@ while (true) {
   if (nextSourceStamp <= lastObservedSourceStamp) {
     continue;
   }
+  if (nextSourceStamp !== pendingSourceStamp) {
+    pendingSourceStamp = nextSourceStamp;
+    pendingObservedAt = Date.now();
+    continue;
+  }
+  if (Date.now() - pendingObservedAt < quiescenceWindowMs) {
+    continue;
+  }
 
-  lastObservedSourceStamp = nextSourceStamp;
+  lastObservedSourceStamp = pendingSourceStamp;
   await rebuildRuntimeBundle(
-    "runtime sources changed; rebuilding the staged runtime bundle.",
+    "runtime sources settled; rebuilding the staged runtime bundle.",
   );
 }

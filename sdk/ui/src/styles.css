@@ -1,0 +1,21 @@
+/* Source of truth for everything @holaboss/ui ships visually.
+   Consumers should `import "@holaboss/ui/styles.css"` and nothing else
+   — Tailwind utilities used by the primitives + layouts are baked in
+   at build time, so a consumer's Tailwind config does not need a
+   custom @source entry for node_modules/@holaboss/ui. */
+
+@import "tailwindcss";
+
+/* Tell Tailwind to scan this package's own source so the build emits
+   every utility class the primitives + layouts use. The build step
+   runs Tailwind from sdk/ui/, so the paths are relative to here. */
+@source "./primitives";
+@source "./layouts";
+
+/* Design tokens (provides the @theme inline { --color-* } mappings
+   Tailwind needs to generate `bg-background`, `text-foreground`, etc.). */
+@import "./tokens/tokens.css";
+
+/* Default theme. Apps that need a different palette can layer their own
+   `[data-theme="..."]` overrides after this import. */
+@import "./tokens/themes/holaos.css";

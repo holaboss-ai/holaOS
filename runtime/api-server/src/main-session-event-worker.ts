@@ -3,6 +3,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import {
   type MainSessionEventQueueRecord,
   type RuntimeStateStore,
+  type WorkspaceRecord,
   utcNowIso,
 } from "@holaboss/runtime-state-store";
 
@@ -188,6 +189,20 @@ function materializableBatchForOwner(
   return events.filter((event) => event.deliveryBucket === "background_update");
 }
 
+function eventQueueWorkspaces(store: RuntimeStateStore): WorkspaceRecord[] {
+  const workspaces = new Map<string, WorkspaceRecord>();
+  for (const workspace of store.listWorkspaces()) {
+    workspaces.set(workspace.id, workspace);
+    for (const lab of store.listWorkspaceLabs({
+      sourceWorkspaceId: workspace.id,
+      activeOnly: true,
+    })) {
+      workspaces.set(lab.id, lab);
+    }
+  }
+  return [...workspaces.values()];
+}
+
 export class RuntimeMainSessionEventWorker
   implements MainSessionEventWorkerLike
 {
@@ -235,7 +250,7 @@ export class RuntimeMainSessionEventWorker
     const now = utcNowIso();
     let materialized = 0;
 
-    for (const workspace of this.#store.listWorkspaces()) {
+    for (const workspace of eventQueueWorkspaces(this.#store)) {
       this.#store.recoverFailedMaterializedMainSessionEvents({
         workspaceId: workspace.id,
         nowIso: now,

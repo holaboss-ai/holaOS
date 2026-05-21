@@ -52,7 +52,26 @@ async function ensureCleanStageDir() {
 
 async function copyRuntimeDirectory(sourceDir) {
   log(`copying runtime directory from ${sourceDir}`);
-  await fs.cp(sourceDir, stageDir, { recursive: true, verbatimSymlinks: true });
+  // Skip .cache-key during the bulk copy and write it last (after
+  // validate) so we never see a stage dir with a matching cache key but
+  // missing payload — that's the state that wedges `tryReuseStagedBundle`
+  // into a false "cache hit" on the next run.
+  await fs.cp(sourceDir, stageDir, {
+    recursive: true,
+    verbatimSymlinks: true,
+    filter: (src) => path.basename(src) !== ".cache-key",
+  });
+}
+
+async function syncStageCacheKey(sourceDir) {
+  const sourceKeyPath = path.join(sourceDir, ".cache-key");
+  try {
+    const sourceKey = await fs.readFile(sourceKeyPath, "utf-8");
+    await fs.writeFile(path.join(stageDir, ".cache-key"), sourceKey);
+  } catch {
+    // Source carries no cache key — leave the stage without one so the
+    // next run does a full re-stage instead of trusting an unanchored key.
+  }
 }
 
 async function extractRuntimeTarball(tarballPath) {
@@ -156,8 +175,10 @@ async function stageRuntimeBundle() {
   await ensureCleanStageDir();
 
   if (runtimeDir) {
-    await copyRuntimeDirectory(path.resolve(runtimeDir));
+    const resolvedRuntimeDir = path.resolve(runtimeDir);
+    await copyRuntimeDirectory(resolvedRuntimeDir);
     await validateStageDir();
+    await syncStageCacheKey(resolvedRuntimeDir);
     return;
   }
 
@@ -180,6 +201,7 @@ async function stageRuntimeBundle() {
     log(`copying fallback runtime directory from ${defaultLocalRuntimeDir}`);
     await copyRuntimeDirectory(defaultLocalRuntimeDir);
     await validateStageDir();
+    await syncStageCacheKey(defaultLocalRuntimeDir);
     return;
   }
 

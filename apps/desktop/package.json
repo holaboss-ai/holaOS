@@ -83,6 +83,7 @@
     "jotai": "^2.20.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.542.0",
+    "motion": "^12.39.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-markdown": "^10.1.0",

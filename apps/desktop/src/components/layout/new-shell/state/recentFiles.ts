@@ -29,10 +29,20 @@ function nextId(): string {
   return `rf-${Date.now()}-${counter}`;
 }
 
+function sameEntry(
+  entry: RecentFile,
+  filePath: string,
+  workspaceId: string | null,
+): boolean {
+  return entry.filePath === filePath && entry.workspaceId === workspaceId;
+}
+
 /**
- * Push a file as the most-recently-opened. Dedupes on filePath
- * (existing entry's id is preserved so React keys stay stable); caps
- * the list at MAX_ENTRIES.
+ * Push a file as the most-recently-opened. Dedupes on (filePath,
+ * workspaceId) — the same path under different workspaces gets distinct
+ * entries so a switch doesn't collide their ids / openedAt. Existing
+ * entry's id is preserved so React keys stay stable; caps the list at
+ * MAX_ENTRIES.
  */
 export const pushRecentFileAtom = atom(
   null,
@@ -43,7 +53,9 @@ export const pushRecentFileAtom = atom(
   ) => {
     const now = new Date().toISOString();
     const prev = get(recentFilesAtom);
-    const existing = prev.find((e) => e.filePath === input.filePath);
+    const existing = prev.find((e) =>
+      sameEntry(e, input.filePath, input.workspaceId),
+    );
     const updated: RecentFile = {
       id: existing?.id ?? nextId(),
       filePath: input.filePath,
@@ -51,7 +63,9 @@ export const pushRecentFileAtom = atom(
       workspaceId: input.workspaceId,
       openedAt: now,
     };
-    const rest = prev.filter((e) => e.filePath !== input.filePath);
+    const rest = prev.filter(
+      (e) => !sameEntry(e, input.filePath, input.workspaceId),
+    );
     set(recentFilesAtom, [updated, ...rest].slice(0, MAX_ENTRIES));
   },
 );
@@ -65,10 +79,16 @@ export const removeRecentFileAtom = atom(null, (get, set, id: string) => {
 
 export const removeRecentFileByPathAtom = atom(
   null,
-  (get, set, filePath: string) => {
+  (
+    get,
+    set,
+    input: { filePath: string; workspaceId: string | null },
+  ) => {
     set(
       recentFilesAtom,
-      get(recentFilesAtom).filter((e) => e.filePath !== filePath),
+      get(recentFilesAtom).filter(
+        (e) => !sameEntry(e, input.filePath, input.workspaceId),
+      ),
     );
   },
 );

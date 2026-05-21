@@ -14,6 +14,11 @@ import {
 } from "@holaboss/runtime-state-store";
 
 import type { QueueWorkerLike } from "./queue-worker.js";
+import {
+  cronjobAuthorRecommendedEnabled,
+  disableCronjobAutonomyForLab,
+  isDraftLabWorkspace,
+} from "./cronjob-policy.js";
 import { normalizeSubagentToolProfile } from "./runtime-agent-tools.js";
 import { resolveSubagentExecutionProfile } from "./subagent-model.js";
 
@@ -575,6 +580,21 @@ export class RuntimeCronWorker implements CronWorkerLike {
   async processDueCronjobsOnce(now = new Date()): Promise<number> {
     let processed = 0;
     for (const job of this.#store.listCronjobs({ enabledOnly: true })) {
+      const workspace = this.#store.getWorkspace(job.workspaceId);
+      if (isDraftLabWorkspace(workspace)) {
+        const normalizedCronjobState = disableCronjobAutonomyForLab({
+          metadata: isRecord(job.metadata) ? job.metadata : {},
+          recommendedEnabled: cronjobAuthorRecommendedEnabled(job),
+        });
+        this.#store.updateCronjob({
+          workspaceId: job.workspaceId,
+          jobId: job.id,
+          enabled: normalizedCronjobState.enabled,
+          metadata: normalizedCronjobState.metadata,
+          nextRunAt: normalizedCronjobState.nextRunAt,
+        });
+        continue;
+      }
       if (!cronjobIsDue(job, now)) {
         continue;
       }

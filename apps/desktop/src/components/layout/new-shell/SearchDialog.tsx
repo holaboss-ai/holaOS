@@ -1,6 +1,7 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useAtom, useSetAtom } from "jotai";
 import {
+  AppWindow,
   Check,
   CornerDownLeft,
   FileText,
@@ -12,6 +13,7 @@ import {
   Settings,
   Store,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import {
   Command,
   CommandEmpty,
@@ -249,6 +251,46 @@ function AgentTabsGroup({
   );
 }
 
+function isLocalHost(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return (
+      u.hostname === "localhost" ||
+      u.hostname === "127.0.0.1" ||
+      u.hostname === "::1" ||
+      u.hostname.endsWith(".localhost")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function TabFavicon({
+  faviconUrl,
+  url,
+}: {
+  faviconUrl: string | null | undefined;
+  url: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [faviconUrl]);
+
+  const Fallback = isLocalHost(url) ? AppWindow : Globe;
+  if (!faviconUrl || failed) {
+    return <Fallback />;
+  }
+  return (
+    <img
+      src={faviconUrl}
+      alt=""
+      className="size-3.5 rounded-[2px] object-contain"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 function TabRow({
   tab,
   driverLabel,
@@ -270,15 +312,7 @@ function TabRow({
         aria-hidden
         className="grid size-5 shrink-0 place-items-center overflow-hidden rounded-[5px] bg-foreground/[0.06] text-foreground/55 ring-1 ring-inset ring-foreground/5 [&_svg]:size-3"
       >
-        {tab.faviconUrl ? (
-          <img
-            src={tab.faviconUrl}
-            alt=""
-            className="size-3.5 rounded-[2px] object-contain"
-          />
-        ) : (
-          <Globe />
-        )}
+        <TabFavicon faviconUrl={tab.faviconUrl} url={tab.url} />
       </span>
       <span className="flex min-w-0 flex-1 flex-col leading-tight">
         <span className="truncate text-sm">{title}</span>

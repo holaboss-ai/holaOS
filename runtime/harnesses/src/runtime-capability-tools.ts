@@ -83,11 +83,120 @@ function runtimeToolLabel(toolId: RuntimeAgentToolId): string {
     .join(" ");
 }
 
+function alignmentQuestionOptionSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "Optional stable option id." },
+      label: { type: "string", description: "Visible answer label shown to the user." },
+      description: { type: "string", description: "Optional helper detail for this option." },
+      answer_text: {
+        type: "string",
+        description: "Optional normalized answer text to store instead of the visible label.",
+      },
+      recommended: { type: "boolean", description: "Mark the recommended default option." },
+    },
+    required: ["label"],
+    additionalProperties: false,
+  };
+}
+
+function alignmentQuestionItemSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "Optional stable question id." },
+      title: { type: "string", description: "Optional short heading above the prompt." },
+      prompt: { type: "string", description: "Required question text shown to the user." },
+      details: { type: "string", description: "Optional supporting detail under the prompt." },
+      allow_notes: { type: "boolean", description: "Allow a short notes field." },
+      notes_placeholder: { type: "string", description: "Optional notes input placeholder." },
+      allow_freeform: {
+        type: "boolean",
+        description: "Allow a natural-language answer box in addition to options.",
+      },
+      freeform_placeholder: {
+        type: "string",
+        description: "Optional placeholder for the freeform answer box.",
+      },
+      options: {
+        type: "array",
+        description: "Two or more answer choices.",
+        minItems: 2,
+        items: alignmentQuestionOptionSchema(),
+      },
+    },
+    required: ["prompt", "options"],
+    additionalProperties: false,
+  };
+}
+
+function alignmentQuestionDeckSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      title: { type: "string", description: "Optional deck heading above the questions." },
+      details: { type: "string", description: "Optional deck-level context." },
+      allow_notes: {
+        type: "boolean",
+        description: "Default notes toggle inherited by questions unless overridden.",
+      },
+      notes_placeholder: {
+        type: "string",
+        description: "Default notes placeholder inherited by questions unless overridden.",
+      },
+      allow_freeform: {
+        type: "boolean",
+        description: "Default freeform-answer toggle inherited by questions unless overridden.",
+      },
+      freeform_placeholder: {
+        type: "string",
+        description: "Default freeform placeholder inherited by questions unless overridden.",
+      },
+      questions: {
+        type: "array",
+        description: "One or more structured alignment questions.",
+        minItems: 1,
+        items: alignmentQuestionItemSchema(),
+      },
+    },
+    required: ["questions"],
+    additionalProperties: false,
+  };
+}
+
 function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unknown> {
   switch (toolId) {
     case "onboarding_status":
       return { type: "object", properties: {}, additionalProperties: false };
-    case "onboarding_complete":
+    case "holaboss_create_alignment_question":
+      return {
+        type: "object",
+        properties: {
+          question: {
+            description:
+              "Structured onboarding question payload. Use either one question object with `prompt` and `options`, or a deck object with `questions: [...]` where each item also has `prompt` and `options`.",
+            anyOf: [alignmentQuestionItemSchema(), alignmentQuestionDeckSchema()],
+          },
+        },
+        required: ["question"],
+        additionalProperties: false,
+      };
+    case "holaboss_create_alignment_report":
+    case "holaboss_create_verification_report":
+      return {
+        type: "object",
+        properties: {
+          report: {
+            type: "object",
+            description: "Structured onboarding report payload.",
+            additionalProperties: true,
+          },
+        },
+        required: ["report"],
+        additionalProperties: false,
+      };
+    case "holaboss_onboarding_complete":
       return {
         type: "object",
         properties: {
@@ -682,37 +791,8 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         required: ["terminal_id"],
         additionalProperties: false,
       };
-    case "workspace_apps_find":
-      return {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description:
-              "Optional case-insensitive substring filter applied to app id, name, and description.",
-          },
-          source: {
-            type: "string",
-            enum: ["marketplace", "local", "installed", "all"],
-            description:
-              "Optional source filter. `marketplace` and `local` only return catalog candidates from those sources. `installed` only returns apps already in `workspace.yaml`. `all` (default) merges everything and dedupes by app_id.",
-          },
-        },
-        additionalProperties: false,
-      };
-    case "workspace_apps_install":
-      return {
-        type: "object",
-        properties: {
-          app_id: {
-            type: "string",
-            description:
-              "Catalog app id to install. Must exist in the marketplace or local catalog (call `workspace_apps_find` first if unsure).",
-          },
-        },
-        required: ["app_id"],
-        additionalProperties: false,
-      };
+    case "workspace_integrations_list_catalog":
+      return { type: "object", properties: {}, additionalProperties: false };
     case "workspace_apps_scaffold":
       return {
         type: "object",
@@ -958,10 +1038,37 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         required: ["query"],
         additionalProperties: false,
       };
+    case "holaboss_workspace_integrations_propose_connect":
+      return {
+        type: "object",
+        properties: {
+          toolkit_slug: {
+            type: "string",
+            description:
+              "Lowercase slug of the toolkit to connect (e.g. 'gmail', 'notion', 'linear'). Must be in the workspace integration store catalog.",
+          },
+          reason: {
+            type: "string",
+            description:
+              "Optional short one-liner explaining why the user needs this integration. Surfaced inline on the Connect card.",
+          },
+        },
+        required: ["toolkit_slug"],
+        additionalProperties: false,
+      };
   }
 }
 
 function runtimeToolPromptGuidelines(toolId: RuntimeAgentToolId): string[] {
+  if (toolId === "holaboss_create_alignment_question") {
+    return [
+      "Pass `question` as either a single question object or a deck object with `questions: [...]`.",
+      "Every question item must include a human-readable `prompt` and at least two `options` with `label` fields.",
+      "Use `title` only as a short heading; do not rely on `title` alone when you can provide a clearer `prompt`.",
+      "Use `allow_freeform: true` when the user may answer in their own words instead of only choosing an option.",
+      "Keep question decks short and tightly related, usually 2-5 questions.",
+    ];
+  }
   if (toolId === "download_url") {
     return [
       "Use `download_url` when you already have a direct asset URL and need the file saved into the workspace.",
@@ -1119,6 +1226,36 @@ function runtimeToolPromptGuidelines(toolId: RuntimeAgentToolId): string[] {
       "After starting a terminal session, use `terminal_session_read` or `terminal_session_wait` to inspect output before claiming success.",
       "Use workspace-relative `cwd` values when you need a subdirectory; otherwise let the session start at the workspace root.",
       "When a background terminal is no longer needed, stop it with `terminal_session_signal` or `terminal_session_close` instead of leaving it running indefinitely.",
+    ];
+  }
+  if (toolId === "holaboss_workspace_integrations_propose_connect") {
+    return [
+      "When the user expresses intent to connect or use a known third-party service (Gmail, Slack, Notion, Linear, GitHub, HubSpot, Stripe, …) and there is NO matching `<toolkit>_<verb>` tool already in your tool list, call this tool. Connecting an integration is one OAuth click for the user, not an engineering task.",
+      "Call this tool ALSO whenever you've just built or registered an app that needs a provider and the user hasn't connected it. `pending_integrations` in the response of `workspace_apps_register` / `workspace_apps_ensure_running` is the explicit signal — one `propose_connect` per provider in that array, same turn. Do NOT ship a 'safe mode' / 'manual mode' / 'no real recipient' fallback to avoid asking.",
+      "Do NOT call `workspace_apps_scaffold` / `workspace_apps_build` to satisfy a 'connect X' request. Integrations and apps are separate concepts: integrations are user OAuth accounts, apps are user-built tools that consume those accounts.",
+      "Pass `toolkit_slug` as a lowercase canonical slug (`gmail`, `notion`, `linear`, etc.) from the workspace integration store catalog. If unsure whether a service is in scope, name it; the runtime will reject unknown slugs and the user can clarify.",
+      "Pass an optional one-line `reason` only when you actually have one ('to read your unread mail', 'to log this task in your Linear project'). Skip `reason` for bare 'connect X' requests.",
+      "After this tool returns, do not also write '请去 Settings 连接' or similar manual instructions — the chat UI already renders a Connect card. Reply with one or two short lines: why you need it, then wait. The user will click Connect; a system message will tell you when the toolkit is ready.",
+      "When you hit a `not_connected` / 401 from any MCP toolkit tool, the correct response is to propose_connect that provider — NOT to conclude the API is unavailable, switch to a fake-only mode, or quietly drop the feature.",
+    ];
+  }
+  if (toolId === "workspace_apps_scaffold") {
+    return [
+      "This tool builds a brand-new user-facing app (TanStack Start project, dashboard, vibe-coded internal tool). It is NOT how a user connects an integration.",
+      "If the user wants to connect, authorize, or otherwise gain OAuth access to a known third-party service, call `holaboss_workspace_integrations_propose_connect` instead — building an app for that is a category error.",
+      "Use this only when the user actually asked for a new app, dashboard, tool, surface, internal product, or other UI/persistence/schedule-bearing capability.",
+    ];
+  }
+  if (
+    toolId === "workspace_apps_register" ||
+    toolId === "workspace_apps_build" ||
+    toolId === "workspace_apps_ensure_running"
+  ) {
+    return [
+      "If the response includes a `pending_integrations` array, the app declares providers (Gmail / Twitter / Linear / etc.) that the user has not yet connected. You MUST call `holaboss_workspace_integrations_propose_connect` once per unique `provider_id` in that array — same turn is correct — before you can claim the app is ready.",
+      "Do NOT interpret a `pending_integrations` non-empty response as 'the API is unavailable' or 'this provider doesn't expose what I need'. It means exactly one thing: the user hasn't completed OAuth for that toolkit yet. Propose connect and wait for the gate to re-dispatch your input.",
+      "Do NOT report the app as 'done', 'in safe mode', 'manual mode', 'logging-only', 'preview mode', or any variant that means the app does not actually do what the user asked for. If a provider is still unconnected, the correct outcome is a Connect card in chat, not a shipped non-functional app.",
+      "After you propose connects, stop. Do not retry the tool, do not call MCP tools that need those connections, do not poll. The runtime parks the input and re-dispatches it the moment every required connection is active.",
     ];
   }
   return [];

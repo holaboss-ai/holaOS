@@ -79,6 +79,23 @@ function createSingleIntegrationResolvedApp() {
   };
 }
 
+function createSingleIntegrationResolvedAppWithAliasKey() {
+  return {
+    ...createSingleIntegrationResolvedApp(),
+    integrations: [
+      {
+        key: "primary_google",
+        provider: "google",
+        capability: "gmail",
+        scopes: ["gmail.send", "gmail.readonly"],
+        required: true,
+        credentialSource: "platform" as const,
+        holabossUserIdRequired: true
+      }
+    ]
+  };
+}
+
 test("injects workspace api url and legacy token for a single active binding", () => {
   const root = makeTempDir("hb-integration-runtime-");
   const store = new RuntimeStateStore({
@@ -429,6 +446,51 @@ test("checkIntegrationReadiness returns ready when all required integrations are
     workspaceId: workspace.id,
     appId: "gmail",
     resolvedApp: createSingleIntegrationResolvedApp()
+  });
+
+  assert.equal(readiness.ready, true);
+  assert.equal(readiness.issues.length, 0);
+
+  store.close();
+});
+
+test("checkIntegrationReadiness accepts provider-key bindings for legacy custom manifest keys", () => {
+  const root = makeTempDir("hb-integration-readiness-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active"
+  });
+  const googleConnection = store.upsertIntegrationConnection({
+    connectionId: "conn-google-1",
+    providerId: "google",
+    ownerUserId: "user-1",
+    accountLabel: "joshua@holaboss.ai",
+    authMode: "oauth_app",
+    grantedScopes: ["gmail.send", "gmail.readonly"],
+    status: "active",
+    secretRef: "token-google-1"
+  });
+  store.upsertIntegrationBinding({
+    bindingId: "bind-google-app",
+    workspaceId: workspace.id,
+    targetType: "app",
+    targetId: "gmail",
+    integrationKey: "google",
+    connectionId: googleConnection.connectionId,
+    isDefault: false
+  });
+
+  const readiness = checkIntegrationReadiness({
+    store,
+    workspaceId: workspace.id,
+    appId: "gmail",
+    resolvedApp: createSingleIntegrationResolvedAppWithAliasKey()
   });
 
   assert.equal(readiness.ready, true);

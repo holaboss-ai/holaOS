@@ -152,6 +152,16 @@ export interface LocalOAuthAppConfigUpsertPayload {
   redirect_port?: number
 }
 
+export interface LocalConnectionWorkspaceUsage {
+  connection_id: string
+  workspaces: Array<{
+    workspace_id: string
+    target_type: string
+    target_id: string
+    integration_key: string
+  }>
+}
+
 export interface LocalIntegrationMetadataStore {
   listConnections(params?: {
     providerId?: string
@@ -169,6 +179,9 @@ export interface LocalIntegrationMetadataStore {
     keepConnectionId: string,
     removeConnectionIds: string[],
   ): Promise<LocalIntegrationMergeConnectionsResult>
+  listConnectionWorkspaceUsage(): Promise<{
+    usage: LocalConnectionWorkspaceUsage[]
+  }>
   listOAuthConfigs(): Promise<LocalOAuthAppConfigListResponse>
   upsertOAuthConfig(
     providerId: string,
@@ -1512,6 +1525,37 @@ export function createLocalIntegrationMetadataStore(
           removed_count: removeRows.length,
           repointed_bindings: repointedBindings,
         }
+      })
+    },
+
+    async listConnectionWorkspaceUsage(): Promise<{
+      usage: LocalConnectionWorkspaceUsage[]
+    }> {
+      return withDatabase((database) => {
+        const rows = database
+          .prepare(
+            `SELECT connection_id, workspace_id, target_type, target_id, integration_key
+               FROM integration_bindings
+               ORDER BY connection_id, workspace_id`,
+          )
+          .all() as Array<Record<string, unknown>>
+        const byConnection = new Map<string, LocalConnectionWorkspaceUsage>()
+        for (const row of rows) {
+          const connectionId = typeof row.connection_id === "string" ? row.connection_id : ""
+          if (!connectionId) continue
+          let entry = byConnection.get(connectionId)
+          if (!entry) {
+            entry = { connection_id: connectionId, workspaces: [] }
+            byConnection.set(connectionId, entry)
+          }
+          entry.workspaces.push({
+            workspace_id: String(row.workspace_id ?? ""),
+            target_type: String(row.target_type ?? ""),
+            target_id: String(row.target_id ?? ""),
+            integration_key: String(row.integration_key ?? ""),
+          })
+        }
+        return { usage: Array.from(byConnection.values()) }
       })
     },
 

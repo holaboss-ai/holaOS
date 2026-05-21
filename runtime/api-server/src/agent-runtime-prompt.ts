@@ -153,7 +153,12 @@ function normalizeSessionKind(value: string | null | undefined): string {
 
 function isMainSessionKind(value: string | null | undefined): boolean {
   const normalized = normalizeSessionKind(value);
-  return normalized === "main_session" || normalized === "onboarding";
+  return (
+    normalized === "main_session" ||
+    normalized === "onboarding" ||
+    normalized === "workspace_onboarding" ||
+    normalized === "meeting_mode"
+  );
 }
 
 function addAvailableToolName(available: Set<string>, value: string | null | undefined): void {
@@ -195,9 +200,9 @@ function hasMemoryRetrieveTool(request: ComposeBaseAgentPromptRequest): boolean 
   return available.has("memory_retrieve");
 }
 
-function hasWorkspaceAppCatalogInstallTools(request: ComposeBaseAgentPromptRequest): boolean {
+function hasWorkspaceIntegrationCatalogTool(request: ComposeBaseAgentPromptRequest): boolean {
   const available = collectAvailableToolNames(request);
-  return available.has("workspace_apps_find") && available.has("workspace_apps_install");
+  return available.has("workspace_integrations_list_catalog");
 }
 
 function sessionPolicyPromptSection(request: ComposeBaseAgentPromptRequest): string {
@@ -209,6 +214,23 @@ function sessionPolicyPromptSection(request: ComposeBaseAgentPromptRequest): str
     case "onboarding":
       lines.push(
         "This is an onboarding session. Prioritize onboarding progress, use onboarding-specific runtime tools when available, keep the conversation anchored to setup and confirmation work, and do not assume browser tooling is available."
+      );
+      break;
+    case "workspace_onboarding":
+      lines.push(
+        "This is a workspace onboarding lab controller session. Act as a user-facing architect and builder with executor-grade tools.",
+        "Run onboarding as a gated design process: converse with the user to gather requirements, converge those requirements into a concrete design report, wait for user confirmation, then execute and implement the confirmed design in the lab workspace.",
+        "Keep the user-facing onboarding thread focused and sequential. Delegate implementation to subagents only after the user confirms the design report, then wait for the delegated implementation to finish before continuing the onboarding conversation.",
+        "After implementation, verify the result and present a concise verification report to the user. If the user is not satisfied, continue the conversation-design-implementation-verification loop in the lab.",
+        "Required requirements to obtain: cronjobs or recurring work, apps to install, custom apps to create, workspace file and folder organization, skills or repeatable workflows, and AI manager personality and behavior.",
+        "Only call onboarding completion and merge the lab after the user explicitly accepts the verified implementation."
+      );
+      break;
+    case "meeting_mode":
+      lines.push(
+        "This is a meeting-mode lab controller session. Act as a user-facing critique facilitator and builder with executor-grade tools.",
+        "The user has already used the workspace and is rapidly critiquing what did not work well. Capture concrete issues first, build a prioritized backlog, then apply confirmed improvements in the lab workspace.",
+        "Present concise change reports after implementation and keep iterating until the user explicitly accepts the result."
       );
       break;
     case "task_proposal":
@@ -229,10 +251,9 @@ function sessionPolicyPromptSection(request: ComposeBaseAgentPromptRequest): str
         "If the task is blocked by a recoverable user action such as login, authorization, MFA, CAPTCHA, permission, account selection, confirmation, credentials, or missing context, use the `question` tool with the exact unblock request instead of finishing with a limitation.",
         "For browser tasks, if you reach a login or access wall, leave the browser where it is, ask the user to complete the required step, and wait for the main session to resume you."
       );
-      if (hasWorkspaceAppCatalogInstallTools(request)) {
+      if (hasWorkspaceIntegrationCatalogTool(request)) {
         lines.push(
-          "When `workspace_apps_find` and `workspace_apps_install` are surfaced and the task could match an existing workspace app, call `workspace_apps_find` before scaffolding a new app, downloading a native installer, or doing manual marketplace inspection.",
-          "If `workspace_apps_find` returns an exact or clearly suitable catalog match, prefer `workspace_apps_install`; only scaffold a new workspace app or install a native desktop app when no suitable catalog app exists, the install route fails, or the user explicitly asked for a custom app or OS-level client."
+          "Hard requirement: before adding any `integrations:` entry to `app.runtime.yaml` or using `createIntegrationClient(...)`, call `workspace_integrations_list_catalog` and use the exact returned canonical `provider_id` for both the manifest `key` and `provider`, and for `createIntegrationClient(...)`. Do not invent provider names or aliases from product branding."
         );
       }
       break;
@@ -962,6 +983,27 @@ export function buildMainSessionPromptSections(
   if (normalizedSessionKind === "onboarding") {
     conversationLines.splice(4, 0,
       "Keep onboarding work in this session. Do not delegate onboarding progress or setup confirmation work to hidden subagents.",
+    );
+  } else if (normalizedSessionKind === "workspace_onboarding") {
+    conversationLines.splice(4, 0,
+      "This session is the workspace onboarding design lab controller.",
+      "You are a user-facing architect and builder. Keep the onboarding thread conversational and uncluttered; do implementation work through delegated workers only after the user has confirmed the design.",
+      "Actively obtain the required workspace alignment inputs: cronjobs or recurring work, apps to install, custom apps to create, workspace file and folder organization, skills or repeatable workflows, and AI manager personality and behavior.",
+      "Use `holaboss_onboarding_status` to ground the current onboarding state before changing phases or claiming what comes next.",
+      "While aligning, if one or several concrete decisions would move the design forward faster as closed choices, call `holaboss_create_alignment_question` to surface a multiple-choice question (or short deck of 2-5 tightly related multiple-choice questions) and wait for the inline answer card instead of asking the user to answer in freeform chat. Allow freeform inline responses when the user may want to answer in their own words.",
+      "While aligning, converse first, then when ready, call `holaboss_create_alignment_report` to converge the answers into a concise alignment report that states the proposed workspace structure, apps, custom apps design and features, skills, cronjobs, and AI manager behavior.",
+      "After creating the alignment report, stop and wait for the alignment review card. Do not ask the user to type approval words such as `approve`, and do not restate the report as a freeform chat approval handoff.",
+      "Once onboarding state moves to implementing through the review UI, delegate the approved implementation inside the lab workspace. Keep onboarding sequential by waiting for implementation results before moving to verification.",
+      "After delegated implementation finishes, inspect or verify the lab result yourself, then create the verification handoff with `holaboss_create_verification_report`.",
+      "After creating the verification report, stop and wait for the verification review card. Final acceptance, revision, and merge are handled by the UI, not by a runtime tool call from the model."
+    );
+  } else if (normalizedSessionKind === "meeting_mode") {
+    conversationLines.splice(4, 0,
+      "This session is the meeting-mode design lab controller.",
+      "The user is reviewing a workspace they have already used and will rapidly critique what did not work well.",
+      "Collect critiques into a concrete backlog first. Ask only enough to make each critique actionable.",
+      "After the user confirms priorities, apply the changes inside the lab workspace with executor-grade tools and delegated workers.",
+      "Report the updated design or changes, then iterate until explicit user acceptance before merging."
     );
   } else {
     conversationLines.splice(4, 0,

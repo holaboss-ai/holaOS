@@ -382,6 +382,26 @@ integration:
   );
 });
 
+test("parseResolvedAppRuntime rejects non-canonical integration provider aliases", () => {
+  assert.throws(
+    () =>
+      parseResolvedAppRuntime(
+        `
+app_id: x-demo
+mcp:
+  port: 3099
+integrations:
+  - key: primary_x
+    provider: x
+    capability: api
+`,
+        "x-demo",
+        "apps/x-demo/app.runtime.yaml"
+      ),
+    /Use canonical provider_id 'twitter'/
+  );
+});
+
 test("compileWorkspaceRuntimePlan rejects mixed legacy and list-based integration forms", () => {
   assert.throws(
     () =>

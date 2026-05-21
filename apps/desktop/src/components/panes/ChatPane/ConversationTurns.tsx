@@ -29,6 +29,7 @@ export function ConversationTurns<Message extends ChatMessage>({
   getMessageWrapperClassName,
   liveAssistantTurn = null,
   onAfterIntegrationBind,
+  onAfterIntegrationProposalConnected,
 }: {
   messages: Message[];
   assistantLabel: string;
@@ -56,6 +57,7 @@ export function ConversationTurns<Message extends ChatMessage>({
     footerAccessory?: ReactNode;
   } | null;
   onAfterIntegrationBind?: () => void;
+  onAfterIntegrationProposalConnected?: (toolkitSlug: string) => void;
 }) {
   return (
     <>
@@ -92,7 +94,18 @@ export function ConversationTurns<Message extends ChatMessage>({
               executionItems={message.executionItems ?? []}
               outputs={message.outputs ?? []}
               pendingIntegrations={message.pendingIntegrations ?? []}
+              proposedIntegrations={message.proposedIntegrations ?? []}
               onAfterIntegrationBind={onAfterIntegrationBind}
+              onAfterIntegrationProposalConnected={onAfterIntegrationProposalConnected}
+              memoryProposalAction={memoryProposalAction}
+              editingMemoryProposalId={editingMemoryProposalId}
+              memoryProposalDrafts={memoryProposalDrafts}
+              onEditMemoryProposal={(proposalId) =>
+                onEditMemoryProposal(message, proposalId)
+              }
+              onMemoryProposalDraftChange={onMemoryProposalDraftChange}
+              onAcceptMemoryProposal={onAcceptMemoryProposal}
+              onDismissMemoryProposal={onDismissMemoryProposal}
               onOpenOutput={onOpenOutput}
               onOpenAllArtifacts={onOpenAllArtifacts}
               collapsedTraceByStepId={collapsedTraceByStepId}

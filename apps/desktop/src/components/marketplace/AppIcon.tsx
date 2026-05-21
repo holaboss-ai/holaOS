@@ -1,4 +1,4 @@
-import { Code2 } from "lucide-react";
+import { AppWindow } from "lucide-react";
 import { useState } from "react";
 import { providerIcon } from "@/components/onboarding/constants";
 
@@ -112,7 +112,7 @@ export function AppIcon({
   if (size === "row") {
     return (
       <span className={containerClass}>
-        <Code2 className="size-3.5 text-foreground/55" />
+        <AppWindow className="size-3.5 text-foreground/55" />
       </span>
     );
   }

@@ -77,6 +77,10 @@ test("workspace-scoped session lifecycle and IO APIs route through workspace run
     source,
     /requestWorkspaceRuntimeJson<EnqueueSessionInputResponsePayload>\(\s*workspaceId,[\s\S]*?Start workspace onboarding now\./,
   );
+  assert.doesNotMatch(
+    source,
+    /Start workspace onboarding in the lab\. Converse with the user/,
+  );
   assert.match(
     source,
     /async function listRuntimeStates\([\s\S]*?requestWorkspaceRuntimeJson<SessionRuntimeStateListResponsePayload>\(\s*workspaceId,[\s\S]*?runtime-states/,

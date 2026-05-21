@@ -8,6 +8,7 @@ import {
   parseResolvedIntegrationRequirements,
   type ResolvedIntegrationRequirement
 } from "./integration-types.js";
+import { validateCanonicalIntegrationProviderId } from "./integration-catalog.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -851,6 +852,17 @@ function parseAppRuntimeYaml(rawYaml: string, declaredAppId: string, configPath:
       path: configPath,
       message: error instanceof Error ? error.message : String(error)
     });
+  }
+  for (const [index, integration] of integrations.entries()) {
+    try {
+      validateCanonicalIntegrationProviderId(integration.provider);
+    } catch (error) {
+      err({
+        code: "app_integration_provider_unknown",
+        path: `${configPath}:integrations[${index}].provider`,
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
   const configDir = configPath.includes("/") ? configPath.slice(0, configPath.lastIndexOf("/")) : ".";
   const preferredHealthcheckTarget =

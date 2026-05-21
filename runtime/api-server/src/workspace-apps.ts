@@ -8,6 +8,7 @@ import {
   parseResolvedIntegrationRequirements,
   type ResolvedIntegrationRequirement
 } from "./integration-types.js";
+import { validateCanonicalIntegrationProviderId } from "./integration-catalog.js";
 
 const APP_HTTP_PORT_BASE = 18080;
 const APP_MCP_PORT_BASE = 13100;
@@ -88,6 +89,21 @@ export class WorkspaceAppsError extends Error {
 
 function isRecord(value: unknown): value is StringMap {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function validateResolvedIntegrationProviders(
+  integrations: ResolvedIntegrationRequirement[],
+  configPath: string,
+): void {
+  for (const [index, integration] of integrations.entries()) {
+    try {
+      validateCanonicalIntegrationProviderId(integration.provider);
+    } catch (error) {
+      throw new Error(
+        `${configPath}: integrations[${index}].provider ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 }
 
 function embeddedRuntimePortIsolationEnabled(): boolean {
@@ -214,6 +230,8 @@ export function parseInstalledAppRuntime(
   if (yamlAppId !== declaredAppId) {
     throw new Error(`app_id in yaml ('${yamlAppId}') does not match declared app_id ('${declaredAppId}')`);
   }
+  const integrations = parseResolvedIntegrationRequirements(loaded);
+  validateResolvedIntegrationProviders(integrations, configPath);
   const lifecycle = isRecord(loaded.lifecycle) ? loaded.lifecycle : {};
 
   const mcpRaw = loaded.mcp;
@@ -276,6 +294,7 @@ export function parseResolvedAppRuntime(
   const lifecycle = isRecord(loaded.lifecycle) ? loaded.lifecycle : {};
   const envContract = Array.isArray(loaded.env_contract) ? loaded.env_contract.filter((value) => typeof value === "string") : [];
   const integrations = parseResolvedIntegrationRequirements(loaded);
+  validateResolvedIntegrationProviders(integrations, configPath);
   const configDir = path.posix.dirname(configPath);
   return {
     appId: declaredAppId,
@@ -291,7 +310,7 @@ export function parseResolvedAppRuntime(
       timeoutS:
         preferredHealthcheck && preferredHealthcheck.timeout_s !== undefined && !Number.isNaN(Number(preferredHealthcheck.timeout_s))
           ? Number(preferredHealthcheck.timeout_s)
-          : 60,
+          : 120,
       intervalS:
         preferredHealthcheck && preferredHealthcheck.interval_s !== undefined && !Number.isNaN(Number(preferredHealthcheck.interval_s))
           ? Number(preferredHealthcheck.interval_s)

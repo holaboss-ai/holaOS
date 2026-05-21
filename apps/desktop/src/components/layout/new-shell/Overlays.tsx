@@ -100,7 +100,7 @@ function PaneOverlay({
                 <X className="size-3.5" />
               </Button>
             </div>
-            <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/50 bg-background">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-lg border-t border-border/50 bg-background">
               {children}
             </div>
           </div>

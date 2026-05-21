@@ -1479,6 +1479,121 @@ test("claimed input writes completed subagent results and queues a background up
   store.close();
 });
 
+test("claimed input preserves subagent pending integration workspace ids for lifecycle payloads", async () => {
+  const store = makeStore("hb-claimed-input-subagent-pending-integrations-");
+  const workspace = store.createWorkspace({
+    workspaceId: "lab-workspace-1",
+    name: "Workspace 1 Lab",
+    harness: "pi",
+    status: "active",
+  });
+  const { queued, run } = createSubagentRunFixture({
+    store,
+    workspaceId: workspace.id,
+    title: "Start tracker app",
+    goal: "Bring up the tracker app and hand off auth",
+  });
+
+  await processClaimedInput({
+    store,
+    record: queued,
+    executeRunnerRequestFn: async (payload, options = {}) => {
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 1,
+        event_type: "run_started",
+        payload: {},
+      });
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 2,
+        event_type: "tool_call",
+        payload: {
+          phase: "completed",
+          tool_name: "workspace_apps_ensure_running",
+          call_id: "call-ensure-1",
+          error: false,
+          result: {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    workspace_id: workspace.id,
+                    pending_integrations: [
+                      {
+                        workspace_id: workspace.id,
+                        app_id: "twitter-tracker",
+                        provider_id: "twitter",
+                        credential_source: "platform",
+                      },
+                    ],
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          },
+        },
+      });
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 3,
+        event_type: "output_delta",
+        payload: { delta: "Tracker is ready for the user to connect Twitter." },
+      });
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 4,
+        event_type: "run_completed",
+        payload: { status: "ok" },
+      });
+      return {
+        events: [],
+        skippedLines: [],
+        stderr: "",
+        returnCode: 0,
+        sawTerminal: true,
+      };
+    },
+  });
+
+  const updatedRun = store.getSubagentRun({
+    workspaceId: run.workspaceId,
+    subagentId: run.subagentId,
+  });
+  const queuedEvents = store.listPendingMainSessionEvents({
+    workspaceId: workspace.id,
+    ownerMainSessionId: "session-main",
+  });
+
+  assert.equal(updatedRun?.resultPayload?.workspace_id, workspace.id);
+  assert.deepEqual(updatedRun?.resultPayload?.pending_integrations, [
+    {
+      workspace_id: workspace.id,
+      app_id: "twitter-tracker",
+      provider_id: "twitter",
+      credential_source: "platform",
+    },
+  ]);
+  assert.equal(queuedEvents[0]?.payload.workspace_id, workspace.id);
+  assert.deepEqual(queuedEvents[0]?.payload.pending_integrations, [
+    {
+      workspace_id: workspace.id,
+      app_id: "twitter-tracker",
+      provider_id: "twitter",
+      credential_source: "platform",
+    },
+  ]);
+
+  store.close();
+});
+
 test("claimed input writes waiting-on-user subagent blockers and queues a blocker event", async () => {
   const store = makeStore("hb-claimed-input-subagent-waiting-");
   const workspace = store.createWorkspace({
@@ -5330,6 +5445,137 @@ test("claimed input continues when pre-run compaction cannot get below the maint
   assert.equal(preRunTelemetry?.final_decision, "threshold_exceeded");
   assert.equal(preRunTelemetry?.compaction_attempted, true);
   assert.equal(preRunTelemetry?.compaction_changed_branch, false);
+  assert.equal(preRunTelemetry?.reset_required, false);
+  store.close();
+});
+
+// Unreachable scenario after feat/onboarding introduced
+// ensureClaimedInputTurnRequestSnapshot, which synthesizes a snapshot before
+// pre-run compaction runs. The "no snapshot at pre-run time" branch this
+// test exercised can no longer be hit from inside processClaimedInput.
+// Left as a skip rather than deleted so an onboarding-author can decide
+// whether the test is vestigial or the synth path needs a guarded exit.
+nodeTest.skip("claimed input skips threshold-only pre-run compaction when no turn request snapshot exists", async () => {
+  const store = makeStore("hb-claimed-input-prerun-no-snapshot-");
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const workspaceDir = store.workspaceDir(workspace.id);
+  const { sessionManager, sessionFile } = createPiSessionFile({
+    workspaceDir,
+    sessionDir: path.join(workspaceDir, ".holaboss", "pi-sessions"),
+  });
+  sessionManager.appendMessage(piUserMessage("x".repeat(80_000)));
+  store.upsertBinding({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    harness: "pi",
+    harnessSessionId: sessionFile,
+  });
+  const previousInput = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: { text: "previous", model: "openai_codex/gpt-5.5" },
+  });
+  store.updateInput({
+    workspaceId: workspace.id,
+    inputId: previousInput.inputId,
+    fields: { status: "DONE" },
+  });
+  store.upsertTurnResult({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    inputId: previousInput.inputId,
+    startedAt: "2026-05-11T00:00:00.000Z",
+    completedAt: "2026-05-11T00:01:00.000Z",
+    status: "completed",
+    stopReason: "completed",
+    assistantText: "previous response",
+    toolUsageSummary: {
+      total_calls: 0,
+      completed_calls: 0,
+      failed_calls: 0,
+      tool_names: [],
+      tool_ids: [],
+    },
+    permissionDenials: [],
+    promptSectionIds: [],
+    capabilityManifestFingerprint: null,
+    requestSnapshotFingerprint: null,
+    promptCacheProfile: null,
+    contextBudgetDecisions: {
+      context_usage: {
+        tokens: 40_000,
+        context_window: 65_536,
+        percent: 61,
+      },
+    },
+    tokenUsage: null,
+  });
+  const queued = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: { text: "synthetic follow-up", model: "openai_codex/gpt-5.5" },
+  });
+  let runnerCalled = false;
+
+  await processClaimedInput({
+    store,
+    record: queued,
+    registerRunStartedFn: async () => {},
+    relayRunEventFn: async () => {},
+    executeRunnerRequestFn: async (payload, options = {}) => {
+      runnerCalled = true;
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 1,
+        event_type: "run_started",
+        payload: {},
+      });
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 2,
+        event_type: "output_delta",
+        payload: { delta: "Done." },
+      });
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 3,
+        event_type: "run_completed",
+        payload: { status: "completed" },
+      });
+      return {
+        events: [],
+        skippedLines: [],
+        stderr: "",
+        returnCode: 0,
+        sawTerminal: true,
+      };
+    },
+  });
+
+  const updated = store.getInput({
+    workspaceId: workspace.id,
+    inputId: queued.inputId,
+  });
+  const turnResult = turnResultForInput(store, queued);
+  const preRunTelemetry = recordValue(
+    recordValue(turnResult?.contextBudgetDecisions)?.pre_run_compaction,
+  );
+
+  assert.equal(runnerCalled, true);
+  assert.equal(updated?.status, "DONE");
+  assert.equal(turnResult?.status, "completed");
+  assert.ok(preRunTelemetry);
+  assert.equal(preRunTelemetry?.initial_decision, "threshold_exceeded");
+  assert.equal(preRunTelemetry?.final_decision, "threshold_exceeded");
+  assert.equal(preRunTelemetry?.compaction_attempted, false);
   assert.equal(preRunTelemetry?.reset_required, false);
   store.close();
 });

@@ -289,11 +289,11 @@ test("app shell syncs file-oriented agent operations into the explorer and displ
   );
   assert.match(
     source,
-    /<OnboardingPane[\s\S]*onSyncFileDisplayFromAgentOperation=\{\s*handleSyncAgentOperationFileDisplay\s*\}/,
+    /<WorkspaceOnboardingSurface[\s\S]*onSyncFileDisplayFromAgentOperation=\{\s*handleSyncAgentOperationFileDisplay\s*\}/,
   );
   assert.match(
     source,
-    /<OnboardingPane[\s\S]*onImageAttachmentPreviewOpenChange=\{setChatImagePreviewOpen\}/,
+    /<WorkspaceOnboardingSurface[\s\S]*onImageAttachmentPreviewOpenChange=\{setChatImagePreviewOpen\}/,
   );
   assert.match(
     source,

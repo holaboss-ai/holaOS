@@ -10,7 +10,7 @@ lifecycle:
 healthchecks:
   mcp:
     path: /mcp/health
-    timeout_s: 30
+    timeout_s: 120
 
 mcp:
   enabled: true

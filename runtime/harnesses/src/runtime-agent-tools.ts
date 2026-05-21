@@ -5,8 +5,27 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     policy: "inspect"
   },
   {
-    id: "onboarding_complete",
-    description: "Mark local workspace onboarding complete with a summary.",
+    id: "holaboss_create_alignment_report",
+    description:
+      "Persist the current onboarding alignment report for the current workspace and move the controller into alignment review.",
+    policy: "mutate"
+  },
+  {
+    id: "holaboss_create_alignment_question",
+    description:
+      "Persist one or more multiple-choice onboarding alignment questions for the current workspace and pause for the user's inline answer card. Questions may allow freeform responses in addition to option picks.",
+    policy: "mutate"
+  },
+  {
+    id: "holaboss_create_verification_report",
+    description:
+      "Persist the current onboarding verification report for the current workspace and move the controller into verification review.",
+    policy: "mutate"
+  },
+  {
+    id: "holaboss_onboarding_complete",
+    description:
+      "After the user explicitly accepts the verification result, complete workspace onboarding and merge the lab when applicable.",
     policy: "mutate"
   },
   {
@@ -178,16 +197,10 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     policy: "mutate"
   },
   {
-    id: "workspace_apps_find",
+    id: "workspace_integrations_list_catalog",
     description:
-      "Discover apps the user could install in the current workspace. Returns deduped candidates from the marketplace catalog and any locally synced sources, plus apps already installed in this workspace. Use the optional `query` to filter by app id, name, or description (case-insensitive substring). Use this BEFORE `workspace_apps_install` to confirm an `app_id` exists in the catalog.",
+      "List the canonical integration provider ids available to app manifests and bridge clients in this workspace. Before adding any `integrations:` entry to `app.runtime.yaml` or using `createIntegrationClient(...)`, call this tool and use the exact returned `provider_id`; do not invent aliases or product names.",
     policy: "inspect"
-  },
-  {
-    id: "workspace_apps_install",
-    description:
-      "Install a marketplace or local-catalog app into the current workspace. Downloads the archive, extracts under `apps/<app_id>/`, registers it in `workspace.yaml`, and starts the managed app process so its MCP tools become available. The result will include `requires_session_refresh: true` along with `new_mcp_servers: [...]` — when that happens, finish your current message without invoking the new tools (they will become callable starting from the next user message). The result also surfaces `provider_id` and `credential_source`; if the app needs an external account, mention that in your message so the user can authorize it.",
-    policy: "mutate"
   },
   {
     id: "workspace_apps_scaffold",
@@ -272,6 +285,12 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     description:
       "Run a deterministic read-only SQL query against the workspace's shared SQLite so you can preview joins, aggregations, and mixed-source data before generating app logic.",
     policy: "inspect"
+  },
+  {
+    id: "holaboss_workspace_integrations_propose_connect",
+    description:
+      "Ask the user to connect a Composio-backed integration (Gmail / Slack / Notion / Linear / GitHub / …) via OAuth. Use this when the user expresses intent to connect or use a known third-party service AND that toolkit is not already exposing tools to you (i.e. no `<toolkit>_<verb>` tool is currently in your tool list). DO NOT chain this with `workspace_apps_*` — connecting an integration does NOT require building an app; once OAuth completes, the toolkit's `<toolkit>_<verb>` tools become available automatically. The chat UI renders a Connect card from the result; do not write your own connect instructions, just briefly explain why this integration is needed. Args: `toolkit_slug` (one of the supported toolkit slugs from the workspace integration store catalog), optional `reason` (short user-facing one-liner shown on the card).",
+    policy: "coordinate"
   }
 ] as const;
 

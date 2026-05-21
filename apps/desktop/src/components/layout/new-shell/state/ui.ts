@@ -1,11 +1,38 @@
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
+import { overlayOpenCountAtom } from "../overlay-presence";
 import { activeInternalTabIdAtom } from "./internalTabs";
 
 /** Is the sidebar collapsed (icon-only / hidden)? Persists across sessions. */
 export const sidebarCollapsedAtom = atomWithStorage(
   "holaboss-new-shell-sidebar-collapsed-v1",
   false,
+);
+
+/**
+ * Sidebar width when expanded. Resizable via the right-edge drag handle.
+ * Clamped to [SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH] at the consumer.
+ * Persists.
+ */
+export const SIDEBAR_MIN_WIDTH = 220;
+export const SIDEBAR_MAX_WIDTH = 480;
+export const SIDEBAR_DEFAULT_WIDTH = 260;
+export const sidebarWidthAtom = atomWithStorage<number>(
+  "holaboss-new-shell-sidebar-width-v1",
+  SIDEBAR_DEFAULT_WIDTH,
+);
+
+/**
+ * Which "section" the sidebar is showing in its body. Notion-style
+ * horizontal nav at the top of the sidebar switches between these.
+ * "home" is the default workspace nav; the others surface their content
+ * (Inbox / Artifacts / Automations) inside the sidebar so the main
+ * canvas keeps painting whatever the user was looking at.
+ */
+export type SidebarSection = "home" | "inbox" | "artifacts" | "automations";
+export const sidebarSectionAtom = atomWithStorage<SidebarSection>(
+  "holaboss-new-shell-sidebar-section-v1",
+  "home",
 );
 
 /** Is the new-tab command palette dialog open? */
@@ -64,5 +91,6 @@ export const browserViewSuspendedAtom = atom(
     get(sessionsOpenAtom) ||
     get(settingsOpenAtom) ||
     get(marketplaceOpenAtom) ||
-    get(activeInternalTabIdAtom) !== null,
+    get(activeInternalTabIdAtom) !== null ||
+    get(overlayOpenCountAtom) > 0,
 );

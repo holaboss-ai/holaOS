@@ -168,6 +168,7 @@ test("runtime memory-retrieve client posts to the memory retrieval capability ro
         ? (JSON.parse(init.body) as Record<string, unknown>)
         : null;
     return new Response(JSON.stringify({ tool_id: "memory_retrieve", hits: [] }), {
+    return new Response(JSON.stringify({ tool_id: "memory_retrieve", hits: [] }), {
       status: 200,
       headers: { "content-type": "application/json; charset=utf-8" },
     });
@@ -195,5 +196,170 @@ test("runtime memory-retrieve client posts to the memory retrieval capability ro
     mode: "mixed",
     tree_id: "interaction:customer:orchid",
     max_results: 5,
+});
+
+test("runtime onboarding alignment-report client forwards structured report payloads", async () => {
+  let capturedUrl = "";
+  let capturedBody: Record<string, unknown> | null = null;
+
+  const fetchImpl: typeof fetch = async (input, init) => {
+    capturedUrl = String(input);
+    capturedBody =
+      typeof init?.body === "string"
+        ? (JSON.parse(init.body) as Record<string, unknown>)
+        : null;
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+  };
+
+  await executeRuntimeToolCapability({
+    runtimeApiBaseUrl: "http://127.0.0.1:5060",
+    workspaceId: "workspace-1",
+    sessionId: "session-main",
+    inputId: "input-1",
+    selectedModel: "openai/gpt-5.4",
+    toolId: "holaboss_create_alignment_report",
+    toolParams: {
+      report: {
+        summary: "Create a Twitter analytics workspace.",
+        custom_apps: [{ name: "twitter-engagement-dashboard" }],
+      },
+    },
+    fetchImpl,
+  });
+
+  assert.match(
+    capturedUrl,
+    /\/api\/v1\/capabilities\/runtime-tools\/onboarding\/alignment-report$/,
+  );
+  assert.deepEqual(capturedBody, {
+    report: {
+      summary: "Create a Twitter analytics workspace.",
+      custom_apps: [{ name: "twitter-engagement-dashboard" }],
+    },
+  });
+});
+
+test("runtime onboarding alignment-question client forwards structured question payloads", async () => {
+  let capturedUrl = "";
+  let capturedBody: Record<string, unknown> | null = null;
+
+  const fetchImpl: typeof fetch = async (input, init) => {
+    capturedUrl = String(input);
+    capturedBody =
+      typeof init?.body === "string"
+        ? (JSON.parse(init.body) as Record<string, unknown>)
+        : null;
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+  };
+
+  await executeRuntimeToolCapability({
+    runtimeApiBaseUrl: "http://127.0.0.1:5060",
+    workspaceId: "workspace-1",
+    sessionId: "session-main",
+    inputId: "input-1",
+    selectedModel: "openai/gpt-5.4",
+    toolId: "holaboss_create_alignment_question",
+    toolParams: {
+      question: {
+        prompt: "What should this workspace optimize for first?",
+        options: [
+          { id: "fast", label: "Fast setup" },
+          { id: "deep", label: "Deep automation" },
+        ],
+        allow_notes: true,
+      },
+    },
+    fetchImpl,
+  });
+
+  assert.match(
+    capturedUrl,
+    /\/api\/v1\/capabilities\/runtime-tools\/onboarding\/alignment-question$/,
+  );
+  assert.deepEqual(capturedBody, {
+    question: {
+      prompt: "What should this workspace optimize for first?",
+      options: [
+        { id: "fast", label: "Fast setup" },
+        { id: "deep", label: "Deep automation" },
+      ],
+      allow_notes: true,
+    },
+  });
+});
+
+test("runtime onboarding alignment-question client forwards structured question decks", async () => {
+  let capturedBody: Record<string, unknown> | null = null;
+
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    capturedBody =
+      typeof init?.body === "string"
+        ? (JSON.parse(init.body) as Record<string, unknown>)
+        : null;
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+  };
+
+  await executeRuntimeToolCapability({
+    runtimeApiBaseUrl: "http://127.0.0.1:5060",
+    workspaceId: "workspace-1",
+    sessionId: "session-main",
+    inputId: "input-1",
+    selectedModel: "openai/gpt-5.4",
+    toolId: "holaboss_create_alignment_question",
+    toolParams: {
+      question: {
+        title: "Resolve the remaining setup choices",
+        questions: [
+          {
+            prompt: "Which shape should the workspace optimize for first?",
+            options: [
+              { id: "fast", label: "Fast setup" },
+              { id: "deep", label: "Deep automation" },
+            ],
+          },
+          {
+            prompt: "How should approvals work?",
+            options: [
+              { id: "manual", label: "Manual approvals" },
+              { id: "auto", label: "Auto-approve low-risk work" },
+            ],
+            allow_freeform: true,
+          },
+        ],
+      },
+    },
+    fetchImpl,
+  });
+
+  assert.deepEqual(capturedBody, {
+    question: {
+      title: "Resolve the remaining setup choices",
+      questions: [
+        {
+          prompt: "Which shape should the workspace optimize for first?",
+          options: [
+            { id: "fast", label: "Fast setup" },
+            { id: "deep", label: "Deep automation" },
+          ],
+        },
+        {
+          prompt: "How should approvals work?",
+          options: [
+            { id: "manual", label: "Manual approvals" },
+            { id: "auto", label: "Auto-approve low-risk work" },
+          ],
+          allow_freeform: true,
+        },
+      ],
+    },
   });
 });

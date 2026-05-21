@@ -51,6 +51,8 @@ import {
 import type { TerminalSessionManagerLike } from "./terminal-session-manager.js";
 import type { QueueWorkerLike } from "./queue-worker.js";
 import { retrieveWorkspaceMemory, type WorkspaceMemoryCategory } from "./workspace-memory.js";
+import type { ComposioMcpManager } from "./composio-mcp-manager.js";
+import { getStoreCatalogEntry } from "./integration-store-catalog.js";
 import { invokeWorkspaceSkill, resolveWorkspaceSkills } from "./workspace-skills.js";
 import {
   listWorkspaceApplicationPorts,
@@ -61,6 +63,18 @@ import {
   resolveWorkspaceAppRuntime,
   updateWorkspaceApplications,
 } from "./workspace-apps.js";
+import {
+  INTEGRATION_CATALOG_PROVIDERS,
+  integrationCatalogProviderIds,
+} from "./integration-catalog.js";
+import {
+  findForbiddenUpstreamHosts,
+  formatHostLintError,
+} from "./workspace-app-host-lint.js";
+import {
+  formatDashboardUiLintError,
+  inspectDashboardUiUsage,
+} from "./workspace-app-ui-lint.js";
 
 const SESSION_REFRESH_NOTE =
   "New MCP servers became available in this turn. Their tools will be visible to you starting from the next user message — please end this turn (do not call the new tools yet) and let the user trigger the next one.";
@@ -79,7 +93,20 @@ function buildSessionRefreshFields(newMcpServers: string[]): JsonObject {
 function pendingIntegrationsFromAppManifests(params: {
   workspaceDir: string;
   appIds: string[];
+  store?: RuntimeStateStore;
+  workspaceId?: string;
 }): JsonObject[] {
+  const boundKeys = new Set<string>();
+  if (params.store && params.workspaceId) {
+    for (const binding of params.store.listIntegrationBindings({
+      workspaceId: params.workspaceId,
+    })) {
+      if (binding.targetType !== "app") continue;
+      boundKeys.add(
+        `${binding.targetId.toLowerCase()}|${binding.integrationKey.toLowerCase()}`,
+      );
+    }
+  }
   const seen = new Set<string>();
   const out: JsonObject[] = [];
   for (const appId of params.appIds) {
@@ -97,7 +124,9 @@ function pendingIntegrationsFromAppManifests(params: {
     }
     for (const integration of parsed.integrations ?? []) {
       if (!integration.required) continue;
-      const key = `${appId}|${integration.provider.toLowerCase()}`;
+      const providerLower = integration.provider.toLowerCase();
+      if (boundKeys.has(`${appId.toLowerCase()}|${providerLower}`)) continue;
+      const key = `${appId}|${providerLower}`;
       if (seen.has(key)) continue;
       seen.add(key);
       out.push({
@@ -136,6 +165,22 @@ const WORKSPACE_APP_ENDPOINT_PROBE_CHECKS = [
 ] as const;
 const REPORT_FILE_EXTENSION = ".html";
 const REPORT_MIME_TYPE = "text/html";
+export const ONBOARDING_ALIGNMENT_STATE = "aligning";
+export const ONBOARDING_AWAITING_ALIGNMENT_APPROVAL_STATE =
+  "awaiting_alignment_approval";
+export const ONBOARDING_IMPLEMENTING_STATE = "implementing";
+export const ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE =
+  "awaiting_verification_acceptance";
+export const ONBOARDING_COMPLETED_STATE = "completed";
+export const ONBOARDING_ABANDONED_STATE = "abandoned";
+export const ONBOARDING_WORKFLOW_STATES = new Set<string>([
+  ONBOARDING_ALIGNMENT_STATE,
+  ONBOARDING_AWAITING_ALIGNMENT_APPROVAL_STATE,
+  ONBOARDING_IMPLEMENTING_STATE,
+  ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE,
+  ONBOARDING_COMPLETED_STATE,
+  ONBOARDING_ABANDONED_STATE,
+]);
 
 type WorkspaceAppEndpointProbeCheck = (typeof WORKSPACE_APP_ENDPOINT_PROBE_CHECKS)[number];
 
@@ -548,7 +593,12 @@ function scaffoldWorkspaceAppManifest(params: { appId: string; name: string }): 
       healthchecks: {
         mcp: {
           path: "/mcp/health",
-          timeout_s: 30,
+          // 120s covers a cold-start vibe-coded app: first-time
+          // npm install (40-60s) + first vite build (20-40s) + boot
+          // (5-10s). 30s was the historical default and routinely
+          // surfaced as "did not become healthy within 30s" on second
+          // binding upserts where the app needed a full restart.
+          timeout_s: 120,
           interval_s: 5,
         },
       },
@@ -966,10 +1016,28 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS: RuntimeAgentToolDefinition[] = [
     description: runtimeToolBaseDefinition("onboarding_status").description
   },
   {
-    id: runtimeToolBaseDefinition("onboarding_complete").id,
+    id: runtimeToolBaseDefinition("holaboss_create_alignment_question").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/onboarding/alignment-question",
+    description: runtimeToolBaseDefinition("holaboss_create_alignment_question").description
+  },
+  {
+    id: runtimeToolBaseDefinition("holaboss_create_alignment_report").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/onboarding/alignment-report",
+    description: runtimeToolBaseDefinition("holaboss_create_alignment_report").description
+  },
+  {
+    id: runtimeToolBaseDefinition("holaboss_create_verification_report").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/onboarding/verification-report",
+    description: runtimeToolBaseDefinition("holaboss_create_verification_report").description
+  },
+  {
+    id: runtimeToolBaseDefinition("holaboss_onboarding_complete").id,
     method: "POST",
     path: "/api/v1/capabilities/runtime-tools/onboarding/complete",
-    description: runtimeToolBaseDefinition("onboarding_complete").description
+    description: runtimeToolBaseDefinition("holaboss_onboarding_complete").description
   },
   {
     id: runtimeToolBaseDefinition("cronjobs_list").id,
@@ -1152,16 +1220,10 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS: RuntimeAgentToolDefinition[] = [
     description: runtimeToolBaseDefinition("terminal_session_close").description
   },
   {
-    id: runtimeToolBaseDefinition("workspace_apps_find").id,
+    id: runtimeToolBaseDefinition("workspace_integrations_list_catalog").id,
     method: "POST",
-    path: "/api/v1/capabilities/runtime-tools/workspace-apps/find",
-    description: runtimeToolBaseDefinition("workspace_apps_find").description
-  },
-  {
-    id: runtimeToolBaseDefinition("workspace_apps_install").id,
-    method: "POST",
-    path: "/api/v1/capabilities/runtime-tools/workspace-apps/install",
-    description: runtimeToolBaseDefinition("workspace_apps_install").description
+    path: "/api/v1/capabilities/runtime-tools/workspace-integrations/catalog",
+    description: runtimeToolBaseDefinition("workspace_integrations_list_catalog").description
   },
   {
     id: runtimeToolBaseDefinition("workspace_apps_scaffold").id,
@@ -2192,11 +2254,215 @@ export function normalizeDelivery(params: {
   };
 }
 
+function parseStoredOnboardingReport(
+  raw: string | null | undefined,
+): JsonValue | null {
+  const normalized = normalizedString(raw);
+  if (!normalized) {
+    return null;
+  }
+  try {
+    return JSON.parse(normalized) as JsonValue;
+  } catch {
+    return null;
+  }
+}
+
+type OnboardingAlignmentQuestionOption = {
+  id: string;
+  label: string;
+  description?: string | null;
+  answer_text?: string | null;
+  recommended?: boolean;
+};
+
+type OnboardingAlignmentQuestionItem = {
+  id: string;
+  title?: string | null;
+  prompt: string;
+  details?: string | null;
+  allow_notes?: boolean;
+  notes_placeholder?: string | null;
+  allow_freeform?: boolean;
+  freeform_placeholder?: string | null;
+  options: OnboardingAlignmentQuestionOption[];
+};
+
+type OnboardingAlignmentQuestion = {
+  title?: string | null;
+  details?: string | null;
+  questions: OnboardingAlignmentQuestionItem[];
+};
+
+type OnboardingAlignmentQuestionAnswer = {
+  question_id?: string | null;
+  option_id?: string | null;
+  response_text?: string | null;
+  notes?: string | null;
+};
+
+function sanitizeAlignmentQuestionOption(
+  value: Record<string, unknown>,
+  index: number,
+  path = "question.options",
+): OnboardingAlignmentQuestionOption {
+  const id = normalizedString(value.id) || `option_${index + 1}`;
+  const label =
+    normalizedString(value.label) ||
+    normalizedString(value.title) ||
+    normalizedString(value.text);
+  if (!label) {
+    throw new Error(`${path}[${index}].label is required`);
+  }
+  return {
+    id,
+    label,
+    description: normalizedString(value.description) || null,
+    answer_text:
+      normalizedString(value.answer_text) ||
+      normalizedString(value.answer) ||
+      normalizedString(value.value) ||
+      null,
+    recommended: value.recommended === true,
+  };
+}
+
+function sanitizeAlignmentQuestionItem(
+  value: Record<string, unknown>,
+  index: number,
+  defaults?: Partial<OnboardingAlignmentQuestionItem>,
+  path = "question",
+): OnboardingAlignmentQuestionItem {
+  const id = normalizedString(value.id) || defaults?.id || `question_${index + 1}`;
+  const explicitTitle = normalizedString(value.title);
+  const prompt =
+    normalizedString(value.prompt) ||
+    normalizedString(value.question) ||
+    normalizedString(value.text) ||
+    explicitTitle;
+  if (!prompt) {
+    throw new Error(`${path}.prompt is required`);
+  }
+  const optionsValue = Array.isArray(value.options)
+    ? value.options
+    : Array.isArray(value.choices)
+      ? value.choices
+      : null;
+  if (!optionsValue || optionsValue.length < 2) {
+    throw new Error(`${path}.options must contain at least two options`);
+  }
+  const options = optionsValue.map((item, index) => {
+    if (!isRecord(item)) {
+      throw new Error(`${path}.options[${index}] must be an object`);
+    }
+    return sanitizeAlignmentQuestionOption(item, index, `${path}.options`);
+  });
+  return {
+    id,
+    title:
+      explicitTitle && explicitTitle !== prompt
+        ? explicitTitle
+        : defaults?.title || null,
+    prompt,
+    details: normalizedString(value.details) || defaults?.details || null,
+    allow_notes:
+      typeof value.allow_notes === "boolean"
+        ? value.allow_notes
+        : defaults?.allow_notes === true,
+    notes_placeholder:
+      normalizedString(value.notes_placeholder) || defaults?.notes_placeholder || null,
+    allow_freeform:
+      typeof value.allow_freeform === "boolean"
+        ? value.allow_freeform
+        : defaults?.allow_freeform !== false,
+    freeform_placeholder:
+      normalizedString(value.freeform_placeholder) ||
+      defaults?.freeform_placeholder ||
+      null,
+    options,
+  };
+}
+
+function sanitizeAlignmentQuestion(
+  value: Record<string, unknown>,
+): OnboardingAlignmentQuestion {
+  const defaults: Partial<OnboardingAlignmentQuestionItem> = {
+    title: normalizedString(value.title) || null,
+    details: normalizedString(value.details) || null,
+    allow_notes: value.allow_notes === true,
+    notes_placeholder: normalizedString(value.notes_placeholder) || null,
+    allow_freeform: value.allow_freeform !== false,
+    freeform_placeholder: normalizedString(value.freeform_placeholder) || null,
+  };
+  const questionItems = Array.isArray(value.questions)
+    ? value.questions
+    : Array.isArray(value.items)
+      ? value.items
+      : null;
+  if (questionItems && questionItems.length > 0) {
+    const questions = questionItems.map((item, index) => {
+      if (!isRecord(item)) {
+        throw new Error(`question.questions[${index}] must be an object`);
+      }
+      return sanitizeAlignmentQuestionItem(
+        item,
+        index,
+        defaults,
+        `question.questions[${index}]`,
+      );
+    });
+    return {
+      title: defaults.title || null,
+      details: defaults.details || null,
+      questions,
+    };
+  }
+  return {
+    title: defaults.title || null,
+    details: defaults.details || null,
+    questions: [sanitizeAlignmentQuestionItem(value, 0, defaults, "question")],
+  };
+}
+
+function parseStoredAlignmentQuestion(
+  raw: string | null | undefined,
+): OnboardingAlignmentQuestion | null {
+  const parsed = parseStoredOnboardingReport(raw);
+  if (!isRecord(parsed)) {
+    return null;
+  }
+  try {
+    return sanitizeAlignmentQuestion(parsed);
+  } catch {
+    return null;
+  }
+}
+
+export function effectiveOnboardingState(workspace: WorkspaceRecord): string | null {
+  const normalized = normalizedString(workspace.onboardingState);
+  if (normalized) {
+    return normalized;
+  }
+  if (workspace.onboardingStatus === "completed") {
+    return ONBOARDING_COMPLETED_STATE;
+  }
+  if (workspace.onboardingStatus === "pending") {
+    return ONBOARDING_ALIGNMENT_STATE;
+  }
+  return null;
+}
+
 export function onboardingPayload(workspace: WorkspaceRecord): JsonObject {
   return {
     workspace_id: workspace.id,
     onboarding_status: workspace.onboardingStatus,
+    onboarding_state: effectiveOnboardingState(workspace),
     onboarding_session_id: workspace.onboardingSessionId,
+    alignment_question: parseStoredAlignmentQuestion(
+      workspace.onboardingAlignmentQuestion,
+    ) as unknown as JsonValue | null,
+    alignment_report: parseStoredOnboardingReport(workspace.onboardingAlignmentReport),
+    verification_report: parseStoredOnboardingReport(workspace.onboardingVerificationReport),
     onboarding_completed_at: workspace.onboardingCompletedAt,
     onboarding_completion_summary: workspace.onboardingCompletionSummary,
     onboarding_requested_at: workspace.onboardingRequestedAt,
@@ -2430,6 +2696,7 @@ export class RuntimeAgentToolsService {
       terminalSessionManager?: TerminalSessionManagerLike | null;
       queueWorker?: QueueWorkerLike | null;
       appLifecycle?: RuntimeAgentToolAppLifecycleCallbacks | null;
+      composioMcpManager?: ComposioMcpManager | null;
     },
   ) {}
 
@@ -2438,7 +2705,319 @@ export class RuntimeAgentToolsService {
   }
 
   onboardingStatus(workspaceId: string): JsonObject {
-    return onboardingPayload(this.requireWorkspace(workspaceId));
+    const scope = this.resolveOnboardingFlowScope(workspaceId);
+    return {
+      ...onboardingPayload(scope.source),
+      lab_workspace_id: scope.lab?.id ?? null,
+      lab_purpose: scope.lab?.labPurpose ?? null,
+      lab_status: scope.lab?.labStatus ?? null,
+    };
+  }
+
+  createAlignmentQuestion(params: {
+    workspaceId: string;
+    question: Record<string, unknown>;
+  }): JsonObject {
+    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    this.requireOnboardingState(scope.source, [ONBOARDING_ALIGNMENT_STATE]);
+    let question: OnboardingAlignmentQuestion;
+    try {
+      question = sanitizeAlignmentQuestion(params.question);
+    } catch (error) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "alignment_question_invalid",
+        error instanceof Error ? error.message : "alignment question is invalid",
+      );
+    }
+    const source = this.syncOnboardingFlow(scope, {
+      onboardingAlignmentQuestion: JSON.stringify(question),
+    });
+    return {
+      ...onboardingPayload(source),
+      lab_workspace_id: scope.lab.id,
+      lab_purpose: scope.lab.labPurpose,
+      lab_status: scope.lab.labStatus,
+    };
+  }
+
+  answerAlignmentQuestion(params: {
+    workspaceId: string;
+    optionId?: string | null;
+    responseText?: string | null;
+    notes?: string | null;
+    answers?: OnboardingAlignmentQuestionAnswer[] | null;
+  }): JsonObject {
+    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    this.requireOnboardingState(scope.source, [ONBOARDING_ALIGNMENT_STATE]);
+    const question = parseStoredAlignmentQuestion(
+      scope.source.onboardingAlignmentQuestion,
+    );
+    if (!question) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "alignment_question_not_active",
+        "no active alignment question is awaiting an answer",
+      );
+    }
+    const questions = question.questions;
+    if (questions.length === 0) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "alignment_question_not_active",
+        "no active alignment question is awaiting an answer",
+      );
+    }
+    const sessionId = normalizedString(scope.source.onboardingSessionId);
+    if (!sessionId) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "onboarding_session_not_configured",
+        "onboarding session is not configured",
+      );
+    }
+    if (
+      !this.store.getSession({
+        workspaceId: scope.lab.id,
+        sessionId,
+      })
+    ) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "onboarding_session_not_found",
+        "onboarding session could not be found in the active lab",
+      );
+    }
+    const normalizedAnswers =
+      Array.isArray(params.answers) && params.answers.length > 0
+        ? params.answers
+        : [
+            {
+              question_id: questions[0]?.id ?? null,
+              option_id: params.optionId ?? null,
+              response_text: params.responseText ?? null,
+              notes: params.notes ?? null,
+            } satisfies OnboardingAlignmentQuestionAnswer,
+          ];
+    const answerLines: Array<{
+      payload: Record<string, unknown>;
+      text: string;
+    }> = [];
+    for (const [index, currentQuestion] of questions.entries()) {
+      const answer =
+        normalizedAnswers.find(
+          (item) =>
+            normalizedString(item.question_id) === currentQuestion.id,
+        ) ?? (index === 0 ? normalizedAnswers[0] ?? null : null);
+      // No matching answer for this question. When the UI submits a
+      // single-question answer against a multi-question deck (the common
+      // case), the remaining questions stay unanswered and roll back to
+      // the agent on the next turn. Skip rather than throwing.
+      if (!answer) continue;
+      const optionId = normalizedString(answer.option_id);
+      const option =
+        optionId
+          ? currentQuestion.options.find((item) => item.id === optionId)
+          : null;
+      if (optionId && !option) {
+        throw new RuntimeAgentToolsServiceError(
+          400,
+          "alignment_question_option_invalid",
+          `selected alignment question option is invalid for ${currentQuestion.id}`,
+        );
+      }
+      const responseText = normalizedString(answer.response_text) || "";
+      if (!option && !responseText) {
+        throw new RuntimeAgentToolsServiceError(
+          400,
+          "alignment_question_answer_required",
+          `an option or response text is required for ${currentQuestion.id}`,
+        );
+      }
+      if (responseText && currentQuestion.allow_freeform === false) {
+        throw new RuntimeAgentToolsServiceError(
+          400,
+          "alignment_question_freeform_not_allowed",
+          `freeform response is not allowed for ${currentQuestion.id}`,
+        );
+      }
+      const noteText = normalizedString(answer.notes) || "";
+      const selectedAnswerText = option?.answer_text || option?.label || "";
+      const normalizedAnswerText = responseText || selectedAnswerText;
+      const lines = [
+        questions.length > 1
+          ? `Question ${index + 1}: ${currentQuestion.prompt}`
+          : currentQuestion.prompt,
+      ];
+      if (option) {
+        lines.push(`Selected option: ${option.label}`);
+      }
+      lines.push(`Answer: ${normalizedAnswerText}`);
+      if (noteText) {
+        lines.push(`Additional notes: ${noteText}`);
+      }
+      answerLines.push({
+        payload: {
+          question_id: currentQuestion.id,
+          question_prompt: currentQuestion.prompt,
+          option_id: option?.id ?? null,
+          option_label: option?.label ?? null,
+          response_text: responseText || null,
+          notes: noteText || null,
+        },
+        text: lines.join("\n"),
+      });
+    }
+    const queuedText = answerLines.map((entry) => entry.text).join("\n\n");
+    this.store.ensureRuntimeState({
+      workspaceId: scope.lab.id,
+      sessionId,
+      status: "QUEUED",
+    });
+    const input = this.store.enqueueInput({
+      workspaceId: scope.lab.id,
+      sessionId,
+      payload: {
+        text: queuedText,
+        attachments: [],
+        image_urls: [],
+        model: null,
+        thinking_value: null,
+        context: {
+          source: "alignment_question",
+          question_count: questions.length,
+          questions: answerLines.map((entry) => entry.payload),
+        },
+      },
+    });
+    this.store.updateRuntimeState({
+      workspaceId: scope.lab.id,
+      sessionId,
+      status: "QUEUED",
+      currentInputId: input.inputId,
+      currentWorkerId: null,
+      leaseUntil: null,
+      heartbeatAt: null,
+      lastError: null,
+    });
+    const source = this.syncOnboardingFlow(scope, {
+      onboardingAlignmentQuestion: null,
+    });
+    this.options.queueWorker?.wake();
+    return {
+      ...onboardingPayload(source),
+      lab_workspace_id: scope.lab.id,
+      lab_purpose: scope.lab.labPurpose,
+      lab_status: scope.lab.labStatus,
+    };
+  }
+
+  createAlignmentReport(params: {
+    workspaceId: string;
+    report: Record<string, unknown>;
+  }): JsonObject {
+    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    this.requireOnboardingState(scope.source, [ONBOARDING_ALIGNMENT_STATE]);
+    if (Object.keys(params.report).length === 0) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "alignment_report_required",
+        "alignment report must be a non-empty object",
+      );
+    }
+    const serialized = JSON.stringify(params.report);
+    const source = this.syncOnboardingFlow(scope, {
+      onboardingState: ONBOARDING_AWAITING_ALIGNMENT_APPROVAL_STATE,
+      onboardingAlignmentQuestion: null,
+      onboardingAlignmentReport: serialized,
+      onboardingVerificationReport: null,
+    });
+    return {
+      ...onboardingPayload(source),
+      lab_workspace_id: scope.lab.id,
+      lab_purpose: scope.lab.labPurpose,
+      lab_status: scope.lab.labStatus,
+    };
+  }
+
+  approveAlignment(params: { workspaceId: string }): JsonObject {
+    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    this.requireOnboardingState(scope.source, [
+      ONBOARDING_AWAITING_ALIGNMENT_APPROVAL_STATE,
+    ]);
+    const source = this.syncOnboardingFlow(scope, {
+      onboardingState: ONBOARDING_IMPLEMENTING_STATE,
+      onboardingAlignmentQuestion: null,
+      onboardingVerificationReport: null,
+    });
+    return {
+      ...onboardingPayload(source),
+      lab_workspace_id: scope.lab.id,
+      lab_purpose: scope.lab.labPurpose,
+      lab_status: scope.lab.labStatus,
+    };
+  }
+
+  requestAlignmentRevision(params: { workspaceId: string }): JsonObject {
+    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    this.requireOnboardingState(scope.source, [
+      ONBOARDING_AWAITING_ALIGNMENT_APPROVAL_STATE,
+    ]);
+    const source = this.syncOnboardingFlow(scope, {
+      onboardingState: ONBOARDING_ALIGNMENT_STATE,
+      onboardingAlignmentQuestion: null,
+    });
+    return {
+      ...onboardingPayload(source),
+      lab_workspace_id: scope.lab.id,
+      lab_purpose: scope.lab.labPurpose,
+      lab_status: scope.lab.labStatus,
+    };
+  }
+
+  createVerificationReport(params: {
+    workspaceId: string;
+    report: Record<string, unknown>;
+  }): JsonObject {
+    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    this.requireOnboardingState(scope.source, [ONBOARDING_IMPLEMENTING_STATE]);
+    if (Object.keys(params.report).length === 0) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "verification_report_required",
+        "verification report must be a non-empty object",
+      );
+    }
+    const serialized = JSON.stringify(params.report);
+    const source = this.syncOnboardingFlow(scope, {
+      onboardingState: ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE,
+      onboardingAlignmentQuestion: null,
+      onboardingVerificationReport: serialized,
+    });
+    return {
+      ...onboardingPayload(source),
+      lab_workspace_id: scope.lab.id,
+      lab_purpose: scope.lab.labPurpose,
+      lab_status: scope.lab.labStatus,
+    };
+  }
+
+  requestVerificationRevision(params: { workspaceId: string }): JsonObject {
+    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    this.requireOnboardingState(scope.source, [
+      ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE,
+    ]);
+    const source = this.syncOnboardingFlow(scope, {
+      onboardingState: ONBOARDING_ALIGNMENT_STATE,
+      onboardingAlignmentQuestion: null,
+      onboardingVerificationReport: null,
+    });
+    return {
+      ...onboardingPayload(source),
+      lab_workspace_id: scope.lab.id,
+      lab_purpose: scope.lab.labPurpose,
+      lab_status: scope.lab.labStatus,
+    };
   }
 
   completeOnboarding(params: {
@@ -2447,15 +3026,48 @@ export class RuntimeAgentToolsService {
     requestedBy?: string | null;
   }): JsonObject {
     const workspace = this.requireWorkspace(params.workspaceId);
+    const state = effectiveOnboardingState(workspace);
+    if (
+      normalizedString(workspace.onboardingState) &&
+      state &&
+      state !== ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE
+    ) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "onboarding_state_conflict",
+        `onboarding can only be completed from ${ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE}`,
+      );
+    }
     const now = utcNowIso();
     const updated = this.store.updateWorkspace(workspace.id, {
       onboardingStatus: "completed",
+      onboardingState: ONBOARDING_COMPLETED_STATE,
       onboardingCompletedAt: now,
       onboardingCompletionSummary: params.summary,
       onboardingRequestedAt: now,
       onboardingRequestedBy: normalizedString(params.requestedBy) || "workspace_agent"
     });
     return onboardingPayload(updated);
+  }
+
+  listIntegrationCatalog(params: { workspaceId: string }): JsonObject {
+    this.requireWorkspace(params.workspaceId);
+    return {
+      workspace_id: params.workspaceId,
+      provider_ids: integrationCatalogProviderIds(),
+      providers: INTEGRATION_CATALOG_PROVIDERS.map((provider) => ({
+        provider_id: provider.provider_id,
+        display_name: provider.display_name,
+        description: provider.description,
+        auth_modes: [...provider.auth_modes],
+        supports_oss: provider.supports_oss,
+        supports_managed: provider.supports_managed,
+        default_scopes: [...provider.default_scopes],
+        docs_url: provider.docs_url,
+      })),
+      requirement:
+        "Use the exact canonical provider_id from this catalog in app.runtime.yaml integrations and createIntegrationClient(...). E.g. use 'twitter' for X.",
+    };
   }
 
   listCronjobs(params: {
@@ -2485,7 +3097,7 @@ export class RuntimeAgentToolsService {
   }
 
   createCronjob(params: RuntimeAgentToolsCreateCronjobParams): JsonObject {
-    this.requireWorkspace(params.workspaceId);
+    const workspace = this.requireWorkspace(params.workspaceId);
     const cron = normalizedString(params.cron);
     const description = normalizedString(params.description);
     const instruction = normalizedString(params.instruction ?? params.description);
@@ -2498,6 +3110,29 @@ export class RuntimeAgentToolsService {
     if (!instruction) {
       throw new RuntimeAgentToolsServiceError(400, "cronjob_instruction_required", "instruction is required");
     }
+    const isDraftLab = workspace.workspaceRole === "draft_lab";
+    const requestedEnabled = params.enabled !== false;
+    // Cronjobs inside a draft lab are design context only — the lab is a
+    // throwaway scratch space, so its cronjobs must not actually fire.
+    // Remember the author's intent on the metadata so it can be restored
+    // verbatim when the lab merges back into the source workspace.
+    const effectiveEnabled = isDraftLab ? false : requestedEnabled;
+    const effectiveNextRunAt = isDraftLab
+      ? null
+      : cronjobNextRunAt(cron, new Date());
+    const baseMetadata = metadataWithCronjobDefaults({
+      metadata: params.metadata,
+      holabossUserId: params.holabossUserId,
+      selectedModel: params.selectedModel,
+      sourceSessionId: params.sessionId,
+    });
+    const metadata: JsonObject = isDraftLab
+      ? {
+          ...baseMetadata,
+          author_recommended_enabled: requestedEnabled,
+          lab_execution_disabled: true,
+        }
+      : baseMetadata;
     const created = this.store.createCronjob({
       workspaceId: params.workspaceId,
       initiatedBy: normalizedString(params.initiatedBy) || "workspace_agent",
@@ -2505,25 +3140,21 @@ export class RuntimeAgentToolsService {
       cron,
       description,
       instruction,
-      enabled: params.enabled !== false,
+      enabled: effectiveEnabled,
       delivery: normalizeDelivery({
         channel: normalizedString(params.delivery?.channel ?? "session_run") || "session_run",
         mode: params.delivery?.mode ?? "announce",
         to: params.delivery?.to
       }),
-      metadata: metadataWithCronjobDefaults({
-        metadata: params.metadata,
-        holabossUserId: params.holabossUserId,
-        selectedModel: params.selectedModel,
-        sourceSessionId: params.sessionId,
-      }),
-      nextRunAt: cronjobNextRunAt(cron, new Date())
+      metadata,
+      nextRunAt: effectiveNextRunAt,
     });
     return cronjobPayload(created);
   }
 
   updateCronjob(params: RuntimeAgentToolsUpdateCronjobParams): JsonObject {
     const workspaceId = this.requireWorkspaceId(params.workspaceId);
+    const workspace = this.requireWorkspace(workspaceId);
     const existing = this.requireCronjob({
       workspaceId,
       jobId: params.jobId,
@@ -2541,6 +3172,37 @@ export class RuntimeAgentToolsService {
     if (params.instruction !== undefined && !instruction) {
       throw new RuntimeAgentToolsServiceError(400, "cronjob_instruction_required", "instruction is required");
     }
+    const isDraftLab = workspace.workspaceRole === "draft_lab";
+    const effectiveEnabled =
+      params.enabled === undefined
+        ? undefined
+        : isDraftLab
+          ? false
+          : params.enabled;
+    const baseMetadata =
+      params.metadata === undefined
+        ? undefined
+        : metadataWithCronjobDefaults({
+            metadata: params.metadata,
+            holabossUserId: null,
+          });
+    let effectiveMetadata = baseMetadata;
+    if (isDraftLab && params.enabled !== undefined) {
+      // Carry the author's requested enabled state forward in metadata so
+      // a later lab-merge can restore intent; the row itself stays disabled.
+      const existingMetadata = isRecord(existing.metadata) ? existing.metadata : {};
+      effectiveMetadata = {
+        ...((baseMetadata ?? existingMetadata) as JsonObject),
+        author_recommended_enabled: params.enabled,
+        lab_execution_disabled: true,
+      };
+    }
+    const effectiveNextRunAt =
+      cron === null
+        ? undefined
+        : isDraftLab
+          ? null
+          : cronjobNextRunAt(cron, new Date());
     const updated = this.store.updateCronjob({
       workspaceId,
       jobId: params.jobId,
@@ -2548,7 +3210,7 @@ export class RuntimeAgentToolsService {
       cron,
       description,
       instruction: resolvedInstructionForCronjobUpdate({ existing, description, instruction }),
-      enabled: params.enabled === undefined ? undefined : params.enabled,
+      enabled: effectiveEnabled,
       delivery:
         params.delivery === undefined || params.delivery === null
           ? undefined
@@ -2557,14 +3219,8 @@ export class RuntimeAgentToolsService {
               mode: params.delivery.mode,
               to: params.delivery.to
             }),
-      metadata:
-        params.metadata === undefined
-          ? undefined
-          : metadataWithCronjobDefaults({
-              metadata: params.metadata,
-              holabossUserId: null,
-            }),
-      nextRunAt: cron === null ? undefined : cronjobNextRunAt(cron, new Date())
+      metadata: effectiveMetadata,
+      nextRunAt: effectiveNextRunAt,
     });
     if (!updated) {
       throw new RuntimeAgentToolsServiceError(404, "cronjob_not_found", "cronjob not found");
@@ -4165,6 +4821,86 @@ export class RuntimeAgentToolsService {
     return !childSession?.archivedAt;
   }
 
+  private resolveOnboardingFlowScope(workspaceId: string): {
+    source: WorkspaceRecord;
+    lab: WorkspaceRecord | null;
+  } {
+    const workspace = this.requireWorkspace(workspaceId);
+    if (
+      workspace.workspaceRole === "draft_lab" &&
+      workspace.labPurpose === "workspace_onboarding"
+    ) {
+      const sourceWorkspaceId = normalizedString(workspace.sourceWorkspaceId);
+      const source = sourceWorkspaceId
+        ? this.store.getWorkspace(sourceWorkspaceId)
+        : null;
+      if (!source) {
+        throw new RuntimeAgentToolsServiceError(
+          404,
+          "source_workspace_not_found",
+          "source workspace not found",
+        );
+      }
+      return { source, lab: workspace };
+    }
+    const activeLab = this.store.getActiveWorkspaceLab(workspace.id);
+    if (activeLab?.labPurpose === "workspace_onboarding") {
+      return { source: workspace, lab: activeLab };
+    }
+    return { source: workspace, lab: null };
+  }
+
+  private requireActiveOnboardingLab(workspaceId: string): {
+    source: WorkspaceRecord;
+    lab: WorkspaceRecord;
+  } {
+    const scope = this.resolveOnboardingFlowScope(workspaceId);
+    if (!scope.lab) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "onboarding_lab_not_active",
+        "active workspace onboarding lab not found",
+      );
+    }
+    return { source: scope.source, lab: scope.lab };
+  }
+
+  private requireOnboardingState(
+    workspace: WorkspaceRecord,
+    allowedStates: string[],
+  ): string {
+    const currentState = effectiveOnboardingState(workspace);
+    if (!currentState || !allowedStates.includes(currentState)) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "onboarding_state_conflict",
+        `expected onboarding state ${allowedStates.join(" or ")}, got ${currentState ?? "unset"}`,
+      );
+    }
+    return currentState;
+  }
+
+  private syncOnboardingFlow(
+    scope: { source: WorkspaceRecord; lab: WorkspaceRecord | null },
+    fields: {
+      onboardingState?: string | null;
+      onboardingAlignmentQuestion?: string | null;
+      onboardingAlignmentReport?: string | null;
+      onboardingVerificationReport?: string | null;
+      onboardingCompletedAt?: string | null;
+      onboardingCompletionSummary?: string | null;
+      onboardingRequestedAt?: string | null;
+      onboardingRequestedBy?: string | null;
+      onboardingStatus?: string | null;
+    },
+  ): WorkspaceRecord {
+    const source = this.store.updateWorkspace(scope.source.id, fields);
+    if (scope.lab) {
+      this.store.updateWorkspace(scope.lab.id, fields);
+    }
+    return source;
+  }
+
   private requireWorkspace(workspaceId: string): WorkspaceRecord {
     const workspace = this.store.getWorkspace(workspaceId);
     if (!workspace) {
@@ -4272,6 +5008,8 @@ export class RuntimeAgentToolsService {
     return pendingIntegrationsFromAppManifests({
       workspaceDir: path.join(this.options.workspaceRoot, workspaceId),
       appIds: resolvedIds,
+      store: this.store,
+      workspaceId,
     });
   }
 
@@ -4689,6 +5427,25 @@ export class RuntimeAgentToolsService {
       );
     }
 
+    const appDir = path.dirname(manifestPath);
+    const hostViolations = findForbiddenUpstreamHosts(appDir);
+    if (hostViolations.length > 0) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "workspace_app_upstream_host_hardcoded",
+        formatHostLintError(hostViolations),
+      );
+    }
+
+    const uiUsage = inspectDashboardUiUsage(appDir);
+    if (uiUsage.hasClientDir && !uiUsage.usesHolabossUiLayout) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "workspace_app_missing_holaboss_ui_layout",
+        formatDashboardUiLintError(uiUsage),
+      );
+    }
+
     const lifecycle: Record<string, string> = {};
     if (parsed.lifecycle.setup) lifecycle.setup = parsed.lifecycle.setup;
     if (parsed.lifecycle.start) lifecycle.start = parsed.lifecycle.start;
@@ -4939,11 +5696,24 @@ export class RuntimeAgentToolsService {
       );
     }
 
+    // PR 1: opportunistically bootstrap the composio-mcp host alongside
+    // app startup. Failures here never fail the call — composio direct
+    // tools are additive; without them the agent still has app tools.
+    if (this.options.composioMcpManager) {
+      try {
+        await this.options.composioMcpManager.ensureRunning(params.workspaceId);
+      } catch {
+        // manager already logs; nothing else to do
+      }
+    }
+
     const mcpServersAfter = readWorkspaceMcpRegistryServerNames(workspaceDir);
     const newMcpServers = [...mcpServersAfter].filter((name) => !mcpServersBefore.has(name));
     const pendingIntegrations = pendingIntegrationsFromAppManifests({
       workspaceDir,
       appIds: targetAppIds,
+      store: this.store,
+      workspaceId: params.workspaceId,
     });
 
     const statusResult = this.getWorkspaceAppStatus({
@@ -5439,6 +6209,44 @@ export class RuntimeAgentToolsService {
         }
       }
     }
+  }
+
+  proposeIntegrationConnect(params: {
+    workspaceId: string;
+    toolkitSlug: string;
+    reason?: string;
+  }): JsonObject {
+    this.requireWorkspace(params.workspaceId);
+    const slug = params.toolkitSlug.trim().toLowerCase();
+    if (!slug) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "toolkit_slug_required",
+        "toolkit_slug is required",
+      );
+    }
+    const entry = getStoreCatalogEntry(slug);
+    if (!entry) {
+      throw new RuntimeAgentToolsServiceError(
+        404,
+        "toolkit_not_in_store_catalog",
+        `Toolkit '${slug}' is not in the integration store catalog. Use one of the supported slugs.`,
+      );
+    }
+    const reason =
+      typeof params.reason === "string" && params.reason.trim().length > 0
+        ? params.reason.trim()
+        : null;
+    // The chat UI parses `proposed_integration` and renders a Connect
+    // card; agent should NOT write its own connect copy in the reply.
+    return {
+      proposed_integration: {
+        toolkit_slug: slug,
+        tier: entry.tier,
+        category: entry.category,
+        ...(reason ? { reason } : {}),
+      },
+    };
   }
 
   // Introspects the workspace's shared SQLite (data.db) and returns the

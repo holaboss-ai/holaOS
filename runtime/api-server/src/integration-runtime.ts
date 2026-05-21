@@ -74,21 +74,31 @@ function resolveBindingForRequirement(params: {
   workspaceId: string;
   appId: string;
   integrationKey: string;
+  provider: string;
 }): IntegrationBindingRecord | null {
-  return (
-    params.store.getIntegrationBindingByTarget({
-      workspaceId: params.workspaceId,
-      targetType: "app",
-      targetId: params.appId,
-      integrationKey: params.integrationKey
-    }) ??
-    params.store.getIntegrationBindingByTarget({
-      workspaceId: params.workspaceId,
-      targetType: "workspace",
-      targetId: "default",
-      integrationKey: params.integrationKey
-    })
-  );
+  const integrationKeys = [params.integrationKey, params.provider]
+    .map((value) => value.trim())
+    .filter((value, index, values) => value.length > 0 && values.indexOf(value) === index);
+
+  for (const integrationKey of integrationKeys) {
+    const binding =
+      params.store.getIntegrationBindingByTarget({
+        workspaceId: params.workspaceId,
+        targetType: "app",
+        targetId: params.appId,
+        integrationKey
+      }) ??
+      params.store.getIntegrationBindingByTarget({
+        workspaceId: params.workspaceId,
+        targetType: "workspace",
+        targetId: "default",
+        integrationKey
+      });
+    if (binding) {
+      return binding;
+    }
+  }
+  return null;
 }
 
 export function resolveIntegrationRuntime(params: {
@@ -130,7 +140,8 @@ export function resolveIntegrationRuntime(params: {
       store: params.store,
       workspaceId,
       appId: params.appId,
-      integrationKey: requirement.key
+      integrationKey: requirement.key,
+      provider: requirement.provider
     });
     if (!binding) {
       continue;
@@ -193,7 +204,8 @@ export function checkIntegrationReadiness(params: {
       store: params.store,
       workspaceId,
       appId: params.appId,
-      integrationKey: requirement.key
+      integrationKey: requirement.key,
+      provider: requirement.provider
     });
     if (!binding) {
       issues.push({

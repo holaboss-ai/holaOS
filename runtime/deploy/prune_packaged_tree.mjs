@@ -56,8 +56,17 @@ function countFiles(rootPath) {
   return count;
 }
 
-function shouldPruneFile(fileName) {
+function isEmbeddedSkillSupportPath(filePath) {
+  const normalized = filePath.split(path.sep).join("/");
+  return normalized.includes("/embedded-skills/");
+}
+
+function shouldPruneFile(filePath) {
+  const fileName = path.basename(filePath);
   if (fileName === "SKILL.md") {
+    return false;
+  }
+  if (isEmbeddedSkillSupportPath(filePath) && (fileName.endsWith(".md") || fileName.endsWith(".markdown"))) {
     return false;
   }
   return FILE_SUFFIXES_TO_PRUNE.some((suffix) => fileName.endsWith(suffix));
@@ -80,7 +89,7 @@ function pruneCommonRuntimeFiles(rootPath, insideNodeModules = false) {
       continue;
     }
 
-    if (entry.isFile() && shouldPruneFile(entry.name)) {
+    if (entry.isFile() && shouldPruneFile(entryPath)) {
       rmSync(entryPath, { force: true });
     }
   }

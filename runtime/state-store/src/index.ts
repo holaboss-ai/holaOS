@@ -5,6 +5,8 @@ export {
   type AppPortRecord,
   type IntegrationBindingRecord,
   type IntegrationConnectionRecord,
+  type WorkspaceIntegrationOverrideRecord,
+  type WorkspaceIntegrationOverrideState,
   type OAuthAppConfigRecord,
   type ConversationBindingRecord,
   RuntimeStateStore,

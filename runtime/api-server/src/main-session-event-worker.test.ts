@@ -58,6 +58,79 @@ function seedMainSession(store: RuntimeStateStore) {
   return workspace;
 }
 
+test("main-session event worker materializes active lab controller events", async () => {
+  const store = makeStore("hb-main-session-event-worker-lab-");
+  const sourceWorkspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+    onboardingStatus: "pending",
+    onboardingSessionId: "workspace_onboarding-1",
+  });
+  const labWorkspace = store.createWorkspace({
+    workspaceId: "lab-1",
+    name: "Workspace 1 Lab",
+    harness: "pi",
+    status: "active",
+    onboardingStatus: "not_required",
+    workspaceRole: "draft_lab",
+    sourceWorkspaceId: sourceWorkspace.id,
+    labPurpose: "workspace_onboarding",
+    labStatus: "active",
+  });
+  store.ensureSession({
+    workspaceId: labWorkspace.id,
+    sessionId: "workspace_onboarding-1",
+    kind: "workspace_onboarding",
+  });
+  store.ensureRuntimeState({
+    workspaceId: labWorkspace.id,
+    sessionId: "workspace_onboarding-1",
+    status: "IDLE",
+  });
+  const event = store.enqueueMainSessionEvent({
+    workspaceId: labWorkspace.id,
+    ownerMainSessionId: "workspace_onboarding-1",
+    originMainSessionId: "workspace_onboarding-1",
+    subagentId: "subagent-1",
+    eventType: "completed",
+    deliveryBucket: "background_update",
+    payload: { summary: "Implemented the accepted design." },
+  });
+
+  const worker = new RuntimeMainSessionEventWorker({ store });
+  const processed = await worker.processAvailableEventsOnce();
+  const updatedEvent = store.getMainSessionEvent({
+    workspaceId: labWorkspace.id,
+    eventId: event.eventId,
+  });
+  const batchInput = updatedEvent?.materializedInputId
+    ? store.getInput({
+        workspaceId: labWorkspace.id,
+        inputId: updatedEvent.materializedInputId,
+      })
+    : null;
+
+  assert.equal(processed, 1);
+  assert.equal(updatedEvent?.status, "materialized");
+  assert.equal(batchInput?.workspaceId, labWorkspace.id);
+  assert.equal(batchInput?.sessionId, "workspace_onboarding-1");
+  assert.equal(
+    (batchInput?.payload.context as Record<string, unknown>)?.source,
+    "main_session_event_batch",
+  );
+  assert.equal(
+    store.listPendingMainSessionEvents({
+      workspaceId: labWorkspace.id,
+      ownerMainSessionId: "workspace_onboarding-1",
+    }).length,
+    0,
+  );
+
+  store.close();
+});
+
 test("main-session event worker materializes waiting-user events into one queued main-session input", async () => {
   const store = makeStore("hb-main-session-event-worker-");
   const workspace = seedMainSession(store);

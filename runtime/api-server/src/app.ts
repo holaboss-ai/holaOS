@@ -57,6 +57,12 @@ import {
   cronjobNextRunAt
 } from "./cron-worker.js";
 import {
+  cronjobAuthorRecommendedEnabled,
+  disableCronjobAutonomyForLab,
+  isDraftLabWorkspace,
+  stripLabCronjobExecutionDisabledMetadata,
+} from "./cronjob-policy.js";
+import {
   type MainSessionEventWorkerLike,
   RuntimeMainSessionEventWorker,
 } from "./main-session-event-worker.js";
@@ -104,9 +110,20 @@ import {
   RuntimeIntegrationService
 } from "./integrations.js";
 import { BrokerError, IntegrationBrokerService } from "./integration-broker.js";
+import { resumePendingIntegrationInputs } from "./integration-proposal-gate.js";
 import { OAuthService } from "./oauth-service.js";
 import { ComposioService } from "./composio-service.js";
+import { ComposioMcpManager } from "./composio-mcp-manager.js";
+import { listAllToolkitCapabilities } from "./composio-tool-registry.js";
+import { listStoreCatalog } from "./integration-store-catalog.js";
+import { WorkspaceIntegrationsService } from "./workspace-integrations.js";
 import {
+  effectiveOnboardingState,
+  ONBOARDING_ABANDONED_STATE,
+  ONBOARDING_ALIGNMENT_STATE,
+  ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE,
+  ONBOARDING_COMPLETED_STATE,
+  onboardingPayload,
   RuntimeAgentToolsService,
   RuntimeAgentToolsServiceError,
 } from "./runtime-agent-tools.js";
@@ -828,7 +845,17 @@ function workspaceRecordPayload(
     harness: workspace.harness,
     error_message: workspace.errorMessage,
     onboarding_status: workspace.onboardingStatus,
+    onboarding_state: effectiveOnboardingState(workspace),
     onboarding_session_id: workspace.onboardingSessionId,
+    alignment_question: parsedWorkspaceReportPayload(
+      workspace.onboardingAlignmentQuestion,
+    ),
+    alignment_report: parsedWorkspaceReportPayload(
+      workspace.onboardingAlignmentReport,
+    ),
+    verification_report: parsedWorkspaceReportPayload(
+      workspace.onboardingVerificationReport,
+    ),
     onboarding_completed_at: workspace.onboardingCompletedAt,
     onboarding_completion_summary: workspace.onboardingCompletionSummary,
     onboarding_requested_at: workspace.onboardingRequestedAt,
@@ -838,6 +865,10 @@ function workspaceRecordPayload(
     deleted_at_utc: workspace.deletedAtUtc,
     icon: workspace.icon,
     icon_color: workspace.iconColor,
+    workspace_role: workspace.workspaceRole,
+    source_workspace_id: workspace.sourceWorkspaceId,
+    lab_purpose: workspace.labPurpose,
+    lab_status: workspace.labStatus,
     workspace_path: workspacePath ?? null,
     folder_state: folderState ?? null
   };
@@ -902,6 +933,18 @@ function resolveWorkspaceFolderStateForPayload(
 ): "healthy" | "missing" | null {
   try {
     return store.workspaceFolderState(workspaceId);
+  } catch {
+    return null;
+  }
+}
+
+function parsedWorkspaceReportPayload(raw: string | null | undefined): unknown | null {
+  const normalized = typeof raw === "string" ? raw.trim() : "";
+  if (!normalized) {
+    return null;
+  }
+  try {
+    return JSON.parse(normalized);
   } catch {
     return null;
   }
@@ -1634,6 +1677,592 @@ function resolveOrCreateWorkspaceMainSession(params: {
   };
 }
 
+const DESIGN_TREE_EXCLUDED_DIRS = new Set([
+  ".git",
+  ".holaboss",
+  ".opencode",
+  ".output",
+  ".turbo",
+  "build",
+  "coverage",
+  "dist",
+  "node_modules",
+]);
+
+function syncDesignTree(sourceDir: string, targetDir: string): void {
+  fs.mkdirSync(targetDir, { recursive: true });
+  const sourceEntries = new Set(
+    fs.existsSync(sourceDir) ? fs.readdirSync(sourceDir) : [],
+  );
+  for (const entry of fs.readdirSync(targetDir)) {
+    if (DESIGN_TREE_EXCLUDED_DIRS.has(entry)) {
+      continue;
+    }
+    if (!sourceEntries.has(entry)) {
+      fs.rmSync(path.join(targetDir, entry), { recursive: true, force: true });
+    }
+  }
+  for (const entry of sourceEntries) {
+    if (DESIGN_TREE_EXCLUDED_DIRS.has(entry)) {
+      continue;
+    }
+    fs.cpSync(path.join(sourceDir, entry), path.join(targetDir, entry), {
+      recursive: true,
+      force: true,
+      errorOnExist: false,
+    });
+  }
+}
+
+function copiedCronjobFields(params: {
+  store: RuntimeStateStore;
+  sourceWorkspaceId: string;
+  targetWorkspaceId: string;
+  job: CronjobRecord;
+}): {
+  enabled: boolean;
+  metadata: Record<string, unknown>;
+  nextRunAt: string | null;
+} {
+  const sourceWorkspace = params.store.getWorkspace(params.sourceWorkspaceId);
+  const targetWorkspace = params.store.getWorkspace(params.targetWorkspaceId);
+  const metadata = optionalDict(params.job.metadata) ?? {};
+
+  if (isDraftLabWorkspace(targetWorkspace)) {
+    return disableCronjobAutonomyForLab({
+      metadata,
+      recommendedEnabled: cronjobAuthorRecommendedEnabled(params.job),
+    });
+  }
+
+  if (isDraftLabWorkspace(sourceWorkspace)) {
+    const recommendedEnabled = cronjobAuthorRecommendedEnabled(params.job);
+    return {
+      enabled: recommendedEnabled,
+      metadata: stripLabCronjobExecutionDisabledMetadata(metadata),
+      nextRunAt: recommendedEnabled ? cronjobNextRunAt(params.job.cron, new Date()) : null,
+    };
+  }
+
+  return {
+    enabled: params.job.enabled,
+    metadata,
+    nextRunAt: params.job.nextRunAt,
+  };
+}
+
+function replaceDesignCronjobs(params: {
+  store: RuntimeStateStore;
+  sourceWorkspaceId: string;
+  targetWorkspaceId: string;
+}): void {
+  for (const existing of params.store.listCronjobs({ workspaceId: params.targetWorkspaceId })) {
+    params.store.deleteCronjob({
+      workspaceId: params.targetWorkspaceId,
+      jobId: existing.id,
+    });
+  }
+  for (const job of params.store.listCronjobs({ workspaceId: params.sourceWorkspaceId })) {
+    const copied = copiedCronjobFields({
+      store: params.store,
+      sourceWorkspaceId: params.sourceWorkspaceId,
+      targetWorkspaceId: params.targetWorkspaceId,
+      job,
+    });
+    params.store.createCronjob({
+      workspaceId: params.targetWorkspaceId,
+      jobId: job.id,
+      initiatedBy: job.initiatedBy,
+      name: job.name,
+      cron: job.cron,
+      description: job.description,
+      instruction: job.instruction,
+      enabled: copied.enabled,
+      delivery: job.delivery as Record<string, unknown>,
+      metadata: copied.metadata,
+      nextRunAt: copied.nextRunAt,
+    });
+  }
+}
+
+function replaceDesignIntegrationBindings(params: {
+  store: RuntimeStateStore;
+  sourceWorkspaceId: string;
+  targetWorkspaceId: string;
+}): void {
+  for (const existing of params.store.listIntegrationBindings({ workspaceId: params.targetWorkspaceId })) {
+    params.store.deleteIntegrationBinding(existing.bindingId);
+  }
+  for (const binding of params.store.listIntegrationBindings({ workspaceId: params.sourceWorkspaceId })) {
+    params.store.upsertIntegrationBinding({
+      bindingId: randomUUID(),
+      workspaceId: params.targetWorkspaceId,
+      targetType: binding.targetType,
+      targetId: binding.targetId,
+      integrationKey: binding.integrationKey,
+      connectionId: binding.connectionId,
+      isDefault: binding.isDefault,
+    });
+  }
+}
+
+function sessionKindForLabPurpose(purpose: string): string {
+  return purpose === "meeting_mode" ? "meeting_mode" : "workspace_onboarding";
+}
+
+function isLabControllerSessionKind(kind: string | null | undefined): boolean {
+  const normalized = (kind ?? "").trim().toLowerCase();
+  return normalized === "workspace_onboarding" || normalized === "meeting_mode";
+}
+
+const WORKSPACE_ONBOARDING_STARTER_ASSISTANT_MESSAGE =
+  "What would you like to build?";
+
+function ensureWorkspaceOnboardingStarterMessage(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  sessionId: string;
+}): void {
+  const existingMessageCount = params.store.countSessionMessages({
+    workspaceId: params.workspaceId,
+    sessionId: params.sessionId,
+  });
+  if (existingMessageCount > 0) {
+    return;
+  }
+  params.store.insertSessionMessage({
+    workspaceId: params.workspaceId,
+    sessionId: params.sessionId,
+    role: "assistant",
+    text: WORKSPACE_ONBOARDING_STARTER_ASSISTANT_MESSAGE,
+    messageId: `workspace-onboarding-starter:${params.sessionId}`,
+  });
+}
+
+function labPayload(params: {
+  lab: WorkspaceRecord;
+  source: WorkspaceRecord;
+  session: AgentSessionRecord | null;
+  created?: boolean;
+}): Record<string, unknown> {
+  return {
+    lab: workspaceRecordPayload(params.lab, null, null),
+    source: workspaceRecordPayload(params.source, null, null),
+    session: params.session ? agentSessionPayload(params.session) : null,
+    created: params.created === true,
+  };
+}
+
+function archiveWorkspaceLabSessions(params: {
+  store: RuntimeStateStore;
+  labId: string;
+  archivedAt?: string;
+}): void {
+  const archivedAt = params.archivedAt ?? utcNowIso();
+  for (const session of params.store.listSessions({
+    workspaceId: params.labId,
+    includeArchived: true,
+    limit: 1000,
+    offset: 0,
+  })) {
+    params.store.ensureSession(
+      {
+        workspaceId: params.labId,
+        sessionId: session.sessionId,
+        archivedAt: session.archivedAt ?? archivedAt,
+      },
+      { touchExisting: false },
+    );
+  }
+}
+
+function archiveHistoricalWorkspaceLabs(params: {
+  store: RuntimeStateStore;
+  sourceWorkspaceId: string;
+}): void {
+  for (const lab of params.store.listWorkspaceLabs({
+    sourceWorkspaceId: params.sourceWorkspaceId,
+    activeOnly: false,
+  })) {
+    if (lab.labStatus === "active" && lab.status === "active") {
+      continue;
+    }
+    if (lab.status !== "archived") {
+      params.store.updateWorkspace(lab.id, {
+        status: "archived",
+      });
+    }
+    archiveWorkspaceLabSessions({
+      store: params.store,
+      labId: lab.id,
+    });
+  }
+}
+
+async function stopWorkspaceApplicationsForArchive(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  workspaceDir: string;
+  appLifecycleExecutor: AppLifecycleExecutorLike;
+  logger?: { debug: (...args: unknown[]) => void };
+}): Promise<void> {
+  const allocatedPorts: number[] = params.store
+    .listAppPorts({ workspaceId: params.workspaceId })
+    .map((p) => p.port);
+
+  let entries: Array<Record<string, unknown>> = [];
+  try {
+    entries = listWorkspaceApplications(params.workspaceDir);
+  } catch (error) {
+    params.logger?.debug?.(
+      {
+        workspaceId: params.workspaceId,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      "best-effort app listing failed during workspace lab archive",
+    );
+  }
+
+  for (const entry of entries) {
+    const appId = typeof entry.app_id === "string" ? entry.app_id.trim() : "";
+    if (!appId) {
+      continue;
+    }
+    const configPath = typeof entry.config_path === "string" ? entry.config_path.trim() : "";
+    const fallbackAppDir = path.join(
+      params.workspaceDir,
+      configPath ? path.dirname(configPath) : path.join("apps", appId),
+    );
+
+    try {
+      const resolved = resolveWorkspaceAppRuntime(params.workspaceDir, appId, {
+        store: params.store,
+        workspaceId: params.workspaceId,
+      });
+      await params.appLifecycleExecutor.stopApp({
+        appId,
+        appDir: resolved.appDir,
+        workspaceId: params.workspaceId,
+        resolvedApp: resolved.resolvedApp,
+      });
+    } catch (error) {
+      try {
+        await params.appLifecycleExecutor.stopApp({
+          appId,
+          appDir: fallbackAppDir,
+          workspaceId: params.workspaceId,
+        });
+      } catch (fallbackError) {
+        params.logger?.debug?.(
+          {
+            workspaceId: params.workspaceId,
+            appId,
+            error:
+              fallbackError instanceof Error
+                ? fallbackError.message
+                : String(fallbackError),
+            original_error: error instanceof Error ? error.message : String(error),
+          },
+          "best-effort app stop failed during workspace lab archive",
+        );
+      }
+    } finally {
+      releaseWorkspaceAppPorts({
+        store: params.store,
+        workspaceId: params.workspaceId,
+        appId,
+      });
+      params.store.upsertAppBuild({
+        workspaceId: params.workspaceId,
+        appId,
+        status: "stopped",
+      });
+    }
+  }
+
+  if (allocatedPorts.length > 0) {
+    try {
+      await killPortListeners(allocatedPorts);
+    } catch {
+      params.logger?.debug?.(
+        { workspaceId: params.workspaceId, ports: allocatedPorts },
+        "best-effort port kill during workspace lab archive",
+      );
+    }
+  }
+
+  for (const appPort of params.store.listAppPorts({ workspaceId: params.workspaceId })) {
+    params.store.deleteAppPort({ workspaceId: params.workspaceId, appId: appPort.appId });
+  }
+}
+
+function ensureWorkspaceLab(params: {
+  store: RuntimeStateStore;
+  sourceWorkspaceId: string;
+  purpose: string;
+}): { lab: WorkspaceRecord; source: WorkspaceRecord; session: AgentSessionRecord; created: boolean } {
+  const source = params.store.getWorkspace(params.sourceWorkspaceId);
+  if (!source) {
+    throw new Error("source workspace not found");
+  }
+  if (source.workspaceRole === "draft_lab") {
+    throw new Error("cannot create a lab from another lab workspace");
+  }
+  archiveHistoricalWorkspaceLabs({
+    store: params.store,
+    sourceWorkspaceId: source.id,
+  });
+  const existingLab = params.store.getActiveWorkspaceLab(source.id);
+  const kind = sessionKindForLabPurpose(params.purpose);
+  if (existingLab) {
+    if ((existingLab.labPurpose ?? "").trim() !== params.purpose) {
+      throw new Error(`workspace already has an active ${existingLab.labPurpose ?? "lab"} lab`);
+    }
+    const existingSessions = params.store.listSessions({
+      workspaceId: existingLab.id,
+      includeArchived: false,
+      limit: 50,
+      offset: 0,
+    });
+    const existingSession =
+      existingSessions.find((session) => session.kind === kind) ??
+      params.store.ensureSession({
+        workspaceId: existingLab.id,
+        sessionId: `${kind}-${randomUUID()}`,
+        kind,
+        title: kind === "meeting_mode" ? "Meeting Mode" : "Workspace Onboarding",
+        createdBy: "system",
+      });
+    if (params.purpose === "workspace_onboarding") {
+      ensureWorkspaceOnboardingStarterMessage({
+        store: params.store,
+        workspaceId: existingLab.id,
+        sessionId: existingSession.sessionId,
+      });
+    }
+    return { lab: existingLab, source, session: existingSession, created: false };
+  }
+
+  const lab = params.store.createWorkspace({
+    workspaceId: `lab-${randomUUID()}`,
+    name: `${source.name.trim() || "Workspace"} Lab`,
+    harness: source.harness ?? resolvedWorkspaceHarness(source),
+    status: "active",
+    onboardingStatus: "not_required",
+    onboardingState:
+      params.purpose === "workspace_onboarding" ? ONBOARDING_ALIGNMENT_STATE : null,
+    onboardingAlignmentReport: null,
+    onboardingVerificationReport: null,
+    workspaceRole: "draft_lab",
+    sourceWorkspaceId: source.id,
+    labPurpose: params.purpose,
+    labStatus: "active",
+  });
+  syncDesignTree(params.store.workspaceDir(source.id), params.store.workspaceDir(lab.id));
+  replaceDesignCronjobs({
+    store: params.store,
+    sourceWorkspaceId: source.id,
+    targetWorkspaceId: lab.id,
+  });
+  replaceDesignIntegrationBindings({
+    store: params.store,
+    sourceWorkspaceId: source.id,
+    targetWorkspaceId: lab.id,
+  });
+  const session = params.store.ensureSession({
+    workspaceId: lab.id,
+    sessionId: `${kind}-${randomUUID()}`,
+    kind,
+    title: kind === "meeting_mode" ? "Meeting Mode" : "Workspace Onboarding",
+    createdBy: "system",
+  });
+  if (params.purpose === "workspace_onboarding") {
+    ensureWorkspaceOnboardingStarterMessage({
+      store: params.store,
+      workspaceId: lab.id,
+      sessionId: session.sessionId,
+    });
+    params.store.updateWorkspace(source.id, {
+      onboardingStatus: "pending",
+      onboardingState: ONBOARDING_ALIGNMENT_STATE,
+      onboardingSessionId: session.sessionId,
+      onboardingAlignmentReport: null,
+      onboardingVerificationReport: null,
+      onboardingCompletedAt: null,
+      onboardingCompletionSummary: null,
+      onboardingRequestedAt: utcNowIso(),
+      onboardingRequestedBy: "workspace_user",
+    });
+  }
+  return {
+    lab,
+    source: params.store.getWorkspace(source.id) ?? source,
+    session,
+    created: true,
+  };
+}
+
+function resolveSessionWorkspaceScope(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  sessionId: string;
+}): { workspaceId: string; workspace: WorkspaceRecord } | null {
+  const workspace = params.store.getWorkspace(params.workspaceId);
+  if (!workspace) {
+    return null;
+  }
+  if (
+    params.store.getSession({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+    })
+  ) {
+    return { workspaceId: params.workspaceId, workspace };
+  }
+  const activeLab = params.store.getActiveWorkspaceLab(params.workspaceId);
+  if (
+    activeLab &&
+    params.store.getSession({
+      workspaceId: activeLab.id,
+      sessionId: params.sessionId,
+    })
+  ) {
+    return { workspaceId: activeLab.id, workspace: activeLab };
+  }
+  return { workspaceId: params.workspaceId, workspace };
+}
+
+async function completeWorkspaceLab(params: {
+  store: RuntimeStateStore;
+  labId: string;
+  summary: string;
+  appLifecycleExecutor: AppLifecycleExecutorLike;
+  logger?: { debug: (...args: unknown[]) => void };
+}): Promise<{ lab: WorkspaceRecord; source: WorkspaceRecord; session: AgentSessionRecord | null; created: boolean }> {
+  const lab = params.store.getWorkspace(params.labId);
+  if (!lab || lab.workspaceRole !== "draft_lab") {
+    throw new Error("lab workspace not found");
+  }
+  if (lab.labStatus !== "active") {
+    throw new Error("lab is not active");
+  }
+  const sourceWorkspaceId = lab.sourceWorkspaceId?.trim() || "";
+  const source = sourceWorkspaceId ? params.store.getWorkspace(sourceWorkspaceId) : null;
+  if (!source) {
+    throw new Error("source workspace not found");
+  }
+  syncDesignTree(params.store.workspaceDir(lab.id), params.store.workspaceDir(source.id));
+  replaceDesignCronjobs({
+    store: params.store,
+    sourceWorkspaceId: lab.id,
+    targetWorkspaceId: source.id,
+  });
+  replaceDesignIntegrationBindings({
+    store: params.store,
+    sourceWorkspaceId: lab.id,
+    targetWorkspaceId: source.id,
+  });
+  await stopWorkspaceApplicationsForArchive({
+    store: params.store,
+    workspaceId: lab.id,
+    workspaceDir: params.store.workspaceDir(lab.id),
+    appLifecycleExecutor: params.appLifecycleExecutor,
+    logger: params.logger,
+  });
+  const completedAt = utcNowIso();
+  const updatedLab = params.store.updateWorkspace(lab.id, {
+    status: "archived",
+    onboardingState:
+      lab.labPurpose === "workspace_onboarding" ? ONBOARDING_COMPLETED_STATE : lab.onboardingState,
+    labStatus: "merged",
+  });
+  archiveWorkspaceLabSessions({
+    store: params.store,
+    labId: lab.id,
+    archivedAt: completedAt,
+  });
+  const sourceUpdates: Parameters<RuntimeStateStore["updateWorkspace"]>[1] = {};
+  if (lab.labPurpose === "workspace_onboarding") {
+    sourceUpdates.onboardingStatus = "completed";
+    sourceUpdates.onboardingState = ONBOARDING_COMPLETED_STATE;
+    sourceUpdates.onboardingCompletedAt = completedAt;
+    sourceUpdates.onboardingCompletionSummary = params.summary;
+    sourceUpdates.onboardingRequestedBy = "workspace_user";
+  }
+  const updatedSource =
+    Object.keys(sourceUpdates).length > 0
+      ? params.store.updateWorkspace(source.id, sourceUpdates)
+      : source;
+  const session =
+    params.store
+      .listSessions({
+        workspaceId: lab.id,
+        includeArchived: false,
+        limit: 50,
+        offset: 0,
+      })
+      .find((item) => item.kind === sessionKindForLabPurpose(lab.labPurpose ?? "")) ?? null;
+  return { lab: updatedLab, source: updatedSource, session, created: false };
+}
+
+async function abandonWorkspaceLab(params: {
+  store: RuntimeStateStore;
+  labId: string;
+  summary?: string | null;
+  appLifecycleExecutor: AppLifecycleExecutorLike;
+  logger?: { debug: (...args: unknown[]) => void };
+}): Promise<{ lab: WorkspaceRecord; source: WorkspaceRecord; session: AgentSessionRecord | null; created: boolean }> {
+  const lab = params.store.getWorkspace(params.labId);
+  if (!lab || lab.workspaceRole !== "draft_lab") {
+    throw new Error("lab workspace not found");
+  }
+  const sourceWorkspaceId = lab.sourceWorkspaceId?.trim() || "";
+  const source = sourceWorkspaceId ? params.store.getWorkspace(sourceWorkspaceId) : null;
+  if (!source) {
+    throw new Error("source workspace not found");
+  }
+  let updatedSource = source;
+  if (lab.labPurpose === "workspace_onboarding") {
+    updatedSource = params.store.updateWorkspace(source.id, {
+      onboardingStatus: "completed",
+      onboardingState: ONBOARDING_ABANDONED_STATE,
+      onboardingCompletedAt: utcNowIso(),
+      onboardingCompletionSummary:
+        params.summary?.trim() || "Workspace onboarding abandoned without merging",
+      onboardingRequestedBy: "workspace_user",
+    });
+  }
+  await stopWorkspaceApplicationsForArchive({
+    store: params.store,
+    workspaceId: lab.id,
+    workspaceDir: params.store.workspaceDir(lab.id),
+    appLifecycleExecutor: params.appLifecycleExecutor,
+    logger: params.logger,
+  });
+  const session =
+    params.store
+      .listSessions({
+        workspaceId: lab.id,
+        includeArchived: false,
+        limit: 50,
+        offset: 0,
+      })
+      .find((item) => item.kind === sessionKindForLabPurpose(lab.labPurpose ?? "")) ?? null;
+  const archivedAt = utcNowIso();
+  const updatedLab = params.store.updateWorkspace(lab.id, {
+    status: "archived",
+    onboardingState:
+      lab.labPurpose === "workspace_onboarding" ? ONBOARDING_ABANDONED_STATE : lab.onboardingState,
+    labStatus: "abandoned",
+  });
+  archiveWorkspaceLabSessions({
+    store: params.store,
+    labId: lab.id,
+    archivedAt,
+  });
+  return { lab: updatedLab, source: updatedSource, session, created: false };
+}
+
 function outputTypeForArtifact(artifactType: string): string {
   switch (artifactType) {
     case "draft":
@@ -2323,6 +2952,21 @@ function blockingWorkspaceAppsMessage(entries: Array<{ appId: string; status: st
   return `workspace apps are still starting: ${entries.map((entry) => `${entry.appId} (${entry.status})`).join(", ")}`;
 }
 
+function shouldBypassWorkspaceAppBlocking(params: {
+  store: RuntimeStateStore;
+  workspace: WorkspaceRecord;
+  sessionId: string;
+}): boolean {
+  if (params.workspace.workspaceRole !== "draft_lab") {
+    return false;
+  }
+  const session = params.store.getSession({
+    workspaceId: params.workspace.id,
+    sessionId: params.sessionId,
+  });
+  return isLabControllerSessionKind(session?.kind);
+}
+
 async function runAppSetup(params: {
   store: RuntimeStateStore;
   workspaceDir: string;
@@ -2723,17 +3367,51 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         captureRuntimeException,
       })
       : options.terminalSessionManager;
-  const integrationService = new RuntimeIntegrationService(store);
+  // Deferred holder: the queue worker isn't constructed until after
+  // composio + workspace integration setup, but RuntimeIntegrationService
+  // needs to call into it from onConnectionActive. We pass a closure
+  // that reads the holder at call time — by then the worker is set.
+  const queueWorkerHolder: { worker: { wake: () => void } | null } = { worker: null };
+  const integrationService = new RuntimeIntegrationService(store, {
+    onConnectionActive: () => {
+      try {
+        const woken = resumePendingIntegrationInputs(store);
+        if (woken > 0) {
+          queueWorkerHolder.worker?.wake();
+        }
+      } catch (error) {
+        app.log.warn(
+          { error: error instanceof Error ? error.message : String(error) },
+          "resumePendingIntegrationInputs failed",
+        );
+      }
+    },
+  });
+  // workspaceIntegrationsService initialized after composioService below.
   const honoBaseUrl = process.env.HOLABOSS_AUTH_BASE_URL ?? "";
   const authCookie = process.env.HOLABOSS_AUTH_COOKIE ?? "";
   const composioService = honoBaseUrl && authCookie
     ? new ComposioService({ honoBaseUrl, authCookie })
+    : null;
+  const workspaceIntegrationsService = new WorkspaceIntegrationsService(store, composioService);
+  const composioMcpManager = composioService
+    ? new ComposioMcpManager({
+        composio: composioService,
+        workspaceRoot: store.workspaceRoot,
+        store,
+        logger: {
+          info: (msg, meta) => app.log.info(meta ?? {}, String(msg)),
+          warn: (msg, meta) => app.log.warn(meta ?? {}, String(msg)),
+          error: (msg, meta) => app.log.error(meta ?? {}, String(msg)),
+        },
+      })
     : null;
   const brokerService = new IntegrationBrokerService(store, composioService);
   const oauthService = new OAuthService(store);
   const runnerExecutor = options.runnerExecutor ?? new NativeRunnerExecutor();
   const durableMemoryWorker = resolveDurableMemoryWorker(options, app, store, memoryService);
   const queueWorker = resolveQueueWorker(options, app, store, memoryService, durableMemoryWorker);
+  queueWorkerHolder.worker = queueWorker;
   const cronWorker = resolveCronWorker(options, app, store, queueWorker);
   const mainSessionEventWorker = resolveMainSessionEventWorker(
     options,
@@ -2747,6 +3425,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     workspaceRoot: store.workspaceRoot,
     terminalSessionManager,
     queueWorker,
+    composioMcpManager,
     appLifecycle: {
       ensureAppRunning: async (workspaceId: string, appId: string) => {
         await ensureAppRunning(workspaceId, appId);
@@ -3216,14 +3895,32 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         continue;
       }
 
-      await appLifecycleExecutor.stopApp({
-        appId,
-        appDir: resolved.appDir,
-        workspaceId: params.workspaceId,
-        resolvedApp: resolved.resolvedApp
-      });
-      store.upsertAppBuild({ workspaceId: params.workspaceId, appId, status: "stopped" });
-      await ensureAppRunning(params.workspaceId, appId);
+      // Restart is best-effort: the binding itself has already been
+      // persisted by the caller. A slow/broken app start should not be
+      // surfaced to the user as "binding failed" — they'd lose the
+      // mental model that the connection is now saved. Log and move on
+      // so the PUT endpoint can return the binding payload cleanly; the
+      // user can retry start from chat or from the apps panel.
+      try {
+        await appLifecycleExecutor.stopApp({
+          appId,
+          appDir: resolved.appDir,
+          workspaceId: params.workspaceId,
+          resolvedApp: resolved.resolvedApp
+        });
+        store.upsertAppBuild({ workspaceId: params.workspaceId, appId, status: "stopped" });
+        await ensureAppRunning(params.workspaceId, appId);
+      } catch (error) {
+        app.log.warn(
+          {
+            workspaceId: params.workspaceId,
+            appId,
+            integrationKey: params.integrationKey,
+            error: error instanceof Error ? error.message : String(error)
+          },
+          "app restart after integration binding refresh failed; binding is still saved"
+        );
+      }
     }
   }
 
@@ -3506,6 +4203,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     await cronWorker?.close();
     await queueWorker?.close();
     await durableMemoryWorker?.close();
+    await composioMcpManager?.stopAll();
     if (ownsStore) {
       store.close();
     }
@@ -3965,6 +4663,37 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     return integrationService.getCatalog();
   });
 
+  app.get("/api/v1/integrations/composio-capabilities", async () => {
+    return { toolkits: listAllToolkitCapabilities() };
+  });
+
+  // GET /integrations/store-catalog — the curated subset of Composio
+  // toolkits we surface in Settings → Integrations. See PM brief
+  // `docs/pm/integration-store-user-flow.md` for the scoping decision
+  // (tech + marketing only; tier hero / supported).
+  app.get("/api/v1/integrations/store-catalog", async () => {
+    return { entries: listStoreCatalog() };
+  });
+
+  // Account-scoped view: every workspace_integration_override row in
+  // one call. The account-level Integrations pane uses this to render
+  // per-toolkit rows with expandable per-workspace state without
+  // having to fan out one /workspaces/:id/integrations call per
+  // workspace.
+  app.get("/api/v1/integrations/all-workspace-overrides", async () => {
+    const overrides = store.listAllWorkspaceIntegrationOverrides();
+    return {
+      overrides: overrides.map((o) => ({
+        workspace_id: o.workspaceId,
+        toolkit_slug: o.toolkitSlug,
+        state: o.state,
+        pinned_connection_id: o.pinnedConnectionId,
+        created_at: o.createdAt,
+        updated_at: o.updatedAt,
+      })),
+    };
+  });
+
   app.get("/api/v1/integrations/connections", async (request, reply) => {
     const query = isRecord(request.query) ? request.query : {};
     try {
@@ -4118,11 +4847,31 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         connectionId,
         isDefault: optionalBoolean((request.body as Record<string, unknown>).is_default, false)
       });
-      await refreshAppsForIntegrationBinding({
+      // Refresh is fire-and-forget. Apps that consume this binding need to
+      // be stop+restarted to pick up the new grant — that's a stopApp +
+      // ensureAppRunning + waitHealthy chain that routinely takes 30s+ for
+      // cold-start vibe-coded apps. Awaiting it inside the PUT response
+      // path blew past the desktop client's HTTP timeout and surfaced as
+      // "Runtime request timed out" even though the binding itself was
+      // already persisted. The binding row is the source of truth; refresh
+      // is just a UX optimization, so let it run in the background and log
+      // failures rather than couple them to the user's bind action.
+      void refreshAppsForIntegrationBinding({
         workspaceId: binding.workspace_id,
         integrationKey: binding.integration_key,
         targetType: binding.target_type,
         targetId: binding.target_id
+      }).catch((error) => {
+        app.log.warn(
+          {
+            workspaceId: binding.workspace_id,
+            integrationKey: binding.integration_key,
+            targetType: binding.target_type,
+            targetId: binding.target_id,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "background app refresh after integration binding failed; binding is still saved",
+        );
       });
       return binding;
     } catch (error) {
@@ -4361,12 +5110,11 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
 
   app.get("/api/v1/capabilities/runtime-tools/onboarding/status", async (request, reply) => {
     try {
-      return runtimeAgentToolsService.onboardingStatus(
-        requiredCapabilityWorkspaceId({
-          headers: request.headers as Record<string, unknown>,
-          query: isRecord(request.query) ? request.query : null
-        })
-      );
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        query: isRecord(request.query) ? request.query : null
+      });
+      return runtimeAgentToolsService.onboardingStatus(workspaceId);
     } catch (error) {
       if (error instanceof RuntimeAgentToolsServiceError) {
         return sendError(reply, error.statusCode, error.message);
@@ -4375,16 +5123,193 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
   });
 
+  app.post("/api/v1/capabilities/runtime-tools/onboarding/alignment-report", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      return runtimeAgentToolsService.createAlignmentReport({
+        workspaceId,
+        report: requiredDict(request.body.report, "report"),
+      });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime alignment report failed");
+    }
+  });
+
+  app.post("/api/v1/capabilities/runtime-tools/onboarding/alignment-question", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      return runtimeAgentToolsService.createAlignmentQuestion({
+        workspaceId,
+        question: requiredDict(request.body.question, "question"),
+      });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime alignment question failed");
+    }
+  });
+
+  app.post("/api/v1/capabilities/runtime-tools/onboarding/alignment-question/answer", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      return runtimeAgentToolsService.answerAlignmentQuestion({
+        workspaceId,
+        optionId: optionalString(request.body.option_id),
+        responseText: optionalString(request.body.response_text),
+        notes: nullableString(request.body.notes),
+        answers:
+          Array.isArray(request.body.answers)
+            ? request.body.answers.map((item, index) => {
+                if (!isRecord(item)) {
+                  throw new Error(`answers[${index}] must be an object`);
+                }
+                return {
+                  question_id: optionalString(item.question_id),
+                  option_id: optionalString(item.option_id),
+                  response_text: optionalString(item.response_text),
+                  notes: nullableString(item.notes),
+                };
+              })
+            : null,
+      });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime alignment question answer failed");
+    }
+  });
+
+  app.post("/api/v1/capabilities/runtime-tools/onboarding/alignment/approve", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      return runtimeAgentToolsService.approveAlignment({ workspaceId });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime alignment approval failed");
+    }
+  });
+
+  app.post("/api/v1/capabilities/runtime-tools/onboarding/alignment/revise", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      return runtimeAgentToolsService.requestAlignmentRevision({ workspaceId });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime alignment revision failed");
+    }
+  });
+
+  app.post("/api/v1/capabilities/runtime-tools/onboarding/verification-report", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      return runtimeAgentToolsService.createVerificationReport({
+        workspaceId,
+        report: requiredDict(request.body.report, "report"),
+      });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime verification report failed");
+    }
+  });
+
+  app.post("/api/v1/capabilities/runtime-tools/onboarding/verification/revise", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      return runtimeAgentToolsService.requestVerificationRevision({ workspaceId });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime verification revision failed");
+    }
+  });
+
   app.post("/api/v1/capabilities/runtime-tools/onboarding/complete", async (request, reply) => {
     if (!isRecord(request.body)) {
       return sendError(reply, 400, "request body must be an object");
     }
     try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body
+      });
+      const workspace = store.getWorkspace(workspaceId);
+      if (workspace?.workspaceRole === "draft_lab") {
+        const currentState = effectiveOnboardingState(workspace);
+        if (currentState !== ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE) {
+          return sendError(
+            reply,
+            409,
+            `onboarding can only be completed from ${ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE}`,
+          );
+        }
+        const result = await completeWorkspaceLab({
+          store,
+          labId: workspace.id,
+          summary: requiredString(request.body.summary, "summary"),
+          appLifecycleExecutor,
+          logger: app.log,
+        });
+        return {
+          ...workspaceRecordPayload(result.source),
+          lab: workspaceRecordPayload(result.lab),
+        };
+      }
       return runtimeAgentToolsService.completeOnboarding({
-        workspaceId: requiredCapabilityWorkspaceId({
-          headers: request.headers as Record<string, unknown>,
-          body: request.body
-        }),
+        workspaceId,
         summary: requiredString(request.body.summary, "summary"),
         requestedBy: optionalString(request.body.requested_by)
       });
@@ -4395,7 +5320,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       if (error instanceof RuntimeAgentToolsServiceError) {
         return sendError(reply, error.statusCode, error.message);
       }
-      return sendError(reply, 400, error instanceof Error ? error.message : "runtime onboarding completion failed");
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime onboarding complete failed");
     }
   });
 
@@ -5370,10 +6295,19 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   app.get("/api/v1/background-tasks", async (request, reply) => {
     const query = isRecord(request.query) ? request.query : {};
     try {
+      const workspaceId = requiredString(query.workspace_id, "workspace_id");
+      const ownerMainSessionId =
+        nullableString(query.owner_main_session_id) ?? undefined;
+      const scope = ownerMainSessionId
+        ? resolveSessionWorkspaceScope({
+            store,
+            workspaceId,
+            sessionId: ownerMainSessionId,
+          })
+        : null;
       return runtimeAgentToolsService.listBackgroundTasks({
-        workspaceId: requiredString(query.workspace_id, "workspace_id"),
-        ownerMainSessionId:
-          nullableString(query.owner_main_session_id) ?? undefined,
+        workspaceId: scope?.workspaceId ?? workspaceId,
+        ownerMainSessionId,
         statuses: optionalStringList(query.statuses),
         limit: hasOwn(query, "limit")
           ? optionalInteger(query.limit, 200)
@@ -5395,11 +6329,20 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const params = request.params as { subagentId: string };
     const query = isRecord(request.query) ? request.query : {};
     try {
+      const workspaceId = requiredString(query.workspace_id, "workspace_id");
+      const ownerMainSessionId =
+        nullableString(query.owner_main_session_id) ?? undefined;
+      const scope = ownerMainSessionId
+        ? resolveSessionWorkspaceScope({
+            store,
+            workspaceId,
+            sessionId: ownerMainSessionId,
+          })
+        : null;
       return runtimeAgentToolsService.getBackgroundTask({
-        workspaceId: requiredString(query.workspace_id, "workspace_id"),
+        workspaceId: scope?.workspaceId ?? workspaceId,
         subagentId: requiredString(params.subagentId, "subagentId"),
-        ownerMainSessionId:
-          nullableString(query.owner_main_session_id) ?? undefined,
+        ownerMainSessionId,
       });
     } catch (error) {
       if (error instanceof RuntimeAgentToolsServiceError) {
@@ -5421,11 +6364,20 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         return sendError(reply, 400, "request body must be an object");
       }
       try {
+        const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
+        const ownerMainSessionId =
+          nullableString(request.body.owner_main_session_id) ?? undefined;
+        const scope = ownerMainSessionId
+          ? resolveSessionWorkspaceScope({
+              store,
+              workspaceId,
+              sessionId: ownerMainSessionId,
+            })
+          : null;
         return runtimeAgentToolsService.archiveBackgroundTask({
-          workspaceId: requiredString(request.body.workspace_id, "workspace_id"),
+          workspaceId: scope?.workspaceId ?? workspaceId,
           subagentId: requiredString(params.subagentId, "subagentId"),
-          ownerMainSessionId:
-            nullableString(request.body.owner_main_session_id) ?? undefined,
+          ownerMainSessionId,
         });
       } catch (error) {
         if (error instanceof RuntimeAgentToolsServiceError) {
@@ -5468,6 +6420,30 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           reply,
           400,
           error instanceof Error ? error.message : "workspace_apps_find failed",
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/v1/capabilities/runtime-tools/workspace-integrations/catalog",
+    async (request, reply) => {
+      const body = isRecord(request.body) ? request.body : {};
+      try {
+        return runtimeAgentToolsService.listIntegrationCatalog({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }),
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "workspace_integrations_list_catalog failed",
         );
       }
     },
@@ -5585,6 +6561,116 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           reply,
           400,
           error instanceof Error ? error.message : "workspace_apps_ensure_running failed",
+        );
+      }
+    },
+  );
+
+  // PR 1: bootstrap (or reuse) the composio-mcp host for a workspace, so the
+  // agent can call Composio tools directly without a wrapper app. Hooked
+  // into ensureWorkspaceAppsRunning below, but also exposed explicitly for
+  // manual desktop testing.
+  app.post(
+    "/api/v1/composio-mcp/ensure-running",
+    async (request, reply) => {
+      if (!composioMcpManager) {
+        return sendError(
+          reply,
+          503,
+          "composio-mcp manager not configured (missing HOLABOSS_AUTH_BASE_URL or HOLABOSS_AUTH_COOKIE)",
+        );
+      }
+      if (!isRecord(request.body)) {
+        return sendError(reply, 400, "request body must be an object");
+      }
+      try {
+        const workspaceId = requiredCapabilityWorkspaceId({
+          headers: request.headers as Record<string, unknown>,
+          body: request.body,
+        });
+        return await composioMcpManager.ensureRunning(workspaceId);
+      } catch (error) {
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "composio_mcp_ensure_running failed",
+        );
+      }
+    },
+  );
+
+  // Workspace-scoped integration controls: list every account integration
+  // alongside whether it's enabled / disabled / pinned in this workspace,
+  // and let the desktop UI flip the override.
+  app.get("/api/v1/workspaces/:workspaceId/integrations", async (request, reply) => {
+    const params = request.params as { workspaceId: string };
+    const workspaceId = requiredString(params.workspaceId, "workspaceId");
+    try {
+      return await workspaceIntegrationsService.list(workspaceId);
+    } catch (error) {
+      return sendError(
+        reply,
+        500,
+        error instanceof Error ? error.message : "workspace integrations list failed",
+      );
+    }
+  });
+
+  app.put(
+    "/api/v1/workspaces/:workspaceId/integrations/:toolkitSlug",
+    async (request, reply) => {
+      const params = request.params as { workspaceId: string; toolkitSlug: string };
+      const workspaceId = requiredString(params.workspaceId, "workspaceId");
+      const toolkitSlug = requiredString(params.toolkitSlug, "toolkitSlug");
+      if (!isRecord(request.body)) {
+        return sendError(reply, 400, "request body must be an object");
+      }
+      const rawState = request.body.state;
+      if (rawState !== "disabled" && rawState !== "pinned") {
+        return sendError(reply, 400, "state must be 'disabled' or 'pinned'");
+      }
+      const pinnedConnectionId =
+        typeof request.body.pinned_connection_id === "string"
+          ? request.body.pinned_connection_id
+          : null;
+      try {
+        const record = workspaceIntegrationsService.setOverride({
+          workspaceId,
+          toolkitSlug,
+          state: rawState,
+          pinnedConnectionId,
+        });
+        if (composioMcpManager) {
+          await composioMcpManager.restart(workspaceId).catch(() => undefined);
+        }
+        return record;
+      } catch (error) {
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "set integration override failed",
+        );
+      }
+    },
+  );
+
+  app.delete(
+    "/api/v1/workspaces/:workspaceId/integrations/:toolkitSlug",
+    async (request, reply) => {
+      const params = request.params as { workspaceId: string; toolkitSlug: string };
+      const workspaceId = requiredString(params.workspaceId, "workspaceId");
+      const toolkitSlug = requiredString(params.toolkitSlug, "toolkitSlug");
+      try {
+        const result = workspaceIntegrationsService.clearOverride({ workspaceId, toolkitSlug });
+        if (composioMcpManager) {
+          await composioMcpManager.restart(workspaceId).catch(() => undefined);
+        }
+        return result;
+      } catch (error) {
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "clear integration override failed",
         );
       }
     },
@@ -5937,6 +7023,35 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     },
   );
 
+  app.post(
+    "/api/v1/capabilities/runtime-tools/workspace-integrations/propose-connect",
+    async (request, reply) => {
+      const body = isRecord(request.body) ? request.body : {};
+      try {
+        return runtimeAgentToolsService.proposeIntegrationConnect({
+          workspaceId: requiredCapabilityWorkspaceId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }),
+          toolkitSlug: requiredString(body.toolkit_slug, "toolkit_slug"),
+          reason:
+            typeof body.reason === "string" ? body.reason : undefined,
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error
+            ? error.message
+            : "holaboss_workspace_integrations_propose_connect failed",
+        );
+      }
+    },
+  );
+
   app.post("/api/v1/lifecycle/shutdown", async (request, reply) => {
     void request;
     try {
@@ -6139,9 +7254,23 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         harness: requiredString(request.body.harness, "harness"),
         status: optionalString(request.body.status) ?? "provisioning",
         onboardingStatus: optionalString(request.body.onboarding_status) ?? "not_required",
+        onboardingState: nullableString(request.body.onboarding_state) ?? null,
         onboardingSessionId: nullableString(request.body.onboarding_session_id) ?? null,
+        onboardingAlignmentQuestion: isRecord(request.body.alignment_question)
+          ? JSON.stringify(request.body.alignment_question)
+          : null,
+        onboardingAlignmentReport: isRecord(request.body.alignment_report)
+          ? JSON.stringify(request.body.alignment_report)
+          : null,
+        onboardingVerificationReport: isRecord(request.body.verification_report)
+          ? JSON.stringify(request.body.verification_report)
+          : null,
         errorMessage: nullableString(request.body.error_message) ?? null,
-        workspacePath: optionalString(request.body.workspace_path)
+        workspacePath: optionalString(request.body.workspace_path),
+        workspaceRole: optionalString(request.body.workspace_role) ?? "source",
+        sourceWorkspaceId: nullableString(request.body.source_workspace_id) ?? null,
+        labPurpose: nullableString(request.body.lab_purpose) ?? null,
+        labStatus: nullableString(request.body.lab_status) ?? null
       });
 
       let workspace = created;
@@ -6244,6 +7373,99 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     };
   });
 
+  app.post("/api/v1/workspaces/:workspaceId/labs", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    const params = request.params as { workspaceId: string };
+    const purpose = requiredString(request.body.purpose, "purpose");
+    if (!["workspace_onboarding", "meeting_mode"].includes(purpose)) {
+      return sendError(reply, 400, "purpose must be workspace_onboarding or meeting_mode");
+    }
+    try {
+      const lab = ensureWorkspaceLab({
+        store,
+        sourceWorkspaceId: params.workspaceId,
+        purpose,
+      });
+      return labPayload(lab);
+    } catch (error) {
+      return sendError(reply, 400, error instanceof Error ? error.message : "workspace lab creation failed");
+    }
+  });
+
+  app.get("/api/v1/workspaces/:workspaceId/labs/active", async (request, reply) => {
+    const params = request.params as { workspaceId: string };
+    const source = store.getWorkspace(params.workspaceId);
+    if (!source) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    const lab = store.getActiveWorkspaceLab(params.workspaceId);
+    if (!lab) {
+      return { lab: null, source: workspaceRecordPayload(source), session: null };
+    }
+    const session =
+      store
+        .listSessions({
+          workspaceId: lab.id,
+          includeArchived: false,
+          limit: 50,
+          offset: 0,
+        })
+        .find((item) => item.kind === sessionKindForLabPurpose(lab.labPurpose ?? "")) ?? null;
+    return labPayload({ lab, source, session });
+  });
+
+  app.post("/api/v1/workspace-labs/:labId/complete", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    const params = request.params as { labId: string };
+    try {
+      const workspace = store.getWorkspace(params.labId);
+      if (
+        workspace?.labPurpose === "workspace_onboarding" &&
+        effectiveOnboardingState(workspace) !==
+          ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE
+      ) {
+        return sendError(
+          reply,
+          409,
+          `onboarding can only be completed from ${ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE}`,
+        );
+      }
+      return labPayload(
+        await completeWorkspaceLab({
+          store,
+          labId: params.labId,
+          summary: requiredString(request.body.summary, "summary"),
+          appLifecycleExecutor,
+          logger: app.log,
+        }),
+      );
+    } catch (error) {
+      return sendError(reply, 400, error instanceof Error ? error.message : "workspace lab completion failed");
+    }
+  });
+
+  app.post("/api/v1/workspace-labs/:labId/abandon", async (request, reply) => {
+    const body = isRecord(request.body) ? request.body : {};
+    const params = request.params as { labId: string };
+    try {
+      return labPayload(
+        await abandonWorkspaceLab({
+          store,
+          labId: params.labId,
+          summary: optionalString(body.summary),
+          appLifecycleExecutor,
+          logger: app.log,
+        }),
+      );
+    } catch (error) {
+      return sendError(reply, 400, error instanceof Error ? error.message : "workspace lab abandon failed");
+    }
+  });
+
   app.patch("/api/v1/workspaces/:workspaceId", async (request, reply) => {
     if (!isRecord(request.body)) {
       return sendError(reply, 400, "request body must be an object");
@@ -6264,8 +7486,26 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       if (hasOwn(request.body, "onboarding_status")) {
         fields.onboardingStatus = nullableString(request.body.onboarding_status);
       }
+      if (hasOwn(request.body, "onboarding_state")) {
+        fields.onboardingState = nullableString(request.body.onboarding_state);
+      }
       if (hasOwn(request.body, "onboarding_session_id")) {
         fields.onboardingSessionId = nullableString(request.body.onboarding_session_id);
+      }
+      if (hasOwn(request.body, "alignment_question")) {
+        fields.onboardingAlignmentQuestion = isRecord(request.body.alignment_question)
+          ? JSON.stringify(request.body.alignment_question)
+          : null;
+      }
+      if (hasOwn(request.body, "alignment_report")) {
+        fields.onboardingAlignmentReport = isRecord(request.body.alignment_report)
+          ? JSON.stringify(request.body.alignment_report)
+          : null;
+      }
+      if (hasOwn(request.body, "verification_report")) {
+        fields.onboardingVerificationReport = isRecord(request.body.verification_report)
+          ? JSON.stringify(request.body.verification_report)
+          : null;
       }
       if (hasOwn(request.body, "onboarding_completed_at")) {
         fields.onboardingCompletedAt = nullableString(request.body.onboarding_completed_at);
@@ -6284,6 +7524,18 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       }
       if (hasOwn(request.body, "icon_color")) {
         fields.iconColor = nullableString(request.body.icon_color);
+      }
+      if (hasOwn(request.body, "workspace_role")) {
+        fields.workspaceRole = nullableString(request.body.workspace_role);
+      }
+      if (hasOwn(request.body, "source_workspace_id")) {
+        fields.sourceWorkspaceId = nullableString(request.body.source_workspace_id);
+      }
+      if (hasOwn(request.body, "lab_purpose")) {
+        fields.labPurpose = nullableString(request.body.lab_purpose);
+      }
+      if (hasOwn(request.body, "lab_status")) {
+        fields.labStatus = nullableString(request.body.lab_status);
       }
 
       // Workspace path relocation. This is intentionally a separate branch
@@ -7135,7 +8387,18 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 404, "workspace not found");
     }
     try {
-      return await ensureAllAppsRunning(workspaceId);
+      const result = await ensureAllAppsRunning(workspaceId);
+      // PR 1: same opportunistic composio-mcp bootstrap that the agent
+      // capability path does. Best-effort — desktop's workspace open flow
+      // never fails because Composio is down.
+      if (composioMcpManager) {
+        try {
+          await composioMcpManager.ensureRunning(workspaceId);
+        } catch {
+          // manager already logs
+        }
+      }
+      return result;
     } catch (error) {
       return sendError(reply, 500, error instanceof Error ? error.message : "failed to ensure apps running");
     }
@@ -7716,10 +8979,6 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!requireHealthyWorkspaceFolder(store, workspaceId, reply)) {
       return;
     }
-    const blockingApps = blockingWorkspaceApps({ store, workspaceId });
-    if (blockingApps.length > 0) {
-      return sendError(reply, 409, blockingWorkspaceAppsMessage(blockingApps));
-    }
 
     let resolvedSessionId: string;
     try {
@@ -7727,8 +8986,40 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     } catch (error) {
       return sendError(reply, 409, error instanceof Error ? error.message : "workspace session is not configured");
     }
+    let executionWorkspaceId = workspaceId;
+    let executionWorkspace = workspace;
+    const activeLab = store.getActiveWorkspaceLab(workspaceId);
+    if (
+      activeLab &&
+      store.getSession({
+        workspaceId: activeLab.id,
+        sessionId: resolvedSessionId,
+      })
+    ) {
+      executionWorkspaceId = activeLab.id;
+      executionWorkspace = activeLab;
+    }
 
-    const workspaceDir = store.workspaceDir(workspaceId);
+    if (
+      executionWorkspaceId !== workspaceId &&
+      !requireHealthyWorkspaceFolder(store, executionWorkspaceId, reply)
+    ) {
+      return;
+    }
+    if (
+      !shouldBypassWorkspaceAppBlocking({
+        store,
+        workspace: executionWorkspace,
+        sessionId: resolvedSessionId,
+      })
+    ) {
+      const blockingApps = blockingWorkspaceApps({ store, workspaceId: executionWorkspaceId });
+      if (blockingApps.length > 0) {
+        return sendError(reply, 409, blockingWorkspaceAppsMessage(blockingApps));
+      }
+    }
+
+    const workspaceDir = store.workspaceDir(executionWorkspaceId);
     const trimmedText = (optionalString(request.body.text) ?? "").trim();
     let attachments: SessionInputAttachmentPayload[];
     try {
@@ -7747,33 +9038,33 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
 
     const existingSession = store.getSession({
-      workspaceId,
+      workspaceId: executionWorkspaceId,
       sessionId: resolvedSessionId
     });
-    const inferredKind = inferredSessionKind(workspace, resolvedSessionId);
+    const inferredKind = existingSession?.kind ?? inferredSessionKind(executionWorkspace, resolvedSessionId);
     const generatedSessionTitle = sessionTitleFromFirstUserInput(trimmedText, attachments, imageUrls);
 
     store.ensureSession({
-      workspaceId,
+      workspaceId: executionWorkspaceId,
       sessionId: resolvedSessionId,
       kind: inferredKind,
       title: existingSession?.title?.trim() ? undefined : generatedSessionTitle
     });
-    if (!store.getBinding({ workspaceId, sessionId: resolvedSessionId })) {
+    if (!store.getBinding({ workspaceId: executionWorkspaceId, sessionId: resolvedSessionId })) {
       store.upsertBinding({
-        workspaceId,
+        workspaceId: executionWorkspaceId,
         sessionId: resolvedSessionId,
-        harness: resolvedWorkspaceHarness(workspace),
+        harness: resolvedWorkspaceHarness(executionWorkspace),
         harnessSessionId: resolvedSessionId
       });
     }
     const runtimeStateBeforeQueue =
       store.getRuntimeState({
-        workspaceId,
+        workspaceId: executionWorkspaceId,
         sessionId: resolvedSessionId,
       }) ??
       store.ensureRuntimeState({
-        workspaceId,
+        workspaceId: executionWorkspaceId,
         sessionId: resolvedSessionId,
         status: "IDLE"
       });
@@ -7782,7 +9073,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         existingSession?.kind ?? inferredKind,
       )
         ? store.listPendingMainSessionEvents({
-            workspaceId,
+            workspaceId: executionWorkspaceId,
             ownerMainSessionId: resolvedSessionId,
             deliveryBucket: "background_update",
             limit: 200,
@@ -7792,7 +9083,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       (event) => event.eventId,
     );
     const record = store.enqueueInput({
-      workspaceId,
+      workspaceId: executionWorkspaceId,
       sessionId: resolvedSessionId,
       priority: optionalInteger(request.body.priority, 0),
       idempotencyKey: nullableString(request.body.idempotency_key) ?? null,
@@ -7818,14 +9109,14 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     });
     if (inlineBackgroundUpdateIds.length > 0) {
       store.markMainSessionEventsMaterialized({
-        workspaceId,
+        workspaceId: executionWorkspaceId,
         eventIds: inlineBackgroundUpdateIds,
         materializedInputId: record.inputId,
       });
     }
     createInputMemoryUpdateProposals({
       store,
-      workspaceId,
+      workspaceId: executionWorkspaceId,
       sessionId: resolvedSessionId,
       inputId: record.inputId,
       sourceMessageId: `user-${record.inputId}`,
@@ -7833,7 +9124,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     });
     if (runtimeStateHasClaimedActiveInput(store, runtimeStateBeforeQueue)) {
       store.updateRuntimeState({
-        workspaceId,
+        workspaceId: executionWorkspaceId,
         sessionId: resolvedSessionId,
         status: runtimeStateBeforeQueue?.status ?? "BUSY",
         currentInputId: runtimeStateBeforeQueue?.currentInputId ?? null,
@@ -7844,7 +9135,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       });
     } else {
       store.updateRuntimeState({
-        workspaceId,
+        workspaceId: executionWorkspaceId,
         sessionId: resolvedSessionId,
         status: "QUEUED",
         currentInputId: record.inputId,
@@ -7855,7 +9146,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       });
     }
     const runtimeStateAfterQueue = store.getRuntimeState({
-      workspaceId,
+      workspaceId: executionWorkspaceId,
       sessionId: resolvedSessionId,
     });
     const queueAwareState = effectiveSessionState(runtimeStateAfterQueue, true);
@@ -7887,9 +9178,15 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!queueWorker?.pauseSessionRun) {
       return sendError(reply, 409, "runtime pause is not available");
     }
+    const scope = resolveSessionWorkspaceScope({
+      store,
+      workspaceId,
+      sessionId: params.sessionId,
+    });
+    const effectiveWorkspaceId = scope?.workspaceId ?? workspaceId;
 
     const paused = await queueWorker.pauseSessionRun({
-      workspaceId,
+      workspaceId: effectiveWorkspaceId,
       sessionId: params.sessionId,
     });
     if (!paused) {
@@ -7916,14 +9213,20 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!workspace) {
       return sendError(reply, 404, "workspace not found");
     }
+    const scope = resolveSessionWorkspaceScope({
+      store,
+      workspaceId,
+      sessionId: params.sessionId,
+    });
+    const effectiveWorkspaceId = scope?.workspaceId ?? workspaceId;
 
     const input = store.getInput({
-      workspaceId,
+      workspaceId: effectiveWorkspaceId,
       inputId: params.inputId,
     });
     if (
       !input ||
-      input.workspaceId !== workspaceId ||
+      input.workspaceId !== effectiveWorkspaceId ||
       input.sessionId !== params.sessionId
     ) {
       return sendError(reply, 404, "queued input not found");
@@ -7945,7 +9248,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
 
     const updated = store.updateInput({
-      workspaceId,
+      workspaceId: effectiveWorkspaceId,
       inputId: params.inputId,
       fields: {
         payload: {
@@ -7986,6 +9289,16 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         limit: Math.max(1, Math.min(200, optionalInteger(query.limit, 100))),
         offset: Math.max(0, optionalInteger(query.offset, 0))
       })
+      .concat(
+        store.getActiveWorkspaceLab(workspaceId)
+          ? store.listSessions({
+              workspaceId: store.getActiveWorkspaceLab(workspaceId)!.id,
+              includeArchived: optionalBoolean(query.include_archived, false),
+              limit: 200,
+              offset: 0,
+            })
+          : [],
+      )
       .map((item: AgentSessionRecord) => agentSessionPayload(item, store));
     return { items, count: items.length };
   });
@@ -8002,31 +9315,40 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!resolvedWorkspaceId) {
       return sendError(reply, 422, "workspace_id or profile_id is required");
     }
+    const scope = resolveSessionWorkspaceScope({
+      store,
+      workspaceId: resolvedWorkspaceId,
+      sessionId: params.sessionId,
+    });
+    const effectiveWorkspaceId = scope?.workspaceId ?? resolvedWorkspaceId;
     const runtimeState = store.getRuntimeState({
       sessionId: params.sessionId,
-      workspaceId: resolvedWorkspaceId
+      workspaceId: effectiveWorkspaceId
     });
     const hasQueued = store.hasAvailableInputsForSession({
       sessionId: params.sessionId,
-      workspaceId: resolvedWorkspaceId
+      workspaceId: effectiveWorkspaceId
     });
     return effectiveSessionState(runtimeState, hasQueued);
   });
 
   app.get("/api/v1/agent-sessions/by-workspace/:workspaceId/runtime-states", async (request) => {
     const params = request.params as { workspaceId: string };
-    const items = store
+    const activeLab = store.getActiveWorkspaceLab(params.workspaceId);
+    const states = store
       .listRuntimeStates(params.workspaceId)
+      .concat(activeLab ? store.listRuntimeStates(activeLab.id) : []);
+    const items = states
       .map((item: SessionRuntimeStateRecord) => {
         const hasQueuedInputs = store.hasAvailableInputsForSession({
-          workspaceId: params.workspaceId,
+          workspaceId: item.workspaceId,
           sessionId: item.sessionId,
         });
         return runtimeStateListItemPayload({
           record: item,
           lastTurnResult:
             store.listTurnResults({
-              workspaceId: params.workspaceId,
+              workspaceId: item.workspaceId,
               sessionId: item.sessionId,
               limit: 1,
               offset: 0,
@@ -8050,22 +9372,32 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 404, "workspace not found");
     }
 
-    const session = store.getSession({
+    const scope = resolveSessionWorkspaceScope({
+      store,
       workspaceId,
+      sessionId: params.sessionId,
+    });
+    if (!scope) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    const effectiveWorkspaceId = scope.workspaceId;
+    const effectiveWorkspace = scope.workspace;
+    const session = store.getSession({
+      workspaceId: effectiveWorkspaceId,
       sessionId: params.sessionId,
     });
     if (!session) {
       return sendError(reply, 404, "session not found");
     }
-    const binding = store.getBinding({ workspaceId, sessionId: params.sessionId });
+    const binding = store.getBinding({ workspaceId: effectiveWorkspaceId, sessionId: params.sessionId });
 
     const limit = Math.max(1, Math.min(1000, optionalInteger(query.limit, 200)));
     const offset = Math.max(0, optionalInteger(query.offset, 0));
     const order = optionalString(query.order) === "desc" ? "desc" : "asc";
-    const total = store.countSessionMessages({ workspaceId, sessionId: params.sessionId });
+    const total = store.countSessionMessages({ workspaceId: effectiveWorkspaceId, sessionId: params.sessionId });
     const messages = store
       .listSessionMessages({
-        workspaceId,
+        workspaceId: effectiveWorkspaceId,
         sessionId: params.sessionId,
         limit,
         offset,
@@ -8076,7 +9408,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         const inputAttachments = inputId
           ? attachmentsFromInputPayload(
               store.getInput({
-                workspaceId,
+                workspaceId: effectiveWorkspaceId,
                 inputId,
               })?.payload.attachments
             )
@@ -8087,7 +9419,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     return {
       workspace_id: workspaceId,
       session_id: params.sessionId,
-      harness: binding?.harness ?? resolvedWorkspaceHarness(workspace),
+      harness: binding?.harness ?? resolvedWorkspaceHarness(effectiveWorkspace),
       harness_session_id: binding?.harnessSessionId ?? "",
       source: "sandbox_local_storage",
       messages,
@@ -8111,18 +9443,24 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!workspace) {
       return sendError(reply, 404, "workspace not found");
     }
+    const scope = resolveSessionWorkspaceScope({
+      store,
+      workspaceId,
+      sessionId: params.sessionId,
+    });
+    const effectiveWorkspaceId = scope?.workspaceId ?? workspaceId;
 
     const inputId = optionalString(query.input_id);
     const limit = Math.max(1, Math.min(1000, optionalInteger(query.limit, 200)));
     const offset = Math.max(0, optionalInteger(query.offset, 0));
     const total = store.countTurnResults({
-      workspaceId,
+      workspaceId: effectiveWorkspaceId,
       sessionId: params.sessionId,
       inputId: inputId ?? undefined,
     });
     const items = store
       .listTurnResults({
-        workspaceId,
+        workspaceId: effectiveWorkspaceId,
         sessionId: params.sessionId,
         inputId: inputId ?? undefined,
         limit,
@@ -8157,9 +9495,15 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const inputId = optionalString(query.input_id);
     const limit = Math.max(1, Math.min(1000, optionalInteger(query.limit, 200)));
     const offset = Math.max(0, optionalInteger(query.offset, 0));
+    const scope = resolveSessionWorkspaceScope({
+      store,
+      workspaceId,
+      sessionId: params.sessionId,
+    });
+    const effectiveWorkspaceId = scope?.workspaceId ?? workspaceId;
     const items = store
       .listTurnRequestSnapshots({
-        workspaceId,
+        workspaceId: effectiveWorkspaceId,
         sessionId: params.sessionId,
         inputId: inputId ?? undefined,
         limit,
@@ -8191,13 +9535,19 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
 
     const inputId = optionalString(query.input_id) ?? "";
+    const scope = resolveSessionWorkspaceScope({
+      store,
+      workspaceId,
+      sessionId: params.sessionId,
+    });
+    const effectiveWorkspaceId = scope?.workspaceId ?? workspaceId;
     return {
       workspace_id: workspaceId,
       session_id: params.sessionId,
       input_id: inputId || null,
       session_resume_context: loadSessionResumeContextForApi({
         workspaceRoot: store.workspaceRoot,
-        workspaceId,
+        workspaceId: effectiveWorkspaceId,
         sessionId: params.sessionId,
       }),
     };
@@ -8257,9 +9607,15 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!resolvedWorkspaceId) {
       return sendError(reply, 422, "workspace_id or profile_id is required");
     }
+    const scope = resolveSessionWorkspaceScope({
+      store,
+      workspaceId: resolvedWorkspaceId,
+      sessionId: params.sessionId,
+    });
+    const effectiveWorkspaceId = scope?.workspaceId ?? resolvedWorkspaceId;
     const items = store
       .listOutputs({
-        workspaceId: resolvedWorkspaceId,
+        workspaceId: effectiveWorkspaceId,
         sessionId: params.sessionId,
         limit: 500,
         offset: 0,
@@ -8282,12 +9638,18 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const query = isRecord(request.query) ? request.query : {};
     const limit = Math.max(1, Math.min(100, optionalInteger(query.limit, 20)));
     const offset = Math.max(0, optionalInteger(query.offset, 0));
-    const runtimeStates = store.listRuntimeStates(params.workspaceId).slice(offset, offset + limit);
-    const outputs = store.listOutputs({
-      workspaceId: params.workspaceId,
-      limit: 1000,
-      offset: 0,
-    })
+    const activeLab = store.getActiveWorkspaceLab(params.workspaceId);
+    const workspaceIds = activeLab ? [params.workspaceId, activeLab.id] : [params.workspaceId];
+    const runtimeStates = workspaceIds
+      .flatMap((workspaceId) => store.listRuntimeStates(workspaceId))
+      .slice(offset, offset + limit);
+    const outputs = workspaceIds.flatMap((workspaceId) =>
+      store.listOutputs({
+        workspaceId,
+        limit: 1000,
+        offset: 0,
+      }),
+    )
       .sort((left, right) => {
         const leftTime = Date.parse(left.createdAt ?? "") || 0;
         const rightTime = Date.parse(right.createdAt ?? "") || 0;
@@ -8313,13 +9675,13 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const items = runtimeStates.map((row) => {
       const lastTurnResult =
         store.listTurnResults({
-          workspaceId: params.workspaceId,
+          workspaceId: row.workspaceId,
           sessionId: row.sessionId,
           limit: 1,
           offset: 0,
         })[0] ?? null;
       const hasQueuedInputs = store.hasAvailableInputsForSession({
-        workspaceId: params.workspaceId,
+        workspaceId: row.workspaceId,
         sessionId: row.sessionId,
       });
       return {
@@ -8589,9 +9951,24 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 400, "request body must be an object");
     }
     const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
-    if (!store.getWorkspace(workspaceId)) {
+    const workspace = store.getWorkspace(workspaceId);
+    if (!workspace) {
       return sendError(reply, 404, "workspace not found");
     }
+    const requestedEnabled = optionalBoolean(request.body.enabled, true);
+    const metadata = cronjobMetadataWithRequestDefaults({
+      body: request.body,
+    });
+    const normalizedCronjobState = isDraftLabWorkspace(workspace)
+      ? disableCronjobAutonomyForLab({
+          metadata,
+          recommendedEnabled: requestedEnabled,
+        })
+      : {
+          enabled: requestedEnabled,
+          metadata,
+          nextRunAt: cronjobNextRunAt(requiredString(request.body.cron, "cron"), new Date()),
+        };
     const job = store.createCronjob({
       workspaceId,
       initiatedBy: requiredString(request.body.initiated_by, "initiated_by"),
@@ -8599,12 +9976,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       cron: requiredString(request.body.cron, "cron"),
       description: requiredString(request.body.description, "description"),
       instruction: optionalString(request.body.instruction) ?? requiredString(request.body.description, "description"),
-      enabled: optionalBoolean(request.body.enabled, true),
+      enabled: normalizedCronjobState.enabled,
       delivery: requiredDict(request.body.delivery, "delivery"),
-      metadata: cronjobMetadataWithRequestDefaults({
-        body: request.body,
-      }),
-      nextRunAt: cronjobNextRunAt(requiredString(request.body.cron, "cron"), new Date())
+      metadata: normalizedCronjobState.metadata,
+      nextRunAt: normalizedCronjobState.nextRunAt
     });
     return cronjobPayload(job);
   });
@@ -8715,6 +10090,30 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       hasOwn(request.body, "model") ||
       hasOwn(request.body, "selected_model") ||
       hasOwn(request.body, "session_id");
+    const workspace = store.getWorkspace(workspaceId);
+    if (!workspace) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    const requestedEnabled =
+      hasOwn(request.body, "enabled")
+        ? optionalBoolean(request.body.enabled, false)
+        : cronjobAuthorRecommendedEnabled(existing);
+    const resolvedMetadata = metadataProvided
+      ? cronjobMetadataWithRequestDefaults({
+          body: request.body,
+          existingMetadata: existing.metadata,
+        })
+      : existing.metadata;
+    const normalizedCronjobState = isDraftLabWorkspace(workspace)
+      ? disableCronjobAutonomyForLab({
+          metadata: resolvedMetadata,
+          recommendedEnabled: requestedEnabled,
+        })
+      : {
+          enabled: hasOwn(request.body, "enabled") ? requestedEnabled : null,
+          metadata: metadataProvided ? resolvedMetadata : undefined,
+          nextRunAt: cron == null ? cron : cronjobNextRunAt(cron, new Date()),
+        };
     const job = store.updateCronjob({
       workspaceId,
       jobId: params.jobId,
@@ -8722,15 +10121,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       cron,
       description,
       instruction,
-      enabled: hasOwn(request.body, "enabled") ? optionalBoolean(request.body.enabled, false) : null,
+      enabled: normalizedCronjobState.enabled,
       delivery: hasOwn(request.body, "delivery") ? (optionalDict(request.body.delivery) ?? {}) : undefined,
-      metadata: metadataProvided
-        ? cronjobMetadataWithRequestDefaults({
-            body: request.body,
-            existingMetadata: existing.metadata,
-          })
-        : undefined,
-      nextRunAt: cron == null ? cron : cronjobNextRunAt(cron, new Date())
+      metadata: normalizedCronjobState.metadata,
+      nextRunAt: normalizedCronjobState.nextRunAt
     });
     if (!job) {
       return sendError(reply, 404, "Cronjob not found");
@@ -9224,6 +10618,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!workspaceId) {
       return sendError(reply, 400, "workspace_id is required");
     }
+    const scope = resolveSessionWorkspaceScope({
+      store,
+      workspaceId,
+      sessionId: params.sessionId,
+    });
+    const effectiveWorkspaceId = scope?.workspaceId ?? workspaceId;
     const inputId = optionalString(query.input_id);
     const includeHistory = optionalBoolean(query.include_history, true);
     const includeNative = optionalBoolean(query.include_native, false);
@@ -9231,7 +10631,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     let afterEventId = Math.max(0, optionalInteger(query.after_event_id, 0));
     if (!includeHistory && afterEventId <= 0) {
       afterEventId = store.latestOutputEventId({
-        workspaceId,
+        workspaceId: effectiveWorkspaceId,
         sessionId: params.sessionId,
         inputId,
         excludedEventTypes
@@ -9240,7 +10640,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
 
     const items = store
       .listOutputEvents({
-        workspaceId,
+        workspaceId: effectiveWorkspaceId,
         sessionId: params.sessionId,
         inputId,
         includeHistory: true,
@@ -9265,6 +10665,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!workspaceId) {
       return sendError(reply, 400, "workspace_id is required");
     }
+    const scope = resolveSessionWorkspaceScope({
+      store,
+      workspaceId,
+      sessionId: params.sessionId,
+    });
+    const effectiveWorkspaceId = scope?.workspaceId ?? workspaceId;
     const inputId = optionalString(query.input_id);
     const includeHistory = optionalBoolean(query.include_history, true);
     const includeNative = optionalBoolean(query.include_native, false);
@@ -9281,7 +10687,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         let lastEventId = includeHistory
           ? 0
           : store.latestOutputEventId({
-              workspaceId,
+              workspaceId: effectiveWorkspaceId,
               sessionId: params.sessionId,
               inputId,
               excludedEventTypes
@@ -9290,7 +10696,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
 
         while (true) {
           const events = store.listOutputEvents({
-            workspaceId,
+            workspaceId: effectiveWorkspaceId,
             sessionId: params.sessionId,
             inputId,
             includeHistory: true,
@@ -9315,6 +10721,111 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     );
 
     return reply.send(stream);
+  });
+
+  // Temporary diagnostic route — exercises the full runtime → Hono →
+  // Composio path through ComposioApiClient using the env-injected
+  // HOLABOSS_AUTH_BEARER_TOKEN. Called by the IntegrationsPane debug
+  // button so we can confirm desktop-side env injection + runtime SDK
+  // + Hono /internal/* + bearer plugin all line up end-to-end. Safe to
+  // delete once a real consumer (cron worker / data harvester / first-
+  // run prefetch) is in product and we have a real smoke test.
+  app.post("/api/v1/debug/composio-runtime-test", async (request, reply) => {
+    const { createComposioApiClientFromEnv, ComposioApiClientError } =
+      await import("./composio-api-client.js");
+    const body = (isRecord(request.body) ? request.body : {}) as Record<
+      string,
+      unknown
+    >;
+    const providerSlug =
+      typeof body.provider_slug === "string"
+        ? body.provider_slug.trim().toLowerCase()
+        : "gmail";
+    const toolSlug =
+      typeof body.tool_slug === "string"
+        ? body.tool_slug.trim()
+        : "GMAIL_FETCH_EMAILS";
+    const actionArgs = isRecord(body.arguments)
+      ? (body.arguments as Record<string, unknown>)
+      : { max_results: 5 };
+
+    const composio = createComposioApiClientFromEnv();
+    if (!composio) {
+      return reply.code(503).send({
+        ok: false,
+        stage: "client_init",
+        error:
+          "HOLABOSS_AUTH_BEARER_TOKEN and/or HOLABOSS_AUTH_BASE_URL not set — desktop hasn't injected the session token yet (sign in first, then restart the runtime).",
+      });
+    }
+
+    let connections: Array<Record<string, unknown>> = [];
+    try {
+      const result = await composio.listConnections({ providerId: providerSlug });
+      connections = result.connections;
+    } catch (error) {
+      if (error instanceof ComposioApiClientError) {
+        return reply.code(error.httpStatus).send({
+          ok: false,
+          stage: "list_connections",
+          error: error.info,
+        });
+      }
+      return reply.code(502).send({
+        ok: false,
+        stage: "list_connections",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    if (connections.length === 0) {
+      return reply.code(404).send({
+        ok: false,
+        stage: "list_connections",
+        error: `No active ${providerSlug} connection for this user.`,
+      });
+    }
+    const connectedAccountId = (() => {
+      const candidate = connections[0];
+      if (!candidate) return null;
+      const id = (candidate as { id?: unknown }).id;
+      return typeof id === "string" ? id : null;
+    })();
+    if (!connectedAccountId) {
+      return reply.code(502).send({
+        ok: false,
+        stage: "list_connections",
+        error: "Connection row missing an id field.",
+      });
+    }
+
+    try {
+      const result = await composio.executeAction({
+        toolSlug,
+        connectedAccountId,
+        arguments: actionArgs,
+      });
+      return reply.send({
+        ok: true,
+        provider_slug: providerSlug,
+        tool_slug: toolSlug,
+        connected_account_id: connectedAccountId,
+        log_id: result.logId,
+        data: result.data,
+      });
+    } catch (error) {
+      if (error instanceof ComposioApiClientError) {
+        return reply.code(error.httpStatus).send({
+          ok: false,
+          stage: "execute_action",
+          error: error.info,
+        });
+      }
+      return reply.code(502).send({
+        ok: false,
+        stage: "execute_action",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   });
 
   return app;

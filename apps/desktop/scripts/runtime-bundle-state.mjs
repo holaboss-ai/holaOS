@@ -86,15 +86,60 @@ export async function runtimeBundleExists(requiredRuntimePathGroups) {
   return true;
 }
 
+// Files that the staged runtime bundle does not consume at boot. Editing
+// any of these — agent prompt skill docs, README/CHANGELOG/notes, IDE
+// metadata, lockfile cruft — should NOT trigger a 167s runtime rebuild
+// + Electron main restart. Without this filter, every save to
+// runtime/harnesses/src/embedded-skills/app-builder-sdk/SKILL.md
+// (or any similarly inert sibling) kicked off the full chain and the
+// renderer reconnect loop wedged the desktop.
+const RUNTIME_BUNDLE_IGNORED_EXTENSIONS = new Set([
+  ".md",
+  ".mdx",
+  ".markdown",
+  ".txt",
+  ".log",
+  ".map",
+  ".lock",
+  ".DS_Store",
+]);
+
+const RUNTIME_BUNDLE_IGNORED_DIRS = new Set([
+  "node_modules",
+  ".git",
+  ".turbo",
+  ".cache",
+  "dist",
+  "out",
+  "docs",
+  "__pycache__",
+]);
+
+function shouldSkipFile(name) {
+  if (name.startsWith(".")) return true;
+  const lastDot = name.lastIndexOf(".");
+  if (lastDot < 0) return false;
+  return RUNTIME_BUNDLE_IGNORED_EXTENSIONS.has(name.slice(lastDot).toLowerCase());
+}
+
 export async function newestMtime(targetPath) {
   const details = await stat(targetPath);
   if (!details.isDirectory()) {
     return details.mtimeMs;
   }
+  const baseName = path.basename(targetPath);
+  if (RUNTIME_BUNDLE_IGNORED_DIRS.has(baseName)) {
+    return 0;
+  }
 
   const entries = await readdir(targetPath, { withFileTypes: true });
   let newest = details.mtimeMs;
   for (const entry of entries) {
+    if (entry.isDirectory()) {
+      if (RUNTIME_BUNDLE_IGNORED_DIRS.has(entry.name)) continue;
+    } else if (entry.isFile()) {
+      if (shouldSkipFile(entry.name)) continue;
+    }
     newest = Math.max(newest, await newestMtime(path.join(targetPath, entry.name)));
   }
   return newest;

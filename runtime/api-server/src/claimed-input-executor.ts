@@ -55,6 +55,7 @@ import {
 } from "./session-checkpoint.js";
 import type { TurnMemoryWritebackModelContext } from "./turn-memory-writeback.js";
 import { runEvolveTasks } from "./evolve-tasks.js";
+import { evaluatePendingIntegrationProposals } from "./integration-proposal-gate.js";
 import { promoteAcceptedSkillCandidate } from "./evolve-skill-review.js";
 import {
   collectWorkspaceFileManifest,
@@ -3332,17 +3333,23 @@ function plusMillisecondsIso(
 }
 
 type SubagentPendingIntegration = {
+  workspace_id: string | null;
   app_id: string;
   provider_id: string;
   credential_source: string | null;
   // Opaque whoami config emitted by the runtime; forwarded verbatim to the
   // chat UI and then to Hono's /composio/connect. Shape lives in
   // integration-types.ts (WhoamiConfig). Treated as unknown here to keep
-  // this module free of Hono-specific knowledge.
-  whoami: Record<string, unknown> | null;
+  // this module free of Hono-specific knowledge. Omitted when the runtime
+  // didn't emit a whoami descriptor — downstream consumers treat missing
+  // and null identically, and omitting keeps the lifecycle payload tight.
+  whoami?: Record<string, unknown>;
 };
 
-function parseSubagentPendingIntegrationsFromText(text: string): SubagentPendingIntegration[] {
+function parseSubagentPendingIntegrationsFromText(
+  text: string,
+  fallbackWorkspaceId?: string | null,
+): SubagentPendingIntegration[] {
   if (!text.includes("pending_integrations")) {
     return [];
   }
@@ -3355,19 +3362,26 @@ function parseSubagentPendingIntegrationsFromText(text: string): SubagentPending
   if (!isRecord(parsed)) {
     return [];
   }
+  const normalizedFallbackWorkspaceId =
+    typeof fallbackWorkspaceId === "string" ? fallbackWorkspaceId.trim() : "";
   const list = Array.isArray(parsed.pending_integrations) ? parsed.pending_integrations : [];
   const out: SubagentPendingIntegration[] = [];
   for (const entry of list) {
     if (!isRecord(entry)) continue;
     const appId = typeof entry.app_id === "string" ? entry.app_id.trim() : "";
     const provider = typeof entry.provider_id === "string" ? entry.provider_id.trim() : "";
+    const workspaceId =
+      typeof entry.workspace_id === "string" && entry.workspace_id.trim()
+        ? entry.workspace_id.trim()
+        : normalizedFallbackWorkspaceId;
     if (!appId || !provider) continue;
     out.push({
+      workspace_id: workspaceId || null,
       app_id: appId,
       provider_id: provider,
       credential_source:
         typeof entry.credential_source === "string" ? entry.credential_source : null,
-      whoami: isRecord(entry.whoami) ? entry.whoami : null,
+      ...(isRecord(entry.whoami) ? { whoami: entry.whoami } : {}),
     });
   }
   return out;
@@ -3410,8 +3424,12 @@ function subagentPendingIntegrations(params: {
     if (!result || !Array.isArray(result.content)) continue;
     for (const part of result.content) {
       if (!isRecord(part) || part.type !== "text" || typeof part.text !== "string") continue;
-      for (const integration of parseSubagentPendingIntegrationsFromText(part.text)) {
-        const key = integration.provider_id.toLowerCase();
+      for (const integration of parseSubagentPendingIntegrationsFromText(part.text, params.workspaceId)) {
+        const key = [
+          integration.workspace_id?.toLowerCase() ?? "",
+          integration.provider_id.toLowerCase(),
+          integration.app_id.toLowerCase(),
+        ].join("|");
         if (seen.has(key)) continue;
         seen.add(key);
         out.push(integration);
@@ -3545,6 +3563,7 @@ function subagentLifecyclePayload(params: {
   });
   const assistantText = optionalString(params.turnResult.assistantText);
   const payload: Record<string, unknown> = {
+    workspace_id: params.run.workspaceId,
     subagent_id: params.run.subagentId,
     child_session_id: params.run.childSessionId,
     child_input_id: params.record.inputId,
@@ -4117,6 +4136,64 @@ export async function processClaimedInput(params: {
   });
 
   const executeClaimedInput = async (): Promise<void> => {
+    // Before doing any real work for this turn, hold the input if the
+    // agent has open propose_connect cards that the user has not yet
+    // resolved. Letting a turn run with partial integrations leads to
+    // half-done work + the agent reporting "done" while the dashboard
+    // still says "needs connection". Release the claim, requeue with a
+    // deferred available_at so the worker doesn't spin, and emit a
+    // waiting event the chat UI can render as a paused banner. The
+    // input gets re-claimed when OAuth finalize wakes the queue.
+    const proposalGate = evaluatePendingIntegrationProposals({
+      store,
+      workspaceId: record.workspaceId,
+      sessionId: record.sessionId,
+    });
+    if (proposalGate.blocked) {
+      const deferUntil = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      const latestEvent = store
+        .listOutputEvents({
+          workspaceId: record.workspaceId,
+          sessionId: record.sessionId,
+          includeHistory: true,
+        })
+        .reduce((max, event) => Math.max(max, event.sequence ?? 0), 0);
+      store.appendOutputEvent({
+        workspaceId: record.workspaceId,
+        sessionId: record.sessionId,
+        inputId: record.inputId,
+        sequence: latestEvent + 1,
+        eventType: "waiting_on_pending_integrations",
+        payload: {
+          proposed_slugs: proposalGate.proposedSlugs,
+          unresolved_slugs: proposalGate.unresolvedSlugs,
+          message:
+            "Waiting for the user to finish connecting required integrations.",
+        },
+      });
+      store.updateInput({
+        workspaceId: record.workspaceId,
+        inputId: record.inputId,
+        fields: {
+          status: "QUEUED",
+          claimedBy: null,
+          claimedUntil: null,
+          availableAt: deferUntil,
+        },
+      });
+      store.updateRuntimeState({
+        workspaceId: record.workspaceId,
+        sessionId: record.sessionId,
+        status: "WAITING_ON_USER",
+        currentInputId: record.inputId,
+        currentWorkerId: null,
+        leaseUntil: null,
+        heartbeatAt: null,
+        lastError: null,
+      });
+      return;
+    }
+
     const harness = normalizeHarnessId(workspace.harness ?? selectedHarness());
     const workspaceDir = store.workspaceDir(record.workspaceId);
     const session = store.getSession({
@@ -4662,48 +4739,71 @@ export async function processClaimedInput(params: {
           after_session_tokens: null,
           estimated_request_tokens: initialPreRunDecision.estimatedRequestTokens,
           projected_total_tokens: initialPreRunDecision.projectedTotalTokens,
-          compaction_attempted: true,
+          compaction_attempted: Boolean(snapshotPayload),
           compaction_changed_branch: false,
           reset_required: false,
         };
         preRunCompaction = initialPreRunCompaction;
-        const liveSessionState =
-          params.sessionCheckpointSessionOps?.currentLeafCheckpointState(
-            checkpointHarnessSessionId,
-          ) ?? currentPiSessionLeafState(checkpointHarnessSessionId);
-        const compactionResult = await forceCompactSessionWithSnapshotMerge({
-          store,
-          workspaceId: record.workspaceId,
-          sessionId: record.sessionId,
-          inputId: record.inputId,
-          harnessSessionId: checkpointHarnessSessionId,
-          baseLeafId: liveSessionState.leafId,
-          baseLatestCompactionId: liveSessionState.latestCompactionId,
-          runPiSessionCompactionFn: params.runPiSessionCompactionFn,
-          resolveRuntimeModelClientFn: params.resolveRuntimeModelClientFn,
-          sessionOps: params.sessionCheckpointSessionOps,
-        });
-        const finalPreRunDecision = evaluatePreRunSessionCompaction({
-          liveSessionFile: checkpointHarnessSessionId,
-          snapshotPayload,
-          selectedModel,
-          previousSelectedModel,
-          previousContextUsage: null,
-        });
-        const currentPreRunCompaction =
-          preRunCompaction ?? initialPreRunCompaction;
-        preRunCompaction = {
-          ...currentPreRunCompaction,
-          final_decision: finalPreRunDecision.decision,
-          after_session_tokens: finalPreRunDecision.currentSessionTokens,
-          estimated_request_tokens:
-            finalPreRunDecision.estimatedRequestTokens ??
-            currentPreRunCompaction.estimated_request_tokens,
-          projected_total_tokens:
-            finalPreRunDecision.projectedTotalTokens ??
-            currentPreRunCompaction.projected_total_tokens,
-          compaction_changed_branch: compactionResult.merged,
-        };
+        if (!snapshotPayload) {
+          if (initialPreRunDecision.decision === "would_overflow") {
+            preRunCompaction = {
+              ...initialPreRunCompaction,
+              final_decision: "reset_required",
+              reset_required: true,
+            };
+            throw new SessionResetRequiredError(
+              `pre-run session compaction could not make the next prompt fit ${selectedModel ?? "the selected model"}; session reset required`,
+            );
+          }
+        } else {
+          const liveSessionState =
+            params.sessionCheckpointSessionOps?.currentLeafCheckpointState(
+              checkpointHarnessSessionId,
+            ) ?? currentPiSessionLeafState(checkpointHarnessSessionId);
+          const compactionResult = await forceCompactSessionWithSnapshotMerge({
+            store,
+            workspaceId: record.workspaceId,
+            sessionId: record.sessionId,
+            inputId: record.inputId,
+            harnessSessionId: checkpointHarnessSessionId,
+            baseLeafId: liveSessionState.leafId,
+            baseLatestCompactionId: liveSessionState.latestCompactionId,
+            runPiSessionCompactionFn: params.runPiSessionCompactionFn,
+            resolveRuntimeModelClientFn: params.resolveRuntimeModelClientFn,
+            sessionOps: params.sessionCheckpointSessionOps,
+          });
+          const finalPreRunDecision = evaluatePreRunSessionCompaction({
+            liveSessionFile: checkpointHarnessSessionId,
+            snapshotPayload,
+            selectedModel,
+            previousSelectedModel,
+            previousContextUsage: null,
+          });
+          const currentPreRunCompaction =
+            preRunCompaction ?? initialPreRunCompaction;
+          preRunCompaction = {
+            ...currentPreRunCompaction,
+            final_decision: finalPreRunDecision.decision,
+            after_session_tokens: finalPreRunDecision.currentSessionTokens,
+            estimated_request_tokens:
+              finalPreRunDecision.estimatedRequestTokens ??
+              currentPreRunCompaction.estimated_request_tokens,
+            projected_total_tokens:
+              finalPreRunDecision.projectedTotalTokens ??
+              currentPreRunCompaction.projected_total_tokens,
+            compaction_changed_branch: compactionResult.merged,
+          };
+          if (finalPreRunDecision.decision === "would_overflow") {
+            preRunCompaction = {
+              ...preRunCompaction,
+              final_decision: "reset_required",
+              reset_required: true,
+            };
+            throw new SessionResetRequiredError(
+              `pre-run session compaction could not make the next prompt fit ${selectedModel ?? "the selected model"}; session reset required`,
+            );
+          }
+        }
       }
       const executeRunner =
         params.executeRunnerRequestFn ?? executeRunnerRequest;

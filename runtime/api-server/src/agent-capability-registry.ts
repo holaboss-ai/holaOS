@@ -179,6 +179,7 @@ export interface BuildAgentCapabilityManifestParams {
 interface CapabilityAvailabilityRules {
   harnessIds?: string[];
   sessionKinds?: string[];
+  excludedSessionKinds?: string[];
 }
 
 type ToolCapabilityDefinition = {
@@ -364,6 +365,20 @@ const BUILTIN_CAPABILITY_DEFINITIONS: Record<string, ToolCapabilityDefinition> =
   },
 };
 
+function runtimeToolAvailability(toolId: string): CapabilityAvailabilityRules | undefined {
+  if (
+    toolId === "holaboss_create_alignment_question" ||
+    toolId === "holaboss_create_alignment_report" ||
+    toolId === "holaboss_create_verification_report"
+  ) {
+    return { sessionKinds: ["workspace_onboarding"] };
+  }
+  if (toolId === "holaboss_onboarding_complete") {
+    return { excludedSessionKinds: ["workspace_onboarding"] };
+  }
+  return undefined;
+}
+
 const RUNTIME_TOOL_DEFINITIONS = new Map<string, ToolCapabilityDefinition>(
   RUNTIME_AGENT_TOOL_DEFINITIONS.map((toolDef) => [
     toolDef.id,
@@ -372,6 +387,7 @@ const RUNTIME_TOOL_DEFINITIONS = new Map<string, ToolCapabilityDefinition>(
       policy: toolDef.policy,
       title: titleFromToken(toolDef.id),
       description: toolDef.description,
+      availability: runtimeToolAvailability(toolDef.id),
     },
   ])
 );
@@ -539,6 +555,16 @@ function definitionAllowedInContext(
     availability.sessionKinds &&
     normalizedSessionKind &&
     !availability.sessionKinds.includes(normalizedSessionKind)
+  ) {
+    return {
+      allowed: false,
+      reason: "session_kind_not_allowed",
+    };
+  }
+  if (
+    availability.excludedSessionKinds &&
+    normalizedSessionKind &&
+    availability.excludedSessionKinds.includes(normalizedSessionKind)
   ) {
     return {
       allowed: false,

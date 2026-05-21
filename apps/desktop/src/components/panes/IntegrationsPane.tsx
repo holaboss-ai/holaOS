@@ -5,10 +5,11 @@ import {
   LogIn,
   Plus,
   RefreshCw,
-  Search,
   ShieldAlert,
   Unplug,
 } from "lucide-react";
+import { AddIntegrationDialog } from "@/components/panes/AddIntegrationDialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   SettingsCard,
   SettingsSection,
@@ -16,19 +17,17 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { accountDisplayLabel } from "@/lib/integrationDisplay";
+import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import {
   invalidateIntegrationAccountCache,
   useIntegrationAccountMetadata,
 } from "@/lib/integrationAccountStore";
+import {
+  composioToolkitMatchesProvider,
+  composioToolkitSlugForProvider,
+} from "@/lib/workspaceDesktop";
 
 interface ComposioToolkit {
   slug: string;
@@ -163,8 +162,6 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
     IntegrationConnectionPayload[]
   >([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [query, setQuery] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("all");
   const [connectingProviderId, setConnectingProviderId] = useState<
     string | null
   >(null);
@@ -175,23 +172,85 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
     string | null
   >(null);
   const [statusMessage, setStatusMessage] = useState("");
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [workspaceUsageByConnection, setWorkspaceUsageByConnection] = useState<
+    Map<string, ConnectionWorkspaceUsageEntry["workspaces"]>
+  >(new Map());
+  const [capabilitiesByToolkit, setCapabilitiesByToolkit] = useState<
+    Record<string, ComposioToolkitCapability[]>
+  >({});
+  const [storeCatalog, setStoreCatalog] = useState<
+    Map<string, IntegrationStoreCatalogEntry>
+  >(new Map());
+  const [overridesByToolkit, setOverridesByToolkit] = useState<
+    Map<string, Map<string, AllWorkspaceIntegrationOverridesPayload["overrides"][number]>>
+  >(new Map());
+  const [expandedProviderId, setExpandedProviderId] = useState<string | null>(null);
+  const [mutatingOverrideKey, setMutatingOverrideKey] = useState<string | null>(null);
+  const { workspaces } = useWorkspaceDesktop();
   const accountMetadata = useIntegrationAccountMetadata(connections);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [catalogResult, connectionResult, toolkitResult] =
-        await Promise.all([
-          window.electronAPI.workspace.listIntegrationCatalog(),
-          window.electronAPI.workspace.listIntegrationConnections(),
-          window.electronAPI.workspace
-            .composioListToolkits()
-            .catch(() => ({ toolkits: [] as ComposioToolkit[] })),
-        ]);
+      const [
+        catalogResult,
+        connectionResult,
+        toolkitResult,
+        usageResult,
+        capabilitiesResult,
+        storeCatalogResult,
+        overridesResult,
+      ] = await Promise.all([
+        window.electronAPI.workspace.listIntegrationCatalog(),
+        window.electronAPI.workspace.listIntegrationConnections(),
+        window.electronAPI.workspace
+          .composioListToolkits()
+          .catch(() => ({ toolkits: [] as ComposioToolkit[] })),
+        window.electronAPI.workspace
+          .listConnectionWorkspaceUsage()
+          .catch(() => ({ usage: [] as ConnectionWorkspaceUsageEntry[] })),
+        window.electronAPI.workspace
+          .listComposioToolkitCapabilities()
+          .catch(() => ({ toolkits: {} as Record<string, ComposioToolkitCapability[]> })),
+        window.electronAPI.workspace
+          .listIntegrationStoreCatalog()
+          .catch(() => ({ entries: [] as IntegrationStoreCatalogEntry[] })),
+        window.electronAPI.workspace
+          .listAllWorkspaceIntegrationOverrides()
+          .catch(() => ({
+            overrides: [] as AllWorkspaceIntegrationOverridesPayload["overrides"],
+          })),
+      ]);
       setIntegrations(
         mergeIntegrationCards(catalogResult.providers, toolkitResult.toolkits),
       );
       setConnections(connectionResult.connections);
+      const usageMap = new Map<string, ConnectionWorkspaceUsageEntry["workspaces"]>();
+      for (const entry of usageResult.usage) {
+        usageMap.set(entry.connection_id, entry.workspaces);
+      }
+      setWorkspaceUsageByConnection(usageMap);
+      setCapabilitiesByToolkit(capabilitiesResult.toolkits ?? {});
+      const storeMap = new Map<string, IntegrationStoreCatalogEntry>();
+      for (const entry of storeCatalogResult.entries) {
+        storeMap.set(entry.slug.trim().toLowerCase(), entry);
+      }
+      setStoreCatalog(storeMap);
+      const ovMap = new Map<
+        string,
+        Map<string, AllWorkspaceIntegrationOverridesPayload["overrides"][number]>
+      >();
+      for (const o of overridesResult.overrides) {
+        const key = o.toolkit_slug.toLowerCase();
+        let inner = ovMap.get(key);
+        if (!inner) {
+          inner = new Map();
+          ovMap.set(key, inner);
+        }
+        inner.set(o.workspace_id, o);
+      }
+      setOverridesByToolkit(ovMap);
     } catch (error) {
       setIntegrations([]);
       setConnections([]);
@@ -347,6 +406,47 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connections, accountMetadata]);
 
+  // Zombie sweep: when enrichment returns a tombstone (status: "missing")
+  // for a row, the upstream Composio account is gone. Delete the local
+  // row so the user isn't stuck with a "Gmail (Managed)" entry that can't
+  // be refreshed, won't dedupe, and survives a normal Disconnect on
+  // pre-rename builds.
+  const zombieSweepInFlightRef = useRef(false);
+  useEffect(() => {
+    if (zombieSweepInFlightRef.current) return;
+    if (connections.length === 0) return;
+    const zombies = connections.filter(
+      (c) => accountMetadata.get(c.connection_id)?.status === "missing",
+    );
+    if (zombies.length === 0) return;
+    zombieSweepInFlightRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        for (const zombie of zombies) {
+          if (cancelled) return;
+          try {
+            await window.electronAPI.workspace.deleteIntegrationConnection(
+              zombie.connection_id,
+            );
+          } catch {
+            // Per-row failure is fine — next mount will retry.
+          }
+        }
+        if (!cancelled) {
+          invalidateIntegrationAccountCache(zombies.map((z) => z.connection_id));
+          await loadData();
+        }
+      } finally {
+        zombieSweepInFlightRef.current = false;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connections, accountMetadata]);
+
 
   // Map providerId → all active connections. A user can have multiple accounts
   // per provider (e.g., personal + work Twitter); each connection is its own
@@ -373,18 +473,6 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
     [connectionsByProviderId],
   );
 
-  const categories = useMemo(() => {
-    const items = new Set<string>();
-    for (const integration of integrations) {
-      for (const category of integration.categories) {
-        if (category) {
-          items.add(category);
-        }
-      }
-    }
-    return Array.from(items).sort();
-  }, [integrations]);
-
   const connectedIntegrations = useMemo(
     () =>
       integrations.filter((integration) =>
@@ -393,41 +481,26 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
     [connectedProviderIds, integrations],
   );
 
-  const filteredIntegrations = useMemo(() => {
-    let items = integrations.filter(
-      (integration) => !connectedProviderIds.has(integration.providerId),
-    );
-    if (query.trim()) {
-      const normalizedQuery = query.trim().toLowerCase();
-      items = items.filter((integration) =>
-        [
-          integration.providerId,
-          integration.name,
-          integration.description,
-        ].some((value) => value.toLowerCase().includes(normalizedQuery)),
-      );
-    }
-    if (categoryFilter !== "all") {
-      items = items.filter((integration) =>
-        integration.categories.includes(categoryFilter),
-      );
-    }
-    return items;
-  }, [categoryFilter, connectedProviderIds, integrations, query]);
+  const dialogIntegrations = useMemo(
+    () =>
+      integrations
+        .filter(
+          (integration) =>
+            storeCatalog.size === 0 || storeCatalog.has(integration.providerId),
+        )
+        .map((integration) => ({
+          slug: integration.slug,
+          providerId: integration.providerId,
+          name: integration.name,
+          description: integration.description,
+          logo: integration.logo,
+          categories: integration.categories,
+          supportsManaged: integration.supportsManaged,
+          tier: storeCatalog.get(integration.providerId)?.tier,
+        })),
+    [integrations, storeCatalog],
+  );
 
-  const groupedIntegrations = useMemo(() => {
-    const groups: Record<string, IntegrationCard[]> = {};
-    for (const integration of filteredIntegrations) {
-      const category = integration.categories[0] || "other";
-      if (!groups[category]) {
-        groups[category] = [];
-      }
-      groups[category].push(integration);
-    }
-    return Object.entries(groups).sort(([left], [right]) =>
-      left.localeCompare(right),
-    );
-  }, [filteredIntegrations]);
 
   async function handleConnect(integration: IntegrationCard) {
     if (!isSignedIn) {
@@ -450,25 +523,19 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
         authSessionState.data?.user?.id?.trim() ||
         "local";
 
-      // Snapshot existing connection ids BEFORE initiating connect. The
-      // id Composio returns from /link is, in practice, not queryable
-      // via /connected_accounts/{id} until well after OAuth completes
-      // — so instead of polling that id, we poll the user's connections
-      // list and look for any *new* id that wasn't there before.
-      let beforeIds = new Set<string>();
-      try {
-        const before =
-          await window.electronAPI.workspace.composioListConnections();
-        beforeIds = new Set(before.connections.map((c) => c.id));
-      } catch {
-        // If snapshot fails, continue with empty set; any new id matching
-        // the toolkit is still detectable.
-      }
-
+      const toolkitSlug = composioToolkitSlugForProvider(integration.providerId);
       const link = await window.electronAPI.workspace.composioConnect({
-        provider: integration.providerId,
+        provider: toolkitSlug,
         owner_user_id: userId,
       });
+
+      const connectedAccountId = link.connected_account_id;
+      if (!connectedAccountId) {
+        setStatusMessage(
+          `${integration.name} did not return a connected account id. Please try again.`,
+        );
+        return;
+      }
 
       await window.electronAPI.ui.openExternalUrl(link.redirect_url);
 
@@ -476,10 +543,13 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
       const MAX_CONSECUTIVE_ERRORS = 20;
       for (let attempt = 0; attempt < 100; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 3000));
-        let current;
+        let accountStatus;
         try {
-          current =
-            await window.electronAPI.workspace.composioListConnections();
+          accountStatus =
+            await window.electronAPI.workspace.composioAccountStatus(
+              connectedAccountId,
+              integration.providerId,
+            );
           consecutiveErrors = 0;
         } catch (pollError) {
           consecutiveErrors += 1;
@@ -489,50 +559,30 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
           continue;
         }
 
-        const newConnection = current.connections.find(
-          (c) =>
-            !beforeIds.has(c.id) &&
-            c.toolkitSlug.toLowerCase() ===
-              integration.providerId.toLowerCase(),
-        );
-        if (newConnection) {
-          // Composio creates the row at /connect time in INITIATED state —
-          // its presence does NOT mean the user finished OAuth. Query the
-          // account's real status before finalizing.
-          let accountStatus;
-          try {
-            accountStatus =
-              await window.electronAPI.workspace.composioAccountStatus(
-                newConnection.id,
-                integration.providerId,
-              );
-          } catch {
-            continue;
-          }
-          const status = (accountStatus.status ?? "").toUpperCase();
-          if (
-            status === "FAILED" ||
-            status === "EXPIRED" ||
-            status === "INACTIVE"
-          ) {
-            setStatusMessage(
-              `Authorization for ${integration.name} ${status.toLowerCase()}. Please try again.`,
-            );
-            return;
-          }
-          if (status !== "ACTIVE") {
-            continue;
-          }
-          await window.electronAPI.workspace.composioFinalize({
-            connected_account_id: newConnection.id,
-            provider: integration.providerId,
-            owner_user_id: userId,
-            account_label: `${integration.name} (Managed)`,
-          });
-          setStatusMessage("");
-          void loadData();
+        const status = (accountStatus.status ?? "").toUpperCase();
+        if (
+          status === "FAILED" ||
+          status === "EXPIRED" ||
+          status === "INACTIVE" ||
+          status === "MISSING"
+        ) {
+          setStatusMessage(
+            `Authorization for ${integration.name} ${status.toLowerCase()}. Please try again.`,
+          );
           return;
         }
+        if (status !== "ACTIVE") {
+          continue;
+        }
+        await window.electronAPI.workspace.composioFinalize({
+          connected_account_id: connectedAccountId,
+          provider: integration.providerId,
+          owner_user_id: userId,
+          account_label: `${integration.name} (Managed)`,
+        });
+        setStatusMessage("");
+        void loadData();
+        return;
       }
 
       setStatusMessage("Connection timed out.");
@@ -543,10 +593,50 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
     }
   }
 
-  async function handleDisconnect(connectionId: string) {
+  const [pendingDisconnect, setPendingDisconnect] = useState<{
+    connectionId: string;
+    label: string;
+    workspaceCount: number;
+  } | null>(null);
+
+  function handleDisconnect(connectionId: string) {
+    const target = connections.find((c) => c.connection_id === connectionId);
+    if (!target) return;
+    const usage = workspaceUsageByConnection.get(connectionId) ?? [];
+    const workspaceCount = new Set(usage.map((u) => u.workspace_id)).size;
+    if (workspaceCount > 0) {
+      setPendingDisconnect({
+        connectionId,
+        label: target.account_label || target.provider_id,
+        workspaceCount,
+      });
+      return;
+    }
+    void performDisconnect(connectionId);
+  }
+
+  async function performDisconnect(connectionId: string) {
     setDisconnectingConnectionId(connectionId);
     setStatusMessage("");
     try {
+      const target = connections.find(
+        (c) => c.connection_id === connectionId,
+      );
+      const externalId = target?.account_external_id?.trim();
+      // Revoke upstream first so the user's intent ("disconnect Gmail")
+      // actually severs the Composio connected_account — otherwise a stale
+      // upstream row keeps the OAuth grant alive and clutters the picker.
+      // Composio 404 ⇒ already gone; treat as success and proceed locally.
+      if (externalId) {
+        try {
+          await window.electronAPI.workspace.composioDeleteUpstream(
+            externalId,
+          );
+        } catch (upstreamError) {
+          setStatusMessage(normalizeErrorMessage(upstreamError));
+          return;
+        }
+      }
       await window.electronAPI.workspace.deleteIntegrationConnection(
         connectionId,
       );
@@ -558,6 +648,66 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
       setDisconnectingConnectionId(null);
     }
   }
+
+  const setWorkspaceToolkitEnabled = useCallback(
+    async (workspaceId: string, toolkitSlug: string, enabled: boolean) => {
+      const key = `${workspaceId}:${toolkitSlug}`;
+      setMutatingOverrideKey(key);
+      setStatusMessage("");
+      try {
+        if (enabled) {
+          await window.electronAPI.workspace.clearWorkspaceIntegrationOverride(
+            workspaceId,
+            toolkitSlug,
+          );
+        } else {
+          await window.electronAPI.workspace.setWorkspaceIntegrationOverride(
+            workspaceId,
+            toolkitSlug,
+            { state: "disabled" },
+          );
+        }
+        await loadData();
+      } catch (error) {
+        setStatusMessage(normalizeErrorMessage(error));
+      } finally {
+        setMutatingOverrideKey(null);
+      }
+    },
+    [loadData],
+  );
+
+  const setWorkspaceToolkitPin = useCallback(
+    async (
+      workspaceId: string,
+      toolkitSlug: string,
+      connectionId: string | "auto",
+    ) => {
+      const key = `${workspaceId}:${toolkitSlug}`;
+      setMutatingOverrideKey(key);
+      setStatusMessage("");
+      try {
+        if (connectionId === "auto") {
+          await window.electronAPI.workspace.clearWorkspaceIntegrationOverride(
+            workspaceId,
+            toolkitSlug,
+          );
+        } else {
+          await window.electronAPI.workspace.setWorkspaceIntegrationOverride(
+            workspaceId,
+            toolkitSlug,
+            { state: "pinned", pinned_connection_id: connectionId },
+          );
+        }
+        await loadData();
+      } catch (error) {
+        setStatusMessage(normalizeErrorMessage(error));
+      } finally {
+        setMutatingOverrideKey(null);
+      }
+    },
+    [loadData],
+  );
 
   async function handleRefresh(connectionId: string) {
     setRefreshingConnectionId(connectionId);
@@ -655,14 +805,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
     );
 
     if (embedded) {
-      return (
-        <div>
-          <p className="text-sm text-muted-foreground">
-            Connect your accounts to use them in workspaces.
-          </p>
-          {embeddedSkeleton}
-        </div>
-      );
+      return <div>{embeddedSkeleton}</div>;
     }
 
     return (
@@ -711,40 +854,23 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
         </div>
       ) : null}
 
-      {/* Search + Filter */}
-      <div className="mt-5 flex items-center gap-3">
-        <div className="relative flex-1">
-          <Search
-            size={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search integrations..."
-            className="h-9 pl-8"
-          />
-        </div>
-        <select
-          value={categoryFilter}
-          onChange={(event) => setCategoryFilter(event.target.value)}
-          className="h-9 rounded-lg border border-input bg-transparent px-3 text-sm text-foreground outline-none"
-        >
-          <option value="all">All</option>
-          {categories.map((category) => (
-            <option key={category} value={category}>
-              {category.charAt(0).toUpperCase() + category.slice(1)}
-            </option>
-          ))}
-        </select>
-      </div>
-
       {/* Connected — one card per provider, multiple account rows inside */}
       {connectedIntegrations.length > 0 ? (
-        <div className="mt-6">
-          <h2 className="text-xs font-medium uppercase text-muted-foreground">
-            Connected
-          </h2>
+        <div className="mt-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-medium uppercase text-muted-foreground">
+              Your integrations
+            </h2>
+            <Button
+              onClick={() => setAddDialogOpen(true)}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              <Plus className="mr-1.5 size-3.5" />
+              Add integration
+            </Button>
+          </div>
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
             {connectedIntegrations.map((integration) => (
               <ConnectedProviderCard
@@ -765,12 +891,32 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                 metadata={accountMetadata}
                 onConnect={() => void handleConnect(integration)}
                 onDisconnect={(connectionId) =>
-                  void handleDisconnect(connectionId)
+                  handleDisconnect(connectionId)
                 }
                 onRefresh={(connectionId) =>
                   void handleRefresh(connectionId)
                 }
+                expanded={expandedProviderId === integration.providerId}
+                mutatingOverrideKey={mutatingOverrideKey}
+                onSetWorkspaceEnabled={(workspaceId, enabled) =>
+                  void setWorkspaceToolkitEnabled(
+                    workspaceId,
+                    integration.providerId,
+                    enabled,
+                  )
+                }
+                onToggleExpanded={() =>
+                  setExpandedProviderId((prev) =>
+                    prev === integration.providerId ? null : integration.providerId,
+                  )
+                }
                 refreshingConnectionId={refreshingConnectionId}
+                toolkitCapabilities={capabilitiesByToolkit[integration.providerId] ?? []}
+                toolkitOverrides={
+                  overridesByToolkit.get(integration.providerId) ?? new Map()
+                }
+                workspaceUsageByConnection={workspaceUsageByConnection}
+                workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
               />
             ))}
           </div>
@@ -781,57 +927,79 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
         <p className="mt-4 text-sm text-muted-foreground">{statusMessage}</p>
       ) : null}
 
-      {/* Available — grouped by category */}
-      {groupedIntegrations.map(([category, items]) => (
-        <div key={category} className="mt-6">
-          <h2 className="text-xs font-medium uppercase text-muted-foreground">
-            {category.charAt(0).toUpperCase() + category.slice(1)}
-          </h2>
-          <div className="mt-3 divide-y divide-border border-y border-border">
-            {items.map((integration) => (
-              <IntegrationRow
-                key={integration.slug}
-                integration={integration}
-                connected={false}
-                canConnect={isSignedIn && integration.supportsManaged}
-                connectDisabledReason={
-                  integration.supportsManaged
-                    ? "Sign in first to connect managed integrations."
-                    : "Managed sign-in is not supported for this provider."
-                }
-                onConnect={() => void handleConnect(integration)}
-                onDisconnect={() => {}}
-                connecting={connectingProviderId === integration.providerId}
-                disconnecting={false}
-                actionMode={
-                  !integration.supportsManaged
-                    ? "unavailable"
-                    : isSignedIn
-                      ? "connect"
-                      : "disabled"
-                }
-              />
-            ))}
-          </div>
+      {connectedIntegrations.length === 0 ? (
+        <div className="mt-8 flex flex-col items-center gap-3 rounded-xl border border-border bg-card px-6 py-10 text-center">
+          <p className="text-sm text-foreground">No integrations yet.</p>
+          <p className="max-w-xs text-xs leading-5 text-muted-foreground">
+            Connect Gmail, Slack, Linear, and others so the agent can use them
+            in your workspaces.
+          </p>
+          <Button
+            disabled={!isSignedIn}
+            onClick={() => setAddDialogOpen(true)}
+            size="sm"
+            type="button"
+            variant="default"
+          >
+            <Plus className="mr-1.5 size-3.5" />
+            Add integration
+          </Button>
         </div>
-      ))}
-
-      {filteredIntegrations.length === 0 &&
-      connectedIntegrations.length === 0 ? (
-        <p className="mt-12 text-center text-sm text-muted-foreground">
-          No integrations found.
-        </p>
       ) : null}
+
+      <AddIntegrationDialog
+        canConnect={isSignedIn}
+        connectDisabledReason={
+          isSignedIn
+            ? "Managed sign-in is not supported for this provider."
+            : "Sign in first to connect integrations."
+        }
+        connectedProviderIds={connectedProviderIds}
+        connectingProviderId={connectingProviderId}
+        integrations={dialogIntegrations}
+        onConnect={(integration) => {
+          setAddDialogOpen(false);
+          void handleConnect({
+            slug: integration.slug,
+            providerId: integration.providerId,
+            name: integration.name,
+            description: integration.description,
+            logo: integration.logo,
+            authSchemes: [],
+            categories: integration.categories,
+            supportsManaged: integration.supportsManaged,
+          });
+        }}
+        onOpenChange={setAddDialogOpen}
+        open={addDialogOpen}
+      />
+
+      <ConfirmDialog
+        confirmLabel="Disconnect"
+        description={
+          pendingDisconnect
+            ? `${pendingDisconnect.label} is bound in ${pendingDisconnect.workspaceCount} workspace${pendingDisconnect.workspaceCount === 1 ? "" : "s"}. Disconnecting drops every binding and revokes the Composio account. Apps in those workspaces will lose access until you reconnect.`
+            : ""
+        }
+        destructive
+        onConfirm={() => {
+          if (pendingDisconnect) {
+            void performDisconnect(pendingDisconnect.connectionId);
+            setPendingDisconnect(null);
+          }
+        }}
+        onOpenChange={(open) => {
+          if (!open) setPendingDisconnect(null);
+        }}
+        open={Boolean(pendingDisconnect)}
+        title="Disconnect this account?"
+      />
     </>
   );
 
   if (embedded) {
     return (
       <div className="grid gap-6">
-        <p className="text-sm text-muted-foreground">
-          Connect your accounts to use them in workspaces.
-        </p>
-
         {/* Auth gate */}
         {!authSessionState.isPending && !isSignedIn ? (
           <SettingsCard>
@@ -859,67 +1027,27 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
           </SettingsCard>
         ) : null}
 
-        {/* Search + filter toolbar */}
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1">
-            <Search
-              size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search integrations..."
-              className="h-9 pl-8"
-            />
-          </div>
-          <Select
-            value={categoryFilter}
-            onValueChange={(value) => setCategoryFilter(value ?? "all")}
-          >
-            <SelectTrigger
-              size="sm"
-              className="w-auto min-w-[96px] justify-end gap-1.5 border-transparent bg-transparent px-2 text-xs font-medium hover:bg-accent dark:bg-transparent dark:hover:bg-accent"
-            >
-              <SelectValue>
-                {(value: string) =>
-                  value === "all"
-                    ? "All"
-                    : value.charAt(0).toUpperCase() + value.slice(1)
-                }
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent
-              align="end"
-              alignItemWithTrigger={false}
-              className="min-w-[140px] gap-0 rounded-lg p-1 shadow-xs ring-0"
-            >
-              <SelectItem
-                value="all"
-                className="rounded-md px-2.5 py-1.5 text-xs"
-              >
-                All
-              </SelectItem>
-              {categories.map((category) => (
-                <SelectItem
-                  key={category}
-                  value={category}
-                  className="rounded-md px-2.5 py-1.5 text-xs"
-                >
-                  {category.charAt(0).toUpperCase() + category.slice(1)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
         {statusMessage ? (
-          <p className="-mt-4 text-sm text-muted-foreground">{statusMessage}</p>
+          <p className="text-sm text-muted-foreground">{statusMessage}</p>
         ) : null}
 
         {/* Connected section — one card per provider, multiple account rows */}
         {connectedIntegrations.length > 0 ? (
-          <SettingsSection title="Connected">
+          <SettingsSection
+            action={
+              <Button
+                disabled={!isSignedIn}
+                onClick={() => setAddDialogOpen(true)}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                <Plus className="mr-1.5 size-3.5" />
+                Add integration
+              </Button>
+            }
+            title="Your integrations"
+          >
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {connectedIntegrations.map((integration) => (
                 <ConnectedProviderCard
@@ -942,59 +1070,106 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                   metadata={accountMetadata}
                   onConnect={() => void handleConnect(integration)}
                   onDisconnect={(connectionId) =>
-                    void handleDisconnect(connectionId)
+                    handleDisconnect(connectionId)
                   }
                   onRefresh={(connectionId) =>
                     void handleRefresh(connectionId)
                   }
+                  expanded={expandedProviderId === integration.providerId}
+                  mutatingOverrideKey={mutatingOverrideKey}
+                  onSetWorkspaceEnabled={(workspaceId, enabled) =>
+                    void setWorkspaceToolkitEnabled(
+                      workspaceId,
+                      integration.providerId,
+                      enabled,
+                    )
+                  }
+                  onToggleExpanded={() =>
+                    setExpandedProviderId((prev) =>
+                      prev === integration.providerId ? null : integration.providerId,
+                    )
+                  }
                   refreshingConnectionId={refreshingConnectionId}
+                  toolkitCapabilities={capabilitiesByToolkit[integration.providerId] ?? []}
+                  toolkitOverrides={
+                    overridesByToolkit.get(integration.providerId) ?? new Map()
+                  }
+                  workspaceUsageByConnection={workspaceUsageByConnection}
+                  workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
                 />
               ))}
             </div>
           </SettingsSection>
         ) : null}
 
-        {/* Available — grouped by category */}
-        {groupedIntegrations.map(([category, items]) => (
-          <SettingsSection
-            key={category}
-            title={category.charAt(0).toUpperCase() + category.slice(1)}
-          >
-            <div className="divide-y divide-border">
-              {items.map((integration) => (
-                <IntegrationEmbeddedCard
-                  key={integration.slug}
-                  integration={integration}
-                  connected={false}
-                  canConnect={isSignedIn && integration.supportsManaged}
-                  connectDisabledReason={
-                    integration.supportsManaged
-                      ? "Sign in first to connect managed integrations."
-                      : "Managed sign-in is not supported for this provider."
-                  }
-                  onConnect={() => void handleConnect(integration)}
-                  onDisconnect={() => {}}
-                  connecting={connectingProviderId === integration.providerId}
-                  disconnecting={false}
-                  actionMode={
-                    !integration.supportsManaged
-                      ? "unavailable"
-                      : isSignedIn
-                        ? "connect"
-                        : "disabled"
-                  }
-                />
-              ))}
-            </div>
-          </SettingsSection>
-        ))}
-
-        {filteredIntegrations.length === 0 &&
-        connectedIntegrations.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground">
-            No integrations found.
-          </p>
+        {connectedIntegrations.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-border bg-card px-6 py-10 text-center">
+            <p className="text-sm text-foreground">No integrations yet.</p>
+            <p className="max-w-xs text-xs leading-5 text-muted-foreground">
+              Connect Gmail, Slack, Linear, and others so the agent can use
+              them in your workspaces.
+            </p>
+            <Button
+              disabled={!isSignedIn}
+              onClick={() => setAddDialogOpen(true)}
+              size="sm"
+              type="button"
+              variant="default"
+            >
+              <Plus className="mr-1.5 size-3.5" />
+              Add integration
+            </Button>
+          </div>
         ) : null}
+
+        <AddIntegrationDialog
+          canConnect={isSignedIn}
+          connectDisabledReason={
+            isSignedIn
+              ? "Managed sign-in is not supported for this provider."
+              : "Sign in first to connect integrations."
+          }
+          connectedProviderIds={connectedProviderIds}
+          connectingProviderId={connectingProviderId}
+          integrations={dialogIntegrations}
+          onConnect={(integration) => {
+            setAddDialogOpen(false);
+            void handleConnect({
+              slug: integration.slug,
+              providerId: integration.providerId,
+              name: integration.name,
+              description: integration.description,
+              logo: integration.logo,
+              authSchemes: [],
+              categories: integration.categories,
+              supportsManaged: integration.supportsManaged,
+            });
+          }}
+          onOpenChange={setAddDialogOpen}
+          open={addDialogOpen}
+        />
+
+        <ConfirmDialog
+          confirmLabel="Disconnect"
+          description={
+            pendingDisconnect
+              ? `${pendingDisconnect.label} is bound in ${pendingDisconnect.workspaceCount} workspace${pendingDisconnect.workspaceCount === 1 ? "" : "s"}. Disconnecting drops every binding and revokes the Composio account. Apps in those workspaces will lose access until you reconnect.`
+              : ""
+          }
+          destructive
+          onConfirm={() => {
+            if (pendingDisconnect) {
+              void performDisconnect(pendingDisconnect.connectionId);
+              setPendingDisconnect(null);
+            }
+          }}
+          onOpenChange={(open) => {
+            if (!open) setPendingDisconnect(null);
+          }}
+          open={Boolean(pendingDisconnect)}
+          title="Disconnect this account?"
+        />
+        <ComposioRuntimeDebugRow />
       </div>
     );
   }
@@ -1006,9 +1181,6 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
           <h1 className="text-xl font-semibold tracking-tight text-foreground">
             Integrations
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Connect your accounts to use them in workspaces.
-          </p>
           {integrationContent}
         </div>
       </div>
@@ -1016,220 +1188,17 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
   );
 }
 
-function IntegrationRow({
-  integration,
-  connected,
-  canConnect,
-  connectDisabledReason,
-  onConnect,
-  onDisconnect,
-  connecting,
-  disconnecting,
-  actionMode,
-}: {
-  integration: IntegrationCard;
-  connected: boolean;
-  canConnect: boolean;
-  connectDisabledReason: string;
-  onConnect: () => void;
-  onDisconnect: () => void;
-  connecting: boolean;
-  disconnecting: boolean;
-  actionMode: "connected" | "connect" | "disabled" | "unavailable";
-}) {
-  const muted = actionMode === "disabled";
-  return (
-    <div
-      className={`group flex items-center gap-3 px-3 py-2.5 transition-colors ${
-        muted ? "opacity-50" : "hover:bg-fg-2"
-      }`}
-    >
-      <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background">
-        {integration.logo ? (
-          <img
-            src={integration.logo}
-            alt=""
-            className="size-full object-cover"
-          />
-        ) : (
-          <span className="text-sm font-semibold text-muted-foreground">
-            {integration.name.charAt(0)}
-          </span>
-        )}
-      </div>
 
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium text-foreground">
-          {integration.name}
-        </div>
-        <div className="truncate text-sm text-muted-foreground">
-          {integration.description}
-        </div>
-      </div>
-
-      {connected ? (
-        <div className="flex items-center gap-1.5">
-          <Badge variant="outline" className="border-primary text-primary">
-            <Check size={10} />
-          </Badge>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            disabled={disconnecting}
-            onClick={onDisconnect}
-            className="text-muted-foreground hover:text-destructive"
-            aria-label={`Disconnect ${integration.name}`}
-          >
-            {disconnecting ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : (
-              <Unplug size={13} />
-            )}
-          </Button>
-        </div>
-      ) : actionMode === "unavailable" ? (
-        <Badge variant="secondary" title={connectDisabledReason}>
-          Unavailable
-        </Badge>
-      ) : (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          disabled={connecting || !canConnect}
-          onClick={onConnect}
-          title={
-            canConnect ? `Connect ${integration.name}` : connectDisabledReason
-          }
-        >
-          {connecting ? (
-            <Loader2 size={13} className="animate-spin" />
-          ) : !canConnect ? (
-            <LogIn size={14} />
-          ) : (
-            <Plus size={14} />
-          )}
-        </Button>
-      )}
-    </div>
-  );
+interface WorkspaceOverrideDescriptor {
+  workspace_id: string;
+  toolkit_slug: string;
+  state: "disabled" | "pinned";
+  pinned_connection_id: string | null;
 }
 
-function IntegrationEmbeddedCard({
-  integration,
-  connected,
-  canConnect,
-  connectDisabledReason,
-  onConnect,
-  onDisconnect,
-  connecting,
-  disconnecting,
-  actionMode,
-}: {
-  integration: IntegrationCard;
-  connected: boolean;
-  canConnect: boolean;
-  connectDisabledReason: string;
-  onConnect: () => void;
-  onDisconnect: () => void;
-  connecting: boolean;
-  disconnecting: boolean;
-  actionMode: "connected" | "connect" | "disabled" | "unavailable";
-}) {
-  const muted = actionMode === "disabled";
-  return (
-    <div
-      className={`group flex min-w-0 gap-3 px-3 py-2.5 transition-colors ${muted ? "opacity-60" : "hover:bg-fg-2"}`}
-    >
-      <div
-        className={
-          integration.logo
-            ? "flex size-9 shrink-0 items-center justify-center"
-            : "flex size-9 shrink-0 items-center justify-center rounded-md bg-muted ring-1 ring-border"
-        }
-      >
-        {integration.logo ? (
-          <img
-            src={integration.logo}
-            alt=""
-            className="size-full object-contain"
-          />
-        ) : (
-          <span className="text-sm font-semibold text-muted-foreground">
-            {integration.name.charAt(0)}
-          </span>
-        )}
-      </div>
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-            {integration.name}
-          </div>
-          <div className="-mr-1 -mt-1 shrink-0">
-            {connected ? (
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                disabled={disconnecting}
-                onClick={onDisconnect}
-                className="text-muted-foreground hover:text-destructive"
-                aria-label={`Disconnect ${integration.name}`}
-              >
-                {disconnecting ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <Unplug className="size-3.5" />
-                )}
-              </Button>
-            ) : actionMode === "unavailable" ? (
-              <Badge
-                variant="outline"
-                className="border-border bg-background/60 text-[11px] text-muted-foreground"
-                title={connectDisabledReason}
-              >
-                Unavailable
-              </Badge>
-            ) : (
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                disabled={connecting || !canConnect}
-                onClick={onConnect}
-                title={
-                  canConnect
-                    ? `Connect ${integration.name}`
-                    : connectDisabledReason
-                }
-                aria-label={`Connect ${integration.name}`}
-              >
-                {connecting ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <Plus className="size-3.5" />
-                )}
-              </Button>
-            )}
-          </div>
-        </div>
-
-        <div className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">
-          {integration.description}
-        </div>
-
-        {connected ? (
-          <div className="mt-auto flex pt-2">
-            <Badge
-              variant="outline"
-              className="border-success/40 bg-success/10 text-[11px] text-success"
-            >
-              <Check className="size-3" />
-              Connected
-            </Badge>
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
+interface WorkspaceSummary {
+  id: string;
+  name: string;
 }
 
 function ConnectedProviderCard({
@@ -1245,6 +1214,14 @@ function ConnectedProviderCard({
   disconnectingConnectionId,
   metadata,
   compact,
+  workspaceUsageByConnection,
+  toolkitCapabilities,
+  workspaces,
+  toolkitOverrides,
+  expanded,
+  onToggleExpanded,
+  onSetWorkspaceEnabled,
+  mutatingOverrideKey,
 }: {
   integration: IntegrationCard;
   connections: IntegrationConnectionPayload[];
@@ -1258,6 +1235,14 @@ function ConnectedProviderCard({
   disconnectingConnectionId: string | null;
   metadata: Map<string, ComposioAccountStatus>;
   compact: boolean;
+  workspaceUsageByConnection: Map<string, ConnectionWorkspaceUsageEntry["workspaces"]>;
+  toolkitCapabilities: ComposioToolkitCapability[];
+  workspaces: WorkspaceSummary[];
+  toolkitOverrides: Map<string, WorkspaceOverrideDescriptor>;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  onSetWorkspaceEnabled: (workspaceId: string, enabled: boolean) => void;
+  mutatingOverrideKey: string | null;
 }) {
   const containerClass = compact
     ? "flex flex-col gap-1 rounded-xl bg-card px-3 py-2.5 ring-1 ring-border"
@@ -1324,6 +1309,8 @@ function ConnectedProviderCard({
           const showAvatar = Boolean(avatarUrl) && !failedAvatar;
           const disconnecting =
             disconnectingConnectionId === conn.connection_id;
+          const usage = workspaceUsageByConnection.get(conn.connection_id) ?? [];
+          const workspaceCount = new Set(usage.map((u) => u.workspace_id)).size;
           return (
             <div
               className="flex items-center gap-2 py-1"
@@ -1356,6 +1343,14 @@ function ConnectedProviderCard({
               <span className="min-w-0 flex-1 truncate text-xs text-foreground">
                 {label}
               </span>
+              {workspaceCount > 0 ? (
+                <span
+                  className="shrink-0 text-[10px] text-muted-foreground"
+                  title={`Bound in ${workspaceCount} workspace${workspaceCount === 1 ? "" : "s"}`}
+                >
+                  {workspaceCount}w
+                </span>
+              ) : null}
               <Button
                 aria-label={`Refresh ${label} identity`}
                 title="Refetch handle, email, and avatar from the provider"
@@ -1393,7 +1388,261 @@ function ConnectedProviderCard({
             </div>
           );
         })}
+        <WorkspaceScopeSection
+          capabilities={toolkitCapabilities}
+          expanded={expanded}
+          mutatingOverrideKey={mutatingOverrideKey}
+          onSetWorkspaceEnabled={onSetWorkspaceEnabled}
+          onToggleExpanded={onToggleExpanded}
+          toolkitOverrides={toolkitOverrides}
+          toolkitSlug={integration.providerId}
+          workspaces={workspaces}
+        />
       </div>
+    </div>
+  );
+}
+
+function WorkspaceScopeSection({
+  workspaces,
+  toolkitOverrides,
+  toolkitSlug,
+  capabilities,
+  expanded,
+  onToggleExpanded,
+  onSetWorkspaceEnabled,
+  mutatingOverrideKey,
+}: {
+  workspaces: WorkspaceSummary[];
+  toolkitOverrides: Map<string, WorkspaceOverrideDescriptor>;
+  toolkitSlug: string;
+  capabilities: ComposioToolkitCapability[];
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  onSetWorkspaceEnabled: (workspaceId: string, enabled: boolean) => void;
+  mutatingOverrideKey: string | null;
+}) {
+  const disabledWorkspaceIds: string[] = [];
+  for (const ws of workspaces) {
+    if (toolkitOverrides.get(ws.id)?.state === "disabled") {
+      disabledWorkspaceIds.push(ws.id);
+    }
+  }
+  const disabledNames = disabledWorkspaceIds
+    .map((id) => workspaces.find((w) => w.id === id)?.name)
+    .filter((n): n is string => Boolean(n));
+  const summary =
+    disabledNames.length === 0
+      ? "Active in all workspaces"
+      : disabledNames.length === workspaces.length
+        ? "Disabled in all workspaces"
+        : `Disabled in: ${disabledNames.join(", ")}`;
+  const toolCount = capabilities.length;
+  return (
+    <div className="mt-1 border-border border-t pt-2">
+      <button
+        aria-expanded={expanded}
+        className="flex w-full items-center justify-between gap-3 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+        onClick={onToggleExpanded}
+        type="button"
+      >
+        <span className="truncate text-left">
+          {summary}
+          {toolCount > 0
+            ? ` · ${toolCount} agent ${toolCount === 1 ? "tool" : "tools"}`
+            : ""}
+        </span>
+        <span className="shrink-0">{expanded ? "Hide" : "Manage"}</span>
+      </button>
+      {expanded ? (
+        <div className="mt-3 grid gap-3">
+          {workspaces.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">
+              No workspaces yet. Create one to scope this integration.
+            </p>
+          ) : (
+            <ul className="grid gap-2">
+              {workspaces.map((ws) => {
+                const override = toolkitOverrides.get(ws.id);
+                const enabled = override?.state !== "disabled";
+                const key = `${ws.id}:${toolkitSlug}`;
+                const mutating = mutatingOverrideKey === key;
+                return (
+                  <li
+                    className="flex items-center justify-between gap-3 rounded-md bg-muted/40 px-2.5 py-1.5"
+                    key={ws.id}
+                  >
+                    <span className="truncate text-xs text-foreground">
+                      {ws.name || ws.id}
+                    </span>
+                    <label className="flex shrink-0 cursor-pointer items-center gap-2 text-[10px] text-muted-foreground">
+                      {mutating ? (
+                        <Loader2 className="size-3 animate-spin" />
+                      ) : null}
+                      <input
+                        checked={enabled}
+                        className="size-3.5 cursor-pointer accent-foreground"
+                        disabled={mutating}
+                        onChange={(e) =>
+                          onSetWorkspaceEnabled(ws.id, e.currentTarget.checked)
+                        }
+                        type="checkbox"
+                      />
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {capabilities.length > 0 ? (
+            <div>
+              <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Agent can
+              </div>
+              <ul className="mt-1.5 space-y-1">
+                {capabilities.map((cap) => (
+                  <li className="text-[11px]" key={cap.tool_slug}>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium text-foreground">{cap.name}</span>
+                      {cap.read_only ? (
+                        <Badge
+                          className="border-border bg-background/60 text-[9px] text-muted-foreground"
+                          variant="outline"
+                        >
+                          read-only
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="text-[11px] leading-5 text-muted-foreground">
+                      {cap.description}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// Temporary diagnostic — hits runtime POST /api/v1/debug/composio-
+// runtime-test, which uses ComposioApiClient end-to-end (env-injected
+// HOLABOSS_AUTH_BEARER_TOKEN → Hono /internal/tools/execute → Composio).
+// Exposes a one-click "fetch 5 Gmail messages via runtime" probe so we
+// can confirm the full server-side path is alive before any product
+// feature lands. Editable provider + tool slug + args via small inputs;
+// defaults are the canonical Gmail fetch case. Safe to delete alongside
+// the runtime endpoint once a real consumer is in product.
+function ComposioRuntimeDebugRow() {
+  const [providerSlug, setProviderSlug] = useState("gmail");
+  const [toolSlug, setToolSlug] = useState("GMAIL_FETCH_EMAILS");
+  const [argsText, setArgsText] = useState(
+    JSON.stringify({ max_results: 5 }, null, 2),
+  );
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<unknown>(null);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  async function handleRun() {
+    setBusy(true);
+    setErrorMessage("");
+    setResult(null);
+    let parsedArgs: Record<string, unknown> = {};
+    try {
+      const raw = argsText.trim();
+      parsedArgs = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    } catch (parseError) {
+      setBusy(false);
+      setErrorMessage(
+        `arguments must be valid JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+      );
+      return;
+    }
+    try {
+      const response = await window.electronAPI.workspace.debugComposioRuntimeTest(
+        {
+          providerSlug: providerSlug.trim() || undefined,
+          toolSlug: toolSlug.trim() || undefined,
+          arguments: parsedArgs,
+        },
+      );
+      setResult(response);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-3 text-xs">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-medium text-foreground">
+            Debug — runtime → Composio via ComposioApiClient
+          </div>
+          <div className="text-muted-foreground">
+            Hits <code>POST /api/v1/debug/composio-runtime-test</code> on
+            the embedded runtime. Exercises the full path: env-injected
+            bearer token → ComposioApiClient → Hono{" "}
+            <code>/internal/tools/execute</code> → Composio. Defaults
+            fetch your 5 most recent Gmail messages.
+          </div>
+        </div>
+        <Button
+          className="h-7 px-3 text-xs"
+          disabled={busy}
+          onClick={() => void handleRun()}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          {busy ? "Running…" : "Run probe"}
+        </Button>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] text-muted-foreground">
+            provider_slug
+          </span>
+          <Input
+            className="h-7 text-xs"
+            onChange={(e) => setProviderSlug(e.target.value)}
+            value={providerSlug}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] text-muted-foreground">tool_slug</span>
+          <Input
+            className="h-7 text-xs"
+            onChange={(e) => setToolSlug(e.target.value)}
+            value={toolSlug}
+          />
+        </label>
+      </div>
+      <label className="mt-2 flex flex-col gap-1">
+        <span className="text-[11px] text-muted-foreground">
+          arguments (JSON)
+        </span>
+        <textarea
+          className="h-20 w-full resize-y rounded-md border border-border bg-background px-2 py-1 font-mono text-[11px] leading-4 text-foreground focus:outline-none"
+          onChange={(e) => setArgsText(e.target.value)}
+          value={argsText}
+        />
+      </label>
+      {errorMessage ? (
+        <div className="mt-3 rounded-md bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
+          {errorMessage}
+        </div>
+      ) : null}
+      {result !== null ? (
+        <pre className="mt-3 max-h-80 w-full max-w-full overflow-auto whitespace-pre-wrap break-all rounded-md bg-background px-2 py-1.5 text-[11px] leading-5 text-foreground">
+          {JSON.stringify(result, null, 2)}
+        </pre>
+      ) : null}
     </div>
   );
 }

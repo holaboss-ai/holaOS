@@ -1,10 +1,38 @@
+import { AppIcon } from "@/components/marketplace/AppIcon";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { StatusDot } from "@/components/ui/status-dot";
+import { WorkspaceIcon } from "@/components/ui/workspace-icon";
+import { WorkspaceIconPicker } from "@/components/ui/workspace-icon-picker";
+import { FileTypeIcon } from "@/lib/fileIcon";
+import { useIntegrationBinding } from "@/lib/useIntegrationBinding";
+import { cn } from "@/lib/utils";
+import type { WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
+import { resolveAppDisplay, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { AnimatePresence, motion } from "motion/react";
 import {
   ChevronDown,
   ChevronRight,
+  Clock,
   Copy,
   Globe,
+  Home,
   Inbox,
+  Link2,
   Loader2,
   MoreHorizontal,
   Package,
@@ -15,31 +43,10 @@ import {
   Trash2,
   Upload,
   Wrench,
+  X,
+  Zap,
 } from "lucide-react";
-import { useMemo, useState } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { StatusDot } from "@/components/ui/status-dot";
-import { WorkspaceIcon } from "@/components/ui/workspace-icon";
-import { WorkspaceIconPicker } from "@/components/ui/workspace-icon-picker";
-import { AppIcon } from "@/components/marketplace/AppIcon";
-import { FileTypeIcon } from "@/lib/fileIcon";
-import type { WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
-import { resolveAppDisplay, useWorkspaceDesktop } from "@/lib/workspaceDesktop";
-import { useWorkspaceSelection } from "@/lib/workspaceSelection";
-import { cn } from "@/lib/utils";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { SectionLabel } from "./shared";
 import {
   activeInternalTabIdAtom,
@@ -58,9 +65,13 @@ import {
   automationsOpenAtom,
   createWorkspaceOpenAtom,
   inboxOpenAtom,
-  marketplaceOpenAtom,
   publishOpenAtom,
   searchOpenAtom,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  type SidebarSection,
+  sidebarSectionAtom,
+  sidebarWidthAtom,
   settingsOpenAtom,
   settingsSectionAtom,
   sidebarCollapsedAtom,
@@ -84,39 +95,230 @@ function hostFromUrl(url: string): string {
   }
 }
 
-const SIDEBAR_WIDTH = 260;
-
 export function Sidebar() {
   const collapsed = useAtomValue(sidebarCollapsedAtom);
+  const width = useAtomValue(sidebarWidthAtom);
   return (
     <div
-      className="flex shrink-0 overflow-hidden transition-[width] duration-stride ease-out-expo"
-      style={{ width: collapsed ? 0 : SIDEBAR_WIDTH }}
+      className="relative flex shrink-0 overflow-hidden transition-[width] duration-stride ease-out-expo"
+      style={{ width: collapsed ? 0 : width }}
     >
       <SidebarExpanded />
+      {!collapsed ? <SidebarResizeHandle /> : null}
     </div>
   );
 }
 
-function SidebarExpanded() {
-  const { selectedWorkspaceId } = useWorkspaceSelection();
+function SidebarResizeHandle() {
+  const [width, setWidth] = useAtom(sidebarWidthAtom);
+  const draggingRef = useRef(false);
+  const [hovering, setHovering] = useState(false);
 
-  const setArtifactsOpen = useSetAtom(artifactsOpenAtom);
-  const setInboxOpen = useSetAtom(inboxOpenAtom);
-  const setAutomationsOpen = useSetAtom(automationsOpenAtom);
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      draggingRef.current = true;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      const startX = e.clientX;
+      const startWidth = width;
+      const onMove = (ev: MouseEvent) => {
+        if (!draggingRef.current) return;
+        const next = Math.max(
+          SIDEBAR_MIN_WIDTH,
+          Math.min(SIDEBAR_MAX_WIDTH, startWidth + (ev.clientX - startX)),
+        );
+        setWidth(next);
+      };
+      const onUp = () => {
+        draggingRef.current = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [setWidth, width],
+  );
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize sidebar"
+      onMouseDown={onMouseDown}
+      onMouseEnter={() => setHovering(true)}
+      onMouseLeave={() => setHovering(false)}
+      onDoubleClick={() => setWidth(260)}
+      className="absolute top-0 right-0 z-10 h-full w-1.5 cursor-col-resize select-none"
+    >
+      <div
+        className={cn(
+          "absolute top-0 right-0 h-full w-px bg-primary/60 transition-opacity duration-snappy ease-emphasized",
+          hovering || draggingRef.current ? "opacity-100" : "opacity-0",
+        )}
+      />
+    </div>
+  );
+}
+function SidebarExpanded() {
+  const section = useAtomValue(sidebarSectionAtom);
+  return (
+    <aside
+      data-pane-card="true"
+      data-pane-role="sidebar"
+      className="flex h-full w-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground backdrop-blur-sm"
+    >
+      <WorkspaceSwitcher />
+      <SidebarSectionNav />
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <AnimatePresence initial={false}>
+          <motion.div
+            key={section}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{
+              opacity: { duration: 0.12, ease: [0.16, 1, 0.3, 1] },
+              y: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
+            }}
+            className="absolute inset-0 flex flex-col"
+          >
+            {section === "home" ? <SidebarHomeSection /> : null}
+            {section === "inbox" ? <SidebarInboxSection /> : null}
+            {section === "artifacts" ? <SidebarArtifactsSection /> : null}
+            {section === "automations" ? <SidebarAutomationsSection /> : null}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </aside>
+  );
+}
+
+const SECTION_NAV_ITEMS: Array<{
+  key: SidebarSection;
+  label: string;
+  icon: React.ReactNode;
+}> = [
+  { key: "home", label: "Home", icon: <Home /> },
+  { key: "inbox", label: "Inbox", icon: <Inbox /> },
+  { key: "artifacts", label: "Artifacts", icon: <Package /> },
+  { key: "automations", label: "Automations", icon: <Zap /> },
+];
+
+// One shared spring for the pill slide and the button width morph.
+// stiffness 380 + damping 32 lands without overshoot but keeps the
+// motion lively — Linear-style.
+const SECTION_NAV_SPRING = {
+  type: "spring" as const,
+  stiffness: 380,
+  damping: 32,
+  mass: 0.6,
+};
+
+function SidebarSectionNav() {
+  const [section, setSection] = useAtom(sidebarSectionAtom);
+  const { selectedWorkspaceId } = useWorkspaceSelection();
+  const { proposals } = useTaskProposals(selectedWorkspaceId || null);
+  const unreadInbox = proposals.length;
+
+  return (
+    <div className="flex shrink-0 items-center gap-0.5 border-b border-sidebar-border bg-sidebar px-2 py-1.5">
+      {SECTION_NAV_ITEMS.map((item) => {
+        const active = section === item.key;
+        const badge = item.key === "inbox" && unreadInbox > 0 ? unreadInbox : 0;
+        return (
+          <motion.button
+            key={item.key}
+            type="button"
+            aria-label={item.label}
+            aria-pressed={active}
+            title={item.label}
+            onClick={() => setSection(item.key)}
+            // `layout="position"` only animates the button's position
+            // (its x shifts as siblings resize). The size itself snaps
+            // instantly — that's fine because the visible morph is the
+            // shared layoutId pill, not the button's bg. Avoids the
+            // FLIP scale-transform that was making the label look like
+            // it flew in from the right.
+            layout="position"
+            transition={SECTION_NAV_SPRING}
+            className={cn(
+              // `isolate` so the layoutId pill `motion.div` (z-0 absolute)
+              // doesn't escape; icon + label sit on z-10 above it.
+              "group/sec-nav relative isolate flex h-7 shrink-0 items-center rounded-md text-foreground/55 transition-colors duration-150 ease-out hover:text-foreground",
+              "[&_svg]:relative [&_svg]:z-10 [&_svg]:size-4",
+              active
+                ? "gap-1.5 pr-2 pl-1.5 text-foreground"
+                : "w-7 px-1.5 hover:bg-foreground/[0.05]",
+            )}
+          >
+            {active ? (
+              <motion.span
+                aria-hidden
+                layoutId="sidebar-section-pill"
+                transition={SECTION_NAV_SPRING}
+                className="absolute inset-0 z-0 rounded-md bg-foreground/[0.1]"
+              />
+            ) : null}
+            {item.icon}
+            <AnimatePresence initial={false} mode="popLayout">
+              {active ? (
+                <motion.span
+                  key="label"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{
+                    duration: 0.18,
+                    ease: [0.16, 1, 0.3, 1],
+                  }}
+                  className="relative z-10 whitespace-nowrap text-[12px] font-medium leading-none"
+                >
+                  {item.label}
+                </motion.span>
+              ) : null}
+            </AnimatePresence>
+            {badge > 0 ? (
+              <span
+                aria-hidden
+                className={cn(
+                  "relative z-10 grid h-3 min-w-3 shrink-0 place-items-center rounded-full bg-primary px-0.5 text-[9px] font-medium leading-none text-primary-foreground",
+                  active ? "-mr-0.5 ml-0" : "absolute top-0.5 right-0.5",
+                )}
+              >
+                {badge > 9 ? "9+" : badge}
+              </span>
+            ) : null}
+          </motion.button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SidebarHomeSection() {
+  const { selectedWorkspaceId } = useWorkspaceSelection();
   const setSettingsOpen = useSetAtom(settingsOpenAtom);
   const setSearchOpen = useSetAtom(searchOpenAtom);
   const setSettingsSection = useSetAtom(settingsSectionAtom);
-
-  const artifactsOpen = useAtomValue(artifactsOpenAtom);
-  const inboxOpen = useAtomValue(inboxOpenAtom);
-  const automationsOpen = useAtomValue(automationsOpenAtom);
   const settingsOpen = useAtomValue(settingsOpenAtom);
 
   const skills = useWorkspaceSkills(selectedWorkspaceId || null);
   const cronjobs = useWorkspaceCronjobs(selectedWorkspaceId || null);
+  const setAutomationsOpen = useSetAtom(automationsOpenAtom);
+  const automationsOpen = useAtomValue(automationsOpenAtom);
   const urlRecents = useRecentBrowserHistory(20);
-  const fileRecents = useAtomValue(recentFilesAtom);
+  const allFileRecents = useAtomValue(recentFilesAtom);
+  const fileRecents = useMemo(
+    () =>
+      allFileRecents.filter(
+        (entry) => entry.workspaceId === (selectedWorkspaceId ?? null),
+      ),
+    [allFileRecents, selectedWorkspaceId],
+  );
   const recents = useMemo<RecentItem[]>(() => {
     const merged: RecentItem[] = [
       ...urlRecents.map((entry) => ({
@@ -133,99 +335,210 @@ function SidebarExpanded() {
     merged.sort((a, b) => b.ts.localeCompare(a.ts));
     return merged.slice(0, 7);
   }, [urlRecents, fileRecents]);
-  const { proposals } = useTaskProposals(selectedWorkspaceId || null);
-  const unreadInbox = proposals.length;
 
   return (
-    <aside
-      data-pane-card="true"
-      data-pane-role="sidebar"
-      className="flex h-full w-[260px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground backdrop-blur-sm"
-    >
-      <WorkspaceSwitcher />
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
+      <SidebarGroup>
+        <NavItem icon={<Search />} onClick={() => setSearchOpen(true)}>
+          Search
+        </NavItem>
+        <AppsSection />
+      </SidebarGroup>
+
+      {recents.length > 0 ? (
         <SidebarGroup>
-          <NavItem
-            icon={<Search />}
-            onClick={() => setSearchOpen(true)}
-          >
-            Search
-          </NavItem>
-          <NavItem
-            icon={<Inbox />}
-            badge={unreadInbox > 0 ? unreadInbox : undefined}
-            active={inboxOpen}
-            onClick={() => setInboxOpen(true)}
-          >
-            Inbox
-          </NavItem>
-          <NavItem
-            icon={<Package />}
-            active={artifactsOpen}
+          <SectionLabel>Recents</SectionLabel>
+          {recents.map((item) =>
+            item.kind === "url" ? (
+              <RecentRow key={`u:${item.entry.id}`} entry={item.entry} />
+            ) : (
+              <RecentFileRow key={`f:${item.entry.id}`} entry={item.entry} />
+            ),
+          )}
+        </SidebarGroup>
+      ) : null}
+
+      {skills.length > 0 || cronjobs.length > 0 ? (
+        <SidebarGroup>
+          {skills.length > 0 ? (
+            <SectionLabel>
+              Skills
+              <span className="ml-auto text-foreground/30">
+                {skills.length}
+              </span>
+            </SectionLabel>
+          ) : null}
+          {cronjobs.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setAutomationsOpen(true)}
+              className={cn(
+                "flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs font-medium tracking-wide text-foreground/40 uppercase transition-colors hover:bg-foreground/[0.04]",
+                automationsOpen && "bg-foreground/[0.07]",
+              )}
+            >
+              <span>Automations</span>
+              <span className="ml-auto text-foreground/30">
+                {cronjobs.length}
+              </span>
+            </button>
+          ) : null}
+        </SidebarGroup>
+      ) : null}
+
+      <div className="mt-auto" />
+
+      <SidebarGroup>
+        <NavItem
+          icon={<Settings />}
+          active={settingsOpen}
+          onClick={() => {
+            setSettingsSection("settings");
+            setSettingsOpen(true);
+          }}
+        >
+          Settings
+        </NavItem>
+      </SidebarGroup>
+    </div>
+  );
+}
+
+function SidebarInboxSection() {
+  const { selectedWorkspaceId } = useWorkspaceSelection();
+  const { proposals, isLoading } = useTaskProposals(selectedWorkspaceId || null);
+  const setInboxOpen = useSetAtom(inboxOpenAtom);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
+      <SectionLabel>
+        Inbox
+        {proposals.length > 0 ? (
+          <span className="ml-auto text-foreground/30">{proposals.length}</span>
+        ) : null}
+      </SectionLabel>
+      {isLoading && proposals.length === 0 ? (
+        <div className="grid place-items-center py-8">
+          <Loader2 className="size-4 animate-spin text-foreground/40" />
+        </div>
+      ) : proposals.length === 0 ? (
+        <div className="grid place-items-center px-3 py-12 text-center">
+          <div className="flex flex-col items-center gap-2">
+            <Inbox className="size-5 text-foreground/30" />
+            <div className="text-xs text-foreground/55">
+              You're all caught up
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-0.5">
+          {proposals.slice(0, 12).map((p) => (
+            <button
+              key={p.proposal_id}
+              type="button"
+              onClick={() => setInboxOpen(true)}
+              className="flex flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-xs text-foreground/80 transition-colors hover:bg-foreground/[0.04]"
+            >
+              <span className="truncate font-medium text-foreground">
+                {p.task_name || "Untitled proposal"}
+              </span>
+              {p.task_generation_rationale ? (
+                <span className="line-clamp-2 text-foreground/55">
+                  {p.task_generation_rationale}
+                </span>
+              ) : null}
+            </button>
+          ))}
+          {proposals.length > 12 ? (
+            <button
+              type="button"
+              onClick={() => setInboxOpen(true)}
+              className="mt-1 rounded-md px-2 py-1 text-left text-xs text-foreground/55 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+            >
+              See all {proposals.length} →
+            </button>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SidebarArtifactsSection() {
+  const setArtifactsOpen = useSetAtom(artifactsOpenAtom);
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
+      <SectionLabel>Artifacts</SectionLabel>
+      <div className="grid place-items-center px-3 py-12 text-center">
+        <div className="flex flex-col items-center gap-3">
+          <Package className="size-5 text-foreground/30" />
+          <div className="text-xs text-foreground/55">
+            Artifacts from your agent runs will appear here.
+          </div>
+          <button
+            type="button"
             onClick={() => setArtifactsOpen(true)}
+            className="rounded-md bg-foreground/[0.05] px-2.5 py-1 text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.08] hover:text-foreground"
           >
-            Artifacts
-          </NavItem>
-          <AppsSection />
-        </SidebarGroup>
-
-        {recents.length > 0 ? (
-          <SidebarGroup>
-            <SectionLabel>Recents</SectionLabel>
-            {recents.map((item) =>
-              item.kind === "url" ? (
-                <RecentRow key={`u:${item.entry.id}`} entry={item.entry} />
-              ) : (
-                <RecentFileRow key={`f:${item.entry.id}`} entry={item.entry} />
-              ),
-            )}
-          </SidebarGroup>
-        ) : null}
-
-        {skills.length > 0 || cronjobs.length > 0 ? (
-          <SidebarGroup>
-            {skills.length > 0 ? (
-              <SectionLabel>
-                Skills
-                <span className="ml-auto text-foreground/30">
-                  {skills.length}
-                </span>
-              </SectionLabel>
-            ) : null}
-            {cronjobs.length > 0 ? (
-              <button
-                type="button"
-                onClick={() => setAutomationsOpen(true)}
-                className={cn(
-                  "flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs font-medium tracking-wide text-foreground/40 uppercase transition-colors hover:bg-foreground/[0.04]",
-                  automationsOpen && "bg-foreground/[0.07]",
-                )}
-              >
-                <span>Automations</span>
-                <span className="ml-auto text-foreground/30">
-                  {cronjobs.length}
-                </span>
-              </button>
-            ) : null}
-          </SidebarGroup>
-        ) : null}
-
-        <div className="mt-auto" />
-
-        <SidebarGroup>
-          <NavItem
-            icon={<Settings />}
-            active={settingsOpen}
-            onClick={() => {
-              setSettingsSection("settings");
-              setSettingsOpen(true);
-            }}
-          >
-            Settings
-          </NavItem>
-        </SidebarGroup>
+            Open full Artifacts view
+          </button>
+        </div>
       </div>
-    </aside>
+    </div>
+  );
+}
+
+function SidebarAutomationsSection() {
+  const { selectedWorkspaceId } = useWorkspaceSelection();
+  const cronjobs = useWorkspaceCronjobs(selectedWorkspaceId || null);
+  const setAutomationsOpen = useSetAtom(automationsOpenAtom);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
+      <SectionLabel>
+        Automations
+        {cronjobs.length > 0 ? (
+          <span className="ml-auto text-foreground/30">{cronjobs.length}</span>
+        ) : null}
+      </SectionLabel>
+      {cronjobs.length === 0 ? (
+        <div className="grid place-items-center px-3 py-12 text-center">
+          <div className="flex flex-col items-center gap-2">
+            <Clock className="size-5 text-foreground/30" />
+            <div className="text-xs text-foreground/55">
+              No scheduled automations yet.
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-0.5">
+          {cronjobs.slice(0, 12).map((job) => (
+            <button
+              key={job.id}
+              type="button"
+              onClick={() => setAutomationsOpen(true)}
+              className="flex flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-xs text-foreground/80 transition-colors hover:bg-foreground/[0.04]"
+            >
+              <span className="truncate font-medium text-foreground">
+                {job.name || "Untitled automation"}
+              </span>
+              <span className="truncate font-mono text-[10px] text-foreground/45">
+                {job.cron}
+              </span>
+            </button>
+          ))}
+          {cronjobs.length > 12 ? (
+            <button
+              type="button"
+              onClick={() => setAutomationsOpen(true)}
+              className="mt-1 rounded-md px-2 py-1 text-left text-xs text-foreground/55 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+            >
+              See all {cronjobs.length} →
+            </button>
+          ) : null}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -238,7 +551,8 @@ function AppsSection() {
   } = useWorkspaceDesktop();
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const [expanded, setExpanded] = useAtom(appsExpandedAtom);
-  const setMarketplaceOpen = useSetAtom(marketplaceOpenAtom);
+  const setSettingsOpen = useSetAtom(settingsOpenAtom);
+  const setSettingsSection = useSetAtom(settingsSectionAtom);
 
   const openApp = async (appId: string) => {
     if (!selectedWorkspaceId) return;
@@ -316,12 +630,6 @@ function AppsSection() {
                 composioToolkitsByProvider,
               );
               const label = display.name ?? app.label;
-              const error = app.error?.trim();
-              const status: "ready" | "loading" | "error" = error
-                ? "error"
-                : app.ready
-                  ? "ready"
-                  : "loading";
               return (
                 <AppRow
                   key={app.id}
@@ -329,8 +637,6 @@ function AppsSection() {
                   label={label}
                   providerId={providerId}
                   iconUrl={display.logo}
-                  status={status}
-                  errorMessage={error || null}
                   expanded={expanded}
                   onOpen={() => void openApp(app.id)}
                   onReload={() => void reloadApp(app.id)}
@@ -340,12 +646,15 @@ function AppsSection() {
             })}
             <button
               type="button"
-              onClick={() => setMarketplaceOpen(true)}
+              onClick={() => {
+                setSettingsSection("integrations");
+                setSettingsOpen(true);
+              }}
               tabIndex={expanded ? 0 : -1}
               className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-6 text-left text-xs text-foreground/55 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
             >
-              <Plus className="size-3.5 shrink-0" />
-              <span className="truncate">Browse marketplace</span>
+              <Link2 className="size-3.5 shrink-0" />
+              <span className="truncate">Manage integrations…</span>
             </button>
           </div>
         </div>
@@ -354,35 +663,289 @@ function AppsSection() {
   );
 }
 
-function AppRow({
+interface AppRowProps {
+  app: WorkspaceInstalledAppDefinition;
+  label: string;
+  providerId: string | null;
+  iconUrl: string | null;
+  expanded: boolean;
+  onOpen: () => void;
+  onReload: () => void;
+  onUninstall: () => void;
+}
+
+function AppRow(props: AppRowProps) {
+  // Pick the row's "primary" integration: required wins, else first declared.
+  // Apps with no integrations (UI-only, data-only) skip the binding hook.
+  const declaredIntegration =
+    props.app.integrations?.find((entry) => entry.required) ??
+    props.app.integrations?.[0];
+  if (!declaredIntegration?.provider) {
+    return <AppRowPlain {...props} />;
+  }
+  return (
+    <AppRowWithBinding
+      {...props}
+      providerSlug={declaredIntegration.provider}
+      whoami={declaredIntegration.whoami ?? null}
+    />
+  );
+}
+
+type RowTone =
+  | "ready"
+  | "loading"
+  | "error"
+  | "needs_connect"
+  | "connecting";
+
+function AppRowPlain({
   app,
   label,
   providerId,
   iconUrl,
-  status,
-  errorMessage,
   expanded,
   onOpen,
   onReload,
   onUninstall,
+}: AppRowProps) {
+  const errorMessage = app.error?.trim() || null;
+  const tone: RowTone = errorMessage
+    ? "error"
+    : app.ready
+      ? "ready"
+      : "loading";
+  const tooltip =
+    tone === "error" && errorMessage
+      ? errorMessage
+      : tone === "loading"
+        ? `${label} — starting…`
+        : label;
+  return (
+    <AppRowShell
+      app={app}
+      label={label}
+      providerId={providerId}
+      iconUrl={iconUrl}
+      expanded={expanded}
+      tone={tone}
+      tooltip={tooltip}
+      onRowClick={() => {
+        if (tone === "ready") onOpen();
+      }}
+      renderTrailing={() => {
+        if (tone === "loading") {
+          return <StatusDot variant="info" pulse title="Starting" />;
+        }
+        if (tone === "error") {
+          return (
+            <StatusDot
+              variant="destructive"
+              title={errorMessage ?? "Error"}
+            />
+          );
+        }
+        return null;
+      }}
+      menuItems={
+        <>
+          <DropdownMenuItem onClick={onOpen} disabled={tone !== "ready"}>
+            <Plus className="size-3.5" />
+            Open in new tab
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onReload}>
+            <RotateCw className="size-3.5" />
+            Reload
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onUninstall} variant="destructive">
+            <Trash2 className="size-3.5" />
+            Uninstall
+          </DropdownMenuItem>
+        </>
+      }
+    />
+  );
+}
+
+function AppRowWithBinding({
+  app,
+  label,
+  providerId,
+  iconUrl,
+  expanded,
+  onOpen,
+  onReload,
+  onUninstall,
+  providerSlug,
+  whoami,
+}: AppRowProps & {
+  providerSlug: string;
+  whoami: PendingIntegrationWhoami | null;
+}) {
+  const { composioToolkitsByProvider } = useWorkspaceDesktop();
+  const providerName =
+    composioToolkitsByProvider[providerSlug.toLowerCase()]?.name ??
+    providerSlug;
+
+  const {
+    state: bindingState,
+    busy,
+    connect,
+    cancel,
+  } = useIntegrationBinding({
+    appId: app.id,
+    provider: providerSlug,
+    whoami,
+    considerWorkspaceDefault: true,
+  });
+
+  const errorMessage = app.error?.trim() || null;
+  const tone: RowTone = errorMessage
+    ? "error"
+    : busy === "connecting" || busy === "binding"
+      ? "connecting"
+      : bindingState.kind === "no_connection" ||
+          bindingState.kind === "needs_binding"
+        ? "needs_connect"
+        : !app.ready
+          ? "loading"
+          : "ready";
+
+  const tooltip =
+    tone === "error" && errorMessage
+      ? errorMessage
+      : tone === "connecting"
+        ? `Authorizing ${providerName}…`
+        : tone === "needs_connect"
+          ? `${providerName} not connected — click to authorize`
+          : tone === "loading"
+            ? `${label} — starting…`
+            : label;
+
+  const handleRowClick = () => {
+    if (tone === "ready") {
+      onOpen();
+      return;
+    }
+    if (tone === "needs_connect") {
+      void connect();
+    }
+  };
+
+  return (
+    <AppRowShell
+      app={app}
+      label={label}
+      providerId={providerId}
+      iconUrl={iconUrl}
+      expanded={expanded}
+      tone={tone}
+      tooltip={tooltip}
+      onRowClick={handleRowClick}
+      renderTrailing={() => {
+        if (tone === "connecting") {
+          return (
+            <span className="flex items-center gap-1">
+              <Loader2
+                className="size-3 animate-spin text-foreground/55"
+                aria-hidden
+              />
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cancel();
+                }}
+                aria-label="Cancel"
+                className="grid size-4 place-items-center rounded text-foreground/45 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          );
+        }
+        if (tone === "needs_connect") {
+          return (
+            <StatusDot
+              variant="warning"
+              title={`${providerName} needs a connection`}
+            />
+          );
+        }
+        if (tone === "loading") {
+          return <StatusDot variant="info" pulse title="Starting" />;
+        }
+        if (tone === "error") {
+          return (
+            <StatusDot
+              variant="destructive"
+              title={errorMessage ?? "Error"}
+            />
+          );
+        }
+        return null;
+      }}
+      menuItems={
+        <>
+          {tone === "needs_connect" ? (
+            <DropdownMenuItem
+              onClick={() => void connect()}
+              disabled={busy !== null}
+            >
+              <Link2 className="size-3.5" />
+              Connect {providerName}…
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuItem onClick={onOpen} disabled={tone !== "ready"}>
+            <Plus className="size-3.5" />
+            Open in new tab
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onReload}>
+            <RotateCw className="size-3.5" />
+            Reload
+          </DropdownMenuItem>
+          {bindingState.kind === "bound" ? (
+            <DropdownMenuItem
+              onClick={() => void connect()}
+              disabled={busy !== null}
+            >
+              <Link2 className="size-3.5" />
+              Reconnect {providerName}…
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuItem onClick={onUninstall} variant="destructive">
+            <Trash2 className="size-3.5" />
+            Uninstall
+          </DropdownMenuItem>
+        </>
+      }
+    />
+  );
+}
+
+function AppRowShell({
+  app,
+  label,
+  providerId,
+  iconUrl,
+  expanded,
+  tone,
+  tooltip,
+  onRowClick,
+  renderTrailing,
+  menuItems,
 }: {
   app: WorkspaceInstalledAppDefinition;
   label: string;
   providerId: string | null;
   iconUrl: string | null;
-  status: "ready" | "loading" | "error";
-  errorMessage: string | null;
   expanded: boolean;
-  onOpen: () => void;
-  onReload: () => void;
-  onUninstall: () => void;
+  tone: RowTone;
+  tooltip: string;
+  onRowClick: () => void;
+  renderTrailing: () => React.ReactNode;
+  menuItems: React.ReactNode;
 }) {
-  const tooltip =
-    status === "error" && errorMessage
-      ? errorMessage
-      : status === "loading"
-        ? `${label} — starting…`
-        : label;
   return (
     <div
       role="group"
@@ -390,9 +953,7 @@ function AppRow({
     >
       <button
         type="button"
-        onClick={() => {
-          if (status === "ready") onOpen();
-        }}
+        onClick={onRowClick}
         tabIndex={expanded ? 0 : -1}
         title={tooltip}
         className="flex min-w-0 flex-1 items-center gap-2 rounded-[6px] px-2 py-[5px] pl-6 text-left text-xs text-foreground/80 transition-colors disabled:cursor-default"
@@ -407,20 +968,13 @@ function AppRow({
         <span
           className={cn(
             "min-w-0 flex-1 truncate",
-            status === "error" && "text-foreground/55",
+            (tone === "error" || tone === "needs_connect") &&
+              "text-foreground/55",
           )}
         >
           {label}
         </span>
-        {status === "loading" ? (
-          <StatusDot variant="info" pulse title="Starting" />
-        ) : null}
-        {status === "error" ? (
-          <StatusDot
-            variant="destructive"
-            title={errorMessage || "Error"}
-          />
-        ) : null}
+        {renderTrailing()}
       </button>
       <div
         aria-hidden
@@ -441,21 +995,7 @@ function AppRow({
             }
           />
           <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
-            <DropdownMenuItem
-              onClick={onOpen}
-              disabled={status !== "ready"}
-            >
-              <Plus className="size-3.5" />
-              Open in new tab
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={onReload}>
-              <RotateCw className="size-3.5" />
-              Reload
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={onUninstall} variant="destructive">
-              <Trash2 className="size-3.5" />
-              Uninstall
-            </DropdownMenuItem>
+            {menuItems}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -569,7 +1109,9 @@ function RecentFileRow({ entry }: { entry: RecentFile }) {
   const removeRecentFile = useSetAtom(removeRecentFileAtom);
 
   const handleOpen = () => {
-    const existing = internalTabs.find((t) => t.filePath === entry.filePath);
+    const existing = internalTabs.find(
+      (t) => t.kind === "file" && t.filePath === entry.filePath,
+    );
     if (existing) {
       setActiveInternalTabId(existing.id);
       return;
@@ -651,7 +1193,16 @@ function RecentFileRow({ entry }: { entry: RecentFile }) {
   );
 }
 
+// Horizontal inset of the WorkspaceSwitcher's trigger inside the
+// sidebar (the `pl-20` reserves space for the macOS traffic lights).
+// Used to pull the popover leftward so it aligns with the sidebar's
+// inner edge instead of starting from the trigger button — keeping
+// the popover entirely within the sidebar so it never overflows onto
+// the BrowserView.
+const WORKSPACE_POPOVER_LEFT_INSET = 72;
+
 function WorkspaceSwitcher() {
+  const sidebarWidth = useAtomValue(sidebarWidthAtom);
   const { selectedWorkspaceId, setSelectedWorkspaceId } =
     useWorkspaceSelection();
   const {
@@ -718,9 +1269,11 @@ function WorkspaceSwitcher() {
         />
         <PopoverContent
           align="start"
+          alignOffset={-WORKSPACE_POPOVER_LEFT_INSET}
           sideOffset={6}
-          className="w-[300px] gap-0 p-2"
+          className="gap-0 p-2"
           style={{
+            width: `${sidebarWidth - 16}px`,
             animationDuration: "var(--duration-base)",
             animationTimingFunction: "var(--ease-out-expo)",
           }}
@@ -876,4 +1429,3 @@ function NavItem({
     </Button>
   );
 }
-

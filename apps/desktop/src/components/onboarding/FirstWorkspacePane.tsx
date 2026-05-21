@@ -1,5 +1,5 @@
 import { Folder, FolderOpen, Plug, Sparkles, X, Zap } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { firstWorkspacePaneSectionClassName } from "@/components/layout/firstWorkspacePaneLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,11 +83,12 @@ export function FirstWorkspacePane({
     useState(false);
   const [authGateError, setAuthGateError] = useState("");
 
-  useEffect(() => {
-    if (isPanelVariant && firstWorkspaceStep === "welcome") {
-      setFirstWorkspaceStep("name");
+  useLayoutEffect(() => {
+    if (!isPanelVariant) {
+      return;
     }
-  }, [isPanelVariant, firstWorkspaceStep, setFirstWorkspaceStep]);
+    setFirstWorkspaceStep("name");
+  }, [isPanelVariant, setFirstWorkspaceStep]);
 
   useEffect(() => {
     if (!isAuthContinuationPending || !isSignedIn) {
@@ -189,13 +190,18 @@ export function FirstWorkspacePane({
     }
   }
 
-  function handleCreate() {
+  function handleCreateWorkspace() {
+    if (createDisabled) {
+      return;
+    }
     trackUmamiEvent("first_workspace_create_started", {
       folder_choice: folderChoice,
+      onboarding_mode: "start",
     });
-    void createWorkspace().then(() => {
+    void createWorkspace({ workspaceOnboardingMode: "start" }).then(() => {
       trackUmamiEvent("first_workspace_created", {
         folder_choice: folderChoice,
+        onboarding_mode: "start",
       });
       if (isPanelVariant) {
         onClose?.();
@@ -311,13 +317,13 @@ export function FirstWorkspacePane({
               </div>
             </WizardField>
           </WorkspaceWizardLayout>
-        ) : (
+        ) : step === "folder" ? (
           <WorkspaceWizardLayout
             description="Files run locally on this machine. Use the default location or pick a folder you control."
             errorMessage={workspaceErrorMessage || null}
             primary={{
               label: "Create workspace",
-              onClick: handleCreate,
+              onClick: handleCreateWorkspace,
               disabled: createDisabled,
             }}
             secondary={{
@@ -384,7 +390,7 @@ export function FirstWorkspacePane({
               ) : null}
             </div>
           </WorkspaceWizardLayout>
-        )}
+        ) : null}
       </section>
     </OnboardingShell>
   );

@@ -130,6 +130,7 @@ import {
   type ChatTraceStep,
   type ChatExecutionTimelineItem,
   type ChatPendingIntegration,
+  type ChatProposedIntegration,
   type PendingLocalAttachmentFile,
   type PendingExplorerAttachmentFile,
   type PendingAttachment,
@@ -319,6 +320,249 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
+}
+
+const ONBOARDING_REPORT_FIELD_LABELS: Record<string, string> = {
+  apps_to_install: "Apps to install",
+  apps_to_create: "Apps to create",
+  cronjobs: "Cronjobs",
+  workspace_structure: "Workspace structure",
+  skills: "Skills",
+  ai_manager_behavior: "AI manager behavior",
+  implementation_plan: "Implementation plan",
+  open_questions: "Open questions",
+  implemented_changes: "Implemented changes",
+  verification_checks: "Verification checks",
+  known_gaps: "Known gaps",
+  user_visible_results: "User-visible results",
+  follow_up_recommendations: "Follow-up recommendations",
+};
+
+function onboardingReportFieldLabel(key: string) {
+  const normalized = key.trim().toLowerCase();
+  if (ONBOARDING_REPORT_FIELD_LABELS[normalized]) {
+    return ONBOARDING_REPORT_FIELD_LABELS[normalized];
+  }
+  return key
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function onboardingReportValueLines(value: unknown): string[] {
+  if (value == null) {
+    return [];
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim();
+    return normalized ? [normalized] : [];
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return [String(value)];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => onboardingReportValueLines(entry));
+  }
+  if (isRecord(value)) {
+    const preferredKeys = [
+      "title",
+      "name",
+      "label",
+      "summary",
+      "description",
+      "cron",
+      "path",
+      "goal",
+      "status",
+    ];
+    const parts = preferredKeys
+      .map((key) => {
+        const candidate = value[key];
+        return typeof candidate === "string" ? candidate.trim() : "";
+      })
+      .filter(Boolean);
+    if (parts.length > 0) {
+      return [parts.join(" · ")];
+    }
+    const serialized = JSON.stringify(value);
+    if (serialized && serialized !== "{}") {
+      return [serialized];
+    }
+  }
+  return [];
+}
+
+function onboardingReportEntries(report: Record<string, unknown> | null): Array<{
+  key: string;
+  label: string;
+  lines: string[];
+}> {
+  if (!report) {
+    return [];
+  }
+  return Object.entries(report)
+    .filter(([key]) => key !== "summary")
+    .map(([key, value]) => ({
+      key,
+      label: onboardingReportFieldLabel(key),
+      lines: onboardingReportValueLines(value),
+    }))
+    .filter((entry) => entry.lines.length > 0);
+}
+
+type OnboardingAlignmentQuestionOption = {
+  id: string;
+  label: string;
+  description: string;
+  answerText: string;
+  recommended: boolean;
+};
+
+type OnboardingAlignmentQuestionCard = {
+  id: string;
+  title: string;
+  prompt: string;
+  details: string;
+  allowNotes: boolean;
+  notesPlaceholder: string;
+  allowFreeform: boolean;
+  freeformPlaceholder: string;
+  options: OnboardingAlignmentQuestionOption[];
+};
+
+type OnboardingAlignmentQuestion = {
+  title: string;
+  details: string;
+  questions: OnboardingAlignmentQuestionCard[];
+};
+
+type OnboardingAlignmentQuestionDraft = {
+  optionId: string;
+  responseText: string;
+  notes: string;
+};
+
+function emptyOnboardingAlignmentQuestionDraft(): OnboardingAlignmentQuestionDraft {
+  return {
+    optionId: "",
+    responseText: "",
+    notes: "",
+  };
+}
+
+function onboardingAlignmentQuestionIsAnswered(
+  draft: OnboardingAlignmentQuestionDraft | undefined,
+) {
+  if (!draft) {
+    return false;
+  }
+  return Boolean(draft.optionId.trim() || draft.responseText.trim());
+}
+
+function parseOnboardingAlignmentQuestion(
+  value: unknown,
+): OnboardingAlignmentQuestion | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const rootTitle = typeof value.title === "string" ? value.title.trim() : "";
+  const rootDetails =
+    typeof value.details === "string" ? value.details.trim() : "";
+  const sourceQuestions =
+    Array.isArray(value.questions) && value.questions.length > 0
+      ? value.questions
+      : [value];
+  const questions = sourceQuestions
+    .map((item, index) => {
+      if (!isRecord(item)) {
+        return null;
+      }
+      const prompt =
+        typeof item.prompt === "string" ? item.prompt.trim() : "";
+      if (!prompt || !Array.isArray(item.options) || item.options.length < 2) {
+        return null;
+      }
+      const options = item.options
+        .map((optionItem, optionIndex) => {
+          if (!isRecord(optionItem)) {
+            return null;
+          }
+          const label =
+            typeof optionItem.label === "string"
+              ? optionItem.label.trim()
+              : "";
+          if (!label) {
+            return null;
+          }
+          const id =
+            typeof optionItem.id === "string" && optionItem.id.trim()
+              ? optionItem.id.trim()
+              : `option_${optionIndex + 1}`;
+          return {
+            id,
+            label,
+            description:
+              typeof optionItem.description === "string"
+                ? optionItem.description.trim()
+                : "",
+            answerText:
+              typeof optionItem.answer_text === "string" &&
+              optionItem.answer_text.trim()
+                ? optionItem.answer_text.trim()
+                : label,
+            recommended: optionItem.recommended === true,
+          } satisfies OnboardingAlignmentQuestionOption;
+        })
+        .filter(
+          (option): option is OnboardingAlignmentQuestionOption =>
+            option !== null,
+        );
+      if (options.length < 2) {
+        return null;
+      }
+      return {
+        id:
+          typeof item.id === "string" && item.id.trim()
+            ? item.id.trim()
+            : `question_${index + 1}`,
+        title:
+          typeof item.title === "string" && item.title.trim()
+            ? item.title.trim()
+            : sourceQuestions.length === 1
+              ? rootTitle
+              : `Question ${index + 1}`,
+        prompt,
+        details:
+          typeof item.details === "string" && item.details.trim()
+            ? item.details.trim()
+            : "",
+        allowNotes: item.allow_notes === true,
+        notesPlaceholder:
+          typeof item.notes_placeholder === "string" &&
+          item.notes_placeholder.trim()
+            ? item.notes_placeholder.trim()
+            : "Additional context for the onboarding agent",
+        allowFreeform: item.allow_freeform !== false,
+        freeformPlaceholder:
+          typeof item.freeform_placeholder === "string" &&
+          item.freeform_placeholder.trim()
+            ? item.freeform_placeholder.trim()
+            : "Answer in your own words",
+        options,
+      } satisfies OnboardingAlignmentQuestionCard;
+    })
+    .filter(
+      (question): question is OnboardingAlignmentQuestionCard =>
+        question !== null,
+    );
+  if (questions.length === 0) {
+    return null;
+  }
+  return {
+    title: rootTitle,
+    details: sourceQuestions.length > 1 ? rootDetails : "",
+    questions,
+  };
 }
 
 function optionalHistoryLoadErrorMessage(label: string, error: unknown) {
@@ -712,6 +956,9 @@ export function chatMessagesFromSessionState(params: {
           if (restoredAssistantState.pendingIntegrations) {
             nextMessage.pendingIntegrations = restoredAssistantState.pendingIntegrations;
           }
+          if (restoredAssistantState.proposedIntegrations) {
+            nextMessage.proposedIntegrations = restoredAssistantState.proposedIntegrations;
+          }
         }
       }
 
@@ -752,6 +999,7 @@ export function chatMessagesFromSessionState(params: {
             : restoredAssistantState.executionItems,
           outputs: turnOutputs.length > 0 ? turnOutputs : undefined,
           pendingIntegrations: restoredAssistantState.pendingIntegrations,
+          proposedIntegrations: restoredAssistantState.proposedIntegrations,
         };
         if (
           hasRenderableAssistantTurn(syntheticAssistantMessage, {
@@ -976,34 +1224,6 @@ function runtimeStateErrorDetail(value: unknown): string {
     }
   }
   return "The run failed.";
-}
-
-function onboardingStatusLabel(value: string | null | undefined) {
-  const normalized = (value || "").trim().toLowerCase();
-  if (normalized === "awaiting_confirmation") {
-    return "Awaiting confirmation";
-  }
-  if (normalized === "in_progress") {
-    return "In progress";
-  }
-  if (normalized === "completed") {
-    return "Completed";
-  }
-  return "Pending";
-}
-
-function onboardingStatusTone(value: string | null | undefined) {
-  const normalized = (value || "").trim().toLowerCase();
-  if (normalized === "awaiting_confirmation") {
-    return "border-warning/22 bg-warning/10 text-warning";
-  }
-  if (normalized === "in_progress") {
-    return "border-primary bg-primary/10 text-primary";
-  }
-  if (normalized === "completed") {
-    return "border-success/22 bg-success/8 text-success";
-  }
-  return "border-destructive/22 bg-destructive/8 text-destructive";
 }
 
 function startCase(value: string) {
@@ -2275,6 +2495,64 @@ const PENDING_INTEGRATION_TOOL_NAMES = new Set([
   "get_subagent",
 ]);
 
+function parseProposedIntegration(value: unknown): ChatProposedIntegration | null {
+  if (!isRecord(value)) return null;
+  const slug =
+    typeof value.toolkit_slug === "string" ? value.toolkit_slug.trim() : "";
+  if (!slug) return null;
+  const tier = value.tier === "hero" || value.tier === "supported" ? value.tier : undefined;
+  const category = typeof value.category === "string" ? value.category : undefined;
+  const reason = typeof value.reason === "string" ? value.reason : null;
+  return { toolkit_slug: slug, tier, category, reason };
+}
+
+function proposedIntegrationsFromToolResult(
+  payload: Record<string, unknown>,
+): ChatProposedIntegration[] {
+  const toolName =
+    typeof payload.tool_name === "string" ? payload.tool_name.trim() : "";
+  if (toolName !== "holaboss_workspace_integrations_propose_connect") return [];
+  const phase =
+    typeof payload.phase === "string" ? payload.phase.trim().toLowerCase() : "";
+  if (phase !== "completed" || payload.error === true) return [];
+  const result = isRecord(payload.result) ? payload.result : null;
+  if (!result) return [];
+  const direct = parseProposedIntegration(result.proposed_integration);
+  if (direct) return [direct];
+  if (isRecord(result.details)) {
+    const detail = parseProposedIntegration(result.details.proposed_integration);
+    if (detail) return [detail];
+    if (isRecord(result.details.raw)) {
+      const raw = parseProposedIntegration(result.details.raw.proposed_integration);
+      if (raw) return [raw];
+    }
+  }
+  // Capability client only sets `details.raw` when the payload was
+  // compacted; for small payloads the original JSON lives inside
+  // `content[0].text` instead. Walk every text part.
+  if (Array.isArray(result.content)) {
+    for (const part of result.content) {
+      if (
+        isRecord(part) &&
+        part.type === "text" &&
+        typeof part.text === "string" &&
+        part.text.includes("proposed_integration")
+      ) {
+        try {
+          const parsed = JSON.parse(part.text) as unknown;
+          if (isRecord(parsed)) {
+            const fromText = parseProposedIntegration(parsed.proposed_integration);
+            if (fromText) return [fromText];
+          }
+        } catch {
+          /* text wasn't JSON; ignore */
+        }
+      }
+    }
+  }
+  return [];
+}
+
 function pendingIntegrationsFromToolResult(
   payload: Record<string, unknown>,
 ): ChatPendingIntegration[] {
@@ -2362,6 +2640,7 @@ function assistantHistoryStateFromOutputEvents(
   let failureText = "";
   let terminalCreatedAt = "";
   const pendingIntegrations: ChatPendingIntegration[] = [];
+  const proposedIntegrations: ChatProposedIntegration[] = [];
 
   const flushExecutionSegment = () => {
     if (executionItems.length === 0) {
@@ -2458,6 +2737,12 @@ function assistantHistoryStateFromOutputEvents(
           pendingIntegrations.push(integration);
         }
       }
+      for (const proposal of proposedIntegrationsFromToolResult(eventPayload)) {
+        const key = proposal.toolkit_slug.trim().toLowerCase();
+        if (!proposedIntegrations.some((existing) => existing.toolkit_slug.trim().toLowerCase() === key)) {
+          proposedIntegrations.push(proposal);
+        }
+      }
     }
 
     if (event.event_type === "subagent_lifecycle_update") {
@@ -2522,6 +2807,7 @@ function assistantHistoryStateFromOutputEvents(
     failureText: failureText || undefined,
     terminalCreatedAt: terminalCreatedAt || undefined,
     pendingIntegrations: pendingIntegrations.length > 0 ? pendingIntegrations : undefined,
+    proposedIntegrations: proposedIntegrations.length > 0 ? proposedIntegrations : undefined,
   };
 }
 
@@ -2645,6 +2931,10 @@ interface ChatPaneProps {
   onOpenOutput?: (output: WorkspaceOutputRecordPayload) => void;
   onSyncFileDisplayFromAgentOperation?: (path: string) => void;
   onImageAttachmentPreviewOpenChange?: (open: boolean) => void;
+  /** When provided, image-attachment clicks delegate to the shell instead
+   *  of opening the in-pane modal. Used by the new shell to route into a
+   *  center-pane tab so the native BrowserView naturally suspends. */
+  onPreviewImageAttachment?: (attachment: AttachmentListItem) => void;
   focusRequestKey?: number;
   variant?: ChatPaneVariant;
   onOpenLinkInBrowser?: (url: string) => void;
@@ -2667,6 +2957,9 @@ interface ChatPaneProps {
   ) => void;
   onJumpToSessionBrowser?: (sessionId: string, requestKey: number) => void;
   onOpenSessions?: () => void;
+  onOpenMeetingMode?: () => void;
+  meetingModeBusy?: boolean;
+  meetingModeError?: string;
   onOpenInbox?: () => void;
   inboxUnreadCount?: number;
   onOpenAutomations?: () => void;
@@ -2689,6 +2982,7 @@ export function ChatPane({
   onOpenOutput,
   onSyncFileDisplayFromAgentOperation,
   onImageAttachmentPreviewOpenChange,
+  onPreviewImageAttachment,
   focusRequestKey = 0,
   variant = "default",
   onOpenLinkInBrowser,
@@ -2870,9 +3164,30 @@ export function ChatPane({
   const [isSubmittingMessage, setIsSubmittingMessage] = useState(false);
   const [isPausePending, setIsPausePending] = useState(false);
   const [chatErrorMessage, setChatErrorMessage] = useState("");
+  const [pendingIntegrationsWait, setPendingIntegrationsWait] = useState<
+    { unresolvedSlugs: string[] } | null
+  >(null);
   const [backgroundDeliveryStatusMessage, setBackgroundDeliveryStatusMessage] =
     useState("");
   const [attachmentGateMessage, setAttachmentGateMessage] = useState("");
+  const [onboardingReviewAction, setOnboardingReviewAction] = useState<
+    | "approve_alignment"
+    | "revise_alignment"
+    | "accept_verification"
+    | "revise_verification"
+    | null
+  >(null);
+  const [onboardingReviewActionError, setOnboardingReviewActionError] =
+    useState("");
+  const [onboardingQuestionAction, setOnboardingQuestionAction] = useState<
+    string | null
+  >(null);
+  const [onboardingQuestionError, setOnboardingQuestionError] = useState("");
+  const [onboardingQuestionSlideIndex, setOnboardingQuestionSlideIndex] =
+    useState(0);
+  const [onboardingQuestionDrafts, setOnboardingQuestionDrafts] = useState<
+    Record<string, OnboardingAlignmentQuestionDraft>
+  >({});
   const [verboseTelemetryEnabled, setVerboseTelemetryEnabled] = useState(false);
   const [composerBlockHeight, setComposerBlockHeight] = useState(0);
   const [chatModelPreference, setChatModelPreference] = useState(
@@ -2920,6 +3235,7 @@ export function ChatPane({
   const messagesRef = useRef<HTMLDivElement>(null);
   const messagesContentRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const onboardingQuestionTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerBlockRef = useRef<HTMLDivElement>(null);
   // When the outer pane is mid-width-transition, freeze the inner
@@ -2973,6 +3289,7 @@ export function ChatPane({
   const isOnboardingVariant = variant === "onboarding";
   const isEmbeddedVariant = variant === "embedded";
   const pendingFocusRequestKeyRef = useRef<number | null>(focusRequestKey);
+  const pendingOnboardingComposerFocusRef = useRef(false);
   const lastHandledSessionJumpRequestKeyRef = useRef(0);
   const lastHandledExternalSessionOpenRequestKeyRef = useRef(0);
   const lastHandledLocalSessionOpenRequestKeyRef = useRef(0);
@@ -4534,6 +4851,9 @@ export function ChatPane({
           }
         }
 
+        const workspaceOnboardingSessionId = (
+          selectedWorkspace?.onboarding_session_id || ""
+        ).trim();
         const [runtimeStates, mainSessionResponse] = await Promise.all([
           window.electronAPI.workspace.listRuntimeStates(selectedWorkspaceId),
           window.electronAPI.workspace.ensureMainSession(selectedWorkspaceId),
@@ -4547,6 +4867,7 @@ export function ChatPane({
           (hasSessionJumpRequest && requestedSessionId
             ? requestedSessionId
             : null) ||
+          (isOnboardingVariant ? workspaceOnboardingSessionId : "") ||
           mainSessionResponse.session?.session_id?.trim() ||
           null;
         const resolvedSessionId = nextSessionId || null;
@@ -4581,6 +4902,8 @@ export function ChatPane({
     };
   }, [
     isOnboardingVariant,
+    selectedWorkspace?.alignment_question,
+    selectedWorkspace?.onboarding_state,
     sessionJumpRequestKey,
     sessionJumpSessionId,
     selectedWorkspaceId,
@@ -4859,6 +5182,20 @@ export function ChatPane({
           action: "received",
           detail: `active=${currentStreamId || "-"} pending=${pendingInputId || "-"}`,
         });
+
+        if (eventType === "waiting_on_pending_integrations") {
+          const rawUnresolved = eventPayload.unresolved_slugs;
+          const unresolvedSlugs = Array.isArray(rawUnresolved)
+            ? rawUnresolved.filter((slug): slug is string => typeof slug === "string" && slug.trim().length > 0)
+            : [];
+          setPendingIntegrationsWait({ unresolvedSlugs });
+          setIsResponding(false);
+          return;
+        }
+        if (eventType === "run_started" || eventType === "assistant_text") {
+          // Agent picked the input back up — clear the paused banner.
+          setPendingIntegrationsWait(null);
+        }
 
         if (payload.type === "error") {
           if (!currentStreamId || payload.streamId !== currentStreamId) {
@@ -5994,6 +6331,33 @@ export function ChatPane({
     }
   }
 
+  async function handleAfterIntegrationProposalConnected(toolkitSlug: string) {
+    const sessionId = activeSessionIdRef.current || activeSessionId;
+    if (!selectedWorkspaceId || !sessionId) return;
+    // Refresh the composio-mcp host so the toolkit's `<toolkit>_*` tools
+    // become callable on the next turn. Best-effort; runtime also calls
+    // this on the next ensure-running.
+    try {
+      await window.electronAPI.workspace.composioMcpEnsureRunning(selectedWorkspaceId);
+    } catch {
+      /* non-fatal */
+    }
+    try {
+      await window.electronAPI.workspace.queueSessionInput({
+        workspace_id: selectedWorkspaceId,
+        session_id: sessionId,
+        text: `[system] ${toolkitSlug} is now connected. You can call its tools.`,
+        image_urls: null,
+        attachments: [],
+        priority: 0,
+        model: resolvedChatModel || null,
+        thinking_value: effectiveThinkingValue,
+      });
+    } catch {
+      /* non-fatal */
+    }
+  }
+
   async function pauseCurrentRun() {
     const sessionId = activeSessionIdRef.current || activeSessionId;
     if (!selectedWorkspaceId || !sessionId || isPausePending) {
@@ -6553,6 +6917,11 @@ export function ChatPane({
       return;
     }
 
+    if (onPreviewImageAttachment) {
+      onPreviewImageAttachment(attachment);
+      return;
+    }
+
     imageAttachmentPreviewRequestIdRef.current += 1;
     const requestId = imageAttachmentPreviewRequestIdRef.current;
     clearImageAttachmentPreviewObjectUrl();
@@ -6968,11 +7337,78 @@ export function ChatPane({
       : hasPendingConfiguredProviderCatalog
         ? "Managed models are finishing setup. Refresh runtime binding or use another provider."
         : "No models available. Configure a provider to start chatting.";
+  const onboardingFlowState = isOnboardingVariant
+    ? (selectedWorkspace?.onboarding_state || "").trim().toLowerCase()
+    : "";
+  const alignmentQuestion = parseOnboardingAlignmentQuestion(
+    selectedWorkspace?.alignment_question,
+  );
+  const alignmentQuestionItems = alignmentQuestion?.questions ?? [];
+  const alignmentQuestionCount = alignmentQuestionItems.length;
+  const safeOnboardingQuestionSlideIndex =
+    alignmentQuestionCount > 0
+      ? Math.min(onboardingQuestionSlideIndex, alignmentQuestionCount - 1)
+      : 0;
+  const activeAlignmentQuestion =
+    alignmentQuestionItems[safeOnboardingQuestionSlideIndex] ?? null;
+  const activeAlignmentQuestionDraft = activeAlignmentQuestion
+    ? onboardingQuestionDrafts[activeAlignmentQuestion.id] ??
+      emptyOnboardingAlignmentQuestionDraft()
+    : emptyOnboardingAlignmentQuestionDraft();
+  const answeredAlignmentQuestionCount = alignmentQuestionItems.filter((question) =>
+    onboardingAlignmentQuestionIsAnswered(onboardingQuestionDrafts[question.id]),
+  ).length;
+  const unansweredAlignmentQuestionCount = Math.max(
+    alignmentQuestionCount - answeredAlignmentQuestionCount,
+    0,
+  );
+  const alignmentQuestionSignature = alignmentQuestionItems
+    .map((question) => question.id)
+    .join("|");
+  const alignmentReport = isRecord(selectedWorkspace?.alignment_report)
+    ? selectedWorkspace.alignment_report
+    : null;
+  const verificationReport = isRecord(selectedWorkspace?.verification_report)
+    ? selectedWorkspace.verification_report
+    : null;
+  const alignmentReportSummary =
+    typeof alignmentReport?.summary === "string"
+      ? alignmentReport.summary.trim()
+      : "";
+  const verificationReportSummary =
+    typeof verificationReport?.summary === "string"
+      ? verificationReport.summary.trim()
+      : "";
+  const alignmentReportDetails = useMemo(
+    () => onboardingReportEntries(alignmentReport),
+    [alignmentReport],
+  );
+  const verificationReportDetails = useMemo(
+    () => onboardingReportEntries(verificationReport),
+    [verificationReport],
+  );
+  const onboardingImplementingDisabledReason =
+    onboardingFlowState === "implementing"
+      ? "Onboarding is implementing the approved alignment. Wait for verification before sending another message."
+      : "";
+  const onboardingReviewDisabledReason =
+    onboardingFlowState === "aligning" && alignmentQuestion
+      ? "Answer the inline alignment question before sending another message."
+      : onboardingFlowState === "awaiting_alignment_approval"
+        ? "Review the alignment report and use the inline actions before sending another message."
+        : onboardingFlowState === "awaiting_verification_acceptance"
+          ? "Review the verification report and use the inline actions before sending another message."
+          : "";
+  const readOnlyInspectionDisabledReason = isReadOnlyInspectionSession
+    ? isOnboardingVariant
+      ? "Inspection sessions are read-only. Return to the onboarding session to continue the conversation."
+      : "Inspection sessions are read-only. Return to the main session to continue the conversation."
+    : "";
   const composerBaseDisabledReason =
-    (isReadOnlyInspectionSession
-      ? "Inspection sessions are read-only. Return to the main session to continue the conversation."
-      : "") ||
+    readOnlyInspectionDisabledReason ||
     baseComposerDisabledReason ||
+    onboardingReviewDisabledReason ||
+    onboardingImplementingDisabledReason ||
     (usesHostedManagedCredits && isOutOfCredits
       ? "You're out of credits for managed usage."
       : "") ||
@@ -6998,6 +7434,636 @@ export function ChatPane({
     : showLowBalanceWarning
       ? "low"
       : null;
+  const onboardingQuestionActionsDisabled =
+    isReadOnlyInspectionSession || onboardingQuestionAction !== null;
+  const onboardingReviewActionsDisabled =
+    isReadOnlyInspectionSession || onboardingReviewAction !== null;
+  const alignmentReviewCardVisible =
+    isOnboardingVariant &&
+    onboardingFlowState === "awaiting_alignment_approval" &&
+    alignmentReport !== null;
+  const alignmentQuestionCardVisible =
+    isOnboardingVariant &&
+    onboardingFlowState === "aligning" &&
+    alignmentQuestion !== null;
+  const verificationReviewCardVisible =
+    isOnboardingVariant &&
+    onboardingFlowState === "awaiting_verification_acceptance" &&
+    verificationReport !== null;
+  const onboardingComposerTakeoverVisible =
+    alignmentQuestionCardVisible ||
+    alignmentReviewCardVisible ||
+    verificationReviewCardVisible;
+  const runOnboardingReviewAction = useCallback(
+    async (
+      action:
+        | "approve_alignment"
+        | "revise_alignment"
+        | "accept_verification"
+        | "revise_verification",
+    ) => {
+      const workspaceId = (selectedWorkspace?.id || "").trim();
+      if (!workspaceId) {
+        return;
+      }
+      setOnboardingReviewAction(action);
+      setOnboardingReviewActionError("");
+      let mutated = false;
+      try {
+        if (action === "approve_alignment") {
+          await window.electronAPI.workspace.approveOnboardingAlignment(
+            workspaceId,
+          );
+        } else if (action === "revise_alignment") {
+          await window.electronAPI.workspace.requestOnboardingAlignmentRevision(
+            workspaceId,
+          );
+        } else if (action === "revise_verification") {
+          await window.electronAPI.workspace.requestOnboardingVerificationRevision(
+            workspaceId,
+          );
+        } else {
+          await window.electronAPI.workspace.completeOnboarding(workspaceId, {
+            summary:
+              verificationReportSummary ||
+              "Workspace onboarding accepted by the user.",
+            requestedBy: "workspace_user",
+          });
+        }
+        mutated = true;
+      } catch (error) {
+        setOnboardingReviewActionError(normalizeErrorMessage(error));
+      } finally {
+        setOnboardingReviewAction(null);
+        if (mutated) {
+          if (
+            action === "revise_alignment" ||
+            action === "revise_verification"
+          ) {
+            pendingOnboardingComposerFocusRef.current = true;
+          }
+          void refreshWorkspaceData().catch(() => undefined);
+        }
+      }
+    },
+    [refreshWorkspaceData, selectedWorkspace?.id, verificationReportSummary],
+  );
+  const answerOnboardingAlignmentQuestion = useCallback(
+    async () => {
+      const workspaceId = (selectedWorkspace?.id || "").trim();
+      if (!workspaceId || alignmentQuestionItems.length === 0) {
+        return;
+      }
+      const answers = alignmentQuestionItems.map((question) => {
+        const draft =
+          onboardingQuestionDrafts[question.id] ??
+          emptyOnboardingAlignmentQuestionDraft();
+        return {
+          questionId: question.id,
+          optionId: draft.optionId.trim() || null,
+          responseText: draft.responseText.trim() || null,
+          notes: draft.notes.trim() || null,
+        };
+      });
+      const firstUnansweredIndex = answers.findIndex(
+        (answer) =>
+          !((answer.optionId || "").trim() || (answer.responseText || "").trim()),
+      );
+      if (firstUnansweredIndex >= 0) {
+        setOnboardingQuestionError("Answer each alignment question before submitting.");
+        setOnboardingQuestionSlideIndex(firstUnansweredIndex);
+        return;
+      }
+      setOnboardingQuestionAction("submit");
+      setOnboardingQuestionError("");
+      let mutated = false;
+      try {
+        await window.electronAPI.workspace.answerOnboardingAlignmentQuestion(
+          workspaceId,
+          {
+            answers,
+          },
+        );
+        mutated = true;
+      } catch (error) {
+        setOnboardingQuestionError(normalizeErrorMessage(error));
+      } finally {
+        setOnboardingQuestionAction(null);
+        if (mutated) {
+          setOnboardingQuestionDrafts({});
+          setOnboardingQuestionSlideIndex(0);
+          void refreshWorkspaceData().catch(() => undefined);
+        }
+      }
+    },
+    [
+      alignmentQuestionItems,
+      onboardingQuestionDrafts,
+      refreshWorkspaceData,
+      selectedWorkspace?.id,
+    ],
+  );
+  useEffect(() => {
+    setOnboardingReviewActionError("");
+    setOnboardingReviewAction(null);
+    setOnboardingQuestionAction(null);
+    setOnboardingQuestionError("");
+    setOnboardingQuestionSlideIndex(0);
+    setOnboardingQuestionDrafts({});
+  }, [selectedWorkspaceId, onboardingFlowState, alignmentQuestionSignature]);
+  const setOnboardingQuestionDraft = useCallback(
+    (
+      questionId: string,
+      updater: (
+        current: OnboardingAlignmentQuestionDraft,
+      ) => OnboardingAlignmentQuestionDraft,
+    ) => {
+      setOnboardingQuestionDrafts((current) => {
+        const previous =
+          current[questionId] ?? emptyOnboardingAlignmentQuestionDraft();
+        return {
+          ...current,
+          [questionId]: updater(previous),
+        };
+      });
+    },
+    [],
+  );
+  const selectOnboardingQuestionOption = useCallback(
+    (
+      question: OnboardingAlignmentQuestionCard,
+      option: OnboardingAlignmentQuestionOption,
+    ) => {
+      setOnboardingQuestionError("");
+      onboardingQuestionTextareaRef.current?.blur();
+      setOnboardingQuestionDraft(question.id, (current) => {
+        return {
+          ...current,
+          optionId: option.id,
+          responseText: "",
+        };
+      });
+    },
+    [setOnboardingQuestionDraft],
+  );
+  useEffect(() => {
+    if (!pendingOnboardingComposerFocusRef.current) {
+      return;
+    }
+    if (!selectedWorkspaceId) {
+      return;
+    }
+    if (!selectedWorkspace || isLoadingBootstrap || isLoadingHistory) {
+      return;
+    }
+    if (onboardingComposerTakeoverVisible || composerDisabled) {
+      return;
+    }
+    const textarea = textareaRef.current;
+    if (!textarea || textarea.disabled) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const activeTextarea = textareaRef.current;
+      if (!activeTextarea || activeTextarea.disabled) {
+        return;
+      }
+      activeTextarea.click();
+      activeTextarea.focus({ preventScroll: true });
+      const cursorPosition = activeTextarea.value.length;
+      activeTextarea.setSelectionRange(cursorPosition, cursorPosition);
+      pendingOnboardingComposerFocusRef.current = false;
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [
+    composerDisabled,
+    isLoadingBootstrap,
+    isLoadingHistory,
+    onboardingComposerTakeoverVisible,
+    selectedWorkspace,
+    selectedWorkspaceId,
+  ]);
+  const onboardingComposerTakeoverPanel = onboardingComposerTakeoverVisible ? (
+    <div className="w-full rounded-[28px] border border-border bg-background shadow-[0_18px_44px_rgba(15,23,42,0.08)]">
+      {alignmentQuestionCardVisible && activeAlignmentQuestion ? (
+        <div className="space-y-5 px-5 py-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                {`Question ${safeOnboardingQuestionSlideIndex + 1}/${alignmentQuestionCount} (${unansweredAlignmentQuestionCount} unanswered)`}
+              </div>
+              {activeAlignmentQuestion.title || alignmentQuestion?.title ? (
+                <div className="mt-1 text-sm font-medium text-foreground">
+                  {activeAlignmentQuestion.title || alignmentQuestion?.title}
+                </div>
+              ) : null}
+            </div>
+            <div className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-primary">
+              {answeredAlignmentQuestionCount > 0
+                ? `${answeredAlignmentQuestionCount}/${alignmentQuestionCount} answered`
+                : "Awaiting answer"}
+            </div>
+          </div>
+          {alignmentQuestionCount > 1 ? (
+            <div className="flex flex-wrap gap-2">
+              {alignmentQuestionItems.map((question, index) => {
+                const draft = onboardingQuestionDrafts[question.id];
+                const answered = onboardingAlignmentQuestionIsAnswered(draft);
+                const active = index === safeOnboardingQuestionSlideIndex;
+                return (
+                  <button
+                    key={question.id}
+                    type="button"
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition ${
+                      active
+                        ? "border-primary bg-primary/10 text-primary"
+                        : answered
+                          ? "border-border bg-muted/70 text-foreground"
+                          : "border-border bg-background text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                    }`}
+                    disabled={onboardingQuestionActionsDisabled}
+                    onClick={() => {
+                      setOnboardingQuestionError("");
+                      setOnboardingQuestionSlideIndex(index);
+                    }}
+                  >
+                    <span className="grid size-4 place-items-center rounded-full border border-current text-[10px]">
+                      {answered ? <Check className="size-3" /> : index + 1}
+                    </span>
+                    <span className="max-w-[14rem] truncate">
+                      {question.title || `Question ${index + 1}`}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          {alignmentQuestion?.details ? (
+            <div className="text-sm leading-6 text-muted-foreground">
+              {alignmentQuestion.details}
+            </div>
+          ) : null}
+          <div className="rounded-[24px] border border-border/80 bg-muted/30 p-4">
+            <div className="text-sm leading-6 text-foreground">
+              {activeAlignmentQuestion.prompt}
+            </div>
+            {activeAlignmentQuestion.details ? (
+              <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                {activeAlignmentQuestion.details}
+              </div>
+            ) : null}
+          </div>
+          <div className="space-y-2.5">
+            {activeAlignmentQuestion.options.map((option) => {
+              const selected = activeAlignmentQuestionDraft.optionId === option.id;
+              return (
+              <button
+                key={option.id}
+                type="button"
+                className={`w-full rounded-2xl border px-4 py-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  selected
+                    ? "border-primary bg-primary/8 shadow-[0_10px_30px_rgba(15,23,42,0.05)]"
+                    : "border-border bg-background/70 hover:border-primary/40 hover:bg-primary/5"
+                }`}
+                disabled={onboardingQuestionActionsDisabled}
+                onClick={() => {
+                  selectOnboardingQuestionOption(activeAlignmentQuestion, option);
+                }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-foreground">
+                      {option.label}
+                    </div>
+                    {option.description ? (
+                      <div className="mt-1 text-sm leading-6 text-muted-foreground">
+                        {option.description}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {option.recommended ? (
+                      <div className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-primary">
+                        Recommended
+                      </div>
+                    ) : null}
+                    {selected ? (
+                      <div className="grid size-7 place-items-center rounded-full bg-primary text-primary-foreground">
+                        <Check className="size-4" />
+                      </div>
+                    ) : (
+                      <ArrowRight className="size-4 text-muted-foreground" />
+                    )}
+                  </div>
+                </div>
+              </button>
+              );
+            })}
+          </div>
+          {activeAlignmentQuestion.allowFreeform ? (
+            <div className="space-y-2">
+              <div className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                Natural language response
+              </div>
+              <textarea
+                ref={onboardingQuestionTextareaRef}
+                value={activeAlignmentQuestionDraft.responseText}
+                onFocus={() => {
+                  setOnboardingQuestionError("");
+                  setOnboardingQuestionDraft(
+                    activeAlignmentQuestion.id,
+                    (current) =>
+                      current.optionId
+                        ? {
+                            ...current,
+                            optionId: "",
+                          }
+                        : current,
+                  );
+                }}
+                onChange={(event) => {
+                  const nextResponseText = event.target.value;
+                  setOnboardingQuestionError("");
+                  setOnboardingQuestionDraft(
+                    activeAlignmentQuestion.id,
+                    (current) => ({
+                      ...current,
+                      optionId: nextResponseText.trim() ? "" : current.optionId,
+                      responseText: nextResponseText,
+                    }),
+                  );
+                }}
+                disabled={onboardingQuestionActionsDisabled}
+                placeholder={activeAlignmentQuestion.freeformPlaceholder}
+                className="min-h-[120px] w-full resize-y rounded-2xl border border-border bg-background px-4 py-3 text-sm leading-6 text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+              />
+            </div>
+          ) : null}
+          {activeAlignmentQuestion.allowNotes ? (
+            <Input
+              value={activeAlignmentQuestionDraft.notes}
+              onChange={(event) => {
+                setOnboardingQuestionError("");
+                setOnboardingQuestionDraft(
+                  activeAlignmentQuestion.id,
+                  (current) => ({
+                    ...current,
+                    notes: event.target.value,
+                  }),
+                );
+              }}
+              disabled={onboardingQuestionActionsDisabled}
+              placeholder={activeAlignmentQuestion.notesPlaceholder}
+              className="rounded-xl"
+            />
+          ) : null}
+          {onboardingQuestionError ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              {onboardingQuestionError}
+            </div>
+          ) : null}
+          {isReadOnlyInspectionSession ? (
+            <div className="text-xs text-muted-foreground">
+              Return to the onboarding session to answer this alignment question.
+            </div>
+          ) : null}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {alignmentQuestionCount > 1 ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={
+                    onboardingQuestionActionsDisabled ||
+                    safeOnboardingQuestionSlideIndex === 0
+                  }
+                  onClick={() => {
+                    setOnboardingQuestionError("");
+                    setOnboardingQuestionSlideIndex((current) =>
+                      Math.max(current - 1, 0),
+                    );
+                  }}
+                >
+                  Previous
+                </Button>
+              ) : null}
+              {alignmentQuestionCount > 1 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={
+                    onboardingQuestionActionsDisabled ||
+                    safeOnboardingQuestionSlideIndex >= alignmentQuestionCount - 1
+                  }
+                  onClick={() => {
+                    setOnboardingQuestionError("");
+                    setOnboardingQuestionSlideIndex((current) =>
+                      Math.min(current + 1, alignmentQuestionCount - 1),
+                    );
+                  }}
+                >
+                  Next
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                disabled={onboardingQuestionActionsDisabled}
+                onClick={() => {
+                  void answerOnboardingAlignmentQuestion();
+                }}
+              >
+                {onboardingQuestionAction === "submit" ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : null}
+                {alignmentQuestionCount > 1 ? "Submit answers" : "Submit answer"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {alignmentReviewCardVisible ? (
+        <div className="space-y-4 px-5 py-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                Alignment report
+              </div>
+              <div className="mt-1 text-sm font-medium text-foreground">
+                Review before implementation starts
+              </div>
+            </div>
+            <div className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-primary">
+              Awaiting review
+            </div>
+          </div>
+          <div className="text-sm leading-6 text-foreground">
+            {alignmentReportSummary ||
+              "The onboarding agent has converged the current workspace alignment for approval."}
+          </div>
+          {alignmentReportDetails.length > 0 ? (
+            <div className="space-y-3">
+              {alignmentReportDetails.map((entry) => (
+                <div key={entry.key}>
+                  <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                    {entry.label}
+                  </div>
+                  <div className="mt-1 space-y-1 text-sm leading-6 text-muted-foreground">
+                    {entry.lines.map((line, index) => (
+                      <div
+                        key={`${entry.key}-${index}`}
+                        className="whitespace-pre-wrap break-words"
+                      >
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {onboardingReviewActionError ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              {onboardingReviewActionError}
+            </div>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              className="rounded-full"
+              disabled={onboardingReviewActionsDisabled}
+              onClick={() => {
+                void runOnboardingReviewAction("approve_alignment");
+              }}
+            >
+              {onboardingReviewAction === "approve_alignment" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Check className="size-4" />
+              )}
+              Approve alignment
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-full"
+              disabled={onboardingReviewActionsDisabled}
+              onClick={() => {
+                void runOnboardingReviewAction("revise_alignment");
+              }}
+            >
+              {onboardingReviewAction === "revise_alignment" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <PencilLine className="size-4" />
+              )}
+              Request changes
+            </Button>
+          </div>
+          {isReadOnlyInspectionSession ? (
+            <div className="text-xs text-muted-foreground">
+              Return to the onboarding session to review or revise this alignment.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {verificationReviewCardVisible ? (
+        <div className="space-y-4 px-5 py-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                Verification report
+              </div>
+              <div className="mt-1 text-sm font-medium text-foreground">
+                Review before final merge
+              </div>
+            </div>
+            <div className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-primary">
+              Awaiting acceptance
+            </div>
+          </div>
+          <div className="text-sm leading-6 text-foreground">
+            {verificationReportSummary ||
+              "Implementation is complete. Review the verification report before merging the lab."}
+          </div>
+          {verificationReportDetails.length > 0 ? (
+            <div className="space-y-3">
+              {verificationReportDetails.map((entry) => (
+                <div key={entry.key}>
+                  <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                    {entry.label}
+                  </div>
+                  <div className="mt-1 space-y-1 text-sm leading-6 text-muted-foreground">
+                    {entry.lines.map((line, index) => (
+                      <div
+                        key={`${entry.key}-${index}`}
+                        className="whitespace-pre-wrap break-words"
+                      >
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {onboardingReviewActionError ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              {onboardingReviewActionError}
+            </div>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              className="rounded-full"
+              disabled={onboardingReviewActionsDisabled}
+              onClick={() => {
+                void runOnboardingReviewAction("accept_verification");
+              }}
+            >
+              {onboardingReviewAction === "accept_verification" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Check className="size-4" />
+              )}
+              Accept and merge
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-full"
+              disabled={onboardingReviewActionsDisabled}
+              onClick={() => {
+                void runOnboardingReviewAction("revise_verification");
+              }}
+            >
+              {onboardingReviewAction === "revise_verification" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <PencilLine className="size-4" />
+              )}
+              Request changes
+            </Button>
+          </div>
+          {isReadOnlyInspectionSession ? (
+            <div className="text-xs text-muted-foreground">
+              Return to the onboarding session to accept or revise this verification.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  ) : null;
   useEffect(() => {
     if (creditWarningSeverity) {
       trackUmamiEvent("credit_warning_shown", {
@@ -7296,33 +8362,6 @@ export function ChatPane({
     <div className="relative flex h-full min-h-0 min-w-0 flex-col">
       <div className="theme-chat-composer-glow pointer-events-none absolute inset-x-8 bottom-0 h-44 rounded-full blur-2xl" />
 
-        {isOnboardingVariant && selectedWorkspace ? (
-          <div className="shrink-0 px-4 pt-4 sm:px-5">
-            <div className="bg-muted overflow-hidden rounded-2xl border border-primary/20 shadow-2xs">
-              <div className="bg-[radial-gradient(circle_at_top_left,rgba(247,90,84,0.12),transparent_42%),radial-gradient(circle_at_92%_12%,rgba(247,170,126,0.12),transparent_36%)] px-4 py-4 sm:px-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-medium uppercase text-primary">
-                      Workspace onboarding
-                    </div>
-                    <div className="mt-2 text-lg font-semibold text-foreground">
-                      {selectedWorkspace.name.trim() || "Workspace setup"}
-                    </div>
-                  </div>
-
-                  <div
-                    className={`inline-flex shrink-0 items-center rounded-full border px-3 py-1 text-[10px] font-medium uppercase ${onboardingStatusTone(
-                      selectedWorkspace.onboarding_status,
-                    )}`}
-                  >
-                    {onboardingStatusLabel(selectedWorkspace.onboarding_status)}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
         {!isOnboardingVariant ? (
           <div className="shrink-0 px-4 py-2 sm:px-5">
             <ChatHeader
@@ -7426,11 +8465,23 @@ export function ChatPane({
         backgroundDeliveryStatusMessage ||
         attachmentGateMessage ||
         pendingImageInputUnsupportedMessage ||
+        pendingIntegrationsWait ||
         verboseTelemetryEnabled ? (
           <div className="shrink-0 px-4 pt-3 sm:px-5">
             {chatErrorMessage ? (
               <div className="theme-chat-system-bubble rounded-xl border px-3 py-2 text-xs">
                 {chatErrorMessage}
+              </div>
+            ) : null}
+
+            {pendingIntegrationsWait ? (
+              <div className="theme-chat-system-bubble mt-3 rounded-xl border px-3 py-2 text-xs">
+                <span className="font-medium">Waiting for you to connect:</span>
+                {" "}
+                {pendingIntegrationsWait.unresolvedSlugs.length > 0
+                  ? pendingIntegrationsWait.unresolvedSlugs.join(", ")
+                  : "the integrations the agent proposed above"}
+                . The next message resumes automatically once all are connected.
               </div>
             ) : null}
 
@@ -7586,6 +8637,9 @@ export function ChatPane({
                         : null
                     }
                     onAfterIntegrationBind={handleAfterIntegrationBind}
+                    onAfterIntegrationProposalConnected={
+                      handleAfterIntegrationProposalConnected
+                    }
                   />
                 </div>
               ) : (
@@ -7615,85 +8669,89 @@ export function ChatPane({
                       ) : null;
                     })()}
                   </div>
-                  <form onSubmit={onSubmit} className="w-full">
-                    <div className="space-y-3">
-                    {scheduleEditContext ? (
-                      <ChatScheduleEditContextCard
-                        job={scheduleEditContext}
-                        onDismiss={onScheduleEditContextDismiss}
-                      />
-                    ) : null}
-                    <QueuedSessionInputRail
-                      items={displayedQueuedSessionInputs}
-                      onEditItem={
-                        isReadOnlyInspectionSession
-                          ? undefined
-                          : updateQueuedSessionInputText
-                      }
-                    >
-                        <Composer
-                          input={input}
-                          quotedSkills={quotedSkills}
-                          slashCommands={slashCommandOptions}
-                          attachments={pendingAttachmentItems}
-                          isResponding={isResponding}
-                          pausePending={isPausePending}
-                          pauseDisabled={isSubmittingMessage}
-                          disabled={composerDisabled}
-                          disabledReason={composerDisabledReason}
-                          selectedModel={effectiveChatModelPreference}
-                          resolvedModelLabel={
-                            resolvedChatModel || modelSelectionUnavailableReason
+                  {onboardingComposerTakeoverPanel ? (
+                    <div className="w-full">{onboardingComposerTakeoverPanel}</div>
+                  ) : (
+                    <form onSubmit={onSubmit} className="w-full">
+                      <div className="space-y-3">
+                        {scheduleEditContext ? (
+                          <ChatScheduleEditContextCard
+                            job={scheduleEditContext}
+                            onDismiss={onScheduleEditContextDismiss}
+                          />
+                        ) : null}
+                        <QueuedSessionInputRail
+                          items={displayedQueuedSessionInputs}
+                          onEditItem={
+                            isReadOnlyInspectionSession
+                              ? undefined
+                              : updateQueuedSessionInputText
                           }
-                          runtimeDefaultModelLabel={runtimeDefaultModel}
-                          modelOptions={availableChatModelOptions}
-                          modelOptionGroups={availableChatModelOptionGroups}
-                          runtimeDefaultModelAvailable={
-                            runtimeDefaultModelAvailable
-                          }
-                          selectedThinkingValue={effectiveThinkingValue}
-                          thinkingValues={selectedThinkingValues}
-                          showThinkingValueSelector={showThinkingValueSelector}
-                          modelSelectionUnavailableReason={
-                            modelSelectionUnavailableReason
-                          }
-                          submitDisabled={Boolean(
-                            pendingImageInputUnsupportedMessage,
-                          )}
-                          placeholder={textareaPlaceholder}
-                          showModelSelector={!isOnboardingVariant}
-                          onModelChange={setChatModelPreference}
-                          onThinkingValueChange={setSelectedThinkingValue}
-                          onOpenModelProviders={() =>
-                            void window.electronAPI.ui.openSettingsPane(
-                              "providers",
-                            )
-                          }
-                          textareaRef={textareaRef}
-                          fileInputRef={fileInputRef}
-                          onChange={setInput}
-                          onKeyDown={onComposerKeyDown}
-                          onCompositionStart={onComposerCompositionStart}
-                          onCompositionEnd={onComposerCompositionEnd}
-                          onAttachmentInputChange={onAttachmentInputChange}
-                          onPause={pauseCurrentRun}
-                          onAddDroppedFiles={appendPendingLocalFiles}
-                          onAddExplorerAttachments={
-                            appendPendingExplorerAttachments
-                          }
-                          onSelectSlashCommand={(command) => {
-                            if (command.kind === "skill") {
-                              addQuotedSkill(command.skillId);
+                        >
+                          <Composer
+                            input={input}
+                            quotedSkills={quotedSkills}
+                            slashCommands={slashCommandOptions}
+                            attachments={pendingAttachmentItems}
+                            isResponding={isResponding}
+                            pausePending={isPausePending}
+                            pauseDisabled={isSubmittingMessage}
+                            disabled={composerDisabled}
+                            disabledReason={composerDisabledReason}
+                            selectedModel={effectiveChatModelPreference}
+                            resolvedModelLabel={
+                              resolvedChatModel || modelSelectionUnavailableReason
                             }
-                          }}
-                          mentionableItems={composerMentionableItems}
-                          onRemoveQuotedSkill={removeQuotedSkill}
-                          onRemoveAttachment={removePendingAttachment}
-                          onPreviewAttachment={openImageAttachmentPreview}
-                        />
-                      </QueuedSessionInputRail>
-                    </div>
-                  </form>
+                            runtimeDefaultModelLabel={runtimeDefaultModel}
+                            modelOptions={availableChatModelOptions}
+                            modelOptionGroups={availableChatModelOptionGroups}
+                            runtimeDefaultModelAvailable={
+                              runtimeDefaultModelAvailable
+                            }
+                            selectedThinkingValue={effectiveThinkingValue}
+                            thinkingValues={selectedThinkingValues}
+                            showThinkingValueSelector={showThinkingValueSelector}
+                            modelSelectionUnavailableReason={
+                              modelSelectionUnavailableReason
+                            }
+                            submitDisabled={Boolean(
+                              pendingImageInputUnsupportedMessage,
+                            )}
+                            placeholder={textareaPlaceholder}
+                            showModelSelector={!isOnboardingVariant}
+                            onModelChange={setChatModelPreference}
+                            onThinkingValueChange={setSelectedThinkingValue}
+                            onOpenModelProviders={() =>
+                              void window.electronAPI.ui.openSettingsPane(
+                                "providers",
+                              )
+                            }
+                            textareaRef={textareaRef}
+                            fileInputRef={fileInputRef}
+                            onChange={setInput}
+                            onKeyDown={onComposerKeyDown}
+                            onCompositionStart={onComposerCompositionStart}
+                            onCompositionEnd={onComposerCompositionEnd}
+                            onAttachmentInputChange={onAttachmentInputChange}
+                            onPause={pauseCurrentRun}
+                            onAddDroppedFiles={appendPendingLocalFiles}
+                            onAddExplorerAttachments={
+                              appendPendingExplorerAttachments
+                            }
+                            onSelectSlashCommand={(command) => {
+                              if (command.kind === "skill") {
+                                addQuotedSkill(command.skillId);
+                              }
+                            }}
+                            mentionableItems={composerMentionableItems}
+                            onRemoveQuotedSkill={removeQuotedSkill}
+                            onRemoveAttachment={removePendingAttachment}
+                            onPreviewAttachment={openImageAttachmentPreview}
+                          />
+                        </QueuedSessionInputRail>
+                      </div>
+                    </form>
+                  )}
                 </div>
               )}
             </div>
@@ -7726,83 +8784,87 @@ export function ChatPane({
               }`}
               style={frozenColumnStyle}
             >
-              <form onSubmit={onSubmit} className="w-full">
-                <div className="space-y-3">
-                  {scheduleEditContext ? (
-                    <ChatScheduleEditContextCard
-                      job={scheduleEditContext}
-                      onDismiss={onScheduleEditContextDismiss}
-                    />
-                  ) : null}
-                  <QueuedSessionInputRail
-                    items={displayedQueuedSessionInputs}
-                    onEditItem={
-                      isReadOnlyInspectionSession
-                        ? undefined
-                        : updateQueuedSessionInputText
-                    }
-                  >
-                    <Composer
-                      input={input}
-                      quotedSkills={quotedSkills}
-                      slashCommands={slashCommandOptions}
-                      attachments={pendingAttachmentItems}
-                      isResponding={isResponding}
-                      pausePending={isPausePending}
-                      pauseDisabled={isSubmittingMessage}
-                      disabled={composerDisabled}
-                      disabledReason={composerDisabledReason}
-                      selectedModel={effectiveChatModelPreference}
-                      resolvedModelLabel={
-                        resolvedChatModel || modelSelectionUnavailableReason
+              {onboardingComposerTakeoverPanel ? (
+                onboardingComposerTakeoverPanel
+              ) : (
+                <form onSubmit={onSubmit} className="w-full">
+                  <div className="space-y-3">
+                    {scheduleEditContext ? (
+                      <ChatScheduleEditContextCard
+                        job={scheduleEditContext}
+                        onDismiss={onScheduleEditContextDismiss}
+                      />
+                    ) : null}
+                    <QueuedSessionInputRail
+                      items={displayedQueuedSessionInputs}
+                      onEditItem={
+                        isReadOnlyInspectionSession
+                          ? undefined
+                          : updateQueuedSessionInputText
                       }
-                      runtimeDefaultModelLabel={runtimeDefaultModel}
-                      modelOptions={availableChatModelOptions}
-                      modelOptionGroups={availableChatModelOptionGroups}
-                      runtimeDefaultModelAvailable={
-                        runtimeDefaultModelAvailable
-                      }
-                      selectedThinkingValue={effectiveThinkingValue}
-                      thinkingValues={selectedThinkingValues}
-                      showThinkingValueSelector={showThinkingValueSelector}
-                      modelSelectionUnavailableReason={
-                        modelSelectionUnavailableReason
-                      }
-                      submitDisabled={Boolean(
-                        pendingImageInputUnsupportedMessage,
-                      )}
-                      placeholder={textareaPlaceholder}
-                      showModelSelector={!isOnboardingVariant}
-                      onModelChange={setChatModelPreference}
-                      onThinkingValueChange={setSelectedThinkingValue}
-                      onOpenModelProviders={() =>
-                        void window.electronAPI.ui.openSettingsPane("providers")
-                      }
-                      textareaRef={textareaRef}
-                      fileInputRef={fileInputRef}
-                      onChange={setInput}
-                      onKeyDown={onComposerKeyDown}
-                      onCompositionStart={onComposerCompositionStart}
-                      onCompositionEnd={onComposerCompositionEnd}
-                      onAttachmentInputChange={onAttachmentInputChange}
-                      onPause={pauseCurrentRun}
-                      onAddDroppedFiles={appendPendingLocalFiles}
-                      onAddExplorerAttachments={
-                        appendPendingExplorerAttachments
-                      }
-                      onSelectSlashCommand={(command) => {
-                        if (command.kind === "skill") {
-                          addQuotedSkill(command.skillId);
+                    >
+                      <Composer
+                        input={input}
+                        quotedSkills={quotedSkills}
+                        slashCommands={slashCommandOptions}
+                        attachments={pendingAttachmentItems}
+                        isResponding={isResponding}
+                        pausePending={isPausePending}
+                        pauseDisabled={isSubmittingMessage}
+                        disabled={composerDisabled}
+                        disabledReason={composerDisabledReason}
+                        selectedModel={effectiveChatModelPreference}
+                        resolvedModelLabel={
+                          resolvedChatModel || modelSelectionUnavailableReason
                         }
-                      }}
-                      mentionableItems={composerMentionableItems}
-                      onRemoveQuotedSkill={removeQuotedSkill}
-                      onRemoveAttachment={removePendingAttachment}
-                      onPreviewAttachment={openImageAttachmentPreview}
-                    />
-                  </QueuedSessionInputRail>
-                </div>
-              </form>
+                        runtimeDefaultModelLabel={runtimeDefaultModel}
+                        modelOptions={availableChatModelOptions}
+                        modelOptionGroups={availableChatModelOptionGroups}
+                        runtimeDefaultModelAvailable={
+                          runtimeDefaultModelAvailable
+                        }
+                        selectedThinkingValue={effectiveThinkingValue}
+                        thinkingValues={selectedThinkingValues}
+                        showThinkingValueSelector={showThinkingValueSelector}
+                        modelSelectionUnavailableReason={
+                          modelSelectionUnavailableReason
+                        }
+                        submitDisabled={Boolean(
+                          pendingImageInputUnsupportedMessage,
+                        )}
+                        placeholder={textareaPlaceholder}
+                        showModelSelector={!isOnboardingVariant}
+                        onModelChange={setChatModelPreference}
+                        onThinkingValueChange={setSelectedThinkingValue}
+                        onOpenModelProviders={() =>
+                          void window.electronAPI.ui.openSettingsPane("providers")
+                        }
+                        textareaRef={textareaRef}
+                        fileInputRef={fileInputRef}
+                        onChange={setInput}
+                        onKeyDown={onComposerKeyDown}
+                        onCompositionStart={onComposerCompositionStart}
+                        onCompositionEnd={onComposerCompositionEnd}
+                        onAttachmentInputChange={onAttachmentInputChange}
+                        onPause={pauseCurrentRun}
+                        onAddDroppedFiles={appendPendingLocalFiles}
+                        onAddExplorerAttachments={
+                          appendPendingExplorerAttachments
+                        }
+                        onSelectSlashCommand={(command) => {
+                          if (command.kind === "skill") {
+                            addQuotedSkill(command.skillId);
+                          }
+                        }}
+                        mentionableItems={composerMentionableItems}
+                        onRemoveQuotedSkill={removeQuotedSkill}
+                        onRemoveAttachment={removePendingAttachment}
+                        onPreviewAttachment={openImageAttachmentPreview}
+                      />
+                    </QueuedSessionInputRail>
+                  </div>
+                </form>
+              )}
             </div>
           ) : null}
 

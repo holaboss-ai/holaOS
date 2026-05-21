@@ -484,6 +484,109 @@ test("runtime executor resolves store-backed integration env for bound shell app
   store.close();
 });
 
+test("runtime executor uses explicit workspace id for integration env when app dir cannot be inferred", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hb-shell-app-explicit-workspace-"));
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active"
+  });
+  const appDir = fs.mkdtempSync(path.join(os.tmpdir(), "hb-shell-app-outside-workspace-"));
+  store.upsertIntegrationConnection({
+    connectionId: "conn-twitter-1",
+    providerId: "twitter",
+    ownerUserId: "user-1",
+    accountLabel: "HolaJeffreyLi",
+    authMode: "composio",
+    grantedScopes: [],
+    status: "active",
+    accountExternalId: "ca_twitter_1"
+  });
+  store.upsertIntegrationBinding({
+    bindingId: "bind-twitter-default",
+    workspaceId: workspace.id,
+    targetType: "workspace",
+    targetId: "default",
+    integrationKey: "twitter",
+    connectionId: "conn-twitter-1",
+    isDefault: true
+  });
+
+  const calls: Array<{ key: string; cwd?: string; env?: NodeJS.ProcessEnv }> = [];
+  let started = false;
+  const spawnStub = ((command: string, args?: readonly string[], options?: { cwd?: string; shell?: boolean; env?: NodeJS.ProcessEnv }) => {
+    const key = `${command} ${(args ?? []).join(" ")}`.trim();
+    calls.push({ key, cwd: options?.cwd, env: options?.env });
+    const child = new EventEmitter() as EventEmitter & {
+      stderr: EventEmitter & { setEncoding: (encoding: string) => void };
+      stdout: EventEmitter & { setEncoding: (encoding: string) => void };
+      kill: () => void;
+      exitCode?: number | null;
+    };
+    child.stderr = Object.assign(new EventEmitter(), { setEncoding: (_encoding: string) => {} });
+    child.stdout = Object.assign(new EventEmitter(), { setEncoding: (_encoding: string) => {} });
+    child.kill = () => {};
+    started = key === "npm run start";
+    queueMicrotask(() => {
+      child.exitCode = 0;
+      child.emit("close", 0);
+    });
+    return child;
+  }) as typeof import("node:child_process").spawn;
+  const fetchStub = (async () => {
+    if (!started) {
+      throw new Error("app not started yet");
+    }
+    return new Response("", { status: 200 });
+  }) as typeof fetch;
+
+  const executor = new RuntimeAppLifecycleExecutor({ store });
+  await executor.startApp({
+    appId: "x-engagement-tracker",
+    workspaceId: workspace.id,
+    appDir,
+    resolvedApp: {
+      appId: "x-engagement-tracker",
+      mcp: { transport: "http-sse", port: 4100, path: "/mcp" },
+      mcpTools: [],
+      healthCheck: { path: "/health", timeoutS: 1, intervalS: 0.01 },
+      envContract: ["WORKSPACE_TWITTER_INTEGRATION_ID", "WORKSPACE_API_URL"],
+      integrations: [
+        {
+          key: "twitter",
+          provider: "twitter",
+          capability: "social.metrics",
+          scopes: [],
+          required: true,
+          credentialSource: "platform",
+          holabossUserIdRequired: true,
+        }
+      ],
+      startCommand: "",
+      baseDir: "apps/x-engagement-tracker",
+      lifecycle: { setup: "", start: "npm run start", stop: "npm run stop" }
+    },
+    httpPort: 18081,
+    mcpPort: 13101,
+    spawnImpl: spawnStub,
+    fetchImpl: fetchStub
+  });
+
+  const env = calls.find((entry) => entry.key === "npm run start")?.env;
+  assert.equal(env?.WORKSPACE_TWITTER_INTEGRATION_ID, "conn-twitter-1");
+  assert.equal(env?.WORKSPACE_API_URL, "http://127.0.0.1:8080/api/v1");
+  assert.equal(env?.HOLABOSS_INTEGRATION_BROKER_URL, "http://127.0.0.1:8080/api/v1/integrations");
+  assert.match(env?.HOLABOSS_APP_GRANT ?? "", /^grant:workspace-1:x-engagement-tracker:/);
+
+  store.close();
+});
+
 test("startShellLifecycleAppTarget runs lifecycle.setup before lifecycle.start", async () => {
   const appDir = fs.mkdtempSync(path.join(os.tmpdir(), "hb-shell-app-setup-"));
   const calls: Array<{ key: string; cwd?: string; shell?: boolean; cacheDir?: string }> = [];

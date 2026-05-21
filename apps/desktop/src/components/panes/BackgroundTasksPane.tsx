@@ -15,6 +15,7 @@ const BACKGROUND_TASKS_POLL_INTERVAL_MS = 1000;
 
 interface BackgroundTasksPaneProps {
   workspaceId?: string | null;
+  ownerMainSessionId?: string | null;
   emptyWorkspaceMessage?: string;
   variant?: "full" | "inline";
   onOpenTaskSession?: (task: BackgroundTaskRecordPayload) => void;
@@ -159,12 +160,14 @@ function inlineBackgroundIndicator(tasks: BackgroundTaskRecordPayload[]) {
 
 export function BackgroundTasksPane({
   workspaceId,
+  ownerMainSessionId = null,
   emptyWorkspaceMessage = "Choose a workspace from the top bar to view background tasks.",
   variant = "full",
   onOpenTaskSession,
 }: BackgroundTasksPaneProps) {
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const activeWorkspaceId = workspaceId ?? selectedWorkspaceId;
+  const activeOwnerMainSessionId = ownerMainSessionId?.trim() || null;
   const [tasks, setTasks] = useState<BackgroundTaskRecordPayload[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -184,6 +187,7 @@ export function BackgroundTasksPane({
       try {
         const response = await window.electronAPI.workspace.listBackgroundTasks({
           workspaceId: activeWorkspaceId,
+          ownerMainSessionId: activeOwnerMainSessionId,
           limit: 200,
         });
         setTasks(response.tasks ?? []);
@@ -196,7 +200,7 @@ export function BackgroundTasksPane({
         }
       }
     },
-    [activeWorkspaceId],
+    [activeOwnerMainSessionId, activeWorkspaceId],
   );
 
   useEffect(() => {

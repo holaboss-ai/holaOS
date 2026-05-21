@@ -27,8 +27,8 @@ prune_common_runtime_files() {
       -name '*.d.cts' -o \
       -name '*.d.mts' -o \
       -name '*.map' -o \
-      \( -name '*.md' ! -name 'SKILL.md' \) -o \
-      -name '*.markdown' -o \
+      \( -name '*.md' ! -name 'SKILL.md' ! -path '*/embedded-skills/*' \) -o \
+      \( -name '*.markdown' ! -path '*/embedded-skills/*' \) -o \
       -name '*.pdb' -o \
       -name '*.tsbuildinfo' -o \
       -name '*.exp' -o \

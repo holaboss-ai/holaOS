@@ -5,7 +5,11 @@ import { MarketplaceGallery } from "@/components/marketplace/MarketplaceGallery"
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import {
+  composioToolkitMatchesProvider,
+  composioToolkitSlugForProvider,
+  useWorkspaceDesktop,
+} from "@/lib/workspaceDesktop";
 import { Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
 
@@ -125,9 +129,9 @@ export function MarketplacePane({
       if (cancelled) {
         return;
       }
-
+      const toolkitSlug = composioToolkitSlugForProvider(provider);
       const link = await window.electronAPI.workspace.composioConnect({
-        provider,
+        provider: toolkitSlug,
         owner_user_id: userId,
       });
 
@@ -159,7 +163,7 @@ export function MarketplacePane({
         const newConnection = current.connections.find(
           (c) =>
             !beforeIds.has(c.id) &&
-            c.toolkitSlug.toLowerCase() === provider.toLowerCase(),
+            composioToolkitMatchesProvider(c.toolkitSlug, provider),
         );
         if (newConnection) {
           // Composio creates the row at /connect time in INITIATED state —

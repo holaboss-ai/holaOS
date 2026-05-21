@@ -1,20 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useSetAtom } from "jotai";
+import { FileX2, Loader2 } from "lucide-react";
 import { MarkdownEditor as TiptapMarkdownEditor } from "@holaboss/editor";
 import { PresentationPreview } from "@/components/panes/PresentationPreview";
 import { SpreadsheetEditor } from "@/components/panes/SpreadsheetEditor";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
+import { fileNameFromPath } from "./state/internalTabs";
+import { removeRecentFileByPathAtom } from "./state/recentFiles";
 
 interface FilePreviewPaneProps {
   filePath: string;
+  onClose?: () => void;
 }
 
 const MARKDOWN_EXTS = new Set([".md", ".mdx", ".markdown"]);
 
-export function FilePreviewPane({ filePath }: FilePreviewPaneProps) {
+function isNotFoundError(message: string): boolean {
+  return /ENOENT|no such file or directory|not found/i.test(message);
+}
+
+export function FilePreviewPane({ filePath, onClose }: FilePreviewPaneProps) {
   const { selectedWorkspaceId } = useWorkspaceSelection();
+  const removeRecentFileByPath = useSetAtom(removeRecentFileByPathAtom);
   const [preview, setPreview] = useState<FilePreviewPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tableSheetIndex, setTableSheetIndex] = useState(0);
@@ -43,9 +52,38 @@ export function FilePreviewPane({ filePath }: FilePreviewPaneProps) {
   }, [filePath, selectedWorkspaceId]);
 
   if (error) {
+    const notFound = isNotFoundError(error);
+    const fileName = fileNameFromPath(filePath);
+    const handleClose = () => {
+      if (notFound) {
+        removeRecentFileByPath({
+          filePath,
+          workspaceId: selectedWorkspaceId ?? null,
+        });
+      }
+      onClose?.();
+    };
     return (
       <div className="grid h-full place-items-center px-6 text-center">
-        <div className="max-w-md text-sm text-muted-foreground">{error}</div>
+        <div className="flex max-w-md flex-col items-center gap-3">
+          <FileX2 className="size-8 text-muted-foreground/60" />
+          <div className="text-sm font-medium text-foreground">
+            {notFound ? "File not found" : "Couldn't open this file"}
+          </div>
+          <div className="break-all text-xs text-muted-foreground">
+            {fileName}
+          </div>
+          {!notFound ? (
+            <div className="break-all text-xs text-muted-foreground/80">
+              {error}
+            </div>
+          ) : null}
+          {onClose ? (
+            <Button size="sm" variant="secondary" onClick={handleClose}>
+              Close tab
+            </Button>
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -130,7 +168,6 @@ export function FilePreviewPane({ filePath }: FilePreviewPaneProps) {
     </div>
   );
 }
-
 interface EditorSurfaceProps {
   preview: FilePreviewPayload;
   workspaceId: string | null;
@@ -274,4 +311,3 @@ function TextEditor({ preview, workspaceId, onUpdated }: EditorSurfaceProps) {
     </div>
   );
 }
-

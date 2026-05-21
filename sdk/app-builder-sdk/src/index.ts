@@ -15,6 +15,17 @@ export type { SqliteStateBackendOpts } from "./runtime/state-backend-sqlite.ts"
 export { startMcpServer } from "./runtime/mcp-server.ts"
 export type { StartMcpServerOpts, StartedMcpServer } from "./runtime/mcp-server.ts"
 
+// Integration readiness — ask the runtime "is this provider ready for this
+// app?" instead of pinging the upstream API host. Required for any UI that
+// surfaces a "connected / needs connection" badge.
+export { getIntegrationStatus } from "./runtime/integration-status.ts"
+export type {
+  IntegrationStatusCode,
+  IntegrationStatusIssue,
+  IntegrationStatusResult,
+  GetIntegrationStatusOpts,
+} from "./runtime/integration-status.ts"
+
 // Bridge transports (pick the one that matches your deployment)
 export { createBearerTokenTransport } from "./bridge-transports/bearer.ts"
 export type { BearerTokenOpts } from "./bridge-transports/bearer.ts"

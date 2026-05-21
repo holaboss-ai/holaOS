@@ -38,6 +38,24 @@ test("workspace desktop error normalization unwraps Electron IPC errors before m
   assert.match(source, /return unwrappedMessage;/);
 });
 
+test("workspace desktop maps X provider ids to the Composio Twitter toolkit", async () => {
+  const source = await readFile(WORKSPACE_DESKTOP_PATH, "utf8");
+
+  assert.match(source, /x:\s*"twitter"/);
+  assert.match(
+    source,
+    /export function composioToolkitSlugForProvider\(providerId: string\): string \{/,
+  );
+  assert.match(
+    source,
+    /composioToolkitMatchesProvider\(c\.toolkitSlug, provider\)/,
+  );
+  assert.match(
+    source,
+    /window\.electronAPI\.workspace\.composioConnect\(\{\s*provider: toolkitSlug,/,
+  );
+});
+
 test("workspace desktop hydrates workspace summaries from cached or live sources while bootstrap runs", async () => {
   const source = await readFile(WORKSPACE_DESKTOP_PATH, "utf8");
 
@@ -134,4 +152,27 @@ test("workspace creation can copy an existing workspace browser profile or impor
   assert.match(source, /profileDir:\s*browserImportSource === "safari"\s*\?\s*undefined\s*:\s*\(browserImportProfileDir\.trim\(\) \|\| undefined\),/);
   assert.match(source, /setWorkspaceCreatePhase\("copying_browser_profile"\);/);
   assert.match(source, /setWorkspaceCreatePhase\("importing_browser_profile"\);/);
+});
+
+test("workspace creation forwards the persisted onboarding engine for start mode", async () => {
+  const source = await readFile(WORKSPACE_DESKTOP_PATH, "utf8");
+
+  assert.match(
+    source,
+    /const requestedOnboardingEngine =[\s\S]*requestedOnboardingMode === "start"[\s\S]*loadWorkspaceOnboardingPreference\(\)/,
+  );
+  assert.match(
+    source,
+    /workspace_onboarding_engine: requestedOnboardingEngine/,
+  );
+});
+
+test("workspace desktop exposes a shared skip onboarding action", async () => {
+  const source = await readFile(WORKSPACE_DESKTOP_PATH, "utf8");
+
+  assert.match(source, /skipWorkspaceOnboarding: \(\) => Promise<void>;/);
+  assert.match(
+    source,
+    /async function skipWorkspaceOnboarding\(\) \{[\s\S]*window\.electronAPI\.workspace\.skipWorkspaceOnboarding\(\s*selectedWorkspaceId,\s*\)[\s\S]*await loadWorkspaceData\(\{ preserveSelection: true, allowEmpty: true \}\);[\s\S]*\}/,
+  );
 });

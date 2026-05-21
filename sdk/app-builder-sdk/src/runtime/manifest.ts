@@ -57,7 +57,7 @@ export function buildAppRuntimeManifest(app: AppHandleInternal, opts: ManifestOp
   lines.push(`healthchecks:`)
   lines.push(`  mcp:`)
   lines.push(`    path: /mcp/health`)
-  lines.push(`    timeout_s: 30`)
+  lines.push(`    timeout_s: 120`)
   lines.push(``)
   lines.push(`mcp:`)
   lines.push(`  enabled: true`)

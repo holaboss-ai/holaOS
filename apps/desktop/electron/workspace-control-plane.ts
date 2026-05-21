@@ -14,6 +14,7 @@ export interface WorkspaceControlPlane<
   WorkspaceResponse,
   WorkspaceLifecycleResponse,
   CreateWorkspacePayload,
+  WorkspaceLabResponse,
   WorkspaceOpenSessionResponse extends {
     lifecycle: WorkspaceLifecycleResponse
   },
@@ -21,6 +22,10 @@ export interface WorkspaceControlPlane<
   listWorkspaces(): Promise<WorkspaceListResponse>
   listWorkspacesCached(): Promise<WorkspaceListResponse>
   createWorkspace(payload: CreateWorkspacePayload): Promise<WorkspaceResponse>
+  createWorkspaceLab(
+    workspaceId: string,
+    purpose: "workspace_onboarding" | "meeting_mode",
+  ): Promise<WorkspaceLabResponse>
   deleteWorkspace(
     workspaceId: string,
     keepFiles?: boolean,
@@ -44,6 +49,7 @@ export interface LocalWorkspaceControlPlaneDependencies<
   WorkspaceResponse,
   WorkspaceLifecycleResponse,
   CreateWorkspacePayload,
+  WorkspaceLabResponse,
   WorkspaceOpenSessionResponse extends {
     lifecycle: WorkspaceLifecycleResponse
   },
@@ -53,6 +59,10 @@ export interface LocalWorkspaceControlPlaneDependencies<
   createWorkspace: (
     payload: CreateWorkspacePayload,
   ) => Promise<WorkspaceResponse>
+  createWorkspaceLab: (
+    workspaceId: string,
+    purpose: "workspace_onboarding" | "meeting_mode",
+  ) => Promise<WorkspaceLabResponse>
   deleteWorkspace: (
     workspaceId: string,
     keepFiles?: boolean,
@@ -69,6 +79,7 @@ export class LocalWorkspaceControlPlane<
   WorkspaceResponse,
   WorkspaceLifecycleResponse,
   CreateWorkspacePayload,
+  WorkspaceLabResponse,
   WorkspaceOpenSessionResponse extends {
     lifecycle: WorkspaceLifecycleResponse
   },
@@ -78,6 +89,7 @@ export class LocalWorkspaceControlPlane<
       WorkspaceResponse,
       WorkspaceLifecycleResponse,
       CreateWorkspacePayload,
+      WorkspaceLabResponse,
       WorkspaceOpenSessionResponse
     >
 {
@@ -86,6 +98,7 @@ export class LocalWorkspaceControlPlane<
     WorkspaceResponse,
     WorkspaceLifecycleResponse,
     CreateWorkspacePayload,
+    WorkspaceLabResponse,
     WorkspaceOpenSessionResponse
   >
 
@@ -95,6 +108,7 @@ export class LocalWorkspaceControlPlane<
       WorkspaceResponse,
       WorkspaceLifecycleResponse,
       CreateWorkspacePayload,
+      WorkspaceLabResponse,
       WorkspaceOpenSessionResponse
     >,
   ) {
@@ -113,6 +127,13 @@ export class LocalWorkspaceControlPlane<
     payload: CreateWorkspacePayload,
   ): Promise<WorkspaceResponse> {
     return this.#deps.createWorkspace(payload)
+  }
+
+  async createWorkspaceLab(
+    workspaceId: string,
+    purpose: "workspace_onboarding" | "meeting_mode",
+  ): Promise<WorkspaceLabResponse> {
+    return this.#deps.createWorkspaceLab(workspaceId, purpose)
   }
 
   async deleteWorkspace(
@@ -150,6 +171,7 @@ export function createLocalWorkspaceControlPlane<
   WorkspaceResponse,
   WorkspaceLifecycleResponse,
   CreateWorkspacePayload,
+  WorkspaceLabResponse,
   WorkspaceOpenSessionResponse extends {
     lifecycle: WorkspaceLifecycleResponse
   },
@@ -159,6 +181,7 @@ export function createLocalWorkspaceControlPlane<
     WorkspaceResponse,
     WorkspaceLifecycleResponse,
     CreateWorkspacePayload,
+    WorkspaceLabResponse,
     WorkspaceOpenSessionResponse
   >,
 ): LocalWorkspaceControlPlane<
@@ -166,6 +189,7 @@ export function createLocalWorkspaceControlPlane<
   WorkspaceResponse,
   WorkspaceLifecycleResponse,
   CreateWorkspacePayload,
+  WorkspaceLabResponse,
   WorkspaceOpenSessionResponse
 > {
   return new LocalWorkspaceControlPlane(deps)
