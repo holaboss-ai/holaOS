@@ -209,3 +209,4 @@ npm run desktop:prepare-runtime:local
 npm run desktop:typecheck
 npm run desktop:dev
 ```
+Hoy es 21/05/2026 y estamos en clase de Entornos de Desarrollo

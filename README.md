@@ -207,3 +207,4 @@ If you want to contribute, start with [Start Developing](https://www.holaos.ai/d
 
 - License: modified Apache 2.0 with additional commercial-distribution and branding conditions. See [LICENSE](LICENSE).
 - Security issues: report privately to `admin@holaboss.ai`. See [SECURITY.md](SECURITY.md).
+Me llamo Guillermo Sevillano Molina
