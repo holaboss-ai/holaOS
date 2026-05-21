@@ -477,6 +477,102 @@ test("projectAgentRuntimeConfig includes current user context as a context messa
   }
 });
 
+test("projectAgentRuntimeConfig includes session attachment timeline as a context message", () => {
+  process.env.HOLABOSS_MODEL_PROXY_BASE_URL =
+    "https://runtime.example/api/v1/model-proxy";
+  process.env.HOLABOSS_USER_ID = "user-1";
+  try {
+    const result = projectAgentRuntimeConfig({
+      session_id: "session-1",
+      workspace_id: "workspace-1",
+      input_id: "input-2",
+      session_kind: "main_session",
+      harness_id: "pi",
+      browser_tools_available: false,
+      browser_tool_ids: [],
+      runtime_tool_ids: [],
+      workspace_command_ids: [],
+      runtime_exec_model_proxy_api_key: "hbrt.v1.token",
+      runtime_exec_sandbox_id: "sandbox-1",
+      runtime_exec_run_id: "run-1",
+      session_attachment_context: {
+        turns: [
+          {
+            message_id: "user-input-1",
+            created_at: "2026-01-01T00:00:00.000Z",
+            text: "analyze this report",
+            attachments: [
+              {
+                id: "attachment-1",
+                kind: "file",
+                name: "report.html",
+                mime_type: "text/html",
+                size_bytes: 128,
+                workspace_path: ".holaboss/input-attachments/batch-1/report.html",
+              },
+            ],
+          },
+          {
+            message_id: "user-input-1b",
+            created_at: "2026-01-01T00:10:00.000Z",
+            text: "check the same file again",
+            attachments: [
+              {
+                id: "attachment-1b",
+                kind: "file",
+                name: "report.html",
+                mime_type: "text/html",
+                size_bytes: 128,
+                workspace_path: ".holaboss/input-attachments/batch-2/report.html",
+              },
+            ],
+          },
+        ],
+      },
+      selected_model: null,
+      default_provider_id: "openai",
+      session_mode: "code",
+      workspace_config_checksum: "checksum-1",
+      workspace_skill_ids: [],
+      default_tools: ["read"],
+      extra_tools: [],
+      resolved_mcp_tool_refs: [],
+      resolved_output_schemas: {},
+      agent: {
+        id: "workspace.general",
+        model: "gpt-5.2",
+        prompt: "You are concise.",
+      },
+    });
+
+    assert.ok(
+      result.prompt_sections?.some(
+        (section) => section.id === "session_attachment_context",
+      ),
+    );
+    assert.equal(
+      result.prompt_sections?.find(
+        (section) => section.id === "session_attachment_context",
+      )?.channel,
+      "context_message",
+    );
+    assert.match(
+      result.context_messages?.join("\n\n") ?? "",
+      /Session attachment timeline:/,
+    );
+    assert.match(
+      result.context_messages?.join("\n\n") ?? "",
+      /report\.html \[file, text\/html\] at `\.holaboss\/input-attachments\/batch-1\/report\.html`/,
+    );
+    assert.match(
+      result.context_messages?.join("\n\n") ?? "",
+      /report\.html \[file, text\/html\] at `\.holaboss\/input-attachments\/batch-2\/report\.html`/,
+    );
+  } finally {
+    delete process.env.HOLABOSS_MODEL_PROXY_BASE_URL;
+  }
+});
+
 test("projectAgentRuntimeConfig preserves direct MCP access for workspace sessions", () => {
   process.env.HOLABOSS_MODEL_PROXY_BASE_URL =
     "https://runtime.example/api/v1/model-proxy";

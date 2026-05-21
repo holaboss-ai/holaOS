@@ -4357,14 +4357,15 @@ export class RuntimeStateStore {
     sessionId: string;
     role: string;
     text: string;
+    metadata?: Record<string, unknown> | null;
     messageId?: string;
     createdAt?: string;
   }): void {
     this.workspaceRuntimeDb(params.workspaceId)
       .prepare(`
         INSERT OR REPLACE INTO session_messages (
-            id, workspace_id, session_id, role, text, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
+            id, workspace_id, session_id, role, text, metadata, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         params.messageId ?? randomUUID(),
@@ -4372,6 +4373,7 @@ export class RuntimeStateStore {
         params.sessionId,
         params.role,
         params.text,
+        JSON.stringify(params.metadata ?? {}),
         params.createdAt ?? utcNowIso()
       );
   }
@@ -4404,7 +4406,7 @@ export class RuntimeStateStore {
     order?: "asc" | "desc";
   }): SessionMessageRecord[] {
     let query = `
-      SELECT id, role, text, created_at
+      SELECT id, role, text, metadata, created_at
       FROM session_messages
       WHERE workspace_id = ? AND session_id = ?
     `;
@@ -4420,14 +4422,14 @@ export class RuntimeStateStore {
       values.push(params.limit ?? -1, params.offset ?? 0);
     }
     const rows = this.workspaceRuntimeDb(params.workspaceId)
-      .prepare<typeof values, { id: string; role: string; text: string; created_at: string }>(query)
+      .prepare<typeof values, { id: string; role: string; text: string; metadata: string; created_at: string }>(query)
       .all(...values);
     return rows.map((row) => ({
       id: row.id,
       role: row.role,
       text: row.text,
       createdAt: row.created_at,
-      metadata: {}
+      metadata: this.parseJsonDict(row.metadata)
     }));
   }
 
@@ -8083,6 +8085,7 @@ export class RuntimeStateStore {
           session_id TEXT NOT NULL,
           role TEXT NOT NULL,
           text TEXT NOT NULL,
+          metadata TEXT NOT NULL DEFAULT '{}',
           created_at TEXT NOT NULL
       );
 
@@ -8475,6 +8478,24 @@ export class RuntimeStateStore {
       CREATE INDEX IF NOT EXISTS idx_workspaces_updated
           ON workspaces (updated_at DESC, created_at DESC);
     `);
+    this.ensureSessionMessagesTableSchema(db);
+  }
+
+  private ensureSessionMessagesTableSchema(db: Database.Database): void {
+    const tableNames = new Set<string>(
+      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
+        (row) => row.name
+      )
+    );
+    if (!tableNames.has("session_messages")) {
+      return;
+    }
+    const columns = new Set<string>(
+      (db.prepare("PRAGMA table_info(session_messages)").all() as Array<{ name: string }>).map((row) => row.name)
+    );
+    if (!columns.has("metadata")) {
+      db.exec("ALTER TABLE session_messages ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}';");
+    }
   }
 
   private ensureConversationBindingsTableSchema(db: Database.Database): void {

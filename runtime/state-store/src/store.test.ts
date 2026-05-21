@@ -2422,7 +2422,7 @@ test("state store lists expired claimed inputs", () => {
   store.close();
 });
 
-test("session messages preserve ascending order and include metadata placeholder", () => {
+test("session messages preserve ascending order and round trip metadata", () => {
   const root = makeTempDir("hb-state-store-");
   const store = new RuntimeStateStore({
     dbPath: path.join(root, "runtime.db"),
@@ -2434,6 +2434,18 @@ test("session messages preserve ascending order and include metadata placeholder
     sessionId: "session-main",
     role: "user",
     text: "hello",
+    metadata: {
+      attachments: [
+        {
+          id: "attachment-1",
+          kind: "file",
+          name: "report.html",
+          mime_type: "text/html",
+          size_bytes: 123,
+          workspace_path: ".holaboss/input-attachments/report.html",
+        },
+      ],
+    },
     messageId: "m-1",
     createdAt: "2026-01-01T00:00:00+00:00"
   });
@@ -2442,6 +2454,7 @@ test("session messages preserve ascending order and include metadata placeholder
     sessionId: "session-main",
     role: "assistant",
     text: "hi",
+    metadata: { source: "test" },
     messageId: "m-2",
     createdAt: "2026-01-01T00:00:01+00:00"
   });
@@ -2452,14 +2465,25 @@ test("session messages preserve ascending order and include metadata placeholder
       role: "user",
       text: "hello",
       createdAt: "2026-01-01T00:00:00+00:00",
-      metadata: {}
+      metadata: {
+        attachments: [
+          {
+            id: "attachment-1",
+            kind: "file",
+            name: "report.html",
+            mime_type: "text/html",
+            size_bytes: 123,
+            workspace_path: ".holaboss/input-attachments/report.html",
+          },
+        ],
+      }
     },
     {
       id: "m-2",
       role: "assistant",
       text: "hi",
       createdAt: "2026-01-01T00:00:01+00:00",
-      metadata: {}
+      metadata: { source: "test" }
     }
   ]);
   assert.equal(
@@ -2483,7 +2507,18 @@ test("session messages preserve ascending order and include metadata placeholder
         role: "user",
         text: "hello",
         createdAt: "2026-01-01T00:00:00+00:00",
-        metadata: {}
+        metadata: {
+          attachments: [
+            {
+              id: "attachment-1",
+              kind: "file",
+              name: "report.html",
+              mime_type: "text/html",
+              size_bytes: 123,
+              workspace_path: ".holaboss/input-attachments/report.html",
+            },
+          ],
+        }
       }
     ]
   );
@@ -2501,7 +2536,18 @@ test("session messages preserve ascending order and include metadata placeholder
         role: "user",
         text: "hello",
         createdAt: "2026-01-01T00:00:00+00:00",
-        metadata: {}
+        metadata: {
+          attachments: [
+            {
+              id: "attachment-1",
+              kind: "file",
+              name: "report.html",
+              mime_type: "text/html",
+              size_bytes: 123,
+              workspace_path: ".holaboss/input-attachments/report.html",
+            },
+          ],
+        }
       }
     ],
   );

@@ -1134,6 +1134,7 @@ test("runTsRunnerCli only advertises structured output when the selected harness
     "load_pending_user_memory_context",
     "load_recalled_memory_context",
     "load_recent_runtime_context",
+    "load_session_attachment_context",
     "persist_turn_request_snapshot",
     "prepare_harness_run",
     "project_runtime_config",
@@ -1934,6 +1935,171 @@ test("runTsRunnerCli does not project session memory into runtime prompt config"
       .session_resume_context,
     undefined,
   );
+});
+
+test("runTsRunnerCli projects prior attachment turns into session attachment context without collapsing duplicates", async () => {
+  const sandboxRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "hb-ts-runner-session-attachments-"),
+  );
+  process.env.HB_SANDBOX_ROOT = sandboxRoot;
+  const workspaceRoot = path.join(sandboxRoot, "workspace");
+  const store = new RuntimeStateStore({
+    workspaceRoot,
+    sandboxRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.insertSessionMessage({
+    workspaceId: "workspace-1",
+    sessionId: "session-1",
+    role: "user",
+    text: "Analyze this report.",
+    metadata: {
+      attachments: [
+        {
+          id: "attachment-1",
+          kind: "file",
+          name: "report.html",
+          mime_type: "text/html",
+          size_bytes: 128,
+          workspace_path: ".holaboss/input-attachments/batch-1/report.html",
+        },
+      ],
+    },
+    messageId: "user-input-0",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  });
+  store.insertSessionMessage({
+    workspaceId: "workspace-1",
+    sessionId: "session-1",
+    role: "user",
+    text: "Check the same report again.",
+    metadata: {
+      attachments: [
+        {
+          id: "attachment-2",
+          kind: "file",
+          name: "report.html",
+          mime_type: "text/html",
+          size_bytes: 128,
+          workspace_path: ".holaboss/input-attachments/batch-2/report.html",
+        },
+      ],
+    },
+    messageId: "user-input-0b",
+    createdAt: "2026-01-01T00:05:00.000Z",
+  });
+  store.insertSessionMessage({
+    workspaceId: "workspace-1",
+    sessionId: "session-1",
+    role: "user",
+    text: "Current turn attachments should stay out of the prior timeline.",
+    metadata: {
+      attachments: [
+        {
+          id: "attachment-current",
+          kind: "file",
+          name: "current.html",
+          mime_type: "text/html",
+          size_bytes: 64,
+          workspace_path: ".holaboss/input-attachments/current.html",
+        },
+      ],
+    },
+    messageId: "user-input-1",
+    createdAt: "2026-01-01T00:10:00.000Z",
+  });
+  store.close();
+
+  let capturedProjectRequest: AgentRuntimeConfigCliRequest | null = null;
+  const exitCode = await runTsRunnerCli(
+    ["--request-base64", encodeRequest(baseRequest())],
+    {
+      deps: {
+        ...testDeps(),
+        projectAgentRuntimeConfig: (request) => {
+          capturedProjectRequest = request;
+          return {
+            provider_id: "openai",
+            model_id: "gpt-5.4",
+            mode: "code",
+            system_prompt: "You are concise.",
+            model_client: {
+              model_proxy_provider: "openai_compatible",
+              api_key: "token",
+              base_url: "http://127.0.0.1:4000/openai/v1",
+              default_headers: { "X-Test": "1" },
+            },
+            tools: { read: true },
+            workspace_tool_ids: [],
+            workspace_skill_ids: [],
+            output_schema_member_id: null,
+            output_format: null,
+            workspace_config_checksum: "checksum-1",
+          };
+        },
+      },
+      io: {
+        stdout: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+        stderr: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+      },
+    },
+  );
+
+  assert.equal(exitCode, 0);
+  assert.ok(capturedProjectRequest);
+  if (!capturedProjectRequest) {
+    throw new Error("expected project runtime config request");
+  }
+  const runtimeConfigRequest =
+    capturedProjectRequest as AgentRuntimeConfigCliRequest;
+  assert.deepEqual(runtimeConfigRequest.session_attachment_context, {
+    turns: [
+      {
+        message_id: "user-input-0",
+        created_at: "2026-01-01T00:00:00.000Z",
+        text: "Analyze this report.",
+        attachments: [
+          {
+            id: "attachment-1",
+            kind: "file",
+            name: "report.html",
+            mime_type: "text/html",
+            size_bytes: 128,
+            workspace_path: ".holaboss/input-attachments/batch-1/report.html",
+          },
+        ],
+      },
+      {
+        message_id: "user-input-0b",
+        created_at: "2026-01-01T00:05:00.000Z",
+        text: "Check the same report again.",
+        attachments: [
+          {
+            id: "attachment-2",
+            kind: "file",
+            name: "report.html",
+            mime_type: "text/html",
+            size_bytes: 128,
+            workspace_path: ".holaboss/input-attachments/batch-2/report.html",
+          },
+        ],
+      },
+    ],
+    truncated: false,
+  });
 });
 
 test("runTsRunnerCli injects report-routing recovery context for report-style main-session requests", async () => {

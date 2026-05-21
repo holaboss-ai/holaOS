@@ -86,6 +86,23 @@ export interface AgentRecentRuntimeContext {
   lines?: string[] | null;
 }
 
+export interface AgentSessionAttachmentContext {
+  turns?: Array<{
+    message_id: string;
+    created_at?: string | null;
+    text?: string | null;
+    attachments?: Array<{
+      id: string;
+      kind: "image" | "file" | "folder";
+      name: string;
+      mime_type: string;
+      size_bytes: number;
+      workspace_path: string;
+    }> | null;
+  }> | null;
+  truncated?: boolean | null;
+}
+
 export interface AgentScratchpadContext {
   exists: boolean;
   file_path: string;
@@ -120,6 +137,7 @@ export interface ComposeBaseAgentPromptRequest {
   operatorSurfaceContext?: AgentOperatorSurfaceContext | null;
   pendingUserMemoryContext?: AgentPendingUserMemoryContext | null;
   recentRuntimeContext?: AgentRecentRuntimeContext | null;
+  sessionAttachmentContext?: AgentSessionAttachmentContext | null;
   scratchpadContext?: AgentScratchpadContext | null;
   evolveCandidateContext?: AgentEvolveCandidateContext | null;
   capabilityManifest?: AgentCapabilityManifest | null;
@@ -442,6 +460,57 @@ function recentRuntimeContextPromptSection(
   ]);
 }
 
+function sessionAttachmentContextPromptSection(
+  context: AgentSessionAttachmentContext | null | undefined,
+): string {
+  const turns = Array.isArray(context?.turns)
+    ? context.turns.filter(
+        (
+          turn,
+        ): turn is NonNullable<AgentSessionAttachmentContext["turns"]>[number] =>
+          Boolean(turn) &&
+          Array.isArray(turn.attachments) &&
+          turn.attachments.length > 0,
+      )
+    : [];
+  if (turns.length === 0) {
+    return "";
+  }
+
+  const lines = [
+    "Session attachment timeline:",
+    "These files were introduced on earlier user turns in this same session and remain part of the session context.",
+    "Do not ask the user to reattach them for ordinary follow-up work in this session.",
+    "Use the staged workspace paths below when you need to reopen the exact source files.",
+  ];
+
+  for (const turn of turns) {
+    const createdAt = nonEmptyText(turn.created_at);
+    const text = nonEmptyText(turn.text);
+    const attachments = Array.isArray(turn.attachments) ? turn.attachments : [];
+    const turnSummary = createdAt
+      ? `Earlier user turn at ${createdAt}.`
+      : "Earlier user turn.";
+    lines.push(turnSummary);
+    if (text) {
+      lines.push(`Turn text: ${text}`);
+    }
+    for (const attachment of attachments) {
+      lines.push(
+        `- ${attachment.name} [${attachment.kind}, ${attachment.mime_type}] at \`${attachment.workspace_path}\``,
+      );
+    }
+  }
+
+  if (context?.truncated) {
+    lines.push(
+      "Older attachment turns were omitted from this prompt block for size, but remain in the session history.",
+    );
+  }
+
+  return linesSection(lines);
+}
+
 function scratchpadContextPromptSection(
   context: AgentScratchpadContext | null | undefined,
   scratchpadAvailable: boolean,
@@ -762,6 +831,16 @@ function pushSharedRuntimeContextPromptSections(
     priority: 575,
     volatility: "run",
     content: recalledMemoryPromptSection(request.recalledMemoryContext)
+  });
+
+  pushPromptLayer(promptSections, {
+    id: "session_attachment_context",
+    channel: "context_message",
+    apply_at: "runtime_config",
+    precedence: "runtime_context",
+    priority: 580,
+    volatility: "run",
+    content: sessionAttachmentContextPromptSection(request.sessionAttachmentContext)
   });
 
   if (options.includeRecentRuntimeContext) {

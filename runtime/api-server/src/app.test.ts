@@ -8371,6 +8371,78 @@ test("queue route accepts staged file and folder attachments and history hydrate
   store.close();
 });
 
+test("session history prefers attachment metadata stored on the session message", async () => {
+  const root = makeTempDir("hb-runtime-api-session-message-attachments-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertBinding({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    harness: "pi",
+    harnessSessionId: "session-main"
+  });
+  store.insertSessionMessage({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    role: "user",
+    text: "use the earlier report",
+    metadata: {
+      attachments: [
+        {
+          id: "attachment-1",
+          kind: "file",
+          name: "report.html",
+          mime_type: "text/html",
+          size_bytes: 128,
+          workspace_path: ".holaboss/input-attachments/batch-1/report.html"
+        }
+      ]
+    },
+    messageId: "user-input-1",
+    createdAt: "2026-01-01T00:00:00.000Z"
+  });
+
+  const historyResponse = await app.inject({
+    method: "GET",
+    url: `/api/v1/agent-sessions/session-main/history?workspace_id=${workspace.id}`
+  });
+
+  assert.equal(historyResponse.statusCode, 200);
+  assert.deepEqual(historyResponse.json().messages, [
+    {
+      id: "user-input-1",
+      role: "user",
+      text: "use the earlier report",
+      created_at: "2026-01-01T00:00:00.000Z",
+      metadata: {
+        attachments: [
+          {
+            id: "attachment-1",
+            kind: "file",
+            name: "report.html",
+            mime_type: "text/html",
+            size_bytes: 128,
+            workspace_path: ".holaboss/input-attachments/batch-1/report.html"
+          }
+        ]
+      }
+    }
+  ]);
+
+  await app.close();
+  store.close();
+});
+
 test("GET /api/v1/apps/catalog returns entries filtered by source", async () => {
   const root = makeTempDir("hb-runtime-api-");
   const workspaceRoot = path.join(root, "workspace");

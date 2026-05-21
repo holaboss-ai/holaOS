@@ -824,6 +824,27 @@ function attachmentsFromInputPayload(value: unknown): SessionInputAttachmentPayl
   return value.map((item) => parseSessionInputAttachment(item)).filter((item): item is SessionInputAttachmentPayload => Boolean(item));
 }
 
+function sessionMessageAttachments(
+  store: RuntimeStateStore,
+  workspaceId: string,
+  message: SessionMessageRecord,
+): SessionInputAttachmentPayload[] {
+  const metadataAttachments = attachmentsFromInputPayload(message.metadata.attachments);
+  if (metadataAttachments.length > 0) {
+    return metadataAttachments;
+  }
+  const inputId = message.role === "user" && message.id.startsWith("user-") ? message.id.slice(5) : "";
+  if (!inputId) {
+    return [];
+  }
+  return attachmentsFromInputPayload(
+    store.getInput({
+      workspaceId,
+      inputId,
+    })?.payload.attachments
+  );
+}
+
 function workspaceRecordPayload(
   workspace: WorkspaceRecord,
   workspacePath?: string | null,
@@ -1507,21 +1528,17 @@ function exportLegacySessionHistory(params: {
       offset: 0,
     })
     .map((message) => {
-      const inputId = message.role === "user" && message.id.startsWith("user-") ? message.id.slice(5) : "";
-      const attachments = inputId
-        ? attachmentsFromInputPayload(
-            params.store.getInput({
-              workspaceId: params.workspace.id,
-              inputId,
-            })?.payload.attachments
-          )
-        : [];
+      const attachments = sessionMessageAttachments(
+        params.store,
+        params.workspace.id,
+        message,
+      );
       return {
         id: message.id,
         role: message.role,
         text: message.text,
         created_at: message.createdAt,
-        metadata: attachments.length > 0 ? { attachments } : {},
+        metadata: attachments.length > 0 ? { ...message.metadata, attachments } : message.metadata,
       };
     });
   const outputs = params.store
@@ -8072,15 +8089,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         order
       })
       .map((message: SessionMessageRecord) => {
-        const inputId = message.role === "user" && message.id.startsWith("user-") ? message.id.slice(5) : "";
-        const inputAttachments = inputId
-          ? attachmentsFromInputPayload(
-              store.getInput({
-                workspaceId,
-                inputId,
-              })?.payload.attachments
-            )
-          : [];
+        const inputAttachments = sessionMessageAttachments(store, workspaceId, message);
         const metadata = inputAttachments.length > 0 ? { ...message.metadata, attachments: inputAttachments } : message.metadata;
         return sessionMessagePayload(message, metadata);
       });

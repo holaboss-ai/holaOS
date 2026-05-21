@@ -39,6 +39,7 @@ import type {
   AgentPendingUserMemoryContext,
   AgentRecentRuntimeContext,
   AgentRecalledMemoryContext,
+  AgentSessionAttachmentContext,
   AgentScratchpadContext,
 } from "./agent-runtime-prompt.js";
 import {
@@ -881,6 +882,186 @@ function loadRecentRuntimeContext(params: {
   return { lines };
 }
 
+const SESSION_ATTACHMENT_CONTEXT_TURN_LIMIT = 12;
+const SESSION_ATTACHMENT_CONTEXT_ATTACHMENT_LIMIT = 24;
+const SESSION_ATTACHMENT_TEXT_PREVIEW_MAX_LENGTH = 240;
+type SessionAttachmentContextTurn = NonNullable<
+  AgentSessionAttachmentContext["turns"]
+>[number];
+type SessionAttachmentContextAttachment = NonNullable<
+  SessionAttachmentContextTurn["attachments"]
+>[number];
+
+function parseAttachmentContextAttachment(
+  value: unknown,
+): SessionAttachmentContextAttachment | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id.trim() : "";
+  const name = typeof record.name === "string" ? record.name.trim() : "";
+  const mimeType =
+    typeof record.mime_type === "string" ? record.mime_type.trim() : "";
+  const workspacePath =
+    typeof record.workspace_path === "string"
+      ? record.workspace_path.trim()
+      : "";
+  const sizeBytes =
+    typeof record.size_bytes === "number" && Number.isFinite(record.size_bytes)
+      ? Math.max(0, Math.trunc(record.size_bytes))
+      : 0;
+  const kind =
+    record.kind === "image"
+      ? "image"
+      : record.kind === "folder"
+        ? "folder"
+        : record.kind === "file"
+          ? "file"
+          : mimeType.startsWith("image/")
+            ? "image"
+            : mimeType === "inode/directory"
+              ? "folder"
+              : "file";
+  if (!id || !name || !mimeType || !workspacePath) {
+    return null;
+  }
+  return {
+    id,
+    kind,
+    name,
+    mime_type: mimeType,
+    size_bytes: sizeBytes,
+    workspace_path: workspacePath,
+  };
+}
+
+function sessionAttachmentContextAttachments(
+  params: {
+    store: RuntimeStateStore;
+    workspaceId: string;
+    messageId: string;
+    metadata: Record<string, unknown>;
+  },
+): SessionAttachmentContextAttachment[] {
+  const metadataAttachments = Array.isArray(params.metadata.attachments)
+    ? params.metadata.attachments
+        .map((item) => parseAttachmentContextAttachment(item))
+        .filter((item): item is SessionAttachmentContextAttachment => Boolean(item))
+    : [];
+  if (metadataAttachments.length > 0) {
+    return metadataAttachments;
+  }
+  if (!params.messageId.startsWith("user-")) {
+    return [];
+  }
+  const inputId = params.messageId.slice(5);
+  if (!inputId) {
+    return [];
+  }
+  const payloadAttachments = params.store.getInput({
+    workspaceId: params.workspaceId,
+    inputId,
+  })?.payload.attachments;
+  if (!Array.isArray(payloadAttachments)) {
+    return [];
+  }
+  return payloadAttachments
+    .map((item) => parseAttachmentContextAttachment(item))
+    .filter((item): item is SessionAttachmentContextAttachment => Boolean(item));
+}
+
+function previewSessionAttachmentTurnText(text: string): string {
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  if (collapsed.length <= SESSION_ATTACHMENT_TEXT_PREVIEW_MAX_LENGTH) {
+    return collapsed;
+  }
+  return `${collapsed.slice(0, SESSION_ATTACHMENT_TEXT_PREVIEW_MAX_LENGTH - 1).trimEnd()}…`;
+}
+
+function loadSessionAttachmentContext(params: {
+  workspaceRoot: string;
+  workspaceId: string;
+  sessionId: string;
+  currentInputId: string;
+  logger?: LoggerLike;
+}): AgentSessionAttachmentContext | null {
+  const sandboxRoot = path.dirname(params.workspaceRoot);
+  const dbPath = defaultHostStateDbPathForSandbox(sandboxRoot);
+  if (!fs.existsSync(dbPath)) {
+    return null;
+  }
+
+  const store = new RuntimeStateStore({
+    workspaceRoot: params.workspaceRoot,
+    sandboxRoot,
+    dbPath,
+  });
+  try {
+    const messages = store.listSessionMessages({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+      role: "user",
+      order: "desc",
+      limit: 100,
+      offset: 0,
+    });
+    const excludeMessageId = `user-${params.currentInputId}`;
+    const eligibleTurns = messages
+      .filter((message) => message.id !== excludeMessageId)
+      .map((message) => ({
+        message_id: message.id,
+        created_at: message.createdAt,
+        text: previewSessionAttachmentTurnText(message.text),
+        attachments: sessionAttachmentContextAttachments({
+          store,
+          workspaceId: params.workspaceId,
+          messageId: message.id,
+          metadata: message.metadata,
+        }),
+      }))
+      .filter((turn) => turn.attachments.length > 0);
+    const turns: NonNullable<AgentSessionAttachmentContext["turns"]> = [];
+    let attachmentCount = 0;
+    for (const turn of eligibleTurns) {
+      const remainingAttachmentSlots =
+        SESSION_ATTACHMENT_CONTEXT_ATTACHMENT_LIMIT - attachmentCount;
+      if (
+        remainingAttachmentSlots <= 0 ||
+        turns.length >= SESSION_ATTACHMENT_CONTEXT_TURN_LIMIT
+      ) {
+        break;
+      }
+      const slicedAttachments = turn.attachments.slice(0, remainingAttachmentSlots);
+      turns.push({
+        ...turn,
+        attachments: slicedAttachments,
+      });
+      attachmentCount += slicedAttachments.length;
+    }
+    if (turns.length === 0) {
+      return null;
+    }
+    const totalEligibleAttachments = eligibleTurns.reduce(
+      (sum, turn) => sum + turn.attachments.length,
+      0,
+    );
+    return {
+      turns: turns.reverse(),
+      truncated:
+        eligibleTurns.length > turns.length ||
+        totalEligibleAttachments > attachmentCount,
+    };
+  } catch (error) {
+    params.logger?.warn?.(
+      `Failed to load session attachment context workspace_id=${params.workspaceId} session_id=${params.sessionId}: ${errorMessage(error)}`,
+    );
+    return null;
+  } finally {
+    store.close();
+  }
+}
+
 function normalizeRuntimeApiHost(value: string): string {
   const trimmed = value.trim();
   if (!trimmed || trimmed === "0.0.0.0" || trimmed === "::") {
@@ -1335,6 +1516,7 @@ function buildAgentRuntimeConfigRequest(params: {
   operatorSurfaceContext?: AgentOperatorSurfaceContext | null;
   pendingUserMemoryContext?: AgentPendingUserMemoryContext | null;
   recentRuntimeContext?: AgentRecentRuntimeContext | null;
+  sessionAttachmentContext?: AgentSessionAttachmentContext | null;
   sessionScratchpadContext?: AgentScratchpadContext | null;
   evolveCandidateContext?: AgentEvolveCandidateContext | null;
 }): AgentRuntimeConfigCliRequest {
@@ -1411,6 +1593,7 @@ function buildAgentRuntimeConfigRequest(params: {
     operator_surface_context: params.operatorSurfaceContext ?? undefined,
     pending_user_memory_context: params.pendingUserMemoryContext ?? undefined,
     recent_runtime_context: params.recentRuntimeContext ?? undefined,
+    session_attachment_context: params.sessionAttachmentContext ?? undefined,
     evolve_candidate_context: params.evolveCandidateContext ?? undefined,
     selected_model: firstNonEmptyString(params.request.model) ?? undefined,
     default_provider_id: defaultProviderId(),
@@ -2201,6 +2384,18 @@ export async function executeTsRunnerRequest(
           logger,
         }),
     );
+    const sessionAttachmentContext = measureBootstrapStage(
+      bootstrapStageTimingsMs,
+      "load_session_attachment_context",
+      () =>
+        loadSessionAttachmentContext({
+          workspaceRoot: bootstrap.workspaceRoot,
+          workspaceId: request.workspace_id,
+          sessionId: request.session_id,
+          currentInputId: request.input_id,
+          logger,
+        }),
+    );
     const runtimeConfig = measureBootstrapStage(
       bootstrapStageTimingsMs,
       "project_runtime_config",
@@ -2240,6 +2435,7 @@ export async function executeTsRunnerRequest(
             operatorSurfaceContext,
             pendingUserMemoryContext,
             recentRuntimeContext,
+            sessionAttachmentContext,
             sessionScratchpadContext,
             evolveCandidateContext: evolveCandidateContext(request),
           }),

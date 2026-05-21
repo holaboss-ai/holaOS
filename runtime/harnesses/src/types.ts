@@ -75,6 +75,7 @@ export type HarnessPromptLayerId =
   | "scratchpad_context"
   | "evolve_candidate_context"
   | "memory_recall"
+  | "session_attachment_context"
   | "workspace_policy"
   | "resume_context"
   | "harness_quirks"

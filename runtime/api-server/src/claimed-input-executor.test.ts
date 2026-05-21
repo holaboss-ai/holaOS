@@ -686,6 +686,101 @@ test("claimed input persists runner events, assistant text, and idle state on su
   store.close();
 });
 
+test("claimed input persists user attachment metadata on the session message", async () => {
+  const store = makeStore("hb-claimed-input-attachment-metadata-");
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const workspaceDir = store.workspaceDir(workspace.id);
+  const attachmentRelativePath = ".holaboss/input-attachments/batch-1/report.html";
+  const attachmentAbsolutePath = path.join(workspaceDir, attachmentRelativePath);
+  fs.mkdirSync(path.dirname(attachmentAbsolutePath), { recursive: true });
+  fs.writeFileSync(attachmentAbsolutePath, "<html><body>report</body></html>", "utf8");
+  const queued = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: {
+      text: "use this report",
+      attachments: [
+        {
+          id: "attachment-1",
+          kind: "file",
+          name: "report.html",
+          mime_type: "text/html",
+          size_bytes: 32,
+          workspace_path: attachmentRelativePath,
+        },
+      ],
+    },
+  });
+
+  const claimed = store.claimInputs({
+    limit: 1,
+    claimedBy: "sandbox-agent-ts-worker",
+    leaseSeconds: 300,
+  });
+
+  await processClaimedInput({
+    store,
+    record: claimed[0],
+    executeRunnerRequestFn: async (_payload, options = {}) => {
+      await options.onEvent?.({
+        session_id: "session-main",
+        input_id: queued.inputId,
+        sequence: 1,
+        event_type: "run_started",
+        payload: {
+          instruction_preview: "use this report",
+          prompt_section_ids: ["runtime_core"],
+          prompt_cache_profile: {
+            cacheable_section_ids: ["runtime_core"],
+            volatile_section_ids: [],
+          },
+        },
+      });
+      await options.onEvent?.({
+        session_id: "session-main",
+        input_id: queued.inputId,
+        sequence: 2,
+        event_type: "run_completed",
+        payload: { status: "ok" },
+      });
+      return {
+        events: [],
+        skippedLines: [],
+        stderr: "",
+        returnCode: 0,
+        sawTerminal: false,
+      };
+    },
+  });
+
+  const messages = store.listSessionMessages({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+  });
+
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0]?.id, `user-${queued.inputId}`);
+  assert.deepEqual(messages[0]?.metadata, {
+    attachments: [
+      {
+        id: "attachment-1",
+        kind: "file",
+        name: "report.html",
+        mime_type: "text/html",
+        size_bytes: 32,
+        workspace_path: attachmentRelativePath,
+      },
+    ],
+  });
+
+  store.close();
+});
+
 test("claimed input persists context-budget telemetry from replay clipping and checkpoint queueing", async () => {
   const store = makeStore("hb-claimed-input-context-budget-");
   const workspace = store.createWorkspace({
