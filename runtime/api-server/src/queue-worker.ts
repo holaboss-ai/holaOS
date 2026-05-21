@@ -22,6 +22,8 @@ const DEFAULT_LEASE_SECONDS = 300;
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 const DEFAULT_MAX_CONCURRENCY = 5;
 const DEFAULT_CLAIM_STALE_HEARTBEAT_MS = 20_000;
+const ACTIVE_RUN_KEEPALIVE_MIN_INTERVAL_MS = 250;
+const ACTIVE_RUN_KEEPALIVE_MAX_INTERVAL_MS = 1_000;
 const TERMINAL_EVENT_TYPES = new Set(["run_completed", "run_failed"]);
 const SESSION_CHECKPOINT_JOB_TYPE = "session_checkpoint";
 
@@ -87,6 +89,19 @@ function isoTimeMs(value: string | null | undefined): number | null {
 function isExpiredIso(value: string | null | undefined, nowMs: number): boolean {
   const valueMs = isoTimeMs(value);
   return valueMs !== null && valueMs <= nowMs;
+}
+
+function activeRunKeepaliveIntervalMs(leaseSeconds: number): number {
+  if (leaseSeconds <= 0) {
+    return ACTIVE_RUN_KEEPALIVE_MIN_INTERVAL_MS;
+  }
+  return Math.max(
+    ACTIVE_RUN_KEEPALIVE_MIN_INTERVAL_MS,
+    Math.min(
+      ACTIVE_RUN_KEEPALIVE_MAX_INTERVAL_MS,
+      Math.trunc((leaseSeconds * 1000) / 2),
+    ),
+  );
 }
 
 export function runtimeQueueWorkerClaimedBy(prefix = DEFAULT_CLAIMED_BY): string {
@@ -255,6 +270,58 @@ export class RuntimeQueueWorker implements QueueWorkerLike {
 
   #startClaimedInput(record: SessionInputRecord): void {
     const controller = new AbortController();
+    let keepalive: NodeJS.Timeout | null = null;
+    const stopKeepalive = () => {
+      if (!keepalive) {
+        return;
+      }
+      clearInterval(keepalive);
+      keepalive = null;
+    };
+    const renewActiveRunClaim = () => {
+      const currentRecord = this.#store.getInput({
+        workspaceId: record.workspaceId,
+        inputId: record.inputId,
+      });
+      if (
+        !currentRecord ||
+        currentRecord.status !== "CLAIMED" ||
+        currentRecord.claimedBy !== this.#claimedBy
+      ) {
+        return;
+      }
+      const renewedClaim = this.#store.renewInputClaim({
+        workspaceId: record.workspaceId,
+        inputId: record.inputId,
+        claimedBy: this.#claimedBy,
+        leaseSeconds: this.#leaseSeconds,
+      });
+      if (!renewedClaim?.claimedUntil) {
+        return;
+      }
+      const runtimeState = this.#store.getRuntimeState({
+        workspaceId: record.workspaceId,
+        sessionId: record.sessionId,
+      });
+      if (
+        runtimeState?.currentInputId === record.inputId &&
+        runtimeState.currentWorkerId === this.#claimedBy
+      ) {
+        this.#store.updateRuntimeState({
+          workspaceId: record.workspaceId,
+          sessionId: record.sessionId,
+          status: runtimeState.status,
+          currentInputId: record.inputId,
+          currentWorkerId: this.#claimedBy,
+          leaseUntil: renewedClaim.claimedUntil,
+          lastError: runtimeState.lastError,
+        });
+      }
+    };
+    keepalive = setInterval(() => {
+      renewActiveRunClaim();
+    }, activeRunKeepaliveIntervalMs(this.#leaseSeconds));
+    keepalive.unref?.();
     const codexConfigured = hasCodexProviderConfigured();
     const promise = (async () => {
       try {
@@ -309,6 +376,7 @@ export class RuntimeQueueWorker implements QueueWorkerLike {
           lastError: { message }
         });
       } finally {
+        stopKeepalive();
         this.#activeRuns.delete(record.inputId);
         this.wake();
       }
