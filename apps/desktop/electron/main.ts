@@ -15361,6 +15361,8 @@ async function approveOnboardingAlignment(
 async function answerOnboardingAlignmentQuestion(
   workspaceId: string,
   payload: {
+    model?: string | null;
+    thinkingValue?: string | null;
     optionId?: string | null;
     responseText?: string | null;
     notes?: string | null;
@@ -15379,6 +15381,8 @@ async function answerOnboardingAlignmentQuestion(
       path: "/api/v1/capabilities/runtime-tools/onboarding/alignment-question/answer",
       payload: {
         workspace_id: workspaceId,
+        model: payload.model ?? undefined,
+        thinking_value: payload.thinkingValue ?? undefined,
         option_id: payload.optionId ?? undefined,
         response_text: payload.responseText ?? undefined,
         notes: payload.notes ?? undefined,

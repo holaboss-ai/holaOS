@@ -182,6 +182,12 @@ test("runtime onboarding alignment-report client forwards structured report payl
     toolId: "holaboss_create_alignment_report",
     toolParams: {
       report: {
+        markdown: [
+          "# Alignment report",
+          "",
+          "- Create a Twitter analytics workspace",
+          "- Add a custom dashboard app",
+        ].join("\n"),
         summary: "Create a Twitter analytics workspace.",
         custom_apps: [{ name: "twitter-engagement-dashboard" }],
       },
@@ -195,6 +201,12 @@ test("runtime onboarding alignment-report client forwards structured report payl
   );
   assert.deepEqual(capturedBody, {
     report: {
+      markdown: [
+        "# Alignment report",
+        "",
+        "- Create a Twitter analytics workspace",
+        "- Add a custom dashboard app",
+      ].join("\n"),
       summary: "Create a Twitter analytics workspace.",
       custom_apps: [{ name: "twitter-engagement-dashboard" }],
     },

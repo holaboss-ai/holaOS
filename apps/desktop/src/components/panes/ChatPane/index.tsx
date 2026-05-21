@@ -349,47 +349,171 @@ function onboardingReportFieldLabel(key: string) {
     .join(" ");
 }
 
-function onboardingReportValueLines(value: unknown): string[] {
+const ONBOARDING_REPORT_SUMMARY_KEYS = [
+  "title",
+  "name",
+  "label",
+  "summary",
+  "description",
+  "cron",
+  "path",
+  "goal",
+  "status",
+  "purpose",
+] as const;
+const ONBOARDING_REPORT_SUMMARY_KEY_SET = new Set<string>(
+  ONBOARDING_REPORT_SUMMARY_KEYS,
+);
+const ONBOARDING_REPORT_MARKDOWN_KEYS = [
+  "markdown",
+  "report_markdown",
+  "body_markdown",
+] as const;
+const ONBOARDING_REPORT_HIDDEN_DETAIL_KEYS = new Set<string>([
+  "summary",
+  "requested_by",
+  ...ONBOARDING_REPORT_MARKDOWN_KEYS,
+]);
+
+function onboardingReportInlineValue(value: unknown): string {
   if (value == null) {
-    return [];
+    return "";
   }
   if (typeof value === "string") {
     const normalized = value.trim();
-    return normalized ? [normalized] : [];
+    return normalized;
   }
   if (typeof value === "number" || typeof value === "boolean") {
-    return [String(value)];
+    return String(value);
   }
+  return "";
+}
+
+function onboardingReportObjectSummary(value: Record<string, unknown>): string {
+  return ONBOARDING_REPORT_SUMMARY_KEYS.map((key) =>
+    onboardingReportInlineValue(value[key]),
+  )
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function onboardingReportObjectDetailLines(
+  value: Record<string, unknown>,
+  depth = 0,
+  skipSummaryKeys = false,
+): string[] {
+  const indent = "  ".repeat(depth);
+  return Object.entries(value).flatMap(([key, entryValue]) => {
+    if (skipSummaryKeys && ONBOARDING_REPORT_SUMMARY_KEY_SET.has(key.trim().toLowerCase())) {
+      return [];
+    }
+    const label = onboardingReportFieldLabel(key);
+    const inlineValue = onboardingReportInlineValue(entryValue);
+    if (inlineValue) {
+      return [`${indent}${label}: ${inlineValue}`];
+    }
+    if (Array.isArray(entryValue)) {
+      const nestedLines = onboardingReportValueLines(entryValue, depth + 1);
+      return nestedLines.length > 0
+        ? [`${indent}${label}:`, ...nestedLines]
+        : [];
+    }
+    if (isRecord(entryValue)) {
+      const summary = onboardingReportObjectSummary(entryValue);
+      const nestedLines = onboardingReportObjectDetailLines(
+        entryValue,
+        depth + 1,
+        Boolean(summary),
+      );
+      if (summary && nestedLines.length === 0) {
+        return [`${indent}${label}: ${summary}`];
+      }
+      if (summary) {
+        return [`${indent}${label}: ${summary}`, ...nestedLines];
+      }
+      return nestedLines.length > 0 ? [`${indent}${label}:`, ...nestedLines] : [];
+    }
+    return [];
+  });
+}
+
+function onboardingReportValueLines(value: unknown, depth = 0): string[] {
+  const inlineValue = onboardingReportInlineValue(value);
+  if (inlineValue) {
+    return [`${"  ".repeat(depth)}${inlineValue}`];
+  }
+  const indent = "  ".repeat(depth);
   if (Array.isArray(value)) {
-    return value.flatMap((entry) => onboardingReportValueLines(entry));
+    return value.flatMap((entry) => {
+      const inlineEntry = onboardingReportInlineValue(entry);
+      if (inlineEntry) {
+        return [`${indent}• ${inlineEntry}`];
+      }
+      if (isRecord(entry)) {
+        const summary = onboardingReportObjectSummary(entry);
+        const detailLines = onboardingReportObjectDetailLines(
+          entry,
+          depth + 1,
+          Boolean(summary),
+        );
+        if (summary) {
+          return [`${indent}• ${summary}`, ...detailLines];
+        }
+        if (detailLines.length > 0) {
+          const [firstLine, ...rest] = detailLines;
+          return [`${indent}• ${firstLine.trim()}`, ...rest];
+        }
+      }
+      return onboardingReportValueLines(entry, depth + 1);
+    });
   }
   if (isRecord(value)) {
-    const preferredKeys = [
-      "title",
-      "name",
-      "label",
-      "summary",
-      "description",
-      "cron",
-      "path",
-      "goal",
-      "status",
-    ];
-    const parts = preferredKeys
-      .map((key) => {
-        const candidate = value[key];
-        return typeof candidate === "string" ? candidate.trim() : "";
-      })
-      .filter(Boolean);
-    if (parts.length > 0) {
-      return [parts.join(" · ")];
+    const detailLines = onboardingReportObjectDetailLines(value, depth);
+    if (detailLines.length > 0) {
+      return detailLines;
     }
-    const serialized = JSON.stringify(value);
-    if (serialized && serialized !== "{}") {
-      return [serialized];
+    const summary = onboardingReportObjectSummary(value);
+    if (summary) {
+      return [`${indent}${summary}`];
     }
   }
   return [];
+}
+
+function onboardingReportMarkdown(
+  report: Record<string, unknown> | null,
+): string {
+  if (!report) {
+    return "";
+  }
+  for (const key of ONBOARDING_REPORT_MARKDOWN_KEYS) {
+    const candidate = report[key];
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  const summary =
+    typeof report.summary === "string" ? report.summary.trim() : "";
+  const sections = onboardingReportEntries(report)
+    .map((entry) => {
+      const body = entry.lines
+        .map((line) => {
+          const trimmed = line.trim();
+          if (!trimmed) {
+            return "";
+          }
+          const depth = Math.max(Math.floor((line.length - line.trimStart().length) / 2), 0);
+          const normalized = trimmed.startsWith("• ")
+            ? `- ${trimmed.slice(2)}`
+            : `- ${trimmed}`;
+          return `${"  ".repeat(depth)}${normalized}`;
+        })
+        .filter(Boolean)
+        .join("\n");
+      return body ? `## ${entry.label}\n${body}` : "";
+    })
+    .filter(Boolean);
+  return [summary, ...sections].filter(Boolean).join("\n\n").trim();
 }
 
 function onboardingReportEntries(report: Record<string, unknown> | null): Array<{
@@ -401,7 +525,7 @@ function onboardingReportEntries(report: Record<string, unknown> | null): Array<
     return [];
   }
   return Object.entries(report)
-    .filter(([key]) => key !== "summary")
+    .filter(([key]) => !ONBOARDING_REPORT_HIDDEN_DETAIL_KEYS.has(key))
     .map(([key, value]) => ({
       key,
       label: onboardingReportFieldLabel(key),
@@ -567,6 +691,14 @@ function parseOnboardingAlignmentQuestion(
 
 function optionalHistoryLoadErrorMessage(label: string, error: unknown) {
   return `${label} unavailable: ${normalizeErrorMessage(error)}`;
+}
+
+function serializedOnboardingQuestionKey(value: unknown) {
+  try {
+    return JSON.stringify(value ?? null) || "null";
+  } catch {
+    return "null";
+  }
 }
 
 function openExternalUrl(url: string | null | undefined) {
@@ -4851,6 +4983,9 @@ export function ChatPane({
     pendingFocusRequestKeyRef.current = focusRequestKey;
   }, [focusRequestKey]);
 
+  const selectedWorkspaceAlignmentQuestionKey =
+    serializedOnboardingQuestionKey(selectedWorkspace?.alignment_question);
+
   useEffect(() => {
     if (!selectedWorkspaceId) {
       return;
@@ -4988,7 +5123,7 @@ export function ChatPane({
     };
   }, [
     isOnboardingVariant,
-    selectedWorkspace?.alignment_question,
+    selectedWorkspaceAlignmentQuestionKey,
     selectedWorkspace?.onboarding_state,
     sessionJumpRequestKey,
     sessionJumpSessionId,
@@ -7415,10 +7550,18 @@ export function ChatPane({
     typeof alignmentReport?.summary === "string"
       ? alignmentReport.summary.trim()
       : "";
+  const alignmentReportMarkdown = useMemo(
+    () => onboardingReportMarkdown(alignmentReport),
+    [alignmentReport],
+  );
   const verificationReportSummary =
     typeof verificationReport?.summary === "string"
       ? verificationReport.summary.trim()
       : "";
+  const verificationReportMarkdown = useMemo(
+    () => onboardingReportMarkdown(verificationReport),
+    [verificationReport],
+  );
   const alignmentReportDetails = useMemo(
     () => onboardingReportEntries(alignmentReport),
     [alignmentReport],
@@ -7554,6 +7697,25 @@ export function ChatPane({
       if (!workspaceId || alignmentQuestionItems.length === 0) {
         return;
       }
+      const isLastAlignmentQuestion =
+        safeOnboardingQuestionSlideIndex >= alignmentQuestionCount - 1;
+      const currentAnswerPresent = Boolean(
+        activeAlignmentQuestionDraft.optionId.trim() ||
+          activeAlignmentQuestionDraft.responseText.trim(),
+      );
+      if (!isLastAlignmentQuestion) {
+        if (!currentAnswerPresent) {
+          setOnboardingQuestionError(
+            "Answer this alignment question before continuing.",
+          );
+          return;
+        }
+        setOnboardingQuestionError("");
+        setOnboardingQuestionSlideIndex((current) =>
+          Math.min(current + 1, alignmentQuestionCount - 1),
+        );
+        return;
+      }
       const answers = alignmentQuestionItems.map((question) => {
         const draft =
           onboardingQuestionDrafts[question.id] ??
@@ -7581,6 +7743,8 @@ export function ChatPane({
         await window.electronAPI.workspace.answerOnboardingAlignmentQuestion(
           workspaceId,
           {
+            model: resolvedChatModel || null,
+            thinkingValue: effectiveThinkingValue,
             answers,
           },
         );
@@ -7597,10 +7761,16 @@ export function ChatPane({
       }
     },
     [
+      activeAlignmentQuestionDraft.optionId,
+      activeAlignmentQuestionDraft.responseText,
+      alignmentQuestionCount,
       alignmentQuestionItems,
       onboardingQuestionDrafts,
       refreshWorkspaceData,
+      resolvedChatModel,
+      safeOnboardingQuestionSlideIndex,
       selectedWorkspace?.id,
+      effectiveThinkingValue,
     ],
   );
   useEffect(() => {
@@ -7687,8 +7857,16 @@ export function ChatPane({
     selectedWorkspace,
     selectedWorkspaceId,
   ]);
+  const onboardingReviewCardScrollable =
+    alignmentReviewCardVisible || verificationReviewCardVisible;
   const onboardingComposerTakeoverPanel = onboardingComposerTakeoverVisible ? (
-    <div className="w-full rounded-[28px] border border-border bg-background shadow-[0_18px_44px_rgba(15,23,42,0.08)]">
+    <div
+      className={`w-full rounded-[28px] border border-border bg-background shadow-[0_18px_44px_rgba(15,23,42,0.08)] ${
+        onboardingReviewCardScrollable
+          ? "chat-scrollbar-thin max-h-[76vh] overflow-y-auto"
+          : ""
+      }`}
+    >
       {alignmentQuestionCardVisible && activeAlignmentQuestion ? (
         <div className="space-y-5 px-5 py-5">
           <div className="flex items-start justify-between gap-3">
@@ -7697,65 +7875,11 @@ export function ChatPane({
                 {`Question ${safeOnboardingQuestionSlideIndex + 1}/${alignmentQuestionCount} (${unansweredAlignmentQuestionCount} unanswered)`}
               </div>
               {activeAlignmentQuestion.title || alignmentQuestion?.title ? (
-                <div className="mt-1 text-sm font-medium text-foreground">
+                <div className="mt-1 text-[1.45rem] font-medium leading-tight text-foreground">
                   {activeAlignmentQuestion.title || alignmentQuestion?.title}
                 </div>
               ) : null}
             </div>
-            <div className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-primary">
-              {answeredAlignmentQuestionCount > 0
-                ? `${answeredAlignmentQuestionCount}/${alignmentQuestionCount} answered`
-                : "Awaiting answer"}
-            </div>
-          </div>
-          {alignmentQuestionCount > 1 ? (
-            <div className="flex flex-wrap gap-2">
-              {alignmentQuestionItems.map((question, index) => {
-                const draft = onboardingQuestionDrafts[question.id];
-                const answered = onboardingAlignmentQuestionIsAnswered(draft);
-                const active = index === safeOnboardingQuestionSlideIndex;
-                return (
-                  <button
-                    key={question.id}
-                    type="button"
-                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition ${
-                      active
-                        ? "border-primary bg-primary/10 text-primary"
-                        : answered
-                          ? "border-border bg-muted/70 text-foreground"
-                          : "border-border bg-background text-muted-foreground hover:border-primary/30 hover:text-foreground"
-                    }`}
-                    disabled={onboardingQuestionActionsDisabled}
-                    onClick={() => {
-                      setOnboardingQuestionError("");
-                      setOnboardingQuestionSlideIndex(index);
-                    }}
-                  >
-                    <span className="grid size-4 place-items-center rounded-full border border-current text-[10px]">
-                      {answered ? <Check className="size-3" /> : index + 1}
-                    </span>
-                    <span className="max-w-[14rem] truncate">
-                      {question.title || `Question ${index + 1}`}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-          {alignmentQuestion?.details ? (
-            <div className="text-sm leading-6 text-muted-foreground">
-              {alignmentQuestion.details}
-            </div>
-          ) : null}
-          <div className="rounded-[24px] border border-border/80 bg-muted/30 p-4">
-            <div className="text-sm leading-6 text-foreground">
-              {activeAlignmentQuestion.prompt}
-            </div>
-            {activeAlignmentQuestion.details ? (
-              <div className="mt-2 text-sm leading-6 text-muted-foreground">
-                {activeAlignmentQuestion.details}
-              </div>
-            ) : null}
           </div>
           <div className="space-y-2.5">
             {activeAlignmentQuestion.options.map((option) => {
@@ -7843,24 +7967,6 @@ export function ChatPane({
               />
             </div>
           ) : null}
-          {activeAlignmentQuestion.allowNotes ? (
-            <Input
-              value={activeAlignmentQuestionDraft.notes}
-              onChange={(event) => {
-                setOnboardingQuestionError("");
-                setOnboardingQuestionDraft(
-                  activeAlignmentQuestion.id,
-                  (current) => ({
-                    ...current,
-                    notes: event.target.value,
-                  }),
-                );
-              }}
-              disabled={onboardingQuestionActionsDisabled}
-              placeholder={activeAlignmentQuestion.notesPlaceholder}
-              className="rounded-xl"
-            />
-          ) : null}
           {onboardingQuestionError ? (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
               {onboardingQuestionError}
@@ -7892,25 +7998,6 @@ export function ChatPane({
                   Previous
                 </Button>
               ) : null}
-              {alignmentQuestionCount > 1 ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={
-                    onboardingQuestionActionsDisabled ||
-                    safeOnboardingQuestionSlideIndex >= alignmentQuestionCount - 1
-                  }
-                  onClick={() => {
-                    setOnboardingQuestionError("");
-                    setOnboardingQuestionSlideIndex((current) =>
-                      Math.min(current + 1, alignmentQuestionCount - 1),
-                    );
-                  }}
-                >
-                  Next
-                </Button>
-              ) : null}
               <Button
                 type="button"
                 size="sm"
@@ -7922,7 +8009,11 @@ export function ChatPane({
                 {onboardingQuestionAction === "submit" ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : null}
-                {alignmentQuestionCount > 1 ? "Submit answers" : "Submit answer"}
+                {safeOnboardingQuestionSlideIndex >= alignmentQuestionCount - 1
+                  ? alignmentQuestionCount > 1
+                    ? "Submit answers"
+                    : "Submit answer"
+                  : "Submit answer"}
               </Button>
             </div>
           </div>
@@ -7943,31 +8034,42 @@ export function ChatPane({
               Awaiting review
             </div>
           </div>
-          <div className="text-sm leading-6 text-foreground">
-            {alignmentReportSummary ||
-              "The onboarding agent has converged the current workspace alignment for approval."}
-          </div>
-          {alignmentReportDetails.length > 0 ? (
-            <div className="space-y-3">
-              {alignmentReportDetails.map((entry) => (
-                <div key={entry.key}>
-                  <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                    {entry.label}
-                  </div>
-                  <div className="mt-1 space-y-1 text-sm leading-6 text-muted-foreground">
-                    {entry.lines.map((line, index) => (
-                      <div
-                        key={`${entry.key}-${index}`}
-                        className="whitespace-pre-wrap break-words"
-                      >
-                        {line}
+          {alignmentReportMarkdown ? (
+            <SimpleMarkdown
+              className="chat-markdown chat-assistant-markdown max-w-full text-foreground"
+              onLinkClick={onOpenLinkInBrowser}
+            >
+              {alignmentReportMarkdown}
+            </SimpleMarkdown>
+          ) : (
+            <>
+              <div className="text-sm leading-6 text-foreground">
+                {alignmentReportSummary ||
+                  "The onboarding agent has converged the current workspace alignment for approval."}
+              </div>
+              {alignmentReportDetails.length > 0 ? (
+                <div className="space-y-3">
+                  {alignmentReportDetails.map((entry) => (
+                    <div key={entry.key}>
+                      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                        {entry.label}
                       </div>
-                    ))}
-                  </div>
+                      <div className="mt-1 space-y-1 text-sm leading-6 text-muted-foreground">
+                        {entry.lines.map((line, index) => (
+                          <div
+                            key={`${entry.key}-${index}`}
+                            className="whitespace-pre-wrap break-words"
+                          >
+                            {line}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          ) : null}
+              ) : null}
+            </>
+          )}
           {onboardingReviewActionError ? (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
               {onboardingReviewActionError}
@@ -8030,31 +8132,42 @@ export function ChatPane({
               Awaiting acceptance
             </div>
           </div>
-          <div className="text-sm leading-6 text-foreground">
-            {verificationReportSummary ||
-              "Implementation is complete. Review the verification report before merging the lab."}
-          </div>
-          {verificationReportDetails.length > 0 ? (
-            <div className="space-y-3">
-              {verificationReportDetails.map((entry) => (
-                <div key={entry.key}>
-                  <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                    {entry.label}
-                  </div>
-                  <div className="mt-1 space-y-1 text-sm leading-6 text-muted-foreground">
-                    {entry.lines.map((line, index) => (
-                      <div
-                        key={`${entry.key}-${index}`}
-                        className="whitespace-pre-wrap break-words"
-                      >
-                        {line}
+          {verificationReportMarkdown ? (
+            <SimpleMarkdown
+              className="chat-markdown chat-assistant-markdown max-w-full text-foreground"
+              onLinkClick={onOpenLinkInBrowser}
+            >
+              {verificationReportMarkdown}
+            </SimpleMarkdown>
+          ) : (
+            <>
+              <div className="text-sm leading-6 text-foreground">
+                {verificationReportSummary ||
+                  "Implementation is complete. Review the verification report before merging the lab."}
+              </div>
+              {verificationReportDetails.length > 0 ? (
+                <div className="space-y-3">
+                  {verificationReportDetails.map((entry) => (
+                    <div key={entry.key}>
+                      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                        {entry.label}
                       </div>
-                    ))}
-                  </div>
+                      <div className="mt-1 space-y-1 text-sm leading-6 text-muted-foreground">
+                        {entry.lines.map((line, index) => (
+                          <div
+                            key={`${entry.key}-${index}`}
+                            className="whitespace-pre-wrap break-words"
+                          >
+                            {line}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          ) : null}
+              ) : null}
+            </>
+          )}
           {onboardingReviewActionError ? (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
               {onboardingReviewActionError}

@@ -5096,6 +5096,8 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       });
       return runtimeAgentToolsService.answerAlignmentQuestion({
         workspaceId,
+        model: optionalString(request.body.model),
+        thinkingValue: optionalString(request.body.thinking_value),
         optionId: optionalString(request.body.option_id),
         responseText: optionalString(request.body.response_text),
         notes: nullableString(request.body.notes),

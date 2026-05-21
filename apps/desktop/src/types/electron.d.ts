@@ -1865,6 +1865,8 @@ interface RuntimeNotificationListOptionsPayload {
       answerOnboardingAlignmentQuestion: (
         workspaceId: string,
         payload: {
+          model?: string | null;
+          thinkingValue?: string | null;
           optionId?: string | null;
           responseText?: string | null;
           notes?: string | null;

@@ -87,11 +87,15 @@ test("onboarding chat enters the onboarding session immediately and omits the on
   );
   assert.match(
     source,
+    /const selectedWorkspaceAlignmentQuestionKey =\s*serializedOnboardingQuestionKey\(selectedWorkspace\?\.alignment_question\);/,
+  );
+  assert.match(
+    source,
     /const nextSessionId =[\s\S]*\|\|\s*\(isOnboardingVariant \? workspaceOnboardingSessionId : ""\)\s*\|\|[\s\S]*mainSessionResponse\.session\?\.session_id\?\.trim\(\)/,
   );
   assert.match(
     source,
-    /\}, \[\s*isOnboardingVariant,\s*selectedWorkspace\?\.alignment_question,\s*selectedWorkspace\?\.onboarding_state,\s*sessionJumpRequestKey,\s*sessionJumpSessionId,\s*selectedWorkspaceId,\s*selectedWorkspace\?\.onboarding_session_id,\s*selectedWorkspace\?\.onboarding_status,\s*\]\);/,
+    /\}, \[\s*isOnboardingVariant,\s*selectedWorkspaceAlignmentQuestionKey,\s*selectedWorkspace\?\.onboarding_state,\s*sessionJumpRequestKey,\s*sessionJumpSessionId,\s*selectedWorkspaceId,\s*selectedWorkspace\?\.onboarding_session_id,\s*selectedWorkspace\?\.onboarding_status,\s*\]\);/,
   );
   assert.doesNotMatch(
     source,
@@ -116,6 +120,10 @@ test("onboarding chat uses a survey-style alignment card with navigation and fre
   assert.match(source, /allowFreeform: item\.allow_freeform !== false,/);
   assert.match(
     source,
+    /<div className="mt-1 text-\[1\.45rem\] font-medium leading-tight text-foreground">/,
+  );
+  assert.match(
+    source,
     /const answeredAlignmentQuestionCount = alignmentQuestionItems\.filter\(\(question\) =>[\s\S]*onboardingAlignmentQuestionIsAnswered\(onboardingQuestionDrafts\[question\.id\]\)/,
   );
   assert.match(source, /Natural language response/);
@@ -133,6 +141,22 @@ test("onboarding chat uses a survey-style alignment card with navigation and fre
     source,
     /optionId:\s*nextResponseText\.trim\(\) \? "" : current\.optionId,\s*responseText:\s*nextResponseText/,
   );
+  assert.match(
+    source,
+    /answerOnboardingAlignmentQuestion\(\s*workspaceId,\s*[\s\S]*model:\s*resolvedChatModel \|\| null,\s*thinkingValue:\s*effectiveThinkingValue,\s*answers,[\s\S]*\)/,
+  );
+  assert.match(
+    source,
+    /const isLastAlignmentQuestion =\s*safeOnboardingQuestionSlideIndex >= alignmentQuestionCount - 1;/,
+  );
+  assert.match(
+    source,
+    /Answer this alignment question before continuing\./,
+  );
+  assert.match(
+    source,
+    /setOnboardingQuestionSlideIndex\(\(current\) =>[\s\S]*Math\.min\(current \+ 1, alignmentQuestionCount - 1\)/,
+  );
   assert.doesNotMatch(
     source,
     /Help the onboarding agent decide the next alignment step/,
@@ -141,9 +165,61 @@ test("onboarding chat uses a survey-style alignment card with navigation and fre
     source,
     /Choose an option, answer in your own words, or do both\./,
   );
+  assert.doesNotMatch(
+    source,
+    /alignmentQuestionItems\.map\(\(question, index\) =>/,
+  );
+  assert.doesNotMatch(
+    source,
+    /placeholder=\{activeAlignmentQuestion\.notesPlaceholder\}/,
+  );
+  assert.doesNotMatch(source, /\{alignmentQuestion\?\.details \? \(/);
+  assert.doesNotMatch(source, /\{activeAlignmentQuestion\.details \? \(/);
+  assert.doesNotMatch(
+    source,
+    /<div className="rounded-\[24px\] border border-border\/80 bg-muted\/30 p-4">[\s\S]*activeAlignmentQuestion\.prompt/,
+  );
+  assert.doesNotMatch(source, /Awaiting answer/);
   assert.match(source, /Previous/);
-  assert.match(source, /Next/);
+  assert.doesNotMatch(source, />\s*Next\s*</);
   assert.match(source, /Submit answers/);
+});
+
+test("onboarding review cards format structured reports and scroll independently", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  assert.match(source, /const ONBOARDING_REPORT_MARKDOWN_KEYS = \[/);
+  assert.match(source, /function onboardingReportMarkdown\(/);
+  assert.match(source, /function onboardingReportObjectSummary\(/);
+  assert.match(source, /function onboardingReportObjectDetailLines\(/);
+  assert.match(
+    source,
+    /const onboardingReviewCardScrollable =\s*alignmentReviewCardVisible \|\| verificationReviewCardVisible;/,
+  );
+  assert.match(
+    source,
+    /const alignmentReportMarkdown = useMemo\(\s*\(\) => onboardingReportMarkdown\(alignmentReport\),/,
+  );
+  assert.match(
+    source,
+    /const verificationReportMarkdown = useMemo\(\s*\(\) => onboardingReportMarkdown\(verificationReport\),/,
+  );
+  assert.match(
+    source,
+    /alignmentReportMarkdown \? \(\s*<SimpleMarkdown[\s\S]*\{alignmentReportMarkdown\}[\s\S]*<\/SimpleMarkdown>/,
+  );
+  assert.match(
+    source,
+    /verificationReportMarkdown \? \(\s*<SimpleMarkdown[\s\S]*\{verificationReportMarkdown\}[\s\S]*<\/SimpleMarkdown>/,
+  );
+  assert.match(source, /return body \? `## \$\{entry\.label\}\\n\$\{body\}` : "";/);
+  assert.match(
+    source,
+    /\.filter\(\(\[key\]\) => !ONBOARDING_REPORT_HIDDEN_DETAIL_KEYS\.has\(key\)\)/,
+  );
+  assert.match(source, /chat-scrollbar-thin max-h-\[76vh\] overflow-y-auto/);
+  assert.match(source, /\$\{indent\}• \$\{summary\}/);
+  assert.doesNotMatch(source, /const serialized = JSON\.stringify\(value\);/);
 });
 
 test("chat pane blocks lab controller input while owned subagents are executing", async () => {

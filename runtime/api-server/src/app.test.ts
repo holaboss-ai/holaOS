@@ -1056,6 +1056,8 @@ test("workspace onboarding runtime tools persist alignment and verification stat
         "x-holaboss-workspace-id": labId,
       },
       payload: {
+        model: "openai_codex/gpt-5.4",
+        thinking_value: "medium",
         option_id: "fast",
         notes: "Keep the first version minimal.",
       },
@@ -1080,6 +1082,8 @@ test("workspace onboarding runtime tools persist alignment and verification stat
       (queued?.payload.text as string | undefined) ?? "",
       "Optimize for fast setup first.\n\nAdditional notes: Keep the first version minimal.",
     );
+    assert.equal(queued?.payload.model, "openai_codex/gpt-5.4");
+    assert.equal(queued?.payload.thinking_value, "medium");
 
     const alignment = await app.inject({
       method: "POST",
@@ -1089,6 +1093,13 @@ test("workspace onboarding runtime tools persist alignment and verification stat
       },
       payload: {
         report: {
+          markdown: [
+            "# Alignment report",
+            "",
+            "- Set up a lightweight CRM workspace",
+            "- Install Notion",
+            "- Create a deal tracker app",
+          ].join("\n"),
           summary: "Set up a lightweight CRM workspace",
           apps_to_install: ["notion"],
           apps_to_create: ["deal-tracker"],
@@ -1103,6 +1114,16 @@ test("workspace onboarding runtime tools persist alignment and verification stat
     assert.equal(
       alignment.json().alignment_report.summary,
       "Set up a lightweight CRM workspace",
+    );
+    assert.equal(
+      alignment.json().alignment_report.markdown,
+      [
+        "# Alignment report",
+        "",
+        "- Set up a lightweight CRM workspace",
+        "- Install Notion",
+        "- Create a deal tracker app",
+      ].join("\n"),
     );
 
     const implementing = await app.inject({
@@ -1124,6 +1145,12 @@ test("workspace onboarding runtime tools persist alignment and verification stat
       },
       payload: {
         report: {
+          markdown: [
+            "# Verification report",
+            "",
+            "- Installed Notion",
+            "- Scaffolded the deal tracker app",
+          ].join("\n"),
           summary: "Installed notion and scaffolded deal-tracker",
           verification_checks: ["app builds", "workspace files created"],
         },
@@ -1137,6 +1164,15 @@ test("workspace onboarding runtime tools persist alignment and verification stat
     assert.equal(
       verification.json().verification_report.summary,
       "Installed notion and scaffolded deal-tracker",
+    );
+    assert.equal(
+      verification.json().verification_report.markdown,
+      [
+        "# Verification report",
+        "",
+        "- Installed Notion",
+        "- Scaffolded the deal tracker app",
+      ].join("\n"),
     );
 
     const revised = await app.inject({
