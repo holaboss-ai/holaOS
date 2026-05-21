@@ -2743,6 +2743,8 @@ export class RuntimeAgentToolsService {
 
   answerAlignmentQuestion(params: {
     workspaceId: string;
+    model?: string | null;
+    thinkingValue?: string | null;
     optionId?: string | null;
     responseText?: string | null;
     notes?: string | null;
@@ -2881,8 +2883,8 @@ export class RuntimeAgentToolsService {
         text: queuedText,
         attachments: [],
         image_urls: [],
-        model: null,
-        thinking_value: null,
+        model: normalizedString(params.model) || null,
+        thinking_value: normalizedString(params.thinkingValue) || null,
         context: {
           source: "alignment_question",
           question_count: questions.length,

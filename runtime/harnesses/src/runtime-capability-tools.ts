@@ -189,7 +189,20 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         properties: {
           report: {
             type: "object",
-            description: "Structured onboarding report payload.",
+            description:
+              "Structured onboarding report payload. Include a human-readable `markdown` string for the review card, then add any machine-readable fields the implementation phase should keep.",
+            properties: {
+              markdown: {
+                type: "string",
+                description:
+                  "Primary human-readable onboarding report body rendered in the review card as markdown.",
+              },
+              summary: {
+                type: "string",
+                description:
+                  "Optional short summary kept for fallback surfaces and machine-readable state.",
+              },
+            },
             additionalProperties: true,
           },
         },

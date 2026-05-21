@@ -906,9 +906,12 @@ test("composeAgentPrompt gives workspace onboarding its own design-lab prompt", 
   assert.match(prompt.systemPrompt, /Delegate implementation to subagents only after the user confirms the design report/);
   assert.match(prompt.systemPrompt, /Keep the onboarding thread conversational and uncluttered/);
   assert.match(prompt.systemPrompt, /holaboss_create_alignment_question/);
-  assert.match(prompt.systemPrompt, /multiple-choice question/);
+  assert.match(prompt.systemPrompt, /closed choices/);
+  assert.match(prompt.systemPrompt, /inline answer card/);
+  assert.match(prompt.systemPrompt, /Include a human-readable `markdown` body in the report for the review card/);
   assert.match(prompt.systemPrompt, /waiting for implementation results before moving to verification/);
   assert.match(prompt.systemPrompt, /verification report/);
+  assert.match(prompt.systemPrompt, /including a concise human-readable `markdown` body/);
   assert.match(prompt.systemPrompt, /verified implementation/);
   assert.match(prompt.systemPrompt, /alignment review card/);
   assert.match(prompt.systemPrompt, /verification review card/);

@@ -37,6 +37,15 @@ test("workspace onboarding skip is exposed over electron ipc for deterministic a
   assert.match(source, /"workspace:skipWorkspaceOnboarding"/);
 });
 
+test("agentic onboarding alignment answers preserve selected model context", async () => {
+  const source = await readFile(MAIN_PATH, "utf8");
+
+  assert.match(
+    source,
+    /async function answerOnboardingAlignmentQuestion\([\s\S]*model\?: string \| null;[\s\S]*thinkingValue\?: string \| null;[\s\S]*payload:\s*\{[\s\S]*model: payload\.model \?\? undefined,[\s\S]*thinking_value: payload\.thinkingValue \?\? undefined,/,
+  );
+});
+
 test("agentic onboarding is still available when explicitly requested", async () => {
   const source = await readFile(MAIN_PATH, "utf8");
 
