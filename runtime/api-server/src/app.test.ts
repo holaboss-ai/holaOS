@@ -27,7 +27,7 @@ import type { AppLifecycleExecutorLike } from "./app-lifecycle-worker.js";
 import { FilesystemMemoryService, type MemoryServiceLike } from "./memory.js";
 import type { RuntimeConfigServiceLike } from "./runtime-config.js";
 import type { RunnerExecutorLike } from "./runner-worker.js";
-import { workspaceMemoryDir } from "./workspace-bundle-paths.js";
+import { globalMemoryDirForWorkspaceRoot, workspaceMemoryDir } from "./workspace-bundle-paths.js";
 
 const tempDirs: string[] = [];
 const ORIGINAL_ENV = {
@@ -1867,22 +1867,43 @@ test("runtime memory_retrieve tool returns integration leaf hits from the tree b
     harness: "pi",
     status: "active",
   });
-  store.upsertIntegrationTree({
+  store.upsertIntegrationConnection({
+    connectionId: "conn-github-1",
+    providerId: "github",
+    ownerUserId: "user-1",
+    accountLabel: "Jeff GitHub",
+    accountExternalId: "acct-1",
+    accountHandle: "jeff-github",
+    accountEmail: null,
+    authMode: "oauth",
+    grantedScopes: ["repo"],
+    status: "active",
+    secretRef: null,
+  });
+  store.upsertIntegrationBinding({
+    bindingId: "binding-github-1",
     workspaceId: "workspace-1",
+    targetType: "workspace",
+    targetId: "workspace-1",
+    integrationKey: "github",
+    connectionId: "conn-github-1",
+    isDefault: true,
+  });
+  store.upsertIntegrationTree({
     treeId: "integration:github:acct-1",
     provider: "github",
-    accountId: "acct-1",
+    ownerUserId: "user-1",
+    accountKey: "jeff-github",
     accountLabel: "Jeff GitHub",
     slug: "github-jeff-acct-1",
     summary: "GitHub account memory.",
     status: "active",
   });
   store.upsertIntegrationLeaf({
-    workspaceId: "workspace-1",
     leafId: "leaf-release-pr",
     treeId: "integration:github:acct-1",
     subjectKey: "pr:release-123",
-    path: "workspace/workspace-1/integration/accounts/github-jeff-acct-1/leaves/leaf-release-pr.md",
+    path: "integration/accounts/github-jeff-acct-1/leaves/leaf-release-pr.md",
     title: "Release PR #123 owner",
     summary: "The release PR owner is Maya Chen.",
     fingerprint: "integration-release-pr-fingerprint",
@@ -1899,7 +1920,7 @@ test("runtime memory_retrieve tool returns integration leaf hits from the tree b
     status: "active",
   });
   const leafPath = path.join(
-    workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+    globalMemoryDirForWorkspaceRoot(workspaceRoot),
     "integration",
     "accounts",
     "github-jeff-acct-1",
@@ -1932,7 +1953,7 @@ test("runtime memory_retrieve tool returns integration leaf hits from the tree b
     assert.equal(response.json().hits[0].provider, "github");
     assert.equal(
       response.json().hits[0].path,
-      "workspace/workspace-1/integration/accounts/github-jeff-acct-1/leaves/leaf-release-pr.md",
+      "integration/accounts/github-jeff-acct-1/leaves/leaf-release-pr.md",
     );
   } finally {
     await app.close();
@@ -1997,22 +2018,43 @@ test("runtime memory_retrieve searches both interaction and integration trees wh
   fs.mkdirSync(path.dirname(interactionLeafPath), { recursive: true });
   fs.writeFileSync(interactionLeafPath, "# Atlas API incident bridge\n\nThe incident bridge channel is #atlas-api-rollout.\n", "utf8");
 
-  store.upsertIntegrationTree({
+  store.upsertIntegrationConnection({
+    connectionId: "conn-github-2",
+    providerId: "github",
+    ownerUserId: "user-1",
+    accountLabel: "Atlas GitHub",
+    accountExternalId: "acct-2",
+    accountHandle: "atlas-github",
+    accountEmail: null,
+    authMode: "oauth",
+    grantedScopes: ["repo"],
+    status: "active",
+    secretRef: null,
+  });
+  store.upsertIntegrationBinding({
+    bindingId: "binding-github-2",
     workspaceId: "workspace-1",
+    targetType: "workspace",
+    targetId: "workspace-1",
+    integrationKey: "github",
+    connectionId: "conn-github-2",
+    isDefault: true,
+  });
+  store.upsertIntegrationTree({
     treeId: "integration:github:acct-2",
     provider: "github",
-    accountId: "acct-2",
+    ownerUserId: "user-1",
+    accountKey: "atlas-github",
     accountLabel: "Atlas GitHub",
     slug: "github-atlas-acct-2",
     summary: "Atlas GitHub account memory.",
     status: "active",
   });
   store.upsertIntegrationLeaf({
-    workspaceId: "workspace-1",
     leafId: "leaf-atlas-pr-owner",
     treeId: "integration:github:acct-2",
     subjectKey: "release-pr-owner",
-    path: "workspace/workspace-1/integration/accounts/github-atlas-acct-2/leaves/leaf-atlas-pr-owner.md",
+    path: "integration/accounts/github-atlas-acct-2/leaves/leaf-atlas-pr-owner.md",
     title: "Atlas API release PR owner",
     summary: "The Atlas API release PR owner is Noah Bell.",
     fingerprint: "atlas-pr-owner-fingerprint",
@@ -2029,7 +2071,7 @@ test("runtime memory_retrieve searches both interaction and integration trees wh
     status: "active",
   });
   const integrationLeafPath = path.join(
-    workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+    globalMemoryDirForWorkspaceRoot(workspaceRoot),
     "integration",
     "accounts",
     "github-atlas-acct-2",

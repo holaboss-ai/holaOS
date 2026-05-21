@@ -73,11 +73,8 @@ export function planWorkspaceMemoryCategories(params: {
     limit: 1,
     offset: 0,
   }).length > 0;
-  const hasIntegration = params.store.listIntegrationTrees({
+  const hasIntegration = params.store.listIntegrationBindings({
     workspaceId: params.workspaceId,
-    status: "active",
-    limit: 1,
-    offset: 0,
   }).length > 0;
   if (hasInteraction && hasIntegration) {
     return ["interaction", "integration"];

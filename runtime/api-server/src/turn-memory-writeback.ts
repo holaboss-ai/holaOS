@@ -24,7 +24,7 @@ import {
 } from "./turn-semantic-artifacts.js";
 import {
   extractDurableMemoryCandidatesFromModel,
-  type DurableMemoryExtractionContext,
+  type DurableMemoryExtractionResult,
   type ExtractedDurableMemoryCandidate,
 } from "./memory-writeback-extractor.js";
 import type { MemoryModelClientConfig } from "./memory-model-client.js";
@@ -56,13 +56,64 @@ interface ModelDurableCandidate {
 }
 
 interface TurnWritebackBatchContext {
-  batchUserInstructions: string[];
-  batchAssistantTexts: string[];
+  batchTurns: Array<{
+    userInstruction: string;
+    assistantText: string;
+  }>;
   batchTurnResults: TurnResultRecord[];
   recentTurnSummaries: string[];
   recentUserMessages: SessionMessageRecord[];
   excludedRecallTurnCount: number;
 }
+
+type InteractionMemoryBatchStatus =
+  | "running"
+  | "completed"
+  | "completed_no_candidates"
+  | "failed";
+
+interface InteractionMemoryBatchState {
+  batchId: string;
+  sessionId: string;
+  turnStartIndex: number;
+  turnEndIndex: number;
+  turnInputIds: string[];
+  status: InteractionMemoryBatchStatus;
+  attemptCount: number;
+  extractionAttemptCount: number;
+  usedSubBatchFallback: boolean;
+  estimatedPromptChars: number;
+  candidateCount: number;
+  persistedLeafCount: number;
+  touchedEntities: string[];
+  extractionMs: number | null;
+  persistMs: number | null;
+  rebuildMs: number | null;
+  failureReason: string | null;
+}
+
+interface InteractionMemoryBatchLeaseState {
+  sessionId: string;
+  ownerId: string;
+  active: boolean;
+  acquiredAt: string;
+  releasedAt: string | null;
+}
+
+interface ModelDurableCandidateExtractionSuccess {
+  ok: true;
+  modelCandidates: ModelDurableCandidate[];
+  extraction: DurableMemoryExtractionResult & { ok: true };
+}
+
+interface ModelDurableCandidateExtractionFailure {
+  ok: false;
+  extraction: DurableMemoryExtractionResult & { ok: false };
+}
+
+type ModelDurableCandidateExtractionOutcome =
+  | ModelDurableCandidateExtractionSuccess
+  | ModelDurableCandidateExtractionFailure;
 
 export interface TurnMemoryWritebackModelContext {
   modelClient?: MemoryModelClientConfig | null;
@@ -71,10 +122,15 @@ export interface TurnMemoryWritebackModelContext {
 
 const TURN_BATCH_SIZE = 3;
 const BATCH_CURSOR_KEY_PREFIX = "interaction_memory_batch_processed_count:";
+const BATCH_STATE_KEY_PREFIX = "interaction_memory_batch_state:";
+const BATCH_LATEST_STATE_KEY_PREFIX = "interaction_memory_batch_latest:";
+const BATCH_LEASE_KEY_PREFIX = "interaction_memory_batch_lease:";
 const RECENT_TURNS_LIMIT = 5;
 const RECENT_USER_MESSAGES_LIMIT = 6;
 const MODEL_EXTRACTION_MIN_CONFIDENCE = 0.82;
 const MODEL_EXTRACTION_MIN_EVIDENCE_CHARS = 36;
+
+const activeInteractionBatchLeases = new Map<string, string>();
 
 function safePathSegment(value: string, fallback: string): string {
   const normalized = value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
@@ -249,12 +305,164 @@ function sessionBatchCursorKey(sessionId: string): string {
   return `${BATCH_CURSOR_KEY_PREFIX}${sessionId}`;
 }
 
+function interactionBatchStateKey(params: {
+  sessionId: string;
+  turnStartIndex: number;
+  turnEndIndex: number;
+}): string {
+  return `${BATCH_STATE_KEY_PREFIX}${params.sessionId}:${params.turnStartIndex}-${params.turnEndIndex}`;
+}
+
+function latestInteractionBatchStateKey(sessionId: string): string {
+  return `${BATCH_LATEST_STATE_KEY_PREFIX}${sessionId}`;
+}
+
+function interactionBatchLeaseKey(sessionId: string): string {
+  return `${BATCH_LEASE_KEY_PREFIX}${sessionId}`;
+}
+
 function processedTurnBatchCount(value: string | null): number {
   if (!value) {
     return 0;
   }
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function parseInteractionBatchState(value: string | null): InteractionMemoryBatchState | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(value) as Partial<InteractionMemoryBatchState>;
+    if (
+      !parsed ||
+      typeof parsed.batchId !== "string" ||
+      typeof parsed.sessionId !== "string" ||
+      typeof parsed.turnStartIndex !== "number" ||
+      typeof parsed.turnEndIndex !== "number" ||
+      typeof parsed.status !== "string"
+    ) {
+      return null;
+    }
+    return {
+      batchId: parsed.batchId,
+      sessionId: parsed.sessionId,
+      turnStartIndex: parsed.turnStartIndex,
+      turnEndIndex: parsed.turnEndIndex,
+      turnInputIds: Array.isArray(parsed.turnInputIds)
+        ? parsed.turnInputIds.filter((value): value is string => typeof value === "string")
+        : [],
+      status:
+        parsed.status === "running" ||
+        parsed.status === "completed" ||
+        parsed.status === "completed_no_candidates" ||
+        parsed.status === "failed"
+          ? parsed.status
+          : "failed",
+      attemptCount: typeof parsed.attemptCount === "number" ? parsed.attemptCount : 0,
+      extractionAttemptCount: typeof parsed.extractionAttemptCount === "number" ? parsed.extractionAttemptCount : 0,
+      usedSubBatchFallback: parsed.usedSubBatchFallback === true,
+      estimatedPromptChars: typeof parsed.estimatedPromptChars === "number" ? parsed.estimatedPromptChars : 0,
+      candidateCount: typeof parsed.candidateCount === "number" ? parsed.candidateCount : 0,
+      persistedLeafCount: typeof parsed.persistedLeafCount === "number" ? parsed.persistedLeafCount : 0,
+      touchedEntities: Array.isArray(parsed.touchedEntities)
+        ? parsed.touchedEntities.filter((value): value is string => typeof value === "string")
+        : [],
+      extractionMs: typeof parsed.extractionMs === "number" ? parsed.extractionMs : null,
+      persistMs: typeof parsed.persistMs === "number" ? parsed.persistMs : null,
+      rebuildMs: typeof parsed.rebuildMs === "number" ? parsed.rebuildMs : null,
+      failureReason: typeof parsed.failureReason === "string" ? parsed.failureReason : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeInteractionBatchState(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  state: InteractionMemoryBatchState;
+}): void {
+  const key = interactionBatchStateKey({
+    sessionId: params.state.sessionId,
+    turnStartIndex: params.state.turnStartIndex,
+    turnEndIndex: params.state.turnEndIndex,
+  });
+  const value = JSON.stringify(params.state);
+  params.store.setWorkspaceRuntimeMetadata({
+    workspaceId: params.workspaceId,
+    key,
+    value,
+  });
+  params.store.setWorkspaceRuntimeMetadata({
+    workspaceId: params.workspaceId,
+    key: latestInteractionBatchStateKey(params.state.sessionId),
+    value,
+  });
+}
+
+function writeInteractionBatchLeaseState(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  state: InteractionMemoryBatchLeaseState;
+}): void {
+  params.store.setWorkspaceRuntimeMetadata({
+    workspaceId: params.workspaceId,
+    key: interactionBatchLeaseKey(params.state.sessionId),
+    value: JSON.stringify(params.state),
+  });
+}
+
+function tryAcquireInteractionBatchLease(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  sessionId: string;
+  ownerId: string;
+}): boolean {
+  const leaseKey = `${params.workspaceId}:${params.sessionId}`;
+  const currentOwner = activeInteractionBatchLeases.get(leaseKey);
+  if (currentOwner && currentOwner !== params.ownerId) {
+    return false;
+  }
+  activeInteractionBatchLeases.set(leaseKey, params.ownerId);
+  writeInteractionBatchLeaseState({
+    store: params.store,
+    workspaceId: params.workspaceId,
+    state: {
+      sessionId: params.sessionId,
+      ownerId: params.ownerId,
+      active: true,
+      acquiredAt: new Date().toISOString(),
+      releasedAt: null,
+    },
+  });
+  return true;
+}
+
+function releaseInteractionBatchLease(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  sessionId: string;
+  ownerId: string;
+}): void {
+  const leaseKey = `${params.workspaceId}:${params.sessionId}`;
+  const currentOwner = activeInteractionBatchLeases.get(leaseKey);
+  if (currentOwner !== params.ownerId) {
+    return;
+  }
+  activeInteractionBatchLeases.delete(leaseKey);
+  writeInteractionBatchLeaseState({
+    store: params.store,
+    workspaceId: params.workspaceId,
+    state: {
+      sessionId: params.sessionId,
+      ownerId: params.ownerId,
+      active: false,
+      acquiredAt: new Date().toISOString(),
+      releasedAt: new Date().toISOString(),
+    },
+  });
 }
 
 function toolNamesFromTurnResult(turnResult: TurnResultRecord): string[] {
@@ -308,56 +516,98 @@ function shouldExcludeTurnFromMemoryExtraction(params: {
 
 async function extractedDurableMemoryCandidates(params: {
   batchTurnResults: TurnResultRecord[];
-  batchUserInstructions: string[];
-  batchAssistantTexts: string[];
+  batchTurns: Array<{
+    userInstruction: string;
+    assistantText: string;
+  }>;
   recentUserMessages: SessionMessageRecord[];
   recentTurnSummaries: string[];
   excludedRecallTurnCount: number;
   modelContext?: TurnMemoryWritebackModelContext | null;
-}): Promise<ModelDurableCandidate[]> {
+}): Promise<ModelDurableCandidateExtractionOutcome> {
   if (!params.modelContext?.modelClient) {
-    return [];
+    return {
+      ok: false,
+      extraction: {
+        ok: false,
+        failureReason: "no_model_client",
+        estimatedPromptChars: 0,
+        extractionAttemptCount: 0,
+        usedSubBatchFallback: false,
+        subBatchCount: 0,
+      },
+    };
   }
   const batchLastTurn = params.batchTurnResults[params.batchTurnResults.length - 1];
   if (!batchLastTurn) {
-    return [];
+    return {
+      ok: true,
+      modelCandidates: [],
+      extraction: {
+        ok: true,
+        candidates: [],
+        estimatedPromptChars: 0,
+        extractionAttemptCount: 0,
+        usedSubBatchFallback: false,
+        subBatchCount: 0,
+      },
+    };
   }
-  const batchUserInstructions = params.batchUserInstructions
-    .map((instruction) => clippedText(instruction, 220))
-    .filter(Boolean);
-  const batchAssistantResponses = params.batchAssistantTexts.map((text) => clippedText(text, 600)).filter(Boolean);
-  if (batchUserInstructions.length === 0 && batchAssistantResponses.length === 0) {
-    return [];
+  const batchTurns = params.batchTurns
+    .map((turn) => ({
+      userInstruction: clippedText(turn.userInstruction, 220),
+      assistantResponse: clippedText(turn.assistantText, 600),
+    }))
+    .filter((turn) => Boolean(turn.userInstruction || turn.assistantResponse));
+  if (batchTurns.length === 0) {
+    return {
+      ok: true,
+      modelCandidates: [],
+      extraction: {
+        ok: true,
+        candidates: [],
+        estimatedPromptChars: 0,
+        extractionAttemptCount: 0,
+        usedSubBatchFallback: false,
+        subBatchCount: 0,
+      },
+    };
   }
   const recentUserMessages = params.recentUserMessages
     .slice(-Math.max(4, params.batchTurnResults.length))
     .map((message) => clippedText(message.text, 220));
-  if (batchUserInstructions.length === 0 && params.modelContext.instruction?.trim()) {
-    batchUserInstructions.push(clippedText(params.modelContext.instruction, 220));
-  }
   const extractionContext: DurableMemoryExtractionContext = {
     modelClient: params.modelContext.modelClient,
     workspaceId: batchLastTurn.workspaceId,
     sessionId: batchLastTurn.sessionId,
     inputId: batchLastTurn.inputId,
-    batchTurnCount: Math.max(0, params.batchTurnResults.length - params.excludedRecallTurnCount),
-    batchUserInstructions,
-    batchAssistantResponses,
+    batchTurnCount: batchTurns.length,
+    batchTurns,
     recentUserMessages,
     recentTurnSummaries: params.recentTurnSummaries.slice(0, 4),
     excludedRecallTurnCount: params.excludedRecallTurnCount,
   };
   const extracted = await extractDurableMemoryCandidatesFromModel(extractionContext);
-  return extracted.map((candidate) => ({
-    extractedCandidate: candidate,
-    durableCandidate: durableCandidateFromExtracted({
-      turnResult: batchLastTurn,
-      extracted: {
-        ...candidate,
-        subjectKey: refinedExtractedSubjectKey(candidate),
-      },
-    }),
-  }));
+  if (!extracted.ok) {
+    return {
+      ok: false,
+      extraction: extracted,
+    };
+  }
+  return {
+    ok: true,
+    extraction: extracted,
+    modelCandidates: extracted.candidates.map((candidate) => ({
+      extractedCandidate: candidate,
+      durableCandidate: durableCandidateFromExtracted({
+        turnResult: batchLastTurn,
+        extracted: {
+          ...candidate,
+          subjectKey: refinedExtractedSubjectKey(candidate),
+        },
+      }),
+    })),
+  };
 }
 
 function acceptedModelDurableCandidates(params: {
@@ -386,8 +636,7 @@ function loadTurnWritebackBatchContext(params: {
   const batchLastTurn = params.batchTurnResults[params.batchTurnResults.length - 1];
   if (!batchLastTurn) {
     return {
-      batchUserInstructions: [],
-      batchAssistantTexts: [],
+      batchTurns: [],
       batchTurnResults: [],
       recentTurnSummaries: [],
       recentUserMessages: [],
@@ -407,8 +656,10 @@ function loadTurnWritebackBatchContext(params: {
         offset: Math.max(0, params.processedTurnCount - RECENT_TURNS_LIMIT),
       })
     : [];
-  const batchUserInstructions: string[] = [];
-  const batchAssistantTexts: string[] = [];
+  const batchTurns: Array<{
+    userInstruction: string;
+    assistantText: string;
+  }> = [];
   let excludedRecallTurnCount = 0;
   for (let index = 0; index < params.batchTurnResults.length; index += 1) {
     const turnResult = params.batchTurnResults[index];
@@ -418,16 +669,15 @@ function loadTurnWritebackBatchContext(params: {
       excludedRecallTurnCount += 1;
       continue;
     }
-    if (userInstruction) {
-      batchUserInstructions.push(userInstruction);
-    }
-    if (assistantText) {
-      batchAssistantTexts.push(assistantText);
+    if (userInstruction || assistantText) {
+      batchTurns.push({
+        userInstruction,
+        assistantText,
+      });
     }
   }
   return {
-    batchUserInstructions,
-    batchAssistantTexts,
+    batchTurns,
     batchTurnResults: params.batchTurnResults,
     recentTurnSummaries: recentTurns
       .map((item) => item.assistantText)
@@ -518,6 +768,24 @@ export async function writeTurnDurableMemory(params: {
     );
   }
 
+  const leaseOwnerId = `${params.turnResult.inputId}:${Date.now()}`;
+  if (
+    !tryAcquireInteractionBatchLease({
+      store: params.store,
+      workspaceId: params.turnResult.workspaceId,
+      sessionId: params.turnResult.sessionId,
+      ownerId: leaseOwnerId,
+    })
+  ) {
+    return (
+      params.store.getTurnResult({
+        workspaceId: params.turnResult.workspaceId,
+        inputId: params.turnResult.inputId,
+      }) ?? params.turnResult
+    );
+  }
+
+  try {
   const cursorKey = sessionBatchCursorKey(params.turnResult.sessionId);
   let processedTurnCount = processedTurnBatchCount(
     params.store.getWorkspaceRuntimeMetadata({
@@ -538,6 +806,43 @@ export async function writeTurnDurableMemory(params: {
     if (batchTurnResults.length < TURN_BATCH_SIZE) {
       break;
     }
+    const turnStartIndex = processedTurnCount + 1;
+    const turnEndIndex = processedTurnCount + batchTurnResults.length;
+    const batchStateKey = interactionBatchStateKey({
+      sessionId: params.turnResult.sessionId,
+      turnStartIndex,
+      turnEndIndex,
+    });
+    const priorBatchState = parseInteractionBatchState(
+      params.store.getWorkspaceRuntimeMetadata({
+        workspaceId: params.turnResult.workspaceId,
+        key: batchStateKey,
+      }),
+    );
+    const runningBatchState: InteractionMemoryBatchState = {
+      batchId: `${params.turnResult.sessionId}:${turnStartIndex}-${turnEndIndex}`,
+      sessionId: params.turnResult.sessionId,
+      turnStartIndex,
+      turnEndIndex,
+      turnInputIds: batchTurnResults.map((turn) => turn.inputId),
+      status: "running",
+      attemptCount: (priorBatchState?.attemptCount ?? 0) + 1,
+      extractionAttemptCount: 0,
+      usedSubBatchFallback: false,
+      estimatedPromptChars: 0,
+      candidateCount: 0,
+      persistedLeafCount: 0,
+      touchedEntities: [],
+      extractionMs: null,
+      persistMs: null,
+      rebuildMs: null,
+      failureReason: null,
+    };
+    writeInteractionBatchState({
+      store: params.store,
+      workspaceId: params.turnResult.workspaceId,
+      state: runningBatchState,
+    });
 
     const context = loadTurnWritebackBatchContext({
       store: params.store,
@@ -548,69 +853,123 @@ export async function writeTurnDurableMemory(params: {
     if (!batchLastTurn) {
       break;
     }
-    const extractedCandidates = await extractedDurableMemoryCandidates({
-      batchTurnResults: context.batchTurnResults,
-      batchUserInstructions: context.batchUserInstructions,
-      batchAssistantTexts: context.batchAssistantTexts,
-      recentUserMessages: context.recentUserMessages,
-      recentTurnSummaries: context.recentTurnSummaries,
-      excludedRecallTurnCount: context.excludedRecallTurnCount,
-      modelContext: params.modelContext ?? null,
-    });
-    const durableCandidates = acceptedModelDurableCandidates({
-      modelCandidates: extractedCandidates,
-    });
-    if (durableCandidates.length > 0) {
-      const embeddingClient = createRecallEmbeddingModelClient({
-        workspaceId: batchLastTurn.workspaceId,
-        sessionId: batchLastTurn.sessionId,
-        inputId: batchLastTurn.inputId,
+    try {
+      const extractionStartedAt = Date.now();
+      const extractedCandidates = await extractedDurableMemoryCandidates({
+        batchTurnResults: context.batchTurnResults,
+        batchTurns: context.batchTurns,
+        recentUserMessages: context.recentUserMessages,
+        recentTurnSummaries: context.recentTurnSummaries,
+        excludedRecallTurnCount: context.excludedRecallTurnCount,
+        modelContext: params.modelContext ?? null,
       });
-      const summaryModelClient = params.modelContext.modelClient ?? null;
-      const touchedEntityIds = new Set<string>();
-
-      for (const candidate of durableCandidates) {
-        const persisted = await persistInteractionCandidate({
+      const extractionMs = Date.now() - extractionStartedAt;
+      if (!extractedCandidates.ok) {
+        writeInteractionBatchState({
           store: params.store,
-          workspaceId: batchLastTurn.workspaceId,
-          candidate: {
-            subjectKey: candidate.subjectKey,
-            title: candidate.title,
-            summary: candidate.summary,
-            content: candidate.content,
-            tags: candidate.tags,
-            memoryType: candidate.memoryType,
-            sourceType: candidate.sourceType,
-            sourceEventId: batchLastTurn.inputId,
-            sourceMessageId: candidate.sourceMessageId ?? null,
-            sourceTurnInputId: batchLastTurn.inputId,
-            observedAt: candidate.observedAt ?? null,
-            confidence: candidate.confidence ?? null,
+          workspaceId: params.turnResult.workspaceId,
+          state: {
+            ...runningBatchState,
+            status: "failed",
+            extractionAttemptCount: extractedCandidates.extraction.extractionAttemptCount,
+            usedSubBatchFallback: extractedCandidates.extraction.usedSubBatchFallback,
+            estimatedPromptChars: extractedCandidates.extraction.estimatedPromptChars,
+            extractionMs,
+            failureReason: extractedCandidates.extraction.failureReason,
           },
-          modelClient: params.modelContext.modelClient ?? null,
-          embeddingClient,
         });
-        if (persisted.outcome !== "noop_duplicate") {
-          touchedEntityIds.add(persisted.entity.entityId);
-        }
+        break;
       }
-      for (const entityId of touchedEntityIds) {
-        await rebuildInteractionEntityTree({
-          store: params.store,
+      const durableCandidates = acceptedModelDurableCandidates({
+        modelCandidates: extractedCandidates.modelCandidates,
+      });
+      let persistedLeafCount = 0;
+      let persistMs = 0;
+      let rebuildMs = 0;
+      const touchedEntityIds = new Set<string>();
+      if (durableCandidates.length > 0) {
+        const embeddingClient = createRecallEmbeddingModelClient({
           workspaceId: batchLastTurn.workspaceId,
-          entityId,
-          summaryModelClient,
-          embeddingClient,
+          sessionId: batchLastTurn.sessionId,
+          inputId: batchLastTurn.inputId,
         });
+        const summaryModelClient = params.modelContext.modelClient ?? null;
+        const persistStartedAt = Date.now();
+        for (const candidate of durableCandidates) {
+          const persisted = await persistInteractionCandidate({
+            store: params.store,
+            workspaceId: batchLastTurn.workspaceId,
+            candidate: {
+              subjectKey: candidate.subjectKey,
+              title: candidate.title,
+              summary: candidate.summary,
+              content: candidate.content,
+              tags: candidate.tags,
+              memoryType: candidate.memoryType,
+              sourceType: candidate.sourceType,
+              sourceEventId: batchLastTurn.inputId,
+              sourceMessageId: candidate.sourceMessageId ?? null,
+              sourceTurnInputId: batchLastTurn.inputId,
+              observedAt: candidate.observedAt ?? null,
+              confidence: candidate.confidence ?? null,
+            },
+            modelClient: params.modelContext.modelClient ?? null,
+            embeddingClient,
+          });
+          if (persisted.outcome !== "noop_duplicate") {
+            persistedLeafCount += 1;
+            touchedEntityIds.add(persisted.entity.entityId);
+          }
+        }
+        persistMs = Date.now() - persistStartedAt;
+        const rebuildStartedAt = Date.now();
+        for (const entityId of touchedEntityIds) {
+          await rebuildInteractionEntityTree({
+            store: params.store,
+            workspaceId: batchLastTurn.workspaceId,
+            entityId,
+            summaryModelClient,
+            embeddingClient,
+          });
+        }
+        rebuildMs = Date.now() - rebuildStartedAt;
       }
-    }
 
-    processedTurnCount += TURN_BATCH_SIZE;
-    params.store.setWorkspaceRuntimeMetadata({
-      workspaceId: params.turnResult.workspaceId,
-      key: cursorKey,
-      value: String(processedTurnCount),
-    });
+      processedTurnCount += TURN_BATCH_SIZE;
+      params.store.setWorkspaceRuntimeMetadata({
+        workspaceId: params.turnResult.workspaceId,
+        key: cursorKey,
+        value: String(processedTurnCount),
+      });
+      writeInteractionBatchState({
+        store: params.store,
+        workspaceId: params.turnResult.workspaceId,
+        state: {
+          ...runningBatchState,
+          status: durableCandidates.length > 0 ? "completed" : "completed_no_candidates",
+          extractionAttemptCount: extractedCandidates.extraction.extractionAttemptCount,
+          usedSubBatchFallback: extractedCandidates.extraction.usedSubBatchFallback,
+          estimatedPromptChars: extractedCandidates.extraction.estimatedPromptChars,
+          candidateCount: extractedCandidates.modelCandidates.length,
+          persistedLeafCount,
+          touchedEntities: [...touchedEntityIds].sort((left, right) => left.localeCompare(right)),
+          extractionMs,
+          persistMs,
+          rebuildMs,
+        },
+      });
+    } catch (error) {
+      writeInteractionBatchState({
+        store: params.store,
+        workspaceId: params.turnResult.workspaceId,
+        state: {
+          ...runningBatchState,
+          status: "failed",
+          failureReason: error instanceof Error && error.message ? error.message : "batch_processing_failed",
+        },
+      });
+      throw error;
+    }
   }
 
   return (
@@ -619,6 +978,14 @@ export async function writeTurnDurableMemory(params: {
       inputId: params.turnResult.inputId,
     }) ?? params.turnResult
   );
+  } finally {
+    releaseInteractionBatchLease({
+      store: params.store,
+      workspaceId: params.turnResult.workspaceId,
+      sessionId: params.turnResult.sessionId,
+      ownerId: leaseOwnerId,
+    });
+  }
 }
 
 export async function writeTurnMemory(params: {

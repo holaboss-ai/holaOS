@@ -143,6 +143,37 @@ async function withModelExtractionResponse(params: {
   onRequest?: (body: string) => void;
   run: (modelContext: TurnMemoryWritebackModelContext) => Promise<void>;
 }): Promise<void> {
+  await withModelExtractionResponses({
+    responses: [
+      {
+        statusCode: 200,
+        body: {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  memories: params.memories,
+                }),
+              },
+            },
+          ],
+        },
+      },
+    ],
+    onRequest: params.onRequest,
+    run: params.run,
+  });
+}
+
+async function withModelExtractionResponses(params: {
+  responses: Array<{
+    statusCode: number;
+    body?: Record<string, unknown>;
+    delayMs?: number;
+  }>;
+  onRequest?: (body: string, index: number) => void;
+  run: (modelContext: TurnMemoryWritebackModelContext) => Promise<void>;
+}): Promise<void> {
   const server = http.createServer((request, response) => {
     if (request.method !== "POST" || request.url !== "/openai/v1/chat/completions") {
       response.statusCode = 404;
@@ -154,24 +185,24 @@ async function withModelExtractionResponse(params: {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     });
     request.on("end", () => {
-      params.onRequest?.(Buffer.concat(chunks).toString("utf8"));
-      response.statusCode = 200;
-      response.setHeader("content-type", "application/json");
-      response.end(
-        JSON.stringify({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  memories: params.memories,
-                }),
-              },
-            },
-          ],
-        }),
-      );
+      const requestIndex = requestCount;
+      requestCount += 1;
+      params.onRequest?.(Buffer.concat(chunks).toString("utf8"), requestIndex);
+      const configuredResponse = params.responses[Math.min(requestIndex, params.responses.length - 1)] ?? {
+        statusCode: 500,
+      };
+      setTimeout(() => {
+        response.statusCode = configuredResponse.statusCode;
+        if (configuredResponse.body) {
+          response.setHeader("content-type", "application/json");
+          response.end(JSON.stringify(configuredResponse.body));
+          return;
+        }
+        response.end();
+      }, Math.max(0, configuredResponse.delayMs ?? 0));
     });
   });
+  let requestCount = 0;
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -255,6 +286,17 @@ function interactionBatchCursor(store: RuntimeStateStore, sessionId = "session-m
     workspaceId: "workspace-1",
     key: `interaction_memory_batch_processed_count:${sessionId}`,
   });
+}
+
+function latestInteractionBatchState(store: RuntimeStateStore, sessionId = "session-main"): Record<string, unknown> | null {
+  const raw = store.getWorkspaceRuntimeMetadata({
+    workspaceId: "workspace-1",
+    key: `interaction_memory_batch_latest:${sessionId}`,
+  });
+  if (!raw) {
+    return null;
+  }
+  return JSON.parse(raw) as Record<string, unknown>;
 }
 
 test("writeTurnDurableMemory does not mutate turn result summaries or write runtime continuity files", async () => {
@@ -404,6 +446,247 @@ test("writeTurnDurableMemory waits for a full three-turn batch and does not repl
   assert.match(files[blockerLeaf.path], /Recurring deploy policy blocker/);
   assert.match(files[blockerLeaf.path], /blocked by workspace policy/i);
   assert.equal(interactionBatchCursor(store), "3");
+
+  store.close();
+});
+
+test("writeTurnDurableMemory does not advance the batch cursor when extraction fails", async () => {
+  const { store, memoryService } = makeRuntimeState("hb-turn-memory-extraction-fail-");
+  seedWorkspace(store);
+  const [, , turnResult] = seedCompletedTurns({
+    store,
+    turns: [
+      {
+        userText: "Remember that vendor escalation contact is Alicia Park.",
+        assistantText: "I will remember the vendor escalation contact.",
+      },
+      {
+        userText: "This is specifically for future escalation handling.",
+        assistantText: "Understood.",
+      },
+      {
+        userText: "Keep this durable for future recall.",
+        assistantText: "Captured the escalation contact.",
+      },
+    ],
+  });
+
+  await withModelExtractionResponses({
+    responses: [{ statusCode: 500 }],
+    run: async (modelContext) => {
+      await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult,
+        modelContext,
+      });
+    },
+  });
+
+  assert.equal(interactionBatchCursor(store), null);
+  assert.deepEqual(listActiveInteractionLeaves(store, "workspace-1"), []);
+  const batchState = latestInteractionBatchState(store);
+  assert.ok(batchState);
+  assert.equal(batchState?.status, "failed");
+  assert.equal(batchState?.failureReason, "model_request_failed");
+  assert.equal(batchState?.attemptCount, 1);
+  assert.equal(batchState?.extractionAttemptCount, 1);
+
+  store.close();
+});
+
+test("writeTurnDurableMemory retries extraction with smaller sub-batches when the full batch request fails", async () => {
+  const { store, memoryService } = makeRuntimeState("hb-turn-memory-extraction-fallback-");
+  seedWorkspace(store);
+  const [, , turnResult] = seedCompletedTurns({
+    store,
+    turns: [
+      {
+        userText: "Remember for Pine Harbor that the billing escalation contact is Nina Patel.",
+        assistantText: "I will remember the Pine Harbor billing contact.",
+      },
+      {
+        userText: "Also remember for Pine Harbor that the contract renewal owner is Mateo Cruz.",
+        assistantText: "I will remember the Pine Harbor contract renewal owner.",
+      },
+      {
+        userText: "Remember that Pine Harbor uses the finance-ledger dispute workflow.",
+        assistantText: "I will remember the Pine Harbor dispute workflow.",
+      },
+    ],
+  });
+
+  let requestCount = 0;
+  await withModelExtractionResponses({
+    responses: [
+      { statusCode: 500 },
+      {
+        statusCode: 200,
+        body: {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  memories: [
+                    {
+                      scope: "workspace",
+                      memory_type: "fact",
+                      subject_key: "pine_harbor",
+                      title: "Pine Harbor billing escalation contact",
+                      summary: "For Pine Harbor, the billing escalation contact is Nina Patel.",
+                      tags: ["customer", "contact"],
+                      evidence: "User stated that the Pine Harbor billing escalation contact is Nina Patel.",
+                      confidence: 0.99,
+                    },
+                    {
+                      scope: "workspace",
+                      memory_type: "fact",
+                      subject_key: "pine_harbor",
+                      title: "Pine Harbor contract renewal owner",
+                      summary: "For Pine Harbor, the contract renewal owner is Mateo Cruz.",
+                      tags: ["customer", "owner"],
+                      evidence: "User stated that Pine Harbor contract renewal owner is Mateo Cruz.",
+                      confidence: 0.99,
+                    },
+                  ],
+                }),
+              },
+            },
+          ],
+        },
+      },
+      {
+        statusCode: 200,
+        body: {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  memories: [
+                    {
+                      scope: "workspace",
+                      memory_type: "reference",
+                      subject_key: "pine_harbor",
+                      title: "Pine Harbor dispute workflow reference",
+                      summary: "Pine Harbor uses the finance-ledger dispute workflow.",
+                      tags: ["customer", "workflow"],
+                      evidence: "User stated that Pine Harbor uses the finance-ledger dispute workflow.",
+                      confidence: 0.95,
+                    },
+                  ],
+                }),
+              },
+            },
+          ],
+        },
+      },
+    ],
+    onRequest: () => {
+      requestCount += 1;
+    },
+    run: async (modelContext) => {
+      await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult,
+        modelContext,
+      });
+    },
+  });
+
+  assert.equal(requestCount, 3);
+  assert.equal(interactionBatchCursor(store), "3");
+  const batchState = latestInteractionBatchState(store);
+  assert.ok(batchState);
+  assert.equal(batchState?.status, "completed");
+  assert.equal(batchState?.usedSubBatchFallback, true);
+  assert.equal(batchState?.extractionAttemptCount, 3);
+  const leaves = listActiveInteractionLeaves(store, "workspace-1").filter(
+    (leaf) => leaf.entityId === "interaction:customer:pine-harbor",
+  );
+  assert.equal(leaves.length, 3);
+
+  store.close();
+});
+
+test("writeTurnDurableMemory prevents overlapping extraction for the same session while a batch is in flight", async () => {
+  const { store, memoryService } = makeRuntimeState("hb-turn-memory-batch-lease-");
+  seedWorkspace(store);
+  const [, , turnResult] = seedCompletedTurns({
+    store,
+    turns: [
+      {
+        userText: "Remember for Pine Harbor that the billing escalation contact is Nina Patel.",
+        assistantText: "I will remember the Pine Harbor billing contact.",
+      },
+      {
+        userText: "Also remember for Pine Harbor that the contract renewal owner is Mateo Cruz.",
+        assistantText: "I will remember the Pine Harbor contract renewal owner.",
+      },
+      {
+        userText: "Remember that Pine Harbor uses the finance-ledger dispute workflow.",
+        assistantText: "I will remember the Pine Harbor dispute workflow.",
+      },
+    ],
+  });
+
+  let requestCount = 0;
+  await withModelExtractionResponses({
+    responses: [
+      {
+        statusCode: 200,
+        delayMs: 150,
+        body: {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  memories: [
+                    {
+                      scope: "workspace",
+                      memory_type: "fact",
+                      subject_key: "pine_harbor",
+                      title: "Pine Harbor billing escalation contact",
+                      summary: "For Pine Harbor, the billing escalation contact is Nina Patel.",
+                      tags: ["customer", "contact"],
+                      evidence: "User stated that the Pine Harbor billing escalation contact is Nina Patel.",
+                      confidence: 0.99,
+                    },
+                  ],
+                }),
+              },
+            },
+          ],
+        },
+      },
+    ],
+    onRequest: () => {
+      requestCount += 1;
+    },
+    run: async (modelContext) => {
+      const firstWrite = writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult,
+        modelContext,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      const secondWrite = await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult,
+        modelContext,
+      });
+      assert.equal(secondWrite.inputId, turnResult.inputId);
+      assert.equal(interactionBatchCursor(store), null);
+      assert.equal(requestCount, 1);
+      await firstWrite;
+    },
+  });
+
+  assert.equal(requestCount, 1);
+  assert.equal(interactionBatchCursor(store), "3");
+  assert.equal(listActiveInteractionLeaves(store, "workspace-1").length, 1);
 
   store.close();
 });

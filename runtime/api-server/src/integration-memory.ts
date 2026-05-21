@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  type IntegrationConnectionRecord,
   type IntegrationLeafRecord,
   type IntegrationSummaryNodeRecord,
   type IntegrationTreeRecord,
@@ -15,7 +16,7 @@ import type { AgentRecalledMemoryContext } from "./agent-runtime-prompt.js";
 import { createBackgroundTaskMemoryModelClient } from "./background-task-model.js";
 import { queryMemoryModelEmbedding, queryMemoryModelJson, type MemoryModelClientConfig } from "./memory-model-client.js";
 import { createRecallEmbeddingModelClient } from "./recall-embedding-model.js";
-import { workspaceMemoryDir } from "./workspace-bundle-paths.js";
+import { globalMemoryDirForWorkspaceRoot } from "./workspace-bundle-paths.js";
 
 const INTEGRATION_BRANCH_FACTOR = 8;
 const MAX_RETRIEVE_RESULTS = 12;
@@ -23,7 +24,8 @@ const EMBEDDING_EXCERPT_CHARS = 480;
 
 export interface IntegrationLeafCandidate {
   provider: string;
-  accountId: string;
+  ownerUserId: string;
+  accountKey: string;
   accountLabel: string;
   subjectKey: string;
   title: string;
@@ -51,7 +53,8 @@ export interface IntegrationMemoryRetrieveHit {
   node_id: string;
   tree_id: string;
   provider: string;
-  account_id: string;
+  owner_user_id: string;
+  account_key: string;
   account_label: string;
   path: string;
   title: string;
@@ -177,18 +180,16 @@ function safePathSegment(value: string, fallback: string): string {
   return normalized || fallback;
 }
 
-function integrationMemoryRootDir(workspaceDir: string): string {
-  return path.join(workspaceMemoryDir(workspaceDir), "integration");
+function integrationMemoryRootDir(workspaceRoot: string): string {
+  return path.join(globalMemoryDirForWorkspaceRoot(workspaceRoot), "integration");
 }
 
-function integrationTreeDir(workspaceDir: string, slug: string): string {
-  return path.join(integrationMemoryRootDir(workspaceDir), "accounts", slug);
+function integrationTreeDir(workspaceRoot: string, slug: string): string {
+  return path.join(integrationMemoryRootDir(workspaceRoot), "accounts", slug);
 }
 
-function integrationLeafRelativePath(workspaceId: string, treeSlug: string, leafId: string): string {
+function integrationLeafRelativePath(treeSlug: string, leafId: string): string {
   return path.posix.join(
-    "workspace",
-    workspaceId,
     "integration",
     "accounts",
     treeSlug,
@@ -198,14 +199,11 @@ function integrationLeafRelativePath(workspaceId: string, treeSlug: string, leaf
 }
 
 function integrationSummaryRelativePath(
-  workspaceId: string,
   treeSlug: string,
   level: number,
   nodeId: string,
 ): string {
   return path.posix.join(
-    "workspace",
-    workspaceId,
     "integration",
     "accounts",
     treeSlug,
@@ -219,13 +217,9 @@ function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function absolutePathForRelative(workspaceDir: string, relativePath: string): string {
-  const prefix = "workspace/";
-  const normalized = relativePath.replaceAll("\\", "/");
-  const trimmed = normalized.startsWith(prefix)
-    ? normalized.split("/").slice(2).join("/")
-    : normalized;
-  return path.join(workspaceMemoryDir(workspaceDir), trimmed);
+function absolutePathForRelative(workspaceRoot: string, relativePath: string): string {
+  const normalized = relativePath.replaceAll("\\", "/").replace(/^\/+/, "");
+  return path.join(globalMemoryDirForWorkspaceRoot(workspaceRoot), normalized);
 }
 
 function writeFileIfChanged(filePath: string, content: string): void {
@@ -282,40 +276,52 @@ function buildEmbeddingText(params: {
 
 function integrationTreeIdentity(params: {
   provider: string;
-  accountId: string;
+  ownerUserId: string;
+  accountKey: string;
   accountLabel: string;
 }): { treeId: string; slug: string } {
   const providerSlug = safePathSegment(params.provider, "provider");
-  const labelSlug = safePathSegment(params.accountLabel || params.accountId, "account");
-  const accountHash = sha256(`${params.provider}|${params.accountId}`).slice(0, 12);
+  const labelSlug = safePathSegment(params.accountLabel || params.accountKey, "account");
+  const accountHash = sha256(`${params.provider}|${params.ownerUserId}|${params.accountKey}`).slice(0, 12);
   return {
     treeId: `integration:${providerSlug}:${accountHash}`,
     slug: `${providerSlug}-${labelSlug}-${accountHash}`,
   };
 }
 
+function stableIntegrationAccountKey(connection: IntegrationConnectionRecord): string {
+  const normalized = (value: string | null | undefined): string | null => {
+    const token = typeof value === "string" ? value.trim() : "";
+    return token || null;
+  };
+  return normalized(connection.accountHandle)
+    ?? normalized(connection.accountEmail)
+    ?? normalized(connection.accountExternalId)
+    ?? connection.connectionId;
+}
+
 function ensureIntegrationTree(params: {
   store: RuntimeStateStore;
-  workspaceId: string;
   provider: string;
-  accountId: string;
+  ownerUserId: string;
+  accountKey: string;
   accountLabel: string;
   summary?: string | null;
 }): IntegrationTreeRecord {
   const identity = integrationTreeIdentity(params);
-  const existing = params.store.getIntegrationTree({
-    workspaceId: params.workspaceId,
-    treeId: identity.treeId,
-  }) ?? params.store.getIntegrationTreeBySlug({
-    workspaceId: params.workspaceId,
-    slug: identity.slug,
-  });
+  const existing = params.store.getIntegrationTree({ treeId: identity.treeId })
+    ?? params.store.getIntegrationTreeByAccountIdentity({
+      provider: params.provider,
+      ownerUserId: params.ownerUserId,
+      accountKey: params.accountKey,
+    })
+    ?? params.store.getIntegrationTreeBySlug({ slug: identity.slug });
   if (existing) {
     return params.store.upsertIntegrationTree({
-      workspaceId: params.workspaceId,
       treeId: existing.treeId,
       provider: params.provider,
-      accountId: params.accountId,
+      ownerUserId: params.ownerUserId,
+      accountKey: params.accountKey,
       accountLabel: params.accountLabel,
       slug: existing.slug,
       summary: params.summary ?? existing.summary,
@@ -323,10 +329,10 @@ function ensureIntegrationTree(params: {
     });
   }
   return params.store.upsertIntegrationTree({
-    workspaceId: params.workspaceId,
     treeId: identity.treeId,
     provider: params.provider,
-    accountId: params.accountId,
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
     accountLabel: params.accountLabel,
     slug: identity.slug,
     summary: params.summary ?? null,
@@ -567,14 +573,14 @@ async function buildSummaryTreePlan(params: {
       const childIdentity = node.children.map((child) => `${child.kind}:${child.id}`).join("|");
       const nodeId = `summary-${sha256(`${params.tree.treeId}|L${level}|${childIdentity}`).slice(0, 24)}`;
       nodeIdByTempId.set(node.tempId, { nodeId, level });
-      nodes.push({
-        nodeId,
-        level,
-        ordinal: index + 1,
-        path: integrationSummaryRelativePath(params.workspaceId, params.tree.slug, level, nodeId),
-        title: node.title,
-        summary: node.summary,
-        body: node.body,
+        nodes.push({
+          nodeId,
+          level,
+          ordinal: index + 1,
+          path: integrationSummaryRelativePath(params.tree.slug, level, nodeId),
+          title: node.title,
+          summary: node.summary,
+          body: node.body,
         bodySha256: sha256(node.body),
         childCount: node.children.length,
         sealedAt,
@@ -614,7 +620,6 @@ async function buildSummaryTreePlan(params: {
 
 async function syncNodeEmbedding(params: {
   store: RuntimeStateStore;
-  workspaceId: string;
   tree: IntegrationTreeRecord;
   nodeKind: InteractionTreeChildKind;
   nodeId: string;
@@ -637,7 +642,6 @@ async function syncNodeEmbedding(params: {
   });
   const contentFingerprint = sha256(embeddingText);
   const existing = params.store.getIntegrationNodeEmbedding({
-    workspaceId: params.workspaceId,
     nodeKind: params.nodeKind,
     nodeId: params.nodeId,
     embeddingModel: params.embeddingClient.modelId,
@@ -653,7 +657,6 @@ async function syncNodeEmbedding(params: {
     return;
   }
   params.store.upsertIntegrationNodeEmbedding({
-    workspaceId: params.workspaceId,
     nodeKind: params.nodeKind,
     nodeId: params.nodeId,
     treeId: params.tree.treeId,
@@ -672,14 +675,13 @@ export async function persistIntegrationCandidate(params: {
 }): Promise<PersistedIntegrationLeafResult> {
   const tree = ensureIntegrationTree({
     store: params.store,
-    workspaceId: params.workspaceId,
     provider: params.candidate.provider,
-    accountId: params.candidate.accountId,
+    ownerUserId: params.candidate.ownerUserId,
+    accountKey: params.candidate.accountKey,
     accountLabel: params.candidate.accountLabel,
   });
   const contentFingerprint = sha256(params.candidate.content);
   const existingDuplicate = params.store.getIntegrationLeafByFingerprint({
-    workspaceId: params.workspaceId,
     treeId: tree.treeId,
     fingerprint: contentFingerprint,
   });
@@ -691,21 +693,18 @@ export async function persistIntegrationCandidate(params: {
     };
   }
 
-  const leafId = `leaf-${sha256(`${params.workspaceId}|${tree.treeId}|${params.candidate.subjectKey}|${contentFingerprint}`).slice(0, 24)}`;
-  const relativePath = integrationLeafRelativePath(params.workspaceId, tree.slug, leafId);
+  const leafId = `leaf-${sha256(`${tree.treeId}|${params.candidate.subjectKey}|${contentFingerprint}`).slice(0, 24)}`;
+  const relativePath = integrationLeafRelativePath(tree.slug, leafId);
   const existingActive = params.store.getLatestActiveIntegrationLeafBySubject({
-    workspaceId: params.workspaceId,
     treeId: tree.treeId,
     subjectKey: params.candidate.subjectKey,
   });
-  const workspaceDir = params.store.workspaceDir(params.workspaceId);
-  const absolutePath = absolutePathForRelative(workspaceDir, relativePath);
+  const absolutePath = absolutePathForRelative(params.store.workspaceRoot, relativePath);
   writeFileIfChanged(absolutePath, params.candidate.content);
 
   let outcome: PersistedIntegrationLeafResult["outcome"] = "created";
   if (existingActive && existingActive.fingerprint !== contentFingerprint) {
     params.store.updateIntegrationLeafStatus({
-      workspaceId: params.workspaceId,
       leafId: existingActive.leafId,
       status: "superseded",
       supersededAt: params.candidate.observedAt ?? utcNowIso(),
@@ -714,7 +713,6 @@ export async function persistIntegrationCandidate(params: {
   }
 
   const leaf = params.store.upsertIntegrationLeaf({
-    workspaceId: params.workspaceId,
     leafId,
     treeId: tree.treeId,
     subjectKey: params.candidate.subjectKey,
@@ -737,7 +735,6 @@ export async function persistIntegrationCandidate(params: {
 
   await syncNodeEmbedding({
     store: params.store,
-    workspaceId: params.workspaceId,
     tree,
     nodeKind: "leaf",
     nodeId: leaf.leafId,
@@ -761,22 +758,17 @@ export async function rebuildIntegrationTree(params: {
   summaryModelClient?: MemoryModelClientConfig | null;
   embeddingClient?: MemoryModelClientConfig | null;
 }): Promise<void> {
-  const tree = params.store.getIntegrationTree({
-    workspaceId: params.workspaceId,
-    treeId: params.treeId,
-  });
+  const tree = params.store.getIntegrationTree({ treeId: params.treeId });
   if (!tree) {
     return;
   }
-  const workspaceDir = params.store.workspaceDir(params.workspaceId);
-  const treeDir = integrationTreeDir(workspaceDir, tree.slug);
+  const treeDir = integrationTreeDir(params.store.workspaceRoot, tree.slug);
   const summariesDir = path.join(treeDir, "summaries");
   fs.rmSync(summariesDir, { recursive: true, force: true });
   fs.mkdirSync(summariesDir, { recursive: true });
 
   const activeLeaves = params.store
     .listIntegrationLeaves({
-      workspaceId: params.workspaceId,
       treeId: params.treeId,
       status: "active",
       limit: 10_000,
@@ -798,10 +790,9 @@ export async function rebuildIntegrationTree(params: {
     modelClient: params.summaryModelClient ?? null,
   });
   for (const node of plan.nodes) {
-    writeFileIfChanged(absolutePathForRelative(workspaceDir, node.path), node.body);
+    writeFileIfChanged(absolutePathForRelative(params.store.workspaceRoot, node.path), node.body);
   }
   params.store.replaceIntegrationSummaryTree({
-    workspaceId: params.workspaceId,
     treeId: params.treeId,
     nodes: plan.nodes.map((node) => ({
       nodeId: node.nodeId,
@@ -819,7 +810,6 @@ export async function rebuildIntegrationTree(params: {
   for (const node of plan.nodes) {
     await syncNodeEmbedding({
       store: params.store,
-      workspaceId: params.workspaceId,
       tree,
       nodeKind: "summary",
       nodeId: node.nodeId,
@@ -851,7 +841,6 @@ export async function rebuildAllIntegrationTrees(params: {
     selectedModel: params.selectedModel ?? null,
   });
   const trees = params.store.listIntegrationTrees({
-    workspaceId: params.workspaceId,
     status: "active",
     limit: 10_000,
     offset: 0,
@@ -866,7 +855,6 @@ export async function rebuildAllIntegrationTrees(params: {
       embeddingClient,
     });
     summaryCount += params.store.listIntegrationSummaryNodes({
-      workspaceId: params.workspaceId,
       treeId: tree.treeId,
       status: "active",
       limit: 10_000,
@@ -905,14 +893,41 @@ async function queryEmbeddingVector(params: {
   };
 }
 
-function buildLeafCandidate(params: {
+function accessibleIntegrationTreesForWorkspace(params: {
   store: RuntimeStateStore;
   workspaceId: string;
+  treeId?: string | null;
+}): IntegrationTreeRecord[] {
+  const targetTreeId = (params.treeId ?? "").trim();
+  const byTreeId = new Map<string, IntegrationTreeRecord>();
+  for (const binding of params.store.listIntegrationBindings({ workspaceId: params.workspaceId })) {
+    const connection = params.store.getIntegrationConnection(binding.connectionId);
+    if (!connection || connection.status.trim().toLowerCase() !== "active") {
+      continue;
+    }
+    const tree = params.store.getIntegrationTreeByAccountIdentity({
+      provider: connection.providerId,
+      ownerUserId: connection.ownerUserId,
+      accountKey: stableIntegrationAccountKey(connection),
+    });
+    if (!tree || tree.status !== "active") {
+      continue;
+    }
+    if (targetTreeId && tree.treeId !== targetTreeId) {
+      continue;
+    }
+    byTreeId.set(tree.treeId, tree);
+  }
+  return [...byTreeId.values()];
+}
+
+function buildLeafCandidate(params: {
+  store: RuntimeStateStore;
   tree: IntegrationTreeRecord;
   leaf: IntegrationLeafRecord;
 }): NodeCandidate {
   const filePath = absolutePathForRelative(
-    params.store.workspaceDir(params.workspaceId),
+    params.store.workspaceRoot,
     params.leaf.path,
   );
   const body = readFileIfExists(filePath);
@@ -933,12 +948,11 @@ function buildLeafCandidate(params: {
 
 function buildSummaryCandidate(params: {
   store: RuntimeStateStore;
-  workspaceId: string;
   tree: IntegrationTreeRecord;
   node: IntegrationSummaryNodeRecord;
 }): NodeCandidate {
   const filePath = absolutePathForRelative(
-    params.store.workspaceDir(params.workspaceId),
+    params.store.workspaceRoot,
     params.node.path,
   );
   const body = readFileIfExists(filePath);
@@ -1017,7 +1031,8 @@ function candidateToHit(params: {
     node_id: params.candidate.id,
     tree_id: params.candidate.tree.treeId,
     provider: params.candidate.tree.provider,
-    account_id: params.candidate.tree.accountId,
+    owner_user_id: params.candidate.tree.ownerUserId,
+    account_key: params.candidate.tree.accountKey,
     account_label: params.candidate.tree.accountLabel,
     path: params.candidate.path,
     title: params.candidate.title,
@@ -1034,7 +1049,6 @@ function candidateToHit(params: {
 
 async function childHitsForNode(params: {
   store: RuntimeStateStore;
-  workspaceId: string;
   parentNodeId: string;
   query: string;
   mode: "mixed" | "summaries" | "leaves";
@@ -1042,49 +1056,32 @@ async function childHitsForNode(params: {
   queryVector: number[] | null;
   embeddingByKey: Map<string, number[]>;
 }): Promise<IntegrationMemoryRetrieveHit[]> {
-  const parent = params.store.getIntegrationSummaryNode({
-    workspaceId: params.workspaceId,
-    nodeId: params.parentNodeId,
-  });
+  const parent = params.store.getIntegrationSummaryNode({ nodeId: params.parentNodeId });
   if (!parent) {
     return [];
   }
-  const tree = params.store.getIntegrationTree({
-    workspaceId: params.workspaceId,
-    treeId: parent.treeId,
-  });
+  const tree = params.store.getIntegrationTree({ treeId: parent.treeId });
   if (!tree) {
     return [];
   }
-  const children = params.store.listIntegrationTreeChildren({
-    workspaceId: params.workspaceId,
-    parentNodeId: params.parentNodeId,
-  });
+  const children = params.store.listIntegrationTreeChildren({ parentNodeId: params.parentNodeId });
   const candidates: NodeCandidate[] = [];
   for (const child of children) {
     if (child.childKind === "summary") {
-      const node = params.store.getIntegrationSummaryNode({
-        workspaceId: params.workspaceId,
-        nodeId: child.childId,
-      });
+      const node = params.store.getIntegrationSummaryNode({ nodeId: child.childId });
       if (node && node.status === "active") {
         candidates.push(buildSummaryCandidate({
           store: params.store,
-          workspaceId: params.workspaceId,
           tree,
           node,
         }));
       }
       continue;
     }
-    const leaf = params.store.getIntegrationLeaf({
-      workspaceId: params.workspaceId,
-      leafId: child.childId,
-    });
+    const leaf = params.store.getIntegrationLeaf({ leafId: child.childId });
     if (leaf && leaf.status === "active") {
       candidates.push(buildLeafCandidate({
         store: params.store,
-        workspaceId: params.workspaceId,
         tree,
         leaf,
       }));
@@ -1123,20 +1120,11 @@ export async function retrieveIntegrationMemory(params: {
 }): Promise<IntegrationMemoryRetrieveResult> {
   const mode = params.mode ?? "mixed";
   const maxResults = Math.max(1, Math.min(params.maxResults ?? MAX_RETRIEVE_RESULTS, 50));
-  const trees = params.treeId
-    ? (() => {
-        const tree = params.store.getIntegrationTree({
-          workspaceId: params.workspaceId,
-          treeId: params.treeId,
-        });
-        return tree ? [tree] : [];
-      })()
-    : params.store.listIntegrationTrees({
-        workspaceId: params.workspaceId,
-        status: "active",
-        limit: 10_000,
-        offset: 0,
-      });
+  const trees = accessibleIntegrationTreesForWorkspace({
+    store: params.store,
+    workspaceId: params.workspaceId,
+    treeId: params.treeId ?? null,
+  });
 
   const embeddingQuery = await queryEmbeddingVector({
     workspaceId: params.workspaceId,
@@ -1148,7 +1136,6 @@ export async function retrieveIntegrationMemory(params: {
   const embeddingByKey = new Map<string, number[]>();
   if (embeddingQuery) {
     for (const record of params.store.listIntegrationNodeEmbeddings({
-      workspaceId: params.workspaceId,
       embeddingModel: embeddingQuery.modelId,
     })) {
       embeddingByKey.set(`${record.nodeKind}:${record.nodeId}:${record.embeddingModel}`, record.vector);
@@ -1164,7 +1151,6 @@ export async function retrieveIntegrationMemory(params: {
       hits: [],
       children: await childHitsForNode({
         store: params.store,
-        workspaceId: params.workspaceId,
         parentNodeId: params.nodeId,
         query: params.query,
         mode,
@@ -1180,7 +1166,6 @@ export async function retrieveIntegrationMemory(params: {
     const activeSummaries = mode === "leaves"
       ? []
       : params.store.listIntegrationSummaryNodes({
-          workspaceId: params.workspaceId,
           treeId: tree.treeId,
           status: "active",
           limit: 10_000,
@@ -1189,7 +1174,6 @@ export async function retrieveIntegrationMemory(params: {
     const activeLeaves = mode === "summaries"
       ? []
       : params.store.listIntegrationLeaves({
-          workspaceId: params.workspaceId,
           treeId: tree.treeId,
           status: "active",
           limit: 10_000,
@@ -1198,7 +1182,6 @@ export async function retrieveIntegrationMemory(params: {
     for (const node of activeSummaries) {
       candidates.push(buildSummaryCandidate({
         store: params.store,
-        workspaceId: params.workspaceId,
         tree,
         node,
       }));
@@ -1206,7 +1189,6 @@ export async function retrieveIntegrationMemory(params: {
     for (const leaf of activeLeaves) {
       candidates.push(buildLeafCandidate({
         store: params.store,
-        workspaceId: params.workspaceId,
         tree,
         leaf,
       }));

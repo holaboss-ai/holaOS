@@ -640,15 +640,27 @@ test("composeAgentPrompt instructs main sessions to record durable workspace kno
   );
   assert.match(
     prompt.systemPrompt,
+    /Before writing to `AGENTS\.md`, ask whether the agent should obey the information by default on most future runs in this workspace even when the current subject is not in scope\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
     /durable requirements or preferences, verified recurring commands, default procedures, conventions, policies, decisions, and recurring blockers that should shape behavior by default in future runs/i,
   );
   assert.match(
     prompt.systemPrompt,
-    /Do not record customer facts, project facts, contacts, prior outcomes, or subject-specific procedures in `AGENTS\.md` unless they are explicitly intended to become workspace-wide default instructions\./i,
+    /Do not record named-subject knowledge in `AGENTS\.md` unless it is explicitly intended to become a workspace-wide default instruction\./i,
   );
   assert.match(
     prompt.systemPrompt,
-    /Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state\. When in doubt, leave it out until the pattern repeats or the user confirms it should persist\./i,
+    /This includes customer, project, vendor, person, system, or workflow-specific facts such as contacts, owners, thresholds, URLs, channels, prior outcomes, and subject-specific procedures\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /A statement being durable or phrased as `remember this` does not by itself make it an `AGENTS\.md` item; if it is mainly contextual knowledge to recall later, keep it in memory instead\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state\. When in doubt, prefer memory or transient context over `AGENTS\.md`, and leave it out until the pattern repeats or the user confirms it should persist as a default\./i,
   );
   assert.match(
     prompt.systemPrompt,
@@ -691,15 +703,27 @@ test("composeBaseAgentPrompt instructs direct sessions to record durable workspa
   );
   assert.match(
     prompt.systemPrompt,
+    /Before writing to `AGENTS\.md`, ask whether the agent should obey the information by default on most future runs in this workspace even when the current subject is not in scope\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
     /durable requirements or preferences, verified recurring commands, default procedures, conventions, policies, decisions, and recurring blockers that should shape behavior by default in future runs/i,
   );
   assert.match(
     prompt.systemPrompt,
-    /Do not record customer facts, project facts, contacts, prior outcomes, or subject-specific procedures in `AGENTS\.md` unless they are explicitly intended to become workspace-wide default instructions\./i,
+    /Do not record named-subject knowledge in `AGENTS\.md` unless it is explicitly intended to become a workspace-wide default instruction\./i,
   );
   assert.match(
     prompt.systemPrompt,
-    /Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state\. When in doubt, leave it out until the pattern repeats or the user confirms it should persist\./i,
+    /This includes customer, project, vendor, person, system, or workflow-specific facts such as contacts, owners, thresholds, URLs, channels, prior outcomes, and subject-specific procedures\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /A statement being durable or phrased as `remember this` does not by itself make it an `AGENTS\.md` item; if it is mainly contextual knowledge to recall later, keep it in memory instead\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state\. When in doubt, prefer memory or transient context over `AGENTS\.md`, and leave it out until the pattern repeats or the user confirms it should persist as a default\./i,
   );
   assert.match(
     prompt.systemPrompt,

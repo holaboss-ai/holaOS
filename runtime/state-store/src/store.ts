@@ -574,10 +574,10 @@ export interface InteractionNodeEmbeddingRecord {
 }
 
 export interface IntegrationTreeRecord {
-  workspaceId: string;
   treeId: string;
   provider: string;
-  accountId: string;
+  ownerUserId: string;
+  accountKey: string;
   accountLabel: string;
   slug: string;
   summary: string | null;
@@ -587,7 +587,6 @@ export interface IntegrationTreeRecord {
 }
 
 export interface IntegrationLeafRecord {
-  workspaceId: string;
   leafId: string;
   treeId: string;
   subjectKey: string;
@@ -612,7 +611,6 @@ export interface IntegrationLeafRecord {
 }
 
 export interface IntegrationSummaryNodeRecord {
-  workspaceId: string;
   nodeId: string;
   treeId: string;
   level: number;
@@ -629,7 +627,6 @@ export interface IntegrationSummaryNodeRecord {
 }
 
 export interface IntegrationTreeEdgeRecord {
-  workspaceId: string;
   treeId: string;
   parentNodeId: string;
   childKind: InteractionTreeChildKind;
@@ -639,7 +636,6 @@ export interface IntegrationTreeEdgeRecord {
 }
 
 export interface IntegrationNodeEmbeddingRecord {
-  workspaceId: string;
   nodeKind: InteractionTreeChildKind;
   nodeId: string;
   treeId: string;
@@ -6214,10 +6210,10 @@ export class RuntimeStateStore {
   }
 
   upsertIntegrationTree(params: {
-    workspaceId: string;
     treeId: string;
     provider: string;
-    accountId: string;
+    ownerUserId: string;
+    accountKey: string;
     accountLabel: string;
     slug: string;
     summary?: string | null;
@@ -6225,19 +6221,16 @@ export class RuntimeStateStore {
     createdAt?: string;
     updatedAt?: string;
   }): IntegrationTreeRecord {
-    const existing = this.getIntegrationTree({
-      workspaceId: params.workspaceId,
-      treeId: params.treeId,
-    });
+    const existing = this.getIntegrationTree({ treeId: params.treeId });
     const now = params.updatedAt ?? utcNowIso();
     const createdAt = existing?.createdAt ?? params.createdAt ?? now;
-    this.workspaceRuntimeDb(params.workspaceId)
+    this.controlPlaneDb()
       .prepare(`
         INSERT INTO integration_trees (
-          workspace_id,
           tree_id,
           provider,
-          account_id,
+          owner_user_id,
+          account_key,
           account_label,
           slug,
           summary,
@@ -6245,9 +6238,10 @@ export class RuntimeStateStore {
           created_at,
           updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(workspace_id, tree_id) DO UPDATE SET
+        ON CONFLICT(tree_id) DO UPDATE SET
           provider = excluded.provider,
-          account_id = excluded.account_id,
+          owner_user_id = excluded.owner_user_id,
+          account_key = excluded.account_key,
           account_label = excluded.account_label,
           slug = excluded.slug,
           summary = excluded.summary,
@@ -6255,10 +6249,10 @@ export class RuntimeStateStore {
           updated_at = excluded.updated_at
       `)
       .run(
-        params.workspaceId,
         params.treeId,
         params.provider,
-        params.accountId,
+        params.ownerUserId,
+        params.accountKey,
         params.accountLabel,
         params.slug,
         params.summary ?? null,
@@ -6266,10 +6260,7 @@ export class RuntimeStateStore {
         createdAt,
         now,
       );
-    const record = this.getIntegrationTree({
-      workspaceId: params.workspaceId,
-      treeId: params.treeId,
-    });
+    const record = this.getIntegrationTree({ treeId: params.treeId });
     if (!record) {
       throw new Error("integration tree row not found after upsert");
     }
@@ -6277,42 +6268,60 @@ export class RuntimeStateStore {
   }
 
   getIntegrationTree(params: {
-    workspaceId: string;
     treeId: string;
   }): IntegrationTreeRecord | null {
-    const row = this.workspaceRuntimeDb(params.workspaceId)
-      .prepare<[string, string], Record<string, unknown>>(
-        "SELECT * FROM integration_trees WHERE workspace_id = ? AND tree_id = ? LIMIT 1",
+    const row = this.controlPlaneDb()
+      .prepare<[string], Record<string, unknown>>(
+        "SELECT * FROM integration_trees WHERE tree_id = ? LIMIT 1",
       )
-      .get(params.workspaceId, params.treeId);
+      .get(params.treeId);
     return row ? this.rowToIntegrationTree(row) : null;
   }
 
   getIntegrationTreeBySlug(params: {
-    workspaceId: string;
     slug: string;
   }): IntegrationTreeRecord | null {
-    const row = this.workspaceRuntimeDb(params.workspaceId)
-      .prepare<[string, string], Record<string, unknown>>(
-        "SELECT * FROM integration_trees WHERE workspace_id = ? AND slug = ? LIMIT 1",
+    const row = this.controlPlaneDb()
+      .prepare<[string], Record<string, unknown>>(
+        "SELECT * FROM integration_trees WHERE slug = ? LIMIT 1",
       )
-      .get(params.workspaceId, params.slug);
+      .get(params.slug);
+    return row ? this.rowToIntegrationTree(row) : null;
+  }
+
+  getIntegrationTreeByAccountIdentity(params: {
+    provider: string;
+    ownerUserId: string;
+    accountKey: string;
+  }): IntegrationTreeRecord | null {
+    const row = this.controlPlaneDb()
+      .prepare<[string, string, string], Record<string, unknown>>(
+        `
+          SELECT *
+          FROM integration_trees
+          WHERE provider = ?
+            AND owner_user_id = ?
+            AND account_key = ?
+          LIMIT 1
+        `,
+      )
+      .get(params.provider, params.ownerUserId, params.accountKey);
     return row ? this.rowToIntegrationTree(row) : null;
   }
 
   listIntegrationTrees(params: {
-    workspaceId: string;
     status?: IntegrationTreeStatus | null;
     provider?: string | null;
+    ownerUserId?: string | null;
     limit?: number;
     offset?: number;
-  }): IntegrationTreeRecord[] {
+  } = {}): IntegrationTreeRecord[] {
     let query = `
       SELECT *
       FROM integration_trees
-      WHERE workspace_id = ?
+      WHERE 1 = 1
     `;
-    const values: Array<string | number> = [params.workspaceId];
+    const values: Array<string | number> = [];
     if (params.status !== undefined) {
       if (params.status === null) {
         query += " AND status IS NULL";
@@ -6329,17 +6338,24 @@ export class RuntimeStateStore {
         values.push(params.provider);
       }
     }
+    if (params.ownerUserId !== undefined) {
+      if (params.ownerUserId === null) {
+        query += " AND owner_user_id IS NULL";
+      } else {
+        query += " AND owner_user_id = ?";
+        values.push(params.ownerUserId);
+      }
+    }
     query += `
       ORDER BY updated_at DESC, created_at DESC, account_label COLLATE NOCASE ASC
       LIMIT ? OFFSET ?
     `;
     values.push(params.limit ?? 200, params.offset ?? 0);
-    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.controlPlaneDb().prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToIntegrationTree(row));
   }
 
   upsertIntegrationLeaf(params: {
-    workspaceId: string;
     leafId: string;
     treeId: string;
     subjectKey: string;
@@ -6362,16 +6378,12 @@ export class RuntimeStateStore {
     createdAt?: string;
     updatedAt?: string;
   }): IntegrationLeafRecord {
-    const existing = this.getIntegrationLeaf({
-      workspaceId: params.workspaceId,
-      leafId: params.leafId,
-    });
+    const existing = this.getIntegrationLeaf({ leafId: params.leafId });
     const now = params.updatedAt ?? utcNowIso();
     const createdAt = existing?.createdAt ?? params.createdAt ?? now;
-    this.workspaceRuntimeDb(params.workspaceId)
+    this.controlPlaneDb()
       .prepare(`
         INSERT INTO integration_leaves (
-          workspace_id,
           leaf_id,
           tree_id,
           subject_key,
@@ -6393,8 +6405,8 @@ export class RuntimeStateStore {
           status,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(workspace_id, leaf_id) DO UPDATE SET
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(leaf_id) DO UPDATE SET
           tree_id = excluded.tree_id,
           subject_key = excluded.subject_key,
           path = excluded.path,
@@ -6416,7 +6428,6 @@ export class RuntimeStateStore {
           updated_at = excluded.updated_at
       `)
       .run(
-        params.workspaceId,
         params.leafId,
         params.treeId,
         params.subjectKey,
@@ -6439,10 +6450,7 @@ export class RuntimeStateStore {
         createdAt,
         now,
       );
-    const record = this.getIntegrationLeaf({
-      workspaceId: params.workspaceId,
-      leafId: params.leafId,
-    });
+    const record = this.getIntegrationLeaf({ leafId: params.leafId });
     if (!record) {
       throw new Error("integration leaf row not found after upsert");
     }
@@ -6450,85 +6458,78 @@ export class RuntimeStateStore {
   }
 
   getIntegrationLeaf(params: {
-    workspaceId: string;
     leafId: string;
   }): IntegrationLeafRecord | null {
-    const row = this.workspaceRuntimeDb(params.workspaceId)
-      .prepare<[string, string], Record<string, unknown>>(
-        "SELECT * FROM integration_leaves WHERE workspace_id = ? AND leaf_id = ? LIMIT 1",
+    const row = this.controlPlaneDb()
+      .prepare<[string], Record<string, unknown>>(
+        "SELECT * FROM integration_leaves WHERE leaf_id = ? LIMIT 1",
       )
-      .get(params.workspaceId, params.leafId);
+      .get(params.leafId);
     return row ? this.rowToIntegrationLeaf(row) : null;
   }
 
   getIntegrationLeafByPath(params: {
-    workspaceId: string;
     path: string;
   }): IntegrationLeafRecord | null {
-    const row = this.workspaceRuntimeDb(params.workspaceId)
-      .prepare<[string, string], Record<string, unknown>>(
-        "SELECT * FROM integration_leaves WHERE workspace_id = ? AND path = ? LIMIT 1",
+    const row = this.controlPlaneDb()
+      .prepare<[string], Record<string, unknown>>(
+        "SELECT * FROM integration_leaves WHERE path = ? LIMIT 1",
       )
-      .get(params.workspaceId, params.path);
+      .get(params.path);
     return row ? this.rowToIntegrationLeaf(row) : null;
   }
 
   getIntegrationLeafByFingerprint(params: {
-    workspaceId: string;
     treeId: string;
     fingerprint: string;
   }): IntegrationLeafRecord | null {
-    const row = this.workspaceRuntimeDb(params.workspaceId)
-      .prepare<[string, string, string], Record<string, unknown>>(
+    const row = this.controlPlaneDb()
+      .prepare<[string, string], Record<string, unknown>>(
         `
           SELECT *
           FROM integration_leaves
-          WHERE workspace_id = ?
-            AND tree_id = ?
+          WHERE tree_id = ?
             AND fingerprint = ?
           ORDER BY updated_at DESC, created_at DESC
           LIMIT 1
         `,
       )
-      .get(params.workspaceId, params.treeId, params.fingerprint);
+      .get(params.treeId, params.fingerprint);
     return row ? this.rowToIntegrationLeaf(row) : null;
   }
 
   getLatestActiveIntegrationLeafBySubject(params: {
-    workspaceId: string;
     treeId: string;
     subjectKey: string;
   }): IntegrationLeafRecord | null {
-    const row = this.workspaceRuntimeDb(params.workspaceId)
-      .prepare<[string, string, string], Record<string, unknown>>(
+    const row = this.controlPlaneDb()
+      .prepare<[string, string], Record<string, unknown>>(
         `
           SELECT *
           FROM integration_leaves
-          WHERE workspace_id = ?
-            AND tree_id = ?
+          WHERE tree_id = ?
             AND subject_key = ?
             AND status = 'active'
           ORDER BY observed_at DESC, updated_at DESC, created_at DESC
           LIMIT 1
         `,
       )
-      .get(params.workspaceId, params.treeId, params.subjectKey);
+      .get(params.treeId, params.subjectKey);
     return row ? this.rowToIntegrationLeaf(row) : null;
   }
 
   listIntegrationLeaves(params: {
-    workspaceId: string;
     treeId?: string | null;
     status?: IntegrationLeafStatus | null;
     limit?: number;
     offset?: number;
-  }): IntegrationLeafRecord[] {
+  } = {}): IntegrationLeafRecord[] {
     let query = `
       SELECT *
       FROM integration_leaves
-      WHERE workspace_id = ?
+      WHERE 1 = 1
     `;
-    const values: Array<string | number> = [params.workspaceId];
+    const values: Array<string | number> = [];
     if (params.treeId !== undefined) {
       if (params.treeId === null) {
         query += " AND tree_id IS NULL";
@@ -6550,41 +6551,35 @@ export class RuntimeStateStore {
       LIMIT ? OFFSET ?
     `;
     values.push(params.limit ?? 200, params.offset ?? 0);
-    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.controlPlaneDb().prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToIntegrationLeaf(row));
   }
 
   updateIntegrationLeafStatus(params: {
-    workspaceId: string;
     leafId: string;
     status: IntegrationLeafStatus;
     supersededAt?: string | null;
     updatedAt?: string;
   }): IntegrationLeafRecord | null {
     const now = params.updatedAt ?? utcNowIso();
-    this.workspaceRuntimeDb(params.workspaceId)
+    this.controlPlaneDb()
       .prepare(`
         UPDATE integration_leaves
         SET status = ?,
             superseded_at = ?,
             updated_at = ?
-        WHERE workspace_id = ? AND leaf_id = ?
+        WHERE leaf_id = ?
       `)
       .run(
         params.status,
         params.supersededAt ?? null,
         now,
-        params.workspaceId,
         params.leafId,
       );
-    return this.getIntegrationLeaf({
-      workspaceId: params.workspaceId,
-      leafId: params.leafId,
-    });
+    return this.getIntegrationLeaf({ leafId: params.leafId });
   }
 
   replaceIntegrationSummaryTree(params: {
-    workspaceId: string;
     treeId: string;
     nodes: Array<{
       nodeId: string;
@@ -6607,23 +6602,22 @@ export class RuntimeStateStore {
       createdAt?: string;
     }>;
   }): IntegrationSummaryNodeRecord[] {
-    const db = this.workspaceRuntimeDb(params.workspaceId);
+    const db = this.controlPlaneDb();
     const replace = db.transaction(() => {
       const now = utcNowIso();
       db.prepare(`
         UPDATE integration_summary_nodes
         SET status = 'retired',
             updated_at = ?
-        WHERE workspace_id = ? AND tree_id = ? AND status = 'active'
-      `).run(now, params.workspaceId, params.treeId);
+        WHERE tree_id = ? AND status = 'active'
+      `).run(now, params.treeId);
       db.prepare(`
         DELETE FROM integration_tree_edges
-        WHERE workspace_id = ? AND tree_id = ?
-      `).run(params.workspaceId, params.treeId);
+        WHERE tree_id = ?
+      `).run(params.treeId);
 
       const insertNode = db.prepare(`
         INSERT INTO integration_summary_nodes (
-          workspace_id,
           node_id,
           tree_id,
           level,
@@ -6637,11 +6631,10 @@ export class RuntimeStateStore {
           sealed_at,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
       `);
       for (const node of params.nodes) {
         insertNode.run(
-          params.workspaceId,
           node.nodeId,
           params.treeId,
           node.level,
@@ -6659,18 +6652,16 @@ export class RuntimeStateStore {
 
       const insertEdge = db.prepare(`
         INSERT INTO integration_tree_edges (
-          workspace_id,
           tree_id,
           parent_node_id,
           child_kind,
           child_id,
           position,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?)
       `);
       for (const edge of params.edges) {
         insertEdge.run(
-          params.workspaceId,
           params.treeId,
           edge.parentNodeId,
           edge.childKind,
@@ -6682,7 +6673,6 @@ export class RuntimeStateStore {
     });
     replace();
     return this.listIntegrationSummaryNodes({
-      workspaceId: params.workspaceId,
       treeId: params.treeId,
       status: "active",
       limit: Math.max(200, params.nodes.length + 10),
@@ -6690,43 +6680,40 @@ export class RuntimeStateStore {
   }
 
   getIntegrationSummaryNode(params: {
-    workspaceId: string;
     nodeId: string;
   }): IntegrationSummaryNodeRecord | null {
-    const row = this.workspaceRuntimeDb(params.workspaceId)
-      .prepare<[string, string], Record<string, unknown>>(
-        "SELECT * FROM integration_summary_nodes WHERE workspace_id = ? AND node_id = ? LIMIT 1",
+    const row = this.controlPlaneDb()
+      .prepare<[string], Record<string, unknown>>(
+        "SELECT * FROM integration_summary_nodes WHERE node_id = ? LIMIT 1",
       )
-      .get(params.workspaceId, params.nodeId);
+      .get(params.nodeId);
     return row ? this.rowToIntegrationSummaryNode(row) : null;
   }
 
   getIntegrationSummaryNodeByPath(params: {
-    workspaceId: string;
     path: string;
   }): IntegrationSummaryNodeRecord | null {
-    const row = this.workspaceRuntimeDb(params.workspaceId)
-      .prepare<[string, string], Record<string, unknown>>(
-        "SELECT * FROM integration_summary_nodes WHERE workspace_id = ? AND path = ? LIMIT 1",
+    const row = this.controlPlaneDb()
+      .prepare<[string], Record<string, unknown>>(
+        "SELECT * FROM integration_summary_nodes WHERE path = ? LIMIT 1",
       )
-      .get(params.workspaceId, params.path);
+      .get(params.path);
     return row ? this.rowToIntegrationSummaryNode(row) : null;
   }
 
   listIntegrationSummaryNodes(params: {
-    workspaceId: string;
     treeId?: string | null;
     status?: IntegrationSummaryStatus | null;
     level?: number | null;
     limit?: number;
     offset?: number;
-  }): IntegrationSummaryNodeRecord[] {
+  } = {}): IntegrationSummaryNodeRecord[] {
     let query = `
       SELECT *
       FROM integration_summary_nodes
-      WHERE workspace_id = ?
+      WHERE 1 = 1
     `;
-    const values: Array<string | number> = [params.workspaceId];
+    const values: Array<string | number> = [];
     if (params.treeId !== undefined) {
       if (params.treeId === null) {
         query += " AND tree_id IS NULL";
@@ -6756,29 +6743,27 @@ export class RuntimeStateStore {
       LIMIT ? OFFSET ?
     `;
     values.push(params.limit ?? 200, params.offset ?? 0);
-    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.controlPlaneDb().prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToIntegrationSummaryNode(row));
   }
 
   listIntegrationTreeChildren(params: {
-    workspaceId: string;
     parentNodeId: string;
   }): IntegrationTreeEdgeRecord[] {
-    const rows = this.workspaceRuntimeDb(params.workspaceId)
-      .prepare<[string, string], Record<string, unknown>>(
+    const rows = this.controlPlaneDb()
+      .prepare<[string], Record<string, unknown>>(
         `
           SELECT *
           FROM integration_tree_edges
-          WHERE workspace_id = ? AND parent_node_id = ?
+          WHERE parent_node_id = ?
           ORDER BY position ASC, child_id ASC
         `,
       )
-      .all(params.workspaceId, params.parentNodeId) as Array<Record<string, unknown>>;
+      .all(params.parentNodeId) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToIntegrationTreeEdge(row));
   }
 
   upsertIntegrationNodeEmbedding(params: {
-    workspaceId: string;
     nodeKind: InteractionTreeChildKind;
     nodeId: string;
     treeId: string;
@@ -6790,17 +6775,15 @@ export class RuntimeStateStore {
     updatedAt?: string;
   }): IntegrationNodeEmbeddingRecord {
     const existing = this.getIntegrationNodeEmbedding({
-      workspaceId: params.workspaceId,
       nodeKind: params.nodeKind,
       nodeId: params.nodeId,
       embeddingModel: params.embeddingModel,
     });
     const now = params.updatedAt ?? utcNowIso();
     const createdAt = existing?.createdAt ?? params.createdAt ?? now;
-    this.workspaceRuntimeDb(params.workspaceId)
+    this.controlPlaneDb()
       .prepare(`
         INSERT INTO integration_node_embeddings (
-          workspace_id,
           node_kind,
           node_id,
           tree_id,
@@ -6810,8 +6793,8 @@ export class RuntimeStateStore {
           vector_json,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(workspace_id, node_kind, node_id, embedding_model) DO UPDATE SET
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(node_kind, node_id, embedding_model) DO UPDATE SET
           tree_id = excluded.tree_id,
           content_fingerprint = excluded.content_fingerprint,
           dimensions = excluded.dimensions,
@@ -6819,7 +6802,6 @@ export class RuntimeStateStore {
           updated_at = excluded.updated_at
       `)
       .run(
-        params.workspaceId,
         params.nodeKind,
         params.nodeId,
         params.treeId,
@@ -6831,7 +6813,6 @@ export class RuntimeStateStore {
         now,
       );
     const record = this.getIntegrationNodeEmbedding({
-      workspaceId: params.workspaceId,
       nodeKind: params.nodeKind,
       nodeId: params.nodeId,
       embeddingModel: params.embeddingModel,
@@ -6843,38 +6824,35 @@ export class RuntimeStateStore {
   }
 
   getIntegrationNodeEmbedding(params: {
-    workspaceId: string;
     nodeKind: InteractionTreeChildKind;
     nodeId: string;
     embeddingModel: string;
   }): IntegrationNodeEmbeddingRecord | null {
-    const row = this.workspaceRuntimeDb(params.workspaceId)
-      .prepare<[string, string, string, string], Record<string, unknown>>(
+    const row = this.controlPlaneDb()
+      .prepare<[string, string, string], Record<string, unknown>>(
         `
           SELECT *
           FROM integration_node_embeddings
-          WHERE workspace_id = ?
-            AND node_kind = ?
+          WHERE node_kind = ?
             AND node_id = ?
             AND embedding_model = ?
           LIMIT 1
         `,
       )
-      .get(params.workspaceId, params.nodeKind, params.nodeId, params.embeddingModel);
+      .get(params.nodeKind, params.nodeId, params.embeddingModel);
     return row ? this.rowToIntegrationNodeEmbedding(row) : null;
   }
 
   listIntegrationNodeEmbeddings(params: {
-    workspaceId: string;
     treeId?: string | null;
     embeddingModel?: string | null;
-  }): IntegrationNodeEmbeddingRecord[] {
+  } = {}): IntegrationNodeEmbeddingRecord[] {
     let query = `
       SELECT *
       FROM integration_node_embeddings
-      WHERE workspace_id = ?
+      WHERE 1 = 1
     `;
-    const values: Array<string | number> = [params.workspaceId];
+    const values: Array<string | number> = [];
     if (params.treeId !== undefined) {
       if (params.treeId === null) {
         query += " AND tree_id IS NULL";
@@ -6892,7 +6870,7 @@ export class RuntimeStateStore {
       }
     }
     query += " ORDER BY updated_at DESC, created_at DESC, node_id ASC";
-    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
+    const rows = this.controlPlaneDb().prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToIntegrationNodeEmbedding(row));
   }
 
@@ -9430,6 +9408,105 @@ export class RuntimeStateStore {
 
       CREATE INDEX IF NOT EXISTS idx_integration_bindings_workspace_updated
           ON integration_bindings (workspace_id, is_default DESC, updated_at DESC, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS integration_trees (
+          tree_id TEXT PRIMARY KEY,
+          provider TEXT NOT NULL,
+          owner_user_id TEXT NOT NULL,
+          account_key TEXT NOT NULL,
+          account_label TEXT NOT NULL,
+          slug TEXT NOT NULL UNIQUE,
+          summary TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE (provider, owner_user_id, account_key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_integration_trees_provider_owner_status_updated
+          ON integration_trees (provider, owner_user_id, status, updated_at DESC, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS integration_leaves (
+          leaf_id TEXT PRIMARY KEY,
+          tree_id TEXT NOT NULL,
+          subject_key TEXT NOT NULL,
+          path TEXT NOT NULL UNIQUE,
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          fingerprint TEXT NOT NULL,
+          body_sha256 TEXT NOT NULL,
+          tags TEXT NOT NULL DEFAULT '[]',
+          source_type TEXT,
+          source_event_id TEXT,
+          source_message_id TEXT,
+          external_object_id TEXT,
+          external_object_type TEXT,
+          admission_confidence REAL,
+          observed_at TEXT,
+          supersedes_leaf_id TEXT,
+          superseded_at TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_integration_leaves_tree_status_observed
+          ON integration_leaves (tree_id, status, observed_at DESC, updated_at DESC, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_integration_leaves_tree_subject
+          ON integration_leaves (tree_id, subject_key, status, updated_at DESC, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_integration_leaves_tree_fingerprint
+          ON integration_leaves (tree_id, fingerprint);
+
+      CREATE TABLE IF NOT EXISTS integration_summary_nodes (
+          node_id TEXT PRIMARY KEY,
+          tree_id TEXT NOT NULL,
+          level INTEGER NOT NULL,
+          ordinal INTEGER NOT NULL,
+          path TEXT NOT NULL UNIQUE,
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          body_sha256 TEXT NOT NULL,
+          child_count INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'active',
+          sealed_at TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_integration_summary_nodes_tree_status_level
+          ON integration_summary_nodes (tree_id, status, level ASC, ordinal ASC, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS integration_tree_edges (
+          tree_id TEXT NOT NULL,
+          parent_node_id TEXT NOT NULL,
+          child_kind TEXT NOT NULL,
+          child_id TEXT NOT NULL,
+          position INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (parent_node_id, child_kind, child_id),
+          UNIQUE (parent_node_id, position)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_integration_tree_edges_parent_position
+          ON integration_tree_edges (parent_node_id, position ASC);
+
+      CREATE TABLE IF NOT EXISTS integration_node_embeddings (
+          node_kind TEXT NOT NULL,
+          node_id TEXT NOT NULL,
+          tree_id TEXT NOT NULL,
+          embedding_model TEXT NOT NULL,
+          content_fingerprint TEXT NOT NULL,
+          dimensions INTEGER NOT NULL,
+          vector_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (node_kind, node_id, embedding_model)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_integration_node_embeddings_tree_updated
+          ON integration_node_embeddings (tree_id, embedding_model, updated_at DESC);
 
       CREATE TABLE IF NOT EXISTS app_catalog (
           app_id TEXT NOT NULL,
@@ -11987,10 +12064,10 @@ export class RuntimeStateStore {
 
   private rowToIntegrationTree(row: Record<string, unknown>): IntegrationTreeRecord {
     return {
-      workspaceId: String(row.workspace_id),
       treeId: String(row.tree_id),
       provider: String(row.provider),
-      accountId: String(row.account_id),
+      ownerUserId: String(row.owner_user_id),
+      accountKey: String(row.account_key),
       accountLabel: String(row.account_label),
       slug: String(row.slug),
       summary: row.summary == null ? null : String(row.summary),
@@ -12002,7 +12079,6 @@ export class RuntimeStateStore {
 
   private rowToIntegrationLeaf(row: Record<string, unknown>): IntegrationLeafRecord {
     return {
-      workspaceId: String(row.workspace_id),
       leafId: String(row.leaf_id),
       treeId: String(row.tree_id),
       subjectKey: String(row.subject_key),
@@ -12029,7 +12105,6 @@ export class RuntimeStateStore {
 
   private rowToIntegrationSummaryNode(row: Record<string, unknown>): IntegrationSummaryNodeRecord {
     return {
-      workspaceId: String(row.workspace_id),
       nodeId: String(row.node_id),
       treeId: String(row.tree_id),
       level: Number(row.level),
@@ -12048,7 +12123,6 @@ export class RuntimeStateStore {
 
   private rowToIntegrationTreeEdge(row: Record<string, unknown>): IntegrationTreeEdgeRecord {
     return {
-      workspaceId: String(row.workspace_id),
       treeId: String(row.tree_id),
       parentNodeId: String(row.parent_node_id),
       childKind: String(row.child_kind) as InteractionTreeChildKind,
@@ -12060,7 +12134,6 @@ export class RuntimeStateStore {
 
   private rowToIntegrationNodeEmbedding(row: Record<string, unknown>): IntegrationNodeEmbeddingRecord {
     return {
-      workspaceId: String(row.workspace_id),
       nodeKind: String(row.node_kind) as InteractionTreeChildKind,
       nodeId: String(row.node_id),
       treeId: String(row.tree_id),

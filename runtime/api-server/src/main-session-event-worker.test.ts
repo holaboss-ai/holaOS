@@ -312,11 +312,23 @@ test("main-session event worker inherits the owner main session model and thinki
   );
   assert.match(
     String(batchInput?.payload.text),
+    /Before writing to `AGENTS\.md`, ask whether the agent should obey the information by default on most future runs in this workspace even when the current subject is not in scope\./i,
+  );
+  assert.match(
+    String(batchInput?.payload.text),
     /Use `AGENTS\.md` for rules, defaults, conventions, and recurring commands that should shape behavior by default, not as a general fact store for subject-specific knowledge\./i,
   );
   assert.match(
     String(batchInput?.payload.text),
-    /Do not persist one-off deliverables, unresolved hypotheses, partial investigations, or temporary runtime state\./i,
+    /Do not record named-subject knowledge in `AGENTS\.md` unless it is explicitly intended to become a workspace-wide default instruction\./i,
+  );
+  assert.match(
+    String(batchInput?.payload.text),
+    /A statement being durable or phrased as `remember this` does not by itself make it an `AGENTS\.md` item; if it is mainly contextual knowledge to recall later, keep it in memory instead\./i,
+  );
+  assert.match(
+    String(batchInput?.payload.text),
+    /Do not persist one-off deliverables, unresolved hypotheses, partial investigations, or temporary runtime state\. When in doubt, prefer memory or transient context over `AGENTS\.md`\./i,
   );
   assert.match(
     String(batchInput?.payload.text),

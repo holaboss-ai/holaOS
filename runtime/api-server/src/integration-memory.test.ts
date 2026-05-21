@@ -8,7 +8,7 @@ import { afterEach, test } from "node:test";
 import { RuntimeStateStore } from "@holaboss/runtime-state-store";
 
 import { rebuildIntegrationTree } from "./integration-memory.js";
-import { workspaceMemoryDir } from "./workspace-bundle-paths.js";
+import { globalMemoryDirForWorkspaceRoot } from "./workspace-bundle-paths.js";
 
 const tempDirs: string[] = [];
 
@@ -38,10 +38,10 @@ test("rebuildIntegrationTree uses LLM-authored summaries when a summary model cl
     status: "active",
   });
   store.upsertIntegrationTree({
-    workspaceId: "workspace-1",
     treeId: "integration:github:acct-1",
     provider: "github",
-    accountId: "acct-1",
+    ownerUserId: "user-1",
+    accountKey: "release-github",
     accountLabel: "Release GitHub",
     slug: "github-release-acct-1",
     summary: "Release GitHub memory.",
@@ -50,13 +50,11 @@ test("rebuildIntegrationTree uses LLM-authored summaries when a summary model cl
 
   for (let index = 1; index <= 3; index += 1) {
     const leafId = `leaf-${index}`;
-    const relativePath = `workspace/workspace-1/integration/accounts/github-release-acct-1/leaves/${leafId}.md`;
     store.upsertIntegrationLeaf({
-      workspaceId: "workspace-1",
       leafId,
       treeId: "integration:github:acct-1",
       subjectKey: `release-item:${index}`,
-      path: relativePath,
+      path: `integration/accounts/github-release-acct-1/leaves/${leafId}.md`,
       title: `Release item ${index}`,
       summary: `Summary for release item ${index}.`,
       fingerprint: `fingerprint-${leafId}`,
@@ -73,7 +71,7 @@ test("rebuildIntegrationTree uses LLM-authored summaries when a summary model cl
       status: "active",
     });
     const absolutePath = path.join(
-      workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+      globalMemoryDirForWorkspaceRoot(workspaceRoot),
       "integration",
       "accounts",
       "github-release-acct-1",
@@ -153,7 +151,7 @@ test("rebuildIntegrationTree uses LLM-authored summaries when a summary model cl
       "The GitHub account memory highlights the current release artifacts and ownership details needed for follow-up.",
     );
     const summaryPath = path.join(
-      workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+      globalMemoryDirForWorkspaceRoot(workspaceRoot),
       "integration",
       "accounts",
       "github-release-acct-1",

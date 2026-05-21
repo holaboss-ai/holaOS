@@ -826,9 +826,11 @@ export function buildBaseAgentPromptSections(
   if (hasWorkspaceInstructionUpdateTool(request)) {
     executionLines.push(
       "Record workspace-wide operating defaults in root `AGENTS.md` with `update_workspace_instructions` when they are clearly stable, likely to recur, or explicitly confirmed by the user instead of relying only on transient context.",
+      "Before writing to `AGENTS.md`, ask whether the agent should obey the information by default on most future runs in this workspace even when the current subject is not in scope.",
       "This includes durable requirements or preferences, verified recurring commands, default procedures, conventions, policies, decisions, and recurring blockers that should shape behavior by default in future runs.",
-      "Do not record customer facts, project facts, contacts, prior outcomes, or subject-specific procedures in `AGENTS.md` unless they are explicitly intended to become workspace-wide default instructions.",
-      "Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state. When in doubt, leave it out until the pattern repeats or the user confirms it should persist."
+      "Do not record named-subject knowledge in `AGENTS.md` unless it is explicitly intended to become a workspace-wide default instruction. This includes customer, project, vendor, person, system, or workflow-specific facts such as contacts, owners, thresholds, URLs, channels, prior outcomes, and subject-specific procedures.",
+      "A statement being durable or phrased as `remember this` does not by itself make it an `AGENTS.md` item; if it is mainly contextual knowledge to recall later, keep it in memory instead.",
+      "Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state. When in doubt, prefer memory or transient context over `AGENTS.md`, and leave it out until the pattern repeats or the user confirms it should persist as a default."
     );
   }
   if (hasMemoryRetrieveTool(request)) {
@@ -943,9 +945,11 @@ export function buildMainSessionPromptSections(
   if (hasWorkspaceInstructionUpdateTool(request)) {
     conversationLines.push(
       "Record workspace-wide operating defaults in root `AGENTS.md` with `update_workspace_instructions` when they are clearly stable, likely to recur, or explicitly confirmed by the user instead of relying only on transient context.",
+      "Before writing to `AGENTS.md`, ask whether the agent should obey the information by default on most future runs in this workspace even when the current subject is not in scope.",
       "This includes durable requirements or preferences, verified recurring commands, default procedures, conventions, policies, decisions, and recurring blockers that should shape behavior by default in future runs.",
-      "Do not record customer facts, project facts, contacts, prior outcomes, or subject-specific procedures in `AGENTS.md` unless they are explicitly intended to become workspace-wide default instructions.",
-      "Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state. When in doubt, leave it out until the pattern repeats or the user confirms it should persist."
+      "Do not record named-subject knowledge in `AGENTS.md` unless it is explicitly intended to become a workspace-wide default instruction. This includes customer, project, vendor, person, system, or workflow-specific facts such as contacts, owners, thresholds, URLs, channels, prior outcomes, and subject-specific procedures.",
+      "A statement being durable or phrased as `remember this` does not by itself make it an `AGENTS.md` item; if it is mainly contextual knowledge to recall later, keep it in memory instead.",
+      "Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state. When in doubt, prefer memory or transient context over `AGENTS.md`, and leave it out until the pattern repeats or the user confirms it should persist as a default."
     );
   }
   if (hasMemoryRetrieveTool(request)) {
