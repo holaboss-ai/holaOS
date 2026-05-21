@@ -35,8 +35,12 @@
       <li>Removed heuristic durable-memory candidate extraction from turn writeback. Interaction memory now relies on model extraction only, and extraction runs on every completed turn when a model client is available.</li>
       <li>Changed interaction-memory writeback from per-turn extraction to non-overlapping batches of three completed turns per session. The workspace runtime DB now stores a per-session batch cursor in <code>workspace_runtime_metadata</code>, and the extractor prompt is framed around the current three-turn batch rather than a single turn.</li>
       <li>Narrowed the runtime prompt contract so <code>AGENTS.md</code> is framed as the workspace-wide defaults and control surface, while contextual facts and subject-specific procedures are framed as interaction-memory recall that should use <code>memory_retrieve</code>.</li>
+      <li>Shifted the <code>memory_retrieve</code> prompt guidance from examples of recall-like question forms to a source-of-truth heuristic: prefer the most local authoritative source, use memory first for workspace-specific or previously learned knowledge, and only broaden to files, integrations, workspace tools, or web if memory does not return a strong relevant result.</li>
       <li>Narrowed the post-run memory extraction prompt so it asks only for contextual recall memory. The extractor now explicitly excludes workspace-wide defaults, recurring commands, response-style preferences, and default release or verification procedures that should instead be handled through <code>AGENTS.md</code> during the run.</li>
       <li>Added repo-level memory experiment tooling: a cleanup script for wiping interaction-memory state in a live workspace, a checked-in phase-1 evaluation fixture set, and a live evaluator that drives write turns, reader turns, direct retrieval checks, retrieval-latency measurement, tree-quality inspection, and <code>AGENTS.md</code> delta reporting against the current memory backend.</li>
+      <li>Started phase 2 by adding a dedicated <code>integration</code> tree family. Integration tree identity is now <code>provider + account</code>, persisted in new runtime-state tables for trees, leaves, summary nodes, edges, and embeddings.</li>
+      <li>Added a separate <code>integration-memory.ts</code> backend that mirrors the interaction tree shape but skips entity assignment. Integration leaves now belong directly to one provider/account tree, and summary layers are built above those leaves with the same markdown-node contract.</li>
+      <li>Generalized runtime memory retrieval into a combined workspace-memory layer. <code>memory_retrieve</code> and pre-run recalled memory can now search <code>interaction</code>, <code>integration</code>, or both categories through one wrapper.</li>
     </ul>
     <h2>Deviations</h2>
     <ul>
@@ -51,6 +55,7 @@
       <li>Interaction durable-memory writeback no longer has deterministic heuristic fallbacks for workspace facts, procedures, or recurring blockers. Those memories now depend on the model extractor deciding they are durable enough to persist.</li>
       <li>The current prompt still leaves automatic interaction-memory writeback as a backend path rather than an explicit agent write tool, so the prompt change only narrows where the agent should write defaults versus where it should read contextual memory.</li>
       <li>Fixed the front-session runtime harness so <code>memory_retrieve</code> now routes through the same capability client path as the direct HTTP endpoint. The missing request-plan branch lived in <code>runtime-tool-capability-client.ts</code>.</li>
+      <li>Integration-event routing is still not wired in. This pass only adds the backend tree family, persistence helpers, summary rebuilds, combined retrieval, and direct API tests; no live integration ingest source uses it yet.</li>
     </ul>
     <h2>Tradeoffs</h2>
     <ul>
@@ -64,12 +69,15 @@
       <li>Making the <code>AGENTS.md</code> vs memory distinction explicit should reduce overlap and make retrieval behavior more observable, but it also means the agent now depends more on actually invoking <code>memory_retrieve</code> for contextual recall instead of relying on prompt-preloaded workspace notes.</li>
       <li>The retrieval surface now works in both places: direct HTTP capability calls and front-session agent tool calls go through the same runtime capability route. That reduces the chance of prompt/tool drift, but it means runtime-tool additions now need harness-client coverage as well as API-route coverage.</li>
       <li>The evaluation runner uses direct runtime API calls plus runtime-DB inspection rather than a mock harness. That gives a realistic closed-loop experiment and a richer report, but it means the scripts depend on a live local runtime and intentionally operate against real workspace memory state.</li>
+      <li>The integration backend intentionally duplicates the current interaction-tree implementation instead of extracting a shared generic tree core first. That keeps this phase lower-risk and easier to land, but it leaves obvious future refactor room once both categories stabilize.</li>
+      <li>The combined retrieval wrapper currently plans categories conservatively: explicit category requests win, tree-id prefixes narrow the search when present, and otherwise it searches both categories when both have active data. That avoids brittle provenance rules in the backend, but it may do more work than a future smarter planner.</li>
     </ul>
     <h2>Open questions</h2>
     <ul>
       <li>The PRD intentionally defers the exact granularity of integration trees, future hotness rules for interaction-tree materialization, the long-term fate of the generic <code>/api/v1/memory/*</code> routes, and whether later phases should upgrade summary generation from deterministic templates to model-written summaries.</li>
       <li>Model extraction currently runs on every completed turn whenever a model client is available. If that proves too expensive in production, the next decision will be whether to introduce smarter gating or a cheaper extraction model without reintroducing heuristic duplication.</li>
       <li>Live verification now succeeds end to end for interaction-memory recall: after runtime restart, a fresh main-session agent answered Orchid contact and procedure questions correctly using only <code>memory_retrieve</code>.</li>
+      <li>Phase 2 still needs the real integration ingest path. We now have the account-owned tree backend, but the next decision is which concrete integration event stream lands there first and what subject-key policy those integration leaves should use.</li>
     </ul>
   </body>
 </html>

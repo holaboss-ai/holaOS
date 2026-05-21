@@ -833,8 +833,9 @@ export function buildBaseAgentPromptSections(
   }
   if (hasMemoryRetrieveTool(request)) {
     executionLines.push(
-      "Use `memory_retrieve` for contextual recall: prior facts, contacts, project or customer knowledge, decisions, and subject-specific procedures that should be retrieved when relevant rather than loaded by default.",
-      "When the user asks what is known about a subject, who owns a contact, what was previously decided, or how a subject-specific process works, prefer `memory_retrieve` over treating `AGENTS.md` as a general fact store."
+      "Before choosing a retrieval path, first infer the most likely source of truth for the answer and prefer the most local authoritative source.",
+      "If the answer is likely to be workspace-specific or previously learned contextual knowledge such as customer, project, person, workflow, decision, procedure, owner, threshold, contact, internal URL, or other facts that could plausibly have come from prior interactions or previously ingested knowledge in this workspace, use `memory_retrieve` first.",
+      "If memory does not return a strong relevant result, then broaden outward to the next most plausible source, which may include local file search, connected integrations, workspace data/tools, or web search depending on where the answer is most likely to live."
     );
   }
   if (capabilityManifest?.browser_tools.length) {
@@ -949,8 +950,9 @@ export function buildMainSessionPromptSections(
   }
   if (hasMemoryRetrieveTool(request)) {
     conversationLines.push(
-      "Use `memory_retrieve` for contextual recall: prior facts, contacts, project or customer knowledge, decisions, and subject-specific procedures that should be retrieved only when relevant.",
-      "When the user asks what is known about a subject, who owns a contact, what was previously decided, or how a subject-specific process works, prefer `memory_retrieve` over treating `AGENTS.md` as a general fact store."
+      "Before choosing a retrieval path, first infer the most likely source of truth for the answer and prefer the most local authoritative source.",
+      "If the answer is likely to be workspace-specific or previously learned contextual knowledge such as customer, project, person, workflow, decision, procedure, owner, threshold, contact, internal URL, or other facts that could plausibly have come from prior interactions or previously ingested knowledge in this workspace, use `memory_retrieve` first.",
+      "If memory does not return a strong relevant result, then broaden outward to the next most plausible source, which may include local file search, connected integrations, workspace data/tools, or web search depending on where the answer is most likely to live."
     );
   }
   if (normalizedSessionKind === "onboarding") {

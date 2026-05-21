@@ -652,11 +652,15 @@ test("composeAgentPrompt instructs main sessions to record durable workspace kno
   );
   assert.match(
     prompt.systemPrompt,
-    /Use `memory_retrieve` for contextual recall: prior facts, contacts, project or customer knowledge, decisions, and subject-specific procedures that should be retrieved only when relevant\./i,
+    /Before choosing a retrieval path, first infer the most likely source of truth for the answer and prefer the most local authoritative source\./i,
   );
   assert.match(
     prompt.systemPrompt,
-    /prefer `memory_retrieve` over treating `AGENTS\.md` as a general fact store\./i,
+    /If the answer is likely to be workspace-specific or previously learned contextual knowledge such as customer, project, person, workflow, decision, procedure, owner, threshold, contact, internal URL, or other facts that could plausibly have come from prior interactions or previously ingested knowledge in this workspace, use `memory_retrieve` first\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /If memory does not return a strong relevant result, then broaden outward to the next most plausible source, which may include local file search, connected integrations, workspace data\/tools, or web search depending on where the answer is most likely to live\./i,
   );
 });
 
@@ -699,11 +703,15 @@ test("composeBaseAgentPrompt instructs direct sessions to record durable workspa
   );
   assert.match(
     prompt.systemPrompt,
-    /Use `memory_retrieve` for contextual recall: prior facts, contacts, project or customer knowledge, decisions, and subject-specific procedures that should be retrieved when relevant rather than loaded by default\./i,
+    /Before choosing a retrieval path, first infer the most likely source of truth for the answer and prefer the most local authoritative source\./i,
   );
   assert.match(
     prompt.systemPrompt,
-    /prefer `memory_retrieve` over treating `AGENTS\.md` as a general fact store\./i,
+    /If the answer is likely to be workspace-specific or previously learned contextual knowledge such as customer, project, person, workflow, decision, procedure, owner, threshold, contact, internal URL, or other facts that could plausibly have come from prior interactions or previously ingested knowledge in this workspace, use `memory_retrieve` first\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /If memory does not return a strong relevant result, then broaden outward to the next most plausible source, which may include local file search, connected integrations, workspace data\/tools, or web search depending on where the answer is most likely to live\./i,
   );
 });
 
