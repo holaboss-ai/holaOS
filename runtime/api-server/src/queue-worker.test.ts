@@ -951,6 +951,218 @@ test("runtime queue worker renews an expired claimed input while it waits on a s
   store.close();
 });
 
+test("runtime queue worker keeps a local claimed input lease fresh while delegated execution is still active", async () => {
+  const root = makeTempDir("hb-runtime-queue-worker-active-lease-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const queued = store.enqueueInput({
+    workspaceId: "workspace-1",
+    sessionId: "session-main",
+    payload: { text: "hold the lease" },
+  });
+  const release = deferred<void>();
+  const started = deferred<void>();
+
+  const worker = new RuntimeQueueWorker({
+    store,
+    leaseSeconds: 1,
+    pollIntervalMs: 50,
+    executeClaimedInput: async () => {
+      started.resolve();
+      await release.promise;
+      store.updateInput({
+        workspaceId: queued.workspaceId,
+        inputId: queued.inputId,
+        fields: {
+          status: "DONE",
+          claimedBy: null,
+          claimedUntil: null,
+        },
+      });
+      store.updateRuntimeState({
+        workspaceId: queued.workspaceId,
+        sessionId: queued.sessionId,
+        status: "IDLE",
+        currentInputId: null,
+        currentWorkerId: null,
+        leaseUntil: null,
+        heartbeatAt: null,
+        lastError: null,
+      });
+    },
+  });
+
+  await worker.start();
+  worker.wake();
+
+  await waitFor(
+    () =>
+      store.getInput({
+        workspaceId: queued.workspaceId,
+        inputId: queued.inputId,
+      })?.status === "CLAIMED",
+  );
+  await started.promise;
+  const claimedBefore = store.getInput({
+    workspaceId: queued.workspaceId,
+    inputId: queued.inputId,
+  });
+  assert.ok(claimedBefore?.claimedUntil);
+
+  await sleep(1_250);
+
+  const claimedDuringRun = store.getInput({
+    workspaceId: queued.workspaceId,
+    inputId: queued.inputId,
+  });
+  assert.ok(claimedDuringRun);
+  assert.equal(claimedDuringRun.status, "CLAIMED");
+  assert.ok(claimedDuringRun.claimedUntil);
+  assert.ok(Date.parse(claimedDuringRun.claimedUntil) > Date.now());
+  assert.ok(
+    Date.parse(claimedDuringRun.claimedUntil) >
+      Date.parse(claimedBefore.claimedUntil!),
+  );
+
+  release.resolve();
+  await waitFor(
+    () =>
+      store.getInput({
+        workspaceId: queued.workspaceId,
+        inputId: queued.inputId,
+      })?.status === "DONE",
+    5_000,
+  );
+  await worker.close();
+  store.close();
+});
+
+test("runtime queue worker refreshes the runtime heartbeat for a local active run so peer workers do not recover it as abandoned", async () => {
+  const root = makeTempDir("hb-runtime-queue-worker-active-heartbeat-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const queued = store.enqueueInput({
+    workspaceId: "workspace-1",
+    sessionId: "session-main",
+    payload: { text: "stay local" },
+  });
+  const release = deferred<void>();
+  const started = deferred<void>();
+  const ownerId = "worker-owner";
+
+  const ownerWorker = new RuntimeQueueWorker({
+    store,
+    claimedBy: ownerId,
+    leaseSeconds: 300,
+    pollIntervalMs: 50,
+    executeClaimedInput: async () => {
+      store.updateRuntimeState({
+        workspaceId: queued.workspaceId,
+        sessionId: queued.sessionId,
+        status: "BUSY",
+        currentInputId: queued.inputId,
+        currentWorkerId: ownerId,
+        leaseUntil: new Date(Date.now() + 300_000).toISOString(),
+        heartbeatAt: new Date().toISOString(),
+        lastError: null,
+      });
+      started.resolve();
+      await release.promise;
+      store.updateInput({
+        workspaceId: queued.workspaceId,
+        inputId: queued.inputId,
+        fields: {
+          status: "DONE",
+          claimedBy: null,
+          claimedUntil: null,
+        },
+      });
+      store.updateRuntimeState({
+        workspaceId: queued.workspaceId,
+        sessionId: queued.sessionId,
+        status: "IDLE",
+        currentInputId: null,
+        currentWorkerId: null,
+        leaseUntil: null,
+        heartbeatAt: null,
+        lastError: null,
+      });
+    },
+  });
+  const peerWorker = new RuntimeQueueWorker({
+    store,
+    claimedBy: "worker-peer",
+    pollIntervalMs: 50,
+    claimStaleHeartbeatMs: 1_000,
+    executeClaimedInput: async () => {
+      throw new Error("peer worker should not steal the local run");
+    },
+  });
+
+  await ownerWorker.start();
+  ownerWorker.wake();
+  await started.promise;
+
+  const heartbeatBefore = store.getRuntimeState({
+    workspaceId: queued.workspaceId,
+    sessionId: queued.sessionId,
+  })?.heartbeatAt;
+  assert.ok(heartbeatBefore);
+
+  await sleep(1_250);
+
+  const runtimeStateDuringRun = store.getRuntimeState({
+    workspaceId: queued.workspaceId,
+    sessionId: queued.sessionId,
+  });
+  const processed = await peerWorker.processAvailableInputsOnce();
+  const updated = store.getInput({
+    workspaceId: queued.workspaceId,
+    inputId: queued.inputId,
+  });
+  const events = store.listOutputEvents({
+    workspaceId: queued.workspaceId,
+    sessionId: queued.sessionId,
+    inputId: queued.inputId,
+  });
+
+  assert.equal(processed, 0);
+  assert.ok(runtimeStateDuringRun?.heartbeatAt);
+  assert.ok(
+    Date.parse(runtimeStateDuringRun.heartbeatAt) > Date.parse(heartbeatBefore),
+  );
+  assert.equal(updated?.status, "CLAIMED");
+  assert.equal(events.length, 0);
+
+  release.resolve();
+  await waitFor(
+    () =>
+      store.getInput({
+        workspaceId: queued.workspaceId,
+        inputId: queued.inputId,
+      })?.status === "DONE",
+    5_000,
+  );
+  await ownerWorker.close();
+  store.close();
+});
+
 test("queue route wakes configured queue worker", async () => {
   const root = makeTempDir("hb-runtime-queue-worker-");
   const store = new RuntimeStateStore({
