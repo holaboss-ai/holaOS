@@ -110,6 +110,10 @@ import {
   RuntimeIntegrationService
 } from "./integrations.js";
 import { BrokerError, IntegrationBrokerService } from "./integration-broker.js";
+import {
+  fetchIntegrationContextForConnection,
+  normalizeComposioError,
+} from "./integration-context-fetch.js";
 import { resumePendingIntegrationInputs } from "./integration-proposal-gate.js";
 import { OAuthService } from "./oauth-service.js";
 import { ComposioService } from "./composio-service.js";
@@ -3373,7 +3377,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   // that reads the holder at call time — by then the worker is set.
   const queueWorkerHolder: { worker: { wake: () => void } | null } = { worker: null };
   const integrationService = new RuntimeIntegrationService(store, {
-    onConnectionActive: () => {
+    onConnectionActive: ({ connectionId, providerId }) => {
       try {
         const woken = resumePendingIntegrationInputs(store);
         if (woken > 0) {
@@ -3385,6 +3389,24 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           "resumePendingIntegrationInputs failed",
         );
       }
+      if (providerId.trim().toLowerCase() !== "gmail") {
+        return;
+      }
+      void fetchIntegrationContextForConnection({
+        store,
+        connectionId,
+      }).catch((error) => {
+        const normalized = normalizeComposioError(error);
+        app.log.warn(
+          {
+            connectionId,
+            providerId,
+            statusCode: normalized.statusCode,
+            error: normalized.message,
+          },
+          "integration context fetch failed",
+        );
+      });
     },
   });
   // workspaceIntegrationsService initialized after composioService below.
@@ -5096,6 +5118,30 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         return sendError(reply, error.statusCode, error.message);
       }
       return sendError(reply, 502, error instanceof Error ? error.message : "composio finalize failed");
+    }
+  });
+
+  app.post("/api/v1/integrations/context-fetch", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    const connectionId = typeof request.body.connection_id === "string"
+      ? request.body.connection_id.trim()
+      : "";
+    if (!connectionId) {
+      return sendError(reply, 400, "connection_id is required");
+    }
+    try {
+      return await fetchIntegrationContextForConnection({
+        store,
+        connectionId,
+      });
+    } catch (error) {
+      if (error instanceof IntegrationServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      const normalized = normalizeComposioError(error);
+      return sendError(reply, normalized.statusCode, normalized.message);
     }
   });
   // ---- Runtime Agent Tools (onboarding, cronjobs, media) ----
@@ -10725,13 +10771,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     return reply.send(stream);
   });
 
-  // Temporary diagnostic route — exercises the full runtime → Hono →
-  // Composio path through ComposioApiClient using the env-injected
-  // HOLABOSS_AUTH_BEARER_TOKEN. Called by the IntegrationsPane debug
-  // button so we can confirm desktop-side env injection + runtime SDK
-  // + Hono /internal/* + bearer plugin all line up end-to-end. Safe to
-  // delete once a real consumer (cron worker / data harvester / first-
-  // run prefetch) is in product and we have a real smoke test.
+  // Diagnostic route — exercises the full runtime → Hono → Composio
+  // path through ComposioApiClient using the env-injected
+  // HOLABOSS_AUTH_BEARER_TOKEN. The product integration-context fetch
+  // flow now uses /api/v1/integrations/context-fetch; keep this probe
+  // for manual end-to-end debugging while the provider fetch plans are
+  // still expanding.
   app.post("/api/v1/debug/composio-runtime-test", async (request, reply) => {
     const { createComposioApiClientFromEnv, ComposioApiClientError } =
       await import("./composio-api-client.js");

@@ -171,6 +171,9 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
   const [refreshingConnectionId, setRefreshingConnectionId] = useState<
     string | null
   >(null);
+  const [fetchingContextConnectionId, setFetchingContextConnectionId] = useState<
+    string | null
+  >(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [workspaceUsageByConnection, setWorkspaceUsageByConnection] = useState<
@@ -741,6 +744,31 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
     }
   }
 
+  async function handleFetchContext(connectionId: string) {
+    setFetchingContextConnectionId(connectionId);
+    setStatusMessage("");
+    try {
+      const result = await window.electronAPI.workspace.fetchIntegrationContext(
+        connectionId,
+      );
+      await loadData();
+      if (!result.supported) {
+        setStatusMessage(
+          `${result.provider_id} context fetch is not implemented yet.`,
+        );
+        return;
+      }
+      const label = result.account_label || result.account_key || result.provider_id;
+      setStatusMessage(
+        `Fetched ${result.provider_id} context for ${label}: ${result.messages_seen} messages scanned, ${result.leaves_created} new leaves, ${result.leaves_superseding} updated, ${result.leaves_unchanged} unchanged.`,
+      );
+    } catch (error) {
+      setStatusMessage(normalizeErrorMessage(error));
+    } finally {
+      setFetchingContextConnectionId(null);
+    }
+  }
+
   if (isLoading) {
     const skeletonCards = ["w-24", "w-20", "w-28", "w-16", "w-24", "w-20"];
     const skeletonGrid = (
@@ -896,6 +924,9 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                 onRefresh={(connectionId) =>
                   void handleRefresh(connectionId)
                 }
+                onFetchContext={(connectionId) =>
+                  void handleFetchContext(connectionId)
+                }
                 expanded={expandedProviderId === integration.providerId}
                 mutatingOverrideKey={mutatingOverrideKey}
                 onSetWorkspaceEnabled={(workspaceId, enabled) =>
@@ -911,6 +942,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                   )
                 }
                 refreshingConnectionId={refreshingConnectionId}
+                fetchingContextConnectionId={fetchingContextConnectionId}
                 toolkitCapabilities={capabilitiesByToolkit[integration.providerId] ?? []}
                 toolkitOverrides={
                   overridesByToolkit.get(integration.providerId) ?? new Map()
@@ -1075,6 +1107,9 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                   onRefresh={(connectionId) =>
                     void handleRefresh(connectionId)
                   }
+                  onFetchContext={(connectionId) =>
+                    void handleFetchContext(connectionId)
+                  }
                   expanded={expandedProviderId === integration.providerId}
                   mutatingOverrideKey={mutatingOverrideKey}
                   onSetWorkspaceEnabled={(workspaceId, enabled) =>
@@ -1090,6 +1125,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                     )
                   }
                   refreshingConnectionId={refreshingConnectionId}
+                  fetchingContextConnectionId={fetchingContextConnectionId}
                   toolkitCapabilities={capabilitiesByToolkit[integration.providerId] ?? []}
                   toolkitOverrides={
                     overridesByToolkit.get(integration.providerId) ?? new Map()
@@ -1209,7 +1245,9 @@ function ConnectedProviderCard({
   onConnect,
   onDisconnect,
   onRefresh,
+  onFetchContext,
   refreshingConnectionId,
+  fetchingContextConnectionId,
   connecting,
   disconnectingConnectionId,
   metadata,
@@ -1230,7 +1268,9 @@ function ConnectedProviderCard({
   onConnect: () => void;
   onDisconnect: (connectionId: string) => void;
   onRefresh: (connectionId: string) => void;
+  onFetchContext: (connectionId: string) => void;
   refreshingConnectionId: string | null;
+  fetchingContextConnectionId: string | null;
   connecting: boolean;
   disconnectingConnectionId: string | null;
   metadata: Map<string, ComposioAccountStatus>;
@@ -1309,6 +1349,10 @@ function ConnectedProviderCard({
           const showAvatar = Boolean(avatarUrl) && !failedAvatar;
           const disconnecting =
             disconnectingConnectionId === conn.connection_id;
+          const fetchingContext =
+            fetchingContextConnectionId === conn.connection_id;
+          const contextFetchSupported =
+            normalizedText(conn.provider_id).toLowerCase() === "gmail";
           const usage = workspaceUsageByConnection.get(conn.connection_id) ?? [];
           const workspaceCount = new Set(usage.map((u) => u.workspace_id)).size;
           return (
@@ -1351,6 +1395,30 @@ function ConnectedProviderCard({
                   {workspaceCount}w
                 </span>
               ) : null}
+              <Button
+                aria-label={`Fetch ${label} context`}
+                className="h-6 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+                disabled={
+                  disconnecting ||
+                  fetchingContext ||
+                  !contextFetchSupported
+                }
+                onClick={() => onFetchContext(conn.connection_id)}
+                title={
+                  contextFetchSupported
+                    ? "Fetch integration context into the memory tree"
+                    : "Context fetch is implemented for Gmail first."
+                }
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                {fetchingContext ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  "Fetch"
+                )}
+              </Button>
               <Button
                 aria-label={`Refresh ${label} identity`}
                 title="Refetch handle, email, and avatar from the provider"
@@ -1646,4 +1714,3 @@ function ComposioRuntimeDebugRow() {
     </div>
   );
 }
-

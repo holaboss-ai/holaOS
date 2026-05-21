@@ -1955,6 +1955,24 @@ interface RuntimeNotificationListOptionsPayload {
         toolSlug?: string;
         arguments?: Record<string, unknown>;
       }) => Promise<unknown>;
+      fetchIntegrationContext: (connectionId: string) => Promise<{
+        ok: true;
+        supported: boolean;
+        provider_id: string;
+        connection_id: string;
+        account_key: string | null;
+        account_label: string | null;
+        tree_id: string | null;
+        fetched_at: string;
+        leaves_created: number;
+        leaves_superseding: number;
+        leaves_unchanged: number;
+        messages_seen: number;
+        messages_persisted: number;
+        summary_nodes: number;
+        actions: string[];
+        reason?: string;
+      }>;
       restartApp: (workspaceId: string, appId: string) => Promise<{
         workspace_id: string;
         app_id: string;

@@ -49,6 +49,8 @@
       <li>Added a writeback-side recall filter for interaction batches. Three-turn memory extraction now excludes turns that look like reader/retrieval turns, based on <code>memory_retrieve</code> tool usage plus a question-style user prompt, and the extractor prompt now treats recalled answers as read-only context rather than new memory evidence.</li>
       <li>Stopped duplicating current-batch user prompts into the extractor's "recent user messages" context. The extractor now gets prior-session user context separately from the current batch, which reduces accidental re-learning from the same batch.</li>
       <li>Tightened the prompt-only boundary between <code>AGENTS.md</code> and memory without adding backend enforcement. The prompt now frames <code>AGENTS.md</code> as information the agent should obey by default on most future runs even when the current subject is not in scope, and it explicitly routes named-subject contextual knowledge to memory instead.</li>
+      <li>Started the first real integration-tree ingest path with Gmail. Connection activation and a new manual integrations-pane action now trigger a Gmail context fetch workflow that pulls account profile plus recent email metadata and persists them into the global per-account integration tree.</li>
+      <li>Formalized a new runtime route, <code>POST /api/v1/integrations/context-fetch</code>, as the supported backend entry point for integration context harvesting. The older <code>debug/composio-runtime-test</code> route remains as a diagnostic probe, but the product flow now targets the formal route.</li>
     </ul>
     <h2>Deviations</h2>
     <ul>
@@ -66,6 +68,7 @@
       <li>Integration-event routing is still not wired in. This pass only adds the backend tree family, persistence helpers, summary rebuilds, combined retrieval, and direct API tests; no live integration ingest source uses it yet.</li>
       <li>The initial reader-turn filter is intentionally narrow: it only excludes turns that both used <code>memory_retrieve</code> and look like recall questions. That fixes the observed eval regressions without broadly suppressing question-shaped source turns, but pre-run recalled answers without an explicit memory tool call may still need a second pass.</li>
       <li>The <code>AGENTS.md</code> leakage fix in this pass is prompt-only. That keeps the control plane simple and avoids overfitting eval terms into backend validators, but it means success still depends on agent compliance and should be rechecked with the live eval harness.</li>
+      <li>The first integration context fetch supports Gmail only. Other providers intentionally return a supported=false result instead of attempting a generic ingest, because Composio response shapes are tool-specific and we have not defined provider-specific normalizers yet.</li>
     </ul>
     <h2>Tradeoffs</h2>
     <ul>
@@ -87,6 +90,7 @@
       <li>The first reliability slice stores batch telemetry in generic runtime metadata keys rather than introducing a dedicated batch table. That keeps the schema unchanged for now and makes the change easier to land, but it also means querying batch history will stay more ad hoc until we decide whether this metadata should graduate into a first-class table.</li>
       <li>The current oversize handling treats any null extraction response as eligible for sub-batch fallback when the batch has more than one included turn. That is conservative and prevents silent loss, but it may retry on transient upstream failures that were not actually caused by prompt size.</li>
       <li>The new batch lease is intentionally process-local. That is enough for the current single embedded runtime process and avoids introducing cross-process coordination complexity in the same pass, but it would need to become a database-backed compare-and-set lease if writeback ever runs concurrently across multiple runtime processes.</li>
+      <li>The Gmail fetch workflow rebuilds integration summaries deterministically without workspace-scoped summary or embedding models. That keeps the new global account trees independent from any single workspace, but it also means Gmail trees will not get semantic summary prose or embeddings until we define a workspace-independent model-client strategy for global memory.</li>
     </ul>
     <h2>Open questions</h2>
     <ul>
@@ -97,6 +101,7 @@
       <li>Reader-turn re-ingestion is only partially solved in this pass. The new filter should stop the explicit <code>memory_retrieve</code> feedback loop that showed up in eval, but we still need a follow-up live run to see whether pre-run recalled answers without a tool call are being re-learned.</li>
       <li>The next live eval should verify whether the stronger prompt wording actually stops named-subject leakage into <code>AGENTS.md</code> from a clean baseline, especially in scenarios that previously passed on recall quality but failed on boundary hygiene.</li>
       <li>The next reliability pass should decide whether batch completion should continue to wait for summary rebuilds or whether leaf persistence and summary materialization need separate completion semantics. The current implementation still advances the cursor only after rebuild completes.</li>
+      <li>The next integration phase needs a durable incremental-sync plan. Gmail profile fetch records <code>historyId</code> in the profile leaf, but this pass still does a simple recent-email snapshot rather than using <code>GMAIL_LIST_HISTORY</code> or per-account cursors.</li>
     </ul>
   </body>
 </html>

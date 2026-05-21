@@ -136,7 +136,6 @@ test("rebuildIntegrationTree uses LLM-authored summaries when a summary model cl
     });
 
     const summaries = store.listIntegrationSummaryNodes({
-      workspaceId: "workspace-1",
       treeId: "integration:github:acct-1",
       status: "active",
       limit: 10_000,

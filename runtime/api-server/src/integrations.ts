@@ -156,7 +156,11 @@ export interface IntegrationServiceHooks {
   /** Called whenever a connection becomes (or stays) active. Used by the
    *  api-server to wake inputs that were parked waiting for this provider
    *  to be connected via a propose_connect card. */
-  onConnectionActive?: (params: { providerId: string }) => void;
+  onConnectionActive?: (params: {
+    providerId: string;
+    connectionId: string;
+    ownerUserId: string;
+  }) => void;
 }
 
 export class RuntimeIntegrationService {
@@ -307,14 +311,24 @@ export class RuntimeIntegrationService {
       accountEmail: params.accountEmail ?? existing?.accountEmail ?? null
     });
 
-    this.notifyConnectionActive(record.providerId, record.status);
+    this.notifyConnectionActive(
+      record.connectionId,
+      record.providerId,
+      record.ownerUserId,
+      record.status,
+    );
     return toIntegrationConnectionPayload(record);
   }
 
-  private notifyConnectionActive(providerId: string, status: string): void {
+  private notifyConnectionActive(
+    connectionId: string,
+    providerId: string,
+    ownerUserId: string,
+    status: string,
+  ): void {
     if (status.trim().toLowerCase() !== "active") return;
     try {
-      this.hooks.onConnectionActive?.({ providerId });
+      this.hooks.onConnectionActive?.({ providerId, connectionId, ownerUserId });
     } catch {
       // Hook is best-effort — never block the connection write.
     }
@@ -358,7 +372,12 @@ export class RuntimeIntegrationService {
         params.accountEmail !== undefined ? params.accountEmail : existing.accountEmail,
     });
 
-    this.notifyConnectionActive(record.providerId, record.status);
+    this.notifyConnectionActive(
+      record.connectionId,
+      record.providerId,
+      record.ownerUserId,
+      record.status,
+    );
     return toIntegrationConnectionPayload(record);
   }
 

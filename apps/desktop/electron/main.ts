@@ -10303,13 +10303,12 @@ function authBearerToken(): string {
   return extractSessionTokenFromCookieHeader(cookie) ?? "";
 }
 
-// Temporary diagnostic — hits the runtime's /api/v1/debug/composio-
+// Diagnostic helper — hits the runtime's /api/v1/debug/composio-
 // runtime-test endpoint, which exercises ComposioApiClient end-to-end
 // (runtime env-injected bearer token → Hono /internal/tools/execute →
-// Composio). Wired to a button in IntegrationsPane so we can confirm
-// the full server-side stack before any product consumer lands. Safe
-// to delete with the matching runtime endpoint once a real consumer
-// is in place.
+// Composio). The product integration context fetch flow now uses
+// /api/v1/integrations/context-fetch; keep this probe around for
+// low-level debugging while provider fetch plans are still expanding.
 async function debugComposioRuntimeTest(
   params: {
     providerSlug?: string;
@@ -10324,6 +10323,54 @@ async function debugComposioRuntimeTest(
       ...(params.providerSlug ? { provider_slug: params.providerSlug } : {}),
       ...(params.toolSlug ? { tool_slug: params.toolSlug } : {}),
       ...(params.arguments ? { arguments: params.arguments } : {}),
+    },
+  });
+}
+
+async function fetchIntegrationContext(connectionId: string): Promise<{
+  ok: true;
+  supported: boolean;
+  provider_id: string;
+  connection_id: string;
+  account_key: string | null;
+  account_label: string | null;
+  tree_id: string | null;
+  fetched_at: string;
+  leaves_created: number;
+  leaves_superseding: number;
+  leaves_unchanged: number;
+  messages_seen: number;
+  messages_persisted: number;
+  summary_nodes: number;
+  actions: string[];
+  reason?: string;
+}> {
+  const trimmed = typeof connectionId === "string" ? connectionId.trim() : "";
+  if (!trimmed) {
+    throw new Error("fetchIntegrationContext: connection_id required");
+  }
+  return requestRuntimeJson<{
+    ok: true;
+    supported: boolean;
+    provider_id: string;
+    connection_id: string;
+    account_key: string | null;
+    account_label: string | null;
+    tree_id: string | null;
+    fetched_at: string;
+    leaves_created: number;
+    leaves_superseding: number;
+    leaves_unchanged: number;
+    messages_seen: number;
+    messages_persisted: number;
+    summary_nodes: number;
+    actions: string[];
+    reason?: string;
+  }>({
+    method: "POST",
+    path: "/api/v1/integrations/context-fetch",
+    payload: {
+      connection_id: trimmed,
     },
   });
 }
@@ -23592,6 +23639,11 @@ app.whenReady().then(async () => {
         arguments?: Record<string, unknown>;
       },
     ) => debugComposioRuntimeTest(params ?? {}),
+  );
+  handleTrustedIpc(
+    "workspace:fetchIntegrationContext",
+    ["main"],
+    async (_event, connectionId: string) => fetchIntegrationContext(connectionId),
   );
   handleTrustedIpc(
     "workspace:composioConnect",

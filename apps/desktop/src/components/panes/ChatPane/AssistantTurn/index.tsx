@@ -55,9 +55,6 @@ export const AssistantTurn = memo(AssistantTurnComponent, (prev, next) =>
   prev.outputs === next.outputs &&
   prev.pendingIntegrations === next.pendingIntegrations &&
   prev.proposedIntegrations === next.proposedIntegrations &&
-  prev.memoryProposalAction === next.memoryProposalAction &&
-  prev.editingMemoryProposalId === next.editingMemoryProposalId &&
-  prev.memoryProposalDrafts === next.memoryProposalDrafts &&
   prev.collapsedTraceByStepId === next.collapsedTraceByStepId &&
   prev.live === next.live &&
   prev.status === next.status &&
@@ -79,13 +76,6 @@ function AssistantTurnComponent({
   proposedIntegrations = [],
   onAfterIntegrationBind,
   onAfterIntegrationProposalConnected,
-  memoryProposalAction,
-  editingMemoryProposalId,
-  memoryProposalDrafts,
-  onEditMemoryProposal,
-  onMemoryProposalDraftChange,
-  onAcceptMemoryProposal,
-  onDismissMemoryProposal,
   onOpenOutput,
   onOpenAllArtifacts,
   collapsedTraceByStepId,
@@ -113,18 +103,6 @@ function AssistantTurnComponent({
   proposedIntegrations?: AssistantTurnProposedIntegration[];
   onAfterIntegrationBind?: () => void;
   onAfterIntegrationProposalConnected?: (toolkitSlug: string) => void;
-  memoryProposalAction: {
-    proposalId: string;
-    action: "accept" | "dismiss";
-  } | null;
-  editingMemoryProposalId: string | null;
-  memoryProposalDrafts: Record<string, string>;
-  onEditMemoryProposal: (proposalId: string) => void;
-  onMemoryProposalDraftChange: (proposalId: string, value: string) => void;
-  onAcceptMemoryProposal: (proposal: MemoryUpdateProposalRecordPayload) => void;
-  onDismissMemoryProposal: (
-    proposal: MemoryUpdateProposalRecordPayload,
-  ) => void;
   onOpenOutput?: (output: WorkspaceOutputRecordPayload) => void;
   onOpenAllArtifacts: (outputs: WorkspaceOutputRecordPayload[]) => void;
   collapsedTraceByStepId: Record<string, boolean>;

@@ -97,15 +97,6 @@ export function ConversationTurns<Message extends ChatMessage>({
               proposedIntegrations={message.proposedIntegrations ?? []}
               onAfterIntegrationBind={onAfterIntegrationBind}
               onAfterIntegrationProposalConnected={onAfterIntegrationProposalConnected}
-              memoryProposalAction={memoryProposalAction}
-              editingMemoryProposalId={editingMemoryProposalId}
-              memoryProposalDrafts={memoryProposalDrafts}
-              onEditMemoryProposal={(proposalId) =>
-                onEditMemoryProposal(message, proposalId)
-              }
-              onMemoryProposalDraftChange={onMemoryProposalDraftChange}
-              onAcceptMemoryProposal={onAcceptMemoryProposal}
-              onDismissMemoryProposal={onDismissMemoryProposal}
               onOpenOutput={onOpenOutput}
               onOpenAllArtifacts={onOpenAllArtifacts}
               collapsedTraceByStepId={collapsedTraceByStepId}

@@ -24,6 +24,7 @@ import {
 } from "./turn-semantic-artifacts.js";
 import {
   extractDurableMemoryCandidatesFromModel,
+  type DurableMemoryExtractionContext,
   type DurableMemoryExtractionResult,
   type ExtractedDurableMemoryCandidate,
 } from "./memory-writeback-extractor.js";
