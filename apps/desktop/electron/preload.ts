@@ -148,7 +148,15 @@ interface BrowserAnchorBoundsPayload {
   height: number;
 }
 
-type UiSettingsPaneSection = "account" | "billing" | "providers" | "integrations" | "submissions" | "settings" | "about";
+type UiSettingsPaneSection =
+  | "account"
+  | "billing"
+  | "providers"
+  | "integrations"
+  | "memory"
+  | "submissions"
+  | "settings"
+  | "experimental";
 
 interface DesktopWindowStatePayload {
   isFullScreen: boolean;
@@ -1548,6 +1556,23 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("workspace:listAllWorkspaceIntegrationOverrides") as Promise<AllWorkspaceIntegrationOverridesPayload>,
     listWorkspaceIntegrations: (workspaceId: string) =>
       ipcRenderer.invoke("workspace:listWorkspaceIntegrations", workspaceId) as Promise<WorkspaceIntegrationsListResponsePayload>,
+    listMemoryBrowserTree: (workspaceId: string) =>
+      ipcRenderer.invoke("workspace:listMemoryBrowserTree", workspaceId) as Promise<MemoryBrowserTreeResponsePayload>,
+    readMemoryBrowserFile: (workspaceId: string, targetPath: string) =>
+      ipcRenderer.invoke(
+        "workspace:readMemoryBrowserFile",
+        workspaceId,
+        targetPath,
+      ) as Promise<MemoryBrowserFileResponsePayload>,
+    listMemoryBrowserGraph: (
+      workspaceId: string,
+      params: { forest: "workspace" | "integrations"; treeId?: string | null },
+    ) =>
+      ipcRenderer.invoke(
+        "workspace:listMemoryBrowserGraph",
+        workspaceId,
+        params,
+      ) as Promise<MemoryBrowserGraphResponsePayload>,
     setWorkspaceIntegrationOverride: (
       workspaceId: string,
       toolkitSlug: string,

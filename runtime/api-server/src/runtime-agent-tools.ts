@@ -4150,6 +4150,10 @@ export class RuntimeAgentToolsService {
       sessionId: normalizedString(params.sessionId) || null,
       inputId: normalizedString(params.inputId) || null,
     });
+    const sanitizeHit = (hit: Record<string, unknown>): JsonObject => {
+      const { path: _path, absolute_path: _absolutePath, ...rest } = hit;
+      return { ...rest } as JsonObject;
+    };
     return {
       tool_id: "memory_retrieve",
       categories: result.categories,
@@ -4157,8 +4161,8 @@ export class RuntimeAgentToolsService {
       mode: result.mode,
       tree_id: result.tree_id,
       node_id: result.node_id,
-      hits: result.hits.map((hit) => ({ ...hit })),
-      children: result.children ? result.children.map((child) => ({ ...child })) : null,
+      hits: result.hits.map((hit) => sanitizeHit({ ...hit })),
+      children: result.children ? result.children.map((child) => sanitizeHit({ ...child })) : null,
     };
   }
 

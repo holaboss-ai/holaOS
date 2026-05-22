@@ -56,6 +56,10 @@ export function interactionMemoryDir(workspaceDir) {
   return path.join(workspaceDir, ".holaboss", "memory", "interaction");
 }
 
+export function integrationMemoryDir(workspaceDir) {
+  return path.join(workspaceDir, ".holaboss", "memory", "integration");
+}
+
 export function agentsMdPath(workspaceDir) {
   return path.join(workspaceDir, "AGENTS.md");
 }
@@ -89,7 +93,7 @@ export function runSqlRows(dbPath, sql) {
     .map((line) => line.split("\t"));
 }
 
-export function interactionMemoryCounts(dbPath) {
+export function workspaceMemoryCounts(dbPath) {
   const rows = runSqlRows(
     dbPath,
     `
@@ -98,12 +102,22 @@ export function interactionMemoryCounts(dbPath) {
       select 'active_leaves', count(*) from interaction_leaves where status='active'
       union all
       select 'active_summaries', count(*) from interaction_summary_nodes where status='active'
+      union all
+      select 'active_integration_trees', count(*) from integration_trees where status='active'
+      union all
+      select 'active_integration_leaves', count(*) from integration_leaves where status='active'
+      union all
+      select 'active_integration_summaries', count(*) from integration_summary_nodes where status='active'
     `,
   );
   return Object.fromEntries(rows.map(([key, value]) => [key, Number(value ?? 0)]));
 }
 
-export function cleanupInteractionMemory(params) {
+export function interactionMemoryCounts(dbPath) {
+  return workspaceMemoryCounts(dbPath);
+}
+
+export function cleanupWorkspaceMemory(params) {
   if (!fs.existsSync(params.workspaceDir)) {
     throw new Error(`workspace dir not found: ${params.workspaceDir}`);
   }
@@ -123,15 +137,22 @@ export function cleanupInteractionMemory(params) {
           DELETE FROM interaction_summary_nodes;
           DELETE FROM interaction_leaves;
           DELETE FROM interaction_entities;
+          DELETE FROM integration_node_embeddings;
+          DELETE FROM integration_tree_edges;
+          DELETE FROM integration_summary_nodes;
+          DELETE FROM integration_leaves;
+          DELETE FROM integration_trees;
           DELETE FROM workspace_runtime_metadata
-            WHERE key LIKE 'interaction_memory_batch_processed_count:%';
+            WHERE key LIKE 'interaction_memory_batch_%';
           COMMIT;
         `,
       ],
       { stdio: ["ignore", "pipe", "pipe"] },
     );
     fs.rmSync(interactionMemoryDir(params.workspaceDir), { recursive: true, force: true });
+    fs.rmSync(integrationMemoryDir(params.workspaceDir), { recursive: true, force: true });
     fs.mkdirSync(path.join(interactionMemoryDir(params.workspaceDir), "entities"), { recursive: true });
+    fs.mkdirSync(path.join(integrationMemoryDir(params.workspaceDir), "accounts"), { recursive: true });
 
     if (params.agentsBaselinePath) {
       const baseline = fs.readFileSync(path.resolve(params.agentsBaselinePath), "utf8");
@@ -141,9 +162,13 @@ export function cleanupInteractionMemory(params) {
   return {
     dbPath,
     workspaceDir: params.workspaceDir,
-    counts: interactionMemoryCounts(dbPath),
+    counts: workspaceMemoryCounts(dbPath),
     agentsPath: agentsMdPath(params.workspaceDir),
   };
+}
+
+export function cleanupInteractionMemory(params) {
+  return cleanupWorkspaceMemory(params);
 }
 
 export async function discoverRuntimePort(explicitPort) {

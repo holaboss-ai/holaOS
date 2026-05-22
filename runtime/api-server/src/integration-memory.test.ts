@@ -7,7 +7,7 @@ import { afterEach, test } from "node:test";
 
 import { RuntimeStateStore } from "@holaboss/runtime-state-store";
 
-import { rebuildIntegrationTree } from "./integration-memory.js";
+import { rebuildIntegrationTree, retrieveIntegrationMemory } from "./integration-memory.js";
 import { globalMemoryDirForWorkspaceRoot } from "./workspace-bundle-paths.js";
 
 const tempDirs: string[] = [];
@@ -173,5 +173,105 @@ test("rebuildIntegrationTree uses LLM-authored summaries when a summary model cl
         resolve();
       });
     });
+  }
+});
+
+test("retrieveIntegrationMemory follows workspace override visibility without requiring integration bindings", async () => {
+  const root = makeTempDir("hb-integration-memory-visibility-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  try {
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertIntegrationConnection({
+      connectionId: "gmail-1",
+      providerId: "gmail",
+      ownerUserId: "user-1",
+      accountLabel: "ops@example.com",
+      accountEmail: "ops@example.com",
+      authMode: "composio",
+      grantedScopes: [],
+      status: "active",
+    });
+    store.upsertIntegrationTree({
+      treeId: "integration:gmail:acct-1",
+      provider: "gmail",
+      ownerUserId: "user-1",
+      accountKey: "ops@example.com",
+      accountLabel: "ops@example.com",
+      slug: "gmail-ops-example-com-acct-1",
+      summary: "Gmail account memory.",
+      status: "active",
+    });
+    store.upsertIntegrationLeaf({
+      leafId: "leaf-1",
+      treeId: "integration:gmail:acct-1",
+      subjectKey: "message:1",
+      path: "integration/accounts/gmail-ops-example-com-acct-1/leaves/leaf-1.md",
+      title: "Invoice approval thread",
+      summary: "Invoices above $5000 require finance approval.",
+      fingerprint: "fingerprint-leaf-1",
+      bodySha256: "sha-leaf-1",
+      tags: ["gmail", "approval"],
+      sourceType: "gmail_message",
+      sourceEventId: "evt-1",
+      sourceMessageId: "msg-1",
+      externalObjectId: "msg-1",
+      externalObjectType: "message",
+      admissionConfidence: 0.9,
+      observedAt: "2026-05-22T00:00:00.000Z",
+      supersedesLeafId: null,
+      status: "active",
+    });
+
+    const leafPath = path.join(
+      globalMemoryDirForWorkspaceRoot(workspaceRoot),
+      "integration",
+      "accounts",
+      "gmail-ops-example-com-acct-1",
+      "leaves",
+      "leaf-1.md",
+    );
+    fs.mkdirSync(path.dirname(leafPath), { recursive: true });
+    fs.writeFileSync(
+      leafPath,
+      "# Invoice approval thread\n\nInvoices above $5000 require finance approval.\n",
+      "utf8",
+    );
+
+    const visible = await retrieveIntegrationMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "Who approves invoices above $5000?",
+      mode: "mixed",
+      maxResults: 5,
+    });
+    assert.equal(visible.hits.length, 1);
+    assert.equal(visible.hits[0]?.tree_id, "integration:gmail:acct-1");
+    assert.equal(visible.hits[0]?.title, "Invoice approval thread");
+
+    store.upsertWorkspaceIntegrationOverride({
+      workspaceId: "workspace-1",
+      toolkitSlug: "gmail",
+      state: "disabled",
+      pinnedConnectionId: null,
+    });
+    const disabled = await retrieveIntegrationMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "Who approves invoices above $5000?",
+      mode: "mixed",
+      maxResults: 5,
+    });
+    assert.equal(disabled.hits.length, 0);
+  } finally {
+    store.close();
   }
 });

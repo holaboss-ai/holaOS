@@ -11,6 +11,7 @@ import {
   retrieveInteractionMemory,
   type InteractionMemoryRetrieveHit,
 } from "./interaction-memory.js";
+import { visibleIntegrationConnectionsForWorkspace } from "./workspace-integration-visibility.js";
 
 export type WorkspaceMemoryCategory = "interaction" | "integration";
 
@@ -73,7 +74,8 @@ export function planWorkspaceMemoryCategories(params: {
     limit: 1,
     offset: 0,
   }).length > 0;
-  const hasIntegration = params.store.listIntegrationBindings({
+  const hasIntegration = visibleIntegrationConnectionsForWorkspace({
+    store: params.store,
     workspaceId: params.workspaceId,
   }).length > 0;
   if (hasInteraction && hasIntegration) {

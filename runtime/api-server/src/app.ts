@@ -114,6 +114,11 @@ import {
   fetchIntegrationContextForConnection,
   normalizeComposioError,
 } from "./integration-context-fetch.js";
+import {
+  buildMemoryBrowserGraph,
+  buildMemoryBrowserTree,
+  readMemoryBrowserFile,
+} from "./memory-browser.js";
 import { resumePendingIntegrationInputs } from "./integration-proposal-gate.js";
 import { OAuthService } from "./oauth-service.js";
 import { ComposioService } from "./composio-service.js";
@@ -5142,6 +5147,77 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       }
       const normalized = normalizeComposioError(error);
       return sendError(reply, normalized.statusCode, normalized.message);
+    }
+  });
+
+  app.get("/api/v1/memory/browser/tree", async (request, reply) => {
+    try {
+      if (!isRecord(request.query)) {
+        throw new Error("workspace_id is required");
+      }
+      const workspaceId = requiredString(
+        request.query.workspace_id,
+        "workspace_id",
+      ).trim();
+      return buildMemoryBrowserTree({
+        store,
+        workspaceId,
+      });
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "memory browser tree failed";
+      const statusCode = detail.includes("not found") ? 404 : 400;
+      return sendError(reply, statusCode, detail);
+    }
+  });
+
+  app.get("/api/v1/memory/browser/file", async (request, reply) => {
+    try {
+      if (!isRecord(request.query)) {
+        throw new Error("workspace_id and path are required");
+      }
+      const workspaceId = requiredString(
+        request.query.workspace_id,
+        "workspace_id",
+      ).trim();
+      const targetPath = requiredString(request.query.path, "path").trim();
+      return readMemoryBrowserFile({
+        store,
+        workspaceId,
+        targetPath,
+      });
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "memory browser file failed";
+      const statusCode = detail.includes("not found") ? 404 : 400;
+      return sendError(reply, statusCode, detail);
+    }
+  });
+
+  app.get("/api/v1/memory/browser/graph", async (request, reply) => {
+    try {
+      if (!isRecord(request.query)) {
+        throw new Error("workspace_id and forest are required");
+      }
+      const workspaceId = requiredString(
+        request.query.workspace_id,
+        "workspace_id",
+      ).trim();
+      const forest = requiredString(request.query.forest, "forest").trim();
+      if (forest !== "workspace" && forest !== "integrations") {
+        throw new Error("forest must be workspace or integrations");
+      }
+      return buildMemoryBrowserGraph({
+        store,
+        workspaceId,
+        forest,
+        treeId: optionalString(request.query.tree_id)?.trim() || null,
+      });
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "memory browser graph failed";
+      const statusCode = detail.includes("not found") ? 404 : 400;
+      return sendError(reply, statusCode, detail);
     }
   });
   // ---- Runtime Agent Tools (onboarding, cronjobs, media) ----

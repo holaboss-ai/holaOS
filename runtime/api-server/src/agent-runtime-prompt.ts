@@ -579,17 +579,15 @@ function recalledMemoryPromptSection(context: AgentRecalledMemoryContext | null 
     const memoryType = nonEmptyText(entry.memory_type) || "memory";
     const title = nonEmptyText(entry.title) || "Untitled memory";
     const summary = nonEmptyText(entry.summary) || "No summary available.";
-    const path = nonEmptyText(entry.path);
     const verificationPolicy = nonEmptyText(entry.verification_policy) || "none";
     const stalenessPolicy = nonEmptyText(entry.staleness_policy) || "stable";
     const freshnessState = nonEmptyText(entry.freshness_state) || "fresh";
     const freshnessNote = nonEmptyText(entry.freshness_note);
     const excerpt = nonEmptyText(entry.excerpt);
-    const pathSuffix = path ? ` (\`${path}\`)` : "";
     const freshnessSuffix = freshnessNote
       ? ` Freshness: \`${freshnessState}\` (\`${stalenessPolicy}\`) - ${freshnessNote}`
       : ` Freshness: \`${freshnessState}\` (\`${stalenessPolicy}\`).`;
-    lines.push(`- [${scope}/${memoryType}] ${title}${pathSuffix}: ${summary} Verification: \`${verificationPolicy}\`.${freshnessSuffix}`);
+    lines.push(`- [${scope}/${memoryType}] ${title}: ${summary} Verification: \`${verificationPolicy}\`.${freshnessSuffix}`);
     if (excerpt) {
       lines.push(`Excerpt: ${excerpt}`);
     }
@@ -857,7 +855,10 @@ export function buildBaseAgentPromptSections(
   if (hasMemoryRetrieveTool(request)) {
     executionLines.push(
       "Before choosing a retrieval path, first infer the most likely source of truth for the answer and prefer the most local authoritative source.",
+      "If the answer is not already established by the current turn, currently loaded context, or a direct tool result in this run, probe `memory_retrieve` before broadening to browser, web, file search, connected integrations, or other external retrieval routes.",
       "If the answer is likely to be workspace-specific or previously learned contextual knowledge such as customer, project, person, workflow, decision, procedure, owner, threshold, contact, internal URL, or other facts that could plausibly have come from prior interactions or previously ingested knowledge in this workspace, use `memory_retrieve` first.",
+      "Do not open a browser tab or other live external surface first for an unknown fact lookup when memory could plausibly already contain the answer.",
+      "Use browser, web, or other live external sources before memory only when the user is explicitly asking for current live state, current UI state, or other freshness-sensitive information that memory is unlikely to settle on its own.",
       "If memory does not return a strong relevant result, then broaden outward to the next most plausible source, which may include local file search, connected integrations, workspace data/tools, or web search depending on where the answer is most likely to live."
     );
   }
@@ -976,7 +977,10 @@ export function buildMainSessionPromptSections(
   if (hasMemoryRetrieveTool(request)) {
     conversationLines.push(
       "Before choosing a retrieval path, first infer the most likely source of truth for the answer and prefer the most local authoritative source.",
+      "If the answer is not already established by the current turn, currently loaded context, or a direct tool result in this run, probe `memory_retrieve` before broadening to browser, web, file search, connected integrations, or other external retrieval routes.",
       "If the answer is likely to be workspace-specific or previously learned contextual knowledge such as customer, project, person, workflow, decision, procedure, owner, threshold, contact, internal URL, or other facts that could plausibly have come from prior interactions or previously ingested knowledge in this workspace, use `memory_retrieve` first.",
+      "Do not open a browser tab or other live external surface first for an unknown fact lookup when memory could plausibly already contain the answer.",
+      "Use browser, web, or other live external sources before memory only when the user is explicitly asking for current live state, current UI state, or other freshness-sensitive information that memory is unlikely to settle on its own.",
       "If memory does not return a strong relevant result, then broaden outward to the next most plausible source, which may include local file search, connected integrations, workspace data/tools, or web search depending on where the answer is most likely to live."
     );
   }

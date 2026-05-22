@@ -2183,10 +2183,8 @@ test("runtime memory_retrieve tool returns interaction leaf hits from the tree b
     assert.equal(response.json().categories[0], "interaction");
     assert.equal(response.json().hits.length, 1);
     assert.equal(response.json().hits[0].title, "Deploy procedure");
-    assert.equal(
-      response.json().hits[0].path,
-      "workspace/workspace-1/interaction/entities/workflow-deploy-procedure/leaves/leaf-deploy-procedure.md",
-    );
+    assert.equal(response.json().hits[0].summary, "Steps for deployment.");
+    assert.equal("path" in response.json().hits[0], false);
   } finally {
     await app.close();
     store.close();
@@ -2290,10 +2288,8 @@ test("runtime memory_retrieve tool returns integration leaf hits from the tree b
     assert.equal(response.json().hits.length, 1);
     assert.equal(response.json().hits[0].title, "Release PR #123 owner");
     assert.equal(response.json().hits[0].provider, "github");
-    assert.equal(
-      response.json().hits[0].path,
-      "integration/accounts/github-jeff-acct-1/leaves/leaf-release-pr.md",
-    );
+    assert.equal(response.json().hits[0].summary, "The release PR owner is Maya Chen.");
+    assert.equal("path" in response.json().hits[0], false);
   } finally {
     await app.close();
     store.close();

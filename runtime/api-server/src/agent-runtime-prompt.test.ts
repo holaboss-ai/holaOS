@@ -671,7 +671,19 @@ test("composeAgentPrompt instructs main sessions to record durable workspace kno
   );
   assert.match(
     prompt.systemPrompt,
+    /If the answer is not already established by the current turn, currently loaded context, or a direct tool result in this run, probe `memory_retrieve` before broadening to browser, web, file search, connected integrations, or other external retrieval routes\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
     /If the answer is likely to be workspace-specific or previously learned contextual knowledge such as customer, project, person, workflow, decision, procedure, owner, threshold, contact, internal URL, or other facts that could plausibly have come from prior interactions or previously ingested knowledge in this workspace, use `memory_retrieve` first\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Do not open a browser tab or other live external surface first for an unknown fact lookup when memory could plausibly already contain the answer\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Use browser, web, or other live external sources before memory only when the user is explicitly asking for current live state, current UI state, or other freshness-sensitive information that memory is unlikely to settle on its own\./i,
   );
   assert.match(
     prompt.systemPrompt,
@@ -734,7 +746,19 @@ test("composeBaseAgentPrompt instructs direct sessions to record durable workspa
   );
   assert.match(
     prompt.systemPrompt,
+    /If the answer is not already established by the current turn, currently loaded context, or a direct tool result in this run, probe `memory_retrieve` before broadening to browser, web, file search, connected integrations, or other external retrieval routes\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
     /If the answer is likely to be workspace-specific or previously learned contextual knowledge such as customer, project, person, workflow, decision, procedure, owner, threshold, contact, internal URL, or other facts that could plausibly have come from prior interactions or previously ingested knowledge in this workspace, use `memory_retrieve` first\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Do not open a browser tab or other live external surface first for an unknown fact lookup when memory could plausibly already contain the answer\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Use browser, web, or other live external sources before memory only when the user is explicitly asking for current live state, current UI state, or other freshness-sensitive information that memory is unlikely to settle on its own\./i,
   );
   assert.match(
     prompt.systemPrompt,
@@ -1355,6 +1379,17 @@ test("composeBaseAgentPrompt includes recalled durable memory as context message
           freshness_state: "fresh",
           freshness_note: "Verify this memory against the current workspace state before acting on it.",
         },
+        {
+          scope: "integration",
+          memory_type: "leaf",
+          title: "Your OpenAI API account has been funded",
+          summary: "Email from OpenAI about your API account being funded.",
+          path: "integration/accounts/gmail-jeffreyli-imerch.ai-89418944a655/leaves/leaf-65461043924305269f729543.md",
+          verification_policy: "none",
+          staleness_policy: "workspace_sensitive",
+          freshness_state: "fresh",
+          freshness_note: "Leaf memory from gmail account jeffreyli@imerch.ai.",
+        },
       ],
     },
   });
@@ -1373,6 +1408,7 @@ test("composeBaseAgentPrompt includes recalled durable memory as context message
   assert.match(prompt.contextMessages.join("\n\n"), /Recalled durable memory:/);
   assert.match(prompt.contextMessages.join("\n\n"), /User response style/);
   assert.match(prompt.contextMessages.join("\n\n"), /Deploy permission blocker/);
+  assert.doesNotMatch(prompt.contextMessages.join("\n\n"), /integration\/accounts\/gmail-jeffreyli-imerch.ai-89418944a655\/leaves\/leaf-65461043924305269f729543\.md/);
   assert.match(prompt.contextMessages.join("\n\n"), /check_before_use/);
   assert.match(prompt.contextMessages.join("\n\n"), /Freshness: `stable` \(`stable`\)/);
   assert.match(prompt.contextMessages.join("\n\n"), /Freshness: `fresh` \(`workspace_sensitive`\)/);

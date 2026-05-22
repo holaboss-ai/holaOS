@@ -24,6 +24,7 @@ import { AuthPanel } from "@/components/auth/AuthPanel";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { BillingSettingsPanel } from "@/components/billing/BillingSettingsPanel";
 import { IntegrationsPane } from "@/components/panes/IntegrationsPane";
+import { MemoryPane } from "@/components/panes/MemoryPane";
 import {
   SettingsCard,
   SettingsMenuSelectRow,
@@ -123,6 +124,7 @@ const SETTINGS_NAV: ReadonlyArray<SettingsScreenNavEntry<UiSettingsPaneSection>>
   { id: "billing", label: "Billing", icon: CreditCard },
   { id: "providers", label: "Providers", icon: Waypoints },
   { id: "integrations", label: "Integrations", icon: Plug },
+  { id: "memory", label: "Memory", icon: FolderOpen },
   { id: "submissions", label: "Submissions", icon: Send },
   { id: "experimental", label: "Experimental", icon: FlaskConical },
 ];
@@ -158,6 +160,8 @@ function pageTitle(section: UiSettingsPaneSection): string {
       return "Providers";
     case "integrations":
       return "Integrations";
+    case "memory":
+      return "Memory";
     case "submissions":
       return "Submissions";
     case "experimental":
@@ -179,6 +183,8 @@ function pageDescription(section: UiSettingsPaneSection): string | undefined {
       return "Default models, providers, and per-workspace overrides.";
     case "integrations":
       return "Your toolkit pool. Connect once, use across workspaces.";
+    case "memory":
+      return "Browse the current workspace memory filesystem.";
     case "submissions":
       return "Review templates and apps you've submitted for marketplace listing.";
     case "experimental":
@@ -545,6 +551,8 @@ export function SettingsScreenRoot({
         {activeSection === "integrations" ? (
           <IntegrationsPane embedded />
         ) : null}
+
+        {activeSection === "memory" ? <MemoryPane embedded /> : null}
 
         {activeSection === "submissions" ? (
           <SubmissionsPanel initialFocusedId={submissionsFocusId} />

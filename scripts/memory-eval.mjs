@@ -6,27 +6,28 @@ import path from "node:path";
 
 import {
   agentsMdPath,
-  cleanupInteractionMemory,
+  cleanupWorkspaceMemory,
   discoverRuntimePort,
   fetchJson,
-  interactionMemoryCounts,
   matchingTerms,
   parseCommonArgs,
   readTextIfExists,
   runSqlRows,
   runtimeDbPath,
   sanitizeSessionId,
+  workspaceMemoryCounts,
 } from "./lib/memory-live-utils.mjs";
 
 const DEFAULT_FIXTURE_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "fixtures",
-  "memory-eval-phase1.json",
+  "memory-eval-phase2.json",
 );
 const BATCH_CURSOR_KEY_PREFIX = "interaction_memory_batch_processed_count:";
 const TURN_RESULT_TIMEOUT_MS = 120000;
-const BATCH_CURSOR_TIMEOUT_MS = 45000;
-const ENTITY_READY_TIMEOUT_MS = 45000;
+const BATCH_CURSOR_TIMEOUT_MS = 90000;
+const ENTITY_READY_TIMEOUT_MS = 90000;
+const INTEGRATION_FETCH_TIMEOUT_MS = 120000;
 
 function printUsage() {
   console.log(
@@ -73,6 +74,40 @@ function maxValue(values) {
     return null;
   }
   return Math.max(...filtered);
+}
+
+function percentile(values, ratio) {
+  const filtered = values.filter((value) => Number.isFinite(value)).sort((left, right) => left - right);
+  if (filtered.length === 0) {
+    return null;
+  }
+  const index = Math.min(filtered.length - 1, Math.max(0, Math.ceil(filtered.length * ratio) - 1));
+  return filtered[index];
+}
+
+function normalizeComparableText(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[:.,]/g, " ")
+    .replace(/\b(\d+):00\b/g, "$1")
+    .replace(/\bp\.?m\.?\b/g, "pm")
+    .replace(/\ba\.?m\.?\b/g, "am")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function renderTemplateString(template, context) {
+  return String(template ?? "").replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key) => {
+    const resolved = context?.[key];
+    return resolved == null ? "" : String(resolved);
+  });
+}
+
+function renderTemplateArray(values, context) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  return values.map((value) => renderTemplateString(value, context));
 }
 
 function writeReport(report, outputPath) {
@@ -148,6 +183,71 @@ function expectedEntitiesForScenario(scenario) {
   return [];
 }
 
+function activeEntityByExpectation(dbPath, expectedEntity) {
+  const canonicalName = typeof expectedEntity.canonical_name === "string"
+    ? expectedEntity.canonical_name.trim()
+    : "";
+  const entityType = typeof expectedEntity.entity_type === "string"
+    ? expectedEntity.entity_type.trim()
+    : "";
+  if (!canonicalName && !entityType) {
+    return null;
+  }
+  const clauses = ["workspace_id IS NOT NULL", "status = 'active'"];
+  if (canonicalName) {
+    clauses.push(`canonical_name = ${sqlLiteral(canonicalName)}`);
+  }
+  if (entityType) {
+    clauses.push(`entity_type = ${sqlLiteral(entityType)}`);
+  }
+  const rows = runSqlRows(
+    dbPath,
+    `
+      SELECT entity_id, entity_type, canonical_name, slug, updated_at
+      FROM interaction_entities
+      WHERE ${clauses.join("\n        AND ")}
+      ORDER BY datetime(updated_at) DESC, entity_id DESC
+      LIMIT 1;
+    `,
+  );
+  const row = rows[0];
+  if (!row) {
+    return null;
+  }
+  return {
+    entity_id: row[0],
+    entity_type: row[1],
+    canonical_name: row[2],
+    slug: row[3],
+    updated_at: row[4],
+  };
+}
+
+function resolveEntityRecord(dbPath, expectedEntity) {
+  const entityId = typeof expectedEntity.entity_id === "string"
+    ? expectedEntity.entity_id.trim()
+    : "";
+  return activeEntity(dbPath, entityId) ?? activeEntityByExpectation(dbPath, expectedEntity);
+}
+
+function resolveEntityTreeId(queryCase, expectedEntities, entityReports) {
+  if (typeof queryCase.entity_id === "string" && queryCase.entity_id.trim().length > 0) {
+    return queryCase.entity_id.trim();
+  }
+  if (typeof queryCase.entity_name === "string" && queryCase.entity_name.trim().length > 0) {
+    const normalized = queryCase.entity_name.trim().toLowerCase();
+    const matchedReport = entityReports.find((entry) => {
+      const canonicalName = entry.entity?.canonical_name ?? entry.expected?.canonical_name ?? "";
+      return canonicalName.trim().toLowerCase() === normalized;
+    });
+    return matchedReport?.entity?.entity_id ?? null;
+  }
+  if (expectedEntities.length === 1) {
+    return entityReports[0]?.entity?.entity_id ?? expectedEntities[0]?.entity_id ?? null;
+  }
+  return null;
+}
+
 async function postJson(baseUrl, route, payload, init = {}) {
   return await fetchJson(`${baseUrl}${route}`, {
     method: "POST",
@@ -206,6 +306,7 @@ async function retrieveMemory(baseUrl, params) {
     "/api/v1/capabilities/runtime-tools/memory/retrieve",
     {
       query: params.query,
+      categories: Array.isArray(params.categories) ? params.categories : undefined,
       mode: params.mode ?? "mixed",
       max_results: params.maxResults ?? 8,
       session_id: params.sessionId ?? null,
@@ -300,10 +401,107 @@ function activeSummariesForEntity(dbPath, entityId) {
   }));
 }
 
+function activeIntegrationConnection(dbPath, providerId) {
+  const rows = runSqlRows(
+    dbPath,
+    `
+      SELECT connection_id, provider_id, owner_user_id, account_label, account_email, account_external_id, status
+      FROM integration_connections
+      WHERE provider_id = ${sqlLiteral(providerId)}
+        AND lower(status) = 'active'
+      ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC, connection_id DESC
+      LIMIT 1;
+    `,
+  );
+  const row = rows[0];
+  if (!row) {
+    return null;
+  }
+  return {
+    connection_id: row[0],
+    provider_id: row[1],
+    owner_user_id: row[2],
+    account_label: row[3],
+    account_email: row[4],
+    account_external_id: row[5],
+    status: row[6],
+  };
+}
+
+function activeIntegrationTree(dbPath, treeId) {
+  const rows = runSqlRows(
+    dbPath,
+    `
+      SELECT tree_id, provider, owner_user_id, account_key, account_label, slug, updated_at
+      FROM integration_trees
+      WHERE tree_id = ${sqlLiteral(treeId)}
+        AND status = 'active'
+      LIMIT 1;
+    `,
+  );
+  const row = rows[0];
+  if (!row) {
+    return null;
+  }
+  return {
+    tree_id: row[0],
+    provider: row[1],
+    owner_user_id: row[2],
+    account_key: row[3],
+    account_label: row[4],
+    slug: row[5],
+    updated_at: row[6],
+  };
+}
+
+function activeIntegrationLeavesForTree(dbPath, treeId) {
+  return runSqlRows(
+    dbPath,
+    `
+      SELECT leaf_id, subject_key, title, summary, path, observed_at, updated_at
+      FROM integration_leaves
+      WHERE tree_id = ${sqlLiteral(treeId)}
+        AND status = 'active'
+      ORDER BY observed_at ASC, updated_at ASC, leaf_id ASC;
+    `,
+  ).map((row) => ({
+    leaf_id: row[0],
+    subject_key: row[1],
+    title: row[2],
+    summary: row[3],
+    path: row[4],
+    observed_at: row[5],
+    updated_at: row[6],
+  }));
+}
+
+function activeIntegrationSummariesForTree(dbPath, treeId) {
+  return runSqlRows(
+    dbPath,
+    `
+      SELECT node_id, title, summary, level, child_count, path, sealed_at, updated_at
+      FROM integration_summary_nodes
+      WHERE tree_id = ${sqlLiteral(treeId)}
+        AND status = 'active'
+      ORDER BY level ASC, updated_at ASC, node_id ASC;
+    `,
+  ).map((row) => ({
+    node_id: row[0],
+    title: row[1],
+    summary: row[2],
+    level: Number(row[3] ?? 0),
+    child_count: Number(row[4] ?? 0),
+    path: row[5],
+    sealed_at: row[6],
+    updated_at: row[7],
+  }));
+}
+
 function assertIncludesAll(label, haystack, terms) {
-  const matched = matchingTerms(haystack, terms);
-  if (matched.length !== terms.length) {
-    const missing = terms.filter((term) => !matched.includes(term));
+  const normalizedTerms = terms.map((term) => normalizeComparableText(term));
+  const matched = matchingTerms(normalizeComparableText(haystack), normalizedTerms);
+  if (matched.length !== normalizedTerms.length) {
+    const missing = terms.filter((term, index) => !matched.includes(normalizedTerms[index]));
     throw new Error(`${label} is missing expected terms: ${missing.join(", ")}`);
   }
 }
@@ -313,8 +511,10 @@ function hitText(hit) {
 }
 
 function missingTerms(haystack, terms) {
-  const matched = matchingTerms(haystack, terms);
-  return terms.filter((term) => !matched.includes(term));
+  const normalizedHaystack = normalizeComparableText(haystack);
+  const normalizedTerms = terms.map((term) => normalizeComparableText(term));
+  const matched = matchingTerms(normalizedHaystack, normalizedTerms);
+  return terms.filter((term, index) => !matched.includes(normalizedTerms[index]));
 }
 
 function matchingHitRank(hits, terms) {
@@ -339,7 +539,7 @@ function classifyReaderRetrieval(toolNames, answerCorrect) {
   return "other_tools";
 }
 
-async function runScenario(params) {
+async function runInteractionScenario(params) {
   const scenario = params.scenario;
   const startedAt = new Date().toISOString();
   const startedWall = Date.now();
@@ -347,7 +547,7 @@ async function runScenario(params) {
   const writerSessionId = `memory-eval-writer-${scenarioSlug}`;
   const beforeAgents = readTextIfExists(params.agentsPath);
   const failures = [];
-  const countsBefore = interactionMemoryCounts(params.dbPath);
+  const countsBefore = workspaceMemoryCounts(params.dbPath);
   const expectedEntities = expectedEntitiesForScenario(scenario);
   const expectedEntityIds = new Set(expectedEntities.map((entity) => entity.entity_id));
 
@@ -405,7 +605,7 @@ async function runScenario(params) {
         },
         {
           description: `batch cursor ${expectedCursor} for ${scenario.id}`,
-          timeoutMs: BATCH_CURSOR_TIMEOUT_MS,
+          timeoutMs: Number(scenario.batch_cursor_timeout_ms ?? BATCH_CURSOR_TIMEOUT_MS),
         },
       );
       batchCursorReadyMs = Date.now() - cursorStartedAt;
@@ -422,9 +622,10 @@ async function runScenario(params) {
     try {
       entityReady = await waitFor(
         async () => {
-          const entity = activeEntity(params.dbPath, expectedEntity.entity_id);
-          const leaves = entity ? activeLeavesForEntity(params.dbPath, expectedEntity.entity_id) : [];
-          const summaries = entity ? activeSummariesForEntity(params.dbPath, expectedEntity.entity_id) : [];
+          const entity = resolveEntityRecord(params.dbPath, expectedEntity);
+          const treeId = entity?.entity_id ?? null;
+          const leaves = treeId ? activeLeavesForEntity(params.dbPath, treeId) : [];
+          const summaries = treeId ? activeSummariesForEntity(params.dbPath, treeId) : [];
           if (!entity) {
             return null;
           }
@@ -443,24 +644,31 @@ async function runScenario(params) {
           return { entity, leaves, summaries };
         },
         {
-          description: `memory tree materialization for ${expectedEntity.entity_id}`,
-          timeoutMs: ENTITY_READY_TIMEOUT_MS,
+          description: `memory tree materialization for ${expectedEntity.entity_id ?? expectedEntity.canonical_name ?? "expected entity"}`,
+          timeoutMs: Number(scenario.entity_ready_timeout_ms ?? ENTITY_READY_TIMEOUT_MS),
         },
       );
     } catch (error) {
       failures.push(
-        `entity materialization failed for ${expectedEntity.entity_id}: ${error instanceof Error ? error.message : String(error)}`,
+        `entity materialization failed for ${expectedEntity.entity_id ?? expectedEntity.canonical_name ?? "expected entity"}: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
-    const entity = entityReady?.entity ?? activeEntity(params.dbPath, expectedEntity.entity_id);
-    const leaves = entity ? activeLeavesForEntity(params.dbPath, expectedEntity.entity_id) : [];
-    const summaries = entity ? activeSummariesForEntity(params.dbPath, expectedEntity.entity_id) : [];
+    const entity = entityReady?.entity ?? resolveEntityRecord(params.dbPath, expectedEntity);
+    const treeId = entity?.entity_id ?? null;
+    const leaves = treeId ? activeLeavesForEntity(params.dbPath, treeId) : [];
+    const summaries = treeId ? activeSummariesForEntity(params.dbPath, treeId) : [];
     const entityFailures = [];
 
     if (!entity) {
-      entityFailures.push(`expected entity was not created: ${expectedEntity.entity_id}`);
+      const entityLabel = expectedEntity.entity_id ?? expectedEntity.canonical_name ?? "unknown entity";
+      entityFailures.push(`expected entity was not created: ${entityLabel}`);
     } else {
+      if (expectedEntity.entity_id && entity.entity_id !== expectedEntity.entity_id) {
+        entityFailures.push(
+          `expected entity_id ${expectedEntity.entity_id}, got ${entity.entity_id}`,
+        );
+      }
       if (expectedEntity.entity_type && entity.entity_type !== expectedEntity.entity_type) {
         entityFailures.push(
           `expected entity_type ${expectedEntity.entity_type}, got ${entity.entity_type}`,
@@ -479,6 +687,14 @@ async function runScenario(params) {
     ) {
       entityFailures.push(
         `expected ${expectedEntity.expected_active_leaf_count} active leaves, got ${leaves.length}`,
+      );
+    }
+    if (
+      typeof expectedEntity.expected_active_leaf_count_min === "number" &&
+      leaves.length < expectedEntity.expected_active_leaf_count_min
+    ) {
+      entityFailures.push(
+        `expected at least ${expectedEntity.expected_active_leaf_count_min} active leaves, got ${leaves.length}`,
       );
     }
     if (
@@ -520,15 +736,15 @@ async function runScenario(params) {
       active_summaries: summaries,
       expected_memories: expectedMemoryResults,
     });
-    failures.push(...entityFailures.map((message) => `${expectedEntity.entity_id}: ${message}`));
+    failures.push(
+      ...entityFailures.map((message) => `${expectedEntity.entity_id ?? expectedEntity.canonical_name ?? "expected entity"}: ${message}`),
+    );
   }
 
   const directRetrievals = [];
   const readerQueries = [];
   for (const [index, queryCase] of (scenario.reader_queries ?? []).entries()) {
-    const targetEntityId =
-      queryCase.entity_id ??
-      (expectedEntities.length === 1 ? expectedEntities[0].entity_id : null);
+    const targetEntityId = resolveEntityTreeId(queryCase, expectedEntities, entityReports);
     const treeScope = queryCase.tree_scope ?? "global";
     const retrievalTerms = Array.isArray(queryCase.expected_retrieve_contains)
       ? queryCase.expected_retrieve_contains
@@ -536,6 +752,7 @@ async function runScenario(params) {
     const answerTerms = Array.isArray(queryCase.expected_answer_contains)
       ? queryCase.expected_answer_contains
       : [];
+    const categories = Array.isArray(queryCase.categories) ? queryCase.categories : null;
 
     let directPayload = { hits: [] };
     let directLatencyMs = null;
@@ -544,6 +761,7 @@ async function runScenario(params) {
       const direct = await retrieveMemory(params.baseUrl, {
         workspaceId: params.workspaceId,
         query: queryCase.query,
+        categories,
         treeId: treeScope === "entity" ? targetEntityId : null,
       });
       directPayload = direct.payload;
@@ -630,7 +848,7 @@ async function runScenario(params) {
     failures.push(`AGENTS.md gained scenario terms: ${agentsDeltaTerms.join(", ")}`);
   }
 
-  const countsAfter = interactionMemoryCounts(params.dbPath);
+  const countsAfter = workspaceMemoryCounts(params.dbPath);
   const directLatencies = directRetrievals.map((entry) => entry.latency_ms).filter((value) => value != null);
   const readerLatencies = readerQueries.map((entry) => entry.latency_ms).filter((value) => value != null);
   const memoryRetrieveReaders = readerQueries.filter((entry) => entry.used_memory_retrieve).length;
@@ -639,6 +857,7 @@ async function runScenario(params) {
   return {
     scenario_id: scenario.id,
     description: scenario.description ?? "",
+    kind: "interaction",
     status: failures.length === 0 ? "passed" : "failed",
     failures,
     started_at: startedAt,
@@ -683,6 +902,338 @@ async function runScenario(params) {
   };
 }
 
+async function runIntegrationGmailScenario(params) {
+  const scenario = params.scenario;
+  const startedAt = new Date().toISOString();
+  const startedWall = Date.now();
+  const failures = [];
+  const countsBefore = workspaceMemoryCounts(params.dbPath);
+  const beforeAgents = readTextIfExists(params.agentsPath);
+  const providerId = typeof scenario.provider_id === "string" && scenario.provider_id.trim().length > 0
+    ? scenario.provider_id.trim().toLowerCase()
+    : "gmail";
+  const connection = activeIntegrationConnection(params.dbPath, providerId);
+
+  if (!connection) {
+    if (scenario.skip_if_unavailable !== false) {
+      return {
+        scenario_id: scenario.id,
+        description: scenario.description ?? "",
+        status: "skipped",
+        failures: [],
+        skip_reason: `no active ${providerId} integration connection found`,
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        counts_before_scenario: countsBefore,
+        counts_after_scenario: countsBefore,
+        integration_reports: [],
+        direct_retrievals: [],
+        reader_queries: [],
+        quality_metrics: {},
+      };
+    }
+    return {
+      scenario_id: scenario.id,
+      description: scenario.description ?? "",
+      status: "failed",
+      failures: [`no active ${providerId} integration connection found`],
+      started_at: startedAt,
+      completed_at: new Date().toISOString(),
+      counts_before_scenario: countsBefore,
+      counts_after_scenario: countsBefore,
+      integration_reports: [],
+      direct_retrievals: [],
+      reader_queries: [],
+      quality_metrics: {},
+    };
+  }
+
+  let fetchPayload = null;
+  try {
+    fetchPayload = await postJson(params.baseUrl, "/api/v1/integrations/context-fetch", {
+      connection_id: connection.connection_id,
+    });
+  } catch (error) {
+    failures.push(
+      `integration context fetch failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const fetchResult = fetchPayload ?? {};
+  const treeId = typeof fetchResult.tree_id === "string" ? fetchResult.tree_id : null;
+  const expectedTree = scenario.expected_tree ?? {};
+  let tree = null;
+  let leaves = [];
+  let summaries = [];
+  if (treeId) {
+    try {
+      await waitFor(
+        async () => {
+          const nextTree = activeIntegrationTree(params.dbPath, treeId);
+          const nextLeaves = nextTree ? activeIntegrationLeavesForTree(params.dbPath, treeId) : [];
+          const nextSummaries = nextTree ? activeIntegrationSummariesForTree(params.dbPath, treeId) : [];
+          if (!nextTree) {
+            return null;
+          }
+          if (
+            typeof expectedTree.expected_active_leaf_count_min === "number" &&
+            nextLeaves.length < expectedTree.expected_active_leaf_count_min
+          ) {
+            return null;
+          }
+          if (
+            typeof expectedTree.expected_summary_count_min === "number" &&
+            nextSummaries.length < expectedTree.expected_summary_count_min
+          ) {
+            return null;
+          }
+          return { tree: nextTree, leaves: nextLeaves, summaries: nextSummaries };
+        },
+        {
+          description: `integration tree materialization for ${scenario.id}`,
+          timeoutMs: Number(scenario.integration_ready_timeout_ms ?? INTEGRATION_FETCH_TIMEOUT_MS),
+        },
+      );
+    } catch (error) {
+      failures.push(
+        `integration tree materialization failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    tree = activeIntegrationTree(params.dbPath, treeId);
+    leaves = tree ? activeIntegrationLeavesForTree(params.dbPath, treeId) : [];
+    summaries = tree ? activeIntegrationSummariesForTree(params.dbPath, treeId) : [];
+  } else if (fetchResult.supported !== false) {
+    failures.push("integration context fetch did not return a tree_id");
+  }
+
+  const templateContext = {
+    provider_id: fetchResult.provider_id ?? providerId,
+    connection_id: fetchResult.connection_id ?? connection.connection_id,
+    account_key: fetchResult.account_key ?? connection.account_external_id ?? connection.account_email ?? "",
+    account_label: fetchResult.account_label ?? connection.account_label ?? "",
+    tree_id: tree?.tree_id ?? treeId ?? "",
+    profile_title: `Gmail profile for ${fetchResult.account_label ?? connection.account_label ?? ""}`,
+  };
+
+  const integrationFailures = [];
+  if (fetchResult.supported === false) {
+    integrationFailures.push(`provider was reported unsupported: ${providerId}`);
+  }
+  if (!tree) {
+    integrationFailures.push("expected integration tree was not created");
+  } else {
+    if (expectedTree.provider && tree.provider !== expectedTree.provider) {
+      integrationFailures.push(`expected provider ${expectedTree.provider}, got ${tree.provider}`);
+    }
+    if (
+      typeof expectedTree.expected_active_leaf_count_min === "number" &&
+      leaves.length < expectedTree.expected_active_leaf_count_min
+    ) {
+      integrationFailures.push(
+        `expected at least ${expectedTree.expected_active_leaf_count_min} active leaves, got ${leaves.length}`,
+      );
+    }
+    if (
+      typeof expectedTree.expected_active_leaf_count === "number" &&
+      leaves.length !== expectedTree.expected_active_leaf_count
+    ) {
+      integrationFailures.push(
+        `expected ${expectedTree.expected_active_leaf_count} active leaves, got ${leaves.length}`,
+      );
+    }
+    if (
+      typeof expectedTree.expected_summary_count_min === "number" &&
+      summaries.length < expectedTree.expected_summary_count_min
+    ) {
+      integrationFailures.push(
+        `expected at least ${expectedTree.expected_summary_count_min} active summaries, got ${summaries.length}`,
+      );
+    }
+    const requiredSubjectKeys = Array.isArray(expectedTree.required_subject_keys)
+      ? expectedTree.required_subject_keys
+      : [];
+    for (const subjectKey of requiredSubjectKeys) {
+      if (!leaves.some((leaf) => leaf.subject_key === subjectKey)) {
+        integrationFailures.push(`missing active integration leaf with subject_key ${subjectKey}`);
+      }
+    }
+  }
+  failures.push(...integrationFailures);
+
+  const directRetrievals = [];
+  const readerQueries = [];
+  for (const [index, queryCase] of (scenario.reader_queries ?? []).entries()) {
+    const query = renderTemplateString(queryCase.query, templateContext);
+    const retrievalTerms = renderTemplateArray(
+      queryCase.expected_retrieve_contains_templates ?? queryCase.expected_retrieve_contains ?? [],
+      templateContext,
+    );
+    const answerTerms = renderTemplateArray(
+      queryCase.expected_answer_contains_templates ?? queryCase.expected_answer_contains ?? [],
+      templateContext,
+    );
+    const categories = Array.isArray(queryCase.categories) ? queryCase.categories : ["integration"];
+    const treeScope = queryCase.tree_scope ?? "tree";
+
+    let directPayload = { hits: [] };
+    let directLatencyMs = null;
+    let directFailure = null;
+    try {
+      const direct = await retrieveMemory(params.baseUrl, {
+        workspaceId: params.workspaceId,
+        query,
+        categories,
+        treeId: treeScope === "tree" ? (tree?.tree_id ?? null) : null,
+      });
+      directPayload = direct.payload;
+      directLatencyMs = direct.latency_ms;
+    } catch (error) {
+      directFailure = error instanceof Error ? error.message : String(error);
+      failures.push(`direct retrieval failed for ${scenario.id} query ${index + 1}: ${directFailure}`);
+    }
+
+    const directHits = Array.isArray(directPayload.hits) ? directPayload.hits : [];
+    const directRank = matchingHitRank(directHits, retrievalTerms);
+    if (directFailure == null && retrievalTerms.length > 0 && directRank == null) {
+      failures.push(
+        `memory_retrieve did not return a hit containing expected terms for ${scenario.id} query ${index + 1}: ${retrievalTerms.join(", ")}`,
+      );
+    }
+    if (directFailure == null && tree?.tree_id && !directHits.some((hit) => hit.tree_id === tree.tree_id)) {
+      failures.push(
+        `memory_retrieve did not surface the expected integration tree ${tree.tree_id} for ${scenario.id} query ${index + 1}`,
+      );
+    }
+    directRetrievals.push({
+      query,
+      tree_scope: treeScope,
+      target_tree_id: tree?.tree_id ?? null,
+      latency_ms: directLatencyMs,
+      top_titles: directHits.slice(0, 5).map((hit) => hit.title),
+      top_tree_ids: directHits.slice(0, 5).map((hit) => hit.tree_id),
+      matched_hit_rank: directRank,
+      failure: directFailure,
+    });
+
+    let readerTurn = null;
+    let answer = "";
+    let answerMissing = answerTerms;
+    let readerFailure = null;
+    try {
+      readerTurn = await runTurn(params.baseUrl, {
+        workspaceId: params.workspaceId,
+        sessionId: `memory-eval-reader-${sanitizeSessionId(`${scenario.id}-${Date.now()}-${index + 1}`)}`,
+        text: query,
+      });
+      answer = String(readerTurn.result.assistant_text ?? "");
+      answerMissing = missingTerms(answer, answerTerms);
+      if (answerMissing.length > 0) {
+        failures.push(
+          `reader answer missing expected terms for ${scenario.id} query ${index + 1}: ${answerMissing.join(", ")}`,
+        );
+      }
+    } catch (error) {
+      readerFailure = error instanceof Error ? error.message : String(error);
+      failures.push(`reader turn failed for ${scenario.id} query ${index + 1}: ${readerFailure}`);
+    }
+    const toolSummary = readerTurn?.result?.tool_usage_summary ?? {};
+    const toolNames = Array.isArray(toolSummary.tool_names) ? toolSummary.tool_names : [];
+    readerQueries.push({
+      query,
+      input_id: readerTurn?.inputId ?? null,
+      answer,
+      answer_correct: answerMissing.length === 0 && !readerFailure,
+      answer_missing_terms: answerMissing,
+      tool_usage_summary: toolSummary,
+      tool_names: toolNames,
+      retrieval_strategy: classifyReaderRetrieval(toolNames, answerMissing.length === 0 && !readerFailure),
+      used_memory_retrieve: toolNames.includes("memory_retrieve"),
+      likely_prerun_recall: toolNames.length === 0 && answerMissing.length === 0 && !readerFailure,
+      latency_ms: readerTurn
+        ? durationMs(readerTurn.result.started_at, readerTurn.result.completed_at)
+        : null,
+      failure: readerFailure,
+    });
+  }
+
+  const afterAgents = readTextIfExists(params.agentsPath);
+  const agentsTerms = renderTemplateArray(scenario.agents_terms ?? [], templateContext);
+  const agentsDeltaTerms = matchingTerms(afterAgents, agentsTerms).filter(
+    (term) => !matchingTerms(beforeAgents, [term]).includes(term),
+  );
+  const agentsPolicy = scenario.agents_policy ?? "ignore";
+  if (agentsPolicy === "forbid" && agentsDeltaTerms.length > 0) {
+    failures.push(`AGENTS.md gained scenario terms: ${agentsDeltaTerms.join(", ")}`);
+  }
+
+  const countsAfter = workspaceMemoryCounts(params.dbPath);
+  const directLatencies = directRetrievals.map((entry) => entry.latency_ms).filter((value) => value != null);
+  const readerLatencies = readerQueries.map((entry) => entry.latency_ms).filter((value) => value != null);
+  const memoryRetrieveReaders = readerQueries.filter((entry) => entry.used_memory_retrieve).length;
+  const prerunRecallReaders = readerQueries.filter((entry) => entry.likely_prerun_recall).length;
+
+  return {
+    scenario_id: scenario.id,
+    description: scenario.description ?? "",
+    kind: "integration_live_gmail",
+    status: failures.length === 0 ? "passed" : "failed",
+    failures,
+    started_at: startedAt,
+    completed_at: new Date().toISOString(),
+    duration_ms: Date.now() - startedWall,
+    counts_before_scenario: countsBefore,
+    counts_after_scenario: countsAfter,
+    integration_fetch: fetchResult,
+    integration_reports: [
+      {
+        expected: expectedTree,
+        tree,
+        status: integrationFailures.length === 0 ? "passed" : "failed",
+        failures: integrationFailures,
+        active_leaf_count: leaves.length,
+        active_summary_count: summaries.length,
+        active_leaves: leaves,
+        active_summaries: summaries,
+      },
+    ],
+    direct_retrievals: directRetrievals,
+    reader_queries: readerQueries,
+    agents_policy: agentsPolicy,
+    agents_delta_terms: agentsDeltaTerms,
+    quality_metrics: {
+      actual_tree_count: tree ? 1 : 0,
+      total_active_integration_leaves: leaves.length,
+      total_active_integration_summaries: summaries.length,
+      direct_retrieval_avg_ms: average(directLatencies),
+      direct_retrieval_max_ms: maxValue(directLatencies),
+      reader_answer_avg_ms: average(readerLatencies),
+      reader_answer_max_ms: maxValue(readerLatencies),
+      direct_retrieval_success_rate:
+        directRetrievals.length === 0
+          ? null
+          : directRetrievals.filter((entry) => entry.matched_hit_rank != null && !entry.failure).length /
+            directRetrievals.length,
+      reader_answer_success_rate:
+        readerQueries.length === 0
+          ? null
+          : readerQueries.filter((entry) => entry.answer_correct).length / readerQueries.length,
+      reader_memory_retrieve_count: memoryRetrieveReaders,
+      reader_prerun_recall_count: prerunRecallReaders,
+      reader_other_tool_count: readerQueries.filter(
+        (entry) => !entry.used_memory_retrieve && !entry.likely_prerun_recall,
+      ).length,
+    },
+  };
+}
+
+async function runScenario(params) {
+  const kind = typeof params.scenario.kind === "string" ? params.scenario.kind.trim().toLowerCase() : "interaction";
+  if (kind === "integration_live_gmail") {
+    return await runIntegrationGmailScenario(params);
+  }
+  return await runInteractionScenario(params);
+}
+
 async function main() {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     printUsage();
@@ -697,7 +1248,7 @@ async function main() {
   const agentsPath = agentsMdPath(args.workspaceDir);
 
   const cleanup = args.cleanFirst
-    ? cleanupInteractionMemory({
+    ? cleanupWorkspaceMemory({
         workspaceDir: args.workspaceDir,
         dryRun: args.dryRun,
         agentsBaselinePath: args.agentsBaselinePath,
@@ -732,7 +1283,7 @@ async function main() {
     clean: Boolean(args.cleanFirst),
     cleanup,
     started_at: new Date().toISOString(),
-    initial_counts: interactionMemoryCounts(dbPath),
+    initial_counts: workspaceMemoryCounts(dbPath),
     scenarios: [],
   };
 
@@ -761,12 +1312,13 @@ async function main() {
   }
 
   report.completed_at = new Date().toISOString();
-  report.final_counts = interactionMemoryCounts(dbPath);
-  report.status = report.scenarios.some((scenario) => scenario.status !== "passed") ? "failed" : "passed";
+  report.final_counts = workspaceMemoryCounts(dbPath);
+  report.status = report.scenarios.some((scenario) => scenario.status === "failed") ? "failed" : "passed";
   report.summary = {
     scenario_count: report.scenarios.length,
     passed_scenarios: report.scenarios.filter((scenario) => scenario.status === "passed").length,
-    failed_scenarios: report.scenarios.filter((scenario) => scenario.status !== "passed").length,
+    failed_scenarios: report.scenarios.filter((scenario) => scenario.status === "failed").length,
+    skipped_scenarios: report.scenarios.filter((scenario) => scenario.status === "skipped").length,
     total_failures: report.scenarios.reduce(
       (sum, scenario) => sum + (Array.isArray(scenario.failures) ? scenario.failures.length : 0),
       0,
@@ -785,6 +1337,48 @@ async function main() {
           : [],
       ),
     ),
+    p95_direct_retrieval_ms: percentile(
+      report.scenarios.flatMap((scenario) =>
+        Array.isArray(scenario.direct_retrievals)
+          ? scenario.direct_retrievals.map((entry) => entry.latency_ms).filter((value) => value != null)
+          : [],
+      ),
+      0.95,
+    ),
+    p95_reader_answer_ms: percentile(
+      report.scenarios.flatMap((scenario) =>
+        Array.isArray(scenario.reader_queries)
+          ? scenario.reader_queries.map((entry) => entry.latency_ms).filter((value) => value != null)
+          : [],
+      ),
+      0.95,
+    ),
+    total_direct_queries: report.scenarios.reduce(
+      (sum, scenario) => sum + (Array.isArray(scenario.direct_retrievals) ? scenario.direct_retrievals.length : 0),
+      0,
+    ),
+    total_reader_queries: report.scenarios.reduce(
+      (sum, scenario) => sum + (Array.isArray(scenario.reader_queries) ? scenario.reader_queries.length : 0),
+      0,
+    ),
+    direct_retrieval_success_rate: (() => {
+      const entries = report.scenarios.flatMap((scenario) =>
+        Array.isArray(scenario.direct_retrievals) ? scenario.direct_retrievals : [],
+      );
+      if (entries.length === 0) {
+        return null;
+      }
+      return entries.filter((entry) => entry.matched_hit_rank != null && !entry.failure).length / entries.length;
+    })(),
+    reader_answer_success_rate: (() => {
+      const entries = report.scenarios.flatMap((scenario) =>
+        Array.isArray(scenario.reader_queries) ? scenario.reader_queries : [],
+      );
+      if (entries.length === 0) {
+        return null;
+      }
+      return entries.filter((entry) => entry.answer_correct).length / entries.length;
+    })(),
   };
 
   writeReport(report, args.outputPath);

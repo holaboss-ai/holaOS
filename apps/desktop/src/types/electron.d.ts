@@ -155,7 +155,64 @@ declare global {
     height: number;
   }
 
-  type UiSettingsPaneSection = "account" | "billing" | "providers" | "integrations" | "submissions" | "settings" | "experimental";
+  type UiSettingsPaneSection = "account" | "billing" | "providers" | "integrations" | "memory" | "submissions" | "settings" | "experimental";
+
+  interface MemoryBrowserTreeNodePayload {
+    name: string;
+    path: string;
+    kind: "directory" | "file";
+    size_bytes: number | null;
+    modified_at: string | null;
+    children?: MemoryBrowserTreeNodePayload[];
+  }
+
+  interface MemoryBrowserTreeResponsePayload {
+    workspace_id: string;
+    root: MemoryBrowserTreeNodePayload;
+    counts: {
+      directories: number;
+      files: number;
+    };
+  }
+
+  interface MemoryBrowserFileResponsePayload {
+    workspace_id: string;
+    path: string;
+    name: string;
+    size_bytes: number;
+    modified_at: string;
+    content: string;
+  }
+
+  type MemoryBrowserGraphForestPayload = "workspace" | "integrations";
+  type MemoryBrowserGraphNodeKindPayload = "root" | "tree" | "summary" | "leaf";
+
+  interface MemoryBrowserGraphNodePayload {
+    id: string;
+    kind: MemoryBrowserGraphNodeKindPayload;
+    category: "interaction" | "integration";
+    tree_id: string | null;
+    label: string;
+    subtitle: string | null;
+    status: string | null;
+    level: number | null;
+    child_count: number | null;
+    path: string | null;
+  }
+
+  interface MemoryBrowserGraphEdgePayload {
+    from: string;
+    to: string;
+    kind: "contains" | "parent_child";
+  }
+
+  interface MemoryBrowserGraphResponsePayload {
+    workspace_id: string;
+    forest: MemoryBrowserGraphForestPayload;
+    focus_tree_id: string | null;
+    nodes: MemoryBrowserGraphNodePayload[];
+    edges: MemoryBrowserGraphEdgePayload[];
+  }
 
   interface BrowserStatePayload {
     id: string;
@@ -1930,6 +1987,15 @@ interface RuntimeNotificationListOptionsPayload {
       listIntegrationStoreCatalog: () => Promise<IntegrationStoreCatalogPayload>;
       listAllWorkspaceIntegrationOverrides: () => Promise<AllWorkspaceIntegrationOverridesPayload>;
       listWorkspaceIntegrations: (workspaceId: string) => Promise<WorkspaceIntegrationsListResponsePayload>;
+      listMemoryBrowserTree: (workspaceId: string) => Promise<MemoryBrowserTreeResponsePayload>;
+      readMemoryBrowserFile: (
+        workspaceId: string,
+        targetPath: string
+      ) => Promise<MemoryBrowserFileResponsePayload>;
+      listMemoryBrowserGraph: (
+        workspaceId: string,
+        params: { forest: MemoryBrowserGraphForestPayload; treeId?: string | null }
+      ) => Promise<MemoryBrowserGraphResponsePayload>;
       setWorkspaceIntegrationOverride: (
         workspaceId: string,
         toolkitSlug: string,

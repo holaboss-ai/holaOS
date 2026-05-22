@@ -1128,6 +1128,7 @@ function runtimeToolPromptGuidelines(toolId: RuntimeAgentToolId): string[] {
       "Prefer `mixed` mode for general recall, `summaries` for broad background, and `leaves` when you need exact supporting facts.",
       "Pass `tree_id` when you already know the relevant interaction entity tree, and `node_id` when drilling into a previously returned summary branch.",
       "Treat returned summaries as compressed memory context and leaf hits as the underlying evidence.",
+      "Treat the returned hit payload as the answer surface. Do not inspect backing memory files with generic file tools unless a future dedicated memory follow-up tool explicitly requires it.",
     ];
   }
   if (toolId === "skill") {

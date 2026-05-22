@@ -9985,6 +9985,63 @@ interface WorkspaceIntegrationsListResponse {
   integrations: WorkspaceIntegrationView[];
 }
 
+interface MemoryBrowserTreeNode {
+  name: string;
+  path: string;
+  kind: "directory" | "file";
+  size_bytes: number | null;
+  modified_at: string | null;
+  children?: MemoryBrowserTreeNode[];
+}
+
+interface MemoryBrowserTreeResponse {
+  workspace_id: string;
+  root: MemoryBrowserTreeNode;
+  counts: {
+    directories: number;
+    files: number;
+  };
+}
+
+interface MemoryBrowserFileResponse {
+  workspace_id: string;
+  path: string;
+  name: string;
+  size_bytes: number;
+  modified_at: string;
+  content: string;
+}
+
+type MemoryBrowserGraphForest = "workspace" | "integrations";
+type MemoryBrowserGraphNodeKind = "root" | "tree" | "summary" | "leaf";
+
+interface MemoryBrowserGraphNode {
+  id: string;
+  kind: MemoryBrowserGraphNodeKind;
+  category: "interaction" | "integration";
+  tree_id: string | null;
+  label: string;
+  subtitle: string | null;
+  status: string | null;
+  level: number | null;
+  child_count: number | null;
+  path: string | null;
+}
+
+interface MemoryBrowserGraphEdge {
+  from: string;
+  to: string;
+  kind: "contains" | "parent_child";
+}
+
+interface MemoryBrowserGraphResponse {
+  workspace_id: string;
+  forest: MemoryBrowserGraphForest;
+  focus_tree_id: string | null;
+  nodes: MemoryBrowserGraphNode[];
+  edges: MemoryBrowserGraphEdge[];
+}
+
 async function listWorkspaceIntegrations(
   workspaceId: string,
 ): Promise<WorkspaceIntegrationsListResponse> {
@@ -10013,6 +10070,59 @@ async function clearWorkspaceIntegrationOverride(
   return requestWorkspaceRuntimeJson<{ deleted: boolean }>(workspaceId, {
     method: "DELETE",
     path: `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/integrations/${encodeURIComponent(toolkitSlug)}`,
+  });
+}
+
+async function listMemoryBrowserTree(
+  workspaceId: string,
+): Promise<MemoryBrowserTreeResponse> {
+  return requestWorkspaceRuntimeJson<MemoryBrowserTreeResponse>(workspaceId, {
+    method: "GET",
+    path: "/api/v1/memory/browser/tree",
+    params: {
+      workspace_id: workspaceId,
+    },
+  });
+}
+
+async function readMemoryBrowserFile(
+  workspaceId: string,
+  targetPath: string,
+): Promise<MemoryBrowserFileResponse> {
+  const normalizedPath =
+    typeof targetPath === "string" ? targetPath.trim() : "";
+  if (!normalizedPath) {
+    throw new Error("readMemoryBrowserFile: path is required");
+  }
+  return requestWorkspaceRuntimeJson<MemoryBrowserFileResponse>(workspaceId, {
+    method: "GET",
+    path: "/api/v1/memory/browser/file",
+    params: {
+      workspace_id: workspaceId,
+      path: normalizedPath,
+    },
+  });
+}
+
+async function listMemoryBrowserGraph(
+  workspaceId: string,
+  params: {
+    forest: MemoryBrowserGraphForest;
+    treeId?: string | null;
+  },
+): Promise<MemoryBrowserGraphResponse> {
+  const forest = params.forest;
+  if (forest !== "workspace" && forest !== "integrations") {
+    throw new Error("listMemoryBrowserGraph: forest must be workspace or integrations");
+  }
+  return requestWorkspaceRuntimeJson<MemoryBrowserGraphResponse>(workspaceId, {
+    method: "GET",
+    path: "/api/v1/memory/browser/graph",
+    params: {
+      workspace_id: workspaceId,
+      forest,
+      tree_id: params.treeId?.trim() || undefined,
+    },
   });
 }
 
@@ -23524,6 +23634,26 @@ app.whenReady().then(async () => {
     "workspace:listWorkspaceIntegrations",
     ["main"],
     async (_event, workspaceId: string) => listWorkspaceIntegrations(workspaceId),
+  );
+  handleTrustedIpc(
+    "workspace:listMemoryBrowserTree",
+    ["main"],
+    async (_event, workspaceId: string) => listMemoryBrowserTree(workspaceId),
+  );
+  handleTrustedIpc(
+    "workspace:readMemoryBrowserFile",
+    ["main"],
+    async (_event, workspaceId: string, targetPath: string) =>
+      readMemoryBrowserFile(workspaceId, targetPath),
+  );
+  handleTrustedIpc(
+    "workspace:listMemoryBrowserGraph",
+    ["main"],
+    async (
+      _event,
+      workspaceId: string,
+      params: { forest: MemoryBrowserGraphForest; treeId?: string | null },
+    ) => listMemoryBrowserGraph(workspaceId, params),
   );
   handleTrustedIpc(
     "workspace:setWorkspaceIntegrationOverride",

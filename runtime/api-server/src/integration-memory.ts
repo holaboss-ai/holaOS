@@ -3,7 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
-  type IntegrationConnectionRecord,
   type IntegrationLeafRecord,
   type IntegrationSummaryNodeRecord,
   type IntegrationTreeRecord,
@@ -16,6 +15,7 @@ import type { AgentRecalledMemoryContext } from "./agent-runtime-prompt.js";
 import { createBackgroundTaskMemoryModelClient } from "./background-task-model.js";
 import { queryMemoryModelEmbedding, queryMemoryModelJson, type MemoryModelClientConfig } from "./memory-model-client.js";
 import { createRecallEmbeddingModelClient } from "./recall-embedding-model.js";
+import { visibleIntegrationTreesForWorkspace } from "./workspace-integration-visibility.js";
 import { globalMemoryDirForWorkspaceRoot } from "./workspace-bundle-paths.js";
 
 const INTEGRATION_BRANCH_FACTOR = 8;
@@ -287,17 +287,6 @@ function integrationTreeIdentity(params: {
     treeId: `integration:${providerSlug}:${accountHash}`,
     slug: `${providerSlug}-${labelSlug}-${accountHash}`,
   };
-}
-
-function stableIntegrationAccountKey(connection: IntegrationConnectionRecord): string {
-  const normalized = (value: string | null | undefined): string | null => {
-    const token = typeof value === "string" ? value.trim() : "";
-    return token || null;
-  };
-  return normalized(connection.accountHandle)
-    ?? normalized(connection.accountEmail)
-    ?? normalized(connection.accountExternalId)
-    ?? connection.connectionId;
 }
 
 function ensureIntegrationTree(params: {
@@ -898,27 +887,11 @@ function accessibleIntegrationTreesForWorkspace(params: {
   workspaceId: string;
   treeId?: string | null;
 }): IntegrationTreeRecord[] {
-  const targetTreeId = (params.treeId ?? "").trim();
-  const byTreeId = new Map<string, IntegrationTreeRecord>();
-  for (const binding of params.store.listIntegrationBindings({ workspaceId: params.workspaceId })) {
-    const connection = params.store.getIntegrationConnection(binding.connectionId);
-    if (!connection || connection.status.trim().toLowerCase() !== "active") {
-      continue;
-    }
-    const tree = params.store.getIntegrationTreeByAccountIdentity({
-      provider: connection.providerId,
-      ownerUserId: connection.ownerUserId,
-      accountKey: stableIntegrationAccountKey(connection),
-    });
-    if (!tree || tree.status !== "active") {
-      continue;
-    }
-    if (targetTreeId && tree.treeId !== targetTreeId) {
-      continue;
-    }
-    byTreeId.set(tree.treeId, tree);
-  }
-  return [...byTreeId.values()];
+  return visibleIntegrationTreesForWorkspace({
+    store: params.store,
+    workspaceId: params.workspaceId,
+    treeId: params.treeId ?? null,
+  });
 }
 
 function buildLeafCandidate(params: {
