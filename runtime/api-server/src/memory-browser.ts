@@ -39,7 +39,7 @@ export interface MemoryBrowserFileResponse {
 }
 
 export type MemoryBrowserGraphForest = "workspace" | "integrations";
-export type MemoryBrowserGraphNodeKind = "root" | "tree" | "summary" | "leaf";
+export type MemoryBrowserGraphNodeKind = "root" | "tree" | "entity" | "branch" | "summary" | "leaf";
 
 export interface MemoryBrowserGraphNode {
   id: string;
@@ -57,7 +57,7 @@ export interface MemoryBrowserGraphNode {
 export interface MemoryBrowserGraphEdge {
   from: string;
   to: string;
-  kind: "contains" | "parent_child";
+  kind: "contains" | "parent_child" | "reference";
 }
 
 export interface MemoryBrowserGraphResponse {
@@ -94,6 +94,14 @@ function integrationTreeNodeId(treeId: string): string {
   return `tree:integration:${treeId}`;
 }
 
+function integrationEntityNodeId(treeId: string, entityKey: string): string {
+  return `entity:integration:${treeId}:${entityKey}`;
+}
+
+function integrationBranchNodeId(treeId: string, entityKey: string | null, branchKey: string): string {
+  return `branch:integration:${treeId}:${entityKey ?? "account"}:${branchKey}`;
+}
+
 function interactionSummaryGraphNodeId(nodeId: string): string {
   return `summary:interaction:${nodeId}`;
 }
@@ -108,6 +116,95 @@ function interactionLeafGraphNodeId(leafId: string): string {
 
 function integrationLeafGraphNodeId(leafId: string): string {
   return `leaf:integration:${leafId}`;
+}
+
+function parseIntegrationSummaryScope(params: {
+  treeSlug: string;
+  path: string;
+}): {
+  root: boolean;
+  entitySlug: string | null;
+  branchSlug: string | null;
+} {
+  const segments = params.path.split("/").filter(Boolean);
+  const baseIndex = segments.findIndex(
+    (segment, index) =>
+      segment === "integration"
+      && segments[index + 1] === "accounts"
+      && segments[index + 2] === params.treeSlug
+      && segments[index + 3] === "summaries",
+  );
+  if (baseIndex < 0) {
+    return { root: false, entitySlug: null, branchSlug: null };
+  }
+  const scope = segments.slice(baseIndex + 4);
+  if (scope[0] === "root") {
+    return { root: true, entitySlug: null, branchSlug: null };
+  }
+  if (scope[0] === "account") {
+    return {
+      root: false,
+      entitySlug: null,
+      branchSlug: scope[1] && !/^L\d+$/i.test(scope[1]) ? scope[1] : null,
+    };
+  }
+  if (scope[0] === "entities") {
+    const entitySlug = scope[1] ?? null;
+    const maybeBranch = scope[2] ?? null;
+    return {
+      root: false,
+      entitySlug,
+      branchSlug: maybeBranch && !/^L\d+$/i.test(maybeBranch) ? maybeBranch : null,
+    };
+  }
+  return { root: false, entitySlug: null, branchSlug: null };
+}
+
+function buildIntegrationLabelIndex(leaves: Array<ReturnType<RuntimeStateStore["listIntegrationLeaves"]>[number]>) {
+  const entityLabelByKey = new Map<string, string>();
+  const entitySlugByKey = new Map<string, string>();
+  const entityKeyBySlug = new Map<string, string>();
+  const branchLabelByKey = new Map<string, string>();
+  const branchSlugByIdentity = new Map<string, string>();
+  const branchIdentityBySlug = new Map<string, { entityKey: string | null; branchKey: string }>();
+
+  for (const leaf of leaves) {
+    if (leaf.entityKey) {
+      if (leaf.entityLabel) {
+        entityLabelByKey.set(leaf.entityKey, leaf.entityLabel);
+      }
+      const entitySlug = leaf.path.split("/entities/")[1]?.split("/")[0] ?? null;
+      if (entitySlug) {
+        entitySlugByKey.set(leaf.entityKey, entitySlug);
+        entityKeyBySlug.set(entitySlug, leaf.entityKey);
+      }
+    }
+    if (leaf.branchKey) {
+      if (leaf.branchLabel) {
+        branchLabelByKey.set(`${leaf.entityKey ?? "account"}::${leaf.branchKey}`, leaf.branchLabel);
+      }
+      const pathSegments = leaf.path.split("/").filter(Boolean);
+      const leavesIndex = pathSegments.lastIndexOf("leaves");
+      const branchSlug = leavesIndex >= 1 ? pathSegments[leavesIndex - 1] : null;
+      if (branchSlug) {
+        const identityKey = `${leaf.entityKey ?? "account"}::${leaf.branchKey}`;
+        branchSlugByIdentity.set(identityKey, branchSlug);
+        branchIdentityBySlug.set(branchSlug, {
+          entityKey: leaf.entityKey ?? null,
+          branchKey: leaf.branchKey,
+        });
+      }
+    }
+  }
+
+  return {
+    entityLabelByKey,
+    entitySlugByKey,
+    entityKeyBySlug,
+    branchLabelByKey,
+    branchSlugByIdentity,
+    branchIdentityBySlug,
+  };
 }
 
 function shortLabel(value: string, fallback: string): string {
@@ -390,10 +487,70 @@ function buildIntegrationGraph(params: {
       status: "active",
       limit: 5000,
     });
+    const labelIndex = buildIntegrationLabelIndex(leaves);
     const childSummaryIds = new Set<string>();
     const connectedLeafIds = new Set<string>();
+    const entityNodeIds = new Map<string, string>();
+    const branchNodeIds = new Map<string, string>();
+
+    for (const leaf of leaves) {
+      if (leaf.entityKey) {
+        const entityNodeId = integrationEntityNodeId(tree.treeId, leaf.entityKey);
+        if (!entityNodeIds.has(leaf.entityKey)) {
+          entityNodeIds.set(leaf.entityKey, entityNodeId);
+          appendUniqueGraphNode(nodes, nodeIds, {
+            id: entityNodeId,
+            kind: "entity",
+            category: "integration",
+            tree_id: tree.treeId,
+            label: shortLabel(
+              leaf.entityLabel ?? leaf.entityKey.replace(/^[^:]+:/, ""),
+              leaf.entityKey,
+            ),
+            subtitle: leaf.entityKey.split(":")[0] ?? "entity",
+            status: null,
+            level: 2,
+            child_count: null,
+            path: null,
+          });
+          appendUniqueGraphEdge(edges, edgeIds, {
+            from: treeNodeId,
+            to: entityNodeId,
+            kind: "contains",
+          });
+        }
+      }
+      if (leaf.branchKey) {
+        const identityKey = `${leaf.entityKey ?? "account"}::${leaf.branchKey}`;
+        if (!branchNodeIds.has(identityKey)) {
+          const branchNodeId = integrationBranchNodeId(tree.treeId, leaf.entityKey ?? null, leaf.branchKey);
+          branchNodeIds.set(identityKey, branchNodeId);
+          appendUniqueGraphNode(nodes, nodeIds, {
+            id: branchNodeId,
+            kind: "branch",
+            category: "integration",
+            tree_id: tree.treeId,
+            label: shortLabel(leaf.branchLabel ?? leaf.branchKey.replaceAll("_", " "), leaf.branchKey),
+            subtitle: leaf.entityKey ? "branch" : "account branch",
+            status: null,
+            level: 3,
+            child_count: null,
+            path: null,
+          });
+          appendUniqueGraphEdge(edges, edgeIds, {
+            from: leaf.entityKey ? (entityNodeIds.get(leaf.entityKey) ?? treeNodeId) : treeNodeId,
+            to: branchNodeId,
+            kind: "contains",
+          });
+        }
+      }
+    }
 
     for (const summary of summaries) {
+      const scope = parseIntegrationSummaryScope({
+        treeSlug: tree.slug,
+        path: summary.path,
+      });
       appendUniqueGraphNode(nodes, nodeIds, {
         id: integrationSummaryGraphNodeId(summary.nodeId),
         kind: "summary",
@@ -406,6 +563,76 @@ function buildIntegrationGraph(params: {
         child_count: summary.childCount,
         path: summary.path,
       });
+      if (scope.entitySlug) {
+        const entityKey = labelIndex.entityKeyBySlug.get(scope.entitySlug);
+        if (entityKey && !entityNodeIds.has(entityKey)) {
+          const entityNodeId = integrationEntityNodeId(tree.treeId, entityKey);
+          entityNodeIds.set(entityKey, entityNodeId);
+          appendUniqueGraphNode(nodes, nodeIds, {
+            id: entityNodeId,
+            kind: "entity",
+            category: "integration",
+            tree_id: tree.treeId,
+            label: shortLabel(
+              labelIndex.entityLabelByKey.get(entityKey) ?? entityKey.replace(/^[^:]+:/, ""),
+              entityKey,
+            ),
+            subtitle: entityKey.split(":")[0] ?? "entity",
+            status: null,
+            level: 2,
+            child_count: null,
+            path: null,
+          });
+          appendUniqueGraphEdge(edges, edgeIds, {
+            from: treeNodeId,
+            to: entityNodeId,
+            kind: "contains",
+          });
+        }
+      }
+      if (scope.branchSlug) {
+        const branchIdentity =
+          labelIndex.branchIdentityBySlug.get(scope.branchSlug)
+          ?? (scope.entitySlug
+            ? (() => {
+                const entityKey = labelIndex.entityKeyBySlug.get(scope.entitySlug);
+                return entityKey ? { entityKey, branchKey: scope.branchSlug } : null;
+              })()
+            : { entityKey: null, branchKey: scope.branchSlug });
+        if (branchIdentity) {
+          const identityKey = `${branchIdentity.entityKey ?? "account"}::${branchIdentity.branchKey}`;
+          if (!branchNodeIds.has(identityKey)) {
+            const branchNodeId = integrationBranchNodeId(
+              tree.treeId,
+              branchIdentity.entityKey ?? null,
+              branchIdentity.branchKey,
+            );
+            branchNodeIds.set(identityKey, branchNodeId);
+            appendUniqueGraphNode(nodes, nodeIds, {
+              id: branchNodeId,
+              kind: "branch",
+              category: "integration",
+              tree_id: tree.treeId,
+              label: shortLabel(
+                labelIndex.branchLabelByKey.get(identityKey) ?? branchIdentity.branchKey.replaceAll("_", " "),
+                branchIdentity.branchKey,
+              ),
+              subtitle: branchIdentity.entityKey ? "branch" : "account branch",
+              status: null,
+              level: 3,
+              child_count: null,
+              path: null,
+            });
+            appendUniqueGraphEdge(edges, edgeIds, {
+              from: branchIdentity.entityKey
+                ? (entityNodeIds.get(branchIdentity.entityKey) ?? treeNodeId)
+                : treeNodeId,
+              to: branchNodeId,
+              kind: "contains",
+            });
+          }
+        }
+      }
     }
     for (const leaf of leaves) {
       appendUniqueGraphNode(nodes, nodeIds, {
@@ -449,16 +676,42 @@ function buildIntegrationGraph(params: {
       (summary) => !childSummaryIds.has(summary.nodeId),
     );
     for (const summary of rootSummaries) {
+      const scope = parseIntegrationSummaryScope({
+        treeSlug: tree.slug,
+        path: summary.path,
+      });
+      const branchIdentity = scope.branchSlug
+        ? labelIndex.branchIdentityBySlug.get(scope.branchSlug)
+          ?? (scope.entitySlug
+            ? (() => {
+                const entityKey = labelIndex.entityKeyBySlug.get(scope.entitySlug);
+                return entityKey ? { entityKey, branchKey: scope.branchSlug! } : null;
+              })()
+            : { entityKey: null, branchKey: scope.branchSlug })
+        : null;
+      const branchNodeId = branchIdentity
+        ? branchNodeIds.get(`${branchIdentity.entityKey ?? "account"}::${branchIdentity.branchKey}`) ?? null
+        : null;
+      const entityNodeId = scope.entitySlug
+        ? (() => {
+            const entityKey = labelIndex.entityKeyBySlug.get(scope.entitySlug);
+            return entityKey ? (entityNodeIds.get(entityKey) ?? null) : null;
+          })()
+        : null;
       appendUniqueGraphEdge(edges, edgeIds, {
-        from: treeNodeId,
+        from: branchNodeId ?? entityNodeId ?? treeNodeId,
         to: integrationSummaryGraphNodeId(summary.nodeId),
         kind: "contains",
       });
     }
     if (summaries.length === 0) {
       for (const leaf of leaves) {
+        const branchNodeId = leaf.branchKey
+          ? branchNodeIds.get(`${leaf.entityKey ?? "account"}::${leaf.branchKey}`) ?? null
+          : null;
+        const entityNodeId = leaf.entityKey ? entityNodeIds.get(leaf.entityKey) ?? null : null;
         appendUniqueGraphEdge(edges, edgeIds, {
-          from: treeNodeId,
+          from: branchNodeId ?? entityNodeId ?? treeNodeId,
           to: integrationLeafGraphNodeId(leaf.leafId),
           kind: "contains",
         });
@@ -468,8 +721,12 @@ function buildIntegrationGraph(params: {
         if (connectedLeafIds.has(leaf.leafId)) {
           continue;
         }
+        const branchNodeId = leaf.branchKey
+          ? branchNodeIds.get(`${leaf.entityKey ?? "account"}::${leaf.branchKey}`) ?? null
+          : null;
+        const entityNodeId = leaf.entityKey ? entityNodeIds.get(leaf.entityKey) ?? null : null;
         appendUniqueGraphEdge(edges, edgeIds, {
-          from: treeNodeId,
+          from: branchNodeId ?? entityNodeId ?? treeNodeId,
           to: integrationLeafGraphNodeId(leaf.leafId),
           kind: "contains",
         });

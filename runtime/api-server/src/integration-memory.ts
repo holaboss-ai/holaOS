@@ -28,6 +28,10 @@ export interface IntegrationLeafCandidate {
   accountKey: string;
   accountLabel: string;
   subjectKey: string;
+  entityKey?: string | null;
+  entityLabel?: string | null;
+  branchKey?: string | null;
+  branchLabel?: string | null;
   title: string;
   summary: string;
   content: string;
@@ -96,6 +100,9 @@ interface TempSummaryNode {
   title: string;
   summary: string;
   body: string;
+  root: boolean;
+  entitySlug: string | null;
+  branchSlug: string | null;
   children: Array<{
     kind: InteractionTreeChildKind;
     id: string;
@@ -188,29 +195,70 @@ function integrationTreeDir(workspaceRoot: string, slug: string): string {
   return path.join(integrationMemoryRootDir(workspaceRoot), "accounts", slug);
 }
 
-function integrationLeafRelativePath(treeSlug: string, leafId: string): string {
-  return path.posix.join(
+function integrationEntitySlug(key: string | null | undefined, label: string | null | undefined): string | null {
+  const source = compactWhitespace(key ?? "") || compactWhitespace(label ?? "");
+  return source ? safePathSegment(source, "entity") : null;
+}
+
+function integrationBranchSlug(key: string | null | undefined, label: string | null | undefined): string | null {
+  const source = compactWhitespace(key ?? "") || compactWhitespace(label ?? "");
+  return source ? safePathSegment(source, "branch") : null;
+}
+
+function integrationLeafRelativePath(params: {
+  treeSlug: string;
+  leafId: string;
+  entityKey?: string | null;
+  entityLabel?: string | null;
+  branchKey?: string | null;
+  branchLabel?: string | null;
+}): string {
+  const entitySlug = integrationEntitySlug(params.entityKey, params.entityLabel);
+  const branchSlug = integrationBranchSlug(params.branchKey, params.branchLabel);
+  const segments = [
     "integration",
     "accounts",
-    treeSlug,
+    params.treeSlug,
+    entitySlug ? "entities" : "account",
+    ...(entitySlug ? [entitySlug] : []),
+    ...(branchSlug ? [branchSlug] : []),
     "leaves",
-    `${leafId}.md`,
-  );
+    `${params.leafId}.md`,
+  ];
+  return path.posix.join(...segments);
 }
 
 function integrationSummaryRelativePath(
-  treeSlug: string,
-  level: number,
-  nodeId: string,
+  params: {
+    treeSlug: string;
+    level: number;
+    nodeId: string;
+    root?: boolean;
+    entitySlug?: string | null;
+    branchSlug?: string | null;
+  },
 ): string {
-  return path.posix.join(
+  const segments = [
     "integration",
     "accounts",
-    treeSlug,
+    params.treeSlug,
     "summaries",
-    `L${level}`,
-    `${nodeId}.md`,
-  );
+  ];
+  if (params.root) {
+    segments.push("root");
+  } else if (params.entitySlug) {
+    segments.push("entities", params.entitySlug);
+    if (params.branchSlug) {
+      segments.push(params.branchSlug);
+    }
+  } else {
+    segments.push("account");
+    if (params.branchSlug) {
+      segments.push(params.branchSlug);
+    }
+  }
+  segments.push(`L${params.level}`, `${params.nodeId}.md`);
+  return path.posix.join(...segments);
 }
 
 function sha256(value: string): string {
@@ -356,18 +404,20 @@ function summaryNodeBody(params: {
 }
 
 function deterministicSummaryText(params: {
-  tree: IntegrationTreeRecord;
+  scopeLabel: string;
   childCount: number;
   childTitles: string[];
 }): string {
   return clipText(
-    `${params.tree.accountLabel} ${params.tree.provider} memory slice covering ${params.childCount} nodes: ${params.childTitles.slice(0, 4).join(", ")}`,
+    `${params.scopeLabel} covering ${params.childCount} nodes: ${params.childTitles.slice(0, 4).join(", ")}`,
     240,
   );
 }
 
 async function generateSummaryText(params: {
   tree: IntegrationTreeRecord;
+  title: string;
+  scopeLabel: string;
   children: Array<{
     kind: InteractionTreeChildKind;
     id: string;
@@ -375,12 +425,11 @@ async function generateSummaryText(params: {
     summary: string;
     excerpt: string | null;
   }>;
-  depthFromLeaves: number;
   ordinal: number;
   modelClient: MemoryModelClientConfig | null;
 }): Promise<string> {
   const fallback = deterministicSummaryText({
-    tree: params.tree,
+    scopeLabel: params.scopeLabel,
     childCount: params.children.length,
     childTitles: params.children.map((child) => child.title),
   });
@@ -400,7 +449,8 @@ async function generateSummaryText(params: {
       `Tree ID: ${params.tree.treeId}`,
       `Provider: ${params.tree.provider}`,
       `Account: ${params.tree.accountLabel}`,
-      `Tree depth from leaves: ${params.depthFromLeaves}`,
+      `Summary title: ${params.title}`,
+      `Scope: ${params.scopeLabel}`,
       `Branch ordinal: ${params.ordinal}`,
       `Child count: ${params.children.length}`,
       "",
@@ -420,6 +470,8 @@ async function generateSummaryText(params: {
 
 async function buildTempSummaryNode(params: {
   tree: IntegrationTreeRecord;
+  title: string;
+  scopeLabel: string;
   children: Array<{
     kind: InteractionTreeChildKind;
     id: string;
@@ -427,23 +479,23 @@ async function buildTempSummaryNode(params: {
     summary: string;
     excerpt: string | null;
   }>;
-  depthFromLeaves: number;
   ordinal: number;
   modelClient: MemoryModelClientConfig | null;
+  root?: boolean;
+  entitySlug?: string | null;
+  branchSlug?: string | null;
 }): Promise<TempSummaryNode> {
   const summary = await generateSummaryText({
     tree: params.tree,
+    title: params.title,
+    scopeLabel: params.scopeLabel,
     children: params.children,
-    depthFromLeaves: params.depthFromLeaves,
     ordinal: params.ordinal,
     modelClient: params.modelClient,
   });
-  const title = params.depthFromLeaves === 1 && params.children.length > 1
-    ? `${params.tree.accountLabel} root summary`
-    : `${params.tree.accountLabel} branch ${params.ordinal}`;
   const body = summaryNodeBody({
     tree: params.tree,
-    title,
+    title: params.title,
     summary,
     children: params.children.map((child) => ({
       title: child.title,
@@ -453,13 +505,19 @@ async function buildTempSummaryNode(params: {
   return {
     tempId: sha256(JSON.stringify({
       treeId: params.tree.treeId,
-      depthFromLeaves: params.depthFromLeaves,
+      title: params.title,
+      root: params.root ?? false,
+      entitySlug: params.entitySlug ?? null,
+      branchSlug: params.branchSlug ?? null,
       ordinal: params.ordinal,
       children: params.children.map((child) => `${child.kind}:${child.id}`),
     })).slice(0, 24),
-    title,
+    title: params.title,
     summary,
     body,
+    root: params.root ?? false,
+    entitySlug: params.entitySlug ?? null,
+    branchSlug: params.branchSlug ?? null,
     children: params.children,
   };
 }
@@ -470,6 +528,61 @@ function chunkArray<T>(items: T[], size: number): T[][] {
     chunks.push(items.slice(index, index + size));
   }
   return chunks;
+}
+
+function summaryNodeAsChild(node: TempSummaryNode): TempSummaryChild {
+  return {
+    kind: "summary",
+    id: node.tempId,
+    title: node.title,
+    summary: node.summary,
+    excerpt: markdownExcerpt(node.body),
+  };
+}
+
+async function buildBranchSummarySubtree(params: {
+  tree: IntegrationTreeRecord;
+  title: string;
+  scopeLabel: string;
+  children: TempSummaryChild[];
+  entitySlug?: string | null;
+  branchSlug?: string | null;
+  modelClient: MemoryModelClientConfig | null;
+}): Promise<{ root: TempSummaryNode; nodes: TempSummaryNode[] }> {
+  const nodes: TempSummaryNode[] = [];
+  let current = params.children;
+  let chunkOrdinal = 1;
+  while (current.length > INTEGRATION_BRANCH_FACTOR) {
+    const layer = await Promise.all(
+      chunkArray(current, INTEGRATION_BRANCH_FACTOR).map((group, index) =>
+        buildTempSummaryNode({
+          tree: params.tree,
+          title: `${params.title} slice ${chunkOrdinal + index}`,
+          scopeLabel: `${params.scopeLabel} slice`,
+          children: group,
+          ordinal: chunkOrdinal + index,
+          modelClient: params.modelClient,
+          entitySlug: params.entitySlug ?? null,
+          branchSlug: params.branchSlug ?? null,
+        }),
+      ),
+    );
+    nodes.push(...layer);
+    current = layer.map((node) => summaryNodeAsChild(node));
+    chunkOrdinal += layer.length;
+  }
+  const root = await buildTempSummaryNode({
+    tree: params.tree,
+    title: params.title,
+    scopeLabel: params.scopeLabel,
+    children: current,
+    ordinal: chunkOrdinal,
+    modelClient: params.modelClient,
+    entitySlug: params.entitySlug ?? null,
+    branchSlug: params.branchSlug ?? null,
+  });
+  nodes.push(root);
+  return { root, nodes };
 }
 
 async function buildSummaryTreePlan(params: {
@@ -501,44 +614,168 @@ async function buildSummaryTreePlan(params: {
     return { nodes: [], edges: [] };
   }
 
-  const leafChildren: TempSummaryChild[] = params.leaves.map((leaf) => ({
-    kind: "leaf" as const,
-    id: leaf.leafId,
-    title: leaf.title,
-    summary: leaf.summary,
-    excerpt: null,
-  }));
+  type EntityGroup = {
+    entityKey: string | null;
+    entityLabel: string | null;
+    entitySlug: string | null;
+    leaves: IntegrationLeafRecord[];
+  };
+  type BranchGroup = {
+    branchKey: string | null;
+    branchLabel: string | null;
+    branchSlug: string | null;
+    leaves: IntegrationLeafRecord[];
+  };
 
-  const layers: TempSummaryNode[][] = [];
-  let current: TempSummaryChild[] = leafChildren;
-  let depthFromLeaves = 1;
-  while (current.length > 1 || layers.length === 0) {
-    const layer = await Promise.all(
-      chunkArray(current, INTEGRATION_BRANCH_FACTOR).map((group, index) =>
-        buildTempSummaryNode({
-          tree: params.tree,
-          children: group,
-          depthFromLeaves,
-          ordinal: index + 1,
-          modelClient: params.modelClient,
-        }),
-      ),
-    );
-    layers.push(layer);
-    current = layer.map((node) => ({
-      kind: "summary" as const,
-      id: node.tempId,
-      title: node.title,
-      summary: node.summary,
-      excerpt: markdownExcerpt(node.body),
-    }));
-    depthFromLeaves += 1;
-    if (current.length === 1) {
-      break;
+  const entityGroups = new Map<string, EntityGroup>();
+  for (const leaf of params.leaves) {
+    const groupKey = leaf.entityKey ?? "__account__";
+    const existing = entityGroups.get(groupKey);
+    if (existing) {
+      existing.leaves.push(leaf);
+      continue;
     }
+    entityGroups.set(groupKey, {
+      entityKey: leaf.entityKey,
+      entityLabel: leaf.entityLabel,
+      entitySlug: integrationEntitySlug(leaf.entityKey, leaf.entityLabel),
+      leaves: [leaf],
+    });
   }
 
-  const totalLayers = layers.length;
+  const tempNodes = new Map<string, TempSummaryNode>();
+  const rootChildren: TempSummaryChild[] = [];
+
+  for (const entityGroup of entityGroups.values()) {
+    const branchGroups = new Map<string, BranchGroup>();
+    for (const leaf of entityGroup.leaves) {
+      const groupKey = leaf.branchKey ?? "__default__";
+      const existing = branchGroups.get(groupKey);
+      if (existing) {
+        existing.leaves.push(leaf);
+        continue;
+      }
+      branchGroups.set(groupKey, {
+        branchKey: leaf.branchKey,
+        branchLabel: leaf.branchLabel,
+        branchSlug: integrationBranchSlug(leaf.branchKey, leaf.branchLabel),
+        leaves: [leaf],
+      });
+    }
+
+    const branchRoots: TempSummaryNode[] = [];
+    for (const branchGroup of branchGroups.values()) {
+      const branchChildren: TempSummaryChild[] = branchGroup.leaves.map((leaf) => ({
+        kind: "leaf",
+        id: leaf.leafId,
+        title: leaf.title,
+        summary: leaf.summary,
+        excerpt: null,
+      }));
+      const branchTitle = branchGroup.branchLabel
+        ?? branchGroup.branchKey
+        ?? "Items";
+      const branchSubtree = await buildBranchSummarySubtree({
+        tree: params.tree,
+        title: branchTitle,
+        scopeLabel: `${params.tree.accountLabel} ${branchTitle}`.trim(),
+        children: branchChildren,
+        entitySlug: entityGroup.entitySlug,
+        branchSlug: branchGroup.branchSlug,
+        modelClient: params.modelClient,
+      });
+      for (const node of branchSubtree.nodes) {
+        tempNodes.set(node.tempId, node);
+      }
+      branchRoots.push(branchSubtree.root);
+    }
+
+    if (branchRoots.length === 0) {
+      continue;
+    }
+    if (entityGroup.entityKey) {
+      const entityTitle = entityGroup.entityLabel ?? entityGroup.entityKey;
+      const entityNode = await buildTempSummaryNode({
+        tree: params.tree,
+        title: entityTitle,
+        scopeLabel: `${params.tree.accountLabel} ${entityTitle}`.trim(),
+        children: branchRoots.map((node) => summaryNodeAsChild(node)),
+        ordinal: rootChildren.length + 1,
+        modelClient: params.modelClient,
+        entitySlug: entityGroup.entitySlug,
+      });
+      tempNodes.set(entityNode.tempId, entityNode);
+      rootChildren.push(summaryNodeAsChild(entityNode));
+      continue;
+    }
+    if (branchRoots.length === 1) {
+      rootChildren.push(summaryNodeAsChild(branchRoots[0]!));
+      continue;
+    }
+    const accountNode = await buildTempSummaryNode({
+      tree: params.tree,
+      title: `${params.tree.accountLabel} account context`,
+      scopeLabel: `${params.tree.accountLabel} account context`,
+      children: branchRoots.map((node) => summaryNodeAsChild(node)),
+      ordinal: rootChildren.length + 1,
+      modelClient: params.modelClient,
+    });
+    tempNodes.set(accountNode.tempId, accountNode);
+    rootChildren.push(summaryNodeAsChild(accountNode));
+  }
+
+  if (rootChildren.length === 0) {
+    return { nodes: [], edges: [] };
+  }
+
+  let topNodes: TempSummaryNode[] = [];
+  if (rootChildren.length === 1) {
+    const onlyChild = rootChildren[0]!;
+    if (onlyChild.kind === "summary") {
+      const existing = tempNodes.get(onlyChild.id);
+      if (existing) {
+        topNodes = [existing];
+      }
+    }
+  } else {
+    const rootNode = await buildTempSummaryNode({
+      tree: params.tree,
+      title: `${params.tree.accountLabel} integration memory`,
+      scopeLabel: `${params.tree.accountLabel} integration memory`,
+      children: rootChildren,
+      ordinal: 1,
+      modelClient: params.modelClient,
+      root: true,
+    });
+    tempNodes.set(rootNode.tempId, rootNode);
+    topNodes = [rootNode];
+  }
+
+  if (topNodes.length === 0) {
+    return { nodes: [], edges: [] };
+  }
+
+  const nodeLevels = new Map<string, number>();
+  const assignLevels = (node: TempSummaryNode, level: number): void => {
+    const existing = nodeLevels.get(node.tempId);
+    if (existing !== undefined && existing <= level) {
+      return;
+    }
+    nodeLevels.set(node.tempId, level);
+    for (const child of node.children) {
+      if (child.kind !== "summary") {
+        continue;
+      }
+      const childNode = tempNodes.get(child.id);
+      if (childNode) {
+        assignLevels(childNode, level + 1);
+      }
+    }
+  };
+  for (const topNode of topNodes) {
+    assignLevels(topNode, 1);
+  }
+
   const nodeIdByTempId = new Map<string, { nodeId: string; level: number }>();
   const nodes: Array<{
     nodeId: string;
@@ -553,28 +790,41 @@ async function buildSummaryTreePlan(params: {
     sealedAt: string;
   }> = [];
   const sealedAt = utcNowIso();
-
-  for (let layerIndex = layers.length - 1; layerIndex >= 0; layerIndex -= 1) {
-    const layer = layers[layerIndex];
-    const level = totalLayers - layerIndex;
-    for (let index = 0; index < layer.length; index += 1) {
-      const node = layer[index];
-      const childIdentity = node.children.map((child) => `${child.kind}:${child.id}`).join("|");
-      const nodeId = `summary-${sha256(`${params.tree.treeId}|L${level}|${childIdentity}`).slice(0, 24)}`;
-      nodeIdByTempId.set(node.tempId, { nodeId, level });
-        nodes.push({
-          nodeId,
-          level,
-          ordinal: index + 1,
-          path: integrationSummaryRelativePath(params.tree.slug, level, nodeId),
-          title: node.title,
-          summary: node.summary,
-          body: node.body,
-        bodySha256: sha256(node.body),
-        childCount: node.children.length,
-        sealedAt,
-      });
+  const orderedTempNodes = Array.from(tempNodes.values()).sort((left, right) => {
+    const levelDiff = (nodeLevels.get(left.tempId) ?? 999) - (nodeLevels.get(right.tempId) ?? 999);
+    if (levelDiff !== 0) {
+      return levelDiff;
     }
+    return left.title.localeCompare(right.title);
+  });
+
+  for (const node of orderedTempNodes) {
+    const level = nodeLevels.get(node.tempId);
+    if (!level) {
+      continue;
+    }
+    const childIdentity = node.children.map((child) => `${child.kind}:${child.id}`).join("|");
+    const nodeId = `summary-${sha256(`${params.tree.treeId}|L${level}|${childIdentity}`).slice(0, 24)}`;
+    nodeIdByTempId.set(node.tempId, { nodeId, level });
+    nodes.push({
+      nodeId,
+      level,
+      ordinal: nodes.filter((entry) => entry.level === level).length + 1,
+      path: integrationSummaryRelativePath({
+        treeSlug: params.tree.slug,
+        level,
+        nodeId,
+        root: node.root,
+        entitySlug: node.entitySlug,
+        branchSlug: node.branchSlug,
+      }),
+      title: node.title,
+      summary: node.summary,
+      body: node.body,
+      bodySha256: sha256(node.body),
+      childCount: node.children.length,
+      sealedAt,
+    });
   }
 
   const edges: Array<{
@@ -583,25 +833,22 @@ async function buildSummaryTreePlan(params: {
     childId: string;
     position: number;
   }> = [];
-  for (let layerIndex = layers.length - 1; layerIndex >= 0; layerIndex -= 1) {
-    const layer = layers[layerIndex];
-    for (const tempNode of layer) {
-      const parent = nodeIdByTempId.get(tempNode.tempId);
-      if (!parent) {
-        continue;
-      }
-      tempNode.children.forEach((child, childIndex) => {
-        const childId = child.kind === "summary"
-          ? (nodeIdByTempId.get(child.id)?.nodeId ?? child.id)
-          : child.id;
-        edges.push({
-          parentNodeId: parent.nodeId,
-          childKind: child.kind,
-          childId,
-          position: childIndex + 1,
-        });
-      });
+  for (const node of orderedTempNodes) {
+    const parent = nodeIdByTempId.get(node.tempId);
+    if (!parent) {
+      continue;
     }
+    node.children.forEach((child, childIndex) => {
+      const childId = child.kind === "summary"
+        ? (nodeIdByTempId.get(child.id)?.nodeId ?? child.id)
+        : child.id;
+      edges.push({
+        parentNodeId: parent.nodeId,
+        childKind: child.kind,
+        childId,
+        position: childIndex + 1,
+      });
+    });
   }
 
   return { nodes, edges };
@@ -670,20 +917,82 @@ export async function persistIntegrationCandidate(params: {
     accountLabel: params.candidate.accountLabel,
   });
   const contentFingerprint = sha256(params.candidate.content);
+  const leafId = `leaf-${sha256(`${tree.treeId}|${params.candidate.subjectKey}|${contentFingerprint}`).slice(0, 24)}`;
+  const relativePath = integrationLeafRelativePath({
+    treeSlug: tree.slug,
+    leafId,
+    entityKey: params.candidate.entityKey ?? null,
+    entityLabel: params.candidate.entityLabel ?? null,
+    branchKey: params.candidate.branchKey ?? null,
+    branchLabel: params.candidate.branchLabel ?? null,
+  });
   const existingDuplicate = params.store.getIntegrationLeafByFingerprint({
     treeId: tree.treeId,
     fingerprint: contentFingerprint,
   });
   if (existingDuplicate) {
+    const needsMetadataRefresh = existingDuplicate.subjectKey !== params.candidate.subjectKey
+      || existingDuplicate.entityKey !== (params.candidate.entityKey ?? null)
+      || existingDuplicate.entityLabel !== (params.candidate.entityLabel ?? null)
+      || existingDuplicate.branchKey !== (params.candidate.branchKey ?? null)
+      || existingDuplicate.branchLabel !== (params.candidate.branchLabel ?? null)
+      || existingDuplicate.path !== relativePath
+      || existingDuplicate.title !== params.candidate.title
+      || existingDuplicate.summary !== params.candidate.summary;
+    if (needsMetadataRefresh) {
+      const absolutePath = absolutePathForRelative(params.store.workspaceRoot, relativePath);
+      writeFileIfChanged(absolutePath, params.candidate.content);
+      if (existingDuplicate.path !== relativePath) {
+        fs.rmSync(absolutePathForRelative(params.store.workspaceRoot, existingDuplicate.path), { force: true });
+      }
+      const refreshed = params.store.upsertIntegrationLeaf({
+        leafId: existingDuplicate.leafId,
+        treeId: tree.treeId,
+        subjectKey: params.candidate.subjectKey,
+        entityKey: params.candidate.entityKey ?? null,
+        entityLabel: params.candidate.entityLabel ?? null,
+        branchKey: params.candidate.branchKey ?? null,
+        branchLabel: params.candidate.branchLabel ?? null,
+        path: relativePath,
+        title: params.candidate.title,
+        summary: params.candidate.summary,
+        fingerprint: contentFingerprint,
+        bodySha256: sha256(params.candidate.content),
+        tags: params.candidate.tags,
+        sourceType: params.candidate.sourceType ?? null,
+        sourceEventId: params.candidate.sourceEventId ?? null,
+        sourceMessageId: params.candidate.sourceMessageId ?? null,
+        externalObjectId: params.candidate.externalObjectId ?? null,
+        externalObjectType: params.candidate.externalObjectType ?? null,
+        admissionConfidence: params.candidate.confidence ?? null,
+        observedAt: params.candidate.observedAt ?? null,
+        supersedesLeafId: existingDuplicate.supersedesLeafId ?? null,
+        supersededAt: existingDuplicate.supersededAt ?? null,
+        status: existingDuplicate.status,
+        createdAt: existingDuplicate.createdAt,
+      });
+      await syncNodeEmbedding({
+        store: params.store,
+        tree,
+        nodeKind: "leaf",
+        nodeId: refreshed.leafId,
+        title: refreshed.title,
+        summary: refreshed.summary,
+        body: params.candidate.content,
+        embeddingClient: params.embeddingClient ?? null,
+      });
+      return {
+        outcome: "noop_duplicate",
+        tree,
+        leaf: refreshed,
+      };
+    }
     return {
       outcome: "noop_duplicate",
       tree,
       leaf: existingDuplicate,
     };
   }
-
-  const leafId = `leaf-${sha256(`${tree.treeId}|${params.candidate.subjectKey}|${contentFingerprint}`).slice(0, 24)}`;
-  const relativePath = integrationLeafRelativePath(tree.slug, leafId);
   const existingActive = params.store.getLatestActiveIntegrationLeafBySubject({
     treeId: tree.treeId,
     subjectKey: params.candidate.subjectKey,
@@ -705,6 +1014,10 @@ export async function persistIntegrationCandidate(params: {
     leafId,
     treeId: tree.treeId,
     subjectKey: params.candidate.subjectKey,
+    entityKey: params.candidate.entityKey ?? null,
+    entityLabel: params.candidate.entityLabel ?? null,
+    branchKey: params.candidate.branchKey ?? null,
+    branchLabel: params.candidate.branchLabel ?? null,
     path: relativePath,
     title: params.candidate.title,
     summary: params.candidate.summary,

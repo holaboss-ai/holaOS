@@ -118,7 +118,7 @@ test("fetchIntegrationContextForConnection ingests Gmail profile and recent mess
   assert.equal(result.leaves_created, 3);
   assert.equal(result.messages_seen, 2);
   assert.equal(result.messages_persisted, 2);
-  assert.equal(result.summary_nodes, 1);
+  assert.equal(result.summary_nodes, 5);
 
   const updatedConnection = store.getIntegrationConnection("conn-gmail-1");
   assert.equal(updatedConnection?.accountEmail, "workspace@example.com");
@@ -143,6 +143,18 @@ test("fetchIntegrationContextForConnection ingests Gmail profile and recent mess
     leaves.map((leaf) => leaf.subjectKey).sort(),
     ["message:msg-1", "message:msg-2", "profile"],
   );
+  assert.deepEqual(
+    leaves.map((leaf) => ({
+      subjectKey: leaf.subjectKey,
+      entityKey: leaf.entityKey,
+      branchKey: leaf.branchKey,
+    })).sort((left, right) => left.subjectKey.localeCompare(right.subjectKey)),
+    [
+      { subjectKey: "message:msg-1", entityKey: "thread:thread-1", branchKey: "messages" },
+      { subjectKey: "message:msg-2", entityKey: "thread:thread-2", branchKey: "messages" },
+      { subjectKey: "profile", entityKey: null, branchKey: "profile" },
+    ],
+  );
 
   const summaries = store.listIntegrationSummaryNodes({
     treeId: trees[0]!.treeId,
@@ -150,12 +162,15 @@ test("fetchIntegrationContextForConnection ingests Gmail profile and recent mess
     limit: 100,
     offset: 0,
   });
-  assert.equal(summaries.length, 1);
+  assert.equal(summaries.length, 5);
 
   const memoryRoot = globalMemoryDirForWorkspaceRoot(workspaceRoot);
-  const treeDir = path.join(memoryRoot, "integration", "accounts", trees[0]!.slug);
-  assert.ok(fs.existsSync(path.join(treeDir, "leaves")));
-  assert.ok(fs.existsSync(path.join(treeDir, "summaries", "L1", `${summaries[0]!.nodeId}.md`)));
+  for (const leaf of leaves) {
+    assert.ok(fs.existsSync(path.join(memoryRoot, leaf.path)));
+  }
+  for (const summary of summaries) {
+    assert.ok(fs.existsSync(path.join(memoryRoot, summary.path)));
+  }
 
   store.close();
 });
@@ -323,10 +338,10 @@ test("fetchIntegrationContextForConnection ingests GitHub profile, notifications
   assert.equal(result.provider_id, "github");
   assert.equal(result.account_key, "octocat");
   assert.equal(result.account_label, "The Octocat");
-  assert.equal(result.leaves_created, 5);
-  assert.equal(result.messages_seen, 4);
-  assert.equal(result.messages_persisted, 4);
-  assert.equal(result.summary_nodes, 1);
+  assert.equal(result.leaves_created, 6);
+  assert.equal(result.messages_seen, 5);
+  assert.equal(result.messages_persisted, 5);
+  assert.equal(result.summary_nodes, 8);
 
   const updatedConnection = store.getIntegrationConnection("conn-github-1");
   assert.equal(updatedConnection?.accountHandle, "octocat");
@@ -347,7 +362,7 @@ test("fetchIntegrationContextForConnection ingests GitHub profile, notifications
     limit: 100,
     offset: 0,
   });
-  assert.equal(leaves.length, 5);
+  assert.equal(leaves.length, 6);
   assert.deepEqual(
     leaves.map((leaf) => leaf.subjectKey).sort(),
     [
@@ -355,13 +370,30 @@ test("fetchIntegrationContextForConnection ingests GitHub profile, notifications
       "notification:notif-1",
       "profile",
       "pull:holaboss-ai/holaOS:412",
+      "readme:holaboss-ai/holaOS",
       "repository:holaboss-ai/holaOS",
+    ],
+  );
+  assert.deepEqual(
+    leaves.map((leaf) => ({
+      subjectKey: leaf.subjectKey,
+      entityKey: leaf.entityKey,
+      branchKey: leaf.branchKey,
+    })).sort((left, right) => left.subjectKey.localeCompare(right.subjectKey)),
+    [
+      { subjectKey: "issue:holaboss-ai/holaOS:128", entityKey: "repo:holaboss-ai/holaOS", branchKey: "issues" },
+      { subjectKey: "notification:notif-1", entityKey: "repo:holaboss-ai/holaOS", branchKey: "notifications" },
+      { subjectKey: "profile", entityKey: null, branchKey: "profile" },
+      { subjectKey: "pull:holaboss-ai/holaOS:412", entityKey: "repo:holaboss-ai/holaOS", branchKey: "pull_requests" },
+      { subjectKey: "readme:holaboss-ai/holaOS", entityKey: "repo:holaboss-ai/holaOS", branchKey: "readme" },
+      { subjectKey: "repository:holaboss-ai/holaOS", entityKey: "repo:holaboss-ai/holaOS", branchKey: "overview" },
     ],
   );
 
   const memoryRoot = globalMemoryDirForWorkspaceRoot(workspaceRoot);
-  const treeDir = path.join(memoryRoot, "integration", "accounts", trees[0]!.slug);
-  assert.ok(fs.existsSync(path.join(treeDir, "leaves")));
+  for (const leaf of leaves) {
+    assert.ok(fs.existsSync(path.join(memoryRoot, leaf.path)));
+  }
 
   store.close();
 });
@@ -513,10 +545,10 @@ test("fetchIntegrationContextForConnection skips GitHub notifications when the t
   assert.equal(result.supported, true);
   assert.equal(result.provider_id, "github");
   assert.equal(result.account_key, "octocat");
-  assert.equal(result.leaves_created, 4);
-  assert.equal(result.messages_seen, 3);
-  assert.equal(result.messages_persisted, 3);
-  assert.equal(result.summary_nodes, 1);
+  assert.equal(result.leaves_created, 5);
+  assert.equal(result.messages_seen, 4);
+  assert.equal(result.messages_persisted, 4);
+  assert.equal(result.summary_nodes, 7);
   assert.ok(result.actions.includes("GITHUB_LIST_NOTIFICATIONS:missing"));
 
   const trees = store.listIntegrationTrees({
@@ -532,13 +564,14 @@ test("fetchIntegrationContextForConnection skips GitHub notifications when the t
     limit: 100,
     offset: 0,
   });
-  assert.equal(leaves.length, 4);
+  assert.equal(leaves.length, 5);
   assert.deepEqual(
     leaves.map((leaf) => leaf.subjectKey).sort(),
     [
       "issue:holaboss-ai/holaOS:128",
       "profile",
       "pull:holaboss-ai/holaOS:412",
+      "readme:holaboss-ai/holaOS",
       "repository:holaboss-ai/holaOS",
     ],
   );
@@ -823,11 +856,11 @@ test("fetchIntegrationContextForConnection does not duplicate unchanged GitHub l
     composioClient,
   });
 
-  assert.equal(first.leaves_created, 5);
+  assert.equal(first.leaves_created, 6);
   assert.equal(first.leaves_unchanged, 0);
   assert.equal(second.leaves_created, 0);
   assert.equal(second.leaves_superseding, 0);
-  assert.equal(second.leaves_unchanged, 5);
+  assert.equal(second.leaves_unchanged, 6);
 
   const trees = store.listIntegrationTrees({
     status: "active",
@@ -840,7 +873,7 @@ test("fetchIntegrationContextForConnection does not duplicate unchanged GitHub l
     limit: 100,
     offset: 0,
   });
-  assert.equal(leaves.length, 5);
+  assert.equal(leaves.length, 6);
 
   store.close();
 });
@@ -965,7 +998,7 @@ test("fetchIntegrationContextForConnection ingests Slack workspace, channels, an
   assert.equal(result.leaves_created, 5);
   assert.equal(result.messages_seen, 4);
   assert.equal(result.messages_persisted, 4);
-  assert.equal(result.summary_nodes, 1);
+  assert.equal(result.summary_nodes, 8);
 
   const updatedConnection = store.getIntegrationConnection("conn-slack-1");
   assert.equal(updatedConnection?.accountHandle, "T123");
@@ -998,8 +1031,9 @@ test("fetchIntegrationContextForConnection ingests Slack workspace, channels, an
   );
 
   const memoryRoot = globalMemoryDirForWorkspaceRoot(workspaceRoot);
-  const treeDir = path.join(memoryRoot, "integration", "accounts", trees[0]!.slug);
-  assert.ok(fs.existsSync(path.join(treeDir, "leaves")));
+  for (const leaf of leaves) {
+    assert.ok(fs.existsSync(path.join(memoryRoot, leaf.path)));
+  }
 
   store.close();
 });

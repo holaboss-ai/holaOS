@@ -120,6 +120,12 @@ function graphNodeColor(node: MemoryBrowserGraphNodePayload): string {
   if (node.kind === "tree") {
     return node.category === "interaction" ? "#ef4444" : "#f59e0b";
   }
+  if (node.kind === "entity") {
+    return node.category === "integration" ? "#fb7185" : "#38bdf8";
+  }
+  if (node.kind === "branch") {
+    return node.category === "integration" ? "#c084fc" : "#60a5fa";
+  }
   if (node.kind === "summary") {
     return "#94a3b8";
   }
@@ -132,6 +138,12 @@ function graphNodeFill(node: MemoryBrowserGraphNodePayload): string {
   }
   if (node.kind === "tree") {
     return node.category === "interaction" ? "#ef4444" : "#f59e0b";
+  }
+  if (node.kind === "entity") {
+    return node.category === "integration" ? "#fb7185" : "#38bdf8";
+  }
+  if (node.kind === "branch") {
+    return node.category === "integration" ? "#c084fc" : "#60a5fa";
   }
   if (node.kind === "summary") {
     return "#d1d5db";
@@ -146,6 +158,12 @@ function graphNodeRadius(node: MemoryBrowserGraphNodePayload): number {
   if (node.kind === "tree") {
     return 7.5;
   }
+  if (node.kind === "entity") {
+    return 5.6;
+  }
+  if (node.kind === "branch") {
+    return 4.7;
+  }
   if (node.kind === "summary") {
     return 4.25;
   }
@@ -158,9 +176,13 @@ function nodeSortKey(node: MemoryBrowserGraphNodePayload): string {
       ? "0"
       : node.kind === "tree"
         ? "1"
-        : node.kind === "summary"
+        : node.kind === "entity"
           ? "2"
-          : "3";
+          : node.kind === "branch"
+            ? "3"
+            : node.kind === "summary"
+              ? "4"
+              : "5";
   const level = node.level == null ? "999" : String(node.level).padStart(3, "0");
   return `${kindOrder}:${level}:${node.label.toLowerCase()}`;
 }
@@ -238,9 +260,13 @@ function buildGraphLayout(
         ? 0
         : node.kind === "tree"
           ? 1
-          : node.kind === "summary"
+          : node.kind === "entity"
             ? 2
-            : 3;
+            : node.kind === "branch"
+              ? 3
+              : node.kind === "summary"
+                ? 4
+                : 5;
     const angle = seededUnit(node.id, "angle") * Math.PI * 2;
     const spread = 68 + ring * 92 + seededUnit(node.id, "spread") * 32;
     const jitterX = (seededUnit(node.id, "jx") - 0.5) * 34;
@@ -317,7 +343,11 @@ function buildGraphLayout(
           ? 146
           : from.kind === "tree" || to.kind === "tree"
             ? 106
-            : 68;
+            : from.kind === "entity" || to.kind === "entity"
+              ? 84
+              : from.kind === "branch" || to.kind === "branch"
+                ? 76
+                : 68;
       const spring = (distance - targetDistance) * edgeSpring;
       const fx = (dx / distance) * spring;
       const fy = (dy / distance) * spring;
@@ -345,7 +375,15 @@ function buildGraphLayout(
       }
       const degree = degreeById.get(node.id) ?? 1;
       const centralBias =
-        node.kind === "tree" ? 0.4 : node.kind === "summary" ? 0.18 : 0.07;
+        node.kind === "tree"
+          ? 0.4
+          : node.kind === "entity"
+            ? 0.28
+            : node.kind === "branch"
+              ? 0.22
+              : node.kind === "summary"
+                ? 0.18
+                : 0.07;
       velocity.x += (centerX - node.x) * (centerForce + centralBias / 120);
       velocity.y += (centerY - node.y) * (centerForce + centralBias / 120);
       const dampedX = velocity.x / Math.max(1, Math.sqrt(degree));
