@@ -155,10 +155,6 @@ function tokenizeSubject(value: string): string[] {
   return matches ? matches.map((token) => token.toLowerCase()) : [];
 }
 
-function subjectBase(value: string): string {
-  return String(value ?? "").split(":", 1)[0] ?? "";
-}
-
 function tokenJaccard(left: string[], right: string[]): number {
   const leftSet = new Set(left);
   const rightSet = new Set(right);
@@ -185,8 +181,8 @@ function titleTokens(value: string): string[] {
 
 function candidateSimilarity(left: DurableMemoryCandidate, right: DurableMemoryCandidate): number {
   const subjectSimilarity = tokenJaccard(
-    tokenizeSubject(subjectBase(left.subjectKey)),
-    tokenizeSubject(subjectBase(right.subjectKey)),
+    tokenizeSubject(left.subjectKey),
+    tokenizeSubject(right.subjectKey),
   );
   const titleSimilarity = tokenJaccard(titleTokens(left.title), titleTokens(right.title));
   const summarySimilarity = tokenJaccard(titleTokens(left.summary), titleTokens(right.summary));
@@ -882,16 +878,30 @@ export async function writeTurnDurableMemory(params: {
       key: cursorKey,
     }),
   );
+  const completedTurns = params.store.listTurnResults({
+    workspaceId: params.turnResult.workspaceId,
+    sessionId: params.turnResult.sessionId,
+    status: "completed",
+    order: "asc",
+    limit: 10_000,
+    offset: 0,
+  });
+  const currentTurnIndex = completedTurns.findIndex((turn) => turn.inputId === params.turnResult.inputId);
+  if (currentTurnIndex < 0) {
+    return (
+      params.store.getTurnResult({
+        workspaceId: params.turnResult.workspaceId,
+        inputId: params.turnResult.inputId,
+      }) ?? params.turnResult
+    );
+  }
+  const completedTurnsThroughCurrent = completedTurns.slice(0, currentTurnIndex + 1);
 
   while (true) {
-    const batchTurnResults = params.store.listTurnResults({
-      workspaceId: params.turnResult.workspaceId,
-      sessionId: params.turnResult.sessionId,
-      status: "completed",
-      order: "asc",
-      limit: TURN_BATCH_SIZE,
-      offset: processedTurnCount,
-    });
+    const batchTurnResults = completedTurnsThroughCurrent.slice(
+      processedTurnCount,
+      processedTurnCount + TURN_BATCH_SIZE,
+    );
     if (batchTurnResults.length < TURN_BATCH_SIZE) {
       break;
     }
@@ -1000,10 +1010,10 @@ export async function writeTurnDurableMemory(params: {
               sourceEventId: batchLastTurn.inputId,
               sourceMessageId: candidate.sourceMessageId ?? null,
               sourceTurnInputId: batchLastTurn.inputId,
-              observedAt: candidate.observedAt ?? null,
-              confidence: candidate.confidence ?? null,
-            },
-            modelClient: params.modelContext.modelClient ?? null,
+            observedAt: candidate.observedAt ?? null,
+            confidence: candidate.confidence ?? null,
+          },
+            modelClient: null,
             embeddingClient,
           });
           if (persisted.outcome !== "noop_duplicate") {

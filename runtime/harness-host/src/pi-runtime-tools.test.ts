@@ -83,7 +83,7 @@ test("Pi runtime tools execute through the local runtime capability API", async 
     [...RUNTIME_AGENT_TOOL_IDS]
   );
 
-  const completeTool = tools.find((tool) => tool.name === "onboarding_complete");
+  const completeTool = tools.find((tool) => tool.name === "holaboss_onboarding_complete");
   assert.ok(completeTool);
   const result = await completeTool.execute(
     "call-1",
@@ -106,7 +106,7 @@ test("Pi runtime tools execute through the local runtime capability API", async 
   ]);
   assert.equal(result.content[0]?.type, "text");
   assert.equal(result.content[0]?.text, JSON.stringify({ onboarding_status: "completed" }, null, 2));
-  assert.deepEqual(result.details, { tool_id: "onboarding_complete" });
+  assert.deepEqual(result.details, { tool_id: "holaboss_onboarding_complete" });
 });
 
 test("Pi runtime tools compact large capability results and preserve raw details", async () => {
@@ -932,7 +932,7 @@ test("Pi runtime tools fall back to node http when no fetch implementation is pr
       sessionId: "session-main",
       selectedModel: "openai/gpt-5.4",
     });
-    const completeTool = tools.find((tool) => tool.name === "onboarding_complete");
+    const completeTool = tools.find((tool) => tool.name === "holaboss_onboarding_complete");
     assert.ok(completeTool);
 
     const result = await completeTool.execute(
@@ -955,7 +955,7 @@ test("Pi runtime tools fall back to node http when no fetch implementation is pr
     ]);
     assert.equal(result.content[0]?.type, "text");
     assert.equal(result.content[0]?.text, JSON.stringify({ onboarding_status: "completed" }, null, 2));
-    assert.deepEqual(result.details, { tool_id: "onboarding_complete" });
+    assert.deepEqual(result.details, { tool_id: "holaboss_onboarding_complete" });
   } finally {
     server.close();
     await once(server, "close");

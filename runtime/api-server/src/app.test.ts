@@ -787,7 +787,7 @@ test("runtime tools capability routes expose local onboarding and cronjob action
     assert.ok(
       capabilityStatus
         .json()
-        .tools.some((tool: { id: string }) => tool.id === "onboarding_complete")
+        .tools.some((tool: { id: string }) => tool.id === "holaboss_onboarding_complete")
     );
     assert.ok(
       capabilityStatus

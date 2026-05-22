@@ -149,7 +149,7 @@ const ONBOARDING_SESSION_RUNTIME_TOOL_IDS = new Set([
       !MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS.has(toolId),
   ),
   "onboarding_status",
-  "onboarding_complete",
+  "holaboss_onboarding_complete",
 ]);
 const BROWSER_RETRY_REQUEST_PATTERN = /\b(?:try again|retry|do it again|again)\b/i;
 const BROWSER_ACTION_REQUEST_PATTERN =

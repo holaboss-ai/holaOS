@@ -769,8 +769,8 @@ test("composeBaseAgentPrompt instructs direct sessions to record durable workspa
 test("composeAgentPrompt instructs subagents to record durable workspace knowledge into AGENTS.md when the tool is available", () => {
   const capabilityManifest = buildAgentCapabilityManifest({
     defaultTools: ["read"],
-    extraTools: ["holaboss_update_workspace_instructions"],
-    runtimeToolIds: ["holaboss_update_workspace_instructions"],
+    extraTools: ["update_workspace_instructions"],
+    runtimeToolIds: ["update_workspace_instructions"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
     toolServerIdMap: {},
@@ -778,7 +778,7 @@ test("composeAgentPrompt instructs subagents to record durable workspace knowled
 
   const prompt = composeAgentPrompt("You are concise.", {
     defaultTools: ["read"],
-    extraTools: ["holaboss_update_workspace_instructions"],
+    extraTools: ["update_workspace_instructions"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
     sessionKind: "subagent",
@@ -789,7 +789,7 @@ test("composeAgentPrompt instructs subagents to record durable workspace knowled
 
   assert.match(
     prompt.systemPrompt,
-    /Record durable workspace knowledge in root `AGENTS\.md` with `holaboss_update_workspace_instructions` when it is clearly stable, likely to recur, or explicitly confirmed by the user/i,
+    /Record durable workspace knowledge in root `AGENTS\.md` with `update_workspace_instructions` when it is clearly stable, likely to recur, or explicitly confirmed by the user/i,
   );
   assert.match(
     prompt.systemPrompt,
@@ -848,8 +848,8 @@ test("composeAgentPrompt keeps main sessions free of todo doctrine even if todo 
 test("composeAgentPrompt keeps onboarding sessions free of subagent delegation doctrine", () => {
   const capabilityManifest = buildAgentCapabilityManifest({
     defaultTools: ["read", "edit"],
-    extraTools: ["onboarding_status", "onboarding_complete"],
-    runtimeToolIds: ["onboarding_status", "onboarding_complete"],
+    extraTools: ["onboarding_status", "holaboss_onboarding_complete"],
+    runtimeToolIds: ["onboarding_status", "holaboss_onboarding_complete"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
     toolServerIdMap: {},
@@ -857,7 +857,7 @@ test("composeAgentPrompt keeps onboarding sessions free of subagent delegation d
 
   const prompt = composeAgentPrompt("You are concise.", {
     defaultTools: ["read", "edit"],
-    extraTools: ["onboarding_status", "onboarding_complete"],
+    extraTools: ["onboarding_status", "holaboss_onboarding_complete"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
     sessionKind: "onboarding",

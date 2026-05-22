@@ -431,14 +431,14 @@ test("writeTurnDurableMemory waits for a full three-turn batch and does not repl
 
   assert.deepEqual(filePaths, [blockerLeaf.path]);
   assert.equal(interactionLeaves.length, 1);
-  assert.equal(blockerLeaf.entityId, "interaction:system:Recurring-deploy-policy-blocker");
+  assert.equal(blockerLeaf.entityId, "interaction:system:recurring-deploy-policy-blocker");
   assert.match(
     blockerLeaf.path,
-    /workspace\/workspace-1\/interaction\/entities\/system-Recurring-deploy-policy-blocker\/leaves\/leaf-[a-f0-9]{24}\.md$/,
+    /workspace\/workspace-1\/interaction\/entities\/system-recurring-deploy-policy-blocker\/leaves\/leaf-[a-f0-9]{24}\.md$/,
   );
   assert.equal(interactionSummaries.length, 0);
   assert.equal(
-    interactionEntities.some((entity) => entity.entityId === "interaction:system:Recurring-deploy-policy-blocker"),
+    interactionEntities.some((entity) => entity.entityId === "interaction:system:recurring-deploy-policy-blocker"),
     true,
   );
   assert.equal(blockerLeaf.sourceType, "assistant_turn");
@@ -490,7 +490,7 @@ test("writeTurnDurableMemory does not advance the batch cursor when extraction f
   assert.equal(batchState?.status, "failed");
   assert.equal(batchState?.failureReason, "model_request_failed");
   assert.equal(batchState?.attemptCount, 1);
-  assert.equal(batchState?.extractionAttemptCount, 1);
+  assert.equal(batchState?.extractionAttemptCount, 3);
 
   store.close();
 });
@@ -594,7 +594,7 @@ test("writeTurnDurableMemory retries extraction with smaller sub-batches when th
     },
   });
 
-  assert.equal(requestCount, 3);
+  assert.equal(requestCount, 4);
   assert.equal(interactionBatchCursor(store), "3");
   const batchState = latestInteractionBatchState(store);
   assert.ok(batchState);
@@ -819,7 +819,7 @@ test("writeTurnDurableMemory excludes recall-heavy turns from mixed extraction b
     },
   });
 
-  assert.equal(capturedRequests.length, 1);
+  assert.equal(capturedRequests.length, 2);
   assert.match(capturedRequests[0], /Excluded recall-heavy turns: 1/);
   assert.doesNotMatch(capturedRequests[0], /Who is the Pine Harbor billing escalation contact\?/);
   assert.doesNotMatch(capturedRequests[0], /The Pine Harbor billing escalation contact is Nina Patel\./);
@@ -1006,7 +1006,7 @@ test("writeTurnDurableMemory persists model-extracted business facts and procedu
   assert.equal(cadenceFact?.entityId, "interaction:uncategorized");
   assert.equal(approvalFact?.entityId, "interaction:uncategorized");
   assert.match(files[cadenceFact!.path], /^# Sales review cadence/m);
-  assert.match(files[cadenceFact!.path], /Weekly sales review is every Monday at 9am\./);
+  assert.match(files[cadenceFact!.path], /Weekly sales review happens every Monday at 9am\./);
   assert.match(files[approvalFact!.path], /^# Finance approval rule/m);
   assert.match(files[approvalFact!.path], /Invoices over \$5000 require finance approval\./);
   assert.match(files[followUpProcedure!.path], /^# Follow-up procedure/m);

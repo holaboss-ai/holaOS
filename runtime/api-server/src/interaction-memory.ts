@@ -72,6 +72,8 @@ const OWNER_SLOT_TOKENS = new Set([
   "channel",
   "checklist",
   "claim",
+  "command",
+  "commands",
   "contact",
   "contract",
   "cooling",
@@ -94,6 +96,8 @@ const OWNER_SLOT_TOKENS = new Set([
   "legal",
   "manager",
   "meeting",
+  "message",
+  "messages",
   "metrics",
   "owner",
   "ops",
@@ -124,9 +128,40 @@ const OWNER_SLOT_TOKENS = new Set([
   "support",
   "threshold",
   "timer",
+  "tool",
+  "tools",
+  "notification",
+  "notifications",
   "verification",
   "warranty",
   "workflow",
+]);
+const GENERIC_SUBJECT_LEAD_TOKENS = new Set([
+  "a",
+  "an",
+  "the",
+  "this",
+  "that",
+  "these",
+  "those",
+  "every",
+  "weekly",
+  "daily",
+  "monthly",
+  "quarterly",
+  "annual",
+  "use",
+  "run",
+  "remember",
+  "keep",
+  "start",
+  "stop",
+  "review",
+  "follow",
+  "send",
+  "open",
+  "confirm",
+  "draft",
 ]);
 const CUSTOMER_SIGNAL_TOKENS = new Set([
   "accountmanager",
@@ -585,12 +620,28 @@ function extractStableSubjectFromText(text: string): string | null {
   if (subjectTokens.length === 0 || subjectTokens.length === tokens.length) {
     return null;
   }
+  const firstToken = normalizeKeyToken(subjectTokens[0] ?? "");
+  if (GENERIC_SUBJECT_LEAD_TOKENS.has(firstToken)) {
+    return null;
+  }
+  const uppercaseTokenCount = subjectTokens.filter((token) => /[A-Z]/.test(token)).length;
+  const hasStrongSingleTokenSignal =
+    subjectTokens.length === 1
+    && (
+      /[A-Z].*[A-Z]/.test(subjectTokens[0] ?? "")
+      || /\d/.test(subjectTokens[0] ?? "")
+    );
+  if (subjectTokens.length > 1 && uppercaseTokenCount < 2) {
+    return null;
+  }
+  if (subjectTokens.length === 1 && !hasStrongSingleTokenSignal) {
+    return null;
+  }
   const candidate = subjectTokens.join(" ").trim();
   if (!candidate || tokenize(candidate).length === 0) {
     return null;
   }
-  const hasUppercaseSignal = subjectTokens.some((token) => /[A-Z]/.test(token));
-  return hasUppercaseSignal ? candidate : null;
+  return candidate;
 }
 
 function inferStableSubjectHint(candidate: InteractionLeafCandidate): StableSubjectHint | null {
@@ -819,6 +870,13 @@ function deterministicEntitySpec(candidate: InteractionLeafCandidate): {
     return {
       entityType: stableSubject.entityType,
       canonicalName: stableSubject.canonicalName,
+      fallback: false,
+    };
+  }
+  if (typeHint === "system") {
+    return {
+      entityType: "system",
+      canonicalName: clipText(candidate.title || candidate.subjectKey, 80),
       fallback: false,
     };
   }

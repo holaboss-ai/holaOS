@@ -606,7 +606,7 @@ function executionSemanticsForDescriptor(params: {
       concurrency: "serial_only",
       requires_runtime_service: true,
       requires_browser: false,
-      requires_user_confirmation: normalizedId === "onboarding_complete",
+      requires_user_confirmation: normalizedId === "holaboss_onboarding_complete",
     };
   }
   if (params.kind === "workspace_command") {

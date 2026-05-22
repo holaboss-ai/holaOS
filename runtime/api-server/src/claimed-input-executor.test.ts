@@ -4420,7 +4420,7 @@ test("claimed onboarding input instructs native onboarding tools directly", asyn
   });
 
   assert.match(capturedInstruction, /onboarding_status/);
-  assert.match(capturedInstruction, /onboarding_complete/);
+  assert.match(capturedInstruction, /holaboss_onboarding_complete/);
   assert.doesNotMatch(capturedInstruction, /`hb`/);
 
   store.close();
