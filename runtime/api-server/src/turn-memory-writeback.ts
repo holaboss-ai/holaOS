@@ -155,6 +155,94 @@ function tokenizeSubject(value: string): string[] {
   return matches ? matches.map((token) => token.toLowerCase()) : [];
 }
 
+function subjectBase(value: string): string {
+  return String(value ?? "").split(":", 1)[0] ?? "";
+}
+
+function tokenJaccard(left: string[], right: string[]): number {
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  if (leftSet.size === 0 || rightSet.size === 0) {
+    return 0;
+  }
+  let intersection = 0;
+  for (const token of leftSet) {
+    if (rightSet.has(token)) {
+      intersection += 1;
+    }
+  }
+  const union = new Set([...leftSet, ...rightSet]).size;
+  return union > 0 ? intersection / union : 0;
+}
+
+function titleTokens(value: string): string[] {
+  return tokenizeSubject(
+    compactWhitespace(value)
+      .replace(/https?:\/\/\S+/gi, " ")
+      .replace(/[^\w#@.-]+/g, " "),
+  );
+}
+
+function candidateSimilarity(left: DurableMemoryCandidate, right: DurableMemoryCandidate): number {
+  const subjectSimilarity = tokenJaccard(
+    tokenizeSubject(subjectBase(left.subjectKey)),
+    tokenizeSubject(subjectBase(right.subjectKey)),
+  );
+  const titleSimilarity = tokenJaccard(titleTokens(left.title), titleTokens(right.title));
+  const summarySimilarity = tokenJaccard(titleTokens(left.summary), titleTokens(right.summary));
+  return Math.max(
+    subjectSimilarity,
+    titleSimilarity * 0.7 + summarySimilarity * 0.3,
+  );
+}
+
+function candidateSpecificityScore(candidate: DurableMemoryCandidate): number {
+  return (
+    compactWhitespace(candidate.content).length * 1.5
+    + compactWhitespace(candidate.summary).length
+    + compactWhitespace(candidate.title).length * 0.5
+    + candidate.tags.length * 12
+  );
+}
+
+function consolidateDurableCandidates(candidates: DurableMemoryCandidate[]): DurableMemoryCandidate[] {
+  const groups: Array<{ anchor: DurableMemoryCandidate; members: DurableMemoryCandidate[] }> = [];
+  for (const candidate of candidates) {
+    const group = groups.find((entry) =>
+      entry.anchor.scope === candidate.scope
+      && entry.anchor.memoryType === candidate.memoryType
+      && candidateSimilarity(entry.anchor, candidate) >= 0.58,
+    );
+    if (group) {
+      group.members.push(candidate);
+      if (candidateSpecificityScore(candidate) > candidateSpecificityScore(group.anchor)) {
+        group.anchor = candidate;
+      }
+      continue;
+    }
+    groups.push({
+      anchor: candidate,
+      members: [candidate],
+    });
+  }
+  return groups.map((group) => {
+    const mergedTags = Array.from(
+      new Set(group.members.flatMap((candidate) => candidate.tags)),
+    ).sort((left, right) => left.localeCompare(right));
+    const richest = [...group.members].sort(
+      (left, right) => candidateSpecificityScore(right) - candidateSpecificityScore(left),
+    )[0] ?? group.anchor;
+    return {
+      ...group.anchor,
+      tags: mergedTags,
+      content: richest.content,
+      summary: richest.summary,
+      title: group.anchor.title,
+      confidence: Math.max(...group.members.map((candidate) => candidate.confidence ?? 0)),
+    };
+  });
+}
+
 function refinedExtractedSubjectKey(candidate: ExtractedDurableMemoryCandidate): string {
   const base = candidate.subjectKey.trim();
   if (!base) {
@@ -626,7 +714,7 @@ function acceptedModelDurableCandidates(params: {
     }
     accepted.push(modelCandidate.durableCandidate);
   }
-  return accepted;
+  return consolidateDurableCandidates(accepted);
 }
 
 function loadTurnWritebackBatchContext(params: {
@@ -887,6 +975,7 @@ export async function writeTurnDurableMemory(params: {
       let persistedLeafCount = 0;
       let persistMs = 0;
       let rebuildMs = 0;
+      let rebuildFailureReason: string | null = null;
       const touchedEntityIds = new Set<string>();
       if (durableCandidates.length > 0) {
         const embeddingClient = createRecallEmbeddingModelClient({
@@ -923,25 +1012,37 @@ export async function writeTurnDurableMemory(params: {
           }
         }
         persistMs = Date.now() - persistStartedAt;
+        processedTurnCount += TURN_BATCH_SIZE;
+        params.store.setWorkspaceRuntimeMetadata({
+          workspaceId: params.turnResult.workspaceId,
+          key: cursorKey,
+          value: String(processedTurnCount),
+        });
         const rebuildStartedAt = Date.now();
-        for (const entityId of touchedEntityIds) {
-          await rebuildInteractionEntityTree({
-            store: params.store,
-            workspaceId: batchLastTurn.workspaceId,
-            entityId,
-            summaryModelClient,
-            embeddingClient,
-          });
+        try {
+          for (const entityId of touchedEntityIds) {
+            await rebuildInteractionEntityTree({
+              store: params.store,
+              workspaceId: batchLastTurn.workspaceId,
+              entityId,
+              summaryModelClient,
+              embeddingClient,
+            });
+          }
+        } catch (error) {
+          rebuildFailureReason = error instanceof Error && error.message
+            ? error.message
+            : "summary_rebuild_failed";
         }
         rebuildMs = Date.now() - rebuildStartedAt;
+      } else {
+        processedTurnCount += TURN_BATCH_SIZE;
+        params.store.setWorkspaceRuntimeMetadata({
+          workspaceId: params.turnResult.workspaceId,
+          key: cursorKey,
+          value: String(processedTurnCount),
+        });
       }
-
-      processedTurnCount += TURN_BATCH_SIZE;
-      params.store.setWorkspaceRuntimeMetadata({
-        workspaceId: params.turnResult.workspaceId,
-        key: cursorKey,
-        value: String(processedTurnCount),
-      });
       writeInteractionBatchState({
         store: params.store,
         workspaceId: params.turnResult.workspaceId,
@@ -957,6 +1058,7 @@ export async function writeTurnDurableMemory(params: {
           extractionMs,
           persistMs,
           rebuildMs,
+          failureReason: rebuildFailureReason,
         },
       });
     } catch (error) {

@@ -7,6 +7,7 @@ import path from "node:path";
 import {
   agentsMdPath,
   cleanupWorkspaceMemory,
+  controlPlaneDbPath,
   discoverRuntimePort,
   fetchJson,
   matchingTerms,
@@ -40,8 +41,8 @@ function printUsage() {
       "  --fixture <path>                 Override the evaluation fixture JSON",
       "  --scenario <id>                  Run only one scenario from the fixture",
       "  --output <path>                  Write a JSON report to this file",
-      "  --clean                          Clean interaction memory before running the evaluation",
-      "  --agents-baseline-file <path>    Reset AGENTS.md from a baseline file when --clean is used",
+      "  --clean                          Reset memory, session history, and AGENTS.md before each scenario",
+      "  --agents-baseline-file <path>    Reset AGENTS.md from a baseline file when --clean is used (defaults to empty)",
       "  --json                           Print the final report as JSON",
     ].join("\n"),
   );
@@ -83,6 +84,10 @@ function percentile(values, ratio) {
   }
   const index = Math.min(filtered.length - 1, Math.max(0, Math.ceil(filtered.length * ratio) - 1));
   return filtered[index];
+}
+
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function normalizeComparableText(value) {
@@ -168,10 +173,6 @@ function loadFixture(filePath, scenarioId) {
     includeDirectRetrieval: parsed.include_direct_retrieval === true,
     scenarios: selected,
   };
-}
-
-function controlPlaneDbPathForWorkspaceDir(workspaceDir) {
-  return path.resolve(workspaceDir, "..", "..", "state", "control-plane.db");
 }
 
 function expectedEntitiesForScenario(scenario) {
@@ -265,6 +266,14 @@ async function postJson(baseUrl, route, payload, init = {}) {
     },
     body: JSON.stringify(payload),
   });
+}
+
+async function fetchIntegrationContextStatuses(baseUrl, params) {
+  const url = new URL(`${baseUrl}/api/v1/integrations/context-fetch`);
+  if (Array.isArray(params.connectionIds) && params.connectionIds.length > 0) {
+    url.searchParams.set("connection_ids", params.connectionIds.join(","));
+  }
+  return await fetchJson(url.toString());
 }
 
 async function queueTurn(baseUrl, params) {
@@ -466,7 +475,7 @@ function activeIntegrationLeavesForTree(dbPath, treeId) {
   return runSqlRows(
     dbPath,
     `
-      SELECT leaf_id, subject_key, title, summary, path, observed_at, updated_at
+      SELECT leaf_id, subject_key, entity_key, entity_label, branch_key, branch_label, title, summary, path, observed_at, updated_at
       FROM integration_leaves
       WHERE tree_id = ${sqlLiteral(treeId)}
         AND status = 'active'
@@ -475,11 +484,15 @@ function activeIntegrationLeavesForTree(dbPath, treeId) {
   ).map((row) => ({
     leaf_id: row[0],
     subject_key: row[1],
-    title: row[2],
-    summary: row[3],
-    path: row[4],
-    observed_at: row[5],
-    updated_at: row[6],
+    entity_key: row[2],
+    entity_label: row[3],
+    branch_key: row[4],
+    branch_label: row[5],
+    title: row[6],
+    summary: row[7],
+    path: row[8],
+    observed_at: row[9],
+    updated_at: row[10],
   }));
 }
 
@@ -503,6 +516,20 @@ function activeIntegrationSummariesForTree(dbPath, treeId) {
     sealed_at: row[6],
     updated_at: row[7],
   }));
+}
+
+function integrationRelationCounts(dbPath, treeId) {
+  const rows = runSqlRows(
+    dbPath,
+    `
+      SELECT relation_type, count(*)
+      FROM integration_node_relations
+      WHERE tree_id = ${sqlLiteral(treeId)}
+      GROUP BY relation_type
+      ORDER BY relation_type ASC;
+    `,
+  );
+  return Object.fromEntries(rows.map(([key, value]) => [key, Number(value ?? 0)]));
 }
 
 function firstIntegrationLeafByPrefix(leaves, prefix) {
@@ -598,7 +625,7 @@ async function runInteractionScenario(params) {
   const writerSessionId = `memory-eval-writer-${scenarioSlug}`;
   const beforeAgents = readTextIfExists(params.agentsPath);
   const failures = [];
-  const countsBefore = workspaceMemoryCounts(params.dbPath);
+  const countsBefore = workspaceMemoryCounts(params.dbPath, params.controlPlaneDbPath);
   const expectedEntities = expectedEntitiesForScenario(scenario);
 
   if (!Array.isArray(scenario.writer_turns) || scenario.writer_turns.length === 0) {
@@ -900,7 +927,7 @@ async function runInteractionScenario(params) {
     failures.push(`AGENTS.md gained scenario terms: ${agentsDeltaTerms.join(", ")}`);
   }
 
-  const countsAfter = workspaceMemoryCounts(params.dbPath);
+  const countsAfter = workspaceMemoryCounts(params.dbPath, params.controlPlaneDbPath);
   const directLatencies = directRetrievals.map((entry) => entry.latency_ms).filter((value) => value != null);
   const readerLatencies = readerQueries.map((entry) => entry.latency_ms).filter((value) => value != null);
   const memoryRetrieveReaders = readerQueries.filter((entry) => entry.used_memory_retrieve).length;
@@ -959,7 +986,7 @@ async function runIntegrationContextFetchScenario(params) {
   const startedAt = new Date().toISOString();
   const startedWall = Date.now();
   const failures = [];
-  const countsBefore = workspaceMemoryCounts(params.dbPath);
+  const countsBefore = workspaceMemoryCounts(params.dbPath, params.controlPlaneDbPath);
   const beforeAgents = readTextIfExists(params.agentsPath);
   const providerId = typeof scenario.provider_id === "string" && scenario.provider_id.trim().length > 0
     ? scenario.provider_id.trim().toLowerCase()
@@ -1011,19 +1038,45 @@ async function runIntegrationContextFetchScenario(params) {
     );
   }
 
-  const fetchResult = fetchPayload ?? {};
+  let fetchResult = isRecord(fetchPayload?.status) ? fetchPayload.status : {};
+  if (fetchPayload?.status?.status === "running" || fetchPayload?.started === true) {
+    try {
+      fetchResult = await waitFor(
+        async () => {
+          const payload = await fetchIntegrationContextStatuses(params.baseUrl, {
+            connectionIds: [connection.connection_id],
+          });
+          const statuses = Array.isArray(payload?.statuses) ? payload.statuses : [];
+          const status = statuses.find((entry) => entry?.connection_id === connection.connection_id);
+          if (!status) {
+            return null;
+          }
+          return status.status === "running" ? null : status;
+        },
+        {
+          description: `integration context fetch completion for ${scenario.id}`,
+          timeoutMs: Number(scenario.integration_ready_timeout_ms ?? INTEGRATION_FETCH_TIMEOUT_MS),
+        },
+      );
+    } catch (error) {
+      failures.push(
+        `integration context fetch completion failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
   const treeId = typeof fetchResult.tree_id === "string" ? fetchResult.tree_id : null;
   const expectedTree = scenario.expected_tree ?? {};
   let tree = null;
   let leaves = [];
   let summaries = [];
+  let relationCounts = {};
   if (treeId) {
     try {
       await waitFor(
         async () => {
-          const nextTree = activeIntegrationTree(params.dbPath, treeId);
-          const nextLeaves = nextTree ? activeIntegrationLeavesForTree(params.dbPath, treeId) : [];
-          const nextSummaries = nextTree ? activeIntegrationSummariesForTree(params.dbPath, treeId) : [];
+          const nextTree = activeIntegrationTree(params.controlPlaneDbPath, treeId);
+          const nextLeaves = nextTree ? activeIntegrationLeavesForTree(params.controlPlaneDbPath, treeId) : [];
+          const nextSummaries = nextTree ? activeIntegrationSummariesForTree(params.controlPlaneDbPath, treeId) : [];
           if (!nextTree) {
             return null;
           }
@@ -1051,9 +1104,10 @@ async function runIntegrationContextFetchScenario(params) {
         `integration tree materialization failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    tree = activeIntegrationTree(params.dbPath, treeId);
-    leaves = tree ? activeIntegrationLeavesForTree(params.dbPath, treeId) : [];
-    summaries = tree ? activeIntegrationSummariesForTree(params.dbPath, treeId) : [];
+    tree = activeIntegrationTree(params.controlPlaneDbPath, treeId);
+    leaves = tree ? activeIntegrationLeavesForTree(params.controlPlaneDbPath, treeId) : [];
+    summaries = tree ? activeIntegrationSummariesForTree(params.controlPlaneDbPath, treeId) : [];
+    relationCounts = tree ? integrationRelationCounts(params.controlPlaneDbPath, treeId) : {};
   } else if (fetchResult.supported !== false) {
     failures.push("integration context fetch did not return a tree_id");
   }
@@ -1115,6 +1169,30 @@ async function runIntegrationContextFetchScenario(params) {
     for (const prefix of requiredSubjectKeyPrefixes) {
       if (!leaves.some((leaf) => String(leaf.subject_key ?? "").startsWith(prefix))) {
         integrationFailures.push(`missing active integration leaf with subject_key prefix ${prefix}`);
+      }
+    }
+    const requiredEntityKeyPrefixes = Array.isArray(expectedTree.required_entity_key_prefixes)
+      ? expectedTree.required_entity_key_prefixes
+      : [];
+    for (const prefix of requiredEntityKeyPrefixes) {
+      if (!leaves.some((leaf) => String(leaf.entity_key ?? "").startsWith(prefix))) {
+        integrationFailures.push(`missing active integration leaf with entity_key prefix ${prefix}`);
+      }
+    }
+    const requiredBranchKeys = Array.isArray(expectedTree.required_branch_keys)
+      ? expectedTree.required_branch_keys
+      : [];
+    for (const branchKey of requiredBranchKeys) {
+      if (!leaves.some((leaf) => String(leaf.branch_key ?? "") === branchKey)) {
+        integrationFailures.push(`missing active integration leaf with branch_key ${branchKey}`);
+      }
+    }
+    const requiredRelationTypes = Array.isArray(expectedTree.required_relation_types)
+      ? expectedTree.required_relation_types
+      : [];
+    for (const relationType of requiredRelationTypes) {
+      if (Number(relationCounts?.[relationType] ?? 0) <= 0) {
+        integrationFailures.push(`missing integration relation type ${relationType}`);
       }
     }
   }
@@ -1228,11 +1306,25 @@ async function runIntegrationContextFetchScenario(params) {
     failures.push(`AGENTS.md gained scenario terms: ${agentsDeltaTerms.join(", ")}`);
   }
 
-  const countsAfter = workspaceMemoryCounts(params.dbPath);
+  const countsAfter = workspaceMemoryCounts(params.dbPath, params.controlPlaneDbPath);
   const directLatencies = directRetrievals.map((entry) => entry.latency_ms).filter((value) => value != null);
   const readerLatencies = readerQueries.map((entry) => entry.latency_ms).filter((value) => value != null);
   const memoryRetrieveReaders = readerQueries.filter((entry) => entry.used_memory_retrieve).length;
   const prerunRecallReaders = readerQueries.filter((entry) => entry.likely_prerun_recall).length;
+  const activeEntityKeys = Array.from(
+    new Set(
+      leaves
+        .map((leaf) => String(leaf.entity_key ?? "").trim())
+        .filter((value) => value.length > 0),
+    ),
+  ).sort();
+  const activeBranchKeys = Array.from(
+    new Set(
+      leaves
+        .map((leaf) => String(leaf.branch_key ?? "").trim())
+        .filter((value) => value.length > 0),
+    ),
+  ).sort();
 
   return {
     scenario_id: scenario.id,
@@ -1256,6 +1348,9 @@ async function runIntegrationContextFetchScenario(params) {
         failures: integrationFailures,
         active_leaf_count: leaves.length,
         active_summary_count: summaries.length,
+        relation_counts: relationCounts,
+        active_entity_keys: activeEntityKeys,
+        active_branch_keys: activeBranchKeys,
         active_leaves: leaves,
         active_summaries: summaries,
       },
@@ -1309,14 +1404,16 @@ async function main() {
   const runtimePort = args.dryRun && !args.runtimePort ? null : await discoverRuntimePort(args.runtimePort);
   const baseUrl = runtimePort == null ? null : `http://127.0.0.1:${runtimePort}`;
   const dbPath = runtimeDbPath(args.workspaceDir);
-  const controlPlaneDbPath = controlPlaneDbPathForWorkspaceDir(args.workspaceDir);
+  const controlPlaneDbPathValue = controlPlaneDbPath(args.workspaceDir);
   const agentsPath = agentsMdPath(args.workspaceDir);
 
-  const cleanup = args.cleanFirst
+  const cleanup = args.cleanFirst && args.dryRun
     ? cleanupWorkspaceMemory({
         workspaceDir: args.workspaceDir,
         dryRun: args.dryRun,
         agentsBaselinePath: args.agentsBaselinePath,
+        includeSessionHistory: true,
+        resetAgentsMd: true,
       })
     : null;
 
@@ -1346,13 +1443,23 @@ async function main() {
     fixture: fixture.path,
     fixture_name: fixture.name,
     clean: Boolean(args.cleanFirst),
+    cleanup_mode: args.cleanFirst ? "per_scenario" : "none",
     cleanup,
     started_at: new Date().toISOString(),
-    initial_counts: workspaceMemoryCounts(dbPath),
+    initial_counts: workspaceMemoryCounts(dbPath, controlPlaneDbPathValue),
     scenarios: [],
   };
 
   for (const scenario of fixture.scenarios) {
+    const scenarioCleanup = args.cleanFirst
+      ? cleanupWorkspaceMemory({
+          workspaceDir: args.workspaceDir,
+          dryRun: false,
+          agentsBaselinePath: args.agentsBaselinePath,
+          includeSessionHistory: true,
+          resetAgentsMd: true,
+        })
+      : null;
     const result = await runScenario({
       scenario,
       batchSize: fixture.batchSize,
@@ -1360,7 +1467,7 @@ async function main() {
       baseUrl,
       workspaceId: args.workspaceId,
       dbPath,
-      controlPlaneDbPath,
+      controlPlaneDbPath: controlPlaneDbPathValue,
       agentsPath,
     }).catch((error) => ({
       scenario_id: scenario.id,
@@ -1374,12 +1481,15 @@ async function main() {
       reader_queries: [],
       quality_metrics: {},
     }));
+    if (scenarioCleanup) {
+      result.cleanup = scenarioCleanup;
+    }
     report.scenarios.push(result);
     writeReport(report, args.outputPath);
   }
 
   report.completed_at = new Date().toISOString();
-  report.final_counts = workspaceMemoryCounts(dbPath);
+  report.final_counts = workspaceMemoryCounts(dbPath, controlPlaneDbPathValue);
   report.status = report.scenarios.some((scenario) => scenario.status === "failed") ? "failed" : "passed";
   report.summary = {
     scenario_count: report.scenarios.length,

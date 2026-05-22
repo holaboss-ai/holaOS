@@ -95,7 +95,7 @@ function formatBytes(bytes: number): string {
 }
 
 function defaultExpandedPaths(): Set<string> {
-  return new Set(["", "interaction", "integration", "integration/accounts"]);
+  return new Set(["", "interaction", "interaction/trees", "integration", "integration/trees"]);
 }
 
 function scopedRootNode(

@@ -152,11 +152,11 @@ test("rebuildIntegrationTree uses LLM-authored summaries when a summary model cl
     const summaryPath = path.join(
       globalMemoryDirForWorkspaceRoot(workspaceRoot),
       "integration",
-      "accounts",
+      "trees",
       "github-release-acct-1",
-      "summaries",
-      "L1",
-      `${summaries[0]?.nodeId}.md`,
+      "branches",
+      `L${summaries[0]?.level ?? 1}-${summaries[0]?.nodeId.slice(-6)}`,
+      "content.md",
     );
     assert.match(
       fs.readFileSync(summaryPath, "utf8"),
@@ -271,6 +271,123 @@ test("retrieveIntegrationMemory follows workspace override visibility without re
       maxResults: 5,
     });
     assert.equal(disabled.hits.length, 0);
+  } finally {
+    store.close();
+  }
+});
+
+test("retrieveIntegrationMemory surfaces Gmail contact nodes and contact-thread drilldown", async () => {
+  const root = makeTempDir("hb-integration-memory-gmail-contacts-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  try {
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertIntegrationConnection({
+      connectionId: "gmail-1",
+      providerId: "gmail",
+      ownerUserId: "user-1",
+      accountLabel: "ops@example.com",
+      accountEmail: "ops@example.com",
+      authMode: "composio",
+      grantedScopes: [],
+      status: "active",
+    });
+    store.upsertIntegrationTree({
+      treeId: "integration:gmail:acct-1",
+      provider: "gmail",
+      ownerUserId: "user-1",
+      accountKey: "ops@example.com",
+      accountLabel: "ops@example.com",
+      slug: "gmail-ops-example-com-acct-1",
+      summary: "Gmail account memory.",
+      status: "active",
+    });
+    store.upsertIntegrationLeaf({
+      leafId: "leaf-1",
+      treeId: "integration:gmail:acct-1",
+      subjectKey: "message:msg-1",
+      entityKey: "thread:launch-1",
+      entityLabel: "Launch thread",
+      branchKey: "messages",
+      branchLabel: "Messages",
+      path: "integration/accounts/gmail-ops-example-com-acct-1/leaves/leaf-1.md",
+      title: "Launch thread message",
+      summary: "Alice confirmed the launch checklist.",
+      fingerprint: "fingerprint-leaf-1",
+      bodySha256: "sha-leaf-1",
+      tags: ["gmail", "launch"],
+      sourceType: "gmail_message",
+      sourceEventId: "evt-1",
+      sourceMessageId: "msg-1",
+      externalObjectId: "msg-1",
+      externalObjectType: "message",
+      admissionConfidence: 0.9,
+      observedAt: "2026-05-22T00:00:00.000Z",
+      supersedesLeafId: null,
+      status: "active",
+    });
+    const legacyLeafPath = path.join(
+      globalMemoryDirForWorkspaceRoot(workspaceRoot),
+      "integration",
+      "accounts",
+      "gmail-ops-example-com-acct-1",
+      "leaves",
+      "leaf-1.md",
+    );
+    fs.mkdirSync(path.dirname(legacyLeafPath), { recursive: true });
+    fs.writeFileSync(
+      legacyLeafPath,
+      [
+        "# Launch thread message",
+        "",
+        "- From: Alice <alice@example.com>",
+        "- To: Ops <ops@example.com>",
+        "- Cc: Bob <bob@example.com>",
+        "",
+        "Alice confirmed the launch checklist.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    await rebuildIntegrationTree({
+      store,
+      workspaceId: "workspace-1",
+      treeId: "integration:gmail:acct-1",
+      summaryModelClient: null,
+      embeddingClient: null,
+    });
+
+    const result = await retrieveIntegrationMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "alice@example.com",
+      mode: "mixed",
+      maxResults: 10,
+    });
+    assert.ok(
+      result.hits.some((hit) => hit.node_kind === "entity" && hit.title === "alice@example.com"),
+    );
+
+    const children = await retrieveIntegrationMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "launch",
+      mode: "mixed",
+      nodeId: "entity:integration:integration:gmail:acct-1:contact:alice@example.com",
+      maxResults: 10,
+    });
+    assert.ok(
+      (children.children ?? []).some((hit) => hit.node_kind === "entity" && hit.title === "Launch thread"),
+    );
   } finally {
     store.close();
   }

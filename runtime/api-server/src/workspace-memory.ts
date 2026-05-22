@@ -215,7 +215,7 @@ export async function buildRecalledWorkspaceMemoryContext(params: {
   return {
     entries: result.hits.map((hit) => ({
       scope: hit.category,
-      memory_type: hit.node_kind === "summary" ? "summary" : "leaf",
+      memory_type: hit.node_kind === "leaf" ? "leaf" : "summary",
       title: hit.title,
       summary: hit.summary,
       path: hit.path,
@@ -226,9 +226,9 @@ export async function buildRecalledWorkspaceMemoryContext(params: {
         ? (hit.node_kind === "summary"
           ? `Tree summary from ${hit.entity_name}.`
           : `Leaf memory from ${hit.entity_name}.`)
-        : (hit.node_kind === "summary"
-          ? `Tree summary from ${hit.provider} account ${hit.account_label}.`
-          : `Leaf memory from ${hit.provider} account ${hit.account_label}.`),
+        : (hit.node_kind === "leaf"
+          ? `Leaf memory from ${hit.provider} account ${hit.account_label}.`
+          : `Structured memory node from ${hit.provider} account ${hit.account_label}.`),
       source_type: hit.node_kind,
       observed_at: hit.observed_at,
       last_verified_at: hit.updated_at,

@@ -7,7 +7,7 @@ import { afterEach, test } from "node:test";
 
 import { RuntimeStateStore } from "@holaboss/runtime-state-store";
 
-import { rebuildInteractionEntityTree } from "./interaction-memory.js";
+import { persistInteractionCandidate, rebuildInteractionEntityTree } from "./interaction-memory.js";
 import { workspaceMemoryDir } from "./workspace-bundle-paths.js";
 
 const tempDirs: string[] = [];
@@ -22,6 +22,50 @@ function makeTempDir(prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
+}
+
+async function withJsonResponseServer(params: {
+  responses: Array<Record<string, unknown>>;
+  run: (baseUrl: string, requests: Array<Record<string, unknown>>) => Promise<void>;
+}): Promise<void> {
+  const requests: Array<Record<string, unknown>> = [];
+  const server = http.createServer((request, response) => {
+    if (request.method !== "POST" || request.url !== "/openai/v1/chat/completions") {
+      response.statusCode = 404;
+      response.end();
+      return;
+    }
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    request.on("end", () => {
+      requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+      const payload = params.responses[Math.min(requests.length - 1, params.responses.length - 1)] ?? {};
+      response.statusCode = 200;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify(payload));
+    });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    await params.run(`http://127.0.0.1:${address.port}/openai/v1`, requests);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
 }
 
 test("rebuildInteractionEntityTree uses LLM-authored summaries when a summary model client is available", async () => {
@@ -178,5 +222,281 @@ test("rebuildInteractionEntityTree uses LLM-authored summaries when a summary mo
         resolve();
       });
     });
+  }
+});
+
+test("persistInteractionCandidate no-ops when semantic dedupe classifies a candidate as the same memory", async () => {
+  const root = makeTempDir("hb-interaction-memory-dedupe-same-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertInteractionEntity({
+    workspaceId: "workspace-1",
+    entityId: "interaction:customer:redwood-care",
+    entityType: "customer",
+    canonicalName: "Redwood Care",
+    slug: "customer-redwood-care",
+    summary: "Customer memory.",
+    aliases: [],
+    isSystem: false,
+    status: "active",
+  });
+  const relativePath = "workspace/workspace-1/interaction/entities/customer-redwood-care/leaves/leaf-existing.md";
+  store.upsertInteractionLeaf({
+    workspaceId: "workspace-1",
+    leafId: "leaf-existing",
+    entityId: "interaction:customer:redwood-care",
+    subjectKey: "redwood_care_account_manager",
+    path: relativePath,
+    title: "Redwood Care account manager is Paul Reed",
+    summary: "The Redwood Care account manager is Paul Reed.",
+    fingerprint: "fingerprint-existing",
+    bodySha256: "sha-existing",
+    tags: ["customer", "contact"],
+    secondaryEntityIds: [],
+    sourceType: "assistant_turn",
+    sourceEventId: null,
+    sourceMessageId: null,
+    sourceTurnInputId: "input-1",
+    admissionConfidence: 0.9,
+    entityConfidence: 0.9,
+    observedAt: "2026-05-21T00:00:00.000Z",
+    supersedesLeafId: null,
+    status: "active",
+  });
+  const absolutePath = path.join(
+    workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+    "interaction",
+    "entities",
+    "customer-redwood-care",
+    "leaves",
+    "leaf-existing.md",
+  );
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  fs.writeFileSync(absolutePath, "# Redwood Care account manager\n\nPaul Reed owns the Redwood Care account relationship.\n", "utf8");
+
+  try {
+    await withJsonResponseServer({
+      responses: [
+        {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  action: "match_existing",
+                  existing_entity_id: "interaction:customer:redwood-care",
+                  new_entity_type: null,
+                  new_entity_name: null,
+                  secondary_entity_ids: [],
+                  confidence: 0.97,
+                  rationale: "The memory clearly belongs to the existing Redwood Care customer entity.",
+                }),
+              },
+            },
+          ],
+        },
+        {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  action: "same_memory",
+                  existing_leaf_id: "leaf-existing",
+                  rationale: "Both memories capture the same account-manager fact.",
+                }),
+              },
+            },
+          ],
+        },
+      ],
+      run: async (baseUrl, requests) => {
+        const result = await persistInteractionCandidate({
+          store,
+          workspaceId: "workspace-1",
+          candidate: {
+            subjectKey: "redwood_care_account_manager:paul_reed",
+            title: "Redwood Care account manager",
+            summary: "Redwood Care's account manager is Paul Reed.",
+            content: "# Redwood Care account manager\n\nThe Redwood Care account manager is Paul Reed.\n",
+            tags: ["customer", "contact"],
+            memoryType: "fact",
+            confidence: 0.96,
+            observedAt: "2026-05-21T00:05:00.000Z",
+          },
+          modelClient: {
+            baseUrl,
+            apiKey: "test-key",
+            modelId: "openai/gpt-4.1-mini",
+          },
+        });
+
+        assert.equal(result.outcome, "noop_duplicate");
+        assert.equal(result.leaf.leafId, "leaf-existing");
+        assert.equal(requests.length, 2);
+      },
+    });
+
+    const activeLeaves = store.listInteractionLeaves({
+      workspaceId: "workspace-1",
+      entityId: "interaction:customer:redwood-care",
+      status: "active",
+      limit: 10,
+      offset: 0,
+    });
+    assert.equal(activeLeaves.length, 1);
+    assert.equal(activeLeaves[0]?.leafId, "leaf-existing");
+  } finally {
+    store.close();
+  }
+});
+
+test("persistInteractionCandidate supersedes an older active leaf when semantic dedupe identifies a richer replacement", async () => {
+  const root = makeTempDir("hb-interaction-memory-dedupe-supersede-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertInteractionEntity({
+    workspaceId: "workspace-1",
+    entityId: "interaction:workflow:silver-oak-refund-review",
+    entityType: "workflow",
+    canonicalName: "Silver Oak refund review",
+    slug: "workflow-silver-oak-refund-review",
+    summary: "Workflow memory.",
+    aliases: [],
+    isSystem: false,
+    status: "active",
+  });
+  const relativePath = "workspace/workspace-1/interaction/entities/workflow-silver-oak-refund-review/leaves/leaf-existing.md";
+  store.upsertInteractionLeaf({
+    workspaceId: "workspace-1",
+    leafId: "leaf-existing",
+    entityId: "interaction:workflow:silver-oak-refund-review",
+    subjectKey: "silver_oak_refund_review_meeting",
+    path: relativePath,
+    title: "Silver Oak refund review meeting",
+    summary: "The refund review meeting happens every Tuesday.",
+    fingerprint: "fingerprint-existing",
+    bodySha256: "sha-existing",
+    tags: ["workflow", "meeting"],
+    secondaryEntityIds: [],
+    sourceType: "assistant_turn",
+    sourceEventId: null,
+    sourceMessageId: null,
+    sourceTurnInputId: "input-1",
+    admissionConfidence: 0.9,
+    entityConfidence: 0.9,
+    observedAt: "2026-05-21T00:00:00.000Z",
+    supersedesLeafId: null,
+    status: "active",
+  });
+  const absolutePath = path.join(
+    workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+    "interaction",
+    "entities",
+    "workflow-silver-oak-refund-review",
+    "leaves",
+    "leaf-existing.md",
+  );
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  fs.writeFileSync(absolutePath, "# Refund review meeting\n\nThe Silver Oak refund review meeting happens every Tuesday.\n", "utf8");
+
+  try {
+    await withJsonResponseServer({
+      responses: [
+        {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  action: "match_existing",
+                  existing_entity_id: "interaction:workflow:silver-oak-refund-review",
+                  new_entity_type: null,
+                  new_entity_name: null,
+                  secondary_entity_ids: [],
+                  confidence: 0.97,
+                  rationale: "The memory clearly belongs to the existing workflow entity.",
+                }),
+              },
+            },
+          ],
+        },
+        {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  action: "supersedes_existing",
+                  existing_leaf_id: "leaf-existing",
+                  rationale: "The candidate adds the missing 4 PM Eastern detail and supersedes the generic meeting fact.",
+                }),
+              },
+            },
+          ],
+        },
+      ],
+      run: async (baseUrl, requests) => {
+        const result = await persistInteractionCandidate({
+          store,
+          workspaceId: "workspace-1",
+          candidate: {
+            subjectKey: "silver_oak_refund_review_meeting:tuesday_4pm_eastern",
+            title: "Silver Oak refund review meeting at 4 PM Eastern",
+            summary: "The Silver Oak refund review meeting happens every Tuesday at 4 PM Eastern.",
+            content: "# Silver Oak refund review meeting\n\nThe Silver Oak refund review meeting happens every Tuesday at 4 PM Eastern.\n",
+            tags: ["workflow", "meeting"],
+            memoryType: "procedure",
+            confidence: 0.96,
+            observedAt: "2026-05-21T00:05:00.000Z",
+          },
+          modelClient: {
+            baseUrl,
+            apiKey: "test-key",
+            modelId: "openai/gpt-4.1-mini",
+          },
+        });
+
+        assert.equal(result.outcome, "superseding");
+        assert.notEqual(result.leaf.leafId, "leaf-existing");
+        assert.equal(requests.length, 2);
+      },
+    });
+
+    const activeLeaves = store.listInteractionLeaves({
+      workspaceId: "workspace-1",
+      entityId: "interaction:workflow:silver-oak-refund-review",
+      status: "active",
+      limit: 10,
+      offset: 0,
+    });
+    const supersededLeaves = store.listInteractionLeaves({
+      workspaceId: "workspace-1",
+      entityId: "interaction:workflow:silver-oak-refund-review",
+      status: "superseded",
+      limit: 10,
+      offset: 0,
+    });
+    assert.equal(activeLeaves.length, 1);
+    assert.equal(activeLeaves[0]?.supersedesLeafId, "leaf-existing");
+    assert.match(activeLeaves[0]?.summary ?? "", /4 PM Eastern/);
+    assert.equal(supersededLeaves.length, 1);
+    assert.equal(supersededLeaves[0]?.leafId, "leaf-existing");
+  } finally {
+    store.close();
   }
 });

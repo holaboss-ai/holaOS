@@ -218,10 +218,23 @@
       "skip_if_unavailable": true,
       "expected_tree": {
         "provider": "gmail",
-        "expected_active_leaf_count_min": 1,
+        "expected_active_leaf_count_min": 2,
         "expected_summary_count_min": 1,
         "required_subject_keys": [
           "profile"
+        ],
+        "required_subject_key_prefixes": [
+          "message:"
+        ],
+        "required_entity_key_prefixes": [
+          "thread:"
+        ],
+        "required_branch_keys": [
+          "profile",
+          "messages"
+        ],
+        "required_relation_types": [
+          "participant"
         ]
       },
       "reader_queries": [
@@ -282,6 +295,13 @@
         ],
         "required_subject_key_prefixes": [
           "repository:"
+        ],
+        "required_entity_key_prefixes": [
+          "repo:"
+        ],
+        "required_branch_keys": [
+          "profile",
+          "overview"
         ]
       },
       "reader_queries": [

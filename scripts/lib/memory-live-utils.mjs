@@ -3,6 +3,26 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+const EVAL_SESSION_TABLES = [
+  "agent_runtime_sessions",
+  "agent_sessions",
+  "conversation_bindings",
+  "agent_session_inputs",
+  "post_run_jobs",
+  "main_session_event_queue",
+  "session_runtime_state",
+  "session_messages",
+  "subagent_runs",
+  "session_output_events",
+  "terminal_session_events",
+  "terminal_sessions",
+  "turn_request_snapshots",
+  "turn_results",
+  "task_proposals",
+  "evolve_skill_candidates",
+  "memory_update_proposals",
+];
+
 function optionValue(argv, flag) {
   const index = argv.indexOf(flag);
   if (index < 0) {
@@ -52,6 +72,10 @@ export function runtimeDbPath(workspaceDir) {
   return path.join(workspaceDir, ".holaboss", "state", "runtime.db");
 }
 
+export function controlPlaneDbPath(workspaceDir) {
+  return path.resolve(workspaceDir, "..", "..", "state", "control-plane.db");
+}
+
 export function interactionMemoryDir(workspaceDir) {
   return path.join(workspaceDir, ".holaboss", "memory", "interaction");
 }
@@ -62,6 +86,14 @@ export function integrationMemoryDir(workspaceDir) {
 
 export function agentsMdPath(workspaceDir) {
   return path.join(workspaceDir, "AGENTS.md");
+}
+
+export function piSessionsDir(workspaceDir) {
+  return path.join(workspaceDir, ".holaboss", "pi-sessions");
+}
+
+export function legacySessionHistoriesDir(workspaceDir) {
+  return path.join(workspaceDir, ".holaboss", "state", "legacy-session-histories");
 }
 
 export function readTextIfExists(filePath) {
@@ -93,28 +125,47 @@ export function runSqlRows(dbPath, sql) {
     .map((line) => line.split("\t"));
 }
 
-export function workspaceMemoryCounts(dbPath) {
-  const rows = runSqlRows(
-    dbPath,
+function sqliteTableNames(dbPath) {
+  return new Set(
+    runSqlRows(
+      dbPath,
+      "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name ASC;",
+    ).map(([name]) => String(name ?? "")),
+  );
+}
+
+export function workspaceMemoryCounts(runtimeDbPathValue, controlPlaneDbPathValue = null) {
+  const interactionRows = runSqlRows(
+    runtimeDbPathValue,
     `
       select 'active_entities', count(*) from interaction_entities where status='active'
       union all
       select 'active_leaves', count(*) from interaction_leaves where status='active'
       union all
       select 'active_summaries', count(*) from interaction_summary_nodes where status='active'
-      union all
+    `,
+  );
+  const integrationRows = controlPlaneDbPathValue
+    ? runSqlRows(
+        controlPlaneDbPathValue,
+        `
       select 'active_integration_trees', count(*) from integration_trees where status='active'
       union all
       select 'active_integration_leaves', count(*) from integration_leaves where status='active'
       union all
       select 'active_integration_summaries', count(*) from integration_summary_nodes where status='active'
     `,
-  );
-  return Object.fromEntries(rows.map(([key, value]) => [key, Number(value ?? 0)]));
+      )
+    : [
+        ["active_integration_trees", "0"],
+        ["active_integration_leaves", "0"],
+        ["active_integration_summaries", "0"],
+      ];
+  return Object.fromEntries([...interactionRows, ...integrationRows].map(([key, value]) => [key, Number(value ?? 0)]));
 }
 
-export function interactionMemoryCounts(dbPath) {
-  return workspaceMemoryCounts(dbPath);
+export function interactionMemoryCounts(dbPath, controlPlaneDbPathValue = null) {
+  return workspaceMemoryCounts(dbPath, controlPlaneDbPathValue);
 }
 
 export function cleanupWorkspaceMemory(params) {
@@ -122,26 +173,30 @@ export function cleanupWorkspaceMemory(params) {
     throw new Error(`workspace dir not found: ${params.workspaceDir}`);
   }
   const dbPath = runtimeDbPath(params.workspaceDir);
+  const cpDbPath = controlPlaneDbPath(params.workspaceDir);
   if (!fs.existsSync(dbPath)) {
     throw new Error(`runtime db not found: ${dbPath}`);
   }
+  if (!fs.existsSync(cpDbPath)) {
+    throw new Error(`control-plane db not found: ${cpDbPath}`);
+  }
   if (!params.dryRun) {
+    const runtimeTableNames = sqliteTableNames(dbPath);
+    const sessionDeletes = params.includeSessionHistory === true
+      ? EVAL_SESSION_TABLES.filter((name) => runtimeTableNames.has(name)).map((name) => `DELETE FROM ${name};`)
+      : [];
     execFileSync(
       "sqlite3",
       [
         dbPath,
         `
           BEGIN IMMEDIATE;
+          ${sessionDeletes.join("\n          ")}
           DELETE FROM interaction_node_embeddings;
           DELETE FROM interaction_tree_edges;
           DELETE FROM interaction_summary_nodes;
           DELETE FROM interaction_leaves;
           DELETE FROM interaction_entities;
-          DELETE FROM integration_node_embeddings;
-          DELETE FROM integration_tree_edges;
-          DELETE FROM integration_summary_nodes;
-          DELETE FROM integration_leaves;
-          DELETE FROM integration_trees;
           DELETE FROM workspace_runtime_metadata
             WHERE key LIKE 'interaction_memory_batch_%';
           COMMIT;
@@ -149,21 +204,49 @@ export function cleanupWorkspaceMemory(params) {
       ],
       { stdio: ["ignore", "pipe", "pipe"] },
     );
+    execFileSync(
+      "sqlite3",
+      [
+        cpDbPath,
+        `
+          BEGIN IMMEDIATE;
+          DELETE FROM integration_node_embeddings;
+          DELETE FROM integration_node_relations;
+          DELETE FROM integration_tree_edges;
+          DELETE FROM integration_summary_nodes;
+          DELETE FROM integration_leaves;
+          DELETE FROM integration_trees;
+          COMMIT;
+        `,
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
     fs.rmSync(interactionMemoryDir(params.workspaceDir), { recursive: true, force: true });
     fs.rmSync(integrationMemoryDir(params.workspaceDir), { recursive: true, force: true });
+    if (params.includeSessionHistory === true) {
+      fs.rmSync(piSessionsDir(params.workspaceDir), { recursive: true, force: true });
+      fs.rmSync(legacySessionHistoriesDir(params.workspaceDir), { recursive: true, force: true });
+      fs.mkdirSync(piSessionsDir(params.workspaceDir), { recursive: true });
+      fs.mkdirSync(legacySessionHistoriesDir(params.workspaceDir), { recursive: true });
+    }
     fs.mkdirSync(path.join(interactionMemoryDir(params.workspaceDir), "entities"), { recursive: true });
-    fs.mkdirSync(path.join(integrationMemoryDir(params.workspaceDir), "accounts"), { recursive: true });
+    fs.mkdirSync(path.join(integrationMemoryDir(params.workspaceDir), "trees"), { recursive: true });
 
-    if (params.agentsBaselinePath) {
-      const baseline = fs.readFileSync(path.resolve(params.agentsBaselinePath), "utf8");
+    if (params.resetAgentsMd === true || params.agentsBaselinePath) {
+      const baseline = params.agentsBaselinePath
+        ? fs.readFileSync(path.resolve(params.agentsBaselinePath), "utf8")
+        : "";
       fs.writeFileSync(agentsMdPath(params.workspaceDir), baseline, "utf8");
     }
   }
   return {
     dbPath,
+    controlPlaneDbPath: cpDbPath,
     workspaceDir: params.workspaceDir,
-    counts: workspaceMemoryCounts(dbPath),
+    counts: workspaceMemoryCounts(dbPath, cpDbPath),
     agentsPath: agentsMdPath(params.workspaceDir),
+    sessionHistoryCleared: params.includeSessionHistory === true,
+    agentsReset: params.resetAgentsMd === true || Boolean(params.agentsBaselinePath),
   };
 }
 

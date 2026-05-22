@@ -27,6 +27,8 @@ const INTERACTION_UNCATEGORIZED_SLUG = "uncategorized";
 const INTERACTION_UNCATEGORIZED_NAME = "Uncategorized";
 const ENTITY_CREATE_CONFIDENCE_THRESHOLD = 0.68;
 const ENTITY_MATCH_CONFIDENCE_THRESHOLD = 0.6;
+const SEMANTIC_DEDUPE_SHORTLIST_LIMIT = 6;
+const SEMANTIC_DEDUPE_SIMILARITY_THRESHOLD = 0.52;
 
 const INTERACTION_ENTITY_TYPES = new Set<InteractionEntityType>([
   "project",
@@ -126,6 +128,12 @@ interface TempSummaryNode {
 }
 
 type TempSummaryChild = TempSummaryNode["children"][number];
+
+interface SemanticDuplicateCandidate {
+  leaf: InteractionLeafRecord;
+  similarity: number;
+  exactSubject: boolean;
+}
 
 function compactWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
@@ -271,6 +279,26 @@ function tokenize(value: string): string[] {
   return matches ? matches.map((item) => item.toLowerCase()) : [];
 }
 
+function uniqueTokens(value: string): string[] {
+  return [...new Set(tokenize(value))];
+}
+
+function tokenJaccard(left: string, right: string): number {
+  const leftTokens = uniqueTokens(left);
+  const rightTokens = uniqueTokens(right);
+  if (leftTokens.length === 0 || rightTokens.length === 0) {
+    return 0;
+  }
+  const rightSet = new Set(rightTokens);
+  let shared = 0;
+  for (const token of leftTokens) {
+    if (rightSet.has(token)) {
+      shared += 1;
+    }
+  }
+  return shared / Math.max(leftTokens.length, rightTokens.length);
+}
+
 function textScore(query: string, ...texts: Array<string | null | undefined>): number {
   const normalizedQuery = compactWhitespace(query).toLowerCase();
   if (!normalizedQuery) {
@@ -343,6 +371,160 @@ function interactionEntityTypeHint(memoryType: string | null | undefined): Inter
       return "system";
     default:
       return null;
+  }
+}
+
+function semanticSubjectBase(subjectKey: string): string {
+  const normalized = compactWhitespace(subjectKey).toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  const lastColon = normalized.lastIndexOf(":");
+  if (lastColon <= 0) {
+    return normalized;
+  }
+  return normalized.slice(0, lastColon);
+}
+
+function semanticSimilarityForLeaf(params: {
+  candidate: InteractionLeafCandidate;
+  leaf: InteractionLeafRecord;
+}): number {
+  const candidateSubject = compactWhitespace(params.candidate.subjectKey).toLowerCase();
+  const leafSubject = compactWhitespace(params.leaf.subjectKey).toLowerCase();
+  if (candidateSubject && leafSubject && candidateSubject === leafSubject) {
+    return 1;
+  }
+  const candidateSubjectBase = semanticSubjectBase(params.candidate.subjectKey);
+  const leafSubjectBase = semanticSubjectBase(params.leaf.subjectKey);
+  const subjectScore = tokenJaccard(candidateSubjectBase || candidateSubject, leafSubjectBase || leafSubject);
+  const titleScore = tokenJaccard(params.candidate.title, params.leaf.title);
+  const summaryScore = tokenJaccard(params.candidate.summary, params.leaf.summary);
+  const tagScore = tokenJaccard(params.candidate.tags.join(" "), params.leaf.tags.join(" "));
+  return Math.max(subjectScore, (subjectScore * 0.35) + (titleScore * 0.35) + (summaryScore * 0.2) + (tagScore * 0.1));
+}
+
+function specificityScoreForInteractionLeafCandidate(candidate: InteractionLeafCandidate): number {
+  const subjectBonus = candidate.subjectKey.includes(":") ? 18 : 0;
+  const titleWeight = uniqueTokens(candidate.title).length * 2.2;
+  const summaryWeight = uniqueTokens(candidate.summary).length * 1.4;
+  const tagWeight = candidate.tags.length * 1.5;
+  const contentWeight = Math.min(42, compactWhitespace(candidate.content).length / 18);
+  return subjectBonus + titleWeight + summaryWeight + tagWeight + contentWeight;
+}
+
+function specificityScoreForInteractionLeafRecord(leaf: InteractionLeafRecord): number {
+  const subjectBonus = leaf.subjectKey.includes(":") ? 18 : 0;
+  const titleWeight = uniqueTokens(leaf.title).length * 2.2;
+  const summaryWeight = uniqueTokens(leaf.summary).length * 1.4;
+  const tagWeight = leaf.tags.length * 1.5;
+  return subjectBonus + titleWeight + summaryWeight + tagWeight;
+}
+
+function semanticDuplicateShortlist(params: {
+  candidate: InteractionLeafCandidate;
+  leaves: InteractionLeafRecord[];
+}): SemanticDuplicateCandidate[] {
+  const shortlist = params.leaves
+    .map((leaf) => {
+      const similarity = semanticSimilarityForLeaf({
+        candidate: params.candidate,
+        leaf,
+      });
+      const exactSubject = compactWhitespace(leaf.subjectKey).toLowerCase() === compactWhitespace(params.candidate.subjectKey).toLowerCase();
+      return { leaf, similarity, exactSubject };
+    })
+    .filter((entry) => entry.exactSubject || entry.similarity >= SEMANTIC_DEDUPE_SIMILARITY_THRESHOLD)
+    .sort((left, right) => {
+      if (left.exactSubject !== right.exactSubject) {
+        return left.exactSubject ? -1 : 1;
+      }
+      if (left.similarity !== right.similarity) {
+        return right.similarity - left.similarity;
+      }
+      const leftTime = Date.parse(left.leaf.observedAt ?? left.leaf.updatedAt);
+      const rightTime = Date.parse(right.leaf.observedAt ?? right.leaf.updatedAt);
+      if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+        return rightTime - leftTime;
+      }
+      return right.leaf.createdAt.localeCompare(left.leaf.createdAt);
+    });
+  return shortlist.slice(0, SEMANTIC_DEDUPE_SHORTLIST_LIMIT);
+}
+
+async function semanticDuplicateDecision(params: {
+  workspaceId: string;
+  candidate: InteractionLeafCandidate;
+  shortlist: SemanticDuplicateCandidate[];
+  modelClient: MemoryModelClientConfig | null;
+  workspaceDir: string;
+}): Promise<{
+  action: "same_memory" | "supersedes_existing" | "different_memory" | "unsure";
+  leafId: string | null;
+}> {
+  if (!params.modelClient || params.shortlist.length === 0) {
+    return {
+      action: "unsure",
+      leafId: null,
+    };
+  }
+
+  const payload = await queryMemoryModelJson(params.modelClient, {
+    systemPrompt: [
+      "You arbitrate semantic deduplication for durable interaction memory leaves within a single entity.",
+      "Return strict JSON only with this shape:",
+      '{"action":"same_memory|supersedes_existing|different_memory|unsure","existing_leaf_id":"string|null","rationale":"string"}',
+      "Choose same_memory when the candidate and an existing leaf capture the same durable fact or procedure and both should not coexist.",
+      "Choose supersedes_existing when the candidate is the same memory but is more complete, more specific, or clearly better phrased.",
+      "Choose different_memory when both memories should remain active.",
+      "Choose unsure when you cannot safely decide.",
+      "Be conservative. Only choose an existing_leaf_id from the shortlist.",
+    ].join(" "),
+    userPrompt: [
+      `Workspace ID: ${params.workspaceId}`,
+      "",
+      "Candidate memory:",
+      `- Subject key: ${params.candidate.subjectKey}`,
+      `- Title: ${params.candidate.title}`,
+      `- Summary: ${params.candidate.summary}`,
+      `- Tags: ${params.candidate.tags.join(", ") || "none"}`,
+      `- Content excerpt: ${clipText(params.candidate.content, 320)}`,
+      "",
+      "Existing active leaves in the same entity:",
+      ...params.shortlist.map((entry, index) => {
+        const existingBody = readFileIfExists(absolutePathForRelative(params.workspaceDir, entry.leaf.path)) ?? "";
+        return [
+          `${index + 1}. leaf_id: ${entry.leaf.leafId}`,
+          `   Subject key: ${entry.leaf.subjectKey}`,
+          `   Title: ${entry.leaf.title}`,
+          `   Summary: ${entry.leaf.summary}`,
+          `   Tags: ${entry.leaf.tags.join(", ") || "none"}`,
+          `   Similarity: ${entry.similarity.toFixed(2)}`,
+          `   Content excerpt: ${clipText(existingBody || entry.leaf.summary, 260)}`,
+        ].join("\n");
+      }),
+    ].join("\n"),
+    timeoutMs: 8000,
+  });
+
+  const actionToken = typeof payload?.action === "string" ? payload.action.trim().toLowerCase() : "";
+  const existingLeafId = typeof payload?.existing_leaf_id === "string" ? payload.existing_leaf_id.trim() : "";
+  const shortlistIds = new Set(params.shortlist.map((entry) => entry.leaf.leafId));
+  const validLeafId = existingLeafId && shortlistIds.has(existingLeafId) ? existingLeafId : null;
+  switch (actionToken) {
+    case "same_memory":
+    case "supersedes_existing":
+    case "different_memory":
+    case "unsure":
+      return {
+        action: actionToken,
+        leafId: validLeafId,
+      };
+    default:
+      return {
+        action: "unsure",
+        leafId: null,
+      };
   }
 }
 
@@ -966,26 +1148,68 @@ export async function persistInteractionCandidate(params: {
     };
   }
 
-  const leafId = `leaf-${sha256(`${params.workspaceId}|${entity.entityId}|${params.candidate.subjectKey}|${contentFingerprint}`).slice(0, 24)}`;
-  const relativePath = interactionLeafRelativePath(params.workspaceId, entity.slug, leafId);
-  const existingActive = params.store.getLatestActiveInteractionLeafBySubject({
+  const activeLeaves = params.store.listInteractionLeaves({
     workspaceId: params.workspaceId,
     entityId: entity.entityId,
-    subjectKey: params.candidate.subjectKey,
+    status: "active",
+    limit: 200,
+    offset: 0,
+  });
+  const semanticShortlist = semanticDuplicateShortlist({
+    candidate: params.candidate,
+    leaves: activeLeaves,
   });
   const workspaceDir = params.store.workspaceDir(params.workspaceId);
+  const semanticDecision = await semanticDuplicateDecision({
+    workspaceId: params.workspaceId,
+    candidate: params.candidate,
+    shortlist: semanticShortlist,
+    modelClient: params.modelClient ?? null,
+    workspaceDir,
+  });
+  const semanticMatch = semanticDecision.leafId
+    ? semanticShortlist.find((entry) => entry.leaf.leafId === semanticDecision.leafId)?.leaf ?? null
+    : null;
+  if (semanticDecision.action === "same_memory" && semanticMatch) {
+    return {
+      outcome: "noop_duplicate",
+      entity,
+      leaf: semanticMatch,
+    };
+  }
+
+  const leafId = `leaf-${sha256(`${params.workspaceId}|${entity.entityId}|${params.candidate.subjectKey}|${contentFingerprint}`).slice(0, 24)}`;
+  const relativePath = interactionLeafRelativePath(params.workspaceId, entity.slug, leafId);
+  const existingActive = activeLeaves.find((leaf) => leaf.subjectKey === params.candidate.subjectKey) ?? null;
+  const leafToSupersede =
+    semanticDecision.action === "supersedes_existing" && semanticMatch
+      ? semanticMatch
+      : existingActive;
   const absolutePath = absolutePathForRelative(workspaceDir, relativePath);
   writeFileIfChanged(absolutePath, params.candidate.content);
 
   let outcome: PersistedInteractionLeafResult["outcome"] = "created";
-  if (existingActive && existingActive.fingerprint !== contentFingerprint) {
-    params.store.updateInteractionLeafStatus({
-      workspaceId: params.workspaceId,
-      leafId: existingActive.leafId,
-      status: "superseded",
-      supersededAt: params.candidate.observedAt ?? utcNowIso(),
-    });
-    outcome = "superseding";
+  if (leafToSupersede && leafToSupersede.fingerprint !== contentFingerprint) {
+    const newSpecificity = specificityScoreForInteractionLeafCandidate(params.candidate);
+    const supersededSpecificity = specificityScoreForInteractionLeafRecord(leafToSupersede);
+    if (
+      semanticDecision.action === "supersedes_existing"
+      || newSpecificity >= supersededSpecificity
+    ) {
+      params.store.updateInteractionLeafStatus({
+        workspaceId: params.workspaceId,
+        leafId: leafToSupersede.leafId,
+        status: "superseded",
+        supersededAt: params.candidate.observedAt ?? utcNowIso(),
+      });
+      outcome = "superseding";
+    } else {
+      return {
+        outcome: "noop_duplicate",
+        entity,
+        leaf: leafToSupersede,
+      };
+    }
   }
 
   const leaf = params.store.upsertInteractionLeaf({
@@ -1007,7 +1231,10 @@ export async function persistInteractionCandidate(params: {
     admissionConfidence: params.candidate.confidence ?? null,
     entityConfidence: entityAssignment.confidence ?? null,
     observedAt: params.candidate.observedAt ?? null,
-    supersedesLeafId: existingActive && existingActive.fingerprint !== contentFingerprint ? existingActive.leafId : null,
+    supersedesLeafId:
+      leafToSupersede && leafToSupersede.fingerprint !== contentFingerprint && outcome === "superseding"
+        ? leafToSupersede.leafId
+        : null,
     status: "active",
   });
 

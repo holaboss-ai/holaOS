@@ -515,6 +515,7 @@ export type InteractionTreeChildKind = "leaf" | "summary";
 export type IntegrationTreeStatus = "active" | "archived";
 export type IntegrationLeafStatus = "active" | "superseded" | "archived";
 export type IntegrationSummaryStatus = "active" | "retired";
+export type IntegrationNodeKind = "tree" | "entity" | "branch" | "summary" | "leaf";
 
 export interface InteractionEntityRecord {
   workspaceId: string;
@@ -670,6 +671,18 @@ export interface IntegrationNodeEmbeddingRecord {
   contentFingerprint: string;
   dimensions: number;
   vector: number[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IntegrationNodeRelationRecord {
+  treeId: string;
+  fromNodeKind: IntegrationNodeKind;
+  fromNodeId: string;
+  toNodeKind: IntegrationNodeKind;
+  toNodeId: string;
+  relationType: string;
+  metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -7024,6 +7037,107 @@ export class RuntimeStateStore {
     return rows.map((row) => this.rowToIntegrationTreeEdge(row));
   }
 
+  replaceIntegrationNodeRelations(params: {
+    treeId: string;
+    relations: Array<{
+      fromNodeKind: IntegrationNodeKind;
+      fromNodeId: string;
+      toNodeKind: IntegrationNodeKind;
+      toNodeId: string;
+      relationType: string;
+      metadata?: Record<string, unknown> | null;
+      createdAt?: string;
+      updatedAt?: string;
+    }>;
+  }): IntegrationNodeRelationRecord[] {
+    const db = this.controlPlaneDb();
+    const replace = db.transaction(() => {
+      db.prepare(`
+        DELETE FROM integration_node_relations
+        WHERE tree_id = ?
+      `).run(params.treeId);
+
+      const insertRelation = db.prepare(`
+        INSERT INTO integration_node_relations (
+          tree_id,
+          from_node_kind,
+          from_node_id,
+          to_node_kind,
+          to_node_id,
+          relation_type,
+          metadata,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const now = utcNowIso();
+      for (const relation of params.relations) {
+        insertRelation.run(
+          params.treeId,
+          relation.fromNodeKind,
+          relation.fromNodeId,
+          relation.toNodeKind,
+          relation.toNodeId,
+          relation.relationType,
+          JSON.stringify(relation.metadata ?? {}),
+          relation.createdAt ?? now,
+          relation.updatedAt ?? now,
+        );
+      }
+    });
+    replace();
+    return this.listIntegrationNodeRelations({
+      treeId: params.treeId,
+      limit: Math.max(200, params.relations.length + 10),
+    });
+  }
+
+  listIntegrationNodeRelations(params: {
+    treeId?: string | null;
+    fromNodeId?: string | null;
+    relationType?: string | null;
+    limit?: number;
+    offset?: number;
+  } = {}): IntegrationNodeRelationRecord[] {
+    let query = `
+      SELECT *
+      FROM integration_node_relations
+      WHERE 1 = 1
+    `;
+    const values: Array<string | number> = [];
+    if (params.treeId !== undefined) {
+      if (params.treeId === null) {
+        query += " AND tree_id IS NULL";
+      } else {
+        query += " AND tree_id = ?";
+        values.push(params.treeId);
+      }
+    }
+    if (params.fromNodeId !== undefined) {
+      if (params.fromNodeId === null) {
+        query += " AND from_node_id IS NULL";
+      } else {
+        query += " AND from_node_id = ?";
+        values.push(params.fromNodeId);
+      }
+    }
+    if (params.relationType !== undefined) {
+      if (params.relationType === null) {
+        query += " AND relation_type IS NULL";
+      } else {
+        query += " AND relation_type = ?";
+        values.push(params.relationType);
+      }
+    }
+    query += `
+      ORDER BY relation_type ASC, from_node_id ASC, to_node_id ASC, updated_at DESC
+      LIMIT ? OFFSET ?
+    `;
+    values.push(params.limit ?? 200, params.offset ?? 0);
+    const rows = this.controlPlaneDb().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToIntegrationNodeRelation(row));
+  }
+
   upsertIntegrationNodeEmbedding(params: {
     nodeKind: InteractionTreeChildKind;
     nodeId: string;
@@ -9760,6 +9874,22 @@ export class RuntimeStateStore {
 
       CREATE INDEX IF NOT EXISTS idx_integration_tree_edges_parent_position
           ON integration_tree_edges (parent_node_id, position ASC);
+
+      CREATE TABLE IF NOT EXISTS integration_node_relations (
+          tree_id TEXT NOT NULL,
+          from_node_kind TEXT NOT NULL,
+          from_node_id TEXT NOT NULL,
+          to_node_kind TEXT NOT NULL,
+          to_node_id TEXT NOT NULL,
+          relation_type TEXT NOT NULL,
+          metadata TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (tree_id, from_node_kind, from_node_id, to_node_kind, to_node_id, relation_type)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_integration_node_relations_tree_type
+          ON integration_node_relations (tree_id, relation_type, updated_at DESC);
 
       CREATE TABLE IF NOT EXISTS integration_node_embeddings (
           node_kind TEXT NOT NULL,
@@ -12558,6 +12688,20 @@ export class RuntimeStateStore {
       childId: String(row.child_id),
       position: Number(row.position),
       createdAt: String(row.created_at),
+    };
+  }
+
+  private rowToIntegrationNodeRelation(row: Record<string, unknown>): IntegrationNodeRelationRecord {
+    return {
+      treeId: String(row.tree_id),
+      fromNodeKind: String(row.from_node_kind) as IntegrationNodeKind,
+      fromNodeId: String(row.from_node_id),
+      toNodeKind: String(row.to_node_kind) as IntegrationNodeKind,
+      toNodeId: String(row.to_node_id),
+      relationType: String(row.relation_type),
+      metadata: this.parseJsonDict(row.metadata),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
     };
   }
 
