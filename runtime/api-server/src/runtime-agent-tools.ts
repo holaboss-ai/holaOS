@@ -71,6 +71,11 @@ import {
   findForbiddenUpstreamHosts,
   formatHostLintError,
 } from "./workspace-app-host-lint.js";
+import {
+  dashboardUiLintViolations,
+  formatDashboardUiLintError,
+  inspectDashboardUiUsage,
+} from "./workspace-app-ui-lint.js";
 const SESSION_REFRESH_NOTE =
   "New MCP servers became available in this turn. Their tools will be visible to you starting from the next user message — please end this turn (do not call the new tools yet) and let the user trigger the next one.";
 
@@ -83,6 +88,89 @@ function buildSessionRefreshFields(newMcpServers: string[]): JsonObject {
     new_mcp_servers: [...newMcpServers],
     session_refresh_note: SESSION_REFRESH_NOTE,
   };
+}
+
+/**
+ * Build the auto-queued post-build polish-pass prompt for a dashboard
+ * app. The wording is deliberately concrete on three operational points
+ * where every past failed session went off-path:
+ *
+ *   - Whole-file `bash cat > file <<'EOF'` rewrites, not `edit` calls.
+ *     The single successful polish session in the corpus used heredocs
+ *     for both main.tsx and styles.css. Every other "polish" turn that
+ *     used `edit` did 1-2 trivial changes and declared done.
+ *   - Re-run build + restart + verify with `browser_screenshot` (not
+ *     just `curl`). The screenshot is the visual feedback loop; without
+ *     it the agent can't tell whether the rules actually landed.
+ *   - "A clean tool-call ceremony without visible visual improvement
+ *     fails this pass." Closes the checkbox-compliance loophole.
+ *
+ * Deliberately omits any concrete visual rules (KPI layout, typography
+ * sizes, density numbers). Earlier versions of this prompt named the
+ * exact anti-patterns ("no full-width stacked KPI cards", "no text-2xl")
+ * to warn against them; observed output then reliably reproduced those
+ * patterns — naming the failure mode anchored the agent on it. Visual
+ * authority belongs entirely to `interface-design` content; the prompt
+ * stays purely operational.
+ */
+function buildPolishPassPrompt(appId: string): string {
+  return [
+    "[Auto-queued post-build polish pass]",
+    "",
+    `The dashboard app \`${appId}\` was just confirmed running in this workspace. Before continuing with anything else, perform a design polish pass on its src/client/.`,
+    "",
+    "1. Invoke `skill({ name: \"interface-design\" })` to load the design rules. Read its full output, including any `.interface-design/system.md` artifact it writes to disk.",
+    "",
+    "1.5. Spatial composition sketch. BEFORE any heredoc rewrite, write a plain-text spatial sketch as a comment block at the top of the main route/component file. Answer each question with SPECIFIC field/section names from this app's data model — vague answers (\"the KPI row\", \"the user lands on the main area\") do not satisfy this step. The JSX you write in step 2 MUST implement what the sketch describes.",
+    "    - What are the 3–5 distinct information regions on this dashboard? Name them by content (\"open work counts split by relation\"), not by visual (\"the metrics strip\").",
+    "    - Which two regions belong side-by-side because they answer related questions? Why?",
+    "    - What lives above the fold on a 1280×800 viewport? Why specifically those things and not the others?",
+    "    - Which group of items is similar enough to compress into a horizontal strip in ONE row (3–6 metrics)? Vs. which groups deserve vertical separation because they're conceptually distinct?",
+    "    - Where does the user's eye land first, and what is the one action you want them to take from that landing spot?",
+    "    The screenshot taken in step 4 will be compared against this sketch. If the sketch says \"3 KPIs in a horizontal strip\" and the rendered output stacks them vertically, the pass fails.",
+    "",
+    `2. For each \`.tsx\` and \`.css\` file under \`apps/${appId}/src/client/\`: REWRITE the whole file using \`bash\` heredoc syntax (\`cat > path/to/file <<'EOF' ... EOF\`), NOT via \`edit\`. Whole-file rewrite is the explicit mode for this pass — incremental \`edit\` calls have repeatedly produced checkbox-compliant no-changes. Apply the \`interface-design\` skill's rules end-to-end AND implement the spatial sketch from step 1.5. Note: the design system clamps any \`font-bold\` / \`font-semibold\` / \`font-extrabold\` / \`font-black\` to 500 at render time, so do not rely on those classes for emphasis.`,
+    "",
+    `3. Re-run \`workspace_apps_build\` + \`workspace_apps_restart_and_wait_ready\` for \`${appId}\`.`,
+    "",
+    "4. Verify with `browser_screenshot`. Look at the rendered output and compare it line-by-line against the spatial sketch you wrote in step 1.5 AND the `interface-design` rules you loaded. If the screenshot doesn't match either, return to step 2 and rewrite again. Two iterations is normal.",
+    "",
+    "5. Only after the screenshot matches the sketch AND the interface-design rules, declare the polish pass done.",
+    "",
+    "The user is the one who will see the rendered UI. A clean tool-call ceremony without visible visual improvement fails this pass — there is no half-credit for invoking the skill, doing trivial edits, and reporting 'looks good'.",
+  ].join("\n");
+}
+
+/** Returns true when an app dir contains a `src/client/` subdirectory,
+ *  i.e. it ships a dashboard UI (vs. an integration-only MCP module). */
+function appIsDashboardShape(workspaceDir: string, appId: string): boolean {
+  const clientDir = path.join(workspaceDir, "apps", appId, "src", "client");
+  try {
+    return statSync(clientDir).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** Resolve the user-facing main session to route the polish input at.
+ *  If `callerSessionId` is a delegated subagent, use its owner main
+ *  session so the polish turn shows up in the chat the user is
+ *  watching; if it's already a main session, route to it directly. */
+function resolvePolishTargetSession(
+  store: RuntimeStateStore,
+  workspaceId: string,
+  callerSessionId: string,
+): string {
+  try {
+    const run = store.getSubagentRunByChildSession({
+      workspaceId,
+      childSessionId: callerSessionId,
+    });
+    if (run?.ownerMainSessionId) return run.ownerMainSessionId;
+  } catch {
+    // store lookup is best-effort; fall through to caller session.
+  }
+  return callerSessionId;
 }
 
 function pendingIntegrationsFromAppManifests(params: {
@@ -440,6 +528,11 @@ export interface RuntimeAgentToolsBuildWorkspaceAppParams {
 export interface RuntimeAgentToolsEnsureWorkspaceAppsRunningParams {
   workspaceId: string;
   appIds?: string[] | null;
+  /** Session that called this — used as the routing target for the
+   *  auto-queued post-build polish pass. If the caller is a subagent
+   *  the polish input is rerouted to its owner main session so the
+   *  polish turn shows up in the user-facing chat. */
+  sessionId?: string | null;
 }
 
 export interface RuntimeAgentToolsRestartWorkspaceAppParams {
@@ -5457,11 +5550,25 @@ export class RuntimeAgentToolsService {
       );
     }
 
-    // Dashboard layout lint removed in @holaboss/ui 0.3.0 — layouts
-    // primitives are gone; agents compose page chrome from raw primitives
-    // (Card, Tabs, Section, Sheet, Sidebar, etc.) plus the interface-design
-    // skill. No structural gate replaces it; visual quality is now
-    // owned by the skill chain, not register-time grep.
+    // Two integrity lints for dashboard-shape apps (those with
+    // `src/client/`). Both target observed bypasses where the library
+    // is in the dep graph but no library primitives actually compose
+    // the UI. Source-of-truth + rationale live in workspace-app-ui-lint.ts.
+    //
+    //   1. Minimum named imports from @holaboss/ui — catches the
+    //      "import styles.css only, hand-roll every component" pattern.
+    //   2. CSS import allowlist — catches the parallel-stylesheet
+    //      pattern where the agent ships its own custom CSS file with
+    //      hardcoded hex colors and shadow variables.
+    const uiUsage = inspectDashboardUiUsage(appDir);
+    const uiViolations = dashboardUiLintViolations(uiUsage);
+    if (uiViolations.length > 0) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        uiViolations[0]!.code,
+        formatDashboardUiLintError(uiViolations),
+      );
+    }
 
     const lifecycle: Record<string, string> = {};
     if (parsed.lifecycle.setup) lifecycle.setup = parsed.lifecycle.setup;
@@ -5736,6 +5843,78 @@ export class RuntimeAgentToolsService {
     const statusResult = this.getWorkspaceAppStatus({
       workspaceId: params.workspaceId,
     });
+
+    // ---------------------------------------------------------------
+    // Post-build polish-pass auto-queue (dashboard apps only).
+    //
+    // Forensic context: forcing the agent to do an interface-design
+    // refactor pass in the SAME turn as the build consistently
+    // resulted in checkbox-compliance (skill invoked, 1 trivial edit,
+    // done) — see docs/plans/2026-05-22-interface-design-skill-noop-
+    // forensic.md. The single observed successful polish happened in
+    // a SEPARATE turn that the user manually triggered with "use
+    // skill interface-design to polish this dashboard". Splitting
+    // across turns is the load-bearing property: fresh context,
+    // narrow scope, no build-time fatigue.
+    //
+    // What this does: when this call brings a dashboard-shape app to
+    // a healthy state and the caller carries a session id, enqueue a
+    // polish-only input on the user-facing main session. The queue
+    // worker dispatches it as a new turn after the current one ends;
+    // the agent then runs the polish prompt against the just-built
+    // app with the rules in fresh context. Idempotency is keyed by
+    // (session, app) so repeat ensure-running calls during the build
+    // do not re-trigger.
+    // ---------------------------------------------------------------
+    const polishCallerSessionId =
+      typeof params.sessionId === "string" ? params.sessionId.trim() : "";
+    const polishPassQueued: JsonObject[] = [];
+    // Defer polish when ANY of the apps have unresolved integrations.
+    // Polish takes a browser_screenshot to evaluate the layout — if the
+    // app is rendering its `integration_not_bound` empty state instead
+    // of real chrome with real data, the screenshot tells the agent
+    // nothing about whether the layout is right. The next ensure-running
+    // call after the user binds will re-trigger this code path with an
+    // empty pending list and the polish will queue properly.
+    const polishBlockedByPendingIntegrations = pendingIntegrations.length > 0;
+    if (polishCallerSessionId && !polishBlockedByPendingIntegrations) {
+      const polishSessionId = resolvePolishTargetSession(
+        this.store,
+        params.workspaceId,
+        polishCallerSessionId,
+      );
+      for (const appId of targetAppIds) {
+        if (!appIsDashboardShape(workspaceDir, appId)) continue;
+        const idempotencyKey = `polish-pass:${polishSessionId}:${appId}`;
+        try {
+          const input = this.store.enqueueInput({
+            workspaceId: params.workspaceId,
+            sessionId: polishSessionId,
+            idempotencyKey,
+            payload: {
+              text: buildPolishPassPrompt(appId),
+              image_urls: [],
+              context: {
+                source: "runtime_auto_queue",
+                source_type: "post_build_polish_pass",
+                app_id: appId,
+                caller_session_id: polishCallerSessionId,
+              },
+            },
+          });
+          polishPassQueued.push({
+            app_id: appId,
+            input_id: input.inputId,
+            session_id: polishSessionId,
+          });
+        } catch {
+          // Best-effort. A failure to enqueue should never break the
+          // ensure-running response; the agent can still complete its
+          // current turn.
+        }
+      }
+    }
+
     return {
       workspace_id: params.workspaceId,
       app_ids: targetAppIds,
@@ -5743,6 +5922,9 @@ export class RuntimeAgentToolsService {
       status: statusResult,
       ...buildSessionRefreshFields(newMcpServers),
       ...(pendingIntegrations.length > 0 ? { pending_integrations: pendingIntegrations } : {}),
+      ...(polishPassQueued.length > 0
+        ? { polish_pass_queued: polishPassQueued }
+        : {}),
     };
   }
 

@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { RequireAuth } from "@/components/auth/RequireAuth";
 import { AppShell } from "@/components/layout/AppShell";
 import { NewAppShell } from "@/components/layout/new-shell";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
@@ -50,9 +51,8 @@ function App() {
   // Remove the pre-React splash element from index.html now that React
   // has committed its first render. useLayoutEffect runs synchronously
   // after the commit and before the browser paints, so the React tree
-  // (which itself shows WorkspaceBootstrapPane during workspace
-  // hydration) is on screen by the time the static splash disappears —
-  // no flash.
+  // (which itself renders BootSplash while the session IPC resolves) is
+  // on screen by the time the static splash disappears — no flash.
   useLayoutEffect(() => {
     document.getElementById("boot-splash")?.remove();
   }, []);
@@ -80,8 +80,10 @@ function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
-          <UmamiIdentity />
-          {useNewShell ? <NewAppShell /> : <AppShell />}
+          <RequireAuth>
+            <UmamiIdentity />
+            {useNewShell ? <NewAppShell /> : <AppShell />}
+          </RequireAuth>
         </TooltipProvider>
       </QueryClientProvider>
     </ErrorBoundary>

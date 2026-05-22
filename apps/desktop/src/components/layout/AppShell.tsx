@@ -25,6 +25,7 @@ import {
   type OperationsDrawerTab,
   OperationsInboxPane,
 } from "@/components/layout/OperationsDrawer";
+import { BootSplash } from "@/components/layout/BootSplash";
 import { SettingsScreenRoot } from "@/components/layout/SettingsScreenRoot";
 import { TopTabsBar } from "@/components/layout/TopTabsBar";
 import { WorkspaceControlCenter } from "@/components/layout/WorkspaceControlCenter";
@@ -50,7 +51,6 @@ import { PublishScreen } from "@/components/publish/PublishScreen";
 import { Button } from "@/components/ui/button";
 import { UpdateReminder } from "@/components/ui/UpdateReminder";
 import { StoplightProvider } from "@/lib/StoplightContext";
-import { holabossLogoUrl } from "@/lib/assetPaths";
 import { type ExplorerAttachmentDragPayload } from "@/lib/attachmentDrag";
 import { CHAT_LAYOUT } from "@/lib/chatLayout";
 import { useControlCenterCardSignals } from "@/lib/controlCenterLifecycle";
@@ -1243,62 +1243,6 @@ function EmptyWorkspacePane() {
       title="Select a workspace to continue"
       description="Your desktop layout is ready, but no active workspace is selected yet. Choose one from the switcher in the top bar."
     />
-  );
-}
-
-function WorkspaceBootstrapPane() {
-  // Pin to the viewport so the bootstrap surface fills edge-to-edge
-  // independent of the AppShell grid's outer padding/gutters. Otherwise
-  // the body (which is translucent on macOS for vibrancy) would show as
-  // a thin frame around this pane.
-  return (
-    <section className="fixed inset-0 z-20 flex items-center justify-center overflow-hidden bg-background px-6">
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(ellipse 60% 50% at 50% 42%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 70%)",
-        }}
-      />
-      <div
-        className="relative flex flex-col items-center text-center"
-        style={{ animation: "var(--animate-fade-in-once)" }}
-      >
-        <div className="relative flex h-16 w-16 items-center justify-center">
-          <img
-            src={holabossLogoUrl}
-            alt="holaOS"
-            width={56}
-            height={56}
-            draggable={false}
-            className="relative h-14 w-14 rounded-2xl select-none"
-          />
-        </div>
-        <h1
-          className="mt-6 text-[17px] font-semibold tracking-tight text-foreground"
-          style={{ letterSpacing: "-0.01em" }}
-        >
-          holaOS
-        </h1>
-        <div
-          className="mt-5 flex items-center gap-1.5"
-          aria-label="Loading"
-          role="status"
-        >
-          {[0, 1, 2].map((i) => (
-            <span
-              key={i}
-              className="block h-1 w-1 rounded-full bg-muted-foreground/70"
-              style={{
-                animation: "holaboss-splash-dot 1.2s ease-in-out infinite",
-                animationDelay: `${i * 160}ms`,
-              }}
-            />
-          ))}
-        </div>
-      </div>
-    </section>
   );
 }
 
@@ -5506,7 +5450,7 @@ function AppShellContent() {
           bootstrapErrorMessage ? (
             <WorkspaceStartupErrorPane message={bootstrapErrorMessage} />
           ) : (
-            <WorkspaceBootstrapPane />
+            <BootSplash />
           )
         ) : hydratedRuntimeErrorMessage ? (
           <WorkspaceStartupErrorPane message={hydratedRuntimeErrorMessage} />

@@ -98,46 +98,44 @@ The runtime enforces this at `workspace_apps_register` time: a source-tree scan 
 
 The SDK's default `startMcpServer({ httpPort, ... })` ships a one-screen "headless module" placeholder on the http port. That placeholder is **only acceptable for integration-only modules** (Slack-style MCP-driven flows). The moment the user asks for a dashboard / list view / kanban / calendar / "let me see my X", you must replace the placeholder with a real dashboard built on `@holaboss/ui`.
 
-### Mandatory: invoke `interface-design` before writing JSX
+### Polish pass: handled by a separate auto-queued turn
 
-**This is a hard gate, not a suggestion.** Before writing the first line of code under `src/client/` for a dashboard-shape app, invoke `skill({ name: "interface-design" })` exactly once. Read its full output and apply it.
+For dashboard apps (those with `src/client/`), the runtime auto-queues a polish-only input on the main session after `workspace_apps_ensure_running` returns `ready: true`. You do **not** have to invoke `interface-design` or refactor `src/client/` inside the same turn as the build. The response from `workspace_apps_ensure_running` includes a `polish_pass_queued` array listing the queued input(s); the polish turn dispatches automatically as the next turn on the user's chat.
 
-Why this is mandatory:
+In this build turn: finish wrapping up cleanly — tell the user the app is built, mention that a polish pass will run next. That's it.
 
-- Without it, agent-authored dashboards consistently ship with the same failure mode the user has flagged repeatedly: stacked full-width KPI cards, no information density, generic shadcn marketing-page aesthetics, weight stacking via `text-3xl` headers and `font-bold`. The `@holaboss/ui` primitives alone don't prevent this — agents reach for them and still hand-roll bad compositions.
-- `interface-design` is purpose-built for the exact category of work this skill triggers: dashboards, admin panels, internal SaaS tools, data-dense interactive products. Its rules (anti-generic-output, density, hierarchy, restraint) compose cleanly on top of the Linear aesthetic + `@holaboss/ui` density rules below.
-- Token cost is real but bounded: the skill is small (one SKILL.md + 4 reference files, ~40KB). The cost of a single dashboard that ships looking broken is much higher — the user has rejected output enough times that re-invoking app-builder-sdk to redo the UI dwarfs the up-front cost of chaining interface-design.
+In the auto-queued polish turn (you'll see a `text` payload starting with `[Auto-queued post-build polish pass]`):
 
-Do not skip on the grounds that "I already have app-builder-sdk loaded" or "I know the Linear aesthetic". This skill exists because aesthetic intuition alone is not load-bearing for this category of work; the explicit rules are. Do not invoke `frontend-design` instead — that one targets marketing pages / landing pages / posters and will drift the output the wrong way. For integration-only modules (no `src/client/`), skip this step entirely; it applies only when you are about to author dashboard JSX.
+1. Invoke `skill({ name: "interface-design" })` and read its full output.
+2. For each `.tsx` / `.css` file under `apps/<app_id>/src/client/`: **REWRITE the whole file via `bash` heredoc** (`cat > path/to/file <<'EOF' ... EOF`), NOT via `edit`. Whole-file rewrite is mandatory for this pass — incremental edits repeatedly produce checkbox-compliant no-changes.
+3. Re-run `workspace_apps_build` + `workspace_apps_restart_and_wait_ready`.
+4. Take a `browser_screenshot` of the rendered dashboard. Compare it against the `interface-design` rules you just loaded. If the rendered output doesn't match those rules, return to step 2 and rewrite again.
+5. Only after the screenshot is right, declare the polish pass done.
 
-### Visual design language: anchor on Linear
+Why this is a separate auto-queued turn and not part of the build turn:
 
-When laying out a holaOS dashboard, **target the Linear aesthetic** (linear.app). Linear is the canonical reference for a holaOS pane. If your output doesn't feel like it could ship inside Linear, you took a wrong turn.
+- Doing both in one turn consistently produced "skill invoked, 1 trivial edit, ready" — the agent's task-complete mindset and ~80-tool-call context fatigue defeated every prompt-strength escalation we tried. Forensic at `holaOS/docs/plans/2026-05-22-interface-design-skill-noop-forensic.md`.
+- A separate turn restores fresh context, narrow scope, and no build-time inertia. Empirically this matches the one observed successful polish, which the user manually triggered as a second turn.
 
-What "Linear" concretely means here:
+What this gate is NOT:
 
-- **Density first, breathing room second.** Table rows ~32–36px tall. Sections separated by `gap-6`, items inside a section by `gap-2` to `gap-3`. KPI rows fit in one viewport line — never one KPI per row. If your dashboard requires scrolling past 1.5 screens to see the headline numbers, it's wrong.
-- **Neutral palette + one accent.** Chrome (borders, headings, secondary text) is `border-border` / `text-muted-foreground`. Primary text is `text-foreground`. The brand orange is reserved for: the primary CTA on a page, the active section indicator, the occasional badge or focus ring. **No** decorative gradients, **no** multi-color status tagging, **no** full-bleed colored hero rows.
-- **One font, three sizes.** Inter (already provided). Page title: `text-base font-semibold` or `text-lg font-semibold`. Section labels: `text-sm font-medium`. Body: `text-sm` regular. Captions / labels-on-fields: `text-xs text-muted-foreground`. **Never** use `text-2xl` / `text-3xl` on a dashboard — that's marketing-page typography, not product UI.
-- **Hairline borders, no shadows.** `border border-border`, never `border-2`. Default cards have no shadow; reserve shadow strictly for floating layers (popovers, dialogs, dropdowns).
-- **Tables, not card stacks, when listing things.** A list of issues / posts / messages / drafts is a tight `Table` (~32–36px rows, no wrapping). Cards are for *one-off* objects (a single profile page, a single proposal preview). Never render 5 things as 5 stacked full-width cards.
-- **Status as a `StatusDot` inline with the row**, not a colored full-width banner. "Twitter/X: ready" lives as one dot + label in the page header chrome, exactly once.
-- **One primary action top-right of a section.** Secondary actions are ghost buttons or icon buttons. **Never** two equal-weight orange buttons side by side; pick which one is the answer to "what is the user trying to do on this screen" and demote the other.
+- Not optional for dashboard apps — the input is queued mechanically; you can't skip it. Integration-only modules (no `src/client/`) get no queued input.
+- Not satisfied by ceremony — the runtime can verify file mtimes / screenshot, and the user checks the rendered UI either way.
+- Not replaced by `frontend-design` — that one targets marketing pages and drifts the output the wrong way.
 
-Anti-references — if your output starts resembling any of these, you've left the path:
+### Visual decisions belong to `interface-design`, not here
 
-- **Notion** — too rounded, too playful, decorative cover images, color emoji icons.
-- **Stripe Dashboard** — marketing-grade hero numbers, gradient banners, oversized typography.
-- **Material Design** — color-coded everything, drop shadows on every card, FAB.
-- **Generic shadcn marketing examples** — over-padded cards, decorative dividers, `text-3xl` headers.
+Every visual decision — density, hierarchy, typography, color usage, layout shape — is delegated to the `interface-design` skill that runs in the auto-queued polish turn. This file deliberately does NOT prescribe what a dashboard should look like.
 
-When in doubt: open Linear in your head, locate the closest pane (issue list → list view; cycle overview → KPI strip + table; project page → header + sections), and copy that layout. "What would Linear do" is the visual prior to fall back on.
+The reasoning is empirical: previous versions of this skill listed concrete visual rules and named the failure modes to avoid. Observed output consistently reproduced the named failure modes — naming an anti-pattern is enough to anchor on it. Removing them from this file leaves `interface-design` as the sole authority on look-and-feel.
+
+If your output looks wrong, the fix lives in the polish turn (re-invoke `interface-design`, rewrite via heredoc, screenshot, iterate). It does not live in this SKILL.md.
 
 ### The rule: import `@holaboss/ui`, do not redefine primitives
 
 `@holaboss/ui` is a public npm package. It provides every primitive and CSS token your dashboard needs. **Do not generate shadcn primitives, copy a `components/ui/` directory, write your own Card, or import any other component library**. If `@holaboss/ui` is missing something, surface it to the SDK team instead of inventing a local replacement — visual drift is the failure mode the library exists to prevent.
 
-Layout itself is your call. There is no `DashboardShell` / `PageHeader` / `DataTable` / `StatPill` / etc. — those were removed in 0.3.0. Compose page chrome from the raw primitives (Card, Tabs, Sheet, Sidebar, Table, Skeleton, EmptyState…) under the interface-design skill's rules and the density rules below. There is no register-time gate forcing a specific layout vocabulary; the only guard against bad layouts is the skill chain itself.
+Layout itself is your call. There is no `DashboardShell` / `PageHeader` / `DataTable` / `StatPill` / etc. — those were removed in 0.3.0. Compose page chrome from the raw primitives (Card, Tabs, Sheet, Sidebar, Table, Skeleton, EmptyState…). What the layout should look like is decided in the `interface-design` polish turn, not here.
 
 Install:
 
@@ -146,14 +144,16 @@ cd <app-dir>
 bun add @holaboss/ui
 ```
 
-The app-builder-sdk itself still installs via `file:` because it's lockstep-versioned with the runtime; `@holaboss/ui` is independent and rolls forward like any normal npm dep. The resulting `package.json` looks like:
+Both `@holaboss/app-builder-sdk` and `@holaboss/ui` are public npm packages. The resulting `package.json` looks like:
 
 ```json
 "dependencies": {
-  "@holaboss/app-builder-sdk": "file:/absolute/path/to/<app-builder-sdk-skill-dir>/sdk-package",
-  "@holaboss/ui": "^0.1.0"
+  "@holaboss/app-builder-sdk": "^0.1.0",
+  "@holaboss/ui": "^0.3.0"
 }
 ```
+
+**Pin the major.minor explicitly.** Pre-1.0 caret semver is special — `^0.1.0` only matches `0.1.x`, NOT `0.2.x` or `0.3.x`. Writing the wrong major.minor locks the app to an old release that this skill no longer matches. Always use the current major.minor (currently `^0.1.0` for app-builder-sdk, `^0.3.0` for ui) in fresh apps. Do NOT install via `file:` paths or git refs — npm is the only supported source.
 
 ### Mount the styles — one import, done
 
@@ -194,7 +194,7 @@ A full base-ui-flavoured shadcn surface — ~55 primitives. The ones you reach f
 2. The dashboard reads the app's own SQLite (the table `app.resource()` declared) via TanStack Start server functions — same DB the MCP tools mutate. **Never duplicate state.**
 3. Mount `@holaboss/ui/styles.css` at the top of `__root.tsx`. That single import covers the tokens, the default theme, and every Tailwind utility class the library uses. Without it the tokens fall back to defaults and the components render with no styling.
 
-Beyond those three wiring points, **the layout is yours**. The `interface-design` skill output (invoked above as a hard gate) is your design brief; the primitive catalog above is your toolbox. No scaffolding template, no "minimal dashboard route" stub to copy — every request asks for a different shape, and copying a template is how every agent-built dashboard ends up looking like every other one.
+Beyond those three wiring points, **the layout is yours**. The `interface-design` skill output (delivered in the auto-queued polish turn) is your design brief; the primitive catalog above is your toolbox. No scaffolding template, no "minimal dashboard route" stub to copy.
 
 ### Schema migration (from PM doc)
 
@@ -210,31 +210,19 @@ vibe coding's biggest failure mode is destructive migrations. Rules:
 
 Each schema change is a version; the user must be able to roll back.
 
-### A few don'ts (the failure modes, not a recipe book)
+### UI anti-patterns — two are enforced at register time
 
-The point isn't to mandate which primitive for which intent — that's the `interface-design` skill's job. These are the consistent failure modes seen in agent-built dashboards; avoid them and use your judgement on the rest.
+`workspace_apps_register` runs two structural lints over `src/client/` for dashboard apps. Both reject the call with file/line context; nothing ships until they pass.
 
-- **`text-2xl` / `text-3xl` headers.** That's marketing-page typography. Product UI is `text-sm`/`text-base`.
-- **Status signal rendered twice in the same viewport** ("needs connection" as a dot AND as a banner). One surface per signal.
-- **Hand-rolled loading / empty states.** Use `Skeleton` and `EmptyState` — they're already themed.
-- **A bullet `<ul>` or hand-rolled `<table>` for a list of rows.** Use the `Table` family.
-- **Importing Recharts directly without `ChartContainer`.** You lose theme-aware colors + tooltip styling. Wrap charts in `ChartContainer` + use `ChartTooltip` / `ChartLegend`.
+- **Minimum named imports from `@holaboss/ui`.** A dashboard with fewer than 3 distinct named imports from the library across all `src/client/` files is rejected. Importing only `@holaboss/ui/styles.css` (the stylesheet) does NOT count — the library exists to provide composable components, not just tokens. Replace hand-rolled className-based components with the library's `Card` / `Button` / `Table` / `Badge` / `StatusDot` / `Skeleton` / `EmptyState` / `Tabs` / `ChartContainer` etc.
+- **No parallel design system in app-local CSS.** Any `.css` file under `src/client/` containing hex color literals (`#1f883d`), raw color function calls (`rgb()` / `hsl()` / `oklch()` / `lab()` / `lch()`), or custom CSS variable definitions that don't forward an existing holaOS token (`--my-thing: var(--background);` style passthroughs are allowed) is rejected. The lint exists because agents repeatedly shipped 200+-line stylesheets defining their own theme on top of the library — bypassing the OKLch palette, the font-weight cap, and the workspace theme system. App-local CSS may contain `@import "tailwindcss"` and empty `@layer` blocks so app-side composed Tailwind classes work; that's all.
 
-### Density rules of thumb
+Other UI anti-patterns (not lint-enforced, but still wrong):
 
-- **KPI row**: max ~80px tall total. If you find yourself sizing one KPI card to 80px individually, you're doing it wrong.
-- **Section spacing**: between sections, ~`gap-6`; inside a section, ~`gap-3`. Don't reinvent this.
-- **Status pills**: there is exactly one place in the layout where each piece of status appears. If the same word ("needs connection") is rendered twice in the same viewport, delete one.
-- **Empty states**: never larger than the populated state would be. An empty chart slot shouldn't take more vertical room than the chart-with-data would.
-
-### UI anti-patterns (failure modes the user flagged)
-
-- **Generating a `components/ui/` directory or running `shadcn add`** — that path is gone. Import primitives from `@holaboss/ui` instead.
 - **A `components/ui/` directory or any shadcn-add path.** Import primitives from `@holaboss/ui` only.
-- **Inline `style={{ ... }}`** anywhere except `style={{ width: ... }}` for measured layout (resize observers, etc.). Colors / spacing / radii never inline.
+- **Inline `style={{ ... }}`** anywhere except `style={{ width: ... }}` for measured layout (resize observers, etc.).
 - **Hardcoded hex colors / px values for spacing or radii.** Use the theme tokens; if missing, surface to the SDK team.
 - **A new component library** (Material UI, Ant, Chakra, react-aria, etc.) — `@holaboss/ui` wraps the workspace-canonical primitives; that's the only path.
-- **Hand-rolling a loading skeleton or empty state.** Use `Skeleton` and `EmptyState`.
 - **Per-app dark mode toggle / theme picker.** Theme is workspace-level; the app inherits via CSS variables and does nothing.
 
 ### App-level anti-patterns (not UI — code shape)
@@ -279,7 +267,7 @@ For Slack-style modules where the agent drives via MCP and no dashboard is neede
 ├── provider.ts         # ProviderRegistry: id, baseUrl, allowedHosts, whoamiPath
 ├── server.ts           # production entry: SqliteStateBackend + runtime-broker + startMcpServer
 ├── app.runtime.yaml    # manifest (lifecycle, healthchecks, mcp.tools list, env_contract, integration)
-└── package.json        # only declares: @holaboss/app-builder-sdk via `file:` dep
+└── package.json        # declares @holaboss/app-builder-sdk via npm semver
 ```
 
 `startMcpServer({ httpPort })`'s built-in placeholder is acceptable here — the user never opens this app's workspace pane in practice, they drive it from chat. Copy `reference/slack-messaging/{server.ts,app.runtime.yaml}` and adapt the constants. Copy `reference/<your-shape>/{app.ts,provider.ts}` and adapt the resource/action declarations.
@@ -321,7 +309,7 @@ The desktop's iframe (`AppSurfacePane`) resolves the URL to `env.PORT`; whatever
 
 After writing the 4 files into `<workspace>/apps/<app_id>/`, do these in order. Do not skip steps:
 
-### 1. `package.json` — use a `file:` dep, absolute path
+### 1. `package.json` — npm semver, no `file:` paths
 
 ```json
 {
@@ -330,12 +318,13 @@ After writing the 4 files into `<workspace>/apps/<app_id>/`, do these in order. 
   "private": true,
   "type": "module",
   "dependencies": {
-    "@holaboss/app-builder-sdk": "file:/absolute/path/to/<app-builder-sdk-skill-dir>/sdk-package"
+    "@holaboss/app-builder-sdk": "^0.1.0",
+    "@holaboss/ui": "^0.3.0"
   }
 }
 ```
 
-Prefer the bundled `sdk-package` path beside this skill. Do not assume a repo checkout exists. The dependency path still needs to be absolute because the SDK package lives outside the workspace and relative paths break across worktrees.
+Both packages live on npmjs.com (public, Apache-2.0). `bun install` pulls them down like any normal dep — no repo checkout assumption, no machine-specific file: paths.
 
 ### 2. `bun install` once in the app dir
 

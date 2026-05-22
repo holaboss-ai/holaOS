@@ -1,23 +1,61 @@
 {
   "name": "@holaboss/app-builder-sdk",
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
   "description": "SDK for building Holaboss app modules — 5 orthogonal primitives (connection / resource / action / sync / start), declarative state machines, typed bridge, pluggable state backend.",
-  "private": true,
+  "keywords": [
+    "holaboss",
+    "app-builder",
+    "sdk",
+    "mcp",
+    "agents"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/holaboss-ai/holaOS.git",
+    "directory": "sdk/app-builder-sdk"
+  },
+  "homepage": "https://github.com/holaboss-ai/holaOS/tree/main/sdk/app-builder-sdk",
+  "bugs": "https://github.com/holaboss-ai/holaOS/issues",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
   },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
   "scripts": {
+    "build": "tsdown",
+    "clean": "node ../../scripts/remove-paths.mjs dist",
+    "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "example": "bun run reference/pinterest-publishing/run.ts"
-  },
-  "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "^5.4.0"
+    "example": "bun run reference/pinterest-publishing/run.ts",
+    "prepublishOnly": "bun run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
     "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "tsdown": "^0.21.4",
+    "typescript": "^5.9.3"
   }
 }

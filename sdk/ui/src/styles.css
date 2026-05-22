@@ -20,6 +20,22 @@
    `[data-theme="..."]` overrides after this import. */
 @import "./tokens/themes/holaos.css";
 
+/* Default border color. Tailwind v4 changed the bare `border` utility's
+   default color from a fixed gray (`#e5e7eb` in v3) to `currentColor`,
+   so any element with `<div class="border">` and no explicit color
+   ends up with a border the color of its text — usually near-black.
+   Agents trained on v3 conventions write bare `border` expecting gray,
+   and the result is pure-black hairlines everywhere. Reset the default
+   to the holaOS `--border` token so v3-style class usage stays valid. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop {
+    border-color: var(--border);
+  }
+}
+
 /* Inline-style font-weight cap. Tailwind utilities already route through
    the @theme `--font-weight-*` tokens above, but agents still occasionally
    write `style={{ fontWeight: 700 }}` or `style="font-weight: bold"` in

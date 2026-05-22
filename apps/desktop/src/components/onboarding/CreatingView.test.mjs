@@ -14,12 +14,9 @@ const baseCssPath = path.join(__dirname, "../../styles/base.css");
 test("creating view uses the publish-flow shell DNA: rounded card on bg-fg-2 canvas with subtle shadow", async () => {
   const source = await readFile(creatingViewPath, "utf8");
 
-  // Card: rounded-2xl bg-background with shadow-xs — matches PublishScreen.
   assert.match(source, /rounded-2xl bg-background[\s\S]*shadow-xs/);
-  // No more theme-shell with hard borders.
   assert.doesNotMatch(source, /theme-shell/);
   assert.doesNotMatch(source, /border border-border\/45/);
-  // Halo spinner wrapper survives the redesign.
   assert.match(source, /bg-primary\/10/);
 });
 
@@ -39,63 +36,37 @@ test("panel create flow resets to the first panel step on every open", async () 
   );
 });
 
-test("first workspace pane runs the welcome → name → folder flow", async () => {
+test("first workspace pane runs the name → folder flow with sign-in gated upstream", async () => {
   const source = await readFile(firstWorkspacePanePath, "utf8");
   const workspaceDesktopSource = await readFile(workspaceDesktopPath, "utf8");
 
+  // Step union dropped the "welcome" entry — RequireAuth handles sign-in.
   assert.match(
     workspaceDesktopSource,
-    /export type FirstWorkspaceStep = "welcome" \| "name" \| "folder";/,
+    /export type FirstWorkspaceStep = "name" \| "folder";/,
   );
-  // Step index/total are variant-aware: full takeover = 3 (welcome→name→folder),
-  // panel variant = 2 (name→folder, no Welcome).
-  assert.match(source, /STEP_INDEX_FULL[\s\S]*welcome: 1,[\s\S]*name: 2,[\s\S]*folder: 3,/);
-  assert.match(source, /STEP_INDEX_PANEL[\s\S]*name: 1,[\s\S]*folder: 2,/);
-  assert.match(source, /const totalSteps = isPanelVariant \? 2 : 3;/);
-  // Initial step is held in the workspace provider so remounts do not reset it.
-  assert.match(workspaceDesktopSource, /useState<FirstWorkspaceStep>\("welcome"\)/);
-  // Three step titles.
-  assert.match(source, /title="Welcome to holaOS"/);
+  // Provider defaults to "name" — the welcome step no longer exists.
+  assert.match(workspaceDesktopSource, /useState<FirstWorkspaceStep>\("name"\)/);
+
+  // Single shared step index map, two steps total for both variants.
+  assert.match(source, /const STEP_INDEX: Record<SimpleStep, number> = \{\s*name: 1,\s*folder: 2,\s*\};/);
+  assert.match(source, /const TOTAL_STEPS = 2;/);
+
+  // Step titles + folder choice CTAs preserved.
   assert.match(source, /title="Name your workspace"/);
   assert.match(source, /title="Where should it live\?"/);
-  assert.doesNotMatch(source, /title="Ready to onboard\?"/);
   assert.match(source, /title="Use the default folder"/);
   assert.match(source, /title="Choose a custom folder"/);
   assert.match(source, /chooseWorkspaceFolder/);
-  // Welcome: brand-flavoured CTA only; offline skip is no longer exposed.
-  assert.match(source, /useDesktopAuthSession/);
-  assert.match(source, /\? "Continue"\s*:\s*isAuthGateBusy/);
-  assert.match(source, /"Connect holaOS"/);
-  assert.doesNotMatch(source, /label: "Skip"/);
-  assert.match(source, /authSessionState\.requestAuth\(\)/);
-  assert.match(source, /setIsAuthContinuationPending\(true\)/);
-  assert.match(source, /if \(isSignedIn\) \{\s*setStep\("name"\);/);
-  assert.match(source, /if \(!isAuthContinuationPending \|\| !isSignedIn\)/);
-  assert.match(
-    source,
-    /!isSignedIn && \(authSessionState\.isPending \|\| isAuthContinuationPending\)/,
-  );
-  assert.match(source, /loading: isAuthGateBusy/);
-  assert.match(source, /label: authGatePrimaryLabel/);
-  assert.match(source, /errorMessage=\{authGateError \|\| null\}/);
-  assert.doesNotMatch(
-    source,
-    /window\.electronAPI\.auth\.requestAuth\(\);\s*setStep\("name"\)/,
-  );
-  // Welcome step renders the brand hero above the title.
-  assert.match(source, /aboveTitle=\{<WelcomeHero \/>\}/);
-  // Three static halo rings fading outward, no motion.
-  assert.match(source, /border-primary\/8/);
-  assert.match(source, /border-primary\/16/);
-  assert.match(source, /border-primary\/26/);
-  assert.doesNotMatch(source, /holaboss-splash-halo/);
-  // Three vertical FeatureCards with thin-stroked lucide icons.
-  assert.match(source, /<FeatureCard[\s\S]*art=\{<Sparkles strokeWidth=\{1\.25\} \/>\}/);
-  assert.match(source, /<FeatureCard[\s\S]*art=\{<Plug strokeWidth=\{1\.25\} \/>\}/);
-  assert.match(source, /<FeatureCard[\s\S]*art=\{<Zap strokeWidth=\{1\.25\} \/>\}/);
-  assert.match(source, /grid grid-cols-3/);
-  // Plain "empty" — "empty_onboarding" triggers the ONBOARD.md chat takeover
-  // which has nothing to run for a no-template workspace.
+
+  // No auth gating lives in this pane anymore.
+  assert.doesNotMatch(source, /useDesktopAuthSession/);
+  assert.doesNotMatch(source, /"Connect holaOS"/);
+  assert.doesNotMatch(source, /isAuthContinuationPending/);
+  assert.doesNotMatch(source, /authGateBusy/);
+  assert.doesNotMatch(source, /title="Welcome to holaOS"/);
+
+  // Workspace creation defaults stay pinned for the empty template.
   assert.match(source, /setTemplateSourceMode\("empty"\)/);
   assert.doesNotMatch(source, /setTemplateSourceMode\("empty_onboarding"\)/);
   assert.match(source, /setBrowserBootstrapMode\("fresh"\)/);
@@ -104,6 +75,7 @@ test("first workspace pane runs the welcome → name → folder flow", async () 
     /void createWorkspace\(\{ workspaceOnboardingMode: "start" \}\)\.then\(\(\) => \{/,
   );
   assert.doesNotMatch(source, /workspaceOnboardingMode: "skip"/);
+
   // The simplified flow no longer reaches into browser-profile bootstrapping
   // or marketplace template browsing.
   assert.doesNotMatch(source, /BrowserProfileStep/);

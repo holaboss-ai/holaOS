@@ -88,7 +88,7 @@ const LOCAL_OSS_TEMPLATE_USER_ID = "local-oss";
 const DEFAULT_WORKSPACE_HARNESS: WorkspaceHarnessId = "pi";
 const BOOTSTRAP_IPC_TIMEOUT_MS = 8_000;
 type TemplateSourceMode = "local" | "marketplace" | "empty" | "empty_onboarding";
-export type FirstWorkspaceStep = "welcome" | "name" | "folder";
+export type FirstWorkspaceStep = "name" | "folder";
 export type WorkspaceOnboardingEngine = "deterministic" | "agentic";
 type LifecycleStepState = "pending" | "current" | "done" | "error";
 type WorkspaceListLoadSource = "auto" | "live" | "cached";
@@ -368,7 +368,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
   // Cancel button can abort it. Other callers (e.g. chat pane's connect
   // card) get their own signal — no shared mutable state to clobber.
   const appInstallConnectControllerRef = useRef<AbortController | null>(null);
-  const [firstWorkspaceStep, setFirstWorkspaceStep] = useState<FirstWorkspaceStep>("welcome");
+  const [firstWorkspaceStep, setFirstWorkspaceStep] = useState<FirstWorkspaceStep>("name");
   // Composio toolkit metadata (name + logo + categories) keyed by toolkit
   // slug. Single source of truth for app display name + icon across the
   // shell — both the marketplace gallery and the workspace sidebar look

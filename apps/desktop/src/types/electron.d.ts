@@ -1029,6 +1029,13 @@ interface RuntimeNotificationListOptionsPayload {
     updated_at: string;
   }
 
+  interface CancelQueuedSessionInputResponsePayload {
+    input_id: string;
+    session_id: string;
+    status: string;
+    updated_at: string;
+  }
+
   interface HolabossClientConfigPayload {
     projectsUrl: string;
     marketplaceUrl: string;
@@ -1365,6 +1372,12 @@ interface RuntimeNotificationListOptionsPayload {
     session_id: string;
     input_id: string;
     text: string;
+  }
+
+  interface HolabossCancelQueuedSessionInputPayload {
+    workspace_id: string;
+    session_id: string;
+    input_id: string;
   }
 
   interface HolabossSessionStreamHandlePayload {
@@ -2013,6 +2026,9 @@ interface RuntimeNotificationListOptionsPayload {
       updateQueuedSessionInput: (
         payload: HolabossUpdateQueuedSessionInputPayload
       ) => Promise<UpdateQueuedSessionInputResponsePayload>;
+      cancelQueuedSessionInput: (
+        payload: HolabossCancelQueuedSessionInputPayload
+      ) => Promise<CancelQueuedSessionInputResponsePayload>;
       openSessionOutputStream: (payload: HolabossStreamSessionOutputsPayload) => Promise<HolabossSessionStreamHandlePayload>;
       closeSessionOutputStream: (streamId: string, reason?: string) => Promise<void>;
       getSessionStreamDebug: () => Promise<HolabossSessionStreamDebugEntry[]>;

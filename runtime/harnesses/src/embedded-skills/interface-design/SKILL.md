@@ -39,7 +39,46 @@ Defaults don't announce themselves. They disguise themselves as infrastructure �
 
 **Token names feel like implementation detail.** But your CSS variables are design decisions. `--ink` and `--parchment` evoke a world. `--gray-700` and `--surface-2` evoke a template. Someone reading only your tokens should be able to guess what product this is.
 
+**Spatial composition feels like consequence.** You write the components top-to-bottom in the file, the JSX comes out top-to-bottom on screen. But spatial composition isn't what falls out of writing JSX — it IS the design. Where things live on the viewport, what sits next to what, what's above the fold, which information compresses into a horizontal strip vs which gets its own row — these are the load-bearing decisions, made BEFORE you write a single component. Single-column scroll is the failure mode of not having decided. Reaching for "stack the cards" is reaching for a default.
+
 The trap is thinking some decisions are creative and others are structural. There are no structural decisions. Everything is design. The moment you stop asking "why this?" is the moment defaults take over.
+
+---
+
+# Spatial Composition
+
+This is the section that gets skipped because it feels like infrastructure. It isn't.
+
+Before any visual treatment — before tokens, before color, before typography — answer these about the viewport:
+
+**How many distinct information regions does this screen have?**
+Three. Five. Eight. Name them by content (not by visual): "open work counts split by relation", "trend over time", "the queue of items that need my attention right now". A region is a coherent answer to one user question. If you can't say what question a region answers, it isn't a region — it's filler.
+
+**Which regions belong side-by-side?**
+Related questions sit together. If "current state" and "where it's heading" are both top-of-mind, put them in one row, not stacked. If "summary metrics" and "the actionable queue" answer different questions, give them spatial separation. Side-by-side is a statement that two things are peers. Stacking is a statement that the lower one is a continuation of the upper one. Pick on purpose.
+
+**What lives above the fold?**
+At a 1280×800 viewport, what does the user see before scrolling? It should answer "what state is this in right now" in one glance. If the answer requires scrolling past three full-width hero cards to reach the actionable data, the layout is wrong. The fold is a hierarchy declaration whether you decide it or not.
+
+**Where does horizontal compression help?**
+3–6 items of similar shape — KPI counts, status pills, filter chips — belong in a horizontal strip in ONE row. One number per row is wasted vertical space when the items are comparable; it tells the user "these are separate concerns" when they're actually facets of the same thing. Reach for `grid-cols-3` / `grid-cols-4` / `grid-cols-6` whenever the items are conceptually parallel.
+
+**Where does vertical separation matter?**
+Distinct concepts get their own band. The metrics strip is one thing. The actionable queue is another. The settings panel is a third. Each gets its own vertical region with explicit space between. Don't compress sections that aren't peers just to save scrolling.
+
+**Where does the user's eye land first?**
+Pick a landing point. Page title, primary metric, primary action. Make it visually heavier than its neighbors. From the landing point, the eye should naturally flow toward the one action the user is most likely to want — not bounce between equally-weighted regions wondering where to start.
+
+These five questions cover dashboards, admin panels, settings, list views, detail views. If your answer to any of them is "I didn't decide", the default fired. Single-column top-to-bottom is the shape that emerges when none of these questions were asked.
+
+**Common shapes that emerge from honest answers:**
+
+- Sidebar (240–320px) + main content — when secondary navigation or context is a peer concept that should stay visible while the main work happens.
+- Top hero strip + horizontal KPI row + actionable queue below — when "what state am I in" must answer in one glance, with the deeper work directly underneath.
+- Two-column main area + right sidebar — when the work has a primary focus + a "what should I do next" supporting context.
+- Tabs across the top + dense table dominating the body — when one entity has multiple views and only one view should be visible at a time.
+
+None of these is right by default. Pick the one that answers THIS app's questions.
 
 ---
 
@@ -187,7 +226,7 @@ A metric display could be a hero number, inline stat, sparkline, gauge, progress
 - What products solve similar problems brilliantly? Study them.
 - Why would this interface feel designed for its purpose, not templated?
 
-**NEVER produce identical output.** Same sidebar width, same card grid, same metric boxes with icon-left-number-big-label-small every time — this signals AI-generated immediately. It's forgettable.
+**NEVER produce identical output.** Find the right shape for THIS data — same-shape metrics get a horizontal strip in one row, distinct sections get spatial separation, related items get a grid. Single-column-everything signals you skipped the spatial decision; identical sidebar widths and identical card grids across every dashboard signal a template.
 
 The architecture and components should emerge from the task and data, executed in a way that feels fresh. Linear's cards don't look like Notion's. Vercel's metrics don't look like Stripe's. Same concepts, infinite expressions.
 

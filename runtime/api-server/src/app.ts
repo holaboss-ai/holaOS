@@ -6781,6 +6781,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           appIds: Array.isArray(body.app_ids)
             ? body.app_ids.filter((value): value is string => typeof value === "string")
             : undefined,
+          sessionId: capabilitySessionId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }) || null,
         });
       } catch (error) {
         if (error instanceof RuntimeAgentToolsServiceError) {
@@ -9495,6 +9499,60 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       session_id: updated.sessionId,
       status: updated.status,
       text: optionalString(updated.payload.text) ?? "",
+      updated_at: updated.updatedAt,
+    };
+  });
+
+  app.delete("/api/v1/agent-sessions/:sessionId/inputs/:inputId", async (request, reply) => {
+    const params = request.params as { sessionId: string; inputId: string };
+    const query = isRecord(request.query) ? request.query : {};
+    const body = isRecord(request.body) ? request.body : {};
+    const workspaceId =
+      optionalString(query.workspace_id) ?? optionalString(body.workspace_id);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
+    const workspace = store.getWorkspace(workspaceId);
+    if (!workspace) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    const scope = resolveSessionWorkspaceScope({
+      store,
+      workspaceId,
+      sessionId: params.sessionId,
+    });
+    const effectiveWorkspaceId = scope?.workspaceId ?? workspaceId;
+
+    const input = store.getInput({
+      workspaceId: effectiveWorkspaceId,
+      inputId: params.inputId,
+    });
+    if (
+      !input ||
+      input.workspaceId !== effectiveWorkspaceId ||
+      input.sessionId !== params.sessionId
+    ) {
+      return sendError(reply, 404, "queued input not found");
+    }
+    if (input.status !== "QUEUED") {
+      return sendError(reply, 409, "queued input can no longer be cancelled");
+    }
+
+    const updated = store.updateInput({
+      workspaceId: effectiveWorkspaceId,
+      inputId: params.inputId,
+      fields: {
+        status: "CANCELLED",
+      },
+    });
+    if (!updated) {
+      return sendError(reply, 500, "failed to cancel queued input");
+    }
+
+    return {
+      input_id: updated.inputId,
+      session_id: updated.sessionId,
+      status: updated.status,
       updated_at: updated.updatedAt,
     };
   });
