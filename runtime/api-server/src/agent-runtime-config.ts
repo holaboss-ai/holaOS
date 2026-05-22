@@ -14,6 +14,7 @@ import {
   type AgentPendingUserMemoryContext,
   type AgentRecentRuntimeContext,
   type AgentRecalledMemoryContext,
+  type AgentSessionAttachmentContext,
   type AgentScratchpadContext,
 } from "./agent-runtime-prompt.js";
 import type {
@@ -55,6 +56,7 @@ export interface AgentRuntimeConfigCliRequest {
   operator_surface_context?: AgentOperatorSurfaceContext | null;
   pending_user_memory_context?: AgentPendingUserMemoryContext | null;
   recent_runtime_context?: AgentRecentRuntimeContext | null;
+  session_attachment_context?: AgentSessionAttachmentContext | null;
   session_scratchpad_context?: AgentScratchpadContext | null;
   evolve_candidate_context?: AgentEvolveCandidateContext | null;
   selected_model?: string | null;
@@ -1546,6 +1548,7 @@ export function projectAgentRuntimeConfig(
     operatorSurfaceContext: request.operator_surface_context ?? null,
     pendingUserMemoryContext: request.pending_user_memory_context ?? null,
     recentRuntimeContext: request.recent_runtime_context ?? null,
+    sessionAttachmentContext: request.session_attachment_context ?? null,
     scratchpadContext: request.session_scratchpad_context ?? null,
     evolveCandidateContext: request.evolve_candidate_context ?? null,
     capabilityManifest,

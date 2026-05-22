@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Multi Runtime Launch Scripts Implementation Notes</title>
+  </head>
+  <body>
+    <h1>Multi Runtime Launch Scripts Implementation Notes</h1>
+    <h2>Design decisions</h2>
+    <ul>
+      <li>Added root-level launcher scripts instead of baking the workflow into shell snippets so isolated runtime startup stays consistent across macOS, Linux, and Windows.</li>
+      <li>The isolated desktop launcher derives separation from a dedicated <code>HOLABOSS_DESKTOP_USER_DATA_PATH</code> and intentionally reuses the existing dev server instead of trying to start another Vite instance on a conflicting fixed port.</li>
+      <li>The standalone runtime launcher derives a stable port from the sandbox root and also pins the runtime config, host-state DB, and control-plane DB back into that same root so inherited shell env does not accidentally collapse isolation.</li>
+    </ul>
+    <h2>Deviations</h2>
+    <ul>
+      <li>The new paths default to <code>~/.holaos/desktop/&lt;name&gt;</code> and <code>~/.holaos/&lt;namespace&gt;/&lt;name&gt;</code> instead of reusing Electron's default app-data naming. This is an intentional ergonomics choice so operators can discover and clean up isolated instances more easily.</li>
+    </ul>
+    <h2>Tradeoffs</h2>
+    <ul>
+      <li>The isolated desktop command auto-builds the Electron main bundle and auto-prepares the runtime bundle when missing, but it still refuses to hide a missing dev server because launching a second renderer/watch stack would fight the existing port and blur the intended workflow.</li>
+      <li>Stable hash-derived ports make repeated launches of the same named instance predictable, but users who intentionally want two copies of the same named runtime at once still need to choose different names or pass an explicit port override.</li>
+    </ul>
+    <h2>Open questions</h2>
+    <ul>
+      <li>If this workflow becomes common enough, the next improvement should probably be a small status/list command that shows the derived paths and ports for named isolated instances without launching them.</li>
+    </ul>
+  </body>
+</html>

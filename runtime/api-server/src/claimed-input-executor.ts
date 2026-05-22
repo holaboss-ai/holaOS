@@ -4345,6 +4345,7 @@ export async function processClaimedInput(params: {
         sessionId: record.sessionId,
         role: "user",
         text: String(record.payload.text ?? ""),
+        metadata: attachments.length > 0 ? { attachments } : {},
         messageId: `user-${record.inputId}`,
         createdAt: turnStartedAt,
       });

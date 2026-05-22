@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Fix Claim Input Lease Expire Implementation Notes</title>
+  </head>
+  <body>
+    <h1>Fix Claim Input Lease Expire Implementation Notes</h1>
+    <h2>Design decisions</h2>
+    <ul>
+      <li>Added a queue-worker keepalive for locally active claimed inputs so the owning worker refreshes the claim even before or between executor-level lease renewals.</li>
+      <li>When the active run already owns the runtime-state row, the keepalive also refreshes the runtime-state heartbeat and lease fields so peer workers do not misclassify quiet local work as abandoned.</li>
+    </ul>
+    <h2>Deviations</h2>
+    <ul>
+      <li>No intentional product-spec deviation. The change narrows false-positive recovery behavior without changing terminal event semantics.</li>
+    </ul>
+    <h2>Tradeoffs</h2>
+    <ul>
+      <li>The queue worker now writes extra claim/runtime-state heartbeats while a local run is active. This slightly increases SQLite write volume in exchange for eliminating a higher-cost false failure mode.</li>
+      <li>The keepalive trusts the local worker while its promise is still active, so a truly wedged in-process run may retain ownership longer than before. Existing runner timeouts still bound the common subprocess path.</li>
+    </ul>
+    <h2>Open questions</h2>
+    <ul>
+      <li>If we later need stricter hung-run detection for non-runner phases, the next step should be an explicit executor activity callback instead of inferring liveness only from promise lifetime.</li>
+    </ul>
+  </body>
+</html>

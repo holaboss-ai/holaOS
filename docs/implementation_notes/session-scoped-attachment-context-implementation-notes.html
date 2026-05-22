@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Session-Scoped Attachment Context Implementation Notes</title>
+  </head>
+  <body>
+    <h1>Session-Scoped Attachment Context Implementation Notes</h1>
+    <h2>Design decisions</h2>
+    <ul>
+      <li>Implemented the first pass as append-only attachment provenance on <code>session_messages.metadata.attachments</code> rather than adding a separate active-attachment ledger.</li>
+      <li>Kept each attachment turn as its own timeline event, so reattaching the same file on a later turn produces a second preserved attachment record instead of collapsing the earlier one.</li>
+      <li>Projected prior attachment turns into runtime prompt context as a synthetic session-attachment timeline block, instead of reusing earlier files as if they were current-turn attachments.</li>
+    </ul>
+    <h2>Deviations</h2>
+    <ul>
+      <li>Did not implement explicit remove or replace semantics in this pass. Ongoing session attachment continuity is modeled only through append-only turn history.</li>
+      <li>Reused the existing prompt-context pipeline for later-turn resolution, rather than introducing a new harness payload field for persisted attachment artifacts.</li>
+    </ul>
+    <h2>Tradeoffs</h2>
+    <ul>
+      <li>This keeps timeline provenance aligned with text history and avoids the incorrect “carry forward as current attachments” behavior, but it also means older attachments are summarized into prompt context rather than inlined every turn.</li>
+      <li>Stored metadata is now the preferred source for history and future-run context, with a fallback to legacy <code>agent_session_inputs.payload.attachments</code> lookups so pre-migration sessions still work.</li>
+      <li>The runtime limits how many prior attachment turns and files are projected into prompt context to keep prompt growth bounded; truncated older turns remain in session history.</li>
+    </ul>
+    <h2>Open questions</h2>
+    <ul>
+      <li>Whether a later phase should expose explicit detach or replace operations, or whether append-only conversational artifacts are sufficient for the current product model.</li>
+      <li>Whether future harness work should allow selective re-inline of earlier attachment contents when the agent can prove it needs exact file text instead of just the timeline reference and staged path.</li>
+    </ul>
+  </body>
+</html>
