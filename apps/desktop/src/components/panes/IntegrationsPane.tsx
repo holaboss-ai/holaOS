@@ -79,6 +79,7 @@ function providerIdForToolkit(slug: string): string {
 const CONTEXT_FETCH_SUPPORTED_PROVIDERS = new Set([
   "gmail",
   "github",
+  "notion",
   "slack",
 ]);
 const CONTEXT_FETCH_TERMINAL_STATUSES = new Set([

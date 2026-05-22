@@ -12,11 +12,13 @@ import {
   type PersistedIntegrationLeafResult,
 } from "./integration-memory.js";
 
-const GMAIL_RECENT_MESSAGE_LIMIT = 25;
+const GMAIL_RECENT_THREAD_LIMIT = 100;
 const GITHUB_NOTIFICATIONS_LIMIT = 25;
 const GITHUB_REPOSITORY_LIMIT = 4;
 const GITHUB_REPOSITORY_PULL_REQUEST_LIMIT = 5;
 const GITHUB_REPOSITORY_ISSUE_LIMIT = 5;
+const NOTION_SEARCH_LIMIT = 10;
+const NOTION_DATABASE_ROW_LIMIT = 6;
 const SLACK_CHANNEL_LIMIT = 8;
 const SLACK_CHANNEL_HISTORY_LIMIT = 12;
 const SLACK_CHANNEL_HISTORY_TARGETS = 4;
@@ -91,6 +93,13 @@ interface GmailMessagePayload {
   labels?: unknown;
   historyId?: unknown;
   payload?: unknown;
+}
+
+interface GmailThreadPayload {
+  id?: unknown;
+  threadId?: unknown;
+  snippet?: unknown;
+  historyId?: unknown;
 }
 
 interface GitHubProfilePayload {
@@ -197,6 +206,22 @@ interface SlackMessagePayload {
   reply_count?: unknown;
   latest_reply?: unknown;
 }
+
+interface NotionSearchObjectPayload {
+  object?: unknown;
+  id?: unknown;
+  url?: unknown;
+  public_url?: unknown;
+  created_time?: unknown;
+  last_edited_time?: unknown;
+  title?: unknown;
+  properties?: unknown;
+  parent?: unknown;
+}
+
+interface NotionDatabasePayload extends NotionSearchObjectPayload {}
+
+interface NotionRowPayload extends NotionSearchObjectPayload {}
 
 function isMissingComposioToolError(error: unknown, toolSlug: string): boolean {
   if (!(error instanceof ComposioApiClientError)) {
@@ -465,6 +490,21 @@ function gmailMessagesFromData(value: unknown): GmailMessagePayload[] {
   return recordsFromData(value, ["messages"]) as GmailMessagePayload[];
 }
 
+function gmailThreadsFromData(value: unknown): GmailThreadPayload[] {
+  return recordsFromData(value, ["threads"]) as GmailThreadPayload[];
+}
+
+function nextPageTokenFromData(value: unknown): string | null {
+  const unwrapped = unwrapActionData(value);
+  if (!isRecord(unwrapped)) {
+    return null;
+  }
+  return normalizeString(unwrapped.nextPageToken)
+    ?? normalizeString(unwrapped.next_page_token)
+    ?? normalizeString(unwrapped.nextCursor)
+    ?? normalizeString(unwrapped.next_cursor);
+}
+
 function gitHubProfileFromData(value: unknown): GitHubProfilePayload | null {
   const unwrapped = unwrapActionData(value);
   return isRecord(unwrapped) ? (unwrapped as GitHubProfilePayload) : null;
@@ -533,6 +573,176 @@ function slackChannelsFromData(value: unknown): SlackChannelPayload[] {
 
 function slackMessagesFromData(value: unknown): SlackMessagePayload[] {
   return recordsFromData(value, ["messages"]) as SlackMessagePayload[];
+}
+
+function notionObjectsFromData(value: unknown): NotionSearchObjectPayload[] {
+  return recordsFromData(value, ["results", "pages", "databases"]) as NotionSearchObjectPayload[];
+}
+
+function notionDatabaseFromData(value: unknown): NotionDatabasePayload | null {
+  const unwrapped = unwrapActionData(value);
+  return isRecord(unwrapped) ? (unwrapped as NotionDatabasePayload) : null;
+}
+
+function notionMarkdownFromData(value: unknown): string | null {
+  const unwrapped = unwrapActionData(value);
+  if (typeof unwrapped === "string") {
+    const trimmed = unwrapped.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (!isRecord(unwrapped)) {
+    return null;
+  }
+  return normalizeString(unwrapped.markdown)
+    ?? normalizeString(unwrapped.content)
+    ?? normalizeString(unwrapped.text);
+}
+
+function notionRichTextText(value: unknown): string | null {
+  if (typeof value === "string") {
+    return normalizeString(value);
+  }
+  if (Array.isArray(value)) {
+    const text = value
+      .map((item) => notionRichTextText(item))
+      .filter((item): item is string => Boolean(item))
+      .join(" ")
+      .trim();
+    return text.length > 0 ? text : null;
+  }
+  if (!isRecord(value)) {
+    return null;
+  }
+  return normalizeString(value.plain_text)
+    ?? normalizeString(value.content)
+    ?? (isRecord(value.text) ? normalizeString(value.text.content) : null)
+    ?? normalizeString(value.name)
+    ?? (Array.isArray(value.title) ? notionRichTextText(value.title) : null)
+    ?? (Array.isArray(value.rich_text) ? notionRichTextText(value.rich_text) : null);
+}
+
+function notionPropertyText(value: unknown): string | null {
+  if (!isRecord(value)) {
+    return notionRichTextText(value);
+  }
+  const type = normalizeString(value.type);
+  if (type && type in value) {
+    const nested = value[type];
+    if (nested !== undefined) {
+      const nestedText = notionPropertyText(nested);
+      if (nestedText) {
+        return nestedText;
+      }
+    }
+  }
+  if (Array.isArray(value.title)) {
+    return notionRichTextText(value.title);
+  }
+  if (Array.isArray(value.rich_text)) {
+    return notionRichTextText(value.rich_text);
+  }
+  if (isRecord(value.select)) {
+    return normalizeString(value.select.name);
+  }
+  if (isRecord(value.status)) {
+    return normalizeString(value.status.name);
+  }
+  if (Array.isArray(value.multi_select)) {
+    const labels = value.multi_select
+      .filter(isRecord)
+      .map((item) => normalizeString(item.name))
+      .filter((item): item is string => Boolean(item));
+    return labels.length > 0 ? labels.join(", ") : null;
+  }
+  if (Array.isArray(value.people)) {
+    const labels = value.people
+      .filter(isRecord)
+      .map((item) => normalizeString(item.name) ?? (isRecord(item.person) ? normalizeString(item.person.email) : null))
+      .filter((item): item is string => Boolean(item));
+    return labels.length > 0 ? labels.join(", ") : null;
+  }
+  if (Array.isArray(value.relation)) {
+    const ids = value.relation
+      .filter(isRecord)
+      .map((item) => normalizeString(item.id))
+      .filter((item): item is string => Boolean(item));
+    return ids.length > 0 ? ids.join(", ") : null;
+  }
+  if (typeof value.checkbox === "boolean") {
+    return value.checkbox ? "true" : "false";
+  }
+  if (typeof value.number === "number" && Number.isFinite(value.number)) {
+    return String(value.number);
+  }
+  if (typeof value.url === "string") {
+    return normalizeString(value.url);
+  }
+  if (typeof value.email === "string") {
+    return normalizeString(value.email);
+  }
+  if (typeof value.phone_number === "string") {
+    return normalizeString(value.phone_number);
+  }
+  if (isRecord(value.date)) {
+    return normalizeString(value.date.start)
+      ?? normalizeString(value.date.end);
+  }
+  if (isRecord(value.formula)) {
+    return notionPropertyText(value.formula);
+  }
+  return notionRichTextText(value);
+}
+
+function notionPageTitle(value: unknown): string | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const titleFromTopLevel = notionRichTextText(value.title);
+  if (titleFromTopLevel) {
+    return titleFromTopLevel;
+  }
+  if (!isRecord(value.properties)) {
+    return null;
+  }
+  for (const property of Object.values(value.properties)) {
+    if (!isRecord(property)) {
+      continue;
+    }
+    if (normalizeString(property.type) === "title" || Array.isArray(property.title)) {
+      const title = notionPropertyText(property);
+      if (title) {
+        return title;
+      }
+    }
+  }
+  return null;
+}
+
+function notionDatabaseTitle(value: unknown): string | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return notionRichTextText(value.title)
+    ?? notionPageTitle(value);
+}
+
+function notionParentDatabaseId(value: unknown): string | null {
+  if (!isRecord(value) || !isRecord(value.parent)) {
+    return null;
+  }
+  return normalizeString(value.parent.database_id);
+}
+
+function notionDatabasePropertyLabels(value: unknown): string[] {
+  if (!isRecord(value)) {
+    return [];
+  }
+  return Object.entries(value)
+    .map(([name, property]) => {
+      const type = isRecord(property) ? normalizeString(property.type) : null;
+      return type ? `${name} (${type})` : name;
+    })
+    .filter((item) => item.trim().length > 0);
 }
 
 function buildGmailProfileCandidate(params: {
@@ -1235,6 +1445,279 @@ function buildSlackMessageCandidate(params: {
   };
 }
 
+function buildNotionWorkspaceCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  connectionId: string;
+  pagesCount: number;
+  databasesCount: number;
+  fetchedAt: string;
+}): IntegrationLeafCandidate {
+  const lines = [
+    "# Notion workspace snapshot",
+    "",
+    `- Account: ${params.accountLabel}`,
+    "- Provider: Notion",
+    `- Connection ID: ${params.connectionId}`,
+    `- Pages discovered: ${params.pagesCount}`,
+    `- Databases discovered: ${params.databasesCount}`,
+    "",
+    "## Summary",
+    "",
+    `${params.accountLabel} Notion workspace snapshot with ${params.pagesCount} pages and ${params.databasesCount} databases discovered by the current search window.`,
+    "",
+  ];
+  return {
+    provider: "notion",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: "workspace_snapshot",
+    branchKey: "workspace",
+    branchLabel: "Workspace",
+    title: `Notion workspace for ${params.accountLabel}`,
+    summary: clipText(
+      `${params.accountLabel} Notion workspace snapshot with ${params.pagesCount} pages and ${params.databasesCount} databases.`,
+      220,
+    ),
+    content: `${lines.join("\n").trim()}\n`,
+    tags: ["notion", "workspace"],
+    sourceType: "notion.workspace",
+    sourceEventId: `notion-workspace:${params.accountKey}`,
+    externalObjectId: params.accountKey,
+    externalObjectType: "notion_workspace",
+    observedAt: params.fetchedAt,
+    confidence: 0.95,
+  };
+}
+
+function buildNotionPageOverviewCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  page: NotionSearchObjectPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const pageId = normalizeString(params.page.id);
+  if (!pageId) {
+    return null;
+  }
+  const title = notionPageTitle(params.page) ?? `Notion page ${pageId}`;
+  const url = normalizeString(params.page.url);
+  const publicUrl = normalizeString(params.page.public_url);
+  const createdAt = timestampToIso(params.page.created_time);
+  const editedAt = timestampToIso(params.page.last_edited_time) ?? params.fetchedAt;
+  const lines = [
+    `# ${title}`,
+    "",
+    `- Account: ${params.accountLabel}`,
+    "- Provider: Notion",
+    `- Page ID: ${pageId}`,
+    url ? `- URL: ${url}` : null,
+    publicUrl ? `- Public URL: ${publicUrl}` : null,
+    createdAt ? `- Created at: ${createdAt}` : null,
+    editedAt ? `- Last edited at: ${editedAt}` : null,
+    "",
+    "## Summary",
+    "",
+    `Notion page overview for ${title}.`,
+    "",
+  ].filter((line): line is string => typeof line === "string");
+  return {
+    provider: "notion",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `page:${pageId}`,
+    entityKey: `page:${pageId}`,
+    entityLabel: title,
+    branchKey: "overview",
+    branchLabel: "Overview",
+    title,
+    summary: clipText(`Notion page ${title}.`, 220),
+    content: `${lines.join("\n").trim()}\n`,
+    tags: ["notion", "page"],
+    sourceType: "notion.page",
+    sourceEventId: `notion-page:${pageId}`,
+    externalObjectId: pageId,
+    externalObjectType: "notion_page",
+    observedAt: editedAt,
+    confidence: 0.86,
+  };
+}
+
+function buildNotionPageMarkdownCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  page: NotionSearchObjectPayload;
+  markdown: string;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const pageId = normalizeString(params.page.id);
+  if (!pageId) {
+    return null;
+  }
+  const title = notionPageTitle(params.page) ?? `Notion page ${pageId}`;
+  const url = normalizeString(params.page.url);
+  const editedAt = timestampToIso(params.page.last_edited_time) ?? params.fetchedAt;
+  const excerpt = clipText(params.markdown, 4000);
+  const lines = [
+    `# ${title}`,
+    "",
+    `- Account: ${params.accountLabel}`,
+    "- Provider: Notion",
+    `- Page ID: ${pageId}`,
+    url ? `- URL: ${url}` : null,
+    editedAt ? `- Last edited at: ${editedAt}` : null,
+    "",
+    "## Summary",
+    "",
+    excerpt,
+    "",
+  ].filter((line): line is string => typeof line === "string");
+  return {
+    provider: "notion",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `page_markdown:${pageId}`,
+    entityKey: `page:${pageId}`,
+    entityLabel: title,
+    branchKey: "content",
+    branchLabel: "Content",
+    title: `${title} content`,
+    summary: clipText(`Notion page content for ${title}: ${excerpt}`, 220),
+    content: `${lines.join("\n").trim()}\n`,
+    tags: ["notion", "page", "content"],
+    sourceType: "notion.page_markdown",
+    sourceEventId: `notion-page-markdown:${pageId}`,
+    externalObjectId: pageId,
+    externalObjectType: "notion_page_markdown",
+    observedAt: editedAt,
+    confidence: 0.88,
+  };
+}
+
+function buildNotionDatabaseOverviewCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  database: NotionDatabasePayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const databaseId = normalizeString(params.database.id);
+  if (!databaseId) {
+    return null;
+  }
+  const title = notionDatabaseTitle(params.database) ?? `Notion database ${databaseId}`;
+  const url = normalizeString(params.database.url);
+  const propertyLabels = notionDatabasePropertyLabels(params.database.properties).slice(0, 12);
+  const editedAt = timestampToIso(params.database.last_edited_time) ?? params.fetchedAt;
+  const lines = [
+    `# ${title}`,
+    "",
+    `- Account: ${params.accountLabel}`,
+    "- Provider: Notion",
+    `- Database ID: ${databaseId}`,
+    url ? `- URL: ${url}` : null,
+    editedAt ? `- Last edited at: ${editedAt}` : null,
+    propertyLabels.length > 0 ? `- Properties: ${propertyLabels.join(", ")}` : null,
+    "",
+    "## Summary",
+    "",
+    propertyLabels.length > 0
+      ? `Database properties: ${propertyLabels.join(", ")}`
+      : "No database property metadata available.",
+    "",
+  ].filter((line): line is string => typeof line === "string");
+  return {
+    provider: "notion",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `database:${databaseId}`,
+    entityKey: `database:${databaseId}`,
+    entityLabel: title,
+    branchKey: "overview",
+    branchLabel: "Overview",
+    title,
+    summary: clipText(`Notion database ${title}.`, 220),
+    content: `${lines.join("\n").trim()}\n`,
+    tags: ["notion", "database"],
+    sourceType: "notion.database",
+    sourceEventId: `notion-database:${databaseId}`,
+    externalObjectId: databaseId,
+    externalObjectType: "notion_database",
+    observedAt: editedAt,
+    confidence: 0.86,
+  };
+}
+
+function buildNotionRowCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  databaseId: string;
+  databaseTitle: string;
+  row: NotionRowPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const rowId = normalizeString(params.row.id);
+  if (!rowId) {
+    return null;
+  }
+  const title = notionPageTitle(params.row) ?? `Row ${rowId}`;
+  const url = normalizeString(params.row.url);
+  const editedAt = timestampToIso(params.row.last_edited_time) ?? params.fetchedAt;
+  const propertyLines = isRecord(params.row.properties)
+    ? Object.entries(params.row.properties)
+      .map(([name, property]) => {
+        const text = notionPropertyText(property);
+        return text ? `- ${name}: ${clipText(text, 180)}` : null;
+      })
+      .filter((line): line is string => Boolean(line))
+      .slice(0, 12)
+    : [];
+  const lines = [
+    `# ${title}`,
+    "",
+    `- Account: ${params.accountLabel}`,
+    "- Provider: Notion",
+    `- Database: ${params.databaseTitle}`,
+    `- Row ID: ${rowId}`,
+    url ? `- URL: ${url}` : null,
+    editedAt ? `- Last edited at: ${editedAt}` : null,
+    "",
+    "## Properties",
+    "",
+    ...(propertyLines.length > 0 ? propertyLines : ["- No row properties available."]),
+    "",
+  ];
+  return {
+    provider: "notion",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `row:${params.databaseId}:${rowId}`,
+    entityKey: `database:${params.databaseId}`,
+    entityLabel: params.databaseTitle,
+    branchKey: "rows",
+    branchLabel: "Rows",
+    title: `${params.databaseTitle}: ${title}`,
+    summary: clipText(`Notion row in ${params.databaseTitle}: ${title}`, 220),
+    content: `${lines.join("\n").trim()}\n`,
+    tags: ["notion", "database-row"],
+    sourceType: "notion.database_row",
+    sourceEventId: `notion-row:${params.databaseId}:${rowId}`,
+    externalObjectId: rowId,
+    externalObjectType: "notion_database_row",
+    observedAt: editedAt,
+    confidence: 0.82,
+  };
+}
+
 function updatePersistStats(
   result: PersistedIntegrationLeafResult,
   stats: { created: number; superseding: number; unchanged: number },
@@ -1369,7 +1852,7 @@ function persistConnectionIdentity(params: {
 
 export function supportsIntegrationContextFetchProvider(providerId: string): boolean {
   const normalized = providerId.trim().toLowerCase();
-  return normalized === "gmail" || normalized === "github" || normalized === "slack";
+  return normalized === "gmail" || normalized === "github" || normalized === "notion" || normalized === "slack";
 }
 
 async function fetchGmailIntegrationContext(params: {
@@ -1453,66 +1936,96 @@ async function fetchGmailIntegrationContext(params: {
   updatePersistStats(profilePersist, persistStats);
   treeId = profilePersist.tree.treeId;
   chunksCompleted += 1;
-  syncProgress({ current_chunk_label: "Fetching recent Gmail messages" });
+  syncProgress({ current_chunk_label: "Listing recent Gmail threads" });
 
-  const emailsResult = await params.composio.executeAction({
+  const threadsResult = await params.composio.executeAction({
     connectedAccountId,
-    toolSlug: "GMAIL_FETCH_EMAILS",
+    toolSlug: "GMAIL_LIST_THREADS",
     arguments: {
       user_id: "me",
-      max_results: GMAIL_RECENT_MESSAGE_LIMIT,
+      max_results: GMAIL_RECENT_THREAD_LIMIT,
       verbose: false,
-      include_payload: false,
-      include_spam_trash: false,
     },
   });
-  actions.push("GMAIL_FETCH_EMAILS");
+  actions.push("GMAIL_LIST_THREADS");
   chunksCompleted += 1;
-  const messages = gmailMessagesFromData(emailsResult.data).sort((left, right) => {
-    const leftTime = Number.parseInt(String(left.internalDate ?? 0), 10);
-    const rightTime = Number.parseInt(String(right.internalDate ?? 0), 10);
-    return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
-  });
-  messagesSeen = messages.length;
-  chunksTotal += messages.length;
+  const threads = gmailThreadsFromData(threadsResult.data);
+  chunksTotal += threads.length;
   syncProgress({
     current_chunk_label:
-      messages.length > 0
-        ? `Importing recent Gmail messages (0/${messages.length})`
+      threads.length > 0
+        ? `Hydrating Gmail threads (0/${threads.length})`
         : "Rebuilding Gmail context summary",
   });
 
-  for (const [index, message] of messages.entries()) {
-    const candidate = buildGmailMessageCandidate({
-      ownerUserId: connection.ownerUserId,
-      accountKey,
-      accountLabel,
-      message,
-      fetchedAt: params.fetchedAt,
-    });
-    if (!candidate) {
+  for (const [index, thread] of threads.entries()) {
+    const threadId = normalizeString(thread.id) ?? normalizeString(thread.threadId);
+    if (!threadId) {
       chunksCompleted += 1;
       syncProgress({
         current_chunk_label:
-          index + 1 < messages.length
-            ? `Importing recent Gmail messages (${index + 1}/${messages.length})`
+          index + 1 < threads.length
+            ? `Hydrating Gmail threads (${index + 1}/${threads.length})`
             : "Rebuilding Gmail context summary",
       });
       continue;
     }
-    const persisted = await persistIntegrationCandidate({
-      store: params.store,
-      workspaceId: "",
-      candidate,
-      embeddingClient: null,
+
+    const fetchedThreadMessages: GmailMessagePayload[] = [];
+    let pageToken: string | null = null;
+    let pageCount = 0;
+    do {
+      if (pageCount > 0) {
+        chunksTotal += 1;
+      }
+      const threadMessagesResult = await params.composio.executeAction({
+        connectedAccountId,
+        toolSlug: "GMAIL_FETCH_MESSAGE_BY_THREAD_ID",
+        arguments: {
+          user_id: "me",
+          thread_id: threadId,
+          ...(pageToken ? { page_token: pageToken } : {}),
+        },
+      });
+      actions.push(pageCount === 0
+        ? `GMAIL_FETCH_MESSAGE_BY_THREAD_ID:${threadId}`
+        : `GMAIL_FETCH_MESSAGE_BY_THREAD_ID:${threadId}:page:${pageCount + 1}`);
+      pageCount += 1;
+      fetchedThreadMessages.push(...gmailMessagesFromData(threadMessagesResult.data));
+      pageToken = nextPageTokenFromData(threadMessagesResult.data);
+    } while (pageToken);
+
+    const messages = fetchedThreadMessages.sort((left, right) => {
+      const leftTime = Number.parseInt(String(left.internalDate ?? 0), 10);
+      const rightTime = Number.parseInt(String(right.internalDate ?? 0), 10);
+      return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
     });
-    updatePersistStats(persisted, persistStats);
-    messagesPersisted += 1;
-    chunksCompleted += 1;
+    messagesSeen += messages.length;
+    for (const message of messages) {
+      const candidate = buildGmailMessageCandidate({
+        ownerUserId: connection.ownerUserId,
+        accountKey,
+        accountLabel,
+        message,
+        fetchedAt: params.fetchedAt,
+      });
+      if (!candidate) {
+        continue;
+      }
+      const persisted = await persistIntegrationCandidate({
+        store: params.store,
+        workspaceId: "",
+        candidate,
+        embeddingClient: null,
+      });
+      updatePersistStats(persisted, persistStats);
+      messagesPersisted += 1;
+    }
+    chunksCompleted += pageCount;
     syncProgress({
       current_chunk_label:
-        index + 1 < messages.length
-          ? `Importing recent Gmail messages (${index + 1}/${messages.length})`
+        index + 1 < threads.length
+          ? `Hydrating Gmail threads (${index + 1}/${threads.length})`
           : "Rebuilding Gmail context summary",
     });
   }
@@ -1546,7 +2059,7 @@ async function fetchGmailIntegrationContext(params: {
     leaves_created: persistStats.created,
     leaves_superseding: persistStats.superseding,
     leaves_unchanged: persistStats.unchanged,
-    messages_seen: messages.length,
+    messages_seen: messagesSeen,
     messages_persisted: messagesPersisted,
     summary_nodes: summaryNodes,
     actions,
@@ -1950,6 +2463,336 @@ async function fetchGitHubIntegrationContext(params: {
   };
 }
 
+async function fetchNotionIntegrationContext(params: {
+  store: RuntimeStateStore;
+  connectionId: string;
+  composio: ComposioExecuteClient;
+  fetchedAt: string;
+  progress?: IntegrationContextFetchProgressReporter | null;
+}): Promise<IntegrationContextFetchResult> {
+  const connection = params.store.getIntegrationConnection(params.connectionId);
+  if (!connection) {
+    throw new Error(`integration connection ${params.connectionId} not found`);
+  }
+  const connectedAccountId = connection.accountExternalId ?? "";
+  const persistStats = { created: 0, superseding: 0, unchanged: 0 };
+  const actions: string[] = [];
+  let accountKey = normalizeString(connection.accountHandle)
+    ?? normalizeString(connection.accountEmail)
+    ?? normalizeString(connection.accountExternalId)
+    ?? connection.connectionId;
+  let accountLabel = normalizeString(connection.accountLabel) ?? accountKey;
+  let treeId: string | null = null;
+  let contentSeen = 0;
+  let contentPersisted = 0;
+  let summaryNodes = 0;
+  let chunksTotal = 3;
+  let chunksCompleted = 0;
+  const syncProgress = (patch: Partial<IntegrationContextFetchProgressSnapshot> = {}) => {
+    params.progress?.patch({
+      account_key: accountKey,
+      account_label: accountLabel,
+      tree_id: treeId,
+      chunks_total: chunksTotal,
+      chunks_completed: chunksCompleted,
+      messages_seen: contentSeen,
+      messages_persisted: contentPersisted,
+      leaves_created: persistStats.created,
+      leaves_superseding: persistStats.superseding,
+      leaves_unchanged: persistStats.unchanged,
+      summary_nodes: summaryNodes,
+      actions,
+      ...patch,
+    });
+  };
+
+  syncProgress({ current_chunk_label: "Searching Notion pages and databases" });
+  const searchResult = await params.composio.executeAction({
+    connectedAccountId,
+    toolSlug: "NOTION_SEARCH_NOTION_PAGE",
+    arguments: {
+      query: "",
+      fetch_type: "all",
+      page_size: NOTION_SEARCH_LIMIT,
+    },
+  });
+  actions.push("NOTION_SEARCH_NOTION_PAGE");
+  chunksCompleted += 1;
+  const searchItems = notionObjectsFromData(searchResult.data);
+  const pages = searchItems.filter((item) => normalizeString(item.object) === "page");
+  const databaseSearchItems = searchItems.filter((item) => normalizeString(item.object) === "database");
+  const pageEntityKeys = new Set(
+    pages
+      .map((page) => normalizeString(page.id))
+      .filter((id): id is string => Boolean(id))
+      .map((id) => `page:${id}`),
+  );
+  const databaseEntityKeys = new Set(
+    databaseSearchItems
+      .map((database) => normalizeString(database.id))
+      .filter((id): id is string => Boolean(id))
+      .map((id) => `database:${id}`),
+  );
+
+  const workspacePersist = await persistIntegrationCandidate({
+    store: params.store,
+    workspaceId: "",
+    candidate: buildNotionWorkspaceCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      connectionId: connection.connectionId,
+      pagesCount: pages.length,
+      databasesCount: databaseSearchItems.length,
+      fetchedAt: params.fetchedAt,
+    }),
+    embeddingClient: null,
+  });
+  updatePersistStats(workspacePersist, persistStats);
+  treeId = workspacePersist.tree.treeId;
+  chunksCompleted += 1;
+
+  chunksTotal += pages.length * 2 + databaseSearchItems.length * 2;
+  syncProgress({
+    current_chunk_label:
+      pages.length > 0
+        ? `Importing Notion pages (0/${pages.length})`
+        : databaseSearchItems.length > 0
+          ? `Importing Notion databases (0/${databaseSearchItems.length})`
+          : "Rebuilding Notion context summary",
+  });
+
+  for (const [index, page] of pages.entries()) {
+    contentSeen += 1;
+    const pageOverviewCandidate = buildNotionPageOverviewCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      page,
+      fetchedAt: params.fetchedAt,
+    });
+    if (pageOverviewCandidate) {
+      const persisted = await persistIntegrationCandidate({
+        store: params.store,
+        workspaceId: "",
+        candidate: pageOverviewCandidate,
+        embeddingClient: null,
+      });
+      updatePersistStats(persisted, persistStats);
+      contentPersisted += 1;
+    }
+
+    const pageId = normalizeString(page.id);
+    if (pageId) {
+      try {
+        const markdownResult = await params.composio.executeAction({
+          connectedAccountId,
+          toolSlug: "NOTION_GET_PAGE_MARKDOWN",
+          arguments: {
+            page_id: pageId,
+            include_transcript: false,
+          },
+        });
+        actions.push(`NOTION_GET_PAGE_MARKDOWN:${pageId}`);
+        const markdown = notionMarkdownFromData(markdownResult.data);
+        if (markdown) {
+          contentSeen += 1;
+          const candidate = buildNotionPageMarkdownCandidate({
+            ownerUserId: connection.ownerUserId,
+            accountKey,
+            accountLabel,
+            page,
+            markdown,
+            fetchedAt: params.fetchedAt,
+          });
+          if (candidate) {
+            const persisted = await persistIntegrationCandidate({
+              store: params.store,
+              workspaceId: "",
+              candidate,
+              embeddingClient: null,
+            });
+            updatePersistStats(persisted, persistStats);
+            contentPersisted += 1;
+          }
+        }
+      } catch (error) {
+        if (!isComposioNotFoundError(error)) {
+          throw error;
+        }
+        actions.push(`NOTION_GET_PAGE_MARKDOWN:${pageId}:missing`);
+      }
+    }
+
+    chunksCompleted += 2;
+    syncProgress({
+      current_chunk_label:
+        index + 1 < pages.length
+          ? `Importing Notion pages (${index + 1}/${pages.length})`
+          : databaseSearchItems.length > 0
+            ? `Importing Notion databases (0/${databaseSearchItems.length})`
+            : "Rebuilding Notion context summary",
+    });
+  }
+
+  for (const [index, databaseItem] of databaseSearchItems.entries()) {
+    const databaseId = normalizeString(databaseItem.id);
+    if (!databaseId) {
+      chunksCompleted += 2;
+      syncProgress({
+        current_chunk_label:
+          index + 1 < databaseSearchItems.length
+            ? `Importing Notion databases (${index + 1}/${databaseSearchItems.length})`
+            : "Rebuilding Notion context summary",
+      });
+      continue;
+    }
+    syncProgress({
+      current_chunk_label: `Fetching Notion database ${databaseId}`,
+    });
+    const databaseResult = await params.composio.executeAction({
+      connectedAccountId,
+      toolSlug: "NOTION_FETCH_DATABASE",
+      arguments: {
+        database_id: databaseId,
+      },
+    });
+    actions.push(`NOTION_FETCH_DATABASE:${databaseId}`);
+    const database = notionDatabaseFromData(databaseResult.data) ?? databaseItem;
+    const databaseTitle = notionDatabaseTitle(database) ?? `Notion database ${databaseId}`;
+    contentSeen += 1;
+    const databaseOverviewCandidate = buildNotionDatabaseOverviewCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      database,
+      fetchedAt: params.fetchedAt,
+    });
+    if (databaseOverviewCandidate) {
+      const persisted = await persistIntegrationCandidate({
+        store: params.store,
+        workspaceId: "",
+        candidate: databaseOverviewCandidate,
+        embeddingClient: null,
+      });
+      updatePersistStats(persisted, persistStats);
+      contentPersisted += 1;
+    }
+
+    syncProgress({
+      current_chunk_label: `Querying rows for ${databaseTitle}`,
+    });
+    const rowsResult = await params.composio.executeAction({
+      connectedAccountId,
+      toolSlug: "NOTION_QUERY_DATABASE",
+      arguments: {
+        database_id: databaseId,
+        page_size: NOTION_DATABASE_ROW_LIMIT,
+        sorts: [
+          {
+            property_name: "last_edited_time",
+            ascending: false,
+          },
+        ],
+      },
+    });
+    actions.push(`NOTION_QUERY_DATABASE:${databaseId}`);
+    const rows = notionObjectsFromData(rowsResult.data).map((row) => ({
+      ...row,
+      parent: row.parent ?? { database_id: databaseId },
+    }));
+    contentSeen += rows.length;
+    for (const row of rows) {
+      const candidate = buildNotionRowCandidate({
+        ownerUserId: connection.ownerUserId,
+        accountKey,
+        accountLabel,
+        databaseId,
+        databaseTitle,
+        row,
+        fetchedAt: params.fetchedAt,
+      });
+      if (!candidate) {
+        continue;
+      }
+      const persisted = await persistIntegrationCandidate({
+        store: params.store,
+        workspaceId: "",
+        candidate,
+        embeddingClient: null,
+      });
+      updatePersistStats(persisted, persistStats);
+      contentPersisted += 1;
+    }
+
+    chunksCompleted += 2;
+    syncProgress({
+      current_chunk_label:
+        index + 1 < databaseSearchItems.length
+          ? `Importing Notion databases (${index + 1}/${databaseSearchItems.length})`
+          : "Reconciling Notion entities",
+    });
+  }
+
+  const retiredPages = retireIntegrationEntityLeaves({
+    store: params.store,
+    treeId,
+    entityPrefix: "page:",
+    keepEntityKeys: pageEntityKeys,
+    supersededAt: params.fetchedAt,
+  });
+  const retiredDatabases = retireIntegrationEntityLeaves({
+    store: params.store,
+    treeId,
+    entityPrefix: "database:",
+    keepEntityKeys: databaseEntityKeys,
+    supersededAt: params.fetchedAt,
+  });
+  if (retiredPages > 0) {
+    actions.push(`NOTION_RETIRED_PAGE_LEAVES:${retiredPages}`);
+  }
+  if (retiredDatabases > 0) {
+    actions.push(`NOTION_RETIRED_DATABASE_LEAVES:${retiredDatabases}`);
+  }
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Rebuilding Notion context summary" });
+  await rebuildIntegrationTree({
+    store: params.store,
+    workspaceId: "",
+    treeId,
+    summaryModelClient: null,
+    embeddingClient: null,
+  });
+  chunksCompleted += 1;
+
+  summaryNodes = params.store.listIntegrationSummaryNodes({
+    treeId,
+    status: "active",
+    limit: 10_000,
+    offset: 0,
+  }).length;
+  syncProgress({ current_chunk_label: "Notion context fetch complete" });
+
+  return {
+    ok: true,
+    supported: true,
+    provider_id: "notion",
+    connection_id: connection.connectionId,
+    account_key: accountKey,
+    account_label: accountLabel,
+    tree_id: treeId,
+    fetched_at: params.fetchedAt,
+    leaves_created: persistStats.created,
+    leaves_superseding: persistStats.superseding,
+    leaves_unchanged: persistStats.unchanged,
+    messages_seen: contentSeen,
+    messages_persisted: contentPersisted,
+    summary_nodes: summaryNodes,
+    actions,
+  };
+}
+
 async function fetchSlackIntegrationContext(params: {
   store: RuntimeStateStore;
   connectionId: string;
@@ -2242,6 +3085,15 @@ export async function fetchIntegrationContextForConnection(params: {
   }
   if (providerId === "github") {
     return fetchGitHubIntegrationContext({
+      store: params.store,
+      connectionId: connection.connectionId,
+      composio,
+      fetchedAt,
+      progress,
+    });
+  }
+  if (providerId === "notion") {
+    return fetchNotionIntegrationContext({
       store: params.store,
       connectionId: connection.connectionId,
       composio,

@@ -500,3 +500,110 @@ test("persistInteractionCandidate supersedes an older active leaf when semantic 
     store.close();
   }
 });
+
+test("persistInteractionCandidate prefers stable named subjects over workflow ownership for project-like operational memories", async () => {
+  const root = makeTempDir("hb-interaction-memory-project-owner-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+
+  try {
+    await withJsonResponseServer({
+      responses: [
+        {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  action: "create_new",
+                  existing_entity_id: null,
+                  new_entity_type: "workflow",
+                  new_entity_name: "Atlas Service rollout",
+                  secondary_entity_ids: [],
+                  confidence: 0.94,
+                  rationale: "This looks like rollout workflow knowledge.",
+                }),
+              },
+            },
+          ],
+        },
+      ],
+      run: async (baseUrl, requests) => {
+        const result = await persistInteractionCandidate({
+          store,
+          workspaceId: "workspace-1",
+          candidate: {
+            subjectKey: "atlas_service_rollout_approver:is-casey-ng",
+            title: "Atlas Service rollout approver is Casey Ng",
+            summary: "Casey Ng is the final Atlas Service rollout approver after staging smoke tests and canary metrics are attached.",
+            content: "# Atlas Service rollout approver\n\nCasey Ng is the final Atlas Service rollout approver after staging smoke tests and canary metrics are attached.\n",
+            tags: ["release", "approver"],
+            memoryType: "fact",
+            confidence: 0.96,
+            observedAt: "2026-05-21T00:05:00.000Z",
+          },
+          modelClient: {
+            baseUrl,
+            apiKey: "test-key",
+            modelId: "openai/gpt-4.1-mini",
+          },
+        });
+
+        assert.equal(result.entity.entityType, "project");
+        assert.equal(result.entity.canonicalName, "Atlas Service");
+        assert.equal(result.entity.entityId, "interaction:project:atlas-service");
+        assert.equal(result.outcome, "created");
+        assert.equal(requests.length, 1);
+      },
+    });
+  } finally {
+    store.close();
+  }
+});
+
+test("persistInteractionCandidate keeps generic runbook subjects under workflow when no larger stable owner is present", async () => {
+  const root = makeTempDir("hb-interaction-memory-workflow-owner-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+
+  try {
+    const result = await persistInteractionCandidate({
+      store,
+      workspaceId: "workspace-1",
+      candidate: {
+        subjectKey: "invoice_correction_runbook",
+        title: "Invoice correction runbook",
+        summary: "For invoice corrections: reopen the ledger case, attach the corrected invoice, then page finance operations.",
+        content: "# Invoice correction runbook\n\n1. Reopen the ledger case.\n2. Attach the corrected invoice.\n3. Page finance operations.\n",
+        tags: ["workflow", "invoice"],
+        memoryType: "procedure",
+        confidence: 0.9,
+        observedAt: "2026-05-21T00:05:00.000Z",
+      },
+      modelClient: null,
+    });
+
+    assert.equal(result.entity.entityType, "workflow");
+    assert.equal(result.entity.canonicalName, "Invoice correction runbook");
+    assert.equal(result.outcome, "created");
+  } finally {
+    store.close();
+  }
+});

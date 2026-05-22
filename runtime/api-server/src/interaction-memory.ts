@@ -29,6 +29,143 @@ const ENTITY_CREATE_CONFIDENCE_THRESHOLD = 0.68;
 const ENTITY_MATCH_CONFIDENCE_THRESHOLD = 0.6;
 const SEMANTIC_DEDUPE_SHORTLIST_LIMIT = 6;
 const SEMANTIC_DEDUPE_SIMILARITY_THRESHOLD = 0.52;
+const PROJECT_SUBJECT_TOKENS = new Set([
+  "api",
+  "app",
+  "service",
+  "services",
+  "console",
+  "portal",
+  "platform",
+  "gateway",
+  "engine",
+  "system",
+  "sdk",
+  "site",
+  "dashboard",
+  "worker",
+]);
+const SYSTEM_SUBJECT_TOKENS = new Set([
+  "runtime",
+  "broker",
+  "database",
+  "cache",
+  "queue",
+  "scheduler",
+  "warehouse",
+  "pipeline",
+  "cluster",
+]);
+const OWNER_SLOT_TOKENS = new Set([
+  "accountmanager",
+  "agenda",
+  "aging",
+  "approval",
+  "approvals",
+  "approver",
+  "bridge",
+  "billing",
+  "blocking",
+  "cadence",
+  "canary",
+  "captain",
+  "channel",
+  "checklist",
+  "claim",
+  "contact",
+  "contract",
+  "cooling",
+  "credit",
+  "dashboard",
+  "deploy",
+  "dispute",
+  "endpoint",
+  "escalation",
+  "exception",
+  "exceptions",
+  "finance",
+  "forecast",
+  "hold",
+  "incident",
+  "invoice",
+  "leader",
+  "lead",
+  "ledger",
+  "legal",
+  "manager",
+  "meeting",
+  "metrics",
+  "owner",
+  "ops",
+  "payment",
+  "payer",
+  "policy",
+  "postrelease",
+  "post-release",
+  "preference",
+  "procedure",
+  "query",
+  "refund",
+  "release",
+  "renewal",
+  "reserve",
+  "review",
+  "reviewer",
+  "rollback",
+  "rollout",
+  "runbook",
+  "settlement",
+  "shipment",
+  "signoff",
+  "slo",
+  "smoke",
+  "staging",
+  "summary",
+  "support",
+  "threshold",
+  "timer",
+  "verification",
+  "warranty",
+  "workflow",
+]);
+const CUSTOMER_SIGNAL_TOKENS = new Set([
+  "accountmanager",
+  "billing",
+  "claim",
+  "contract",
+  "credit",
+  "customer",
+  "dispute",
+  "finance",
+  "invoice",
+  "payer",
+  "payment",
+  "refund",
+  "renewal",
+  "settlement",
+  "shipment",
+  "warranty",
+]);
+const PROJECT_SIGNAL_TOKENS = new Set([
+  "canary",
+  "dashboard",
+  "deploy",
+  "endpoint",
+  "grafana",
+  "incident",
+  "launch",
+  "platform",
+  "postrelease",
+  "post-release",
+  "release",
+  "rollback",
+  "rollout",
+  "service",
+  "slo",
+  "smoke",
+  "staging",
+  "verification",
+]);
 
 const INTERACTION_ENTITY_TYPES = new Set<InteractionEntityType>([
   "project",
@@ -133,6 +270,12 @@ interface SemanticDuplicateCandidate {
   leaf: InteractionLeafRecord;
   similarity: number;
   exactSubject: boolean;
+}
+
+interface StableSubjectHint {
+  canonicalName: string;
+  entityType: InteractionEntityType;
+  confidence: "medium" | "high";
 }
 
 function compactWhitespace(value: string): string {
@@ -279,6 +422,19 @@ function tokenize(value: string): string[] {
   return matches ? matches.map((item) => item.toLowerCase()) : [];
 }
 
+function normalizeKeyToken(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function normalizeNameKey(value: string): string {
+  return tokenize(value).join(" ");
+}
+
+function titleWords(value: string): string[] {
+  const matches = value.match(/[A-Za-z0-9#._-]+/g);
+  return matches ?? [];
+}
+
 function uniqueTokens(value: string): string[] {
   return [...new Set(tokenize(value))];
 }
@@ -365,13 +521,123 @@ function interactionEntityTypeHint(memoryType: string | null | undefined): Inter
       return "preference";
     case "identity":
       return "identity";
-    case "procedure":
-      return "workflow";
     case "blocker":
       return "system";
     default:
       return null;
   }
+}
+
+function candidateTokenSet(candidate: InteractionLeafCandidate): Set<string> {
+  return new Set(
+    tokenize([
+      candidate.subjectKey,
+      candidate.title,
+      candidate.summary,
+      candidate.tags.join(" "),
+      candidate.memoryType ?? "",
+    ].join(" "))
+  );
+}
+
+function classifyStableSubjectEntityType(params: {
+  canonicalName: string;
+  candidate: InteractionLeafCandidate;
+}): InteractionEntityType | null {
+  const nameTokens = new Set(tokenize(params.canonicalName));
+  const contextTokens = candidateTokenSet(params.candidate);
+  const hasProjectNameToken = [...nameTokens].some((token) => PROJECT_SUBJECT_TOKENS.has(token));
+  const hasSystemNameToken = [...nameTokens].some((token) => SYSTEM_SUBJECT_TOKENS.has(token));
+  const hasProjectSignal = [...contextTokens].some((token) => PROJECT_SIGNAL_TOKENS.has(token));
+  const hasCustomerSignal = [...contextTokens].some((token) => CUSTOMER_SIGNAL_TOKENS.has(token));
+
+  if (hasProjectNameToken || (hasProjectSignal && !hasCustomerSignal)) {
+    return "project";
+  }
+  if (hasSystemNameToken && !hasProjectNameToken) {
+    return "system";
+  }
+  if (hasCustomerSignal) {
+    return "customer";
+  }
+  return null;
+}
+
+function extractStableSubjectFromText(text: string): string | null {
+  const tokens = titleWords(text);
+  if (tokens.length < 2) {
+    return null;
+  }
+  const subjectTokens: string[] = [];
+  for (const token of tokens) {
+    const normalized = normalizeKeyToken(token);
+    if (!normalized) {
+      continue;
+    }
+    if (OWNER_SLOT_TOKENS.has(normalized)) {
+      break;
+    }
+    subjectTokens.push(token.replace(/^[^A-Za-z0-9#]+|[^A-Za-z0-9._-]+$/g, ""));
+    if (subjectTokens.length >= 5) {
+      break;
+    }
+  }
+  if (subjectTokens.length === 0 || subjectTokens.length === tokens.length) {
+    return null;
+  }
+  const candidate = subjectTokens.join(" ").trim();
+  if (!candidate || tokenize(candidate).length === 0) {
+    return null;
+  }
+  const hasUppercaseSignal = subjectTokens.some((token) => /[A-Z]/.test(token));
+  return hasUppercaseSignal ? candidate : null;
+}
+
+function inferStableSubjectHint(candidate: InteractionLeafCandidate): StableSubjectHint | null {
+  const titleCandidate = extractStableSubjectFromText(candidate.title);
+  const summaryCandidate = extractStableSubjectFromText(
+    candidate.summary.replace(/^for\s+/i, "").replace(/^[Tt]he\s+/, "")
+  );
+  const canonicalName = clipText(titleCandidate || summaryCandidate || "", 96);
+  if (!canonicalName) {
+    return null;
+  }
+  const entityType = classifyStableSubjectEntityType({
+    canonicalName,
+    candidate,
+  });
+  if (!entityType) {
+    return null;
+  }
+  return {
+    canonicalName,
+    entityType,
+    confidence: titleCandidate ? "high" : "medium",
+  };
+}
+
+function findExistingEntityBySubjectHint(params: {
+  shortlist: InteractionEntityRecord[];
+  hint: StableSubjectHint | null;
+}): InteractionEntityRecord | null {
+  if (!params.hint) {
+    return null;
+  }
+  const hintedName = normalizeNameKey(params.hint.canonicalName);
+  for (const entity of params.shortlist) {
+    if (entity.entityType !== params.hint.entityType) {
+      continue;
+    }
+    if (normalizeNameKey(entity.canonicalName) === hintedName) {
+      return entity;
+    }
+    for (const alias of entity.aliases ?? []) {
+      if (normalizeNameKey(alias) === hintedName) {
+        return entity;
+      }
+    }
+  }
+  return null;
 }
 
 function semanticSubjectBase(subjectKey: string): string {
@@ -548,7 +814,15 @@ function deterministicEntitySpec(candidate: InteractionLeafCandidate): {
       fallback: false,
     };
   }
-  if (typeHint === "workflow") {
+  const stableSubject = inferStableSubjectHint(candidate);
+  if (stableSubject) {
+    return {
+      entityType: stableSubject.entityType,
+      canonicalName: stableSubject.canonicalName,
+      fallback: false,
+    };
+  }
+  if ((candidate.memoryType ?? "").trim().toLowerCase() === "procedure") {
     return {
       entityType: "workflow",
       canonicalName: clipText(candidate.title || candidate.subjectKey, 80),
@@ -646,6 +920,19 @@ async function assignEntityWithModel(params: {
     limit: MAX_ENTITY_SHORTLIST,
     offset: 0,
   });
+  const stableSubject = inferStableSubjectHint(params.candidate);
+  const existingByHint = findExistingEntityBySubjectHint({
+    shortlist,
+    hint: stableSubject,
+  });
+  if (existingByHint) {
+    return {
+      entity: existingByHint,
+      confidence: stableSubject?.confidence === "high" ? 0.9 : 0.75,
+      secondaryEntityIds: [],
+      action: "matched",
+    };
+  }
   const existingIds = new Set(shortlist.map((entity) => entity.entityId));
   if (!params.modelClient) {
     const fallbackSpec = deterministicEntitySpec(params.candidate);
@@ -675,6 +962,9 @@ async function assignEntityWithModel(params: {
       "You assign one durable interaction memory chunk to exactly one interaction entity tree.",
       "Return strict JSON only with this shape:",
       '{"action":"match_existing|create_new|fallback","existing_entity_id":"string|null","new_entity_type":"project|workflow|preference|identity|person|customer|system|misc|null","new_entity_name":"string|null","secondary_entity_ids":["string"],"confidence":0.0,"rationale":"string"}',
+      "Choose the owner tree based on the stable primary subject the memory is about.",
+      "A memory being a procedure, contact, threshold, channel, dashboard, or owner fact does not by itself imply workflow ownership.",
+      "Use workflow ownership only when the workflow or runbook itself is the enduring named subject, rather than some larger customer, project, or system.",
       "Use match_existing only when the chunk clearly belongs under one existing entity.",
       "Use create_new only when there is a clear, reusable subject that deserves its own entity.",
       "Use fallback when neither is confident.",
@@ -687,6 +977,7 @@ async function assignEntityWithModel(params: {
       `Chunk subject key: ${params.candidate.subjectKey}`,
       `Chunk tags: ${params.candidate.tags.join(", ") || "none"}`,
       `Memory type hint: ${params.candidate.memoryType ?? "none"}`,
+      `Stable subject hint: ${stableSubject ? `${stableSubject.canonicalName} (${stableSubject.entityType})` : "none"}`,
       "",
       "Chunk content:",
       clipText(params.candidate.content, 2000),
@@ -740,6 +1031,25 @@ async function assignEntityWithModel(params: {
     newEntityName &&
     (confidence ?? 0) >= ENTITY_CREATE_CONFIDENCE_THRESHOLD
   ) {
+    if (
+      stableSubject
+      && stableSubject.entityType !== "workflow"
+      && newEntityType === "workflow"
+    ) {
+      const entity = ensureInteractionEntity({
+        store: params.store,
+        workspaceId: params.workspaceId,
+        entityType: stableSubject.entityType,
+        canonicalName: stableSubject.canonicalName,
+        aliases: [stableSubject.canonicalName],
+      });
+      return {
+        entity,
+        confidence,
+        secondaryEntityIds: secondaryEntityIds.filter((entityId) => entityId !== entity.entityId),
+        action: "created",
+      };
+    }
     const entity = ensureInteractionEntity({
       store: params.store,
       workspaceId: params.workspaceId,
