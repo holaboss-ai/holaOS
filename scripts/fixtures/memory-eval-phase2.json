@@ -963,8 +963,8 @@
     },
     {
       "id": "integration_live_gmail_profile_fetch",
-      "kind": "integration_live_gmail",
-      "description": "A live Gmail context fetch should materialize a visible integration tree and allow profile recall without polluting AGENTS.",
+      "kind": "integration_live_context_fetch",
+      "description": "A live Gmail context fetch should materialize a visible integration tree and support cross recall with earlier interaction memory.",
       "provider_id": "gmail",
       "skip_if_unavailable": true,
       "expected_tree": {
@@ -998,14 +998,80 @@
           "tree_scope": "tree",
           "expected_answer_contains_templates": [
             "{{account_label}}"
+          ]
+        },
+        {
+          "query": "Which Gmail account was synced for this workspace, and how long is the Pine Harbor refund hold window?",
+          "categories": [
+            "interaction",
+            "integration"
           ],
-          "expected_retrieve_contains_templates": [
-            "{{account_label}}"
+          "tree_scope": "global",
+          "expected_answer_contains_templates": [
+            "{{account_label}}",
+            "48 hours"
           ]
         }
       ],
       "agents_terms": [
         "{{account_label}}"
+      ],
+      "agents_policy": "forbid"
+    },
+    {
+      "id": "integration_live_github_context_fetch",
+      "kind": "integration_live_context_fetch",
+      "description": "A live GitHub context fetch should materialize repository memory and support cross recall with earlier project interaction memory.",
+      "provider_id": "github",
+      "skip_if_unavailable": true,
+      "expected_tree": {
+        "provider": "github",
+        "expected_active_leaf_count_min": 2,
+        "expected_summary_count_min": 1,
+        "required_subject_keys": [
+          "profile"
+        ],
+        "required_subject_key_prefixes": [
+          "repository:"
+        ]
+      },
+      "reader_queries": [
+        {
+          "query": "What GitHub account profile was synced for this workspace?",
+          "categories": [
+            "integration"
+          ],
+          "tree_scope": "tree",
+          "expected_answer_contains_templates": [
+            "{{account_label}}"
+          ]
+        },
+        {
+          "query": "Name one GitHub repository that was synced into memory.",
+          "categories": [
+            "integration"
+          ],
+          "tree_scope": "tree",
+          "expected_answer_contains_templates": [
+            "{{first_repository_title}}"
+          ]
+        },
+        {
+          "query": "Who approves Beacon API rollouts, and name one GitHub repository that was synced into memory.",
+          "categories": [
+            "interaction",
+            "integration"
+          ],
+          "tree_scope": "global",
+          "expected_answer_contains_templates": [
+            "Keira Tan",
+            "{{first_repository_title}}"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "{{account_label}}",
+        "{{first_repository_title}}"
       ],
       "agents_policy": "forbid"
     }

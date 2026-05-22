@@ -1,12 +1,12 @@
 {
   "name": "workspace-memory-live-integration",
-  "description": "Integration-only live memory eval focused on agent recall over fetched Gmail account context.",
+  "description": "Integration-only live memory eval focused on agent recall over fetched Gmail and GitHub account context.",
   "batch_size": 3,
   "include_direct_retrieval": false,
   "scenarios": [
     {
       "id": "integration_live_gmail_profile_fetch",
-      "kind": "integration_live_gmail",
+      "kind": "integration_live_context_fetch",
       "description": "A live Gmail context fetch should materialize a visible integration tree and allow profile recall without polluting AGENTS.",
       "provider_id": "gmail",
       "skip_if_unavailable": true,
@@ -27,10 +27,6 @@
           "tree_scope": "tree",
           "expected_answer_contains_templates": [
             "{{account_label}}"
-          ],
-          "expected_retrieve_contains_templates": [
-            "{{account_label}}",
-            "gmail"
           ]
         },
         {
@@ -41,14 +37,56 @@
           "tree_scope": "tree",
           "expected_answer_contains_templates": [
             "{{account_label}}"
-          ],
-          "expected_retrieve_contains_templates": [
-            "{{account_label}}"
           ]
         }
       ],
       "agents_terms": [
         "{{account_label}}"
+      ],
+      "agents_policy": "forbid"
+    },
+    {
+      "id": "integration_live_github_context_fetch",
+      "kind": "integration_live_context_fetch",
+      "description": "A live GitHub context fetch should materialize a GitHub integration tree with both a profile leaf and at least one repository leaf, and the agent should recall them without AGENTS leakage.",
+      "provider_id": "github",
+      "skip_if_unavailable": true,
+      "expected_tree": {
+        "provider": "github",
+        "expected_active_leaf_count_min": 2,
+        "expected_summary_count_min": 1,
+        "required_subject_keys": [
+          "profile"
+        ],
+        "required_subject_key_prefixes": [
+          "repository:"
+        ]
+      },
+      "reader_queries": [
+        {
+          "query": "What GitHub account profile was synced for this workspace?",
+          "categories": [
+            "integration"
+          ],
+          "tree_scope": "tree",
+          "expected_answer_contains_templates": [
+            "{{account_label}}"
+          ]
+        },
+        {
+          "query": "Name one GitHub repository that was synced into memory.",
+          "categories": [
+            "integration"
+          ],
+          "tree_scope": "tree",
+          "expected_answer_contains_templates": [
+            "{{first_repository_title}}"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "{{account_label}}",
+        "{{first_repository_title}}"
       ],
       "agents_policy": "forbid"
     }

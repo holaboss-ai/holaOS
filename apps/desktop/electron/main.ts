@@ -15587,6 +15587,18 @@ async function continueDeterministicOnboarding(
   if (status === "completed" || status === "not_required") {
     return withWorkspaceResponseLocation(current);
   }
+  const currentState = (current.workspace.onboarding_state || "")
+    .trim()
+    .toLowerCase();
+  if (currentState === "deterministic_intro") {
+    return withWorkspaceResponseLocation(
+      await runtimeClient.workspaces.update(safeWorkspaceId, {
+        onboarding_status: "in_progress",
+        onboarding_state: "deterministic_context_fetching",
+        error_message: null,
+      }),
+    );
+  }
   return withWorkspaceResponseLocation(
     await runtimeClient.workspaces.update(safeWorkspaceId, {
       onboarding_status: "completed",

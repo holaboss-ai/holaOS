@@ -190,6 +190,44 @@ function isMissingComposioToolError(error: unknown, toolSlug: string): boolean {
   );
 }
 
+function parseJsonObject(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(raw);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isComposioNotFoundError(error: unknown): boolean {
+  if (!(error instanceof ComposioApiClientError)) {
+    return false;
+  }
+  if (error.httpStatus === 404) {
+    return true;
+  }
+  const code = String(error.info.code ?? "").toLowerCase();
+  if (code.includes("not_found") || code.includes("notfound")) {
+    return true;
+  }
+  const message = String(error.info.message ?? error.message ?? "");
+  const payload = parseJsonObject(message);
+  const status = payload?.status;
+  const statusString = typeof status === "string" ? status : null;
+  const statusNumber = typeof status === "number"
+    ? status
+    : typeof statusString === "string" && /^\d+$/.test(statusString)
+      ? Number(statusString)
+      : null;
+  if (statusNumber === 404) {
+    return true;
+  }
+  const messageText = typeof payload?.message === "string"
+    ? payload.message.toLowerCase()
+    : message.toLowerCase();
+  return messageText.includes("not found");
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -456,7 +494,6 @@ function buildGmailProfileCandidate(params: {
     messagesTotal !== null ? `- Messages total: ${messagesTotal}` : null,
     threadsTotal !== null ? `- Threads total: ${threadsTotal}` : null,
     historyId ? `- History ID: ${historyId}` : null,
-    `- Fetched at: ${params.fetchedAt}`,
     "",
     "## Summary",
     "",
@@ -593,7 +630,6 @@ function buildGitHubProfileCandidate(params: {
     publicRepos !== null ? `- Public repositories: ${publicRepos}` : null,
     followers !== null ? `- Followers: ${followers}` : null,
     following !== null ? `- Following: ${following}` : null,
-    `- Fetched at: ${params.fetchedAt}`,
     "",
     "## Summary",
     "",
@@ -900,7 +936,6 @@ function buildSlackProfileCandidate(params: {
     userId ? `- User ID: ${userId}` : null,
     botId ? `- Bot ID: ${botId}` : null,
     workspaceUrl ? `- Workspace URL: ${workspaceUrl}` : null,
-    `- Fetched at: ${params.fetchedAt}`,
     "",
     "## Summary",
     "",
@@ -960,7 +995,6 @@ function buildSlackChannelCandidate(params: {
     numMembers !== null ? `- Members: ${numMembers}` : null,
     topic ? `- Topic: ${topic}` : null,
     purpose ? `- Purpose: ${purpose}` : null,
-    `- Fetched at: ${params.fetchedAt}`,
     "",
     "## Summary",
     "",
@@ -1390,9 +1424,10 @@ async function fetchGitHubIntegrationContext(params: {
       const readme = gitHubReadmeFromData(readmeResult.data);
       readmeText = decodeMaybeBase64(readme?.content, readme?.encoding);
     } catch (error) {
-      if (!(error instanceof ComposioApiClientError) || error.httpStatus !== 404) {
+      if (!isComposioNotFoundError(error)) {
         throw error;
       }
+      actions.push(`GITHUB_GET_A_REPOSITORY_README:${fullName}:missing`);
     }
 
     const repoCandidate = buildGitHubRepositoryCandidate({

@@ -110,47 +110,81 @@ export function DeterministicWorkspaceOnboardingSurface() {
     }
   }
 
+  const onboardingFlowState = (selectedWorkspace?.onboarding_state || "")
+    .trim()
+    .toLowerCase();
+  const isFetchingContext =
+    onboardingFlowState === "deterministic_context_fetching";
   const workspaceName = selectedWorkspace?.name?.trim() || "Workspace";
+  const fetchingContextMessage =
+    connectedCount > 0
+      ? `We're importing the first batch of context from your ${connectedCount} connected ${connectedCount === 1 ? "tool" : "tools"} now. You can enter the workspace while that keeps running in the background.`
+      : "We're preparing your workspace context now. If you connected tools, they'll keep importing in the background while you enter the workspace.";
 
   return (
     <div className="flex h-full min-h-0 w-full flex-1 items-center justify-center overflow-y-auto px-6 py-10 sm:px-10">
       <div className="flex w-full max-w-2xl flex-col items-center gap-6">
         <div className="w-full rounded-[32px] border border-border/70 bg-background/90 px-8 py-10 shadow-[0_28px_90px_rgba(15,23,42,0.08)] backdrop-blur sm:px-12 sm:py-12">
-          <div className="space-y-3 text-center">
-            <p className="text-xs font-semibold uppercase tracking-[0.32em] text-muted-foreground">
-              Set up {workspaceName}
-            </p>
-            <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-              Hook up your tools
-            </h1>
-            <p className="mx-auto max-w-md text-sm leading-7 text-muted-foreground">
-              Connect anything you want the agent to use. One click each — you
-              can always add more from Settings later.
-            </p>
-          </div>
+          {isFetchingContext ? (
+            <div className="flex flex-col items-center justify-center gap-6 py-6 text-center">
+              <div className="grid size-14 place-items-center rounded-full bg-accent/60 text-foreground">
+                <LoaderCircle className="size-6 animate-spin" />
+              </div>
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.32em] text-muted-foreground">
+                  Set up {workspaceName}
+                </p>
+                <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+                  Fetching your context
+                </h1>
+                <p className="mx-auto max-w-md text-sm leading-7 text-muted-foreground">
+                  {fetchingContextMessage}
+                </p>
+                <p className="mx-auto max-w-md text-sm leading-7 text-muted-foreground">
+                  This can take a minute depending on the accounts you linked.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-3 text-center">
+                <p className="text-xs font-semibold uppercase tracking-[0.32em] text-muted-foreground">
+                  Set up {workspaceName}
+                </p>
+                <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+                  Hook up your tools
+                </h1>
+                <p className="mx-auto max-w-md text-sm leading-7 text-muted-foreground">
+                  Connect anything you want the agent to use. One click each —
+                  you can always add more from Settings later.
+                </p>
+              </div>
 
-          <div className="mt-8">
-            {heroEntries === null ? (
-              <HeroGridSkeleton />
-            ) : heroEntries.length === 0 ? (
-              <p className="text-center text-sm text-muted-foreground">
-                Integration catalog is unavailable right now. You can connect
-                tools from Settings → Integrations after continuing.
-              </p>
-            ) : (
-              <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {heroEntries.map((entry) => (
-                  <HeroConnectCard
-                    entry={entry}
-                    error={errorByToolkit[entry.slug] ?? null}
-                    key={entry.slug}
-                    onConnect={() => void handleConnect(entry)}
-                    phase={phaseByToolkit[entry.slug] ?? "idle"}
-                  />
-                ))}
-              </ul>
-            )}
-          </div>
+              <div className="mt-8">
+                {heroEntries === null ? (
+                  <HeroGridSkeleton />
+                ) : heroEntries.length === 0 ? (
+                  <p className="text-center text-sm text-muted-foreground">
+                    Integration catalog is unavailable right now. You can
+                    connect tools from Settings → Integrations after
+                    continuing.
+                  </p>
+                ) : (
+                  <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {heroEntries.map((entry) => (
+                      <HeroConnectCard
+                        entry={entry}
+                        error={errorByToolkit[entry.slug] ?? null}
+                        key={entry.slug}
+                        onConnect={() => void handleConnect(entry)}
+                        phase={phaseByToolkit[entry.slug] ?? "idle"}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-4">
@@ -162,8 +196,12 @@ export function DeterministicWorkspaceOnboardingSurface() {
             type="button"
           >
             {isContinuing
-              ? "Opening..."
-              : connectedCount > 0
+              ? isFetchingContext
+                ? "Opening workspace..."
+                : "Continuing..."
+              : isFetchingContext
+                ? "Enter workspace now"
+                : connectedCount > 0
                 ? `Continue (${connectedCount} connected)`
                 : "Continue"}
           </Button>

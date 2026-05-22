@@ -13,7 +13,7 @@ test("experimental shell swaps into onboarding takeover mode for onboarding work
   );
   assert.match(
     source,
-    /const \{ onboardingModeActive \} = useWorkspaceDesktop\(\);/,
+    /const \{\s*onboardingModeActive,\s*workspaces,\s*hasHydratedWorkspaceList\s*\} =\s*useWorkspaceDesktop\(\);/,
   );
   assert.match(
     source,

@@ -546,6 +546,305 @@ test("fetchIntegrationContextForConnection skips GitHub notifications when the t
   store.close();
 });
 
+test("fetchIntegrationContextForConnection skips a GitHub repository README when upstream returns a not-found payload", async () => {
+  const root = makeTempDir("hb-integration-context-fetch-github-missing-readme-");
+  const workspaceRoot = path.join(root, "workspace-root");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertIntegrationConnection({
+    connectionId: "conn-github-1",
+    providerId: "github",
+    ownerUserId: "user-1",
+    accountLabel: "GitHub (Managed)",
+    accountExternalId: "ca_gh_1",
+    accountHandle: null,
+    accountEmail: null,
+    authMode: "composio",
+    grantedScopes: [],
+    status: "active",
+    secretRef: null,
+  });
+
+  const result = await fetchIntegrationContextForConnection({
+    store,
+    connectionId: "conn-github-1",
+    composioClient: {
+      async executeAction<TData = unknown>(params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
+        if (params.toolSlug === "GITHUB_GET_THE_AUTHENTICATED_USER") {
+          return {
+            data: {
+              data: {
+                login: "octocat",
+                name: "The Octocat",
+                email: "octocat@github.example",
+                html_url: "https://github.com/octocat",
+              },
+            } as TData,
+            logId: "log-gh-profile",
+          };
+        }
+        if (params.toolSlug === "GITHUB_LIST_NOTIFICATIONS") {
+          return { data: { data: [] } as TData, logId: "log-gh-notifications" };
+        }
+        if (params.toolSlug === "GITHUB_FIND_REPOSITORIES") {
+          return {
+            data: {
+              data: {
+                items: [
+                  {
+                    id: "repo-1",
+                    full_name: "holaboss-ai/holaOS",
+                    name: "holaOS",
+                    description: "Desktop runtime for agentic workflows.",
+                    html_url: "https://github.com/holaboss-ai/holaOS",
+                    updated_at: "2026-05-22T09:15:00Z",
+                    language: "TypeScript",
+                    default_branch: "main",
+                  },
+                ],
+              },
+            } as TData,
+            logId: "log-gh-repos",
+          };
+        }
+        if (params.toolSlug === "GITHUB_GET_A_REPOSITORY_README") {
+          throw new ComposioApiClientError(200, {
+            code: "composio_execute_failed",
+            message: JSON.stringify({
+              message: "Not Found",
+              documentation_url: "https://docs.github.com/rest/repos/contents#get-a-repository-readme",
+              status: "404",
+            }),
+          });
+        }
+        if (params.toolSlug === "GITHUB_LIST_PULL_REQUESTS") {
+          return { data: { data: [] } as TData, logId: "log-gh-prs" };
+        }
+        if (params.toolSlug === "GITHUB_LIST_REPOSITORY_ISSUES") {
+          return { data: { data: [] } as TData, logId: "log-gh-issues" };
+        }
+        throw new Error(`unexpected tool slug: ${params.toolSlug}`);
+      },
+    },
+  });
+
+  assert.equal(result.supported, true);
+  assert.equal(result.provider_id, "github");
+  assert.equal(result.leaves_created, 2);
+  assert.equal(result.messages_seen, 1);
+  assert.equal(result.messages_persisted, 1);
+  assert.ok(
+    result.actions.includes("GITHUB_GET_A_REPOSITORY_README:holaboss-ai/holaOS:missing"),
+  );
+
+  const trees = store.listIntegrationTrees({
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  const leaves = store.listIntegrationLeaves({
+    treeId: trees[0]!.treeId,
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.deepEqual(
+    leaves.map((leaf) => leaf.subjectKey).sort(),
+    [
+      "profile",
+      "repository:holaboss-ai/holaOS",
+    ],
+  );
+
+  store.close();
+});
+
+test("fetchIntegrationContextForConnection does not duplicate unchanged GitHub leaves across repeated fetches", async () => {
+  const root = makeTempDir("hb-integration-context-fetch-github-repeat-");
+  const workspaceRoot = path.join(root, "workspace-root");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertIntegrationConnection({
+    connectionId: "conn-github-1",
+    providerId: "github",
+    ownerUserId: "user-1",
+    accountLabel: "GitHub (Managed)",
+    accountExternalId: "ca_gh_1",
+    accountHandle: null,
+    accountEmail: null,
+    authMode: "composio",
+    grantedScopes: [],
+    status: "active",
+    secretRef: null,
+  });
+
+  const composioClient = {
+    async executeAction<TData = unknown>(params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
+      if (params.toolSlug === "GITHUB_GET_THE_AUTHENTICATED_USER") {
+        return {
+          data: {
+            data: {
+              login: "octocat",
+              name: "The Octocat",
+              email: "octocat@github.example",
+              public_repos: 42,
+              followers: 7,
+              following: 3,
+              html_url: "https://github.com/octocat",
+            },
+          } as TData,
+          logId: "log-gh-profile",
+        };
+      }
+      if (params.toolSlug === "GITHUB_LIST_NOTIFICATIONS") {
+        return {
+          data: {
+            data: [
+              {
+                id: "notif-1",
+                unread: true,
+                reason: "mention",
+                updated_at: "2026-05-22T08:30:00Z",
+                subject: {
+                  title: "Review rollout checklist",
+                  type: "PullRequest",
+                },
+                repository: {
+                  full_name: "holaboss-ai/holaOS",
+                },
+              },
+            ],
+          } as TData,
+          logId: "log-gh-notifications",
+        };
+      }
+      if (params.toolSlug === "GITHUB_FIND_REPOSITORIES") {
+        return {
+          data: {
+            data: {
+              items: [
+                {
+                  id: "repo-1",
+                  full_name: "holaboss-ai/holaOS",
+                  name: "holaOS",
+                  description: "Desktop runtime for agentic workflows.",
+                  html_url: "https://github.com/holaboss-ai/holaOS",
+                  updated_at: "2026-05-22T09:15:00Z",
+                  language: "TypeScript",
+                  default_branch: "main",
+                  topics: ["agents", "desktop"],
+                },
+              ],
+            },
+          } as TData,
+          logId: "log-gh-repos",
+        };
+      }
+      if (params.toolSlug === "GITHUB_GET_A_REPOSITORY_README") {
+        return {
+          data: {
+            data: {
+              content: Buffer.from(
+                "# holaOS\n\nAgent runtime and desktop shell for workspace memory experiments.\n",
+                "utf8",
+              ).toString("base64"),
+              encoding: "base64",
+            },
+          } as TData,
+          logId: "log-gh-readme",
+        };
+      }
+      if (params.toolSlug === "GITHUB_LIST_PULL_REQUESTS") {
+        return {
+          data: {
+            data: [
+              {
+                id: "pr-1",
+                number: 412,
+                title: "Expand integration context fetch",
+                body: "Adds GitHub and Slack provider-specific harvesting paths.",
+                state: "open",
+                updated_at: "2026-05-22T09:30:00Z",
+                html_url: "https://github.com/holaboss-ai/holaOS/pull/412",
+                labels: [{ name: "integrations" }, { name: "memory" }],
+              },
+            ],
+          } as TData,
+          logId: "log-gh-prs",
+        };
+      }
+      if (params.toolSlug === "GITHUB_LIST_REPOSITORY_ISSUES") {
+        return {
+          data: {
+            data: [
+              {
+                id: "issue-1",
+                number: 128,
+                title: "Stabilize memory retrieval routing",
+                body: "Track the remaining web-search bypasses in recall flows.",
+                state: "open",
+                updated_at: "2026-05-22T09:00:00Z",
+                html_url: "https://github.com/holaboss-ai/holaOS/issues/128",
+                labels: [{ name: "memory" }, { name: "runtime" }],
+              },
+            ],
+          } as TData,
+          logId: "log-gh-issues",
+        };
+      }
+      throw new Error(`unexpected tool slug: ${params.toolSlug}`);
+    },
+  };
+
+  const first = await fetchIntegrationContextForConnection({
+    store,
+    connectionId: "conn-github-1",
+    composioClient,
+  });
+  const second = await fetchIntegrationContextForConnection({
+    store,
+    connectionId: "conn-github-1",
+    composioClient,
+  });
+
+  assert.equal(first.leaves_created, 5);
+  assert.equal(first.leaves_unchanged, 0);
+  assert.equal(second.leaves_created, 0);
+  assert.equal(second.leaves_superseding, 0);
+  assert.equal(second.leaves_unchanged, 5);
+
+  const trees = store.listIntegrationTrees({
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  const leaves = store.listIntegrationLeaves({
+    treeId: trees[0]!.treeId,
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.equal(leaves.length, 5);
+
+  store.close();
+});
+
 test("fetchIntegrationContextForConnection ingests Slack workspace, channels, and recent messages into the global integration tree", async () => {
   const root = makeTempDir("hb-integration-context-fetch-slack-");
   const workspaceRoot = path.join(root, "workspace-root");

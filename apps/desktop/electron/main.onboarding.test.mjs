@@ -22,7 +22,7 @@ test("deterministic onboarding continue is exposed over electron ipc", async () 
 
   assert.match(
     source,
-    /async function continueDeterministicOnboarding\([\s\S]*onboarding_status: "completed"[\s\S]*onboarding_completion_summary: "Deterministic onboarding completed"/,
+    /async function continueDeterministicOnboarding\([\s\S]*currentState === "deterministic_intro"[\s\S]*onboarding_status: "in_progress"[\s\S]*onboarding_state: "deterministic_context_fetching"[\s\S]*onboarding_status: "completed"[\s\S]*onboarding_completion_summary: "Deterministic onboarding completed"/,
   );
   assert.match(source, /"workspace:continueDeterministicOnboarding"/);
 });

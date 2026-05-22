@@ -21,4 +21,11 @@ test("deterministic workspace onboarding does not enqueue a starter prompt", asy
     source,
     /async function handleContinue\(\) \{[\s\S]*await continueDeterministicOnboarding\(\);[\s\S]*\}/,
   );
+  assert.match(source, /deterministic_context_fetching/);
+  assert.match(source, />\s*Fetching your context\s*</);
+  assert.match(
+    source,
+    /You can enter the workspace while that keeps running in the background\./,
+  );
+  assert.match(source, /"Enter workspace now"/);
 });

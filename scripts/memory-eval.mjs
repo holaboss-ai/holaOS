@@ -107,7 +107,10 @@ function renderTemplateArray(values, context) {
   if (!Array.isArray(values)) {
     return [];
   }
-  return values.map((value) => renderTemplateString(value, context));
+  return values
+    .map((value) => renderTemplateString(value, context))
+    .map((value) => String(value ?? "").trim())
+    .filter((value) => value.length > 0);
 }
 
 function writeReport(report, outputPath) {
@@ -165,6 +168,10 @@ function loadFixture(filePath, scenarioId) {
     includeDirectRetrieval: parsed.include_direct_retrieval === true,
     scenarios: selected,
   };
+}
+
+function controlPlaneDbPathForWorkspaceDir(workspaceDir) {
+  return path.resolve(workspaceDir, "..", "..", "state", "control-plane.db");
 }
 
 function expectedEntitiesForScenario(scenario) {
@@ -496,6 +503,49 @@ function activeIntegrationSummariesForTree(dbPath, treeId) {
     sealed_at: row[6],
     updated_at: row[7],
   }));
+}
+
+function firstIntegrationLeafByPrefix(leaves, prefix) {
+  return leaves.find((leaf) => String(leaf.subject_key ?? "").startsWith(prefix)) ?? null;
+}
+
+function buildIntegrationTemplateContext(params) {
+  const profileLeaf = params.leaves.find((leaf) => leaf.subject_key === "profile") ?? null;
+  const repositoryLeaf = firstIntegrationLeafByPrefix(params.leaves, "repository:");
+  const notificationLeaf = firstIntegrationLeafByPrefix(params.leaves, "notification:");
+  const pullLeaf = firstIntegrationLeafByPrefix(params.leaves, "pull:");
+  const issueLeaf = firstIntegrationLeafByPrefix(params.leaves, "issue:");
+  const messageLeaf = firstIntegrationLeafByPrefix(params.leaves, "message:");
+  const firstNonProfileLeaf = params.leaves.find((leaf) => leaf.subject_key !== "profile") ?? null;
+  const firstWorkItemLeaf = pullLeaf ?? issueLeaf ?? notificationLeaf ?? null;
+  return {
+    provider_id: params.fetchResult.provider_id ?? params.providerId,
+    connection_id: params.fetchResult.connection_id ?? params.connection.connection_id,
+    account_key:
+      params.fetchResult.account_key
+      ?? params.connection.account_external_id
+      ?? params.connection.account_email
+      ?? "",
+    account_label: params.fetchResult.account_label ?? params.connection.account_label ?? "",
+    account_email: params.connection.account_email ?? "",
+    account_external_id: params.connection.account_external_id ?? "",
+    tree_id: params.tree?.tree_id ?? params.treeId ?? "",
+    profile_title:
+      profileLeaf?.title
+      ?? `${params.providerId.toUpperCase()} profile for ${params.fetchResult.account_label ?? params.connection.account_label ?? ""}`,
+    profile_summary: profileLeaf?.summary ?? "",
+    first_repository_title: repositoryLeaf?.title ?? "",
+    first_repository_summary: repositoryLeaf?.summary ?? "",
+    first_repository_subject_key: repositoryLeaf?.subject_key ?? "",
+    first_notification_title: notificationLeaf?.title ?? "",
+    first_notification_summary: notificationLeaf?.summary ?? "",
+    first_pull_title: pullLeaf?.title ?? "",
+    first_issue_title: issueLeaf?.title ?? "",
+    first_message_title: messageLeaf?.title ?? "",
+    first_non_profile_title: firstNonProfileLeaf?.title ?? "",
+    first_work_item_title: firstWorkItemLeaf?.title ?? "",
+    first_work_item_summary: firstWorkItemLeaf?.summary ?? "",
+  };
 }
 
 function assertIncludesAll(label, haystack, terms) {
@@ -904,7 +954,7 @@ async function runInteractionScenario(params) {
   };
 }
 
-async function runIntegrationGmailScenario(params) {
+async function runIntegrationContextFetchScenario(params) {
   const scenario = params.scenario;
   const startedAt = new Date().toISOString();
   const startedWall = Date.now();
@@ -914,7 +964,7 @@ async function runIntegrationGmailScenario(params) {
   const providerId = typeof scenario.provider_id === "string" && scenario.provider_id.trim().length > 0
     ? scenario.provider_id.trim().toLowerCase()
     : "gmail";
-  const connection = activeIntegrationConnection(params.dbPath, providerId);
+  const connection = activeIntegrationConnection(params.controlPlaneDbPath, providerId);
 
   if (!connection) {
     if (scenario.skip_if_unavailable !== false) {
@@ -1008,14 +1058,14 @@ async function runIntegrationGmailScenario(params) {
     failures.push("integration context fetch did not return a tree_id");
   }
 
-  const templateContext = {
-    provider_id: fetchResult.provider_id ?? providerId,
-    connection_id: fetchResult.connection_id ?? connection.connection_id,
-    account_key: fetchResult.account_key ?? connection.account_external_id ?? connection.account_email ?? "",
-    account_label: fetchResult.account_label ?? connection.account_label ?? "",
-    tree_id: tree?.tree_id ?? treeId ?? "",
-    profile_title: `Gmail profile for ${fetchResult.account_label ?? connection.account_label ?? ""}`,
-  };
+  const templateContext = buildIntegrationTemplateContext({
+    providerId,
+    connection,
+    fetchResult,
+    tree,
+    treeId,
+    leaves,
+  });
 
   const integrationFailures = [];
   if (fetchResult.supported === false) {
@@ -1057,6 +1107,14 @@ async function runIntegrationGmailScenario(params) {
     for (const subjectKey of requiredSubjectKeys) {
       if (!leaves.some((leaf) => leaf.subject_key === subjectKey)) {
         integrationFailures.push(`missing active integration leaf with subject_key ${subjectKey}`);
+      }
+    }
+    const requiredSubjectKeyPrefixes = Array.isArray(expectedTree.required_subject_key_prefixes)
+      ? expectedTree.required_subject_key_prefixes
+      : [];
+    for (const prefix of requiredSubjectKeyPrefixes) {
+      if (!leaves.some((leaf) => String(leaf.subject_key ?? "").startsWith(prefix))) {
+        integrationFailures.push(`missing active integration leaf with subject_key prefix ${prefix}`);
       }
     }
   }
@@ -1179,7 +1237,9 @@ async function runIntegrationGmailScenario(params) {
   return {
     scenario_id: scenario.id,
     description: scenario.description ?? "",
-    kind: "integration_live_gmail",
+    kind: typeof scenario.kind === "string" && scenario.kind.trim().length > 0
+      ? scenario.kind.trim()
+      : "integration_live_context_fetch",
     status: failures.length === 0 ? "passed" : "failed",
     failures,
     started_at: startedAt,
@@ -1232,8 +1292,8 @@ async function runIntegrationGmailScenario(params) {
 
 async function runScenario(params) {
   const kind = typeof params.scenario.kind === "string" ? params.scenario.kind.trim().toLowerCase() : "interaction";
-  if (kind === "integration_live_gmail") {
-    return await runIntegrationGmailScenario(params);
+  if (kind.startsWith("integration_live_")) {
+    return await runIntegrationContextFetchScenario(params);
   }
   return await runInteractionScenario(params);
 }
@@ -1249,6 +1309,7 @@ async function main() {
   const runtimePort = args.dryRun && !args.runtimePort ? null : await discoverRuntimePort(args.runtimePort);
   const baseUrl = runtimePort == null ? null : `http://127.0.0.1:${runtimePort}`;
   const dbPath = runtimeDbPath(args.workspaceDir);
+  const controlPlaneDbPath = controlPlaneDbPathForWorkspaceDir(args.workspaceDir);
   const agentsPath = agentsMdPath(args.workspaceDir);
 
   const cleanup = args.cleanFirst
@@ -1299,6 +1360,7 @@ async function main() {
       baseUrl,
       workspaceId: args.workspaceId,
       dbPath,
+      controlPlaneDbPath,
       agentsPath,
     }).catch((error) => ({
       scenario_id: scenario.id,

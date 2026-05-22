@@ -10546,6 +10546,7 @@ export class RuntimeStateStore {
     `);
     this.ensureMemoryEntriesTableSchema(db);
     this.ensureMemoryEmbeddingIndexSchema(db);
+    this.ensureSessionMessagesTableSchema(db);
     this.ensureConversationBindingsTableSchema(db);
     this.migrateLegacyMainSessionLabels(db);
     this.ensureSubagentRunsTableSchema(db);
