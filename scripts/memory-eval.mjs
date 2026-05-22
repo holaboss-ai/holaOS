@@ -162,6 +162,7 @@ function loadFixture(filePath, scenarioId) {
     name: parsed.name ?? path.basename(resolvedPath),
     description: parsed.description ?? "",
     batchSize: Number(parsed.batch_size ?? 3),
+    includeDirectRetrieval: parsed.include_direct_retrieval === true,
     scenarios: selected,
   };
 }
@@ -549,7 +550,6 @@ async function runInteractionScenario(params) {
   const failures = [];
   const countsBefore = workspaceMemoryCounts(params.dbPath);
   const expectedEntities = expectedEntitiesForScenario(scenario);
-  const expectedEntityIds = new Set(expectedEntities.map((entity) => entity.entity_id));
 
   if (!Array.isArray(scenario.writer_turns) || scenario.writer_turns.length === 0) {
     return {
@@ -754,48 +754,50 @@ async function runInteractionScenario(params) {
       : [];
     const categories = Array.isArray(queryCase.categories) ? queryCase.categories : null;
 
-    let directPayload = { hits: [] };
-    let directLatencyMs = null;
-    let directFailure = null;
-    try {
-      const direct = await retrieveMemory(params.baseUrl, {
-        workspaceId: params.workspaceId,
+    if (params.includeDirectRetrieval) {
+      let directPayload = { hits: [] };
+      let directLatencyMs = null;
+      let directFailure = null;
+      try {
+        const direct = await retrieveMemory(params.baseUrl, {
+          workspaceId: params.workspaceId,
+          query: queryCase.query,
+          categories,
+          treeId: treeScope === "entity" ? targetEntityId : null,
+        });
+        directPayload = direct.payload;
+        directLatencyMs = direct.latency_ms;
+      } catch (error) {
+        directFailure = error instanceof Error ? error.message : String(error);
+        failures.push(`direct retrieval failed for ${scenario.id} query ${index + 1}: ${directFailure}`);
+      }
+      const directHits = Array.isArray(directPayload.hits) ? directPayload.hits : [];
+      const directRank = matchingHitRank(directHits, retrievalTerms);
+      if (directFailure == null && directRank == null) {
+        failures.push(
+          `memory_retrieve did not return a hit containing expected terms for ${scenario.id} query ${index + 1}: ${retrievalTerms.join(", ")}`,
+        );
+      }
+      if (
+        directFailure == null &&
+        targetEntityId &&
+        !directHits.some((hit) => hit.tree_id === targetEntityId)
+      ) {
+        failures.push(
+          `memory_retrieve did not surface the expected tree ${targetEntityId} for ${scenario.id} query ${index + 1}`,
+        );
+      }
+      directRetrievals.push({
         query: queryCase.query,
-        categories,
-        treeId: treeScope === "entity" ? targetEntityId : null,
+        tree_scope: treeScope,
+        target_entity_id: targetEntityId,
+        latency_ms: directLatencyMs,
+        top_titles: directHits.slice(0, 5).map((hit) => hit.title),
+        top_tree_ids: directHits.slice(0, 5).map((hit) => hit.tree_id),
+        matched_hit_rank: directRank,
+        failure: directFailure,
       });
-      directPayload = direct.payload;
-      directLatencyMs = direct.latency_ms;
-    } catch (error) {
-      directFailure = error instanceof Error ? error.message : String(error);
-      failures.push(`direct retrieval failed for ${scenario.id} query ${index + 1}: ${directFailure}`);
     }
-    const directHits = Array.isArray(directPayload.hits) ? directPayload.hits : [];
-    const directRank = matchingHitRank(directHits, retrievalTerms);
-    if (directFailure == null && directRank == null) {
-      failures.push(
-        `memory_retrieve did not return a hit containing expected terms for ${scenario.id} query ${index + 1}: ${retrievalTerms.join(", ")}`,
-      );
-    }
-    if (
-      directFailure == null &&
-      targetEntityId &&
-      !directHits.some((hit) => hit.tree_id === targetEntityId)
-    ) {
-      failures.push(
-        `memory_retrieve did not surface the expected tree ${targetEntityId} for ${scenario.id} query ${index + 1}`,
-      );
-    }
-    directRetrievals.push({
-      query: queryCase.query,
-      tree_scope: treeScope,
-      target_entity_id: targetEntityId,
-      latency_ms: directLatencyMs,
-      top_titles: directHits.slice(0, 5).map((hit) => hit.title),
-      top_tree_ids: directHits.slice(0, 5).map((hit) => hit.tree_id),
-      matched_hit_rank: directRank,
-      failure: directFailure,
-    });
 
     let readerTurn = null;
     let answer = "";
@@ -1075,45 +1077,47 @@ async function runIntegrationGmailScenario(params) {
     const categories = Array.isArray(queryCase.categories) ? queryCase.categories : ["integration"];
     const treeScope = queryCase.tree_scope ?? "tree";
 
-    let directPayload = { hits: [] };
-    let directLatencyMs = null;
-    let directFailure = null;
-    try {
-      const direct = await retrieveMemory(params.baseUrl, {
-        workspaceId: params.workspaceId,
-        query,
-        categories,
-        treeId: treeScope === "tree" ? (tree?.tree_id ?? null) : null,
-      });
-      directPayload = direct.payload;
-      directLatencyMs = direct.latency_ms;
-    } catch (error) {
-      directFailure = error instanceof Error ? error.message : String(error);
-      failures.push(`direct retrieval failed for ${scenario.id} query ${index + 1}: ${directFailure}`);
-    }
+    if (params.includeDirectRetrieval) {
+      let directPayload = { hits: [] };
+      let directLatencyMs = null;
+      let directFailure = null;
+      try {
+        const direct = await retrieveMemory(params.baseUrl, {
+          workspaceId: params.workspaceId,
+          query,
+          categories,
+          treeId: treeScope === "tree" ? (tree?.tree_id ?? null) : null,
+        });
+        directPayload = direct.payload;
+        directLatencyMs = direct.latency_ms;
+      } catch (error) {
+        directFailure = error instanceof Error ? error.message : String(error);
+        failures.push(`direct retrieval failed for ${scenario.id} query ${index + 1}: ${directFailure}`);
+      }
 
-    const directHits = Array.isArray(directPayload.hits) ? directPayload.hits : [];
-    const directRank = matchingHitRank(directHits, retrievalTerms);
-    if (directFailure == null && retrievalTerms.length > 0 && directRank == null) {
-      failures.push(
-        `memory_retrieve did not return a hit containing expected terms for ${scenario.id} query ${index + 1}: ${retrievalTerms.join(", ")}`,
-      );
+      const directHits = Array.isArray(directPayload.hits) ? directPayload.hits : [];
+      const directRank = matchingHitRank(directHits, retrievalTerms);
+      if (directFailure == null && retrievalTerms.length > 0 && directRank == null) {
+        failures.push(
+          `memory_retrieve did not return a hit containing expected terms for ${scenario.id} query ${index + 1}: ${retrievalTerms.join(", ")}`,
+        );
+      }
+      if (directFailure == null && tree?.tree_id && !directHits.some((hit) => hit.tree_id === tree.tree_id)) {
+        failures.push(
+          `memory_retrieve did not surface the expected integration tree ${tree.tree_id} for ${scenario.id} query ${index + 1}`,
+        );
+      }
+      directRetrievals.push({
+        query,
+        tree_scope: treeScope,
+        target_tree_id: tree?.tree_id ?? null,
+        latency_ms: directLatencyMs,
+        top_titles: directHits.slice(0, 5).map((hit) => hit.title),
+        top_tree_ids: directHits.slice(0, 5).map((hit) => hit.tree_id),
+        matched_hit_rank: directRank,
+        failure: directFailure,
+      });
     }
-    if (directFailure == null && tree?.tree_id && !directHits.some((hit) => hit.tree_id === tree.tree_id)) {
-      failures.push(
-        `memory_retrieve did not surface the expected integration tree ${tree.tree_id} for ${scenario.id} query ${index + 1}`,
-      );
-    }
-    directRetrievals.push({
-      query,
-      tree_scope: treeScope,
-      target_tree_id: tree?.tree_id ?? null,
-      latency_ms: directLatencyMs,
-      top_titles: directHits.slice(0, 5).map((hit) => hit.title),
-      top_tree_ids: directHits.slice(0, 5).map((hit) => hit.tree_id),
-      matched_hit_rank: directRank,
-      failure: directFailure,
-    });
 
     let readerTurn = null;
     let answer = "";
@@ -1291,6 +1295,7 @@ async function main() {
     const result = await runScenario({
       scenario,
       batchSize: fixture.batchSize,
+      includeDirectRetrieval: fixture.includeDirectRetrieval,
       baseUrl,
       workspaceId: args.workspaceId,
       dbPath,

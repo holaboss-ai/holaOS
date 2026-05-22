@@ -113,6 +113,7 @@ import { BrokerError, IntegrationBrokerService } from "./integration-broker.js";
 import {
   fetchIntegrationContextForConnection,
   normalizeComposioError,
+  supportsIntegrationContextFetchProvider,
 } from "./integration-context-fetch.js";
 import {
   buildMemoryBrowserGraph,
@@ -3394,7 +3395,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           "resumePendingIntegrationInputs failed",
         );
       }
-      if (providerId.trim().toLowerCase() !== "gmail") {
+      if (!supportsIntegrationContextFetchProvider(providerId)) {
         return;
       }
       void fetchIntegrationContextForConnection({

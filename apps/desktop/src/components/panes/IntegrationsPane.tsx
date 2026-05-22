@@ -75,6 +75,16 @@ function providerIdForToolkit(slug: string): string {
   return slug.trim().toLowerCase();
 }
 
+const CONTEXT_FETCH_SUPPORTED_PROVIDERS = new Set([
+  "gmail",
+  "github",
+  "slack",
+]);
+
+function supportsContextFetchProvider(providerId: string | null | undefined): boolean {
+  return CONTEXT_FETCH_SUPPORTED_PROVIDERS.has(normalizedText(providerId).toLowerCase());
+}
+
 // Composio publishes a stable logo CDN keyed by toolkit slug — usable as
 // a fallback when our local toolkit lookup misses (e.g., the toolkit got
 // filtered by `composio_managed_auth_schemes` requirements, or the
@@ -1351,8 +1361,7 @@ function ConnectedProviderCard({
             disconnectingConnectionId === conn.connection_id;
           const fetchingContext =
             fetchingContextConnectionId === conn.connection_id;
-          const contextFetchSupported =
-            normalizedText(conn.provider_id).toLowerCase() === "gmail";
+          const contextFetchSupported = supportsContextFetchProvider(conn.provider_id);
           const usage = workspaceUsageByConnection.get(conn.connection_id) ?? [];
           const workspaceCount = new Set(usage.map((u) => u.workspace_id)).size;
           return (
@@ -1407,7 +1416,7 @@ function ConnectedProviderCard({
                 title={
                   contextFetchSupported
                     ? "Fetch integration context into the memory tree"
-                    : "Context fetch is implemented for Gmail first."
+                    : "Context fetch is not implemented for this provider yet."
                 }
                 size="sm"
                 type="button"

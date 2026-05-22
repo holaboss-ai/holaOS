@@ -525,7 +525,7 @@ function MemoryGraphCanvas({
           height={viewBox.height}
           fill="#171717"
         />
-        <g stroke="#5b5b5b" strokeWidth={0.85} opacity={0.4}>
+        <g stroke="#7c8593" strokeWidth={1.1} opacity={0.62}>
           {graph.edges.map((edge) => {
             const from = positionedById.get(edge.from);
             const to = positionedById.get(edge.to);

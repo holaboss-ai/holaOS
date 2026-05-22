@@ -1,0 +1,56 @@
+{
+  "name": "workspace-memory-live-integration",
+  "description": "Integration-only live memory eval focused on agent recall over fetched Gmail account context.",
+  "batch_size": 3,
+  "include_direct_retrieval": false,
+  "scenarios": [
+    {
+      "id": "integration_live_gmail_profile_fetch",
+      "kind": "integration_live_gmail",
+      "description": "A live Gmail context fetch should materialize a visible integration tree and allow profile recall without polluting AGENTS.",
+      "provider_id": "gmail",
+      "skip_if_unavailable": true,
+      "expected_tree": {
+        "provider": "gmail",
+        "expected_active_leaf_count_min": 1,
+        "expected_summary_count_min": 1,
+        "required_subject_keys": [
+          "profile"
+        ]
+      },
+      "reader_queries": [
+        {
+          "query": "What Gmail account profile was synced for this workspace?",
+          "categories": [
+            "integration"
+          ],
+          "tree_scope": "tree",
+          "expected_answer_contains_templates": [
+            "{{account_label}}"
+          ],
+          "expected_retrieve_contains_templates": [
+            "{{account_label}}",
+            "gmail"
+          ]
+        },
+        {
+          "query": "Which integration account was most recently fetched into memory?",
+          "categories": [
+            "integration"
+          ],
+          "tree_scope": "tree",
+          "expected_answer_contains_templates": [
+            "{{account_label}}"
+          ],
+          "expected_retrieve_contains_templates": [
+            "{{account_label}}"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "{{account_label}}"
+      ],
+      "agents_policy": "forbid"
+    }
+  ]
+}
