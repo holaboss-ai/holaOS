@@ -172,6 +172,24 @@ interface SlackMessagePayload {
   latest_reply?: unknown;
 }
 
+function isMissingComposioToolError(error: unknown, toolSlug: string): boolean {
+  if (!(error instanceof ComposioApiClientError)) {
+    return false;
+  }
+  const code = String(error.info.code ?? "").toLowerCase();
+  const message = String(error.info.message ?? error.message ?? "").toLowerCase();
+  const slug = String(error.info.slug ?? "").toLowerCase();
+  const target = toolSlug.toLowerCase();
+  return (
+    (code.includes("not_found") || code.includes("notfound"))
+    && (message.includes("tool") || slug.includes("tool"))
+  ) || (
+    message.includes(target) && message.includes("not found")
+  ) || (
+    slug.includes(target) && slug.includes("notfound")
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -1287,18 +1305,26 @@ async function fetchGitHubIntegrationContext(params: {
   });
   updatePersistStats(profilePersist, persistStats);
 
-  const notificationsResult = await params.composio.executeAction({
-    connectedAccountId,
-    toolSlug: "GITHUB_LIST_NOTIFICATIONS",
-    arguments: {
-      all: false,
-      participating: true,
-      per_page: GITHUB_NOTIFICATIONS_LIMIT,
-      page: 1,
-    },
-  });
-  actions.push("GITHUB_LIST_NOTIFICATIONS");
-  const notifications = gitHubNotificationsFromData(notificationsResult.data);
+  let notifications: GitHubNotificationPayload[] = [];
+  try {
+    const notificationsResult = await params.composio.executeAction({
+      connectedAccountId,
+      toolSlug: "GITHUB_LIST_NOTIFICATIONS",
+      arguments: {
+        all: false,
+        participating: true,
+        per_page: GITHUB_NOTIFICATIONS_LIMIT,
+        page: 1,
+      },
+    });
+    actions.push("GITHUB_LIST_NOTIFICATIONS");
+    notifications = gitHubNotificationsFromData(notificationsResult.data);
+  } catch (error) {
+    if (!isMissingComposioToolError(error, "GITHUB_LIST_NOTIFICATIONS")) {
+      throw error;
+    }
+    actions.push("GITHUB_LIST_NOTIFICATIONS:missing");
+  }
 
   const repositoriesResult = await params.composio.executeAction({
     connectedAccountId,
