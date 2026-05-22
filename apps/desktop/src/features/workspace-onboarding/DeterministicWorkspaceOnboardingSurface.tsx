@@ -22,29 +22,6 @@ const HERO_PRIORITY = [
   "linkedin",
 ];
 
-const FIRST_RUN_STARTERS: Record<string, string> = {
-  gmail:
-    "Open my Gmail and summarize unread messages from the last 24 hours. Highlight anything urgent or that needs a reply today.",
-  googlecalendar:
-    "Pull my calendar for this week. Flag conflicts, prep that's needed before any meeting, and gaps where I could deep-work.",
-  slack:
-    "Scan my Slack DMs and channels — which threads are waiting on me to reply today?",
-  notion:
-    "Walk through my Notion workspace and tell me which pages I started but never finished, and which ones look like they could use a follow-up.",
-  linear:
-    "List my Linear issues — what's blocked, what's overdue, and what's been sitting in 'In Progress' the longest.",
-  github:
-    "Pull my GitHub assigned PRs and review requests. Flag what's been waiting the longest and what's likely blocking someone else.",
-  twitter:
-    "Look at my Twitter mentions and DMs from the last 24 hours. Surface anything I should reply to.",
-  linkedin:
-    "Pull my LinkedIn inbox and connection requests. Surface anything worth responding to today.",
-  reddit:
-    "Check my Reddit inbox and recent post activity. Surface threads I should reply to.",
-  googledrive:
-    "Look through my recent Google Drive activity. Flag anything shared with me that needs my attention.",
-};
-
 export function DeterministicWorkspaceOnboardingSurface() {
   const {
     selectedWorkspace,
@@ -108,21 +85,6 @@ export function DeterministicWorkspaceOnboardingSurface() {
   );
   const connectedCount = connectedSlugs.length;
 
-  function pickStarterSlug(): string | null {
-    for (const slug of HERO_PRIORITY) {
-      if (
-        connectedSlugs.includes(slug) &&
-        slug in FIRST_RUN_STARTERS
-      ) {
-        return slug;
-      }
-    }
-    for (const slug of connectedSlugs) {
-      if (slug in FIRST_RUN_STARTERS) return slug;
-    }
-    return null;
-  }
-
   async function handleConnect(entry: HeroEntry) {
     setPhaseByToolkit((prev) => ({ ...prev, [entry.slug]: "connecting" }));
     setErrorByToolkit((prev) => ({ ...prev, [entry.slug]: null }));
@@ -142,25 +104,7 @@ export function DeterministicWorkspaceOnboardingSurface() {
   async function handleContinue() {
     setIsContinuing(true);
     try {
-      const starterSlug = pickStarterSlug();
-      const workspaceId = selectedWorkspace?.id ?? null;
       await continueDeterministicOnboarding();
-      if (starterSlug && workspaceId) {
-        try {
-          const ensured =
-            await window.electronAPI.workspace.ensureMainSession(workspaceId);
-          await window.electronAPI.workspace.queueSessionInput({
-            text: FIRST_RUN_STARTERS[starterSlug],
-            workspace_id: workspaceId,
-            session_id: ensured.session.session_id,
-            image_urls: null,
-            attachments: [],
-          });
-        } catch {
-          // Starter is a nice-to-have — never block the user from
-          // entering the workspace if the queue / session ensure fails.
-        }
-      }
     } finally {
       setIsContinuing(false);
     }
