@@ -1663,12 +1663,12 @@ test("workspace app registration rejects a dashboard app whose src/client doesn'
       assert.equal((error as RuntimeAgentToolsServiceError).statusCode, 400);
       assert.match(
         (error as RuntimeAgentToolsServiceError).message,
-        /does not import any layout primitives from `@holaboss\/ui`/,
+        /only 0 distinct named import\(s\) from `@holaboss\/ui`/,
       );
       const msg = (error as RuntimeAgentToolsServiceError).message;
-      assert.ok(msg.includes("StatPill"), `expected StatPill in error, got: ${msg}`);
-      assert.ok(msg.includes("DataTable"), `expected DataTable in error, got: ${msg}`);
-      assert.ok(msg.includes("Section"), `expected Section in error, got: ${msg}`);
+      assert.ok(msg.includes("Button"), `expected Button in error, got: ${msg}`);
+      assert.ok(msg.includes("Card"), `expected Card in error, got: ${msg}`);
+      assert.ok(msg.includes("ChartContainer"), `expected ChartContainer in error, got: ${msg}`);
       return true;
     },
   );
@@ -1691,9 +1691,14 @@ test("workspace app registration accepts a dashboard app that uses any @holaboss
   fs.writeFileSync(
     path.join(clientDir, "Dashboard.tsx"),
     [
-      "import { StatPill } from \"@holaboss/ui\";",
+      "import { Badge, Button, Card } from \"@holaboss/ui\";",
       "export function Dashboard() {",
-      "  return <StatPill label=\"Likes\" value={0} />;",
+      "  return (",
+      "    <Card>",
+      "      <Badge>Live</Badge>",
+      "      <Button>Refresh</Button>",
+      "    </Card>",
+      "  );",
       "}",
       "",
     ].join("\n"),

@@ -1616,7 +1616,7 @@ test("runTsRunnerCli exposes workspace-instructions updates only to main workspa
   assert.deepEqual(
     (capturedProjectRequest as { delegated_runtime_tool_ids?: string[] })
       .delegated_runtime_tool_ids,
-    ["holaboss_update_workspace_instructions"],
+    ["update_workspace_instructions"],
   );
 });
 
@@ -1757,11 +1757,11 @@ test("runTsRunnerCli exposes workspace-instructions updates to subagent sessions
   assert.ok(capturedProjectRequest);
   assert.deepEqual(
     (capturedProjectRequest as { runtime_tool_ids: string[] }).runtime_tool_ids,
-    ["holaboss_update_workspace_instructions"],
+    ["holaboss_update_workspace_instructions", "holaboss_delegate_task"],
   );
   assert.deepEqual(
     (capturedProjectRequest as { extra_tools: string[] }).extra_tools,
-    ["web_search", "holaboss_update_workspace_instructions"],
+    ["web_search", "holaboss_update_workspace_instructions", "holaboss_delegate_task"],
   );
 });
 
@@ -4306,6 +4306,8 @@ test("runTsRunnerCli resolves workspace skill ids and source directories for the
       "app-builder-sdk",
       "browser-core-efficient",
       "browser-qa",
+      "frontend-design",
+      "interface-design",
       "mcp-configurator",
       "skill-creator",
       "skill-installer",
@@ -4327,6 +4329,8 @@ test("runTsRunnerCli resolves workspace skill ids and source directories for the
       "app-builder-sdk",
       "browser-core-efficient",
       "browser-qa",
+      "frontend-design",
+      "interface-design",
       "mcp-configurator",
       "skill-creator",
       "skill-installer",
