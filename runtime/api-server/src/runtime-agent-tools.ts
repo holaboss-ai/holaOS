@@ -71,11 +71,6 @@ import {
   findForbiddenUpstreamHosts,
   formatHostLintError,
 } from "./workspace-app-host-lint.js";
-import {
-  formatDashboardUiLintError,
-  inspectDashboardUiUsage,
-} from "./workspace-app-ui-lint.js";
-
 const SESSION_REFRESH_NOTE =
   "New MCP servers became available in this turn. Their tools will be visible to you starting from the next user message — please end this turn (do not call the new tools yet) and let the user trigger the next one.";
 
@@ -129,10 +124,29 @@ function pendingIntegrationsFromAppManifests(params: {
       const key = `${appId}|${providerLower}`;
       if (seen.has(key)) continue;
       seen.add(key);
+      // Count active connections for this provider so the agent can tell
+      // "user needs to OAuth-connect (zero accounts)" apart from
+      // "user already has accounts, app just needs binding (chat UI
+      // handles the picker)". Without this the agent calls
+      // propose_connect even when the user has authorized accounts,
+      // and the user sees a duplicate Connect card next to the
+      // auto-rendered binding picker.
+      let availableAccounts = 0;
+      if (params.store) {
+        try {
+          availableAccounts = params.store
+            .listIntegrationConnections({ providerId: integration.provider })
+            .filter((conn) => conn.status.trim().toLowerCase() === "active")
+            .length;
+        } catch {
+          availableAccounts = 0;
+        }
+      }
       out.push({
         app_id: appId,
         provider_id: integration.provider,
         credential_source: integration.credentialSource,
+        available_accounts: availableAccounts,
         // Forward the per-yaml whoami config (if any) so the chat UI can
         // pass it to Hono's /composio/connect — removes the need for the
         // central PROVIDER_WHOAMI constant in the Hono worker.
@@ -5443,14 +5457,11 @@ export class RuntimeAgentToolsService {
       );
     }
 
-    const uiUsage = inspectDashboardUiUsage(appDir);
-    if (uiUsage.hasClientDir && !uiUsage.usesHolabossUiLayout) {
-      throw new RuntimeAgentToolsServiceError(
-        400,
-        "workspace_app_missing_holaboss_ui_layout",
-        formatDashboardUiLintError(uiUsage),
-      );
-    }
+    // Dashboard layout lint removed in @holaboss/ui 0.3.0 — layouts
+    // primitives are gone; agents compose page chrome from raw primitives
+    // (Card, Tabs, Section, Sheet, Sidebar, etc.) plus the interface-design
+    // skill. No structural gate replaces it; visual quality is now
+    // owned by the skill chain, not register-time grep.
 
     const lifecycle: Record<string, string> = {};
     if (parsed.lifecycle.setup) lifecycle.setup = parsed.lifecycle.setup;

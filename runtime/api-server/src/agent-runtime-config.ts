@@ -64,6 +64,7 @@ export interface AgentRuntimeConfigCliRequest {
   session_mode: string;
   workspace_config_checksum: string;
   workspace_skill_ids: string[];
+  workspace_skill_descriptions?: Record<string, string> | null;
   default_tools: string[];
   extra_tools: string[];
   delegated_default_tools?: string[] | null;
@@ -104,6 +105,7 @@ export interface AgentRuntimeConfigCliResponse {
   tools: Record<string, boolean>;
   workspace_tool_ids: string[];
   workspace_skill_ids: string[];
+  workspace_skill_descriptions?: Record<string, string> | null;
   output_schema_member_id?: string | null;
   output_format?: Record<string, unknown> | null;
   workspace_config_checksum: string;
@@ -1504,6 +1506,7 @@ export function projectAgentRuntimeConfig(
     defaultTools: request.default_tools,
     extraTools: request.extra_tools,
     workspaceSkillIds: request.workspace_skill_ids ?? [],
+    workspaceSkillDescriptions: request.workspace_skill_descriptions ?? null,
     resolvedMcpToolRefs: directResolvedMcpToolRefs,
     resolvedMcpServerIds: directResolvedMcpServerIds,
     toolServerIdMap: request.tool_server_id_map ?? null,
@@ -1528,6 +1531,7 @@ export function projectAgentRuntimeConfig(
           defaultTools: request.delegated_default_tools,
           extraTools: request.delegated_extra_tools,
           workspaceSkillIds: request.workspace_skill_ids ?? [],
+          workspaceSkillDescriptions: request.workspace_skill_descriptions ?? null,
           resolvedMcpToolRefs: request.delegated_resolved_mcp_tool_refs,
           resolvedMcpServerIds:
             request.delegated_resolved_mcp_server_ids ?? null,
@@ -1580,6 +1584,7 @@ export function projectAgentRuntimeConfig(
     tools,
     workspace_tool_ids: workspaceToolIds,
     workspace_skill_ids: request.workspace_skill_ids ?? [],
+    workspace_skill_descriptions: request.workspace_skill_descriptions ?? null,
     output_schema_member_id: outputSchemaMemberId,
     output_format: outputFormat,
     workspace_config_checksum: request.workspace_config_checksum,

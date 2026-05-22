@@ -41,11 +41,13 @@ function expectedResolvedSkill(params: {
   origin: "workspace" | "embedded";
   grantedTools?: string[];
   grantedCommands?: string[];
+  description?: string;
 }) {
   const sourceDir = fs.realpathSync(path.join(params.root, params.skillId));
   return {
     skill_id: params.skillId,
     skill_name: params.skillId,
+    description: params.description ?? `${params.skillId} skill`,
     source_dir: sourceDir,
     file_path: path.join(sourceDir, "SKILL.md"),
     origin: params.origin,
@@ -293,6 +295,7 @@ test("resolveWorkspaceSkills captures declared granted tools and commands and in
       origin: "workspace",
       grantedTools: ["bash", "deploy"],
       grantedCommands: ["deploy-docs"],
+      description: "Deployment helper",
     }),
   ]);
 

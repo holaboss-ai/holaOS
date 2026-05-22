@@ -1434,6 +1434,7 @@ function buildAgentRuntimeConfigRequest(params: {
   extraToolIds: string[];
   delegatedExtraToolIds?: string[] | null;
   workspaceSkillIds: string[];
+  workspaceSkillDescriptions: Record<string, string>;
   workspaceCommandIds: string[];
   toolServerIdMap: Readonly<Record<string, string>>;
   resolvedMcpToolRefs: CompiledWorkspaceRuntimePlan["resolved_mcp_tool_refs"];
@@ -1527,6 +1528,7 @@ function buildAgentRuntimeConfigRequest(params: {
     session_mode: defaultSessionMode(),
     workspace_config_checksum: params.compiledPlan.config_checksum,
     workspace_skill_ids: [...params.workspaceSkillIds],
+    workspace_skill_descriptions: { ...params.workspaceSkillDescriptions },
     workspace_command_ids: [...params.workspaceCommandIds],
     default_tools: frontSession
       ? defaultToolsForSessionKind(normalizedSessionKind)
@@ -2351,6 +2353,9 @@ export async function executeTsRunnerRequest(
               ...stagedRuntimeTools.toolIds,
             ],
             workspaceSkillIds: workspaceSkills.map((skill) => skill.skill_id),
+            workspaceSkillDescriptions: Object.fromEntries(
+              workspaceSkills.map((skill) => [skill.skill_id, skill.description]),
+            ),
             workspaceCommandIds: stagedCommands.commandIds,
             toolServerIdMap: serverIdMap,
             resolvedMcpToolRefs,

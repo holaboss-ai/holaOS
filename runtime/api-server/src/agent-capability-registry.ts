@@ -171,6 +171,7 @@ export interface BuildAgentCapabilityManifestParams {
   defaultTools: string[];
   extraTools: string[];
   workspaceSkillIds: string[];
+  workspaceSkillDescriptions?: Readonly<Record<string, string>> | null;
   resolvedMcpToolRefs: AgentCapabilityMcpToolRef[];
   resolvedMcpServerIds?: string[] | null;
   toolServerIdMap?: Readonly<Record<string, string>> | null;
@@ -781,17 +782,25 @@ function buildToolDescriptor(
   };
 }
 
-function buildSkillDescriptor(skillId: string): StaticAgentCapabilityDescriptor | null {
+function buildSkillDescriptor(
+  skillId: string,
+  skillDescription?: string | null,
+): StaticAgentCapabilityDescriptor | null {
   const trimmed = skillId.trim();
   if (!trimmed) {
     return null;
   }
+  const cleanedDescription =
+    typeof skillDescription === "string" ? skillDescription.trim() : "";
   return {
     id: trimmed,
     kind: "skill",
     policy: "coordinate",
     title: titleFromToken(trimmed),
-    description: `Skill '${trimmed}' is available for domain-specific guidance.`,
+    description:
+      cleanedDescription !== ""
+        ? cleanedDescription
+        : `Skill '${trimmed}' is available for domain-specific guidance.`,
     source: "workspace_skill",
     callable_spec: null,
     visibility_surface: "metadata",
@@ -962,8 +971,11 @@ function buildStaticCapabilityRegistry(
   if (workspaceSkills.length > 0) {
     upsertDescriptor(buildToolDescriptor("read", "implied_tool"));
     upsertDescriptor(buildToolDescriptor("skill", "implied_tool"));
+    const skillDescriptions = params.workspaceSkillDescriptions ?? {};
     for (const skillId of workspaceSkills) {
-      upsertDescriptor(buildSkillDescriptor(skillId));
+      upsertDescriptor(
+        buildSkillDescriptor(skillId, skillDescriptions[skillId] ?? null),
+      );
     }
   }
 
@@ -1498,6 +1510,15 @@ export function renderCapabilityAvailabilityContextPromptSection(
     summarizeAvailability("Workspace commands", manifest.workspace_commands.length),
     summarizeAvailability("Workspace skills", manifest.workspace_skills.length),
   ];
+  if (manifest.skills.length > 0) {
+    lines.push("Workspace skill catalog (id — when to use):");
+    for (const skill of manifest.skills) {
+      lines.push(`- ${skill.id} — ${skill.description}`);
+    }
+    lines.push(
+      "Invoke a relevant skill via the `skill` tool whenever the user request matches its description. Do not improvise when a listed skill fits the task.",
+    );
+  }
   if (manifest.mcp_tools.length > 0 || (manifest.context.mcp_server_ids?.length ?? 0) > 0) {
     lines.push("Connected MCP access: available.");
     lines.push("Use surfaced MCP tools when relevant; tool names may be resolved dynamically by the runtime.");

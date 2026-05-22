@@ -9,6 +9,7 @@ export type ResolvedSkillOrigin = "workspace" | "embedded";
 export interface ResolvedWorkspaceSkill {
   skill_id: string;
   skill_name: string;
+  description: string;
   source_dir: string;
   file_path: string;
   origin: ResolvedSkillOrigin;
@@ -305,6 +306,7 @@ function readSkillMetadata(params: {
   return {
     skill_id: params.skillId,
     skill_name: skillName,
+    description,
     source_dir: params.sourceDir,
     file_path: params.skillFilePath,
     origin: params.origin,

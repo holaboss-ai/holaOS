@@ -19,3 +19,23 @@
 /* Default theme. Apps that need a different palette can layer their own
    `[data-theme="..."]` overrides after this import. */
 @import "./tokens/themes/holaos.css";
+
+/* Inline-style font-weight cap. Tailwind utilities already route through
+   the @theme `--font-weight-*` tokens above, but agents still occasionally
+   write `style={{ fontWeight: 700 }}` or `style="font-weight: bold"` in
+   raw JSX. These selectors catch those escape hatches and clamp the
+   declaration to 500 so nothing renders bolder than the design system's
+   bold step. Cannot override stylesheet-defined font-weight in third-
+   party CSS files, but vibe-coded apps almost never reach for those. */
+[style*="font-weight: bold"],
+[style*="font-weight:bold"],
+[style*="font-weight: 600"],
+[style*="font-weight:600"],
+[style*="font-weight: 700"],
+[style*="font-weight:700"],
+[style*="font-weight: 800"],
+[style*="font-weight:800"],
+[style*="font-weight: 900"],
+[style*="font-weight:900"] {
+  font-weight: 500 !important;
+}

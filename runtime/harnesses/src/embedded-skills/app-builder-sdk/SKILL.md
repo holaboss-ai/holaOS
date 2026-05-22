@@ -98,6 +98,18 @@ The runtime enforces this at `workspace_apps_register` time: a source-tree scan 
 
 The SDK's default `startMcpServer({ httpPort, ... })` ships a one-screen "headless module" placeholder on the http port. That placeholder is **only acceptable for integration-only modules** (Slack-style MCP-driven flows). The moment the user asks for a dashboard / list view / kanban / calendar / "let me see my X", you must replace the placeholder with a real dashboard built on `@holaboss/ui`.
 
+### Mandatory: invoke `interface-design` before writing JSX
+
+**This is a hard gate, not a suggestion.** Before writing the first line of code under `src/client/` for a dashboard-shape app, invoke `skill({ name: "interface-design" })` exactly once. Read its full output and apply it.
+
+Why this is mandatory:
+
+- Without it, agent-authored dashboards consistently ship with the same failure mode the user has flagged repeatedly: stacked full-width KPI cards, no information density, generic shadcn marketing-page aesthetics, weight stacking via `text-3xl` headers and `font-bold`. The `@holaboss/ui` primitives alone don't prevent this — agents reach for them and still hand-roll bad compositions.
+- `interface-design` is purpose-built for the exact category of work this skill triggers: dashboards, admin panels, internal SaaS tools, data-dense interactive products. Its rules (anti-generic-output, density, hierarchy, restraint) compose cleanly on top of the Linear aesthetic + `@holaboss/ui` density rules below.
+- Token cost is real but bounded: the skill is small (one SKILL.md + 4 reference files, ~40KB). The cost of a single dashboard that ships looking broken is much higher — the user has rejected output enough times that re-invoking app-builder-sdk to redo the UI dwarfs the up-front cost of chaining interface-design.
+
+Do not skip on the grounds that "I already have app-builder-sdk loaded" or "I know the Linear aesthetic". This skill exists because aesthetic intuition alone is not load-bearing for this category of work; the explicit rules are. Do not invoke `frontend-design` instead — that one targets marketing pages / landing pages / posters and will drift the output the wrong way. For integration-only modules (no `src/client/`), skip this step entirely; it applies only when you are about to author dashboard JSX.
+
 ### Visual design language: anchor on Linear
 
 When laying out a holaOS dashboard, **target the Linear aesthetic** (linear.app). Linear is the canonical reference for a holaOS pane. If your output doesn't feel like it could ship inside Linear, you took a wrong turn.
@@ -108,7 +120,7 @@ What "Linear" concretely means here:
 - **Neutral palette + one accent.** Chrome (borders, headings, secondary text) is `border-border` / `text-muted-foreground`. Primary text is `text-foreground`. The brand orange is reserved for: the primary CTA on a page, the active section indicator, the occasional badge or focus ring. **No** decorative gradients, **no** multi-color status tagging, **no** full-bleed colored hero rows.
 - **One font, three sizes.** Inter (already provided). Page title: `text-base font-semibold` or `text-lg font-semibold`. Section labels: `text-sm font-medium`. Body: `text-sm` regular. Captions / labels-on-fields: `text-xs text-muted-foreground`. **Never** use `text-2xl` / `text-3xl` on a dashboard — that's marketing-page typography, not product UI.
 - **Hairline borders, no shadows.** `border border-border`, never `border-2`. Default cards have no shadow; reserve shadow strictly for floating layers (popovers, dialogs, dropdowns).
-- **Tables, not card stacks, when listing things.** A list of issues / posts / messages / drafts is a tight `DataTable`. Cards are for *one-off* objects (a single profile page, a single proposal preview). Never render 5 things as 5 stacked full-width cards.
+- **Tables, not card stacks, when listing things.** A list of issues / posts / messages / drafts is a tight `Table` (~32–36px rows, no wrapping). Cards are for *one-off* objects (a single profile page, a single proposal preview). Never render 5 things as 5 stacked full-width cards.
 - **Status as a `StatusDot` inline with the row**, not a colored full-width banner. "Twitter/X: ready" lives as one dot + label in the page header chrome, exactly once.
 - **One primary action top-right of a section.** Secondary actions are ghost buttons or icon buttons. **Never** two equal-weight orange buttons side by side; pick which one is the answer to "what is the user trying to do on this screen" and demote the other.
 
@@ -123,11 +135,9 @@ When in doubt: open Linear in your head, locate the closest pane (issue list →
 
 ### The rule: import `@holaboss/ui`, do not redefine primitives
 
-**Enforced at register time.** `workspace_apps_register` scans `src/client/` and rejects any dashboard app that doesn't import at least one of `DashboardShell` / `PageHeader` / `Section` / `StatPill` / `DataTable` / `EmptyState` / `LoadingState` / `ErrorState` / `FilterBar` from `@holaboss/ui`. Hand-rolled `<div className="flex flex-col gap-2">` stacks of `<Card>`s do NOT pass — the lint exists exactly because that's the shape that ships looking broken (KPIs stacked full-width, no hierarchy) no matter what this doc says about it. Reach for the platform primitives or your `register` call will 400.
+`@holaboss/ui` is a public npm package. It provides every primitive and CSS token your dashboard needs. **Do not generate shadcn primitives, copy a `components/ui/` directory, write your own Card, or import any other component library**. If `@holaboss/ui` is missing something, surface it to the SDK team instead of inventing a local replacement — visual drift is the failure mode the library exists to prevent.
 
-
-
-`@holaboss/ui` is a public npm package. It provides every primitive, layout, and CSS token your dashboard needs. **Do not generate shadcn primitives, copy a `components/ui/` directory, write your own Card, or import any other component library**. If `@holaboss/ui` is missing something, surface it to the SDK team instead of inventing a local replacement — visual drift is the failure mode the library exists to prevent.
+Layout itself is your call. There is no `DashboardShell` / `PageHeader` / `DataTable` / `StatPill` / etc. — those were removed in 0.3.0. Compose page chrome from the raw primitives (Card, Tabs, Sheet, Sidebar, Table, Skeleton, EmptyState…) under the interface-design skill's rules and the density rules below. There is no register-time gate forcing a specific layout vocabulary; the only guard against bad layouts is the skill chain itself.
 
 Install:
 
@@ -165,81 +175,26 @@ Visual rules: colors / spacing / radii come from these CSS variables. No inline 
 
 ### Catalog of what `@holaboss/ui` ships
 
-**Primitives** (drop-in shadcn-style components):
-- `Button`, `Card` (+ `CardHeader/Title/Description/Content/Footer/Action`), `Input`, `Label`
-- `Select` family, `Switch`, `Tabs` family, `DropdownMenu` family, `Popover` family
-- `Alert` (+ `AlertTitle/Description/Action`), `Badge`, `Tooltip` family
-- `EmptyState`, `StatusDot`, `Kbd`
+A full base-ui-flavoured shadcn surface — ~55 primitives. The ones you reach for most for a dashboard:
 
-**Layouts** (composition primitives — reach for these instead of hand-rolling):
-- `DashboardShell` — sticky-header chrome + scrollable content
-- `PageHeader` — title + description + action row
-- `Section` — title + description over a content block
-- `FilterBar` — search input + filter chip slot + actions
-- `DataTable` — typed columns, click-row handler, built-in loading + empty states
-- `StatPill` — small metric (label + value + optional trend / icon / tone)
-- `LoadingState` — skeleton variants (`rows` / `list` / `card`)
-- `ErrorState` — error display with optional retry
+- **Containers**: `Card` (+ Header/Title/Description/Content/Footer/Action), `Sheet`, `Drawer`, `Dialog`, `AlertDialog`, `HoverCard`, `Popover`, `Tabs`
+- **Lists / tables**: `Table` (+ Header/Body/Row/Cell/Caption/Footer), `Sidebar` family, `Accordion`, `Collapsible`
+- **Form**: `Input`, `Textarea`, `Select`, `NativeSelect`, `Checkbox`, `RadioGroup`, `Switch`, `Slider`, `Combobox`, `Field` family (FieldGroup, FieldLabel, FieldSet, FieldLegend, FieldDescription, FieldError), `InputGroup`, `InputOTP`, `Label`
+- **Charts**: `Chart` family — `ChartContainer`, `ChartTooltip`, `ChartTooltipContent`, `ChartLegend`, `ChartLegendContent` (wraps Recharts)
+- **States**: `EmptyState`, `Skeleton`, `Spinner`, `Progress`, `Alert`
+- **Atoms**: `Button`, `Badge`, `Avatar`, `StatusDot`, `Kbd`, `Separator`, `Tooltip`, `Toggle`, `ToggleGroup`, `ButtonGroup`, `Item`
+- **Nav / IA**: `Breadcrumb`, `Pagination`, `NavigationMenu`, `Menubar`, `DropdownMenu`, `ContextMenu`, `Command`
+- **Layout helpers**: `AspectRatio`, `Resizable`, `Calendar`, `Carousel`
 
-**Utility**: `cn(...)` for class merging.
+**Utility**: `cn(...)` for class merging. **Toast**: import `Toaster` and use `toast()` from `sonner` (re-exported).
 
-### Scaffolding a dashboard app
-
-```
-src/client/
-├── routes/
-│   ├── __root.tsx          # imports @holaboss/ui/styles.css
-│   └── index.tsx           # dashboard root — uses DashboardShell + DataTable
-└── lib/                    # app-specific code only; no components/ui/
-```
-
-A minimal dashboard route:
-
-```tsx
-import {
-  DashboardShell,
-  PageHeader,
-  FilterBar,
-  DataTable,
-  Button,
-} from "@holaboss/ui";
-
-export default function Dashboard() {
-  return (
-    <DashboardShell
-      header={
-        <>
-          <PageHeader
-            title="Issues"
-            description="GitHub issues synced into the workspace"
-            actions={<Button size="sm">Refresh</Button>}
-          />
-          <FilterBar
-            search={search}
-            onSearchChange={setSearch}
-            actions={<Button size="sm" variant="outline">New issue</Button>}
-          />
-        </>
-      }
-    >
-      <DataTable
-        columns={columns}
-        rows={rows}
-        rowKey={(r) => r.id}
-        isLoading={isLoading}
-        emptyTitle="No issues yet"
-        onRowClick={(r) => navigate(`/issues/${r.id}`)}
-      />
-    </DashboardShell>
-  );
-}
-```
-
-Wire it up by:
+### Wiring the client app
 
 1. Start TanStack Start (or simple Bun.serve serving a Vite-built dashboard) on `env.PORT` from the same `server.ts` that boots the MCP server on `env.MCP_PORT`. The desktop's iframe loads whatever the http port serves.
 2. The dashboard reads the app's own SQLite (the table `app.resource()` declared) via TanStack Start server functions — same DB the MCP tools mutate. **Never duplicate state.**
 3. Mount `@holaboss/ui/styles.css` at the top of `__root.tsx`. That single import covers the tokens, the default theme, and every Tailwind utility class the library uses. Without it the tokens fall back to defaults and the components render with no styling.
+
+Beyond those three wiring points, **the layout is yours**. The `interface-design` skill output (invoked above as a hard gate) is your design brief; the primitive catalog above is your toolbox. No scaffolding template, no "minimal dashboard route" stub to copy — every request asks for a different shape, and copying a template is how every agent-built dashboard ends up looking like every other one.
 
 ### Schema migration (from PM doc)
 
@@ -255,20 +210,15 @@ vibe coding's biggest failure mode is destructive migrations. Rules:
 
 Each schema change is a version; the user must be able to roll back.
 
-### Dashboard widget recipes (what to reach for, by intent)
+### A few don'ts (the failure modes, not a recipe book)
 
-Most "vibe-coded dashboard looks off" failures aren't taste problems — they're "agent didn't know which primitive to grab." Read this table BEFORE writing JSX. If your need isn't on the table, default to `@holaboss/ui` primitives; never hand-roll.
+The point isn't to mandate which primitive for which intent — that's the `interface-design` skill's job. These are the consistent failure modes seen in agent-built dashboards; avoid them and use your judgement on the rest.
 
-| You want | Use | Don't do |
-|---|---|---|
-| A row of 3-6 small headline numbers at the top (KPIs) | `StatPill` inside `<div className="grid grid-cols-2 gap-2 sm:grid-cols-4">` | Full-width 80px-tall cards stacked vertically. KPIs are summaries, they should fit in one glance — never one-per-row. |
-| "No data yet" state on a chart, list, or section | `EmptyState` with a tight prompt + optional CTA | A 200px placeholder div with greyed text. `EmptyState` is already tight, themed, and tells the user the next action. |
-| Sub-section heading inside a dashboard ("Overview", "Metric lines", "Post cards") | `Section` (from `@holaboss/ui` layouts) — handles label + description + spacing | Bare `<h2>` + `<p>` with no hierarchy. Bare headings make every section feel equal-weight; `Section` encodes the spacing rhythm. |
-| "Twitter: needs connection" / "Gmail: connected" badges | A single `StatusDot` row at the top of `PageHeader` actions, ONE source of truth | A `StatusDot` row at the top AND a full-width "Integration binding required" banner below — same signal, two surfaces, user reads it twice and trusts neither. |
-| Search + filter row above a list | `FilterBar` + `Input` | Hand-rolled flex with a search icon you styled yourself. |
-| A loading skeleton while you fetch | `LoadingState` | A grey rectangle with a CSS pulse. |
-| Tabular data (rows of posts, runs, events) | `DataTable` | A bullet `<ul>` or hand-rolled `<table>`. |
-| Whole-page scaffold (page header + actions + body) | `DashboardShell` + `PageHeader` | Custom flex column with manual padding. |
+- **`text-2xl` / `text-3xl` headers.** That's marketing-page typography. Product UI is `text-sm`/`text-base`.
+- **Status signal rendered twice in the same viewport** ("needs connection" as a dot AND as a banner). One surface per signal.
+- **Hand-rolled loading / empty states.** Use `Skeleton` and `EmptyState` — they're already themed.
+- **A bullet `<ul>` or hand-rolled `<table>` for a list of rows.** Use the `Table` family.
+- **Importing Recharts directly without `ChartContainer`.** You lose theme-aware colors + tooltip styling. Wrap charts in `ChartContainer` + use `ChartTooltip` / `ChartLegend`.
 
 ### Density rules of thumb
 
@@ -280,12 +230,11 @@ Most "vibe-coded dashboard looks off" failures aren't taste problems — they're
 ### UI anti-patterns (failure modes the user flagged)
 
 - **Generating a `components/ui/` directory or running `shadcn add`** — that path is gone. Import primitives from `@holaboss/ui` instead.
-- **Raw HTML with hand-written Tailwind classes for whole layouts.** Reach for `DashboardShell` + `PageHeader` + `DataTable` + `EmptyState` first.
+- **A `components/ui/` directory or any shadcn-add path.** Import primitives from `@holaboss/ui` only.
 - **Inline `style={{ ... }}`** anywhere except `style={{ width: ... }}` for measured layout (resize observers, etc.). Colors / spacing / radii never inline.
 - **Hardcoded hex colors / px values for spacing or radii.** Use the theme tokens; if missing, surface to the SDK team.
 - **A new component library** (Material UI, Ant, Chakra, react-aria, etc.) — `@holaboss/ui` wraps the workspace-canonical primitives; that's the only path.
-- **Hand-rolling a loading skeleton, empty state, or error state.** Use `LoadingState`, `EmptyState`, `ErrorState`.
-- **A single-page dashboard with 3+ deeply nested `div`s of custom flexbox.** Use `Section` + `Card` + `Tabs` — they encode the platform's spacing rhythm.
+- **Hand-rolling a loading skeleton or empty state.** Use `Skeleton` and `EmptyState`.
 - **Per-app dark mode toggle / theme picker.** Theme is workspace-level; the app inherits via CSS variables and does nothing.
 
 ### App-level anti-patterns (not UI — code shape)
@@ -294,7 +243,7 @@ Most "vibe-coded dashboard looks off" failures aren't taste problems — they're
 - **Custom OAuth, token storage, or refresh logic.** The runtime broker via Composio owns the OAuth lifecycle, token rotation, scope negotiation, and re-auth detection end-to-end. Your app's only credential primitive is `createRuntimeBrokerTransport({ provider })`. If you find yourself reading a token, you are off-path; route through the broker instead. To branch on "needs reauth", use `getIntegrationStatus()` and inspect `code === "integration_needs_reauth"`.
 - **Hardcoded user identity in code** — usernames, email addresses, account ids, workspace names. These are mutable + per-workspace. Read identity from `getIntegrationStatus()` issues (handle/email come back enriched), from app row state, or from a server-function parameter. Never bake "@jotyy" or "user@example.com" into source.
 - **Layering a second ORM / entity abstraction on top of `resource` + `action` + `sync`.** The five primitives are the whole storage contract; the MCP tool surface and the dashboard reads derive from them. If you need a field, a state, or an action that doesn't exist in your `resource`, extend the resource — don't wrap it in your own `class Repository`. A parallel model silently desynchronizes from the tools the agent gets.
-- **All-or-nothing dashboard rendering.** Don't block the entire page on a `Promise.all` of every server fetch. Each `StatPill`, table, and chart should render the moment its own data lands, with a `LoadingState` skeleton during fetch and an `EmptyState` if the data is empty. A 0.5s skeleton beats a 4s blank page even when the slow query is just one card.
+- **All-or-nothing dashboard rendering.** Don't block the entire page on a `Promise.all` of every server fetch. Each card, table, and chart should render the moment its own data lands, with a `Skeleton` during fetch and `EmptyState` if the data is empty. A 0.5s skeleton beats a 4s blank page even when the slow query is just one card.
 - **Forgetting the `integration:` block when the app uses a Composio provider.** If you call `createRuntimeBrokerTransport({ provider: "gmail" })` anywhere in the app, `app.runtime.yaml` MUST declare a matching `integrations:` entry. Otherwise the binding step has no key to bind, `getIntegrationStatus()` reports `integration_not_bound`, and the dashboard is stuck. See section 4 below.
 
 ### Reviewer pass
@@ -305,11 +254,11 @@ After writing the dashboard, eyeball it against an existing healthy holaOS pane 
 
 Copy the closest bundled reference dir as your template; don't write from scratch. All backend references are at `reference/<shape>/`.
 
-Backend references (`slack-messaging`, `pinterest-publishing`, `github-workflow`, `gcalendar-events`, `telegram-messaging`) are integration-only (no `src/client/`). Use them for the backend skeleton (`app.ts`, `provider.ts`, `server.ts`, `app.runtime.yaml`) — they're correct. For dashboard-shape apps, `reference/dashboard/` is the canonical starting point: it ships the full `src/client/` shape on top of `@holaboss/ui` plus a minimal backend.
+Backend references (`slack-messaging`, `pinterest-publishing`, `github-workflow`, `gcalendar-events`, `telegram-messaging`) are integration-only (no `src/client/`). Use them for the backend skeleton (`app.ts`, `provider.ts`, `server.ts`, `app.runtime.yaml`) — they're correct. **There is no dashboard reference.** Dashboard-shape apps assemble `src/client/` themselves from `@holaboss/ui` primitives under the `interface-design` skill's guidance — copying a single canonical template was producing every dashboard looking the same, so the template was removed.
 
 | Shape | Reference | Use when the request looks like |
 |---|---|---|
-| **dashboard** | `dashboard/` | Anything with a list / table / kanban / calendar / "let me see my X" — agent-built workspace pane. Ships the canonical `src/client/` shape on top of `@holaboss/ui`. Combine with one of the backend shapes below for the actual data plane. |
+| **dashboard** | _(none — compose freely)_ | Anything with a list / table / kanban / calendar / "let me see my X" — agent-built workspace pane. There is no canonical `src/client/` template; assemble from `@holaboss/ui` primitives under the `interface-design` skill. Combine with one of the backend shapes below for the actual data plane. |
 | **messaging** | `slack-messaging/` | Send / edit / delete / react on a message; chat-like provider (Discord, Telegram, IRC, SMS). Has custom state alphabet + side-effect actions + reversible scheduled send. **Also the only backend reference with full `server.ts` + `app.runtime.yaml`** — copy those two files verbatim into any new module regardless of shape. |
 | **publishing** | `pinterest-publishing/` | Multi-step upload-then-publish + reversible cancel; idempotency via `row.external_id` short-circuit. Use for any "create draft → confirm → publish → can be deleted" flow (image / video / blog posts). |
 | **workflow** | `github-workflow/` | Multi-state lifecycle (`draft / open / in_progress / closed / reopened / failed`), reversible close↔reopen, side-effect actions (`comment`, `assign`) that don't change row.status. CRM leads / issue trackers / ticketing systems. |
@@ -562,6 +511,6 @@ Run all of these. Stop at the first failure and report the symptom verbatim, don
 
 ### For dashboard apps (additionally)
 
-7. `@holaboss/ui` on npmjs.com — public package with the full primitive + layout catalog. Install via `bun add @holaboss/ui`. Import components via `import { DashboardShell, DataTable, ... } from "@holaboss/ui"` and mount the bundled styles via a single `import "@holaboss/ui/styles.css"` at the dashboard root.
-8. `reference/dashboard/` — minimal end-to-end dashboard reference; copy as the starting point for any dashboard-shape app and adapt the columns / actions.
+7. `@holaboss/ui` on npmjs.com — public package with the full primitive catalog (~55 base-ui shadcn components incl. Chart family, Sidebar, Dialog/Sheet/Drawer, Table, Form, Calendar, Carousel, Sonner). Install via `bun add @holaboss/ui` and mount the bundled styles via a single `import "@holaboss/ui/styles.css"` at the dashboard root. No DashboardShell/DataTable/StatPill layouts — compose from primitives.
+8. _(no dashboard reference)_ — dashboards compose freely from `@holaboss/ui` primitives. The `interface-design` skill chained above is the only authority on shape.
 9. Compare against the current live desktop panes if available, but do not leave the workspace or guess repo-root source paths just to locate pane source files.
