@@ -2919,6 +2919,10 @@ interface IntegrationConnectionPayload {
   account_external_id: string | null;
   account_handle: string | null;
   account_email: string | null;
+  context_cron_auto_fetch_enabled: boolean;
+  last_context_fetch_attempted_at: string | null;
+  last_context_fetch_completed_at: string | null;
+  last_context_fetch_status: string | null;
   auth_mode: string;
   granted_scopes: string[];
   status: string;
@@ -2974,6 +2978,42 @@ interface IntegrationUpdateConnectionPayload {
   /** Backfill provider-side identity. `null` clears, omit to leave alone. */
   account_handle?: string | null;
   account_email?: string | null;
+  context_cron_auto_fetch_enabled?: boolean;
+  last_context_fetch_attempted_at?: string | null;
+  last_context_fetch_completed_at?: string | null;
+  last_context_fetch_status?: string | null;
+}
+
+function normalizeIntegrationConnectionPayload(
+  connection: Omit<
+    IntegrationConnectionPayload,
+    | "account_handle"
+    | "account_email"
+    | "context_cron_auto_fetch_enabled"
+    | "last_context_fetch_attempted_at"
+    | "last_context_fetch_completed_at"
+    | "last_context_fetch_status"
+  > & {
+    account_handle?: string | null;
+    account_email?: string | null;
+    context_cron_auto_fetch_enabled?: boolean;
+    last_context_fetch_attempted_at?: string | null;
+    last_context_fetch_completed_at?: string | null;
+    last_context_fetch_status?: string | null;
+  },
+): IntegrationConnectionPayload {
+  return {
+    ...connection,
+    account_handle: connection.account_handle ?? null,
+    account_email: connection.account_email ?? null,
+    context_cron_auto_fetch_enabled:
+      connection.context_cron_auto_fetch_enabled ?? true,
+    last_context_fetch_attempted_at:
+      connection.last_context_fetch_attempted_at ?? null,
+    last_context_fetch_completed_at:
+      connection.last_context_fetch_completed_at ?? null,
+    last_context_fetch_status: connection.last_context_fetch_status ?? null,
+  };
 }
 
 interface OAuthAppConfigPayload {
@@ -10013,7 +10053,7 @@ interface MemoryBrowserFileResponse {
 }
 
 type MemoryBrowserGraphForest = "workspace" | "integrations";
-type MemoryBrowserGraphNodeKind = "root" | "tree" | "summary" | "leaf";
+type MemoryBrowserGraphNodeKind = "root" | "tree" | "entity" | "branch" | "summary" | "leaf";
 
 interface MemoryBrowserGraphNode {
   id: string;
@@ -10031,7 +10071,7 @@ interface MemoryBrowserGraphNode {
 interface MemoryBrowserGraphEdge {
   from: string;
   to: string;
-  kind: "contains" | "parent_child";
+  kind: "contains" | "parent_child" | "reference";
 }
 
 interface MemoryBrowserGraphResponse {
@@ -10152,10 +10192,50 @@ async function createIntegrationConnection(
   return localIntegrationMetadataStore.createConnection(payload);
 }
 
+function runtimeIntegrationConnectionUpdatePayload(
+  payload: IntegrationUpdateConnectionPayload,
+): Record<string, unknown> {
+  const update: Record<string, unknown> = {};
+  if (payload.status !== undefined) {
+    update.status = payload.status;
+  }
+  if (payload.secret_ref !== undefined) {
+    update.secret_ref = payload.secret_ref;
+  }
+  if (payload.account_label !== undefined) {
+    update.account_label = payload.account_label;
+  }
+  if (payload.account_handle !== undefined) {
+    update.account_handle = payload.account_handle;
+  }
+  if (payload.account_email !== undefined) {
+    update.account_email = payload.account_email;
+  }
+  if (payload.context_cron_auto_fetch_enabled !== undefined) {
+    update.context_cron_auto_fetch_enabled =
+      payload.context_cron_auto_fetch_enabled;
+  }
+  return update;
+}
+
 async function updateIntegrationConnection(
   connectionId: string,
   payload: IntegrationUpdateConnectionPayload,
 ): Promise<IntegrationConnectionPayload> {
+  const runtimeUpdate = runtimeIntegrationConnectionUpdatePayload(payload);
+  if (Object.keys(runtimeUpdate).length > 0) {
+    try {
+      await requestRuntimeJson<IntegrationConnectionPayload>({
+        method: "PATCH",
+        path: `/api/v1/integrations/connections/${encodeURIComponent(connectionId)}`,
+        payload: runtimeUpdate,
+      });
+    } catch (error) {
+      if (payload.context_cron_auto_fetch_enabled !== undefined) {
+        throw error;
+      }
+    }
+  }
   return localIntegrationMetadataStore.updateConnection(connectionId, payload);
 }
 
@@ -10437,51 +10517,75 @@ async function debugComposioRuntimeTest(
   });
 }
 
-async function fetchIntegrationContext(connectionId: string): Promise<{
-  ok: true;
-  supported: boolean;
-  provider_id: string;
+type IntegrationContextFetchStatusPayload = {
   connection_id: string;
+  provider_id: string;
+  run_id: string;
+  supported: boolean;
+  status: "running" | "completed" | "failed" | "unsupported";
   account_key: string | null;
   account_label: string | null;
   tree_id: string | null;
-  fetched_at: string;
+  current_chunk_label: string | null;
+  chunks_total: number;
+  chunks_completed: number;
+  messages_seen: number;
+  messages_persisted: number;
   leaves_created: number;
   leaves_superseding: number;
   leaves_unchanged: number;
-  messages_seen: number;
-  messages_persisted: number;
   summary_nodes: number;
   actions: string[];
-  reason?: string;
-}> {
+  started_at: string | null;
+  updated_at: string;
+  completed_at: string | null;
+  fetched_at: string | null;
+  error_message: string | null;
+  reason: string | null;
+};
+
+type IntegrationContextFetchStartResponsePayload = {
+  ok: true;
+  started: boolean;
+  deduped: boolean;
+  status: IntegrationContextFetchStatusPayload;
+};
+
+type IntegrationContextFetchStatusListResponsePayload = {
+  ok: true;
+  statuses: IntegrationContextFetchStatusPayload[];
+};
+
+async function fetchIntegrationContext(
+  connectionId: string,
+): Promise<IntegrationContextFetchStartResponsePayload> {
   const trimmed = typeof connectionId === "string" ? connectionId.trim() : "";
   if (!trimmed) {
     throw new Error("fetchIntegrationContext: connection_id required");
   }
-  return requestRuntimeJson<{
-    ok: true;
-    supported: boolean;
-    provider_id: string;
-    connection_id: string;
-    account_key: string | null;
-    account_label: string | null;
-    tree_id: string | null;
-    fetched_at: string;
-    leaves_created: number;
-    leaves_superseding: number;
-    leaves_unchanged: number;
-    messages_seen: number;
-    messages_persisted: number;
-    summary_nodes: number;
-    actions: string[];
-    reason?: string;
-  }>({
+  return requestRuntimeJson<IntegrationContextFetchStartResponsePayload>({
     method: "POST",
     path: "/api/v1/integrations/context-fetch",
     payload: {
       connection_id: trimmed,
     },
+  });
+}
+
+async function listIntegrationContextFetchStatuses(
+  connectionIds: string[] = [],
+): Promise<IntegrationContextFetchStatusListResponsePayload> {
+  const normalized = connectionIds
+    .map((connectionId) =>
+      typeof connectionId === "string" ? connectionId.trim() : "",
+    )
+    .filter((connectionId) => connectionId.length > 0);
+  return requestRuntimeJson<IntegrationContextFetchStatusListResponsePayload>({
+    method: "GET",
+    path: "/api/v1/integrations/context-fetch",
+    params: normalized.length > 0
+      ? { connection_ids: normalized.join(",") }
+      : undefined,
   });
 }
 
@@ -11164,12 +11268,14 @@ async function composioFinalize(payload: {
     }
   }
 
-  return runtimeClient.integrations.composioFinalize({
-    ...payload,
-    ...(resolvedLabel ? { account_label: resolvedLabel } : {}),
-    account_handle: enrichedHandle,
-    account_email: enrichedEmail,
-  });
+  return normalizeIntegrationConnectionPayload(
+    await runtimeClient.integrations.composioFinalize({
+      ...payload,
+      ...(resolvedLabel ? { account_label: resolvedLabel } : {}),
+      account_handle: enrichedHandle,
+      account_email: enrichedEmail,
+    }),
+  );
 }
 
 async function composioDeleteUpstream(
@@ -23786,6 +23892,14 @@ app.whenReady().then(async () => {
     "workspace:fetchIntegrationContext",
     ["main"],
     async (_event, connectionId: string) => fetchIntegrationContext(connectionId),
+  );
+  handleTrustedIpc(
+    "workspace:listIntegrationContextFetchStatuses",
+    ["main"],
+    async (_event, connectionIds?: string[]) =>
+      listIntegrationContextFetchStatuses(
+        Array.isArray(connectionIds) ? connectionIds : [],
+      ),
   );
   handleTrustedIpc(
     "workspace:composioConnect",

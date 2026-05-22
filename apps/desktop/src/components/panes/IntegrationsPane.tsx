@@ -17,6 +17,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { accountDisplayLabel } from "@/lib/integrationDisplay";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
@@ -80,9 +81,58 @@ const CONTEXT_FETCH_SUPPORTED_PROVIDERS = new Set([
   "github",
   "slack",
 ]);
+const CONTEXT_FETCH_TERMINAL_STATUSES = new Set([
+  "completed",
+  "failed",
+  "unsupported",
+]);
 
 function supportsContextFetchProvider(providerId: string | null | undefined): boolean {
   return CONTEXT_FETCH_SUPPORTED_PROVIDERS.has(normalizedText(providerId).toLowerCase());
+}
+
+function contextFetchChunkTotal(status: IntegrationContextFetchStatusPayload) {
+  if (status.chunks_total > 0) {
+    return status.chunks_total;
+  }
+  if (status.status === "completed") {
+    return Math.max(status.chunks_completed, 1);
+  }
+  return 0;
+}
+
+function contextFetchProgressPercent(
+  status: IntegrationContextFetchStatusPayload,
+) {
+  const total = contextFetchChunkTotal(status);
+  if (total <= 0) {
+    return status.status === "completed" ? 100 : 0;
+  }
+  return Math.max(
+    0,
+    Math.min(100, Math.round((status.chunks_completed / total) * 100)),
+  );
+}
+
+function contextFetchDisplayMessage(
+  status: IntegrationContextFetchStatusPayload,
+) {
+  if (!status.supported) {
+    return status.reason || `${status.provider_id} context fetch is not implemented yet.`;
+  }
+  if (status.status === "failed") {
+    return status.error_message || `${status.provider_id} context fetch failed.`;
+  }
+  const label = status.account_label || status.account_key || status.provider_id;
+  if (status.status === "completed") {
+    return `Fetched ${status.provider_id} context for ${label}: ${status.messages_seen} messages scanned, ${status.leaves_created} new leaves, ${status.leaves_superseding} updated, ${status.leaves_unchanged} unchanged.`;
+  }
+  const chunkTotal = contextFetchChunkTotal(status);
+  const chunkPrefix =
+    chunkTotal > 0
+      ? `${Math.min(status.chunks_completed, chunkTotal)}/${chunkTotal} chunks`
+      : "Starting import";
+  return `${label}: ${chunkPrefix}${status.current_chunk_label ? ` - ${status.current_chunk_label}` : ""}`;
 }
 
 // Composio publishes a stable logo CDN keyed by toolkit slug — usable as
@@ -181,9 +231,10 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
   const [refreshingConnectionId, setRefreshingConnectionId] = useState<
     string | null
   >(null);
-  const [fetchingContextConnectionId, setFetchingContextConnectionId] = useState<
-    string | null
-  >(null);
+  const [togglingContextAutoFetchConnectionId, setTogglingContextAutoFetchConnectionId] =
+    useState<string | null>(null);
+  const [contextFetchStatusByConnectionId, setContextFetchStatusByConnectionId] =
+    useState<Record<string, IntegrationContextFetchStatusPayload>>({});
   const [statusMessage, setStatusMessage] = useState("");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [workspaceUsageByConnection, setWorkspaceUsageByConnection] = useState<
@@ -276,6 +327,66 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
   useEffect(() => {
     void loadData();
   }, [isSignedIn, loadData]);
+
+  const runningContextFetchConnectionIds = useMemo(
+    () =>
+      Object.values(contextFetchStatusByConnectionId)
+        .filter((status) => status.status === "running")
+        .map((status) => status.connection_id)
+        .sort(),
+    [contextFetchStatusByConnectionId],
+  );
+  const runningContextFetchConnectionIdsKey =
+    runningContextFetchConnectionIds.join("|");
+
+  useEffect(() => {
+    if (runningContextFetchConnectionIds.length === 0) {
+      return;
+    }
+    let cancelled = false;
+    async function pollStatuses() {
+      try {
+        const response =
+          await window.electronAPI.workspace.listIntegrationContextFetchStatuses(
+            runningContextFetchConnectionIds,
+          );
+        if (cancelled) {
+          return;
+        }
+        let completionMessage = "";
+        setContextFetchStatusByConnectionId((prev) => {
+          const next = { ...prev };
+          for (const status of response.statuses) {
+            const previous = prev[status.connection_id];
+            next[status.connection_id] = status;
+            if (
+              previous?.status === "running" &&
+              CONTEXT_FETCH_TERMINAL_STATUSES.has(status.status)
+            ) {
+              completionMessage = contextFetchDisplayMessage(status);
+            }
+          }
+          return next;
+        });
+        if (completionMessage) {
+          void loadData();
+          setStatusMessage(completionMessage);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setStatusMessage(normalizeErrorMessage(error));
+        }
+      }
+    }
+    void pollStatuses();
+    const intervalId = window.setInterval(() => {
+      void pollStatuses();
+    }, 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [loadData, runningContextFetchConnectionIds, runningContextFetchConnectionIdsKey]);
 
   // Auto-reconcile duplicates that pre-date the dedupe-on-finalize fix.
   // When the same real account got connected twice (each Composio re-auth
@@ -755,27 +866,49 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
   }
 
   async function handleFetchContext(connectionId: string) {
-    setFetchingContextConnectionId(connectionId);
     setStatusMessage("");
     try {
       const result = await window.electronAPI.workspace.fetchIntegrationContext(
         connectionId,
       );
-      await loadData();
-      if (!result.supported) {
-        setStatusMessage(
-          `${result.provider_id} context fetch is not implemented yet.`,
-        );
-        return;
+      setContextFetchStatusByConnectionId((prev) => ({
+        ...prev,
+        [connectionId]: result.status,
+      }));
+      if (result.status.status === "completed") {
+        await loadData();
       }
-      const label = result.account_label || result.account_key || result.provider_id;
+      setStatusMessage(contextFetchDisplayMessage(result.status));
+    } catch (error) {
+      setStatusMessage(normalizeErrorMessage(error));
+    }
+  }
+
+  async function handleToggleContextAutoFetch(
+    connectionId: string,
+    enabled: boolean,
+  ) {
+    setTogglingContextAutoFetchConnectionId(connectionId);
+    setStatusMessage("");
+    try {
+      const updated = await window.electronAPI.workspace.updateIntegrationConnection(
+        connectionId,
+        { context_cron_auto_fetch_enabled: enabled },
+      );
+      setConnections((prev) =>
+        prev.map((connection) =>
+          connection.connection_id === connectionId ? updated : connection,
+        ),
+      );
       setStatusMessage(
-        `Fetched ${result.provider_id} context for ${label}: ${result.messages_seen} messages scanned, ${result.leaves_created} new leaves, ${result.leaves_superseding} updated, ${result.leaves_unchanged} unchanged.`,
+        enabled
+          ? "Background context fetch scheduled every 30 minutes."
+          : "Background context fetch disabled for this account.",
       );
     } catch (error) {
       setStatusMessage(normalizeErrorMessage(error));
     } finally {
-      setFetchingContextConnectionId(null);
+      setTogglingContextAutoFetchConnectionId(null);
     }
   }
 
@@ -937,6 +1070,9 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                 onFetchContext={(connectionId) =>
                   void handleFetchContext(connectionId)
                 }
+                onToggleContextAutoFetch={(connectionId, enabled) =>
+                  void handleToggleContextAutoFetch(connectionId, enabled)
+                }
                 expanded={expandedProviderId === integration.providerId}
                 mutatingOverrideKey={mutatingOverrideKey}
                 onSetWorkspaceEnabled={(workspaceId, enabled) =>
@@ -952,7 +1088,12 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                   )
                 }
                 refreshingConnectionId={refreshingConnectionId}
-                fetchingContextConnectionId={fetchingContextConnectionId}
+                togglingContextAutoFetchConnectionId={
+                  togglingContextAutoFetchConnectionId
+                }
+                contextFetchStatusByConnectionId={
+                  contextFetchStatusByConnectionId
+                }
                 toolkitCapabilities={capabilitiesByToolkit[integration.providerId] ?? []}
                 toolkitOverrides={
                   overridesByToolkit.get(integration.providerId) ?? new Map()
@@ -1120,6 +1261,9 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                   onFetchContext={(connectionId) =>
                     void handleFetchContext(connectionId)
                   }
+                  onToggleContextAutoFetch={(connectionId, enabled) =>
+                    void handleToggleContextAutoFetch(connectionId, enabled)
+                  }
                   expanded={expandedProviderId === integration.providerId}
                   mutatingOverrideKey={mutatingOverrideKey}
                   onSetWorkspaceEnabled={(workspaceId, enabled) =>
@@ -1135,7 +1279,12 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                     )
                   }
                   refreshingConnectionId={refreshingConnectionId}
-                  fetchingContextConnectionId={fetchingContextConnectionId}
+                  togglingContextAutoFetchConnectionId={
+                    togglingContextAutoFetchConnectionId
+                  }
+                  contextFetchStatusByConnectionId={
+                    contextFetchStatusByConnectionId
+                  }
                   toolkitCapabilities={capabilitiesByToolkit[integration.providerId] ?? []}
                   toolkitOverrides={
                     overridesByToolkit.get(integration.providerId) ?? new Map()
@@ -1256,8 +1405,10 @@ function ConnectedProviderCard({
   onDisconnect,
   onRefresh,
   onFetchContext,
+  onToggleContextAutoFetch,
   refreshingConnectionId,
-  fetchingContextConnectionId,
+  togglingContextAutoFetchConnectionId,
+  contextFetchStatusByConnectionId,
   connecting,
   disconnectingConnectionId,
   metadata,
@@ -1279,8 +1430,16 @@ function ConnectedProviderCard({
   onDisconnect: (connectionId: string) => void;
   onRefresh: (connectionId: string) => void;
   onFetchContext: (connectionId: string) => void;
+  onToggleContextAutoFetch: (
+    connectionId: string,
+    enabled: boolean,
+  ) => void;
   refreshingConnectionId: string | null;
-  fetchingContextConnectionId: string | null;
+  togglingContextAutoFetchConnectionId: string | null;
+  contextFetchStatusByConnectionId: Record<
+    string,
+    IntegrationContextFetchStatusPayload
+  >;
   connecting: boolean;
   disconnectingConnectionId: string | null;
   metadata: Map<string, ComposioAccountStatus>;
@@ -1359,109 +1518,181 @@ function ConnectedProviderCard({
           const showAvatar = Boolean(avatarUrl) && !failedAvatar;
           const disconnecting =
             disconnectingConnectionId === conn.connection_id;
-          const fetchingContext =
-            fetchingContextConnectionId === conn.connection_id;
+          const contextFetchStatus =
+            contextFetchStatusByConnectionId[conn.connection_id] ?? null;
+          const fetchingContext = contextFetchStatus?.status === "running";
           const contextFetchSupported = supportsContextFetchProvider(conn.provider_id);
+          const togglingContextAutoFetch =
+            togglingContextAutoFetchConnectionId === conn.connection_id;
+          const fetchProgressPercent = contextFetchStatus
+            ? contextFetchProgressPercent(contextFetchStatus)
+            : 0;
+          const fetchChunkTotal = contextFetchStatus
+            ? contextFetchChunkTotal(contextFetchStatus)
+            : 0;
           const usage = workspaceUsageByConnection.get(conn.connection_id) ?? [];
           const workspaceCount = new Set(usage.map((u) => u.workspace_id)).size;
           return (
             <div
-              className="flex items-center gap-2 py-1"
+              className="py-1"
               key={conn.connection_id}
             >
-              {showAvatar ? (
-                <img
-                  alt=""
-                  className="size-3.5 shrink-0 rounded-full bg-muted object-cover"
-                  onError={() =>
-                    setFailedAvatars((prev) => {
-                      if (prev.has(conn.connection_id)) {
-                        return prev;
-                      }
-                      const next = new Set(prev);
-                      next.add(conn.connection_id);
-                      return next;
-                    })
+              <div className="flex items-center gap-2">
+                {showAvatar ? (
+                  <img
+                    alt=""
+                    className="size-3.5 shrink-0 rounded-full bg-muted object-cover"
+                    onError={() =>
+                      setFailedAvatars((prev) => {
+                        if (prev.has(conn.connection_id)) {
+                          return prev;
+                        }
+                        const next = new Set(prev);
+                        next.add(conn.connection_id);
+                        return next;
+                      })
+                    }
+                    // Google's lh3.googleusercontent.com CDN rejects requests
+                    // with a localhost / app referrer; this header strips it.
+                    referrerPolicy="no-referrer"
+                    src={avatarUrl}
+                  />
+                ) : (
+                  <span className="flex size-3.5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] font-semibold text-muted-foreground">
+                    {fallbackChar}
+                  </span>
+                )}
+                <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+                  {label}
+                </span>
+                {workspaceCount > 0 ? (
+                  <span
+                    className="shrink-0 text-[10px] text-muted-foreground"
+                    title={`Bound in ${workspaceCount} workspace${workspaceCount === 1 ? "" : "s"}`}
+                  >
+                    {workspaceCount}w
+                  </span>
+                ) : null}
+                <Button
+                  aria-label={`Fetch ${label} context`}
+                  className="h-6 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+                  disabled={
+                    disconnecting ||
+                    fetchingContext ||
+                    !contextFetchSupported
                   }
-                  // Google's lh3.googleusercontent.com CDN rejects requests
-                  // with a localhost / app referrer; this header strips it.
-                  referrerPolicy="no-referrer"
-                  src={avatarUrl}
-                />
-              ) : (
-                <span className="flex size-3.5 shrink-0 items-center justify-center rounded-full bg-muted text-[8px] font-semibold text-muted-foreground">
-                  {fallbackChar}
-                </span>
-              )}
-              <span className="min-w-0 flex-1 truncate text-xs text-foreground">
-                {label}
-              </span>
-              {workspaceCount > 0 ? (
-                <span
-                  className="shrink-0 text-[10px] text-muted-foreground"
-                  title={`Bound in ${workspaceCount} workspace${workspaceCount === 1 ? "" : "s"}`}
+                  onClick={() => onFetchContext(conn.connection_id)}
+                  title={
+                    contextFetchSupported
+                      ? "Fetch integration context into the memory tree"
+                      : "Context fetch is not implemented for this provider yet."
+                  }
+                  size="sm"
+                  type="button"
+                  variant="ghost"
                 >
-                  {workspaceCount}w
-                </span>
+                  {fetchingContext ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    "Fetch"
+                  )}
+                </Button>
+                <Button
+                  aria-label={`Refresh ${label} identity`}
+                  title="Refetch handle, email, and avatar from the provider"
+                  className="text-muted-foreground hover:text-foreground"
+                  disabled={
+                    disconnecting ||
+                    refreshingConnectionId === conn.connection_id
+                  }
+                  onClick={() => onRefresh(conn.connection_id)}
+                  size="icon-xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  {refreshingConnectionId === conn.connection_id ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-3" />
+                  )}
+                </Button>
+                <Button
+                  aria-label={`Disconnect ${label}`}
+                  className="text-muted-foreground hover:text-destructive"
+                  disabled={disconnecting}
+                  onClick={() => onDisconnect(conn.connection_id)}
+                  size="icon-xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  {disconnecting ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <Unplug className="size-3" />
+                  )}
+                </Button>
+              </div>
+              {contextFetchSupported ? (
+                <div className="ml-[22px] mt-1.5 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                      Auto-fetch every 30 min
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      Runs in the background for this account.
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {togglingContextAutoFetch ? (
+                      <Loader2 className="size-3 animate-spin text-muted-foreground" />
+                    ) : null}
+                    <Switch
+                      aria-label={`Auto-fetch ${label} context every 30 minutes`}
+                      checked={conn.context_cron_auto_fetch_enabled !== false}
+                      disabled={disconnecting || togglingContextAutoFetch}
+                      onCheckedChange={(checked) =>
+                        onToggleContextAutoFetch(conn.connection_id, checked)
+                      }
+                    />
+                  </div>
+                </div>
               ) : null}
-              <Button
-                aria-label={`Fetch ${label} context`}
-                className="h-6 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
-                disabled={
-                  disconnecting ||
-                  fetchingContext ||
-                  !contextFetchSupported
-                }
-                onClick={() => onFetchContext(conn.connection_id)}
-                title={
-                  contextFetchSupported
-                    ? "Fetch integration context into the memory tree"
-                    : "Context fetch is not implemented for this provider yet."
-                }
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                {fetchingContext ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  "Fetch"
-                )}
-              </Button>
-              <Button
-                aria-label={`Refresh ${label} identity`}
-                title="Refetch handle, email, and avatar from the provider"
-                className="text-muted-foreground hover:text-foreground"
-                disabled={
-                  disconnecting ||
-                  refreshingConnectionId === conn.connection_id
-                }
-                onClick={() => onRefresh(conn.connection_id)}
-                size="icon-xs"
-                type="button"
-                variant="ghost"
-              >
-                {refreshingConnectionId === conn.connection_id ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <RefreshCw className="size-3" />
-                )}
-              </Button>
-              <Button
-                aria-label={`Disconnect ${label}`}
-                className="text-muted-foreground hover:text-destructive"
-                disabled={disconnecting}
-                onClick={() => onDisconnect(conn.connection_id)}
-                size="icon-xs"
-                type="button"
-                variant="ghost"
-              >
-                {disconnecting ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <Unplug className="size-3" />
-                )}
-              </Button>
+              {contextFetchStatus ? (
+                <div className="ml-[22px] mt-2 rounded-lg border border-border/60 bg-background/70 px-2.5 py-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                      {contextFetchStatus.current_chunk_label ||
+                        contextFetchDisplayMessage(contextFetchStatus)}
+                    </p>
+                    <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      {contextFetchStatus.status}
+                    </span>
+                  </div>
+                  {contextFetchStatus.supported ? (
+                    <>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-foreground transition-[width] duration-300"
+                          style={{ width: `${fetchProgressPercent}%` }}
+                        />
+                      </div>
+                      <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
+                        {fetchChunkTotal > 0
+                          ? `${Math.min(contextFetchStatus.chunks_completed, fetchChunkTotal)}/${fetchChunkTotal} chunks`
+                          : "Waiting for chunk progress"}
+                        {contextFetchStatus.error_message
+                          ? ` - ${contextFetchStatus.error_message}`
+                          : ""}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
+                      {contextFetchStatus.reason ||
+                        "Context fetch is not available yet for this provider."}
+                    </p>
+                  )}
+                </div>
+              ) : null}
             </div>
           );
         })}

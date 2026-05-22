@@ -116,6 +116,14 @@ import {
   supportsIntegrationContextFetchProvider,
 } from "./integration-context-fetch.js";
 import {
+  createIntegrationContextFetchManager,
+  type IntegrationContextFetchRunner,
+} from "./integration-context-fetch-manager.js";
+import {
+  type IntegrationContextAutofetchWorkerLike,
+  RuntimeIntegrationContextAutofetchWorker,
+} from "./integration-context-autofetch-worker.js";
+import {
   buildMemoryBrowserGraph,
   buildMemoryBrowserTree,
   readMemoryBrowserFile,
@@ -188,6 +196,8 @@ export interface BuildRuntimeApiServerOptions {
   store?: RuntimeStateStore;
   dbPath?: string;
   workspaceRoot?: string;
+  integrationContextFetchRunner?: IntegrationContextFetchRunner;
+  integrationContextAutofetchWorker?: IntegrationContextAutofetchWorkerLike | null;
   queueWorker?: QueueWorkerLike | null;
   mainSessionEventWorker?: MainSessionEventWorkerLike | null;
   durableMemoryWorker?: DurableMemoryWorkerLike | null;
@@ -319,6 +329,24 @@ function resolveRecallEmbeddingBackfillWorker(
     store,
     logger: app.log,
     memoryService,
+  });
+}
+
+function resolveIntegrationContextAutofetchWorker(
+  options: BuildRuntimeApiServerOptions,
+  app: FastifyInstance,
+  store: RuntimeStateStore,
+  fetchManager: ReturnType<typeof createIntegrationContextFetchManager>,
+): IntegrationContextAutofetchWorkerLike | null {
+  if (options.integrationContextAutofetchWorker !== undefined) {
+    return options.integrationContextAutofetchWorker;
+  }
+  return new RuntimeIntegrationContextAutofetchWorker({
+    store,
+    fetchManager,
+    logger: {
+      warn: (meta, message) => app.log.warn(meta, message),
+    },
   });
 }
 
@@ -3394,11 +3422,22 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         captureRuntimeException,
       })
       : options.terminalSessionManager;
+  const integrationContextFetchManager = createIntegrationContextFetchManager({
+    store,
+    runFetch: options.integrationContextFetchRunner
+      ?? fetchIntegrationContextForConnection,
+    logger: {
+      warn: (meta, message) => app.log.warn(meta, message),
+    },
+  });
   // Deferred holder: the queue worker isn't constructed until after
   // composio + workspace integration setup, but RuntimeIntegrationService
   // needs to call into it from onConnectionActive. We pass a closure
   // that reads the holder at call time — by then the worker is set.
   const queueWorkerHolder: { worker: { wake: () => void } | null } = { worker: null };
+  const integrationContextAutofetchWorkerHolder: {
+    worker: IntegrationContextAutofetchWorkerLike | null;
+  } = { worker: null };
   const integrationService = new RuntimeIntegrationService(store, {
     onConnectionActive: ({ connectionId, providerId }) => {
       try {
@@ -3415,21 +3454,22 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       if (!supportsIntegrationContextFetchProvider(providerId)) {
         return;
       }
-      void fetchIntegrationContextForConnection({
-        store,
+      void integrationContextFetchManager.start({
         connectionId,
       }).catch((error) => {
+        const detail = error instanceof Error ? error.message : String(error);
         const normalized = normalizeComposioError(error);
         app.log.warn(
           {
             connectionId,
             providerId,
             statusCode: normalized.statusCode,
-            error: normalized.message,
+            error: detail,
           },
-          "integration context fetch failed",
+          "integration context fetch start failed",
         );
       });
+      integrationContextAutofetchWorkerHolder.worker?.wake();
     },
   });
   // workspaceIntegrationsService initialized after composioService below.
@@ -3464,6 +3504,15 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     store,
     queueWorker,
   );
+  const integrationContextAutofetchWorker =
+    resolveIntegrationContextAutofetchWorker(
+      options,
+      app,
+      store,
+      integrationContextFetchManager,
+    );
+  integrationContextAutofetchWorkerHolder.worker =
+    integrationContextAutofetchWorker;
   const bridgeWorker = resolveBridgeWorker(options, app, store);
   const recallEmbeddingBackfillWorker = resolveRecallEmbeddingBackfillWorker(options, app, store, memoryService);
   const runtimeAgentToolsService = new RuntimeAgentToolsService(store, {
@@ -4244,6 +4293,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     await terminalSessionManager?.close();
     await recallEmbeddingBackfillWorker?.close();
     await bridgeWorker?.close();
+    await integrationContextAutofetchWorker?.close();
     await mainSessionEventWorker?.close();
     await cronWorker?.close();
     await queueWorker?.close();
@@ -4260,6 +4310,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     await queueWorker?.start();
     await cronWorker?.start();
     await mainSessionEventWorker?.start();
+    await integrationContextAutofetchWorker?.start();
     await bridgeWorker?.start();
     await recallEmbeddingBackfillWorker?.start();
     if (options.enableAppHealthMonitor !== false) {
@@ -4770,7 +4821,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         authMode: typeof request.body.auth_mode === "string" ? request.body.auth_mode : "manual_token",
         grantedScopes: Array.isArray(request.body.granted_scopes) ? request.body.granted_scopes : [],
         secretRef: typeof request.body.secret_ref === "string" ? request.body.secret_ref : undefined,
-        accountExternalId: typeof request.body.account_external_id === "string" ? request.body.account_external_id : undefined
+        accountExternalId: typeof request.body.account_external_id === "string" ? request.body.account_external_id : undefined,
       });
     } catch (error) {
       if (error instanceof IntegrationServiceError) {
@@ -4790,6 +4841,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const body = request.body as Record<string, unknown>;
     const accountHandlePresent = Object.prototype.hasOwnProperty.call(body, "account_handle");
     const accountEmailPresent = Object.prototype.hasOwnProperty.call(body, "account_email");
+    const contextCronAutoFetchPresent = Object.prototype.hasOwnProperty.call(
+      body,
+      "context_cron_auto_fetch_enabled",
+    );
     const normalizeIdentity = (value: unknown): string | null => {
       if (value === null) return null;
       if (typeof value !== "string") return null;
@@ -4797,14 +4852,29 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return trimmed.length === 0 ? null : trimmed;
     };
     try {
-      return integrationService.updateConnection(params.connectionId, {
+      const updated = integrationService.updateConnection(params.connectionId, {
         status: typeof body.status === "string" ? body.status : undefined,
         secretRef: typeof body.secret_ref === "string" ? body.secret_ref : undefined,
         accountLabel: typeof body.account_label === "string" ? body.account_label : undefined,
         grantedScopes: Array.isArray(body.granted_scopes) ? body.granted_scopes : undefined,
         ...(accountHandlePresent ? { accountHandle: normalizeIdentity(body.account_handle) } : {}),
-        ...(accountEmailPresent ? { accountEmail: normalizeIdentity(body.account_email) } : {})
+        ...(accountEmailPresent ? { accountEmail: normalizeIdentity(body.account_email) } : {}),
+        ...(contextCronAutoFetchPresent
+          ? {
+              contextCronAutoFetchEnabled: optionalBoolean(
+                body.context_cron_auto_fetch_enabled,
+                false,
+              ),
+            }
+          : {}),
       });
+      if (
+        contextCronAutoFetchPresent
+        && updated.context_cron_auto_fetch_enabled
+      ) {
+        integrationContextAutofetchWorker?.wake();
+      }
+      return updated;
     } catch (error) {
       if (error instanceof IntegrationServiceError) {
         return sendError(reply, error.statusCode, error.message);
@@ -5154,18 +5224,35 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!connectionId) {
       return sendError(reply, 400, "connection_id is required");
     }
+    if (!store.getIntegrationConnection(connectionId)) {
+      return sendError(reply, 404, `integration connection ${connectionId} not found`);
+    }
     try {
-      return await fetchIntegrationContextForConnection({
-        store,
+      return await integrationContextFetchManager.start({
         connectionId,
       });
     } catch (error) {
       if (error instanceof IntegrationServiceError) {
         return sendError(reply, error.statusCode, error.message);
       }
-      const normalized = normalizeComposioError(error);
-      return sendError(reply, normalized.statusCode, normalized.message);
+      const detail =
+        error instanceof Error ? error.message : "integration context fetch start failed";
+      return sendError(reply, 500, detail);
     }
+  });
+
+  app.get("/api/v1/integrations/context-fetch", async (request, reply) => {
+    void reply;
+    const connectionIds = isRecord(request.query)
+      && typeof request.query.connection_ids === "string"
+      ? request.query.connection_ids
+        .split(",")
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0)
+      : [];
+    return integrationContextFetchManager.list({
+      connectionIds,
+    });
   });
 
   app.get("/api/v1/memory/browser/tree", async (request, reply) => {

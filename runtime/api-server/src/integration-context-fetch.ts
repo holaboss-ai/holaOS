@@ -21,7 +21,9 @@ const SLACK_CHANNEL_LIMIT = 8;
 const SLACK_CHANNEL_HISTORY_LIMIT = 12;
 const SLACK_CHANNEL_HISTORY_TARGETS = 4;
 
-type ComposioExecuteClient = Pick<ComposioApiClient, "executeAction">;
+type ComposioExecuteClient = Pick<ComposioApiClient, "executeAction"> & {
+  proxyRequest?: ComposioApiClient["proxyRequest"];
+};
 
 export interface IntegrationContextFetchResult {
   ok: true;
@@ -40,6 +42,30 @@ export interface IntegrationContextFetchResult {
   summary_nodes: number;
   actions: string[];
   reason?: string;
+}
+
+export interface IntegrationContextFetchProgressSnapshot {
+  provider_id: string;
+  connection_id: string;
+  account_key: string | null;
+  account_label: string | null;
+  tree_id: string | null;
+  current_chunk_label: string | null;
+  chunks_total: number;
+  chunks_completed: number;
+  messages_seen: number;
+  messages_persisted: number;
+  leaves_created: number;
+  leaves_superseding: number;
+  leaves_unchanged: number;
+  summary_nodes: number;
+  actions: string[];
+}
+
+interface IntegrationContextFetchProgressReporter {
+  patch(
+    next: Partial<IntegrationContextFetchProgressSnapshot>,
+  ): IntegrationContextFetchProgressSnapshot;
 }
 
 interface GmailProfilePayload {
@@ -456,6 +482,41 @@ function gitHubRepositoriesFromData(value: unknown): GitHubRepositoryPayload[] {
   return recordsFromData(value, ["items", "repositories"]) as GitHubRepositoryPayload[];
 }
 
+async function fetchGitHubRepositoriesForAccount(params: {
+  composio: ComposioExecuteClient;
+  connectedAccountId: string;
+  accountKey: string;
+  actions: string[];
+}): Promise<GitHubRepositoryPayload[]> {
+  if (params.composio.proxyRequest) {
+    const result = await params.composio.proxyRequest({
+      connectedAccountId: params.connectedAccountId,
+      endpoint: `/user/repos?type=owner&sort=updated&direction=desc&per_page=${GITHUB_REPOSITORY_LIMIT}`,
+      method: "GET",
+    });
+    params.actions.push("GITHUB_PROXY:/user/repos?type=owner");
+    return gitHubRepositoriesFromData(result.data);
+  }
+  const repositoriesResult = await params.composio.executeAction({
+    connectedAccountId: params.connectedAccountId,
+    toolSlug: "GITHUB_FIND_REPOSITORIES",
+    arguments: {
+      query: "stars:>=0",
+      owner: params.accountKey,
+      sort: "updated",
+      order: "desc",
+      per_page: GITHUB_REPOSITORY_LIMIT,
+      page: 1,
+      response_detail: "full",
+      for_authenticated_user: true,
+      archived: false,
+      fork_filter: "exclude",
+    },
+  });
+  params.actions.push("GITHUB_FIND_REPOSITORIES");
+  return gitHubRepositoriesFromData(repositoriesResult.data);
+}
+
 function gitHubReadmeFromData(value: unknown): GitHubReadmePayload | null {
   const unwrapped = unwrapActionData(value);
   return isRecord(unwrapped) ? (unwrapped as GitHubReadmePayload) : null;
@@ -506,6 +567,8 @@ function buildGmailProfileCandidate(params: {
     accountKey: params.accountKey,
     accountLabel: params.accountLabel,
     subjectKey: "profile",
+    branchKey: "profile",
+    branchLabel: "Profile",
     title: `Gmail profile for ${params.accountLabel}`,
     summary: clipText(
       `${params.accountLabel} Gmail profile snapshot${messagesTotal !== null ? ` with ${messagesTotal} messages` : ""}${threadsTotal !== null ? ` and ${threadsTotal} threads` : ""}.`,
@@ -586,6 +649,10 @@ function buildGmailMessageCandidate(params: {
     accountKey: params.accountKey,
     accountLabel: params.accountLabel,
     subjectKey: `message:${messageId}`,
+    entityKey: `thread:${threadId ?? messageId}`,
+    entityLabel: subject,
+    branchKey: "messages",
+    branchLabel: "Messages",
     title: subject,
     summary: clipText(summaryParts.join(" "), 220) || `Gmail message ${messageId}`,
     content: `${lines.join("\n").trim()}\n`,
@@ -642,6 +709,8 @@ function buildGitHubProfileCandidate(params: {
     accountKey: params.accountKey,
     accountLabel: params.accountLabel,
     subjectKey: "profile",
+    branchKey: "profile",
+    branchLabel: "Profile",
     title: `GitHub profile for ${params.accountLabel}`,
     summary: clipText(
       `${login}${name ? ` (${name})` : ""} GitHub profile snapshot${publicRepos !== null ? ` with ${publicRepos} public repos` : ""}.`,
@@ -663,7 +732,6 @@ function buildGitHubRepositoryCandidate(params: {
   accountKey: string;
   accountLabel: string;
   repository: GitHubRepositoryPayload;
-  readmeText: string | null;
 }): IntegrationLeafCandidate | null {
   const repoIdentity = githubRepositoryOwnerAndName(params.repository);
   const fullName = githubRepositoryFullName(params.repository);
@@ -683,7 +751,6 @@ function buildGitHubRepositoryCandidate(params: {
   const defaultBranch = normalizeString(params.repository.default_branch);
   const isPrivate = normalizeBoolean(params.repository.private);
   const isFork = normalizeBoolean(params.repository.fork);
-  const readmeExcerpt = params.readmeText ? clipText(params.readmeText, 1800) : null;
   const lines = [
     `# ${fullName}`,
     "",
@@ -705,10 +772,6 @@ function buildGitHubRepositoryCandidate(params: {
     "",
     description ?? "No repository description available.",
     "",
-    readmeExcerpt ? "## README" : null,
-    readmeExcerpt ? "" : null,
-    readmeExcerpt,
-    readmeExcerpt ? "" : null,
   ].filter((line): line is string => typeof line === "string");
   return {
     provider: "github",
@@ -716,6 +779,10 @@ function buildGitHubRepositoryCandidate(params: {
     accountKey: params.accountKey,
     accountLabel: params.accountLabel,
     subjectKey: `repository:${fullName}`,
+    entityKey: `repo:${fullName}`,
+    entityLabel: fullName,
+    branchKey: "overview",
+    branchLabel: "Overview",
     title: fullName,
     summary: clipText(
       [
@@ -740,6 +807,62 @@ function buildGitHubRepositoryCandidate(params: {
     externalObjectType: "github_repository",
     observedAt: updatedAt,
     confidence: 0.9,
+  };
+}
+
+function buildGitHubReadmeCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  repository: GitHubRepositoryPayload;
+  readmeText: string;
+}): IntegrationLeafCandidate | null {
+  const fullName = githubRepositoryFullName(params.repository);
+  if (!fullName) {
+    return null;
+  }
+  const htmlUrl = normalizeString(params.repository.html_url);
+  const excerpt = clipText(params.readmeText, 4000);
+  const lines = [
+    `# README for ${fullName}`,
+    "",
+    `- Account: ${params.accountLabel}`,
+    "- Provider: GitHub",
+    `- Repository: ${fullName}`,
+    htmlUrl ? `- Repository URL: ${htmlUrl}` : null,
+    "",
+    "## Summary",
+    "",
+    excerpt,
+    "",
+  ].filter((line): line is string => typeof line === "string");
+  return {
+    provider: "github",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `readme:${fullName}`,
+    entityKey: `repo:${fullName}`,
+    entityLabel: fullName,
+    branchKey: "readme",
+    branchLabel: "README",
+    title: `${fullName} README`,
+    summary: clipText(
+      `README for ${fullName}: ${excerpt}`,
+      220,
+    ),
+    content: `${lines.join("\n").trim()}\n`,
+    tags: [
+      "github",
+      "readme",
+      safeTag(`repo:${fullName}`),
+    ].filter((item): item is string => Boolean(item)),
+    sourceType: "github.readme",
+    sourceEventId: `github-readme:${fullName}`,
+    externalObjectId: fullName,
+    externalObjectType: "github_readme",
+    observedAt: timestampToIso(params.repository.updated_at) ?? timestampToIso(params.repository.pushed_at) ?? utcNowIso(),
+    confidence: 0.88,
   };
 }
 
@@ -797,6 +920,10 @@ function buildGitHubNotificationCandidate(params: {
     accountKey: params.accountKey,
     accountLabel: params.accountLabel,
     subjectKey: `notification:${notificationId}`,
+    entityKey: repositoryName ? `repo:${repositoryName}` : null,
+    entityLabel: repositoryName,
+    branchKey: "notifications",
+    branchLabel: "Notifications",
     title,
     summary: clipText(
       [
@@ -882,6 +1009,10 @@ function buildGitHubIssueCandidate(params: {
     accountKey: params.accountKey,
     accountLabel: params.accountLabel,
     subjectKey: `${isPullRequest ? "pull" : "issue"}:${repositoryName ?? "github"}:${number ?? id}`,
+    entityKey: repositoryName ? `repo:${repositoryName}` : null,
+    entityLabel: repositoryName,
+    branchKey: isPullRequest ? "pull_requests" : "issues",
+    branchLabel: isPullRequest ? "Pull requests" : "Issues",
     title: repositoryName && number !== null ? `${repositoryName} #${number}: ${title}` : title,
     summary: clipText(
       [
@@ -948,6 +1079,8 @@ function buildSlackProfileCandidate(params: {
     accountKey: params.accountKey,
     accountLabel: params.accountLabel,
     subjectKey: "profile",
+    branchKey: "profile",
+    branchLabel: "Profile",
     title: `Slack profile for ${params.accountLabel}`,
     summary: clipText(
       `${params.accountLabel} Slack workspace snapshot${user ? ` for ${user}` : ""}.`,
@@ -1007,6 +1140,10 @@ function buildSlackChannelCandidate(params: {
     accountKey: params.accountKey,
     accountLabel: params.accountLabel,
     subjectKey: `channel:${channelId}`,
+    entityKey: `channel:${channelId}`,
+    entityLabel: `#${channelName}`,
+    branchKey: "overview",
+    branchLabel: "Overview",
     title: `#${channelName}`,
     summary: clipText(
       `Slack ${visibility} #${channelName}${topic ? ` about ${topic}` : purpose ? ` - ${purpose}` : ""}.`,
@@ -1073,6 +1210,10 @@ function buildSlackMessageCandidate(params: {
     accountKey: params.accountKey,
     accountLabel: params.accountLabel,
     subjectKey: `message:${params.channelId}:${ts}`,
+    entityKey: `channel:${params.channelId}`,
+    entityLabel: `#${params.channelName}`,
+    branchKey: "messages",
+    branchLabel: "Messages",
     title: `#${params.channelName}: ${clipText(text, 72)}`,
     summary: clipText(
       `${user ? `${user} in ` : ""}#${params.channelName}: ${text}`,
@@ -1107,6 +1248,78 @@ function updatePersistStats(
     return;
   }
   stats.unchanged += 1;
+}
+
+function createIntegrationContextFetchProgressReporter(params: {
+  providerId: string;
+  connectionId: string;
+  accountLabel: string | null;
+  onProgress?: ((snapshot: IntegrationContextFetchProgressSnapshot) => void) | null;
+}): IntegrationContextFetchProgressReporter {
+  let snapshot: IntegrationContextFetchProgressSnapshot = {
+    provider_id: params.providerId,
+    connection_id: params.connectionId,
+    account_key: null,
+    account_label: params.accountLabel,
+    tree_id: null,
+    current_chunk_label: null,
+    chunks_total: 0,
+    chunks_completed: 0,
+    messages_seen: 0,
+    messages_persisted: 0,
+    leaves_created: 0,
+    leaves_superseding: 0,
+    leaves_unchanged: 0,
+    summary_nodes: 0,
+    actions: [],
+  };
+  return {
+    patch(next) {
+      snapshot = {
+        ...snapshot,
+        ...next,
+        actions: next.actions ? [...next.actions] : snapshot.actions,
+      };
+      params.onProgress?.({
+        ...snapshot,
+        actions: [...snapshot.actions],
+      });
+      return {
+        ...snapshot,
+        actions: [...snapshot.actions],
+      };
+    },
+  };
+}
+
+function retireIntegrationEntityLeaves(params: {
+  store: RuntimeStateStore;
+  treeId: string;
+  entityPrefix: string;
+  keepEntityKeys: Set<string>;
+  supersededAt: string;
+}): number {
+  let retired = 0;
+  for (const leaf of params.store.listIntegrationLeaves({
+    treeId: params.treeId,
+    status: "active",
+    limit: 10_000,
+    offset: 0,
+  })) {
+    if (!leaf.entityKey?.startsWith(params.entityPrefix)) {
+      continue;
+    }
+    if (params.keepEntityKeys.has(leaf.entityKey)) {
+      continue;
+    }
+    params.store.updateIntegrationLeafStatus({
+      leafId: leaf.leafId,
+      status: "superseded",
+      supersededAt: params.supersededAt,
+    });
+    retired += 1;
+  }
+  return retired;
 }
 
 function resolveComposioClient(client?: ComposioExecuteClient | null): ComposioExecuteClient {
@@ -1164,6 +1377,7 @@ async function fetchGmailIntegrationContext(params: {
   connectionId: string;
   composio: ComposioExecuteClient;
   fetchedAt: string;
+  progress?: IntegrationContextFetchProgressReporter | null;
 }): Promise<IntegrationContextFetchResult> {
   const connection = params.store.getIntegrationConnection(params.connectionId);
   if (!connection) {
@@ -1172,16 +1386,44 @@ async function fetchGmailIntegrationContext(params: {
   const connectedAccountId = connection.accountExternalId ?? "";
   const persistStats = { created: 0, superseding: 0, unchanged: 0 };
   const actions: string[] = [];
+  let accountKey: string | null = null;
+  let accountLabel: string | null = connection.accountLabel;
+  let treeId: string | null = null;
+  let messagesSeen = 0;
+  let messagesPersisted = 0;
+  let summaryNodes = 0;
+  let chunksTotal = 4;
+  let chunksCompleted = 0;
+  const syncProgress = (patch: Partial<IntegrationContextFetchProgressSnapshot> = {}) => {
+    params.progress?.patch({
+      account_key: accountKey,
+      account_label: accountLabel,
+      tree_id: treeId,
+      chunks_total: chunksTotal,
+      chunks_completed: chunksCompleted,
+      messages_seen: messagesSeen,
+      messages_persisted: messagesPersisted,
+      leaves_created: persistStats.created,
+      leaves_superseding: persistStats.superseding,
+      leaves_unchanged: persistStats.unchanged,
+      summary_nodes: summaryNodes,
+      actions,
+      ...patch,
+    });
+  };
 
+  syncProgress({ current_chunk_label: "Fetching Gmail profile" });
   const profileResult = await params.composio.executeAction({
     connectedAccountId,
     toolSlug: "GMAIL_GET_PROFILE",
     arguments: { user_id: "me" },
   });
   actions.push("GMAIL_GET_PROFILE");
+  chunksCompleted += 1;
+  syncProgress({ current_chunk_label: "Saving Gmail profile" });
   const profile = gmailProfileFromData(profileResult.data);
   const resolvedEmail = normalizeString(profile?.emailAddress);
-  const accountKey = resolvedEmail
+  accountKey = resolvedEmail
     ?? normalizeString(connection.accountEmail)
     ?? normalizeString(connection.accountHandle)
     ?? normalizeString(connection.accountExternalId)
@@ -1193,7 +1435,7 @@ async function fetchGmailIntegrationContext(params: {
       accountEmail: resolvedEmail,
     });
   }
-  const accountLabel = resolvedEmail ?? accountKey;
+  accountLabel = resolvedEmail ?? accountKey;
 
   const profilePersist = await persistIntegrationCandidate({
     store: params.store,
@@ -1209,6 +1451,9 @@ async function fetchGmailIntegrationContext(params: {
     embeddingClient: null,
   });
   updatePersistStats(profilePersist, persistStats);
+  treeId = profilePersist.tree.treeId;
+  chunksCompleted += 1;
+  syncProgress({ current_chunk_label: "Fetching recent Gmail messages" });
 
   const emailsResult = await params.composio.executeAction({
     connectedAccountId,
@@ -1222,14 +1467,22 @@ async function fetchGmailIntegrationContext(params: {
     },
   });
   actions.push("GMAIL_FETCH_EMAILS");
+  chunksCompleted += 1;
   const messages = gmailMessagesFromData(emailsResult.data).sort((left, right) => {
     const leftTime = Number.parseInt(String(left.internalDate ?? 0), 10);
     const rightTime = Number.parseInt(String(right.internalDate ?? 0), 10);
     return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
   });
+  messagesSeen = messages.length;
+  chunksTotal += messages.length;
+  syncProgress({
+    current_chunk_label:
+      messages.length > 0
+        ? `Importing recent Gmail messages (0/${messages.length})`
+        : "Rebuilding Gmail context summary",
+  });
 
-  let messagesPersisted = 0;
-  for (const message of messages) {
+  for (const [index, message] of messages.entries()) {
     const candidate = buildGmailMessageCandidate({
       ownerUserId: connection.ownerUserId,
       accountKey,
@@ -1238,6 +1491,13 @@ async function fetchGmailIntegrationContext(params: {
       fetchedAt: params.fetchedAt,
     });
     if (!candidate) {
+      chunksCompleted += 1;
+      syncProgress({
+        current_chunk_label:
+          index + 1 < messages.length
+            ? `Importing recent Gmail messages (${index + 1}/${messages.length})`
+            : "Rebuilding Gmail context summary",
+      });
       continue;
     }
     const persisted = await persistIntegrationCandidate({
@@ -1248,9 +1508,15 @@ async function fetchGmailIntegrationContext(params: {
     });
     updatePersistStats(persisted, persistStats);
     messagesPersisted += 1;
+    chunksCompleted += 1;
+    syncProgress({
+      current_chunk_label:
+        index + 1 < messages.length
+          ? `Importing recent Gmail messages (${index + 1}/${messages.length})`
+          : "Rebuilding Gmail context summary",
+    });
   }
 
-  const treeId = profilePersist.tree.treeId;
   await rebuildIntegrationTree({
     store: params.store,
     workspaceId: "",
@@ -1258,13 +1524,15 @@ async function fetchGmailIntegrationContext(params: {
     summaryModelClient: null,
     embeddingClient: null,
   });
+  chunksCompleted += 1;
 
-  const summaryNodes = params.store.listIntegrationSummaryNodes({
+  summaryNodes = params.store.listIntegrationSummaryNodes({
     treeId,
     status: "active",
     limit: 10_000,
     offset: 0,
   }).length;
+  syncProgress({ current_chunk_label: "Gmail context fetch complete" });
 
   return {
     ok: true,
@@ -1290,6 +1558,7 @@ async function fetchGitHubIntegrationContext(params: {
   connectionId: string;
   composio: ComposioExecuteClient;
   fetchedAt: string;
+  progress?: IntegrationContextFetchProgressReporter | null;
 }): Promise<IntegrationContextFetchResult> {
   const connection = params.store.getIntegrationConnection(params.connectionId);
   if (!connection) {
@@ -1298,17 +1567,45 @@ async function fetchGitHubIntegrationContext(params: {
   const connectedAccountId = connection.accountExternalId ?? "";
   const persistStats = { created: 0, superseding: 0, unchanged: 0 };
   const actions: string[] = [];
+  let accountKey: string | null = null;
+  let accountLabel: string | null = connection.accountLabel;
+  let treeId: string | null = null;
+  let contentSeen = 0;
+  let contentPersisted = 0;
+  let summaryNodes = 0;
+  let chunksTotal = 6;
+  let chunksCompleted = 0;
+  const syncProgress = (patch: Partial<IntegrationContextFetchProgressSnapshot> = {}) => {
+    params.progress?.patch({
+      account_key: accountKey,
+      account_label: accountLabel,
+      tree_id: treeId,
+      chunks_total: chunksTotal,
+      chunks_completed: chunksCompleted,
+      messages_seen: contentSeen,
+      messages_persisted: contentPersisted,
+      leaves_created: persistStats.created,
+      leaves_superseding: persistStats.superseding,
+      leaves_unchanged: persistStats.unchanged,
+      summary_nodes: summaryNodes,
+      actions,
+      ...patch,
+    });
+  };
 
+  syncProgress({ current_chunk_label: "Fetching GitHub profile" });
   const profileResult = await params.composio.executeAction({
     connectedAccountId,
     toolSlug: "GITHUB_GET_THE_AUTHENTICATED_USER",
     arguments: {},
   });
   actions.push("GITHUB_GET_THE_AUTHENTICATED_USER");
+  chunksCompleted += 1;
+  syncProgress({ current_chunk_label: "Saving GitHub profile" });
   const profile = gitHubProfileFromData(profileResult.data);
   const login = normalizeString(profile?.login);
   const email = normalizeString(profile?.email);
-  const accountKey = login
+  accountKey = login
     ?? email
     ?? normalizeString(connection.accountHandle)
     ?? normalizeString(connection.accountEmail)
@@ -1322,7 +1619,7 @@ async function fetchGitHubIntegrationContext(params: {
       accountEmail: email,
     });
   }
-  const accountLabel = normalizeString(profile?.name) ?? login ?? email ?? accountKey;
+  accountLabel = normalizeString(profile?.name) ?? login ?? email ?? accountKey;
 
   const profilePersist = await persistIntegrationCandidate({
     store: params.store,
@@ -1338,6 +1635,9 @@ async function fetchGitHubIntegrationContext(params: {
     embeddingClient: null,
   });
   updatePersistStats(profilePersist, persistStats);
+  treeId = profilePersist.tree.treeId;
+  chunksCompleted += 1;
+  syncProgress({ current_chunk_label: "Fetching GitHub notifications" });
 
   let notifications: GitHubNotificationPayload[] = [];
   try {
@@ -1359,29 +1659,36 @@ async function fetchGitHubIntegrationContext(params: {
     }
     actions.push("GITHUB_LIST_NOTIFICATIONS:missing");
   }
-
-  const repositoriesResult = await params.composio.executeAction({
-    connectedAccountId,
-    toolSlug: "GITHUB_FIND_REPOSITORIES",
-    arguments: {
-      query: "stars:>=0",
-      owner: login ?? accountKey,
-      sort: "updated",
-      order: "desc",
-      per_page: GITHUB_REPOSITORY_LIMIT,
-      page: 1,
-      response_detail: "full",
-      for_authenticated_user: true,
-      archived: false,
-      fork_filter: "exclude",
-    },
+  chunksCompleted += 1;
+  chunksTotal += notifications.length;
+  syncProgress({
+    current_chunk_label: "Fetching GitHub repositories",
   });
-  actions.push("GITHUB_FIND_REPOSITORIES");
-  const repositories = gitHubRepositoriesFromData(repositoriesResult.data);
 
-  let contentSeen = 0;
-  let contentPersisted = 0;
-  for (const notification of notifications) {
+  const repositories = await fetchGitHubRepositoriesForAccount({
+    composio: params.composio,
+    connectedAccountId,
+    accountKey: login ?? accountKey,
+    actions,
+  });
+  chunksCompleted += 1;
+  const fetchedRepositoryEntityKeys = new Set(
+    repositories
+      .map((repository) => githubRepositoryFullName(repository))
+      .filter((fullName): fullName is string => Boolean(fullName))
+      .map((fullName) => `repo:${fullName}`),
+  );
+  chunksTotal += repositories.length * 3;
+  syncProgress({
+    current_chunk_label:
+      notifications.length > 0
+        ? `Importing GitHub notifications (0/${notifications.length})`
+        : repositories.length > 0
+          ? `Importing GitHub repositories (0/${repositories.length})`
+          : "Rebuilding GitHub context summary",
+  });
+
+  for (const [index, notification] of notifications.entries()) {
     contentSeen += 1;
     const candidate = buildGitHubNotificationCandidate({
       ownerUserId: connection.ownerUserId,
@@ -1390,6 +1697,15 @@ async function fetchGitHubIntegrationContext(params: {
       notification,
     });
     if (!candidate) {
+      chunksCompleted += 1;
+      syncProgress({
+        current_chunk_label:
+          index + 1 < notifications.length
+            ? `Importing GitHub notifications (${index + 1}/${notifications.length})`
+            : repositories.length > 0
+              ? `Importing GitHub repositories (0/${repositories.length})`
+              : "Rebuilding GitHub context summary",
+      });
       continue;
     }
     const persisted = await persistIntegrationCandidate({
@@ -1400,17 +1716,36 @@ async function fetchGitHubIntegrationContext(params: {
     });
     updatePersistStats(persisted, persistStats);
     contentPersisted += 1;
+    chunksCompleted += 1;
+    syncProgress({
+      current_chunk_label:
+        index + 1 < notifications.length
+          ? `Importing GitHub notifications (${index + 1}/${notifications.length})`
+          : repositories.length > 0
+            ? `Importing GitHub repositories (0/${repositories.length})`
+            : "Rebuilding GitHub context summary",
+    });
   }
 
-  for (const repository of repositories) {
+  for (const [index, repository] of repositories.entries()) {
     contentSeen += 1;
     const repoIdentity = githubRepositoryOwnerAndName(repository);
     const fullName = githubRepositoryFullName(repository);
     if (!repoIdentity || !fullName) {
+      chunksCompleted += 3;
+      syncProgress({
+        current_chunk_label:
+          index + 1 < repositories.length
+            ? `Importing GitHub repositories (${index + 1}/${repositories.length})`
+            : "Rebuilding GitHub context summary",
+      });
       continue;
     }
 
     let readmeText: string | null = null;
+    syncProgress({
+      current_chunk_label: `Fetching GitHub README for ${fullName}`,
+    });
     try {
       const readmeResult = await params.composio.executeAction({
         connectedAccountId,
@@ -1430,12 +1765,14 @@ async function fetchGitHubIntegrationContext(params: {
       actions.push(`GITHUB_GET_A_REPOSITORY_README:${fullName}:missing`);
     }
 
+    syncProgress({
+      current_chunk_label: `Saving GitHub repository ${fullName}`,
+    });
     const repoCandidate = buildGitHubRepositoryCandidate({
       ownerUserId: connection.ownerUserId,
       accountKey,
       accountLabel,
       repository,
-      readmeText,
     });
     if (repoCandidate) {
       const persisted = await persistIntegrationCandidate({
@@ -1447,6 +1784,32 @@ async function fetchGitHubIntegrationContext(params: {
       updatePersistStats(persisted, persistStats);
       contentPersisted += 1;
     }
+    chunksCompleted += 1;
+    syncProgress({
+      current_chunk_label: `Fetching pull requests for ${fullName}`,
+    });
+
+    if (readmeText) {
+      contentSeen += 1;
+      const readmeCandidate = buildGitHubReadmeCandidate({
+        ownerUserId: connection.ownerUserId,
+        accountKey,
+        accountLabel,
+        repository,
+        readmeText,
+      });
+      if (readmeCandidate) {
+        const persisted = await persistIntegrationCandidate({
+          store: params.store,
+          workspaceId: "",
+          candidate: readmeCandidate,
+          embeddingClient: null,
+        });
+        updatePersistStats(persisted, persistStats);
+        contentPersisted += 1;
+      }
+    }
+    chunksCompleted += 1;
 
     const pullRequestsResult = await params.composio.executeAction({
       connectedAccountId,
@@ -1488,6 +1851,13 @@ async function fetchGitHubIntegrationContext(params: {
       updatePersistStats(persisted, persistStats);
       contentPersisted += 1;
     }
+    chunksCompleted += 1;
+    syncProgress({
+      current_chunk_label:
+        index + 1 < repositories.length
+          ? `Importing GitHub repositories (${index + 1}/${repositories.length})`
+          : "Rebuilding GitHub context summary",
+    });
 
     const issuesResult = await params.composio.executeAction({
       connectedAccountId,
@@ -1531,7 +1901,19 @@ async function fetchGitHubIntegrationContext(params: {
     }
   }
 
-  const treeId = profilePersist.tree.treeId;
+  syncProgress({ current_chunk_label: "Reconciling GitHub repositories" });
+  const retiredRepoLeaves = retireIntegrationEntityLeaves({
+    store: params.store,
+    treeId,
+    entityPrefix: "repo:",
+    keepEntityKeys: fetchedRepositoryEntityKeys,
+    supersededAt: params.fetchedAt,
+  });
+  if (retiredRepoLeaves > 0) {
+    actions.push(`GITHUB_RETIRED_REPO_LEAVES:${retiredRepoLeaves}`);
+  }
+  chunksCompleted += 1;
+  syncProgress({ current_chunk_label: "Rebuilding GitHub context summary" });
   await rebuildIntegrationTree({
     store: params.store,
     workspaceId: "",
@@ -1539,13 +1921,15 @@ async function fetchGitHubIntegrationContext(params: {
     summaryModelClient: null,
     embeddingClient: null,
   });
+  chunksCompleted += 1;
 
-  const summaryNodes = params.store.listIntegrationSummaryNodes({
+  summaryNodes = params.store.listIntegrationSummaryNodes({
     treeId,
     status: "active",
     limit: 10_000,
     offset: 0,
   }).length;
+  syncProgress({ current_chunk_label: "GitHub context fetch complete" });
 
   return {
     ok: true,
@@ -1571,6 +1955,7 @@ async function fetchSlackIntegrationContext(params: {
   connectionId: string;
   composio: ComposioExecuteClient;
   fetchedAt: string;
+  progress?: IntegrationContextFetchProgressReporter | null;
 }): Promise<IntegrationContextFetchResult> {
   const connection = params.store.getIntegrationConnection(params.connectionId);
   if (!connection) {
@@ -1579,18 +1964,46 @@ async function fetchSlackIntegrationContext(params: {
   const connectedAccountId = connection.accountExternalId ?? "";
   const persistStats = { created: 0, superseding: 0, unchanged: 0 };
   const actions: string[] = [];
+  let accountKey: string | null = null;
+  let accountLabel: string | null = connection.accountLabel;
+  let treeId: string | null = null;
+  let contentSeen = 0;
+  let contentPersisted = 0;
+  let summaryNodes = 0;
+  let chunksTotal = 4;
+  let chunksCompleted = 0;
+  const syncProgress = (patch: Partial<IntegrationContextFetchProgressSnapshot> = {}) => {
+    params.progress?.patch({
+      account_key: accountKey,
+      account_label: accountLabel,
+      tree_id: treeId,
+      chunks_total: chunksTotal,
+      chunks_completed: chunksCompleted,
+      messages_seen: contentSeen,
+      messages_persisted: contentPersisted,
+      leaves_created: persistStats.created,
+      leaves_superseding: persistStats.superseding,
+      leaves_unchanged: persistStats.unchanged,
+      summary_nodes: summaryNodes,
+      actions,
+      ...patch,
+    });
+  };
 
+  syncProgress({ current_chunk_label: "Fetching Slack workspace profile" });
   const authResult = await params.composio.executeAction({
     connectedAccountId,
     toolSlug: "SLACK_TEST_AUTH",
     arguments: {},
   });
   actions.push("SLACK_TEST_AUTH");
+  chunksCompleted += 1;
+  syncProgress({ current_chunk_label: "Saving Slack workspace profile" });
   const auth = slackAuthFromData(authResult.data);
   const teamId = normalizeString(auth?.team_id);
   const team = normalizeString(auth?.team);
   const workspaceUrl = normalizeString(auth?.url);
-  const accountKey = teamId
+  accountKey = teamId
     ?? normalizeString(connection.accountHandle)
     ?? normalizeString(connection.accountExternalId)
     ?? connection.connectionId;
@@ -1601,7 +2014,7 @@ async function fetchSlackIntegrationContext(params: {
       accountHandle: teamId,
     });
   }
-  const accountLabel = team ?? workspaceUrl ?? teamId ?? accountKey;
+  accountLabel = team ?? workspaceUrl ?? teamId ?? accountKey;
 
   const profilePersist = await persistIntegrationCandidate({
     store: params.store,
@@ -1617,6 +2030,9 @@ async function fetchSlackIntegrationContext(params: {
     embeddingClient: null,
   });
   updatePersistStats(profilePersist, persistStats);
+  treeId = profilePersist.tree.treeId;
+  chunksCompleted += 1;
+  syncProgress({ current_chunk_label: "Fetching Slack channels" });
 
   const channelsResult = await params.composio.executeAction({
     connectedAccountId,
@@ -1630,10 +2046,16 @@ async function fetchSlackIntegrationContext(params: {
   actions.push("SLACK_LIST_ALL_CHANNELS");
   const channels = slackChannelsFromData(channelsResult.data)
     .filter((channel) => normalizeBoolean(channel.is_archived) !== true);
+  chunksCompleted += 1;
+  chunksTotal += channels.length;
+  syncProgress({
+    current_chunk_label:
+      channels.length > 0
+        ? `Importing Slack channels (0/${channels.length})`
+        : "Rebuilding Slack context summary",
+  });
 
-  let contentSeen = 0;
-  let contentPersisted = 0;
-  for (const channel of channels) {
+  for (const [index, channel] of channels.entries()) {
     contentSeen += 1;
     const candidate = buildSlackChannelCandidate({
       ownerUserId: connection.ownerUserId,
@@ -1643,6 +2065,13 @@ async function fetchSlackIntegrationContext(params: {
       fetchedAt: params.fetchedAt,
     });
     if (!candidate) {
+      chunksCompleted += 1;
+      syncProgress({
+        current_chunk_label:
+          index + 1 < channels.length
+            ? `Importing Slack channels (${index + 1}/${channels.length})`
+            : "Fetching Slack channel history",
+      });
       continue;
     }
     const persisted = await persistIntegrationCandidate({
@@ -1653,6 +2082,13 @@ async function fetchSlackIntegrationContext(params: {
     });
     updatePersistStats(persisted, persistStats);
     contentPersisted += 1;
+    chunksCompleted += 1;
+    syncProgress({
+      current_chunk_label:
+        index + 1 < channels.length
+          ? `Importing Slack channels (${index + 1}/${channels.length})`
+          : "Fetching Slack channel history",
+    });
   }
 
   const historyChannels = channels
@@ -1662,8 +2098,15 @@ async function fetchSlackIntegrationContext(params: {
     }))
     .filter((channel): channel is { id: string; name: string } => Boolean(channel.id && channel.name))
     .slice(0, SLACK_CHANNEL_HISTORY_TARGETS);
+  chunksTotal += historyChannels.length;
+  syncProgress({
+    current_chunk_label:
+      historyChannels.length > 0
+        ? `Fetching Slack channel history (0/${historyChannels.length})`
+        : "Rebuilding Slack context summary",
+  });
 
-  for (const channel of historyChannels) {
+  for (const [index, channel] of historyChannels.entries()) {
     const historyResult = await params.composio.executeAction({
       connectedAccountId,
       toolSlug: "SLACK_FETCH_CONVERSATION_HISTORY",
@@ -1674,7 +2117,16 @@ async function fetchSlackIntegrationContext(params: {
       },
     });
     actions.push(`SLACK_FETCH_CONVERSATION_HISTORY:${channel.id}`);
+    chunksCompleted += 1;
     const messages = slackMessagesFromData(historyResult.data);
+    syncProgress({
+      current_chunk_label:
+        index + 1 < historyChannels.length
+          ? `Fetching Slack channel history (${index + 1}/${historyChannels.length})`
+          : messages.length > 0
+            ? `Importing Slack messages for #${channel.name}`
+            : "Rebuilding Slack context summary",
+    });
     for (const message of messages) {
       contentSeen += 1;
       const candidate = buildSlackMessageCandidate({
@@ -1699,7 +2151,7 @@ async function fetchSlackIntegrationContext(params: {
     }
   }
 
-  const treeId = profilePersist.tree.treeId;
+  syncProgress({ current_chunk_label: "Rebuilding Slack context summary" });
   await rebuildIntegrationTree({
     store: params.store,
     workspaceId: "",
@@ -1707,13 +2159,15 @@ async function fetchSlackIntegrationContext(params: {
     summaryModelClient: null,
     embeddingClient: null,
   });
+  chunksCompleted += 1;
 
-  const summaryNodes = params.store.listIntegrationSummaryNodes({
+  summaryNodes = params.store.listIntegrationSummaryNodes({
     treeId,
     status: "active",
     limit: 10_000,
     offset: 0,
   }).length;
+  syncProgress({ current_chunk_label: "Slack context fetch complete" });
 
   return {
     ok: true,
@@ -1738,12 +2192,19 @@ export async function fetchIntegrationContextForConnection(params: {
   store: RuntimeStateStore;
   connectionId: string;
   composioClient?: ComposioExecuteClient | null;
+  onProgress?: ((snapshot: IntegrationContextFetchProgressSnapshot) => void) | null;
 }): Promise<IntegrationContextFetchResult> {
   const connection = params.store.getIntegrationConnection(params.connectionId);
   if (!connection) {
     throw new Error(`integration connection ${params.connectionId} not found`);
   }
   const providerId = connection.providerId.trim().toLowerCase();
+  const progress = createIntegrationContextFetchProgressReporter({
+    providerId,
+    connectionId: connection.connectionId,
+    accountLabel: connection.accountLabel,
+    onProgress: params.onProgress ?? null,
+  });
   const fetchedAt = utcNowIso();
   if (!supportsIntegrationContextFetchProvider(providerId)) {
     return {
@@ -1776,6 +2237,7 @@ export async function fetchIntegrationContextForConnection(params: {
       connectionId: connection.connectionId,
       composio,
       fetchedAt,
+      progress,
     });
   }
   if (providerId === "github") {
@@ -1784,6 +2246,7 @@ export async function fetchIntegrationContextForConnection(params: {
       connectionId: connection.connectionId,
       composio,
       fetchedAt,
+      progress,
     });
   }
   return fetchSlackIntegrationContext({
@@ -1791,6 +2254,7 @@ export async function fetchIntegrationContextForConnection(params: {
     connectionId: connection.connectionId,
     composio,
     fetchedAt,
+    progress,
   });
 }
 

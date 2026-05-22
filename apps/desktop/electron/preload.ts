@@ -927,6 +927,12 @@ interface IntegrationConnectionPayload {
   owner_user_id: string;
   account_label: string;
   account_external_id: string | null;
+  account_handle: string | null;
+  account_email: string | null;
+  context_cron_auto_fetch_enabled: boolean;
+  last_context_fetch_attempted_at: string | null;
+  last_context_fetch_completed_at: string | null;
+  last_context_fetch_status: string | null;
   auth_mode: string;
   granted_scopes: string[];
   status: string;
@@ -968,6 +974,18 @@ interface IntegrationBindingPayload {
 interface IntegrationUpsertBindingPayload {
   connection_id: string;
   is_default?: boolean;
+}
+
+interface IntegrationUpdateConnectionPayload {
+  status?: string;
+  secret_ref?: string;
+  account_label?: string;
+  account_handle?: string | null;
+  account_email?: string | null;
+  context_cron_auto_fetch_enabled?: boolean;
+  last_context_fetch_attempted_at?: string | null;
+  last_context_fetch_completed_at?: string | null;
+  last_context_fetch_status?: string | null;
 }
 
 interface ConnectionWorkspaceUsageEntry {
@@ -1047,12 +1065,6 @@ interface IntegrationCreateConnectionPayload {
   auth_mode: string;
   granted_scopes: string[];
   secret_ref?: string;
-}
-
-interface IntegrationUpdateConnectionPayload {
-  status?: string;
-  secret_ref?: string;
-  account_label?: string;
 }
 
 interface OAuthAppConfigPayload {
@@ -1621,24 +1633,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     }) =>
       ipcRenderer.invoke("workspace:debugComposioRuntimeTest", params) as Promise<unknown>,
     fetchIntegrationContext: (connectionId: string) =>
-      ipcRenderer.invoke("workspace:fetchIntegrationContext", connectionId) as Promise<{
-        ok: true;
-        supported: boolean;
-        provider_id: string;
-        connection_id: string;
-        account_key: string | null;
-        account_label: string | null;
-        tree_id: string | null;
-        fetched_at: string;
-        leaves_created: number;
-        leaves_superseding: number;
-        leaves_unchanged: number;
-        messages_seen: number;
-        messages_persisted: number;
-        summary_nodes: number;
-        actions: string[];
-        reason?: string;
-      }>,
+      ipcRenderer.invoke("workspace:fetchIntegrationContext", connectionId) as Promise<IntegrationContextFetchStartResponsePayload>,
+    listIntegrationContextFetchStatuses: (connectionIds?: string[]) =>
+      ipcRenderer.invoke(
+        "workspace:listIntegrationContextFetchStatuses",
+        connectionIds ?? [],
+      ) as Promise<IntegrationContextFetchStatusListResponsePayload>,
     composioConnect: (payload: {
       provider: string;
       owner_user_id: string;

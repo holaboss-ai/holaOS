@@ -182,6 +182,10 @@ export interface IntegrationConnectionRecord {
    */
   accountHandle: string | null;
   accountEmail: string | null;
+  contextCronAutoFetchEnabled: boolean;
+  lastContextFetchAttemptedAt: string | null;
+  lastContextFetchCompletedAt: string | null;
+  lastContextFetchStatus: string | null;
   authMode: string;
   grantedScopes: string[];
   status: string;
@@ -609,6 +613,10 @@ export interface IntegrationLeafRecord {
   leafId: string;
   treeId: string;
   subjectKey: string;
+  entityKey: string | null;
+  entityLabel: string | null;
+  branchKey: string | null;
+  branchLabel: string | null;
   path: string;
   title: string;
   summary: string;
@@ -3523,6 +3531,10 @@ export class RuntimeStateStore {
     accountExternalId?: string | null;
     accountHandle?: string | null;
     accountEmail?: string | null;
+    contextCronAutoFetchEnabled?: boolean;
+    lastContextFetchAttemptedAt?: string | null;
+    lastContextFetchCompletedAt?: string | null;
+    lastContextFetchStatus?: string | null;
     authMode: string;
     grantedScopes: string[];
     status: string;
@@ -3534,8 +3546,10 @@ export class RuntimeStateStore {
         INSERT INTO integration_connections (
             connection_id, provider_id, owner_user_id, account_label, account_external_id,
             account_handle, account_email,
+            context_cron_auto_fetch_enabled, last_context_fetch_attempted_at,
+            last_context_fetch_completed_at, last_context_fetch_status,
             auth_mode, granted_scopes, status, secret_ref, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(connection_id) DO UPDATE SET
             provider_id = excluded.provider_id,
             owner_user_id = excluded.owner_user_id,
@@ -3543,6 +3557,10 @@ export class RuntimeStateStore {
             account_external_id = excluded.account_external_id,
             account_handle = excluded.account_handle,
             account_email = excluded.account_email,
+            context_cron_auto_fetch_enabled = excluded.context_cron_auto_fetch_enabled,
+            last_context_fetch_attempted_at = excluded.last_context_fetch_attempted_at,
+            last_context_fetch_completed_at = excluded.last_context_fetch_completed_at,
+            last_context_fetch_status = excluded.last_context_fetch_status,
             auth_mode = excluded.auth_mode,
             granted_scopes = excluded.granted_scopes,
             status = excluded.status,
@@ -3557,6 +3575,14 @@ export class RuntimeStateStore {
         params.accountExternalId ?? null,
         normalizeIdentityValue(params.accountHandle),
         normalizeIdentityValue(params.accountEmail),
+        params.contextCronAutoFetchEnabled === undefined
+          ? 1
+          : params.contextCronAutoFetchEnabled
+            ? 1
+            : 0,
+        params.lastContextFetchAttemptedAt ?? null,
+        params.lastContextFetchCompletedAt ?? null,
+        params.lastContextFetchStatus ?? null,
         params.authMode,
         JSON.stringify(params.grantedScopes ?? []),
         params.status,
@@ -6578,6 +6604,10 @@ export class RuntimeStateStore {
     leafId: string;
     treeId: string;
     subjectKey: string;
+    entityKey?: string | null;
+    entityLabel?: string | null;
+    branchKey?: string | null;
+    branchLabel?: string | null;
     path: string;
     title: string;
     summary: string;
@@ -6606,6 +6636,10 @@ export class RuntimeStateStore {
           leaf_id,
           tree_id,
           subject_key,
+          entity_key,
+          entity_label,
+          branch_key,
+          branch_label,
           path,
           title,
           summary,
@@ -6624,10 +6658,14 @@ export class RuntimeStateStore {
           status,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(leaf_id) DO UPDATE SET
           tree_id = excluded.tree_id,
           subject_key = excluded.subject_key,
+          entity_key = excluded.entity_key,
+          entity_label = excluded.entity_label,
+          branch_key = excluded.branch_key,
+          branch_label = excluded.branch_label,
           path = excluded.path,
           title = excluded.title,
           summary = excluded.summary,
@@ -6650,6 +6688,10 @@ export class RuntimeStateStore {
         params.leafId,
         params.treeId,
         params.subjectKey,
+        params.entityKey ?? null,
+        params.entityLabel ?? null,
+        params.branchKey ?? null,
+        params.branchLabel ?? null,
         params.path,
         params.title,
         params.summary,
@@ -9600,6 +9642,10 @@ export class RuntimeStateStore {
           account_external_id TEXT,
           account_handle TEXT,
           account_email TEXT,
+          context_cron_auto_fetch_enabled INTEGER NOT NULL DEFAULT 1,
+          last_context_fetch_attempted_at TEXT,
+          last_context_fetch_completed_at TEXT,
+          last_context_fetch_status TEXT,
           auth_mode TEXT NOT NULL,
           granted_scopes TEXT NOT NULL DEFAULT '[]',
           status TEXT NOT NULL,
@@ -9649,6 +9695,10 @@ export class RuntimeStateStore {
           leaf_id TEXT PRIMARY KEY,
           tree_id TEXT NOT NULL,
           subject_key TEXT NOT NULL,
+          entity_key TEXT,
+          entity_label TEXT,
+          branch_key TEXT,
+          branch_label TEXT,
           path TEXT NOT NULL UNIQUE,
           title TEXT NOT NULL,
           summary TEXT NOT NULL,
@@ -9779,6 +9829,7 @@ export class RuntimeStateStore {
     `);
     this.ensureMemoryEntriesTableSchema(db);
     this.ensureMemoryEmbeddingIndexSchema(db);
+    this.ensureIntegrationLeavesTableSchema(db);
     this.migrateIntegrationConnectionIdentityColumns(db);
     this.migrateAppCatalogProviderColumns(db);
   }
@@ -10617,6 +10668,32 @@ export class RuntimeStateStore {
     }
   }
 
+  private ensureIntegrationLeavesTableSchema(db: Database.Database): void {
+    const tableNames = new Set<string>(
+      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
+        (row) => row.name,
+      ),
+    );
+    if (!tableNames.has("integration_leaves")) {
+      return;
+    }
+    const columns = new Set<string>(
+      (db.prepare("PRAGMA table_info(integration_leaves)").all() as Array<{ name: string }>).map((row) => row.name),
+    );
+    if (!columns.has("entity_key")) {
+      db.exec("ALTER TABLE integration_leaves ADD COLUMN entity_key TEXT;");
+    }
+    if (!columns.has("entity_label")) {
+      db.exec("ALTER TABLE integration_leaves ADD COLUMN entity_label TEXT;");
+    }
+    if (!columns.has("branch_key")) {
+      db.exec("ALTER TABLE integration_leaves ADD COLUMN branch_key TEXT;");
+    }
+    if (!columns.has("branch_label")) {
+      db.exec("ALTER TABLE integration_leaves ADD COLUMN branch_label TEXT;");
+    }
+  }
+
   private ensureConversationBindingsTableSchema(db: Database.Database): void {
     const tableNames = new Set<string>(
       (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
@@ -10920,6 +10997,18 @@ export class RuntimeStateStore {
     }
     if (!columns.has("account_email")) {
       db.exec("ALTER TABLE integration_connections ADD COLUMN account_email TEXT;");
+    }
+    if (!columns.has("context_cron_auto_fetch_enabled")) {
+      db.exec("ALTER TABLE integration_connections ADD COLUMN context_cron_auto_fetch_enabled INTEGER NOT NULL DEFAULT 1;");
+    }
+    if (!columns.has("last_context_fetch_attempted_at")) {
+      db.exec("ALTER TABLE integration_connections ADD COLUMN last_context_fetch_attempted_at TEXT;");
+    }
+    if (!columns.has("last_context_fetch_completed_at")) {
+      db.exec("ALTER TABLE integration_connections ADD COLUMN last_context_fetch_completed_at TEXT;");
+    }
+    if (!columns.has("last_context_fetch_status")) {
+      db.exec("ALTER TABLE integration_connections ADD COLUMN last_context_fetch_status TEXT;");
     }
     db.exec(
       "CREATE INDEX IF NOT EXISTS idx_integration_connections_provider_owner_handle ON integration_connections (provider_id, owner_user_id, account_handle);"
@@ -12418,6 +12507,10 @@ export class RuntimeStateStore {
       leafId: String(row.leaf_id),
       treeId: String(row.tree_id),
       subjectKey: String(row.subject_key),
+      entityKey: row.entity_key == null ? null : String(row.entity_key),
+      entityLabel: row.entity_label == null ? null : String(row.entity_label),
+      branchKey: row.branch_key == null ? null : String(row.branch_key),
+      branchLabel: row.branch_label == null ? null : String(row.branch_label),
       path: String(row.path),
       title: String(row.title),
       summary: String(row.summary),
@@ -12535,6 +12628,22 @@ export class RuntimeStateStore {
       accountExternalId: row.account_external_id == null ? null : String(row.account_external_id),
       accountHandle: row.account_handle == null ? null : String(row.account_handle),
       accountEmail: row.account_email == null ? null : String(row.account_email),
+      contextCronAutoFetchEnabled:
+        row.context_cron_auto_fetch_enabled === false
+          ? false
+          : Number(row.context_cron_auto_fetch_enabled ?? 1) !== 0,
+      lastContextFetchAttemptedAt:
+        row.last_context_fetch_attempted_at == null
+          ? null
+          : String(row.last_context_fetch_attempted_at),
+      lastContextFetchCompletedAt:
+        row.last_context_fetch_completed_at == null
+          ? null
+          : String(row.last_context_fetch_completed_at),
+      lastContextFetchStatus:
+        row.last_context_fetch_status == null
+          ? null
+          : String(row.last_context_fetch_status),
       authMode: String(row.auth_mode),
       grantedScopes: this.parseJsonList(row.granted_scopes).filter((item): item is string => typeof item === "string"),
       status: String(row.status),

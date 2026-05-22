@@ -185,7 +185,7 @@ declare global {
   }
 
   type MemoryBrowserGraphForestPayload = "workspace" | "integrations";
-  type MemoryBrowserGraphNodeKindPayload = "root" | "tree" | "summary" | "leaf";
+  type MemoryBrowserGraphNodeKindPayload = "root" | "tree" | "entity" | "branch" | "summary" | "leaf";
 
   interface MemoryBrowserGraphNodePayload {
     id: string;
@@ -203,7 +203,7 @@ declare global {
   interface MemoryBrowserGraphEdgePayload {
     from: string;
     to: string;
-    kind: "contains" | "parent_child";
+    kind: "contains" | "parent_child" | "reference";
   }
 
   interface MemoryBrowserGraphResponsePayload {
@@ -1414,6 +1414,10 @@ interface RuntimeNotificationListOptionsPayload {
     account_handle: string | null;
     /** Provider-side email from whoami (e.g. josh@example.com) — used for re-auth dedupe. */
     account_email: string | null;
+    context_cron_auto_fetch_enabled: boolean;
+    last_context_fetch_attempted_at: string | null;
+    last_context_fetch_completed_at: string | null;
+    last_context_fetch_status: string | null;
     auth_mode: string;
     granted_scopes: string[];
     status: string;
@@ -1482,6 +1486,45 @@ interface RuntimeNotificationListOptionsPayload {
     entries: IntegrationStoreCatalogEntry[];
   }
 
+  interface IntegrationContextFetchStatusPayload {
+    connection_id: string;
+    provider_id: string;
+    run_id: string;
+    supported: boolean;
+    status: "running" | "completed" | "failed" | "unsupported";
+    account_key: string | null;
+    account_label: string | null;
+    tree_id: string | null;
+    current_chunk_label: string | null;
+    chunks_total: number;
+    chunks_completed: number;
+    messages_seen: number;
+    messages_persisted: number;
+    leaves_created: number;
+    leaves_superseding: number;
+    leaves_unchanged: number;
+    summary_nodes: number;
+    actions: string[];
+    started_at: string | null;
+    updated_at: string;
+    completed_at: string | null;
+    fetched_at: string | null;
+    error_message: string | null;
+    reason: string | null;
+  }
+
+  interface IntegrationContextFetchStartResponsePayload {
+    ok: true;
+    started: boolean;
+    deduped: boolean;
+    status: IntegrationContextFetchStatusPayload;
+  }
+
+  interface IntegrationContextFetchStatusListResponsePayload {
+    ok: true;
+    statuses: IntegrationContextFetchStatusPayload[];
+  }
+
   interface AllWorkspaceIntegrationOverridesPayload {
     overrides: Array<{
       workspace_id: string;
@@ -1542,6 +1585,10 @@ interface RuntimeNotificationListOptionsPayload {
     /** Backfill provider-side identity. `null` clears, omit to leave alone. */
     account_handle?: string | null;
     account_email?: string | null;
+    context_cron_auto_fetch_enabled?: boolean;
+    last_context_fetch_attempted_at?: string | null;
+    last_context_fetch_completed_at?: string | null;
+    last_context_fetch_status?: string | null;
   }
 
   interface IntegrationMergeConnectionsResult {
@@ -2021,24 +2068,12 @@ interface RuntimeNotificationListOptionsPayload {
         toolSlug?: string;
         arguments?: Record<string, unknown>;
       }) => Promise<unknown>;
-      fetchIntegrationContext: (connectionId: string) => Promise<{
-        ok: true;
-        supported: boolean;
-        provider_id: string;
-        connection_id: string;
-        account_key: string | null;
-        account_label: string | null;
-        tree_id: string | null;
-        fetched_at: string;
-        leaves_created: number;
-        leaves_superseding: number;
-        leaves_unchanged: number;
-        messages_seen: number;
-        messages_persisted: number;
-        summary_nodes: number;
-        actions: string[];
-        reason?: string;
-      }>;
+      fetchIntegrationContext: (
+        connectionId: string
+      ) => Promise<IntegrationContextFetchStartResponsePayload>;
+      listIntegrationContextFetchStatuses: (
+        connectionIds?: string[]
+      ) => Promise<IntegrationContextFetchStatusListResponsePayload>;
       restartApp: (workspaceId: string, appId: string) => Promise<{
         workspace_id: string;
         app_id: string;
