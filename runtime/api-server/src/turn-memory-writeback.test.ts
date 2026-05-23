@@ -429,7 +429,17 @@ test("writeTurnDurableMemory waits for a full three-turn batch and does not repl
   const interactionEntities = listActiveInteractionEntities(store, "workspace-1");
   const blockerLeaf = interactionLeaves[0];
 
-  assert.deepEqual(filePaths, [blockerLeaf.path]);
+  assert.equal(filePaths.length, 3);
+  assert.ok(filePaths.includes(blockerLeaf.path));
+  assert.ok(filePaths.includes("workspace/workspace-1/interaction/trees/system-recurring-deploy-policy-blocker/content.md"));
+  assert.equal(
+    filePaths.some((candidate) =>
+      /^workspace\/workspace-1\/interaction\/trees\/system-recurring-deploy-policy-blocker\/branches\/deploy-policy-blocker-recurring-[a-f0-9]{6}\/content\.md$/.test(
+        candidate,
+      )
+    ),
+    true,
+  );
   assert.equal(interactionLeaves.length, 1);
   assert.equal(blockerLeaf.entityId, "interaction:system:recurring-deploy-policy-blocker");
   assert.match(

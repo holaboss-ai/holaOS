@@ -254,10 +254,12 @@ test("filesystem memory service preserves search/get/upsert/status/sync payload 
     },
     status: {
       ...status,
+      files: 5,
+      chunks: 5,
       custom: {
         ...custom,
         interaction_canonical_nodes: 2,
-        interaction_canonical_edges: 1,
+        interaction_canonical_edges: 2,
       },
     },
   });

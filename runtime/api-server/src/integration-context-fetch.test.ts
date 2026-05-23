@@ -805,6 +805,18 @@ test("fetchIntegrationContextForConnection falls back to owned public GitHub rep
         if (params.toolSlug === "GITHUB_LIST_NOTIFICATIONS") {
           return { data: { data: [] } as TData, logId: "log-gh-notifications" };
         }
+        if (params.toolSlug === "GITHUB_GET_A_REPOSITORY_README") {
+          throw new ComposioApiClientError(404, {
+            code: "404",
+            message: "Not Found",
+          });
+        }
+        if (params.toolSlug === "GITHUB_LIST_PULL_REQUESTS") {
+          return { data: { data: [] } as TData, logId: "log-gh-prs" };
+        }
+        if (params.toolSlug === "GITHUB_LIST_REPOSITORY_ISSUES") {
+          return { data: { data: [] } as TData, logId: "log-gh-issues" };
+        }
         throw new Error(`unexpected tool slug: ${params.toolSlug}`);
       },
       async proxyRequest<TData = unknown>(_params: ProxyRequestParams): Promise<{ data: TData | null; status: number; headers: Record<string, string> }> {
@@ -846,6 +858,9 @@ test("fetchIntegrationContextForConnection falls back to owned public GitHub rep
   assert.deepEqual(calls, [
     "GITHUB_GET_THE_AUTHENTICATED_USER",
     "GITHUB_LIST_NOTIFICATIONS",
+    "GITHUB_GET_A_REPOSITORY_README",
+    "GITHUB_LIST_PULL_REQUESTS",
+    "GITHUB_LIST_REPOSITORY_ISSUES",
   ]);
   assert.deepEqual(proxyCalls, [
     `/user/repos?type=owner&sort=updated&direction=desc&per_page=12`,
@@ -853,7 +868,7 @@ test("fetchIntegrationContextForConnection falls back to owned public GitHub rep
   ]);
   assert.equal(result.supported, true);
   assert.equal(result.provider_id, "github");
-  assert.equal(result.leaves_created, 1);
+  assert.equal(result.leaves_created, 2);
   assert.equal(result.messages_seen, 1);
   assert.equal(result.messages_persisted, 1);
   assert.ok(result.actions.includes("GITHUB_PROXY:/user/repos?type=owner:forbidden"));
