@@ -4,6 +4,7 @@ import path from "node:path";
 
 import {
   type IntegrationLeafRecord,
+  type MemoryNodeKind,
   type IntegrationSummaryNodeRecord,
   type IntegrationTreeRecord,
   type InteractionTreeChildKind,
@@ -1288,6 +1289,445 @@ function buildIntegrationRelations(params: {
   return [];
 }
 
+function canonicalParentContentPath(nodePath: string): string | null {
+  const segments = nodePath.split("/").filter(Boolean);
+  if (segments.length < 4 || segments[segments.length - 1] !== "content.md") {
+    return null;
+  }
+  if (segments[segments.length - 3] !== "branches") {
+    return null;
+  }
+  return [...segments.slice(0, -3), "content.md"].join("/");
+}
+
+function buildIntegrationCanonicalNodesAndEdges(params: {
+  tree: IntegrationTreeRecord;
+  leaves: IntegrationLeafRecord[];
+  summaries: Awaited<ReturnType<typeof buildSummaryTreePlan>>["nodes"];
+  leafBodies: Map<string, string>;
+  relations: Array<{
+    fromNodeKind: "entity";
+    fromNodeId: string;
+    toNodeKind: "entity";
+    toNodeId: string;
+    relationType: string;
+    metadata: Record<string, unknown>;
+  }>;
+}): {
+  nodes: Array<{
+    nodeId: string;
+    nodeKind: MemoryNodeKind;
+    path: string;
+    title: string;
+    summary: string;
+    bodySha256: string;
+    level: number | null;
+    ordinal: number | null;
+    childCount: number;
+    observedAt: string | null;
+    metadata: Record<string, unknown>;
+  }>;
+  edges: Array<{
+    parentNodeId: string;
+    childNodeId: string;
+    position: number;
+  }>;
+  bodiesByPath: Map<string, string>;
+} {
+  const nodes = new Map<string, {
+    nodeId: string;
+    nodeKind: MemoryNodeKind;
+    path: string;
+    title: string;
+    summary: string;
+    bodySha256: string;
+    level: number | null;
+    ordinal: number | null;
+    observedAt: string | null;
+    metadata: Record<string, unknown>;
+  }>();
+  const bodiesByPath = new Map<string, string>();
+  const treePath = path.posix.join(...integrationTreeBaseSegments(params.tree.slug), "content.md");
+  const treeBody = integrationTreeBody({
+    tree: params.tree,
+    leafCount: params.leaves.length,
+    summaryCount: params.summaries.length,
+  });
+  nodes.set(integrationTreeNodeId(params.tree.treeId), {
+    nodeId: integrationTreeNodeId(params.tree.treeId),
+    nodeKind: "tree",
+    path: treePath,
+    title: params.tree.accountLabel,
+    summary: params.tree.summary ?? `${params.tree.accountLabel} integration memory tree.`,
+    bodySha256: sha256(treeBody),
+    level: 0,
+    ordinal: 1,
+    observedAt: params.tree.updatedAt,
+    metadata: {
+      provider: params.tree.provider,
+      owner_user_id: params.tree.ownerUserId,
+      account_key: params.tree.accountKey,
+      account_label: params.tree.accountLabel,
+    },
+  });
+  bodiesByPath.set(treePath, treeBody);
+
+  const scopeGroups = new Map<string, {
+    entityKey: string | null;
+    entityLabel: string | null;
+    entitySlug: string | null;
+    branchKey: string | null;
+    branchLabel: string | null;
+    branchSlug: string | null;
+    leaves: IntegrationLeafRecord[];
+  }>();
+  for (const leaf of params.leaves) {
+    const scopeKey = `${leaf.entityKey ?? "__account__"}::${leaf.branchKey ?? "__none__"}`;
+    const existing = scopeGroups.get(scopeKey);
+    if (existing) {
+      existing.leaves.push(leaf);
+      continue;
+    }
+    scopeGroups.set(scopeKey, {
+      entityKey: leaf.entityKey ?? null,
+      entityLabel: leaf.entityLabel ?? null,
+      entitySlug: integrationEntitySlug(leaf.entityKey, leaf.entityLabel),
+      branchKey: leaf.branchKey ?? null,
+      branchLabel: leaf.branchLabel ?? null,
+      branchSlug: integrationBranchSlug(leaf.branchKey, leaf.branchLabel),
+      leaves: [leaf],
+    });
+  }
+
+  const entityBuckets = new Map<string, Array<{
+    entityKey: string;
+    entityLabel: string;
+    entitySlug: string;
+    branchCount: number;
+    leafCount: number;
+  }>>();
+  for (const scope of scopeGroups.values()) {
+    if (!scope.entityKey || !scope.entitySlug) {
+      continue;
+    }
+    const body = integrationEntityBody({
+      tree: params.tree,
+      entityKey: scope.entityKey,
+      entityLabel: scope.entityLabel ?? scope.entityKey,
+      branchCount: 0,
+      leafCount: 0,
+    });
+    bodiesByPath.set(
+      path.posix.join(...integrationEntitySegments(params.tree.slug, scope.entitySlug), "content.md"),
+      body,
+    );
+  }
+  const entityStats = new Map<string, { label: string; slug: string; branchCount: number; leafCount: number }>();
+  for (const scope of scopeGroups.values()) {
+    if (!scope.entityKey || !scope.entitySlug) {
+      continue;
+    }
+    const stat = entityStats.get(scope.entityKey) ?? {
+      label: scope.entityLabel ?? scope.entityKey,
+      slug: scope.entitySlug,
+      branchCount: 0,
+      leafCount: 0,
+    };
+    if (scope.branchKey) {
+      stat.branchCount += 1;
+    }
+    stat.leafCount += scope.leaves.length;
+    entityStats.set(scope.entityKey, stat);
+  }
+  for (const [entityKey, stat] of entityStats) {
+    const entityPath = path.posix.join(...integrationEntitySegments(params.tree.slug, stat.slug), "content.md");
+    const entityBody = integrationEntityBody({
+      tree: params.tree,
+      entityKey,
+      entityLabel: stat.label,
+      branchCount: stat.branchCount,
+      leafCount: stat.leafCount,
+    });
+    nodes.set(integrationEntityNodeId(params.tree.treeId, entityKey), {
+      nodeId: integrationEntityNodeId(params.tree.treeId, entityKey),
+      nodeKind: "entity",
+      path: entityPath,
+      title: stat.label,
+      summary: `${stat.label} in ${params.tree.accountLabel}.`,
+      bodySha256: sha256(entityBody),
+      level: 1,
+      ordinal: null,
+      observedAt: params.tree.updatedAt,
+      metadata: {
+        entity_key: entityKey,
+        entity_label: stat.label,
+      },
+    });
+    bodiesByPath.set(entityPath, entityBody);
+  }
+
+  for (const scope of scopeGroups.values()) {
+    if (!scope.branchKey || !scope.branchSlug) {
+      continue;
+    }
+    const branchPath = path.posix.join(
+      ...integrationBranchSegments({
+        treeSlug: params.tree.slug,
+        entitySlug: scope.entitySlug ?? null,
+        branchSlug: scope.branchSlug,
+      }),
+      "content.md",
+    );
+    const branchBody = integrationBranchBody({
+      tree: params.tree,
+      entityLabel: scope.entityLabel ?? null,
+      branchKey: scope.branchKey,
+      branchLabel: scope.branchLabel ?? scope.branchKey,
+      leafCount: scope.leaves.length,
+    });
+    nodes.set(integrationBranchNodeId(params.tree.treeId, scope.entityKey ?? null, scope.branchKey), {
+      nodeId: integrationBranchNodeId(params.tree.treeId, scope.entityKey ?? null, scope.branchKey),
+      nodeKind: "branch",
+      path: branchPath,
+      title: scope.branchLabel ?? scope.branchKey,
+      summary: `${scope.branchLabel ?? scope.branchKey} in ${params.tree.accountLabel}.`,
+      bodySha256: sha256(branchBody),
+      level: scope.entityKey ? 2 : 1,
+      ordinal: null,
+      observedAt: params.tree.updatedAt,
+      metadata: {
+        entity_key: scope.entityKey,
+        branch_key: scope.branchKey,
+        branch_label: scope.branchLabel ?? scope.branchKey,
+      },
+    });
+    bodiesByPath.set(branchPath, branchBody);
+  }
+
+  for (const summary of params.summaries) {
+    nodes.set(summary.nodeId, {
+      nodeId: summary.nodeId,
+      nodeKind: "summary",
+      path: summary.path,
+      title: summary.title,
+      summary: summary.summary,
+      bodySha256: summary.bodySha256,
+      level: summary.level,
+      ordinal: summary.ordinal,
+      observedAt: summary.sealedAt,
+      metadata: {
+        source: "integration_summary",
+      },
+    });
+  }
+
+  for (const leaf of params.leaves) {
+    const body = params.leafBodies.get(leaf.leafId) ?? fallbackLeafBody(leaf);
+    nodes.set(leaf.leafId, {
+      nodeId: leaf.leafId,
+      nodeKind: "leaf",
+      path: leaf.path,
+      title: leaf.title,
+      summary: leaf.summary,
+      bodySha256: sha256(body),
+      level: null,
+      ordinal: null,
+      observedAt: leaf.observedAt ?? leaf.updatedAt,
+      metadata: {
+        subject_key: leaf.subjectKey,
+        entity_key: leaf.entityKey,
+        branch_key: leaf.branchKey,
+        external_object_id: leaf.externalObjectId,
+        external_object_type: leaf.externalObjectType,
+        source_type: leaf.sourceType,
+        source_event_id: leaf.sourceEventId,
+        source_message_id: leaf.sourceMessageId,
+        tags: leaf.tags,
+      },
+    });
+    bodiesByPath.set(leaf.path, body);
+  }
+
+  const contactBranchPath = path.posix.join(
+    ...integrationBranchSegments({
+      treeSlug: params.tree.slug,
+      entitySlug: null,
+      branchSlug: "contacts",
+    }),
+    "content.md",
+  );
+  const contactRelations = params.relations.filter((relation) => relation.relationType === "participant");
+  if (contactRelations.length > 0) {
+    const contactBranchBody = [
+      "# Contacts",
+      "",
+      `- Tree: ${params.tree.accountLabel}`,
+      `- Provider: ${params.tree.provider}`,
+      `- Contact count: ${new Set(contactRelations.map((relation) => relation.fromNodeId)).size}`,
+      "",
+      "## Summary",
+      "",
+      `Derived contacts for ${params.tree.accountLabel}.`,
+      "",
+    ].join("\n");
+    nodes.set(integrationBranchNodeId(params.tree.treeId, null, "contacts"), {
+      nodeId: integrationBranchNodeId(params.tree.treeId, null, "contacts"),
+      nodeKind: "branch",
+      path: contactBranchPath,
+      title: "Contacts",
+      summary: `Derived contacts for ${params.tree.accountLabel}.`,
+      bodySha256: sha256(contactBranchBody),
+      level: 1,
+      ordinal: null,
+      observedAt: params.tree.updatedAt,
+      metadata: {
+        branch_key: "contacts",
+        derived: true,
+      },
+    });
+    bodiesByPath.set(contactBranchPath, `${contactBranchBody.trim()}\n`);
+  }
+
+  const contactEntryByNodeId = new Map<string, {
+    email: string;
+    label: string;
+    relatedThreadLabels: string[];
+    roles: string[];
+  }>();
+  for (const relation of contactRelations) {
+    const existing = contactEntryByNodeId.get(relation.fromNodeId) ?? {
+      email: String(relation.metadata.contact_email ?? ""),
+      label: String(relation.metadata.contact_label ?? relation.metadata.contact_email ?? relation.fromNodeId),
+      relatedThreadLabels: [],
+      roles: [],
+    };
+    const threadLabel = typeof relation.metadata.thread_entity_label === "string"
+      ? relation.metadata.thread_entity_label
+      : null;
+    if (threadLabel && !existing.relatedThreadLabels.includes(threadLabel)) {
+      existing.relatedThreadLabels.push(threadLabel);
+    }
+    for (const role of Array.isArray(relation.metadata.roles) ? relation.metadata.roles : []) {
+      if (typeof role === "string" && !existing.roles.includes(role)) {
+        existing.roles.push(role);
+      }
+    }
+    contactEntryByNodeId.set(relation.fromNodeId, existing);
+  }
+  for (const [nodeId, entry] of contactEntryByNodeId) {
+    const contactSlug = safePathSegment(entry.label || entry.email, "contact");
+    const contactPath = path.posix.join(
+      ...integrationBranchSegments({
+        treeSlug: params.tree.slug,
+        entitySlug: null,
+        branchSlug: "contacts",
+      }),
+      "branches",
+      contactSlug,
+      "content.md",
+    );
+    const contactBody = virtualIntegrationContactContent({
+      tree: params.tree,
+      entry: {
+        entityKey: nodeId.replace(`entity:integration:${params.tree.treeId}:`, ""),
+        email: entry.email,
+        label: entry.label,
+        relatedThreadIds: [],
+        relatedThreadKeys: [],
+        messageLeafIds: [],
+        roles: entry.roles,
+      },
+      relatedThreadLabels: entry.relatedThreadLabels,
+    });
+    nodes.set(nodeId, {
+      nodeId,
+      nodeKind: "entity",
+      path: contactPath,
+      title: entry.label,
+      summary: `${entry.label} appears in ${entry.relatedThreadLabels.length} thread${entry.relatedThreadLabels.length === 1 ? "" : "s"} in this mailbox.`,
+      bodySha256: sha256(contactBody),
+      level: 2,
+      ordinal: null,
+      observedAt: params.tree.updatedAt,
+      metadata: {
+        entity_key: nodeId.replace(`entity:integration:${params.tree.treeId}:`, ""),
+        contact_email: entry.email,
+        derived: true,
+      },
+    });
+    bodiesByPath.set(contactPath, contactBody);
+  }
+
+  const kindOrder: Record<MemoryNodeKind, number> = {
+    tree: 0,
+    entity: 1,
+    branch: 2,
+    summary: 3,
+    leaf: 4,
+  };
+  const childBuckets = new Map<string, Array<{
+    nodeId: string;
+    nodeKind: MemoryNodeKind;
+    level: number | null;
+    ordinal: number | null;
+    title: string;
+    path: string;
+  }>>();
+  for (const node of nodes.values()) {
+    const parentPath = canonicalParentContentPath(node.path);
+    if (!parentPath) {
+      continue;
+    }
+    const parentNode = Array.from(nodes.values()).find((candidate) => candidate.path === parentPath);
+    if (!parentNode) {
+      continue;
+    }
+    const bucket = childBuckets.get(parentNode.nodeId) ?? [];
+    bucket.push({
+      nodeId: node.nodeId,
+      nodeKind: node.nodeKind,
+      level: node.level,
+      ordinal: node.ordinal,
+      title: node.title,
+      path: node.path,
+    });
+    childBuckets.set(parentNode.nodeId, bucket);
+  }
+
+  const edges: Array<{
+    parentNodeId: string;
+    childNodeId: string;
+    position: number;
+  }> = [];
+  for (const [parentNodeId, bucket] of childBuckets) {
+    bucket.sort((left, right) =>
+      kindOrder[left.nodeKind] - kindOrder[right.nodeKind]
+      || (left.level ?? 10_000) - (right.level ?? 10_000)
+      || (left.ordinal ?? 10_000) - (right.ordinal ?? 10_000)
+      || left.title.localeCompare(right.title)
+      || left.path.localeCompare(right.path),
+    );
+    bucket.forEach((child, index) => {
+      edges.push({
+        parentNodeId,
+        childNodeId: child.nodeId,
+        position: index + 1,
+      });
+    });
+  }
+
+  const finalizedNodes = Array.from(nodes.values()).map((node) => ({
+    ...node,
+    childCount: childBuckets.get(node.nodeId)?.length ?? 0,
+  }));
+
+  return {
+    nodes: finalizedNodes,
+    edges,
+    bodiesByPath,
+  };
+}
+
 async function buildSummaryTreePlan(params: {
   workspaceId: string;
   tree: IntegrationTreeRecord;
@@ -1982,13 +2422,32 @@ export async function rebuildIntegrationTree(params: {
     })),
     edges: plan.edges,
   });
+  const relations = buildIntegrationRelations({
+    tree,
+    leaves: rewrittenLeaves,
+    leafBodies,
+  });
   params.store.replaceIntegrationNodeRelations({
     treeId: tree.treeId,
-    relations: buildIntegrationRelations({
-      tree,
-      leaves: rewrittenLeaves,
-      leafBodies,
-    }),
+    relations,
+  });
+  const canonical = buildIntegrationCanonicalNodesAndEdges({
+    tree,
+    leaves: rewrittenLeaves,
+    summaries: plan.nodes,
+    leafBodies,
+    relations,
+  });
+  for (const [relativePath, body] of canonical.bodiesByPath) {
+    writeFileIfChanged(
+      absolutePathForRelative(params.store.workspaceRoot, relativePath),
+      body,
+    );
+  }
+  params.store.replaceIntegrationMemoryTree({
+    treeId: params.treeId,
+    nodes: canonical.nodes,
+    edges: canonical.edges,
   });
   for (const node of plan.nodes) {
     await syncNodeEmbedding({
@@ -2002,6 +2461,123 @@ export async function rebuildIntegrationTree(params: {
       embeddingClient: params.embeddingClient ?? null,
     });
   }
+}
+
+export interface ClearedIntegrationMemoryResult {
+  ok: true;
+  provider_id: string;
+  connection_id: string;
+  cleared: boolean;
+  tree_ids: string[];
+  deleted_trees: number;
+  deleted_leaves: number;
+  deleted_summary_nodes: number;
+  deleted_tree_edges: number;
+  deleted_canonical_nodes: number;
+  deleted_canonical_edges: number;
+  deleted_relations: number;
+  deleted_embeddings: number;
+  deleted_files: number;
+}
+
+function countFilesRecursive(targetPath: string): number {
+  if (!fs.existsSync(targetPath)) {
+    return 0;
+  }
+  const stat = fs.statSync(targetPath);
+  if (stat.isFile()) {
+    return 1;
+  }
+  if (!stat.isDirectory()) {
+    return 0;
+  }
+  let total = 0;
+  for (const childName of fs.readdirSync(targetPath)) {
+    total += countFilesRecursive(path.join(targetPath, childName));
+  }
+  return total;
+}
+
+function integrationMemoryTreesForConnection(params: {
+  store: RuntimeStateStore;
+  connectionId: string;
+}): IntegrationTreeRecord[] {
+  const connection = params.store.getIntegrationConnection(params.connectionId);
+  if (!connection) {
+    throw new Error(`integration connection ${params.connectionId} not found`);
+  }
+  const providerId = connection.providerId.trim().toLowerCase();
+  const candidateKeys = new Set(
+    [
+      connection.accountHandle,
+      connection.accountEmail,
+      connection.accountExternalId,
+      connection.connectionId,
+    ]
+      .map((value) => compactWhitespace(value ?? ""))
+      .filter((value) => value.length > 0),
+  );
+  return params.store.listIntegrationTrees({
+    provider: providerId,
+    ownerUserId: connection.ownerUserId,
+    limit: 10_000,
+    offset: 0,
+  }).filter((tree) => candidateKeys.has(compactWhitespace(tree.accountKey)));
+}
+
+export function clearIntegrationMemoryForConnection(params: {
+  store: RuntimeStateStore;
+  connectionId: string;
+}): ClearedIntegrationMemoryResult {
+  const connection = params.store.getIntegrationConnection(params.connectionId);
+  if (!connection) {
+    throw new Error(`integration connection ${params.connectionId} not found`);
+  }
+  const trees = integrationMemoryTreesForConnection(params);
+  let deletedTrees = 0;
+  let deletedLeaves = 0;
+  let deletedSummaryNodes = 0;
+  let deletedTreeEdges = 0;
+  let deletedCanonicalNodes = 0;
+  let deletedCanonicalEdges = 0;
+  let deletedRelations = 0;
+  let deletedEmbeddings = 0;
+  let deletedFiles = 0;
+  for (const tree of trees) {
+    const canonicalDir = integrationTreeDir(params.store.workspaceRoot, tree.slug);
+    const legacyDir = legacyIntegrationTreeDir(params.store.workspaceRoot, tree.slug);
+    deletedFiles += countFilesRecursive(canonicalDir);
+    deletedFiles += countFilesRecursive(legacyDir);
+    fs.rmSync(canonicalDir, { recursive: true, force: true });
+    fs.rmSync(legacyDir, { recursive: true, force: true });
+    const deleted = params.store.deleteIntegrationTreeMemory({
+      treeId: tree.treeId,
+    });
+    deletedTrees += deleted.deletedTree ? 1 : 0;
+    deletedLeaves += deleted.deletedLeaves;
+    deletedSummaryNodes += deleted.deletedSummaryNodes;
+    deletedTreeEdges += deleted.deletedTreeEdges;
+    deletedCanonicalNodes += deleted.deletedCanonicalNodes;
+    deletedCanonicalEdges += deleted.deletedCanonicalEdges;
+    deletedRelations += deleted.deletedRelations;
+    deletedEmbeddings += deleted.deletedEmbeddings;
+  }
+  return {
+    ok: true,
+    provider_id: connection.providerId.trim().toLowerCase(),
+    connection_id: connection.connectionId,
+    cleared: trees.length > 0,
+    tree_ids: trees.map((tree) => tree.treeId),
+    deleted_trees: deletedTrees,
+    deleted_leaves: deletedLeaves,
+    deleted_summary_nodes: deletedSummaryNodes,
+    deleted_tree_edges: deletedTreeEdges,
+    deleted_canonical_nodes: deletedCanonicalNodes,
+    deleted_canonical_edges: deletedCanonicalEdges,
+    deleted_relations: deletedRelations,
+    deleted_embeddings: deletedEmbeddings,
+    deleted_files: deletedFiles,
+  };
 }
 
 export async function rebuildAllIntegrationTrees(params: {
@@ -2313,6 +2889,31 @@ function buildContactCandidate(params: {
   };
 }
 
+function buildCanonicalCandidate(params: {
+  store: RuntimeStateStore;
+  tree: IntegrationTreeRecord;
+  node: ReturnType<RuntimeStateStore["listIntegrationMemoryNodes"]>[number];
+}): NodeCandidate {
+  const filePath = absolutePathForRelative(
+    params.store.workspaceRoot,
+    params.node.path,
+  );
+  const body = readFileIfExists(filePath);
+  return {
+    kind: params.node.nodeKind,
+    id: params.node.nodeId,
+    tree: params.tree,
+    title: params.node.title,
+    summary: params.node.summary,
+    excerpt: body ? markdownExcerpt(body, 320) : null,
+    path: params.node.path,
+    level: params.node.level,
+    childCount: params.node.childCount,
+    observedAt: params.node.observedAt,
+    updatedAt: params.node.updatedAt,
+  };
+}
+
 function nodeScore(params: {
   query: string;
   candidate: NodeCandidate;
@@ -2531,6 +3132,88 @@ async function childHitsForNode(params: {
   queryVector: number[] | null;
   embeddingByKey: Map<string, number[]>;
 }): Promise<IntegrationMemoryRetrieveHit[]> {
+  const canonicalTreeId = params.parentNodeId.startsWith("tree:integration:")
+    ? params.parentNodeId.replace(/^tree:integration:/, "")
+    : accessibleIntegrationTreesForWorkspace({
+        store: params.store,
+        workspaceId: params.workspaceId,
+      }).find((candidateTree) =>
+        Boolean(
+          params.store.getIntegrationMemoryNode({
+            treeId: candidateTree.treeId,
+            nodeId: params.parentNodeId,
+          }),
+        ),
+      )?.treeId ?? null;
+  if (canonicalTreeId) {
+    const tree = params.store.getIntegrationTree({ treeId: canonicalTreeId });
+    const parentNode = tree
+      ? params.store.getIntegrationMemoryNode({
+          treeId: canonicalTreeId,
+          nodeId: params.parentNodeId,
+        })
+      : null;
+    if (tree && parentNode) {
+      const scoreCandidates = (candidates: NodeCandidate[], extraReason?: string): IntegrationMemoryRetrieveHit[] =>
+        candidates
+          .map((candidate) => {
+            const scored = nodeScore({
+              query: params.query,
+              candidate,
+              embeddingModelId: params.embeddingModelId,
+              queryVector: params.queryVector,
+              embeddingByKey: params.embeddingByKey,
+              mode: params.mode,
+            });
+            return candidateToHit({
+              candidate,
+              score: scored.score,
+              reasons: scored.reasons.length > 0 ? scored.reasons : [extraReason ?? "child_traversal"],
+            });
+          })
+          .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path));
+
+      const candidates = params.store
+        .listIntegrationMemoryChildren({
+          treeId: canonicalTreeId,
+          parentNodeId: params.parentNodeId,
+        })
+        .map((child) =>
+          params.store.getIntegrationMemoryNode({
+            treeId: canonicalTreeId,
+            nodeId: child.childNodeId,
+          }))
+        .filter((node): node is NonNullable<typeof node> => Boolean(node))
+        .map((node) => buildCanonicalCandidate({
+          store: params.store,
+          tree,
+          node,
+        }));
+      const relationCandidates = params.store
+        .listIntegrationNodeRelations({
+          treeId: canonicalTreeId,
+          fromNodeId: params.parentNodeId,
+          limit: 10_000,
+        })
+        .map((relation) =>
+          params.store.getIntegrationMemoryNode({
+            treeId: canonicalTreeId,
+            nodeId: relation.toNodeId,
+          }))
+        .filter((node): node is NonNullable<typeof node> => Boolean(node))
+        .map((node) => buildCanonicalCandidate({
+          store: params.store,
+          tree,
+          node,
+        }));
+      return scoreCandidates(
+        [...candidates, ...relationCandidates].filter((candidate, index, bucket) =>
+          bucket.findIndex((entry) => entry.id === candidate.id) === index,
+        ),
+      );
+    }
+  }
+
   const scoreCandidates = (candidates: NodeCandidate[]): IntegrationMemoryRetrieveHit[] =>
     candidates
       .map((candidate) => {
@@ -2755,6 +3438,31 @@ export async function retrieveIntegrationMemory(params: {
 
   const candidates: NodeCandidate[] = [];
   for (const tree of trees) {
+    const canonicalNodes = params.store.listIntegrationMemoryNodes({
+      treeId: tree.treeId,
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    });
+    if (canonicalNodes.length > 0) {
+      for (const node of canonicalNodes) {
+        if (node.nodeKind === "tree") {
+          continue;
+        }
+        if (mode === "leaves" && node.nodeKind !== "leaf") {
+          continue;
+        }
+        if (mode === "summaries" && node.nodeKind === "leaf") {
+          continue;
+        }
+        candidates.push(buildCanonicalCandidate({
+          store: params.store,
+          tree,
+          node,
+        }));
+      }
+      continue;
+    }
     const allSummaries = params.store.listIntegrationSummaryNodes({
       treeId: tree.treeId,
       status: "active",

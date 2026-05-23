@@ -1660,6 +1660,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
         "workspace:listIntegrationContextFetchStatuses",
         connectionIds ?? [],
       ) as Promise<IntegrationContextFetchStatusListResponsePayload>,
+    clearIntegrationMemory: (connectionId: string) =>
+      ipcRenderer.invoke(
+        "workspace:clearIntegrationMemory",
+        connectionId,
+      ) as Promise<IntegrationMemoryClearResponsePayload>,
     composioConnect: (payload: {
       provider: string;
       owner_user_id: string;

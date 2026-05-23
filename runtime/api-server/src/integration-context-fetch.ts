@@ -279,6 +279,38 @@ function isComposioNotFoundError(error: unknown): boolean {
   return messageText.includes("not found");
 }
 
+function isComposioForbiddenError(error: unknown): boolean {
+  if (!(error instanceof ComposioApiClientError)) {
+    return false;
+  }
+  if (error.httpStatus === 403) {
+    return true;
+  }
+  const code = String(error.info.code ?? "").toLowerCase();
+  if (code === "403" || code.includes("forbidden")) {
+    return true;
+  }
+  const message = String(error.info.message ?? error.message ?? "");
+  const payload = parseJsonObject(message);
+  const nestedError = isRecord(payload?.error) ? payload.error : null;
+  const status = payload?.status ?? nestedError?.status ?? nestedError?.code;
+  const statusString = typeof status === "string" ? status : null;
+  const statusNumber = typeof status === "number"
+    ? status
+    : typeof statusString === "string" && /^\d+$/.test(statusString)
+      ? Number(statusString)
+      : null;
+  if (statusNumber === 403) {
+    return true;
+  }
+  const messageText = typeof nestedError?.message === "string"
+    ? nestedError.message.toLowerCase()
+    : typeof payload?.message === "string"
+      ? payload.message.toLowerCase()
+      : message.toLowerCase();
+  return messageText.includes("forbidden");
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -529,32 +561,62 @@ async function fetchGitHubRepositoriesForAccount(params: {
   actions: string[];
 }): Promise<GitHubRepositoryPayload[]> {
   if (params.composio.proxyRequest) {
-    const result = await params.composio.proxyRequest({
-      connectedAccountId: params.connectedAccountId,
-      endpoint: `/user/repos?type=owner&sort=updated&direction=desc&per_page=${GITHUB_REPOSITORY_LIMIT}`,
-      method: "GET",
-    });
-    params.actions.push("GITHUB_PROXY:/user/repos?type=owner");
-    return gitHubRepositoriesFromData(result.data);
+    try {
+      const result = await params.composio.proxyRequest({
+        connectedAccountId: params.connectedAccountId,
+        endpoint: `/user/repos?type=owner&sort=updated&direction=desc&per_page=${GITHUB_REPOSITORY_LIMIT}`,
+        method: "GET",
+      });
+      params.actions.push("GITHUB_PROXY:/user/repos?type=owner");
+      return gitHubRepositoriesFromData(result.data);
+    } catch (error) {
+      if (!isComposioForbiddenError(error)) {
+        throw error;
+      }
+      params.actions.push("GITHUB_PROXY:/user/repos?type=owner:forbidden");
+    }
+    try {
+      const result = await params.composio.proxyRequest({
+        connectedAccountId: params.connectedAccountId,
+        endpoint: `/users/${encodeURIComponent(params.accountKey)}/repos?type=owner&sort=updated&direction=desc&per_page=${GITHUB_REPOSITORY_LIMIT}`,
+        method: "GET",
+      });
+      params.actions.push("GITHUB_PROXY:/users/{username}/repos?type=owner");
+      return gitHubRepositoriesFromData(result.data);
+    } catch (error) {
+      if (!isComposioForbiddenError(error) && !isComposioNotFoundError(error)) {
+        throw error;
+      }
+      params.actions.push("GITHUB_PROXY:/users/{username}/repos?type=owner:unavailable");
+      return [];
+    }
   }
-  const repositoriesResult = await params.composio.executeAction({
-    connectedAccountId: params.connectedAccountId,
-    toolSlug: "GITHUB_FIND_REPOSITORIES",
-    arguments: {
-      query: "stars:>=0",
-      owner: params.accountKey,
-      sort: "updated",
-      order: "desc",
-      per_page: GITHUB_REPOSITORY_LIMIT,
-      page: 1,
-      response_detail: "full",
-      for_authenticated_user: true,
-      archived: false,
-      fork_filter: "exclude",
-    },
-  });
-  params.actions.push("GITHUB_FIND_REPOSITORIES");
-  return gitHubRepositoriesFromData(repositoriesResult.data);
+  try {
+    const repositoriesResult = await params.composio.executeAction({
+      connectedAccountId: params.connectedAccountId,
+      toolSlug: "GITHUB_FIND_REPOSITORIES",
+      arguments: {
+        query: "stars:>=0",
+        owner: params.accountKey,
+        sort: "updated",
+        order: "desc",
+        per_page: GITHUB_REPOSITORY_LIMIT,
+        page: 1,
+        response_detail: "full",
+        for_authenticated_user: true,
+        archived: false,
+        fork_filter: "exclude",
+      },
+    });
+    params.actions.push("GITHUB_FIND_REPOSITORIES");
+    return gitHubRepositoriesFromData(repositoriesResult.data);
+  } catch (error) {
+    if (!isComposioForbiddenError(error)) {
+      throw error;
+    }
+    params.actions.push("GITHUB_FIND_REPOSITORIES:forbidden");
+    return [];
+  }
 }
 
 function gitHubReadmeFromData(value: unknown): GitHubReadmePayload | null {
@@ -2167,10 +2229,17 @@ async function fetchGitHubIntegrationContext(params: {
     actions.push("GITHUB_LIST_NOTIFICATIONS");
     notifications = gitHubNotificationsFromData(notificationsResult.data);
   } catch (error) {
-    if (!isMissingComposioToolError(error, "GITHUB_LIST_NOTIFICATIONS")) {
+    if (
+      !isMissingComposioToolError(error, "GITHUB_LIST_NOTIFICATIONS")
+      && !isComposioForbiddenError(error)
+    ) {
       throw error;
     }
-    actions.push("GITHUB_LIST_NOTIFICATIONS:missing");
+    actions.push(
+      isComposioForbiddenError(error)
+        ? "GITHUB_LIST_NOTIFICATIONS:forbidden"
+        : "GITHUB_LIST_NOTIFICATIONS:missing",
+    );
   }
   chunksCompleted += 1;
   chunksTotal += notifications.length;
@@ -2272,10 +2341,14 @@ async function fetchGitHubIntegrationContext(params: {
       const readme = gitHubReadmeFromData(readmeResult.data);
       readmeText = decodeMaybeBase64(readme?.content, readme?.encoding);
     } catch (error) {
-      if (!isComposioNotFoundError(error)) {
+      if (!isComposioNotFoundError(error) && !isComposioForbiddenError(error)) {
         throw error;
       }
-      actions.push(`GITHUB_GET_A_REPOSITORY_README:${fullName}:missing`);
+      actions.push(
+        isComposioForbiddenError(error)
+          ? `GITHUB_GET_A_REPOSITORY_README:${fullName}:forbidden`
+          : `GITHUB_GET_A_REPOSITORY_README:${fullName}:missing`,
+      );
     }
 
     syncProgress({
@@ -2324,45 +2397,52 @@ async function fetchGitHubIntegrationContext(params: {
     }
     chunksCompleted += 1;
 
-    const pullRequestsResult = await params.composio.executeAction({
-      connectedAccountId,
-      toolSlug: "GITHUB_LIST_PULL_REQUESTS",
-      arguments: {
-        owner: repoIdentity.owner,
-        repo: repoIdentity.repo,
-        state: "open",
-        sort: "updated",
-        direction: "desc",
-        per_page: GITHUB_REPOSITORY_PULL_REQUEST_LIMIT,
-        page: 1,
-      },
-    });
-    actions.push(`GITHUB_LIST_PULL_REQUESTS:${fullName}`);
-    const pullRequests = gitHubIssuesFromData(pullRequestsResult.data);
-    for (const pullRequest of pullRequests) {
-      contentSeen += 1;
-      const candidate = buildGitHubIssueCandidate({
-        ownerUserId: connection.ownerUserId,
-        accountKey,
-        accountLabel,
-        issue: {
-          ...pullRequest,
-          repository: pullRequest.repository ?? repository,
-          pull_request: isRecord(pullRequest.pull_request) ? pullRequest.pull_request : { url: true },
+    try {
+      const pullRequestsResult = await params.composio.executeAction({
+        connectedAccountId,
+        toolSlug: "GITHUB_LIST_PULL_REQUESTS",
+        arguments: {
+          owner: repoIdentity.owner,
+          repo: repoIdentity.repo,
+          state: "open",
+          sort: "updated",
+          direction: "desc",
+          per_page: GITHUB_REPOSITORY_PULL_REQUEST_LIMIT,
+          page: 1,
         },
-        kindOverride: "pull",
       });
-      if (!candidate) {
-        continue;
+      actions.push(`GITHUB_LIST_PULL_REQUESTS:${fullName}`);
+      const pullRequests = gitHubIssuesFromData(pullRequestsResult.data);
+      for (const pullRequest of pullRequests) {
+        contentSeen += 1;
+        const candidate = buildGitHubIssueCandidate({
+          ownerUserId: connection.ownerUserId,
+          accountKey,
+          accountLabel,
+          issue: {
+            ...pullRequest,
+            repository: pullRequest.repository ?? repository,
+            pull_request: isRecord(pullRequest.pull_request) ? pullRequest.pull_request : { url: true },
+          },
+          kindOverride: "pull",
+        });
+        if (!candidate) {
+          continue;
+        }
+        const persisted = await persistIntegrationCandidate({
+          store: params.store,
+          workspaceId: "",
+          candidate,
+          embeddingClient: null,
+        });
+        updatePersistStats(persisted, persistStats);
+        contentPersisted += 1;
       }
-      const persisted = await persistIntegrationCandidate({
-        store: params.store,
-        workspaceId: "",
-        candidate,
-        embeddingClient: null,
-      });
-      updatePersistStats(persisted, persistStats);
-      contentPersisted += 1;
+    } catch (error) {
+      if (!isComposioForbiddenError(error)) {
+        throw error;
+      }
+      actions.push(`GITHUB_LIST_PULL_REQUESTS:${fullName}:forbidden`);
     }
     chunksCompleted += 1;
     syncProgress({
@@ -2372,45 +2452,52 @@ async function fetchGitHubIntegrationContext(params: {
           : "Rebuilding GitHub context summary",
     });
 
-    const issuesResult = await params.composio.executeAction({
-      connectedAccountId,
-      toolSlug: "GITHUB_LIST_REPOSITORY_ISSUES",
-      arguments: {
-        owner: repoIdentity.owner,
-        repo: repoIdentity.repo,
-        state: "open",
-        per_page: GITHUB_REPOSITORY_ISSUE_LIMIT,
-        page: 1,
-      },
-    });
-    actions.push(`GITHUB_LIST_REPOSITORY_ISSUES:${fullName}`);
-    const issues = gitHubIssuesFromData(issuesResult.data);
-    for (const issue of issues) {
-      if (isRecord(issue.pull_request)) {
-        continue;
-      }
-      contentSeen += 1;
-      const candidate = buildGitHubIssueCandidate({
-        ownerUserId: connection.ownerUserId,
-        accountKey,
-        accountLabel,
-        issue: {
-          ...issue,
-          repository: issue.repository ?? repository,
+    try {
+      const issuesResult = await params.composio.executeAction({
+        connectedAccountId,
+        toolSlug: "GITHUB_LIST_REPOSITORY_ISSUES",
+        arguments: {
+          owner: repoIdentity.owner,
+          repo: repoIdentity.repo,
+          state: "open",
+          per_page: GITHUB_REPOSITORY_ISSUE_LIMIT,
+          page: 1,
         },
-        kindOverride: "issue",
       });
-      if (!candidate) {
-        continue;
+      actions.push(`GITHUB_LIST_REPOSITORY_ISSUES:${fullName}`);
+      const issues = gitHubIssuesFromData(issuesResult.data);
+      for (const issue of issues) {
+        if (isRecord(issue.pull_request)) {
+          continue;
+        }
+        contentSeen += 1;
+        const candidate = buildGitHubIssueCandidate({
+          ownerUserId: connection.ownerUserId,
+          accountKey,
+          accountLabel,
+          issue: {
+            ...issue,
+            repository: issue.repository ?? repository,
+          },
+          kindOverride: "issue",
+        });
+        if (!candidate) {
+          continue;
+        }
+        const persisted = await persistIntegrationCandidate({
+          store: params.store,
+          workspaceId: "",
+          candidate,
+          embeddingClient: null,
+        });
+        updatePersistStats(persisted, persistStats);
+        contentPersisted += 1;
       }
-      const persisted = await persistIntegrationCandidate({
-        store: params.store,
-        workspaceId: "",
-        candidate,
-        embeddingClient: null,
-      });
-      updatePersistStats(persisted, persistStats);
-      contentPersisted += 1;
+    } catch (error) {
+      if (!isComposioForbiddenError(error)) {
+        throw error;
+      }
+      actions.push(`GITHUB_LIST_REPOSITORY_ISSUES:${fullName}:forbidden`);
     }
   }
 

@@ -405,6 +405,52 @@ function interactionSummaryRelativePath(
   );
 }
 
+function interactionCanonicalTreeBaseSegments(workspaceId: string, entitySlug: string): string[] {
+  return ["workspace", workspaceId, "interaction", "trees", entitySlug];
+}
+
+function interactionCanonicalContentPath(baseSegments: string[]): string {
+  return path.posix.join(...baseSegments, "content.md");
+}
+
+function interactionCanonicalSummaryFolderName(level: number, nodeId: string): string {
+  return `L${level}-${nodeId.slice(-6)}`;
+}
+
+function interactionCanonicalLeafFolderName(params: {
+  leafId: string;
+  subjectKey: string;
+  title: string;
+}): string {
+  const source = compactWhitespace(params.subjectKey) || compactWhitespace(params.title) || params.leafId;
+  return `${safePathSegment(source, "leaf")}-${params.leafId.slice(-6)}`;
+}
+
+function interactionTreeBody(params: {
+  entity: InteractionEntityRecord;
+  leafCount: number;
+  summaryCount: number;
+}): string {
+  const lines = [
+    `# ${params.entity.canonicalName}`,
+    "",
+    `- Entity ID: \`${params.entity.entityId}\``,
+    `- Entity type: ${params.entity.entityType}`,
+    `- Active leaves: ${params.leafCount}`,
+    `- Active summaries: ${params.summaryCount}`,
+    "",
+    "## Summary",
+    "",
+    params.entity.summary ?? `${params.entity.canonicalName} interaction memory tree.`,
+    "",
+  ];
+  return `${lines.join("\n").trim()}\n`;
+}
+
+function interactionFallbackLeafBody(leaf: InteractionLeafRecord): string {
+  return `# ${leaf.title}\n\n${leaf.summary}\n`;
+}
+
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -1437,6 +1483,215 @@ async function buildSummaryTreePlan(params: {
   return await build();
 }
 
+function buildInteractionCanonicalNodesAndEdges(params: {
+  workspaceId: string;
+  entity: InteractionEntityRecord;
+  leaves: InteractionLeafRecord[];
+  leafBodies: Map<string, string>;
+  summaryPlan: Awaited<ReturnType<typeof buildSummaryTreePlan>>;
+}): {
+  nodes: Array<{
+    nodeId: string;
+    nodeKind: "tree" | "summary" | "leaf";
+    path: string;
+    title: string;
+    summary: string;
+    bodySha256: string;
+    level: number | null;
+    ordinal: number | null;
+    childCount: number;
+    observedAt: string | null;
+    metadata: Record<string, unknown>;
+  }>;
+  edges: Array<{
+    parentNodeId: string;
+    childNodeId: string;
+    position: number;
+  }>;
+} {
+  const rootNodeId = `tree:interaction:${params.entity.entityId}`;
+  const rootPath = interactionCanonicalContentPath(
+    interactionCanonicalTreeBaseSegments(params.workspaceId, params.entity.slug),
+  );
+
+  const nodeDefs = new Map<string, {
+    nodeKind: "tree" | "summary" | "leaf";
+    title: string;
+    summary: string;
+    body: string;
+    bodySha256: string;
+    level: number | null;
+    ordinal: number | null;
+    observedAt: string | null;
+    metadata: Record<string, unknown>;
+  }>();
+  nodeDefs.set(rootNodeId, {
+    nodeKind: "tree",
+    title: params.entity.canonicalName,
+    summary: params.entity.summary ?? `${params.entity.canonicalName} interaction memory tree.`,
+    body: interactionTreeBody({
+      entity: params.entity,
+      leafCount: params.leaves.length,
+      summaryCount: params.summaryPlan.nodes.length,
+    }),
+    bodySha256: "",
+    level: 0,
+    ordinal: 1,
+    observedAt: params.entity.updatedAt,
+    metadata: {
+      entity_id: params.entity.entityId,
+      entity_type: params.entity.entityType,
+      entity_slug: params.entity.slug,
+    },
+  });
+  for (const summary of params.summaryPlan.nodes) {
+    nodeDefs.set(summary.nodeId, {
+      nodeKind: "summary",
+      title: summary.title,
+      summary: summary.summary,
+      body: summary.body,
+      bodySha256: summary.bodySha256,
+      level: summary.level,
+      ordinal: summary.ordinal,
+      observedAt: summary.sealedAt,
+      metadata: {
+        source: "interaction_summary",
+      },
+    });
+  }
+  for (const leaf of params.leaves) {
+    const body = params.leafBodies.get(leaf.leafId) ?? interactionFallbackLeafBody(leaf);
+    nodeDefs.set(leaf.leafId, {
+      nodeKind: "leaf",
+      title: leaf.title,
+      summary: leaf.summary,
+      body,
+      bodySha256: sha256(body),
+      level: null,
+      ordinal: null,
+      observedAt: leaf.observedAt ?? leaf.updatedAt,
+      metadata: {
+        subject_key: leaf.subjectKey,
+        tags: leaf.tags,
+        secondary_entity_ids: leaf.secondaryEntityIds,
+        source_type: leaf.sourceType,
+        source_event_id: leaf.sourceEventId,
+        source_message_id: leaf.sourceMessageId,
+        source_turn_input_id: leaf.sourceTurnInputId,
+      },
+    });
+  }
+  const rootDef = nodeDefs.get(rootNodeId)!;
+  rootDef.bodySha256 = sha256(rootDef.body);
+
+  const childSummaryIds = new Set(
+    params.summaryPlan.edges
+      .filter((edge) => edge.childKind === "summary")
+      .map((edge) => edge.childId),
+  );
+  const topSummaryNodes = params.summaryPlan.nodes
+    .filter((node) => !childSummaryIds.has(node.nodeId))
+    .sort((left, right) => left.level - right.level || left.ordinal - right.ordinal || left.nodeId.localeCompare(right.nodeId));
+
+  const edges: Array<{
+    parentNodeId: string;
+    childNodeId: string;
+    position: number;
+  }> = [];
+  if (topSummaryNodes.length > 0) {
+    topSummaryNodes.forEach((node, index) => {
+      edges.push({
+        parentNodeId: rootNodeId,
+        childNodeId: node.nodeId,
+        position: index + 1,
+      });
+    });
+  } else {
+    params.leaves.forEach((leaf, index) => {
+      edges.push({
+        parentNodeId: rootNodeId,
+        childNodeId: leaf.leafId,
+        position: index + 1,
+      });
+    });
+  }
+  for (const edge of params.summaryPlan.edges) {
+    edges.push({
+      parentNodeId: edge.parentNodeId,
+      childNodeId: edge.childId,
+      position: edge.position,
+    });
+  }
+
+  const childrenByParent = new Map<string, Array<{ childNodeId: string; position: number }>>();
+  for (const edge of edges) {
+    const bucket = childrenByParent.get(edge.parentNodeId) ?? [];
+    bucket.push({
+      childNodeId: edge.childNodeId,
+      position: edge.position,
+    });
+    childrenByParent.set(edge.parentNodeId, bucket);
+  }
+  for (const bucket of childrenByParent.values()) {
+    bucket.sort((left, right) => left.position - right.position || left.childNodeId.localeCompare(right.childNodeId));
+  }
+
+  const pathByNodeId = new Map<string, string>([[rootNodeId, rootPath]]);
+  const assignChildPaths = (parentNodeId: string) => {
+    const parentPath = pathByNodeId.get(parentNodeId);
+    if (!parentPath) {
+      return;
+    }
+    const parentSegments = parentPath.split("/").filter(Boolean);
+    const nodeDirSegments = parentSegments.slice(0, -1);
+    for (const child of childrenByParent.get(parentNodeId) ?? []) {
+      if (pathByNodeId.has(child.childNodeId)) {
+        assignChildPaths(child.childNodeId);
+        continue;
+      }
+      const childDef = nodeDefs.get(child.childNodeId);
+      if (!childDef) {
+        continue;
+      }
+      const folderName = childDef.nodeKind === "summary"
+        ? interactionCanonicalSummaryFolderName(childDef.level ?? 1, child.childNodeId)
+        : (() => {
+            const leaf = params.leaves.find((candidate) => candidate.leafId === child.childNodeId);
+            return interactionCanonicalLeafFolderName({
+              leafId: child.childNodeId,
+              subjectKey: leaf?.subjectKey ?? childDef.title,
+              title: childDef.title,
+            });
+          })();
+      const childPath = path.posix.join(
+        ...nodeDirSegments,
+        "branches",
+        folderName,
+        "content.md",
+      );
+      pathByNodeId.set(child.childNodeId, childPath);
+      assignChildPaths(child.childNodeId);
+    }
+  };
+  assignChildPaths(rootNodeId);
+
+  const nodes = Array.from(nodeDefs.entries()).map(([nodeId, def]) => ({
+    nodeId,
+    nodeKind: def.nodeKind,
+    path: pathByNodeId.get(nodeId) ?? rootPath,
+    title: def.title,
+    summary: def.summary,
+    bodySha256: def.bodySha256,
+    level: def.level,
+    ordinal: def.ordinal,
+    childCount: childrenByParent.get(nodeId)?.length ?? 0,
+    observedAt: def.observedAt,
+    metadata: def.metadata,
+  }));
+
+  return { nodes, edges };
+}
+
 async function syncNodeEmbedding(params: {
   store: RuntimeStateStore;
   workspaceId: string;
@@ -1644,6 +1899,15 @@ export async function rebuildInteractionEntityTree(params: {
   const summariesDir = path.join(entityDir, "summaries");
   fs.rmSync(summariesDir, { recursive: true, force: true });
   fs.mkdirSync(summariesDir, { recursive: true });
+  fs.rmSync(
+    absolutePathForRelative(
+      workspaceDir,
+      interactionCanonicalContentPath(
+        interactionCanonicalTreeBaseSegments(params.workspaceId, entity.slug),
+      ),
+    ).replace(/\/content\.md$/, ""),
+    { recursive: true, force: true },
+  );
 
   const activeLeaves = params.store
     .listInteractionLeaves({
@@ -1661,6 +1925,13 @@ export async function rebuildInteractionEntityTree(params: {
       }
       return left.createdAt.localeCompare(right.createdAt);
     });
+  const leafBodies = new Map<string, string>();
+  for (const leaf of activeLeaves) {
+    const body = readFileIfExists(
+      absolutePathForRelative(workspaceDir, leaf.path),
+    ) ?? interactionFallbackLeafBody(leaf);
+    leafBodies.set(leaf.leafId, body);
+  }
 
   const plan = await buildSummaryTreePlan({
     workspaceId: params.workspaceId,
@@ -1670,6 +1941,41 @@ export async function rebuildInteractionEntityTree(params: {
   });
   for (const node of plan.nodes) {
     writeFileIfChanged(absolutePathForRelative(workspaceDir, node.path), node.body);
+  }
+  const canonical = buildInteractionCanonicalNodesAndEdges({
+    workspaceId: params.workspaceId,
+    entity,
+    leaves: activeLeaves,
+    leafBodies,
+    summaryPlan: plan,
+  });
+  const canonicalBodyByPath = new Map<string, string>();
+  for (const node of canonical.nodes) {
+    if (node.nodeKind === "tree") {
+      canonicalBodyByPath.set(
+        node.path,
+        interactionTreeBody({
+          entity,
+          leafCount: activeLeaves.length,
+          summaryCount: plan.nodes.length,
+        }),
+      );
+      continue;
+    }
+    if (node.nodeKind === "summary") {
+      const summaryNode = plan.nodes.find((candidate) => candidate.nodeId === node.nodeId);
+      if (summaryNode) {
+        canonicalBodyByPath.set(node.path, summaryNode.body);
+      }
+      continue;
+    }
+    const leafBody = leafBodies.get(node.nodeId);
+    if (leafBody) {
+      canonicalBodyByPath.set(node.path, leafBody);
+    }
+  }
+  for (const [relativePath, body] of canonicalBodyByPath) {
+    writeFileIfChanged(absolutePathForRelative(workspaceDir, relativePath), body);
   }
   params.store.replaceInteractionSummaryTree({
     workspaceId: params.workspaceId,
@@ -1686,6 +1992,12 @@ export async function rebuildInteractionEntityTree(params: {
       sealedAt: node.sealedAt,
     })),
     edges: plan.edges,
+  });
+  params.store.replaceInteractionMemoryTree({
+    workspaceId: params.workspaceId,
+    treeId: params.entityId,
+    nodes: canonical.nodes,
+    edges: canonical.edges,
   });
   for (const node of plan.nodes) {
     await syncNodeEmbedding({
@@ -1832,6 +2144,35 @@ function buildSummaryCandidate(params: {
   };
 }
 
+function buildCanonicalCandidate(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  entity: InteractionEntityRecord;
+  node: ReturnType<RuntimeStateStore["listInteractionMemoryNodes"]>[number];
+}): NodeCandidate | null {
+  if (params.node.nodeKind !== "summary" && params.node.nodeKind !== "leaf") {
+    return null;
+  }
+  const filePath = absolutePathForRelative(
+    params.store.workspaceDir(params.workspaceId),
+    params.node.path,
+  );
+  const body = readFileIfExists(filePath);
+  return {
+    kind: params.node.nodeKind,
+    id: params.node.nodeId,
+    entity: params.entity,
+    title: params.node.title,
+    summary: params.node.summary,
+    excerpt: body ? markdownExcerpt(body, 320) : null,
+    path: params.node.path,
+    level: params.node.level,
+    childCount: params.node.childCount,
+    observedAt: params.node.observedAt,
+    updatedAt: params.node.updatedAt,
+  };
+}
+
 function nodeScore(params: {
   query: string;
   candidate: NodeCandidate;
@@ -1915,6 +2256,56 @@ async function childHitsForNode(params: {
   queryVector: number[] | null;
   embeddingByKey: Map<string, number[]>;
 }): Promise<InteractionMemoryRetrieveHit[]> {
+  const canonicalParent = params.store.getInteractionMemoryNode({
+    workspaceId: params.workspaceId,
+    nodeId: params.parentNodeId,
+  });
+  if (canonicalParent) {
+    const entity = params.store.getInteractionEntity({
+      workspaceId: params.workspaceId,
+      entityId: canonicalParent.treeId,
+    });
+    if (!entity) {
+      return [];
+    }
+    const candidates = params.store
+      .listInteractionMemoryChildren({
+        workspaceId: params.workspaceId,
+        parentNodeId: params.parentNodeId,
+      })
+      .map((child) =>
+        params.store.getInteractionMemoryNode({
+          workspaceId: params.workspaceId,
+          nodeId: child.childNodeId,
+        }))
+      .filter((node): node is NonNullable<typeof node> => Boolean(node))
+      .map((node) =>
+        buildCanonicalCandidate({
+          store: params.store,
+          workspaceId: params.workspaceId,
+          entity,
+          node,
+        }))
+      .filter((candidate): candidate is NodeCandidate => Boolean(candidate));
+    return candidates
+      .map((candidate) => {
+        const scored = nodeScore({
+          query: params.query,
+          candidate,
+          embeddingModelId: params.embeddingModelId,
+          queryVector: params.queryVector,
+          embeddingByKey: params.embeddingByKey,
+          mode: params.mode,
+        });
+        return candidateToHit({
+          candidate,
+          score: scored.score,
+          reasons: scored.reasons.length > 0 ? scored.reasons : ["child_traversal"],
+        });
+      })
+      .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path));
+  }
+
   const parent = params.store.getInteractionSummaryNode({
     workspaceId: params.workspaceId,
     nodeId: params.parentNodeId,
@@ -2051,6 +2442,33 @@ export async function retrieveInteractionMemory(params: {
 
   const candidates: NodeCandidate[] = [];
   for (const entity of entities) {
+    const canonicalNodes = params.store.listInteractionMemoryNodes({
+      workspaceId: params.workspaceId,
+      treeId: entity.entityId,
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    });
+    if (canonicalNodes.length > 0) {
+      for (const node of canonicalNodes) {
+        if (mode === "leaves" && node.nodeKind !== "leaf") {
+          continue;
+        }
+        if (mode === "summaries" && node.nodeKind !== "summary") {
+          continue;
+        }
+        const candidate = buildCanonicalCandidate({
+          store: params.store,
+          workspaceId: params.workspaceId,
+          entity,
+          node,
+        });
+        if (candidate) {
+          candidates.push(candidate);
+        }
+      }
+      continue;
+    }
     const activeSummaries = mode === "leaves"
       ? []
       : params.store.listInteractionSummaryNodes({

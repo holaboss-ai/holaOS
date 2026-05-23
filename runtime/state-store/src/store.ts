@@ -515,7 +515,9 @@ export type InteractionTreeChildKind = "leaf" | "summary";
 export type IntegrationTreeStatus = "active" | "archived";
 export type IntegrationLeafStatus = "active" | "superseded" | "archived";
 export type IntegrationSummaryStatus = "active" | "retired";
-export type IntegrationNodeKind = "tree" | "entity" | "branch" | "summary" | "leaf";
+export type MemoryNodeKind = "tree" | "entity" | "branch" | "summary" | "leaf";
+export type MemoryNodeStatus = "active" | "superseded" | "retired" | "archived";
+export type IntegrationNodeKind = MemoryNodeKind;
 
 export interface InteractionEntityRecord {
   workspaceId: string;
@@ -580,6 +582,34 @@ export interface InteractionTreeEdgeRecord {
   parentNodeId: string;
   childKind: InteractionTreeChildKind;
   childId: string;
+  position: number;
+  createdAt: string;
+}
+
+export interface InteractionMemoryNodeRecord {
+  workspaceId: string;
+  treeId: string;
+  nodeId: string;
+  nodeKind: MemoryNodeKind;
+  path: string;
+  title: string;
+  summary: string;
+  bodySha256: string;
+  level: number | null;
+  ordinal: number | null;
+  childCount: number;
+  observedAt: string | null;
+  status: MemoryNodeStatus;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InteractionMemoryContainmentEdgeRecord {
+  workspaceId: string;
+  treeId: string;
+  parentNodeId: string;
+  childNodeId: string;
   position: number;
   createdAt: string;
 }
@@ -659,6 +689,32 @@ export interface IntegrationTreeEdgeRecord {
   parentNodeId: string;
   childKind: InteractionTreeChildKind;
   childId: string;
+  position: number;
+  createdAt: string;
+}
+
+export interface IntegrationMemoryNodeRecord {
+  treeId: string;
+  nodeId: string;
+  nodeKind: MemoryNodeKind;
+  path: string;
+  title: string;
+  summary: string;
+  bodySha256: string;
+  level: number | null;
+  ordinal: number | null;
+  childCount: number;
+  observedAt: string | null;
+  status: MemoryNodeStatus;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IntegrationMemoryContainmentEdgeRecord {
+  treeId: string;
+  parentNodeId: string;
+  childNodeId: string;
   position: number;
   createdAt: string;
 }
@@ -6346,6 +6402,203 @@ export class RuntimeStateStore {
     return rows.map((row) => this.rowToInteractionTreeEdge(row));
   }
 
+  replaceInteractionMemoryTree(params: {
+    workspaceId: string;
+    treeId: string;
+    nodes: Array<{
+      nodeId: string;
+      nodeKind: MemoryNodeKind;
+      path: string;
+      title: string;
+      summary: string;
+      bodySha256: string;
+      level?: number | null;
+      ordinal?: number | null;
+      childCount?: number;
+      observedAt?: string | null;
+      status?: MemoryNodeStatus;
+      metadata?: Record<string, unknown> | null;
+      createdAt?: string;
+      updatedAt?: string;
+    }>;
+    edges: Array<{
+      parentNodeId: string;
+      childNodeId: string;
+      position: number;
+      createdAt?: string;
+    }>;
+  }): InteractionMemoryNodeRecord[] {
+    const db = this.workspaceRuntimeDb(params.workspaceId);
+    const replace = db.transaction(() => {
+      const now = utcNowIso();
+      db.prepare(`
+        DELETE FROM interaction_memory_edges
+        WHERE workspace_id = ? AND tree_id = ?
+      `).run(params.workspaceId, params.treeId);
+      db.prepare(`
+        DELETE FROM interaction_memory_nodes
+        WHERE workspace_id = ? AND tree_id = ?
+      `).run(params.workspaceId, params.treeId);
+
+      const insertNode = db.prepare(`
+        INSERT INTO interaction_memory_nodes (
+          workspace_id,
+          tree_id,
+          node_id,
+          node_kind,
+          path,
+          title,
+          summary,
+          body_sha256,
+          level,
+          ordinal,
+          child_count,
+          observed_at,
+          status,
+          metadata,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const node of params.nodes) {
+        insertNode.run(
+          params.workspaceId,
+          params.treeId,
+          node.nodeId,
+          node.nodeKind,
+          node.path,
+          node.title,
+          node.summary,
+          node.bodySha256,
+          node.level ?? null,
+          node.ordinal ?? null,
+          node.childCount ?? 0,
+          node.observedAt ?? null,
+          node.status ?? "active",
+          JSON.stringify(node.metadata ?? {}),
+          node.createdAt ?? now,
+          node.updatedAt ?? now,
+        );
+      }
+
+      const insertEdge = db.prepare(`
+        INSERT INTO interaction_memory_edges (
+          workspace_id,
+          tree_id,
+          parent_node_id,
+          child_node_id,
+          position,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      for (const edge of params.edges) {
+        insertEdge.run(
+          params.workspaceId,
+          params.treeId,
+          edge.parentNodeId,
+          edge.childNodeId,
+          edge.position,
+          edge.createdAt ?? now,
+        );
+      }
+    });
+    replace();
+    return this.listInteractionMemoryNodes({
+      workspaceId: params.workspaceId,
+      treeId: params.treeId,
+      status: "active",
+      limit: Math.max(200, params.nodes.length + 10),
+    });
+  }
+
+  getInteractionMemoryNode(params: {
+    workspaceId: string;
+    nodeId: string;
+  }): InteractionMemoryNodeRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<[string, string], Record<string, unknown>>(
+        "SELECT * FROM interaction_memory_nodes WHERE workspace_id = ? AND node_id = ? LIMIT 1",
+      )
+      .get(params.workspaceId, params.nodeId);
+    return row ? this.rowToInteractionMemoryNode(row) : null;
+  }
+
+  getInteractionMemoryNodeByPath(params: {
+    workspaceId: string;
+    path: string;
+  }): InteractionMemoryNodeRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<[string, string], Record<string, unknown>>(
+        "SELECT * FROM interaction_memory_nodes WHERE workspace_id = ? AND path = ? LIMIT 1",
+      )
+      .get(params.workspaceId, params.path);
+    return row ? this.rowToInteractionMemoryNode(row) : null;
+  }
+
+  listInteractionMemoryNodes(params: {
+    workspaceId: string;
+    treeId?: string | null;
+    nodeKind?: MemoryNodeKind | null;
+    status?: MemoryNodeStatus | null;
+    limit?: number;
+    offset?: number;
+  }): InteractionMemoryNodeRecord[] {
+    let query = `
+      SELECT *
+      FROM interaction_memory_nodes
+      WHERE workspace_id = ?
+    `;
+    const values: Array<string | number> = [params.workspaceId];
+    if (params.treeId !== undefined) {
+      if (params.treeId === null) {
+        query += " AND tree_id IS NULL";
+      } else {
+        query += " AND tree_id = ?";
+        values.push(params.treeId);
+      }
+    }
+    if (params.nodeKind !== undefined) {
+      if (params.nodeKind === null) {
+        query += " AND node_kind IS NULL";
+      } else {
+        query += " AND node_kind = ?";
+        values.push(params.nodeKind);
+      }
+    }
+    if (params.status !== undefined) {
+      if (params.status === null) {
+        query += " AND status IS NULL";
+      } else {
+        query += " AND status = ?";
+        values.push(params.status);
+      }
+    }
+    query += `
+      ORDER BY COALESCE(level, 10_000) ASC, COALESCE(ordinal, 10_000) ASC, updated_at DESC, node_id ASC
+      LIMIT ? OFFSET ?
+    `;
+    values.push(params.limit ?? 500, params.offset ?? 0);
+    const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToInteractionMemoryNode(row));
+  }
+
+  listInteractionMemoryChildren(params: {
+    workspaceId: string;
+    parentNodeId: string;
+  }): InteractionMemoryContainmentEdgeRecord[] {
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<[string, string], Record<string, unknown>>(
+        `
+          SELECT *
+          FROM interaction_memory_edges
+          WHERE workspace_id = ? AND parent_node_id = ?
+          ORDER BY position ASC, child_node_id ASC
+        `,
+      )
+      .all(params.workspaceId, params.parentNodeId) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToInteractionMemoryContainmentEdge(row));
+  }
+
   upsertInteractionNodeEmbedding(params: {
     workspaceId: string;
     nodeKind: InteractionTreeChildKind;
@@ -7033,6 +7286,195 @@ export class RuntimeStateStore {
     return rows.map((row) => this.rowToIntegrationTreeEdge(row));
   }
 
+  replaceIntegrationMemoryTree(params: {
+    treeId: string;
+    nodes: Array<{
+      nodeId: string;
+      nodeKind: MemoryNodeKind;
+      path: string;
+      title: string;
+      summary: string;
+      bodySha256: string;
+      level?: number | null;
+      ordinal?: number | null;
+      childCount?: number;
+      observedAt?: string | null;
+      status?: MemoryNodeStatus;
+      metadata?: Record<string, unknown> | null;
+      createdAt?: string;
+      updatedAt?: string;
+    }>;
+    edges: Array<{
+      parentNodeId: string;
+      childNodeId: string;
+      position: number;
+      createdAt?: string;
+    }>;
+  }): IntegrationMemoryNodeRecord[] {
+    const db = this.controlPlaneDb();
+    const replace = db.transaction(() => {
+      const now = utcNowIso();
+      db.prepare(`
+        DELETE FROM integration_memory_edges
+        WHERE tree_id = ?
+      `).run(params.treeId);
+      db.prepare(`
+        DELETE FROM integration_memory_nodes
+        WHERE tree_id = ?
+      `).run(params.treeId);
+
+      const insertNode = db.prepare(`
+        INSERT INTO integration_memory_nodes (
+          tree_id,
+          node_id,
+          node_kind,
+          path,
+          title,
+          summary,
+          body_sha256,
+          level,
+          ordinal,
+          child_count,
+          observed_at,
+          status,
+          metadata,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const node of params.nodes) {
+        insertNode.run(
+          params.treeId,
+          node.nodeId,
+          node.nodeKind,
+          node.path,
+          node.title,
+          node.summary,
+          node.bodySha256,
+          node.level ?? null,
+          node.ordinal ?? null,
+          node.childCount ?? 0,
+          node.observedAt ?? null,
+          node.status ?? "active",
+          JSON.stringify(node.metadata ?? {}),
+          node.createdAt ?? now,
+          node.updatedAt ?? now,
+        );
+      }
+
+      const insertEdge = db.prepare(`
+        INSERT INTO integration_memory_edges (
+          tree_id,
+          parent_node_id,
+          child_node_id,
+          position,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?)
+      `);
+      for (const edge of params.edges) {
+        insertEdge.run(
+          params.treeId,
+          edge.parentNodeId,
+          edge.childNodeId,
+          edge.position,
+          edge.createdAt ?? now,
+        );
+      }
+    });
+    replace();
+    return this.listIntegrationMemoryNodes({
+      treeId: params.treeId,
+      status: "active",
+      limit: Math.max(200, params.nodes.length + 10),
+    });
+  }
+
+  getIntegrationMemoryNode(params: {
+    treeId: string;
+    nodeId: string;
+  }): IntegrationMemoryNodeRecord | null {
+    const row = this.controlPlaneDb()
+      .prepare<[string, string], Record<string, unknown>>(
+        "SELECT * FROM integration_memory_nodes WHERE tree_id = ? AND node_id = ? LIMIT 1",
+      )
+      .get(params.treeId, params.nodeId);
+    return row ? this.rowToIntegrationMemoryNode(row) : null;
+  }
+
+  getIntegrationMemoryNodeByPath(params: {
+    path: string;
+  }): IntegrationMemoryNodeRecord | null {
+    const row = this.controlPlaneDb()
+      .prepare<[string], Record<string, unknown>>(
+        "SELECT * FROM integration_memory_nodes WHERE path = ? LIMIT 1",
+      )
+      .get(params.path);
+    return row ? this.rowToIntegrationMemoryNode(row) : null;
+  }
+
+  listIntegrationMemoryNodes(params: {
+    treeId?: string | null;
+    nodeKind?: MemoryNodeKind | null;
+    status?: MemoryNodeStatus | null;
+    limit?: number;
+    offset?: number;
+  } = {}): IntegrationMemoryNodeRecord[] {
+    let query = `
+      SELECT *
+      FROM integration_memory_nodes
+      WHERE 1 = 1
+    `;
+    const values: Array<string | number> = [];
+    if (params.treeId !== undefined) {
+      if (params.treeId === null) {
+        query += " AND tree_id IS NULL";
+      } else {
+        query += " AND tree_id = ?";
+        values.push(params.treeId);
+      }
+    }
+    if (params.nodeKind !== undefined) {
+      if (params.nodeKind === null) {
+        query += " AND node_kind IS NULL";
+      } else {
+        query += " AND node_kind = ?";
+        values.push(params.nodeKind);
+      }
+    }
+    if (params.status !== undefined) {
+      if (params.status === null) {
+        query += " AND status IS NULL";
+      } else {
+        query += " AND status = ?";
+        values.push(params.status);
+      }
+    }
+    query += `
+      ORDER BY COALESCE(level, 10_000) ASC, COALESCE(ordinal, 10_000) ASC, updated_at DESC, node_id ASC
+      LIMIT ? OFFSET ?
+    `;
+    values.push(params.limit ?? 500, params.offset ?? 0);
+    const rows = this.controlPlaneDb().prepare(query).all(...values) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToIntegrationMemoryNode(row));
+  }
+
+  listIntegrationMemoryChildren(params: {
+    treeId: string;
+    parentNodeId: string;
+  }): IntegrationMemoryContainmentEdgeRecord[] {
+    const rows = this.controlPlaneDb()
+      .prepare<[string, string], Record<string, unknown>>(
+        `
+          SELECT *
+          FROM integration_memory_edges
+          WHERE tree_id = ? AND parent_node_id = ?
+          ORDER BY position ASC, child_node_id ASC
+        `,
+      )
+      .all(params.treeId, params.parentNodeId) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToIntegrationMemoryContainmentEdge(row));
+  }
+
   replaceIntegrationNodeRelations(params: {
     treeId: string;
     relations: Array<{
@@ -7132,6 +7574,89 @@ export class RuntimeStateStore {
     values.push(params.limit ?? 200, params.offset ?? 0);
     const rows = this.controlPlaneDb().prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToIntegrationNodeRelation(row));
+  }
+
+  deleteIntegrationTreeMemory(params: {
+    treeId: string;
+  }): {
+    deleted: boolean;
+    deletedTree: boolean;
+    deletedLeaves: number;
+    deletedSummaryNodes: number;
+    deletedTreeEdges: number;
+    deletedCanonicalNodes: number;
+    deletedCanonicalEdges: number;
+    deletedRelations: number;
+    deletedEmbeddings: number;
+  } {
+    const db = this.controlPlaneDb();
+    const remove = db.transaction(() => {
+      const count = (table: string): number =>
+        Number(
+          (db
+            .prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE tree_id = ?`)
+            .get(params.treeId) as { count?: number } | undefined)?.count ?? 0,
+        );
+      const deletedLeaves = count("integration_leaves");
+      const deletedSummaryNodes = count("integration_summary_nodes");
+      const deletedTreeEdges = count("integration_tree_edges");
+      const deletedCanonicalNodes = count("integration_memory_nodes");
+      const deletedCanonicalEdges = count("integration_memory_edges");
+      const deletedRelations = count("integration_node_relations");
+      const deletedEmbeddings = count("integration_node_embeddings");
+
+      db.prepare(`
+        DELETE FROM integration_node_embeddings
+        WHERE tree_id = ?
+      `).run(params.treeId);
+      db.prepare(`
+        DELETE FROM integration_node_relations
+        WHERE tree_id = ?
+      `).run(params.treeId);
+      db.prepare(`
+        DELETE FROM integration_memory_edges
+        WHERE tree_id = ?
+      `).run(params.treeId);
+      db.prepare(`
+        DELETE FROM integration_memory_nodes
+        WHERE tree_id = ?
+      `).run(params.treeId);
+      db.prepare(`
+        DELETE FROM integration_tree_edges
+        WHERE tree_id = ?
+      `).run(params.treeId);
+      db.prepare(`
+        DELETE FROM integration_summary_nodes
+        WHERE tree_id = ?
+      `).run(params.treeId);
+      db.prepare(`
+        DELETE FROM integration_leaves
+        WHERE tree_id = ?
+      `).run(params.treeId);
+      const deletedTree = db.prepare(`
+        DELETE FROM integration_trees
+        WHERE tree_id = ?
+      `).run(params.treeId).changes > 0;
+      return {
+        deleted: deletedTree
+          || deletedLeaves > 0
+          || deletedSummaryNodes > 0
+          || deletedTreeEdges > 0
+          || deletedCanonicalNodes > 0
+          || deletedCanonicalEdges > 0
+          || deletedRelations > 0
+          || deletedEmbeddings > 0,
+        deletedTree,
+        deletedLeaves,
+        deletedSummaryNodes,
+        deletedTreeEdges,
+        deletedCanonicalNodes,
+        deletedCanonicalEdges,
+        deletedRelations,
+        deletedEmbeddings,
+      };
+    });
+    return remove();
   }
 
   upsertIntegrationNodeEmbedding(params: {
@@ -9871,6 +10396,44 @@ export class RuntimeStateStore {
       CREATE INDEX IF NOT EXISTS idx_integration_tree_edges_parent_position
           ON integration_tree_edges (parent_node_id, position ASC);
 
+      CREATE TABLE IF NOT EXISTS integration_memory_nodes (
+          tree_id TEXT NOT NULL,
+          node_id TEXT NOT NULL,
+          node_kind TEXT NOT NULL,
+          path TEXT NOT NULL UNIQUE,
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          body_sha256 TEXT NOT NULL,
+          level INTEGER,
+          ordinal INTEGER,
+          child_count INTEGER NOT NULL DEFAULT 0,
+          observed_at TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          metadata TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (tree_id, node_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_integration_memory_nodes_tree_status_kind
+          ON integration_memory_nodes (tree_id, status, node_kind, updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_integration_memory_nodes_tree_path
+          ON integration_memory_nodes (tree_id, path);
+
+      CREATE TABLE IF NOT EXISTS integration_memory_edges (
+          tree_id TEXT NOT NULL,
+          parent_node_id TEXT NOT NULL,
+          child_node_id TEXT NOT NULL,
+          position INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (tree_id, parent_node_id, child_node_id),
+          UNIQUE (tree_id, parent_node_id, position)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_integration_memory_edges_tree_parent_position
+          ON integration_memory_edges (tree_id, parent_node_id, position ASC);
+
       CREATE TABLE IF NOT EXISTS integration_node_relations (
           tree_id TEXT NOT NULL,
           from_node_kind TEXT NOT NULL,
@@ -10473,6 +11036,47 @@ export class RuntimeStateStore {
 
       CREATE INDEX IF NOT EXISTS idx_interaction_tree_edges_workspace_parent_position
           ON interaction_tree_edges (workspace_id, parent_node_id, position ASC);
+
+      CREATE TABLE IF NOT EXISTS interaction_memory_nodes (
+          workspace_id TEXT NOT NULL,
+          tree_id TEXT NOT NULL,
+          node_id TEXT NOT NULL,
+          node_kind TEXT NOT NULL,
+          path TEXT NOT NULL,
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          body_sha256 TEXT NOT NULL,
+          level INTEGER,
+          ordinal INTEGER,
+          child_count INTEGER NOT NULL DEFAULT 0,
+          observed_at TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          metadata TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, node_id),
+          UNIQUE (workspace_id, path)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_interaction_memory_nodes_workspace_tree_status_kind
+          ON interaction_memory_nodes (workspace_id, tree_id, status, node_kind, updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_interaction_memory_nodes_workspace_tree_path
+          ON interaction_memory_nodes (workspace_id, tree_id, path);
+
+      CREATE TABLE IF NOT EXISTS interaction_memory_edges (
+          workspace_id TEXT NOT NULL,
+          tree_id TEXT NOT NULL,
+          parent_node_id TEXT NOT NULL,
+          child_node_id TEXT NOT NULL,
+          position INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, parent_node_id, child_node_id),
+          UNIQUE (workspace_id, parent_node_id, position)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_interaction_memory_edges_workspace_tree_parent_position
+          ON interaction_memory_edges (workspace_id, tree_id, parent_node_id, position ASC);
 
       CREATE TABLE IF NOT EXISTS interaction_node_embeddings (
           workspace_id TEXT NOT NULL,
@@ -12596,6 +13200,40 @@ export class RuntimeStateStore {
     };
   }
 
+  private rowToInteractionMemoryNode(row: Record<string, unknown>): InteractionMemoryNodeRecord {
+    return {
+      workspaceId: String(row.workspace_id),
+      treeId: String(row.tree_id),
+      nodeId: String(row.node_id),
+      nodeKind: String(row.node_kind) as MemoryNodeKind,
+      path: String(row.path),
+      title: String(row.title),
+      summary: String(row.summary),
+      bodySha256: String(row.body_sha256),
+      level: row.level == null ? null : Number(row.level),
+      ordinal: row.ordinal == null ? null : Number(row.ordinal),
+      childCount: Number(row.child_count ?? 0),
+      observedAt: row.observed_at == null ? null : String(row.observed_at),
+      status: String(row.status) as MemoryNodeStatus,
+      metadata: this.parseJsonDict(row.metadata),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    };
+  }
+
+  private rowToInteractionMemoryContainmentEdge(
+    row: Record<string, unknown>,
+  ): InteractionMemoryContainmentEdgeRecord {
+    return {
+      workspaceId: String(row.workspace_id),
+      treeId: String(row.tree_id),
+      parentNodeId: String(row.parent_node_id),
+      childNodeId: String(row.child_node_id),
+      position: Number(row.position),
+      createdAt: String(row.created_at),
+    };
+  }
+
   private rowToInteractionNodeEmbedding(row: Record<string, unknown>): InteractionNodeEmbeddingRecord {
     return {
       workspaceId: String(row.workspace_id),
@@ -12682,6 +13320,38 @@ export class RuntimeStateStore {
       parentNodeId: String(row.parent_node_id),
       childKind: String(row.child_kind) as InteractionTreeChildKind,
       childId: String(row.child_id),
+      position: Number(row.position),
+      createdAt: String(row.created_at),
+    };
+  }
+
+  private rowToIntegrationMemoryNode(row: Record<string, unknown>): IntegrationMemoryNodeRecord {
+    return {
+      treeId: String(row.tree_id),
+      nodeId: String(row.node_id),
+      nodeKind: String(row.node_kind) as MemoryNodeKind,
+      path: String(row.path),
+      title: String(row.title),
+      summary: String(row.summary),
+      bodySha256: String(row.body_sha256),
+      level: row.level == null ? null : Number(row.level),
+      ordinal: row.ordinal == null ? null : Number(row.ordinal),
+      childCount: Number(row.child_count ?? 0),
+      observedAt: row.observed_at == null ? null : String(row.observed_at),
+      status: String(row.status) as MemoryNodeStatus,
+      metadata: this.parseJsonDict(row.metadata),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    };
+  }
+
+  private rowToIntegrationMemoryContainmentEdge(
+    row: Record<string, unknown>,
+  ): IntegrationMemoryContainmentEdgeRecord {
+    return {
+      treeId: String(row.tree_id),
+      parentNodeId: String(row.parent_node_id),
+      childNodeId: String(row.child_node_id),
       position: Number(row.position),
       createdAt: String(row.created_at),
     };

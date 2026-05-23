@@ -197,6 +197,16 @@ export interface IntegrationServiceHooks {
     connectionId: string;
     ownerUserId: string;
   }) => void;
+  /** Called when a new binding is created for a workspace target. */
+  onBindingCreated?: (params: {
+    bindingId: string;
+    workspaceId: string;
+    targetType: string;
+    targetId: string;
+    integrationKey: string;
+    connectionId: string;
+    isDefault: boolean;
+  }) => void;
 }
 
 export class RuntimeIntegrationService {
@@ -275,6 +285,22 @@ export class RuntimeIntegrationService {
       connectionId,
       isDefault
     });
+
+    if (!existing) {
+      try {
+        this.hooks.onBindingCreated?.({
+          bindingId: binding.bindingId,
+          workspaceId: binding.workspaceId,
+          targetType: binding.targetType,
+          targetId: binding.targetId,
+          integrationKey: binding.integrationKey,
+          connectionId: binding.connectionId,
+          isDefault: binding.isDefault,
+        });
+      } catch {
+        // Hook is best-effort — never block the binding write.
+      }
+    }
 
     return toIntegrationBindingPayload(binding);
   }

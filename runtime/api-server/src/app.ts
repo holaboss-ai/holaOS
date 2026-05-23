@@ -117,6 +117,9 @@ import {
   supportsIntegrationContextFetchProvider,
 } from "./integration-context-fetch.js";
 import {
+  clearIntegrationMemoryForConnection,
+} from "./integration-memory.js";
+import {
   createIntegrationContextFetchManager,
   type IntegrationContextFetchRunner,
 } from "./integration-context-fetch-manager.js";
@@ -5352,6 +5355,34 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     return integrationContextFetchManager.list({
       connectionIds,
     });
+  });
+
+  app.post("/api/v1/integrations/memory-clear", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    const connectionId = typeof request.body.connection_id === "string"
+      ? request.body.connection_id.trim()
+      : "";
+    if (!connectionId) {
+      return sendError(reply, 400, "connection_id is required");
+    }
+    if (!store.getIntegrationConnection(connectionId)) {
+      return sendError(reply, 404, `integration connection ${connectionId} not found`);
+    }
+    try {
+      return clearIntegrationMemoryForConnection({
+        store,
+        connectionId,
+      });
+    } catch (error) {
+      if (error instanceof IntegrationServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      const detail =
+        error instanceof Error ? error.message : "integration memory clear failed";
+      return sendError(reply, 500, detail);
+    }
   });
 
   app.get("/api/v1/memory/browser/tree", async (request, reply) => {

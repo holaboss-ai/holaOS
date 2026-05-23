@@ -6,6 +6,7 @@ import {
   Plus,
   RefreshCw,
   ShieldAlert,
+  Trash2,
   Unplug,
 } from "lucide-react";
 import { AddIntegrationDialog } from "@/components/panes/AddIntegrationDialog";
@@ -251,6 +252,9 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
     string | null
   >(null);
   const [disconnectingConnectionId, setDisconnectingConnectionId] = useState<
+    string | null
+  >(null);
+  const [clearingIntegrationMemoryConnectionId, setClearingIntegrationMemoryConnectionId] = useState<
     string | null
   >(null);
   const [refreshingConnectionId, setRefreshingConnectionId] = useState<
@@ -777,6 +781,10 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
     label: string;
     workspaceCount: number;
   } | null>(null);
+  const [pendingMemoryClear, setPendingMemoryClear] = useState<{
+    connectionId: string;
+    label: string;
+  } | null>(null);
 
   function handleDisconnect(connectionId: string) {
     const target = connections.find((c) => c.connection_id === connectionId);
@@ -936,6 +944,30 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
       setStatusMessage(contextFetchDisplayMessage(result.status));
     } catch (error) {
       setStatusMessage(normalizeErrorMessage(error));
+    }
+  }
+
+  async function performClearIntegrationMemory(connectionId: string) {
+    setClearingIntegrationMemoryConnectionId(connectionId);
+    setStatusMessage("");
+    try {
+      const result =
+        await window.electronAPI.workspace.clearIntegrationMemory(connectionId);
+      setContextFetchStatusByConnectionId((prev) => {
+        const next = { ...prev };
+        delete next[connectionId];
+        return next;
+      });
+      await loadData();
+      setStatusMessage(
+        result.cleared
+          ? `Cleared ${result.provider_id} memory: ${result.deleted_trees} tree${result.deleted_trees === 1 ? "" : "s"}, ${result.deleted_leaves} leaves, ${result.deleted_summary_nodes} summaries.`
+          : "No stored integration memory found for this account.",
+      );
+    } catch (error) {
+      setStatusMessage(normalizeErrorMessage(error));
+    } finally {
+      setClearingIntegrationMemoryConnectionId(null);
     }
   }
 
@@ -1125,6 +1157,9 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                 onFetchContext={(connectionId) =>
                   void handleFetchContext(connectionId)
                 }
+                onClearIntegrationMemory={(connectionId, label) =>
+                  setPendingMemoryClear({ connectionId, label })
+                }
                 onToggleContextAutoFetch={(connectionId, enabled) =>
                   void handleToggleContextAutoFetch(connectionId, enabled)
                 }
@@ -1145,6 +1180,9 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                 refreshingConnectionId={refreshingConnectionId}
                 togglingContextAutoFetchConnectionId={
                   togglingContextAutoFetchConnectionId
+                }
+                clearingIntegrationMemoryConnectionId={
+                  clearingIntegrationMemoryConnectionId
                 }
                 contextFetchStatusByConnectionId={
                   contextFetchStatusByConnectionId
@@ -1232,6 +1270,26 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
         open={Boolean(pendingDisconnect)}
         title="Disconnect this account?"
       />
+      <ConfirmDialog
+        confirmLabel="Clear memory"
+        description={
+          pendingMemoryClear
+            ? `${pendingMemoryClear.label} memory will be deleted from the integration tree. The account stays connected, and you can fetch again to rebuild it.`
+            : ""
+        }
+        destructive
+        onConfirm={() => {
+          if (pendingMemoryClear) {
+            void performClearIntegrationMemory(pendingMemoryClear.connectionId);
+            setPendingMemoryClear(null);
+          }
+        }}
+        onOpenChange={(open) => {
+          if (!open) setPendingMemoryClear(null);
+        }}
+        open={Boolean(pendingMemoryClear)}
+        title="Clear this account's memory?"
+      />
     </>
   );
 
@@ -1316,6 +1374,9 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                   onFetchContext={(connectionId) =>
                     void handleFetchContext(connectionId)
                   }
+                  onClearIntegrationMemory={(connectionId, label) =>
+                    setPendingMemoryClear({ connectionId, label })
+                  }
                   onToggleContextAutoFetch={(connectionId, enabled) =>
                     void handleToggleContextAutoFetch(connectionId, enabled)
                   }
@@ -1336,6 +1397,9 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                   refreshingConnectionId={refreshingConnectionId}
                   togglingContextAutoFetchConnectionId={
                     togglingContextAutoFetchConnectionId
+                  }
+                  clearingIntegrationMemoryConnectionId={
+                    clearingIntegrationMemoryConnectionId
                   }
                   contextFetchStatusByConnectionId={
                     contextFetchStatusByConnectionId
@@ -1419,6 +1483,26 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
           open={Boolean(pendingDisconnect)}
           title="Disconnect this account?"
         />
+        <ConfirmDialog
+          confirmLabel="Clear memory"
+          description={
+            pendingMemoryClear
+              ? `${pendingMemoryClear.label} memory will be deleted from the integration tree. The account stays connected, and you can fetch again to rebuild it.`
+              : ""
+          }
+          destructive
+          onConfirm={() => {
+            if (pendingMemoryClear) {
+              void performClearIntegrationMemory(pendingMemoryClear.connectionId);
+              setPendingMemoryClear(null);
+            }
+          }}
+          onOpenChange={(open) => {
+            if (!open) setPendingMemoryClear(null);
+          }}
+          open={Boolean(pendingMemoryClear)}
+          title="Clear this account's memory?"
+        />
         <ComposioRuntimeDebugRow
           capabilitiesByToolkit={capabilitiesByToolkit}
           connections={connections}
@@ -1463,9 +1547,11 @@ function ConnectedProviderCard({
   onDisconnect,
   onRefresh,
   onFetchContext,
+  onClearIntegrationMemory,
   onToggleContextAutoFetch,
   refreshingConnectionId,
   togglingContextAutoFetchConnectionId,
+  clearingIntegrationMemoryConnectionId,
   contextFetchStatusByConnectionId,
   connecting,
   disconnectingConnectionId,
@@ -1488,12 +1574,14 @@ function ConnectedProviderCard({
   onDisconnect: (connectionId: string) => void;
   onRefresh: (connectionId: string) => void;
   onFetchContext: (connectionId: string) => void;
+  onClearIntegrationMemory: (connectionId: string, label: string) => void;
   onToggleContextAutoFetch: (
     connectionId: string,
     enabled: boolean,
   ) => void;
   refreshingConnectionId: string | null;
   togglingContextAutoFetchConnectionId: string | null;
+  clearingIntegrationMemoryConnectionId: string | null;
   contextFetchStatusByConnectionId: Record<
     string,
     IntegrationContextFetchStatusPayload
@@ -1582,6 +1670,8 @@ function ConnectedProviderCard({
           const contextFetchSupported = supportsContextFetchProvider(conn.provider_id);
           const togglingContextAutoFetch =
             togglingContextAutoFetchConnectionId === conn.connection_id;
+          const clearingIntegrationMemory =
+            clearingIntegrationMemoryConnectionId === conn.connection_id;
           const fetchProgressPercent = contextFetchStatus
             ? contextFetchProgressPercent(contextFetchStatus)
             : 0;
@@ -1636,6 +1726,7 @@ function ConnectedProviderCard({
                   className="h-6 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
                   disabled={
                     disconnecting ||
+                    clearingIntegrationMemory ||
                     fetchingContext ||
                     !contextFetchSupported
                   }
@@ -1656,11 +1747,30 @@ function ConnectedProviderCard({
                   )}
                 </Button>
                 <Button
+                  aria-label={`Clear ${label} memory`}
+                  className="h-6 px-1.5 text-[10px] text-muted-foreground hover:text-destructive"
+                  disabled={disconnecting || clearingIntegrationMemory || fetchingContext}
+                  onClick={() =>
+                    onClearIntegrationMemory(conn.connection_id, label)
+                  }
+                  title="Delete the stored memory tree for this account without disconnecting it"
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  {clearingIntegrationMemory ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <Trash2 className="size-3" />
+                  )}
+                </Button>
+                <Button
                   aria-label={`Refresh ${label} identity`}
                   title="Refetch handle, email, and avatar from the provider"
                   className="text-muted-foreground hover:text-foreground"
                   disabled={
                     disconnecting ||
+                    clearingIntegrationMemory ||
                     refreshingConnectionId === conn.connection_id
                   }
                   onClick={() => onRefresh(conn.connection_id)}
@@ -1677,7 +1787,7 @@ function ConnectedProviderCard({
                 <Button
                   aria-label={`Disconnect ${label}`}
                   className="text-muted-foreground hover:text-destructive"
-                  disabled={disconnecting}
+                  disabled={disconnecting || clearingIntegrationMemory}
                   onClick={() => onDisconnect(conn.connection_id)}
                   size="icon-xs"
                   type="button"
@@ -1707,7 +1817,7 @@ function ConnectedProviderCard({
                     <Switch
                       aria-label={`Auto-fetch ${label} context every 30 minutes`}
                       checked={conn.context_cron_auto_fetch_enabled !== false}
-                      disabled={disconnecting || togglingContextAutoFetch}
+                      disabled={disconnecting || clearingIntegrationMemory || togglingContextAutoFetch}
                       onCheckedChange={(checked) =>
                         onToggleContextAutoFetch(conn.connection_id, checked)
                       }

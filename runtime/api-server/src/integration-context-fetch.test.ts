@@ -9,6 +9,7 @@ import { RuntimeStateStore } from "@holaboss/runtime-state-store";
 import {
   ComposioApiClientError,
   type ExecuteActionParams,
+  type ProxyRequestParams,
 } from "./composio-api-client.js";
 import { fetchIntegrationContextForConnection } from "./integration-context-fetch.js";
 import { globalMemoryDirForWorkspaceRoot } from "./workspace-bundle-paths.js";
@@ -730,6 +731,245 @@ test("fetchIntegrationContextForConnection skips a GitHub repository README when
   assert.ok(
     result.actions.includes("GITHUB_GET_A_REPOSITORY_README:holaboss-ai/holaOS:missing"),
   );
+
+  const trees = store.listIntegrationTrees({
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  const leaves = store.listIntegrationLeaves({
+    treeId: trees[0]!.treeId,
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.deepEqual(
+    leaves.map((leaf) => leaf.subjectKey).sort(),
+    [
+      "profile",
+      "repository:holaboss-ai/holaOS",
+    ],
+  );
+
+  store.close();
+});
+
+test("fetchIntegrationContextForConnection falls back to owned public GitHub repos when /user/repos is forbidden", async () => {
+  const root = makeTempDir("hb-integration-context-fetch-github-owned-public-fallback-");
+  const workspaceRoot = path.join(root, "workspace-root");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertIntegrationConnection({
+    connectionId: "conn-github-1",
+    providerId: "github",
+    ownerUserId: "user-1",
+    accountLabel: "GitHub (Managed)",
+    accountExternalId: "ca_gh_1",
+    accountHandle: null,
+    accountEmail: null,
+    authMode: "composio",
+    grantedScopes: [],
+    status: "active",
+    secretRef: null,
+  });
+
+  const calls: string[] = [];
+  const proxyCalls: string[] = [];
+  const result = await fetchIntegrationContextForConnection({
+    store,
+    connectionId: "conn-github-1",
+    composioClient: {
+      async executeAction<TData = unknown>(params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
+        calls.push(params.toolSlug);
+        if (params.toolSlug === "GITHUB_GET_THE_AUTHENTICATED_USER") {
+          return {
+            data: {
+              data: {
+                login: "octocat",
+                name: "The Octocat",
+                email: "octocat@github.example",
+                html_url: "https://github.com/octocat",
+              },
+            } as TData,
+            logId: "log-gh-profile",
+          };
+        }
+        if (params.toolSlug === "GITHUB_LIST_NOTIFICATIONS") {
+          return { data: { data: [] } as TData, logId: "log-gh-notifications" };
+        }
+        throw new Error(`unexpected tool slug: ${params.toolSlug}`);
+      },
+      async proxyRequest<TData = unknown>(_params: ProxyRequestParams): Promise<{ data: TData | null; status: number; headers: Record<string, string> }> {
+        proxyCalls.push(_params.endpoint);
+        if (_params.endpoint.startsWith("/user/repos")) {
+          throw new ComposioApiClientError(403, {
+            code: "403",
+            message: JSON.stringify({
+              error: {
+                code: "403",
+                message: "Forbidden",
+              },
+            }),
+          });
+        }
+        if (_params.endpoint.startsWith("/users/octocat/repos")) {
+          return {
+            data: [
+              {
+                id: "repo-1",
+                full_name: "octocat/hello-world",
+                name: "hello-world",
+                description: "A public owned repo.",
+                html_url: "https://github.com/octocat/hello-world",
+                updated_at: "2026-05-22T09:15:00Z",
+                language: "TypeScript",
+                default_branch: "main",
+              },
+            ] as TData,
+            status: 200,
+            headers: {},
+          };
+        }
+        throw new Error(`unexpected proxy endpoint: ${_params.endpoint}`);
+      },
+    },
+  });
+
+  assert.deepEqual(calls, [
+    "GITHUB_GET_THE_AUTHENTICATED_USER",
+    "GITHUB_LIST_NOTIFICATIONS",
+  ]);
+  assert.deepEqual(proxyCalls, [
+    `/user/repos?type=owner&sort=updated&direction=desc&per_page=12`,
+    `/users/octocat/repos?type=owner&sort=updated&direction=desc&per_page=12`,
+  ]);
+  assert.equal(result.supported, true);
+  assert.equal(result.provider_id, "github");
+  assert.equal(result.leaves_created, 1);
+  assert.equal(result.messages_seen, 1);
+  assert.equal(result.messages_persisted, 1);
+  assert.ok(result.actions.includes("GITHUB_PROXY:/user/repos?type=owner:forbidden"));
+  assert.ok(result.actions.includes("GITHUB_PROXY:/users/{username}/repos?type=owner"));
+
+  const trees = store.listIntegrationTrees({
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  const leaves = store.listIntegrationLeaves({
+    treeId: trees[0]!.treeId,
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.deepEqual(
+    leaves.map((leaf) => leaf.subjectKey).sort(),
+    ["profile", "repository:octocat/hello-world"],
+  );
+
+  store.close();
+});
+
+test("fetchIntegrationContextForConnection skips forbidden GitHub repo subcalls instead of failing", async () => {
+  const root = makeTempDir("hb-integration-context-fetch-github-forbidden-subcalls-");
+  const workspaceRoot = path.join(root, "workspace-root");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertIntegrationConnection({
+    connectionId: "conn-github-1",
+    providerId: "github",
+    ownerUserId: "user-1",
+    accountLabel: "GitHub (Managed)",
+    accountExternalId: "ca_gh_1",
+    accountHandle: null,
+    accountEmail: null,
+    authMode: "composio",
+    grantedScopes: [],
+    status: "active",
+    secretRef: null,
+  });
+
+  const result = await fetchIntegrationContextForConnection({
+    store,
+    connectionId: "conn-github-1",
+    composioClient: {
+      async executeAction<TData = unknown>(params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
+        if (params.toolSlug === "GITHUB_GET_THE_AUTHENTICATED_USER") {
+          return {
+            data: {
+              data: {
+                login: "octocat",
+                name: "The Octocat",
+                email: "octocat@github.example",
+                html_url: "https://github.com/octocat",
+              },
+            } as TData,
+            logId: "log-gh-profile",
+          };
+        }
+        if (params.toolSlug === "GITHUB_LIST_NOTIFICATIONS") {
+          return { data: { data: [] } as TData, logId: "log-gh-notifications" };
+        }
+        if (params.toolSlug === "GITHUB_FIND_REPOSITORIES") {
+          return {
+            data: {
+              data: {
+                items: [
+                  {
+                    id: "repo-1",
+                    full_name: "holaboss-ai/holaOS",
+                    name: "holaOS",
+                    description: "Desktop runtime for agentic workflows.",
+                    html_url: "https://github.com/holaboss-ai/holaOS",
+                    updated_at: "2026-05-22T09:15:00Z",
+                    language: "TypeScript",
+                    default_branch: "main",
+                  },
+                ],
+              },
+            } as TData,
+            logId: "log-gh-repos",
+          };
+        }
+        if (
+          params.toolSlug === "GITHUB_GET_A_REPOSITORY_README"
+          || params.toolSlug === "GITHUB_LIST_PULL_REQUESTS"
+          || params.toolSlug === "GITHUB_LIST_REPOSITORY_ISSUES"
+        ) {
+          throw new ComposioApiClientError(403, {
+            code: "403",
+            message: "Forbidden",
+          });
+        }
+        throw new Error(`unexpected tool slug: ${params.toolSlug}`);
+      },
+    },
+  });
+
+  assert.equal(result.supported, true);
+  assert.equal(result.provider_id, "github");
+  assert.equal(result.leaves_created, 2);
+  assert.equal(result.messages_seen, 1);
+  assert.equal(result.messages_persisted, 1);
+  assert.ok(result.actions.includes("GITHUB_GET_A_REPOSITORY_README:holaboss-ai/holaOS:forbidden"));
+  assert.ok(result.actions.includes("GITHUB_LIST_PULL_REQUESTS:holaboss-ai/holaOS:forbidden"));
+  assert.ok(result.actions.includes("GITHUB_LIST_REPOSITORY_ISSUES:holaboss-ai/holaOS:forbidden"));
 
   const trees = store.listIntegrationTrees({
     status: "active",

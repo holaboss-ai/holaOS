@@ -499,6 +499,21 @@ function readStoredMemoryFile(params: {
   };
 }
 
+function browserPathForStoredPath(workspaceId: string, targetPath: string): string {
+  const normalized = normalizeBrowserPath(targetPath);
+  const workspacePrefix = `workspace/${workspaceId}/`;
+  return normalized.startsWith(workspacePrefix)
+    ? normalized.slice(workspacePrefix.length)
+    : normalized;
+}
+
+function canonicalNodeFallbackContent(params: {
+  title: string;
+  summary: string;
+}): string {
+  return `# ${params.title}\n\n${params.summary}\n`;
+}
+
 function virtualInteractionTreeContent(params: {
   entity: InteractionEntityRecord;
   leaves: InteractionLeafRecord[];
@@ -664,6 +679,33 @@ function buildVirtualMemoryBrowserModel(params: {
   });
   ensureVirtualDirectory(rootBuilder, ["interaction", "trees"]);
   for (const entity of interactionTrees) {
+    const canonicalNodes = params.store.listInteractionMemoryNodes({
+      workspaceId: params.workspaceId,
+      treeId: entity.entityId,
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    });
+    if (canonicalNodes.length > 0) {
+      for (const node of canonicalNodes) {
+        const stored = readStoredMemoryFile({
+          store: params.store,
+          workspaceId: params.workspaceId,
+          relativePath: node.path,
+        });
+        const browserPath = browserPathForStoredPath(params.workspaceId, node.path);
+        addContentFile(
+          browserPath,
+          stored?.content ?? canonicalNodeFallbackContent({
+            title: node.title,
+            summary: node.summary,
+          }),
+          stored?.modifiedAt ?? node.updatedAt,
+        );
+        graphNodePaths.set(node.nodeId, browserPath);
+      }
+      continue;
+    }
     const summaries = params.store.listInteractionSummaryNodes({
       workspaceId: params.workspaceId,
       entityId: entity.entityId,
@@ -786,6 +828,32 @@ function buildVirtualMemoryBrowserModel(params: {
   });
   ensureVirtualDirectory(rootBuilder, ["integration", "trees"]);
   for (const tree of integrationTrees) {
+    const canonicalNodes = params.store.listIntegrationMemoryNodes({
+      treeId: tree.treeId,
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    });
+    if (canonicalNodes.length > 0) {
+      for (const node of canonicalNodes) {
+        const stored = readStoredMemoryFile({
+          store: params.store,
+          workspaceId: params.workspaceId,
+          relativePath: node.path,
+        });
+        const browserPath = browserPathForStoredPath(params.workspaceId, node.path);
+        addContentFile(
+          browserPath,
+          stored?.content ?? canonicalNodeFallbackContent({
+            title: node.title,
+            summary: node.summary,
+          }),
+          stored?.modifiedAt ?? node.updatedAt,
+        );
+        graphNodePaths.set(node.nodeId, browserPath);
+      }
+      continue;
+    }
     const summaries = params.store.listIntegrationSummaryNodes({
       treeId: tree.treeId,
       status: "active",
@@ -1287,6 +1355,63 @@ function buildInteractionGraph(params: {
   }
 
   for (const entity of entities) {
+    const canonicalNodes = params.store.listInteractionMemoryNodes({
+      workspaceId: params.workspaceId,
+      treeId: entity.entityId,
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    });
+    if (canonicalNodes.length > 0) {
+      const nodeById = new Map(canonicalNodes.map((node) => [node.nodeId, node]));
+      for (const node of canonicalNodes) {
+        appendUniqueGraphNode(nodes, nodeIds, {
+          id: node.nodeId,
+          kind: node.nodeKind,
+          category: "interaction",
+          tree_id: entity.entityId,
+          label: shortLabel(node.title, node.nodeId),
+          subtitle: node.nodeKind === "tree"
+            ? interactionTreeSubtitle(entity.entityType)
+            : node.nodeKind === "summary" && node.level != null
+              ? `L${node.level}`
+              : null,
+          status: node.status,
+          level: node.level ?? (node.nodeKind === "tree" ? 1 : null),
+          child_count: node.childCount,
+          path: params.graphNodePaths.get(node.nodeId) ?? browserPathForStoredPath(params.workspaceId, node.path),
+        });
+      }
+      appendUniqueGraphEdge(edges, edgeIds, {
+        from: rootNodeId,
+        to: `tree:interaction:${entity.entityId}`,
+        kind: "contains",
+      });
+      for (const edge of params.store.listInteractionMemoryChildren({
+        workspaceId: params.workspaceId,
+        parentNodeId: `tree:interaction:${entity.entityId}`,
+      })) {
+        appendUniqueGraphEdge(edges, edgeIds, {
+          from: edge.parentNodeId,
+          to: edge.childNodeId,
+          kind: "contains",
+        });
+      }
+      for (const node of canonicalNodes.filter((candidate) => candidate.nodeKind !== "tree")) {
+        for (const edge of params.store.listInteractionMemoryChildren({
+          workspaceId: params.workspaceId,
+          parentNodeId: node.nodeId,
+        })) {
+          appendUniqueGraphEdge(edges, edgeIds, {
+            from: edge.parentNodeId,
+            to: edge.childNodeId,
+            kind: "parent_child",
+          });
+        }
+      }
+      continue;
+    }
+
     const treeNodeId = interactionTreeNodeId(entity.entityId);
     appendUniqueGraphNode(nodes, nodeIds, {
       id: treeNodeId,
@@ -1450,6 +1575,74 @@ function buildIntegrationGraph(params: {
   });
 
   for (const tree of trees) {
+    const canonicalNodes = params.store.listIntegrationMemoryNodes({
+      treeId: tree.treeId,
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    });
+    if (canonicalNodes.length > 0) {
+      for (const node of canonicalNodes) {
+        appendUniqueGraphNode(nodes, nodeIds, {
+          id: node.nodeId,
+          kind: node.nodeKind,
+          category: "integration",
+          tree_id: tree.treeId,
+          label: shortLabel(node.title, node.nodeId),
+          subtitle: node.nodeKind === "tree"
+            ? integrationTreeSubtitle({
+                provider: tree.provider,
+                ownerUserId: tree.ownerUserId,
+              })
+            : node.nodeKind === "summary" && node.level != null
+              ? `L${node.level}`
+              : null,
+          status: node.status,
+          level: node.level ?? (node.nodeKind === "tree" ? 1 : null),
+          child_count: node.childCount,
+          path: params.graphNodePaths.get(node.nodeId) ?? browserPathForStoredPath(params.workspaceId, node.path),
+        });
+      }
+      appendUniqueGraphEdge(edges, edgeIds, {
+        from: rootNodeId,
+        to: `tree:integration:${tree.treeId}`,
+        kind: "contains",
+      });
+      for (const edge of params.store.listIntegrationMemoryChildren({
+        treeId: tree.treeId,
+        parentNodeId: `tree:integration:${tree.treeId}`,
+      })) {
+        appendUniqueGraphEdge(edges, edgeIds, {
+          from: edge.parentNodeId,
+          to: edge.childNodeId,
+          kind: "contains",
+        });
+      }
+      for (const node of canonicalNodes.filter((candidate) => candidate.nodeKind !== "tree")) {
+        for (const edge of params.store.listIntegrationMemoryChildren({
+          treeId: tree.treeId,
+          parentNodeId: node.nodeId,
+        })) {
+          appendUniqueGraphEdge(edges, edgeIds, {
+            from: edge.parentNodeId,
+            to: edge.childNodeId,
+            kind: "parent_child",
+          });
+        }
+      }
+      for (const relation of params.store.listIntegrationNodeRelations({
+        treeId: tree.treeId,
+        limit: 10_000,
+      })) {
+        appendUniqueGraphEdge(edges, edgeIds, {
+          from: relation.fromNodeId,
+          to: relation.toNodeId,
+          kind: "reference",
+        });
+      }
+      continue;
+    }
+
     const treeNodeId = integrationTreeNodeId(tree.treeId);
     appendUniqueGraphNode(nodes, nodeIds, {
       id: treeNodeId,

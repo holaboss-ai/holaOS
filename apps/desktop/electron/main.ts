@@ -10611,6 +10611,23 @@ type IntegrationContextFetchStatusListResponsePayload = {
   statuses: IntegrationContextFetchStatusPayload[];
 };
 
+type IntegrationMemoryClearResponsePayload = {
+  ok: true;
+  provider_id: string;
+  connection_id: string;
+  cleared: boolean;
+  tree_ids: string[];
+  deleted_trees: number;
+  deleted_leaves: number;
+  deleted_summary_nodes: number;
+  deleted_tree_edges: number;
+  deleted_canonical_nodes: number;
+  deleted_canonical_edges: number;
+  deleted_relations: number;
+  deleted_embeddings: number;
+  deleted_files: number;
+};
+
 async function fetchIntegrationContext(
   connectionId: string,
 ): Promise<IntegrationContextFetchStartResponsePayload> {
@@ -10641,6 +10658,22 @@ async function listIntegrationContextFetchStatuses(
     params: normalized.length > 0
       ? { connection_ids: normalized.join(",") }
       : undefined,
+  });
+}
+
+async function clearIntegrationMemory(
+  connectionId: string,
+): Promise<IntegrationMemoryClearResponsePayload> {
+  const trimmed = typeof connectionId === "string" ? connectionId.trim() : "";
+  if (!trimmed) {
+    throw new Error("clearIntegrationMemory: connection_id required");
+  }
+  return requestRuntimeJson<IntegrationMemoryClearResponsePayload>({
+    method: "POST",
+    path: "/api/v1/integrations/memory-clear",
+    payload: {
+      connection_id: trimmed,
+    },
   });
 }
 
@@ -24007,6 +24040,11 @@ app.whenReady().then(async () => {
       listIntegrationContextFetchStatuses(
         Array.isArray(connectionIds) ? connectionIds : [],
       ),
+  );
+  handleTrustedIpc(
+    "workspace:clearIntegrationMemory",
+    ["main"],
+    async (_event, connectionId: string) => clearIntegrationMemory(connectionId),
   );
   handleTrustedIpc(
     "workspace:composioConnect",

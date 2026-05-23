@@ -1,12 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { RuntimeStateStore } from "@holaboss/runtime-state-store";
+import { rebuildAllIntegrationTrees } from "./integration-memory.js";
 import { rebuildAllInteractionTrees } from "./interaction-memory.js";
 import {
   globalMemoryDirForWorkspaceRoot,
   migrateLegacyWorkspaceMemoryIfNeeded,
   workspaceMemoryDir,
 } from "./workspace-bundle-paths.js";
+import { visibleIntegrationTreesForWorkspace } from "./workspace-integration-visibility.js";
 
 const MEMORY_BACKEND_ENV = "MEMORY_BACKEND";
 const MEMORY_ROOT_DIR_ENV = "MEMORY_ROOT_DIR";
@@ -565,31 +567,113 @@ export class FilesystemMemoryService implements MemoryServiceLike {
       migratedWorkspaceMemory: roots.migratedWorkspaceMemory,
     });
     if (this.#store) {
-      const entities = this.#store.listInteractionEntities({
+      const store = this.#store;
+      const entities = store.listInteractionEntities({
         workspaceId,
         status: "active",
         includeSystem: true,
         limit: 10_000,
         offset: 0,
       });
-      const leaves = this.#store.listInteractionLeaves({
+      const leaves = store.listInteractionLeaves({
         workspaceId,
         status: "active",
         limit: 10_000,
         offset: 0,
       });
-      const summaries = this.#store.listInteractionSummaryNodes({
+      const summaries = store.listInteractionSummaryNodes({
         workspaceId,
         status: "active",
         limit: 10_000,
         offset: 0,
       });
+      const interactionCanonicalNodes = store.listInteractionMemoryNodes({
+        workspaceId,
+        status: "active",
+        limit: 10_000,
+        offset: 0,
+      });
+      const interactionCanonicalEdges = entities.reduce(
+        (count, entity) =>
+          count + store.listInteractionMemoryChildren({
+            workspaceId,
+            parentNodeId: `tree:interaction:${entity.entityId}`,
+          }).length,
+        0,
+      ) + interactionCanonicalNodes
+        .filter((node) => node.nodeKind !== "leaf")
+        .reduce(
+          (count, node) =>
+            count + store.listInteractionMemoryChildren({
+              workspaceId,
+              parentNodeId: node.nodeId,
+            }).length,
+          0,
+        );
+      const integrationTrees = visibleIntegrationTreesForWorkspace({
+        store,
+        workspaceId,
+      });
+      const integrationLeaves = integrationTrees.flatMap((tree) =>
+        store.listIntegrationLeaves({
+          treeId: tree.treeId,
+          status: "active",
+          limit: 10_000,
+          offset: 0,
+        }),
+      );
+      const integrationSummaries = integrationTrees.flatMap((tree) =>
+        store.listIntegrationSummaryNodes({
+          treeId: tree.treeId,
+          status: "active",
+          limit: 10_000,
+          offset: 0,
+        }),
+      );
+      const integrationCanonicalNodes = integrationTrees.flatMap((tree) =>
+        store.listIntegrationMemoryNodes({
+          treeId: tree.treeId,
+          status: "active",
+          limit: 10_000,
+          offset: 0,
+        }),
+      );
+      const integrationCanonicalEdges = integrationTrees.reduce(
+        (count, tree) =>
+          count + store.listIntegrationMemoryChildren({
+            treeId: tree.treeId,
+            parentNodeId: `tree:integration:${tree.treeId}`,
+          }).length
+          + store.listIntegrationMemoryNodes({
+            treeId: tree.treeId,
+            status: "active",
+            limit: 10_000,
+            offset: 0,
+          })
+            .filter((node) => node.nodeKind !== "leaf")
+            .reduce(
+              (subtotal, node) =>
+                subtotal + store.listIntegrationMemoryChildren({
+                  treeId: tree.treeId,
+                  parentNodeId: node.nodeId,
+                }).length,
+              0,
+            ),
+        0,
+      );
       status.provider = "interaction_tree";
       status.custom = {
         ...(status.custom as Record<string, unknown>),
         interaction_entities: entities.length,
         interaction_leaves: leaves.length,
         interaction_summary_nodes: summaries.length,
+        interaction_canonical_nodes: interactionCanonicalNodes.length,
+        interaction_canonical_edges: interactionCanonicalEdges,
+        integration_trees: integrationTrees.length,
+        integration_leaves: integrationLeaves.length,
+        integration_summary_nodes: integrationSummaries.length,
+        integration_canonical_nodes: integrationCanonicalNodes.length,
+        integration_canonical_edges: integrationCanonicalEdges,
       };
     }
     return status;
@@ -604,13 +688,18 @@ export class FilesystemMemoryService implements MemoryServiceLike {
     });
     let rebuilt: Record<string, unknown> | null = null;
     if (this.#store) {
-      const result = await rebuildAllInteractionTrees({
-        store: this.#store,
+      const store = this.#store;
+      const interaction = await rebuildAllInteractionTrees({
+        store,
+        workspaceId,
+      });
+      const integration = await rebuildAllIntegrationTrees({
+        store,
         workspaceId,
       });
       rebuilt = {
-        entities: result.entities,
-        summaries: result.summaries,
+        interaction,
+        integration,
       };
     }
     return {

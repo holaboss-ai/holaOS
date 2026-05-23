@@ -1551,6 +1551,23 @@ interface RuntimeNotificationListOptionsPayload {
     statuses: IntegrationContextFetchStatusPayload[];
   }
 
+  interface IntegrationMemoryClearResponsePayload {
+    ok: true;
+    provider_id: string;
+    connection_id: string;
+    cleared: boolean;
+    tree_ids: string[];
+    deleted_trees: number;
+    deleted_leaves: number;
+    deleted_summary_nodes: number;
+    deleted_tree_edges: number;
+    deleted_canonical_nodes: number;
+    deleted_canonical_edges: number;
+    deleted_relations: number;
+    deleted_embeddings: number;
+    deleted_files: number;
+  }
+
   interface AllWorkspaceIntegrationOverridesPayload {
     overrides: Array<{
       workspace_id: string;
@@ -2106,6 +2123,9 @@ interface RuntimeNotificationListOptionsPayload {
       listIntegrationContextFetchStatuses: (
         connectionIds?: string[]
       ) => Promise<IntegrationContextFetchStatusListResponsePayload>;
+      clearIntegrationMemory: (
+        connectionId: string
+      ) => Promise<IntegrationMemoryClearResponsePayload>;
       restartApp: (workspaceId: string, appId: string) => Promise<{
         workspace_id: string;
         app_id: string;

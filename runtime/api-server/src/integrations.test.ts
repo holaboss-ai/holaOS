@@ -100,6 +100,82 @@ test("upserts workspace-scoped bindings and rejects invalid target types", () =>
   store.close();
 });
 
+test("fires onBindingCreated for new bindings and not for rebinding the same target", () => {
+  const root = makeTempDir("hb-integrations-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const createdBindings: Array<{
+    bindingId: string;
+    workspaceId: string;
+    targetType: string;
+    targetId: string;
+    integrationKey: string;
+    connectionId: string;
+    isDefault: boolean;
+  }> = [];
+  const service = new RuntimeIntegrationService(store, {
+    onBindingCreated: (binding) => {
+      createdBindings.push(binding);
+    }
+  });
+  const firstConnection = store.upsertIntegrationConnection({
+    connectionId: "conn-google-1",
+    providerId: "google",
+    ownerUserId: "user-1",
+    accountLabel: "first@holaboss.ai",
+    authMode: "oauth_app",
+    grantedScopes: ["gmail.send"],
+    status: "active"
+  });
+  const secondConnection = store.upsertIntegrationConnection({
+    connectionId: "conn-google-2",
+    providerId: "google",
+    ownerUserId: "user-1",
+    accountLabel: "second@holaboss.ai",
+    authMode: "oauth_app",
+    grantedScopes: ["gmail.send"],
+    status: "active"
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active"
+  });
+
+  const firstBinding = service.upsertBinding({
+    workspaceId: "workspace-1",
+    targetType: "workspace_default",
+    targetId: "google",
+    integrationKey: "google",
+    connectionId: firstConnection.connectionId,
+    isDefault: true
+  });
+  service.upsertBinding({
+    workspaceId: "workspace-1",
+    targetType: "workspace_default",
+    targetId: "google",
+    integrationKey: "google",
+    connectionId: secondConnection.connectionId,
+    isDefault: false
+  });
+
+  assert.equal(createdBindings.length, 1);
+  assert.deepEqual(createdBindings[0], {
+    bindingId: firstBinding.binding_id,
+    workspaceId: "workspace-1",
+    targetType: "workspace_default",
+    targetId: "google",
+    integrationKey: "google",
+    connectionId: firstConnection.connectionId,
+    isDefault: true
+  });
+
+  store.close();
+});
+
 test("rejects missing connections, cross-provider bindings, and missing workspaces", () => {
   const root = makeTempDir("hb-integrations-");
   const store = new RuntimeStateStore({
