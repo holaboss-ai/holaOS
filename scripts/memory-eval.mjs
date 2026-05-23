@@ -543,6 +543,10 @@ function buildIntegrationTemplateContext(params) {
   const pullLeaf = firstIntegrationLeafByPrefix(params.leaves, "pull:");
   const issueLeaf = firstIntegrationLeafByPrefix(params.leaves, "issue:");
   const messageLeaf = firstIntegrationLeafByPrefix(params.leaves, "message:");
+  const pageLeaf = firstIntegrationLeafByPrefix(params.leaves, "page:");
+  const pageMarkdownLeaf = firstIntegrationLeafByPrefix(params.leaves, "page_markdown:");
+  const databaseLeaf = firstIntegrationLeafByPrefix(params.leaves, "database:");
+  const rowLeaf = firstIntegrationLeafByPrefix(params.leaves, "row:");
   const firstNonProfileLeaf = params.leaves.find((leaf) => leaf.subject_key !== "profile") ?? null;
   const firstWorkItemLeaf = pullLeaf ?? issueLeaf ?? notificationLeaf ?? null;
   return {
@@ -569,6 +573,10 @@ function buildIntegrationTemplateContext(params) {
     first_pull_title: pullLeaf?.title ?? "",
     first_issue_title: issueLeaf?.title ?? "",
     first_message_title: messageLeaf?.title ?? "",
+    first_page_title: pageLeaf?.title ?? "",
+    first_page_markdown_title: pageMarkdownLeaf?.title ?? "",
+    first_database_title: databaseLeaf?.title ?? "",
+    first_row_title: rowLeaf?.title ?? "",
     first_non_profile_title: firstNonProfileLeaf?.title ?? "",
     first_work_item_title: firstWorkItemLeaf?.title ?? "",
     first_work_item_summary: firstWorkItemLeaf?.summary ?? "",
@@ -985,12 +993,69 @@ async function runIntegrationContextFetchScenario(params) {
   const scenario = params.scenario;
   const startedAt = new Date().toISOString();
   const startedWall = Date.now();
+  const scenarioSlug = sanitizeSessionId(`${scenario.id}-${Date.now()}`);
   const failures = [];
   const countsBefore = workspaceMemoryCounts(params.dbPath, params.controlPlaneDbPath);
   const beforeAgents = readTextIfExists(params.agentsPath);
   const providerId = typeof scenario.provider_id === "string" && scenario.provider_id.trim().length > 0
     ? scenario.provider_id.trim().toLowerCase()
     : "gmail";
+
+  const interactionWriterSessionId = `memory-eval-mixed-writer-${scenarioSlug}`;
+  const interactionWriterTurns = [];
+  let interactionBatchCursor = null;
+  let interactionBatchCursorReadyMs = null;
+  if (Array.isArray(scenario.interaction_writer_turns) && scenario.interaction_writer_turns.length > 0) {
+    if (scenario.interaction_writer_turns.length % params.batchSize !== 0) {
+      failures.push(
+        `interaction writer turn count ${scenario.interaction_writer_turns.length} is not divisible by batch size ${params.batchSize}`,
+      );
+    }
+    for (const [index, text] of scenario.interaction_writer_turns.entries()) {
+      try {
+        const turn = await runTurn(params.baseUrl, {
+          workspaceId: params.workspaceId,
+          sessionId: interactionWriterSessionId,
+          text,
+        });
+        interactionWriterTurns.push({
+          turn_number: index + 1,
+          input_id: turn.inputId,
+          assistant_text: turn.result.assistant_text,
+          tool_usage_summary: turn.result.tool_usage_summary,
+          latency_ms: durationMs(turn.result.started_at, turn.result.completed_at),
+        });
+      } catch (error) {
+        failures.push(
+          `interaction writer turn ${index + 1} failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        break;
+      }
+    }
+    if (failures.length === 0) {
+      const expectedInteractionCursor = String(scenario.interaction_writer_turns.length);
+      try {
+        const cursorStartedAt = Date.now();
+        interactionBatchCursor = await waitFor(
+          async () => {
+            const cursor = batchCursorValue(params.dbPath, interactionWriterSessionId);
+            return cursor === expectedInteractionCursor ? cursor : null;
+          },
+          {
+            description: `interaction prelude batch cursor ${expectedInteractionCursor} for ${scenario.id}`,
+            timeoutMs: Number(scenario.batch_cursor_timeout_ms ?? BATCH_CURSOR_TIMEOUT_MS),
+          },
+        );
+        interactionBatchCursorReadyMs = Date.now() - cursorStartedAt;
+      } catch (error) {
+        failures.push(
+          `interaction prelude batch cursor wait failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        interactionBatchCursor = batchCursorValue(params.dbPath, interactionWriterSessionId);
+      }
+    }
+  }
+
   const connection = activeIntegrationConnection(params.controlPlaneDbPath, providerId);
 
   if (!connection) {
@@ -1005,6 +1070,10 @@ async function runIntegrationContextFetchScenario(params) {
         completed_at: new Date().toISOString(),
         counts_before_scenario: countsBefore,
         counts_after_scenario: countsBefore,
+        interaction_writer_session_id: interactionWriterSessionId,
+        interaction_writer_turns: interactionWriterTurns,
+        interaction_batch_cursor: interactionBatchCursor,
+        interaction_batch_cursor_ready_ms: interactionBatchCursorReadyMs,
         integration_reports: [],
         direct_retrievals: [],
         reader_queries: [],
@@ -1020,6 +1089,10 @@ async function runIntegrationContextFetchScenario(params) {
       completed_at: new Date().toISOString(),
       counts_before_scenario: countsBefore,
       counts_after_scenario: countsBefore,
+      interaction_writer_session_id: interactionWriterSessionId,
+      interaction_writer_turns: interactionWriterTurns,
+      interaction_batch_cursor: interactionBatchCursor,
+      interaction_batch_cursor_ready_ms: interactionBatchCursorReadyMs,
       integration_reports: [],
       direct_retrievals: [],
       reader_queries: [],
@@ -1339,6 +1412,10 @@ async function runIntegrationContextFetchScenario(params) {
     duration_ms: Date.now() - startedWall,
     counts_before_scenario: countsBefore,
     counts_after_scenario: countsAfter,
+    interaction_writer_session_id: interactionWriterTurns.length > 0 ? interactionWriterSessionId : null,
+    interaction_writer_turns: interactionWriterTurns,
+    interaction_batch_cursor: interactionBatchCursor,
+    interaction_batch_cursor_ready_ms: interactionBatchCursorReadyMs,
     integration_fetch: fetchResult,
     integration_reports: [
       {

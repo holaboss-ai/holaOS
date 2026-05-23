@@ -109,6 +109,57 @@
         "{{first_repository_title}}"
       ],
       "agents_policy": "forbid"
+    },
+    {
+      "id": "integration_live_notion_context_fetch",
+      "kind": "integration_live_context_fetch",
+      "description": "A live Notion context fetch should materialize workspace/page/database memory and allow profile plus document recall without AGENTS leakage.",
+      "provider_id": "notion",
+      "skip_if_unavailable": true,
+      "expected_tree": {
+        "provider": "notion",
+        "expected_active_leaf_count_min": 3,
+        "expected_summary_count_min": 1,
+        "required_subject_key_prefixes": [
+          "database:",
+          "page:"
+        ],
+        "required_entity_key_prefixes": [
+          "database:",
+          "page:"
+        ],
+        "required_branch_keys": [
+          "workspace",
+          "overview"
+        ]
+      },
+      "reader_queries": [
+        {
+          "query": "What Notion workspace profile was synced for this workspace?",
+          "categories": [
+            "integration"
+          ],
+          "tree_scope": "tree",
+          "expected_answer_contains_templates": [
+            "{{account_label}}"
+          ]
+        },
+        {
+          "query": "Name one Notion page or database that was synced into memory.",
+          "categories": [
+            "integration"
+          ],
+          "tree_scope": "tree",
+          "expected_answer_contains_templates": [
+            "{{first_non_profile_title}}"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "{{account_label}}",
+        "{{first_non_profile_title}}"
+      ],
+      "agents_policy": "forbid"
     }
   ]
 }
