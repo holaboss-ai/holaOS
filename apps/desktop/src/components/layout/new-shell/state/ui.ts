@@ -99,6 +99,20 @@ export type ChatPanelView = "chat" | "sessions";
 export const chatPanelViewAtom = atom<ChatPanelView>("chat");
 
 /**
+ * Prefill request driven from outside the chat panel (e.g. the Automations
+ * "New schedule" button). ChatPanel watches this atom and threads it to
+ * ChatPane as `composerPrefillRequest` + a "draft" session open request.
+ * Bumping `requestKey` re-triggers the prefill even when the text matches
+ * a previous request.
+ */
+export interface ChatComposerPrefill {
+  text: string;
+  requestKey: number;
+  mode?: "replace" | "append";
+}
+export const chatComposerPrefillAtom = atom<ChatComposerPrefill | null>(null);
+
+/**
  * True when any overlay is open. BrowserPane reads this to detach the
  * native BrowserView; otherwise the OS-level webview paints on top of
  * the React modal layer and the user can't see it.

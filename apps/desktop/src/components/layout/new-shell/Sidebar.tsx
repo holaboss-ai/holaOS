@@ -71,7 +71,9 @@ import {
 import {
   appsExpandedAtom,
   automationsOpenAtom,
+  chatComposerPrefillAtom,
   createWorkspaceOpenAtom,
+  focusModeAtom,
   publishOpenAtom,
   searchOpenAtom,
   SIDEBAR_MAX_WIDTH,
@@ -900,14 +902,36 @@ function SidebarAutomationsSection() {
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const cronjobs = useWorkspaceCronjobs(selectedWorkspaceId || null);
   const setAutomationsOpen = useSetAtom(automationsOpenAtom);
+  const setFocusMode = useSetAtom(focusModeAtom);
+  const setComposerPrefill = useSetAtom(chatComposerPrefillAtom);
+  const prefillKeyRef = useRef(0);
+
+  const handleCreateSchedule = useCallback(() => {
+    prefillKeyRef.current += 1;
+    setComposerPrefill({
+      text: "Create a schedule for ",
+      requestKey: prefillKeyRef.current,
+      mode: "replace",
+    });
+    setFocusMode(false);
+  }, [setComposerPrefill, setFocusMode]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
       <SectionLabel>
         Automations
         {cronjobs.length > 0 ? (
-          <span className="ml-auto text-foreground/30">{cronjobs.length}</span>
+          <span className="ml-2 text-foreground/30">{cronjobs.length}</span>
         ) : null}
+        <button
+          type="button"
+          onClick={handleCreateSchedule}
+          aria-label="New schedule"
+          title="New schedule"
+          className="ml-auto grid size-5 place-items-center rounded text-foreground/45 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+        >
+          <Plus className="size-3.5" strokeWidth={1.75} />
+        </button>
       </SectionLabel>
       {cronjobs.length === 0 ? (
         <div className="grid place-items-center px-3 py-12 text-center">
@@ -916,6 +940,14 @@ function SidebarAutomationsSection() {
             <div className="text-xs text-foreground/55">
               No scheduled automations yet.
             </div>
+            <button
+              type="button"
+              onClick={handleCreateSchedule}
+              className="mt-1 inline-flex items-center gap-1 rounded-md bg-foreground/[0.05] px-2 py-1 text-[11px] text-foreground/70 transition-colors hover:bg-foreground/[0.08] hover:text-foreground"
+            >
+              <Plus className="size-3" strokeWidth={1.75} />
+              New schedule
+            </button>
           </div>
         </div>
       ) : (

@@ -34,6 +34,7 @@ import {
   CHAT_PANEL_DEFAULT_WIDTH,
   CHAT_PANEL_MAX_WIDTH,
   CHAT_PANEL_MIN_WIDTH,
+  chatComposerPrefillAtom,
   chatPanelViewAtom,
   chatPanelWidthAtom,
   focusModeAtom,
@@ -63,12 +64,32 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
   const [sessionOpenRequest, setSessionOpenRequest] =
     useState<ChatSessionOpenRequest | null>(null);
   const sessionRequestKeyRef = useRef(0);
+  const composerPrefill = useAtomValue(chatComposerPrefillAtom);
 
   // Reset to chat whenever the workspace changes — the sessions list is
   // workspace-scoped and would otherwise show stale items briefly.
   useEffect(() => {
     setView("chat");
   }, [selectedWorkspaceId, setView]);
+
+  // When a prefill request arrives from outside (e.g. Automations "New
+  // schedule"), open a fresh draft session so the prefill lands in a clean
+  // composer rather than appending to an in-flight conversation.
+  const lastPrefillRequestKeyRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!composerPrefill) return;
+    if (composerPrefill.requestKey === lastPrefillRequestKeyRef.current) {
+      return;
+    }
+    lastPrefillRequestKeyRef.current = composerPrefill.requestKey;
+    sessionRequestKeyRef.current += 1;
+    setSessionOpenRequest({
+      sessionId: "",
+      requestKey: sessionRequestKeyRef.current,
+      mode: "draft",
+    });
+    setView("chat");
+  }, [composerPrefill, setView]);
 
   const handleOpenSessionsView = useCallback(() => {
     setView("sessions");
@@ -163,6 +184,12 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
 
   const isCanvas = layout !== "split";
   const chatPanelWidth = useAtomValue(chatPanelWidthAtom);
+  const setFocusMode = useSetAtom(focusModeAtom);
+  // Only the split layout offers a focus toggle inside ChatHeader; in
+  // canvas modes the affordance is the dropdown / restore icon up top.
+  const handleEnterFocusMode = useCallback(() => {
+    setFocusMode(true);
+  }, [setFocusMode]);
 
   const body =
     view === "sessions" ? (
@@ -170,6 +197,7 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
         workspaceId={selectedWorkspaceId || null}
         onBack={handleReturnToChat}
         onOpenSession={handleOpenSession}
+        onEnterFocusMode={isCanvas ? undefined : handleEnterFocusMode}
       />
     ) : (
       <ChatPane
@@ -180,19 +208,21 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
         onOpenLocalLink={handleOpenLocalLink}
         onPreviewImageAttachment={handlePreviewImageAttachment}
         sessionOpenRequest={sessionOpenRequest}
+        composerPrefillRequest={composerPrefill}
+        onEnterFocusMode={isCanvas ? undefined : handleEnterFocusMode}
       />
     );
 
   return (
     <aside
       className={cn(
-        "group/chat-panel relative flex shrink-0 flex-col bg-background transition-[width] duration-stride ease-out-expo",
+        "relative flex shrink-0 flex-col bg-background transition-[width] duration-stride ease-out-expo",
         isCanvas ? "min-w-0 flex-1" : "border-l border-border",
       )}
       style={isCanvas ? undefined : { width: chatPanelWidth }}
     >
       {!isCanvas ? <ChatPanelResizeHandle /> : null}
-      {isCanvas ? <CanvasHeader /> : <SplitModeFocusButton />}
+      {isCanvas ? <CanvasHeader /> : null}
       <div
         className={cn(
           "flex min-h-0 flex-1 flex-col",
@@ -264,28 +294,6 @@ function ChatPanelResizeHandle() {
         )}
       />
     </div>
-  );
-}
-
-/**
- * Discreet focus-entry affordance for split mode — a small `PanelLeftClose`
- * icon button anchored to the chat panel's top-right. Reveals only on hover
- * over the panel so it doesn't compete with the composer for attention.
- * Icon metaphor matches the action: clicking collapses the panel(s) to the
- * left of chat (TopChrome + Center).
- */
-function SplitModeFocusButton() {
-  const setFocusMode = useSetAtom(focusModeAtom);
-  return (
-    <button
-      type="button"
-      onClick={() => setFocusMode(true)}
-      aria-label="Focus on chat"
-      title="Focus on chat"
-      className="window-no-drag absolute top-2 right-2 z-10 grid size-6 place-items-center rounded-md text-foreground/35 opacity-0 transition-[opacity,color,background-color] duration-snappy ease-emphasized hover:bg-foreground/[0.04] hover:text-foreground/85 focus-visible:opacity-100 group-hover/chat-panel:opacity-100"
-    >
-      <PanelLeftClose className="size-3.5" strokeWidth={1.5} />
-    </button>
   );
 }
 
@@ -508,15 +516,29 @@ function SessionsView({
   workspaceId,
   onBack,
   onOpenSession,
+  onEnterFocusMode,
 }: {
   workspaceId: string | null;
   onBack: () => void;
   onOpenSession: (sessionId: string) => void;
+  onEnterFocusMode?: () => void;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <div className="inline-flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
+      <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-2">
+        {onEnterFocusMode ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Focus on chat"
+            title="Focus on chat"
+            onClick={onEnterFocusMode}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <PanelLeftClose className="size-4" strokeWidth={1.5} />
+          </Button>
+        ) : null}
+        <div className="inline-flex min-w-0 flex-1 items-center gap-2 px-1 text-sm font-medium text-foreground">
           <MessageCircle
             className="size-3.5 shrink-0 text-foreground/55"
             strokeWidth={1.75}

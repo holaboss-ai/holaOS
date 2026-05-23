@@ -2,7 +2,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useAtom, useSetAtom, type PrimitiveAtom } from "jotai";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SettingsScreenRoot } from "@/components/layout/SettingsScreenRoot";
 import { AutomationsPane } from "@/components/panes/AutomationsPane";
 import { MarketplacePane } from "@/components/panes/MarketplacePane";
@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import {
   automationsOpenAtom,
+  chatComposerPrefillAtom,
+  focusModeAtom,
   marketplaceOpenAtom,
   settingsOpenAtom,
   settingsSectionAtom,
@@ -81,13 +83,51 @@ function PaneOverlay({
 
 function AutomationsOverlay() {
   const { selectedWorkspaceId } = useWorkspaceSelection();
+  const setAutomationsOpen = useSetAtom(automationsOpenAtom);
+  const setFocusMode = useSetAtom(focusModeAtom);
+  const setComposerPrefill = useSetAtom(chatComposerPrefillAtom);
+  const prefillKeyRef = useRef(0);
+
+  // Route schedule create/edit through the chat composer, matching the
+  // legacy AppShell behavior. We close the overlay + exit focus so the
+  // user lands in chat with the prefill text ready to edit.
+  const sendChatPrefill = useCallback(
+    (text: string) => {
+      prefillKeyRef.current += 1;
+      setComposerPrefill({
+        text,
+        requestKey: prefillKeyRef.current,
+        mode: "replace",
+      });
+      setFocusMode(false);
+      setAutomationsOpen(false);
+    },
+    [setAutomationsOpen, setComposerPrefill, setFocusMode],
+  );
+
+  const handleCreateSchedule = useCallback(() => {
+    sendChatPrefill("Create a schedule for ");
+  }, [sendChatPrefill]);
+
+  const handleEditSchedule = useCallback(
+    (job: CronjobRecordPayload) => {
+      const label = job.name?.trim() || job.cron;
+      sendChatPrefill(`Edit the "${label}" schedule: `);
+    },
+    [sendChatPrefill],
+  );
+
   return (
     <PaneOverlay
       openAtom={automationsOpenAtom}
       title="Automations"
       size="md"
     >
-      <AutomationsPane workspaceId={selectedWorkspaceId || null} />
+      <AutomationsPane
+        workspaceId={selectedWorkspaceId || null}
+        onCreateSchedule={handleCreateSchedule}
+        onEditSchedule={handleEditSchedule}
+      />
     </PaneOverlay>
   );
 }

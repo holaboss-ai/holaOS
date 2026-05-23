@@ -1,4 +1,4 @@
-import { Boxes, Clock3, History, Inbox } from "lucide-react";
+import { Boxes, Clock3, History, Inbox, PanelLeftClose } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -19,6 +19,13 @@ interface ChatHeaderProps {
   inboxUnreadCount: number;
   onOpenAutomations?: () => void;
   onOpenArtifacts?: () => void;
+  /**
+   * When provided, renders a leading PanelLeftClose icon button as the
+   * leftmost element of the header. Wired by the new shell to enter
+   * chat-focus layout (collapses the middle column). Optional so the
+   * legacy AppShell — which has no focus mode — stays unchanged.
+   */
+  onEnterFocusMode?: () => void;
 }
 
 export function ChatHeader({
@@ -31,12 +38,37 @@ export function ChatHeader({
   inboxUnreadCount,
   onOpenAutomations,
   onOpenArtifacts,
+  onEnterFocusMode,
 }: ChatHeaderProps) {
   const seed = workspace?.id ?? agentName ?? "default";
 
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex min-w-0 flex-1 items-center gap-2">
+        {onEnterFocusMode ? (
+          <TooltipProvider delay={250}>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => onEnterFocusMode()}
+                    aria-label="Focus on chat"
+                    className="shrink-0 text-muted-foreground hover:text-foreground"
+                  >
+                    <PanelLeftClose
+                      className="size-4"
+                      strokeWidth={1.5}
+                    />
+                  </Button>
+                }
+              />
+              <TooltipContent>Focus on chat</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : null}
         <AgentAvatar seed={seed} size="sm" />
         <div className="flex min-w-0 flex-col">
           <span className="truncate text-sm font-medium text-foreground">

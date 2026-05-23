@@ -77,6 +77,7 @@ import {
   RuntimeRecallEmbeddingBackfillWorker,
 } from "./recall-embedding-backfill-worker.js";
 import { captureRuntimeException } from "./runtime-sentry.js";
+import type { ComposioApiClientErrorInfo } from "./composio-api-client.js";
 import {
   AppLifecycleExecutorError,
   appBuildHasCompletedSetup,
@@ -3444,6 +3445,39 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   const runtimeAgentToolsHolder: {
     service: { queuePolishForCompletedBindings: (workspaceId: string) => unknown } | null;
   } = { service: null };
+
+  function tryQueuePolishForWorkspace(workspaceId: string): void {
+    const runtimeAgentTools = runtimeAgentToolsHolder.service;
+    if (!runtimeAgentTools) return;
+    try {
+      const queued = runtimeAgentTools.queuePolishForCompletedBindings(workspaceId);
+      if (Array.isArray(queued) && queued.length > 0) {
+        queueWorkerHolder.worker?.wake();
+      }
+    } catch (error) {
+      app.log.warn(
+        {
+          err: error instanceof Error ? error.message : String(error),
+          workspaceId,
+        },
+        "queuePolishForCompletedBindings failed",
+      );
+    }
+  }
+
+  function tryQueuePolishForAllWorkspaces(): void {
+    try {
+      for (const workspace of store.listWorkspaces({ includeDeleted: false })) {
+        tryQueuePolishForWorkspace(workspace.id);
+      }
+    } catch (error) {
+      app.log.warn(
+        { error: error instanceof Error ? error.message : String(error) },
+        "iterating workspaces for polish queue failed",
+      );
+    }
+  }
+
   const integrationService = new RuntimeIntegrationService(store, {
     onConnectionActive: ({ connectionId, providerId }) => {
       try {
@@ -3514,32 +3548,16 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       // is idle by then. Trigger the polish-queue logic directly for
       // every workspace; the method internally re-checks pending
       // integrations and dashboard shape per app.
-      const runtimeAgentTools = runtimeAgentToolsHolder.service;
-      if (runtimeAgentTools) {
-        try {
-          for (const workspace of store.listWorkspaces({ includeDeleted: false })) {
-            try {
-              const queued = runtimeAgentTools.queuePolishForCompletedBindings(workspace.id);
-              if (Array.isArray(queued) && queued.length > 0) {
-                queueWorkerHolder.worker?.wake();
-              }
-            } catch (error) {
-              app.log.warn(
-                {
-                  err: error instanceof Error ? error.message : String(error),
-                  workspaceId: workspace.id,
-                },
-                "queuePolishForCompletedBindings failed",
-              );
-            }
-          }
-        } catch (error) {
-          app.log.warn(
-            { error: error instanceof Error ? error.message : String(error) },
-            "iterating workspaces for polish queue failed",
-          );
-        }
-      }
+      tryQueuePolishForAllWorkspaces();
+    },
+    onBindingCreated: ({ workspaceId }) => {
+      // Binding an already-active connection to a new app does NOT
+      // re-fire `onConnectionActive` (the connection's status didn't
+      // change). For the common path — user previously authorized
+      // GitHub, agent now builds a GitHub-shaped dashboard app, user
+      // picks the existing connection in the binding picker — this is
+      // the only place that can re-evaluate the polish gate.
+      tryQueuePolishForWorkspace(workspaceId);
     },
   });
   // workspaceIntegrationsService initialized after composioService below.
@@ -11222,6 +11240,21 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       });
     }
 
+    // SDK's runtimeErrorFromBody only surfaces `message` when it's a string
+    // (sdk/runtime-client/src/request.ts:90). The structured `error` object
+    // is kept for programmatic callers; `message` is the human summary the
+    // desktop logs and Error.message lands on.
+    const summarize = (
+      stage: string,
+      info: ComposioApiClientErrorInfo | string,
+    ): string => {
+      if (typeof info === "string") return `${stage}: ${info}`;
+      const status = info.status ?? "?";
+      const slug = info.slug ? ` ${info.slug}` : "";
+      const detail = info.message ?? info.code;
+      return `${stage} [${status}${slug}]: ${detail}`;
+    };
+
     let connections: Array<Record<string, unknown>> = [];
     try {
       const result = await composio.listConnections({ providerId: providerSlug });
@@ -11231,20 +11264,25 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         return reply.code(error.httpStatus).send({
           ok: false,
           stage: "list_connections",
+          message: summarize("list_connections", error.info),
           error: error.info,
         });
       }
+      const raw = error instanceof Error ? error.message : String(error);
       return reply.code(502).send({
         ok: false,
         stage: "list_connections",
-        error: error instanceof Error ? error.message : String(error),
+        message: summarize("list_connections", raw),
+        error: raw,
       });
     }
     if (connections.length === 0) {
+      const msg = `No active ${providerSlug} connection for this user.`;
       return reply.code(404).send({
         ok: false,
         stage: "list_connections",
-        error: `No active ${providerSlug} connection for this user.`,
+        message: msg,
+        error: msg,
       });
     }
     const connectedAccountId = (() => {
@@ -11254,10 +11292,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return typeof id === "string" ? id : null;
     })();
     if (!connectedAccountId) {
+      const msg = "Connection row missing an id field.";
       return reply.code(502).send({
         ok: false,
         stage: "list_connections",
-        error: "Connection row missing an id field.",
+        message: msg,
+        error: msg,
       });
     }
 
@@ -11280,13 +11320,16 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         return reply.code(error.httpStatus).send({
           ok: false,
           stage: "execute_action",
+          message: summarize("execute_action", error.info),
           error: error.info,
         });
       }
+      const raw = error instanceof Error ? error.message : String(error);
       return reply.code(502).send({
         ok: false,
         stage: "execute_action",
-        error: error instanceof Error ? error.message : String(error),
+        message: summarize("execute_action", raw),
+        error: raw,
       });
     }
   });
