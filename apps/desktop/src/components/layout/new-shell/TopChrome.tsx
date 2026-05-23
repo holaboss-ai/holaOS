@@ -226,9 +226,9 @@ export function TopChrome() {
         size="icon-sm"
         aria-label="New tab"
         onClick={() => openNewTab(true)}
-        className="window-no-drag ml-1 text-foreground/60"
+        className="window-no-drag ml-1 text-foreground/55 hover:text-foreground"
       >
-        <Plus className="size-3.5" />
+        <Plus className="size-3.5" strokeWidth={1.75} />
       </Button>
       {menuTarget && ctxActions ? (
         <TabContextMenu

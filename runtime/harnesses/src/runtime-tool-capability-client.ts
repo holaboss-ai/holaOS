@@ -36,6 +36,8 @@ const RUNTIME_TOOLS_WORKSPACE_DATA_TABLES_PATH = "/api/v1/capabilities/runtime-t
 const RUNTIME_TOOLS_WORKSPACE_DATA_QUERY_PATH = "/api/v1/capabilities/runtime-tools/workspace-data/query";
 const RUNTIME_TOOLS_WORKSPACE_INTEGRATIONS_PROPOSE_CONNECT_PATH =
   "/api/v1/capabilities/runtime-tools/workspace-integrations/propose-connect";
+const RUNTIME_TOOLS_WORKSPACE_INTEGRATIONS_SET_DEFAULT_ACCOUNT_PATH =
+  "/api/v1/capabilities/runtime-tools/workspace-integrations/set-default-account";
 const DEFAULT_RUNTIME_TOOL_TIMEOUT_MS = 30000;
 const IMAGE_GENERATE_RUNTIME_TOOL_TIMEOUT_MS = 180000;
 const DOWNLOAD_URL_RUNTIME_TOOL_TIMEOUT_MS = 120000;
@@ -529,6 +531,16 @@ function createWorkspaceIntegrationsProposeConnectBody(
   };
 }
 
+function createWorkspaceIntegrationsSetDefaultAccountBody(
+  toolParams: unknown,
+): Record<string, unknown> {
+  const params = isRecord(toolParams) ? toolParams : {};
+  return {
+    provider_id: String(params.provider_id ?? ""),
+    connection_id: String(params.connection_id ?? ""),
+  };
+}
+
 export function runtimeToolHeaders(params: {
   workspaceId?: string | null;
   sessionId?: string | null;
@@ -863,6 +875,12 @@ function requestPlan(
         method: "POST",
         requestPath: RUNTIME_TOOLS_WORKSPACE_INTEGRATIONS_PROPOSE_CONNECT_PATH,
         body: createWorkspaceIntegrationsProposeConnectBody(toolParams),
+      };
+    case "holaboss_workspace_integrations_set_default_account":
+      return {
+        method: "POST",
+        requestPath: RUNTIME_TOOLS_WORKSPACE_INTEGRATIONS_SET_DEFAULT_ACCOUNT_PATH,
+        body: createWorkspaceIntegrationsSetDefaultAccountBody(toolParams),
       };
   }
   throw new Error(`Unsupported runtime tool: ${toolId}`);

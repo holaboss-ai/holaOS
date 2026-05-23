@@ -26,8 +26,22 @@
    ends up with a border the color of its text — usually near-black.
    Agents trained on v3 conventions write bare `border` expecting gray,
    and the result is pure-black hairlines everywhere. Reset the default
-   to the holaOS `--border` token so v3-style class usage stays valid. */
-@layer base {
+   to the holaOS `--border` token so v3-style class usage stays valid.
+
+   We deliberately sit this in `@layer utilities` rather than
+   `@layer base` because Tailwind v4's preflight emits its own
+   `*, ::after, ::before, ::backdrop, ::file-selector-button {
+       border: 0 solid }` rule INSIDE `@layer base`, and any app that
+   does its own `@import "tailwindcss"` (every app does) duplicates
+   that preflight. The duplicate preflight lands AFTER our base-layer
+   override in the bundle and resets border-color back to currentColor.
+   `@layer utilities` is the latest layer in Tailwind's cascade
+   (`theme, base, components, utilities`), so this rule beats any
+   preflight no matter how many times tailwindcss is imported. The
+   `*` selector at (0,0,0) specificity still loses to utility classes
+   like `.border-transparent` / `.border-input` (each (0,1,0)), so
+   explicit color utilities continue to work. */
+@layer utilities {
   *,
   ::after,
   ::before,

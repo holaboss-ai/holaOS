@@ -47,17 +47,8 @@ export const publishOpenAtom = atom(false);
 /** Is the create-new-workspace panel open? */
 export const createWorkspaceOpenAtom = atom(false);
 
-/** Is the Inbox overlay open? */
-export const inboxOpenAtom = atom(false);
-
-/** Is the Artifacts overlay open? */
-export const artifactsOpenAtom = atom(false);
-
 /** Is the Automations overlay open? */
 export const automationsOpenAtom = atom(false);
-
-/** Is the Sessions overlay open? */
-export const sessionsOpenAtom = atom(false);
 
 /** Is the Settings full-screen overlay open? */
 export const settingsOpenAtom = atom(false);
@@ -71,8 +62,41 @@ export const appsExpandedAtom = atomWithStorage(
   true,
 );
 
+/**
+ * Manual "focus on chat" override. When true AND at least one tab exists,
+ * the shell collapses to a chat-only canvas with a tabs-hidden pill on
+ * the chat. When no tabs exist the shell goes chat-only automatically,
+ * regardless of this flag. Persists so users who prefer focus keep it.
+ */
+export const focusModeAtom = atomWithStorage(
+  "holaboss-new-shell-focus-mode-v1",
+  false,
+);
+
+/**
+ * Chat panel width in split mode (canvas modes ignore this and flex-1
+ * across the middle). Resizable via the left-edge drag handle on the
+ * chat panel. Clamped to [CHAT_PANEL_MIN_WIDTH, CHAT_PANEL_MAX_WIDTH] at
+ * the consumer. Persists.
+ */
+export const CHAT_PANEL_MIN_WIDTH = 360;
+export const CHAT_PANEL_MAX_WIDTH = 720;
+export const CHAT_PANEL_DEFAULT_WIDTH = 480;
+export const chatPanelWidthAtom = atomWithStorage<number>(
+  "holaboss-new-shell-chat-panel-width-v1",
+  CHAT_PANEL_DEFAULT_WIDTH,
+);
+
 /** Active section inside the Settings overlay. */
 export const settingsSectionAtom = atom<UiSettingsPaneSection>("settings");
+
+/**
+ * Which view the right-hand chat panel is showing. "chat" is the normal
+ * ChatPane; "sessions" swaps in the workspace's session list (legacy
+ * AppShell's agentView pattern). Lifted to jotai so cmd+K can flip it.
+ */
+export type ChatPanelView = "chat" | "sessions";
+export const chatPanelViewAtom = atom<ChatPanelView>("chat");
 
 /**
  * True when any overlay is open. BrowserPane reads this to detach the
@@ -85,10 +109,7 @@ export const browserViewSuspendedAtom = atom(
     get(searchOpenAtom) ||
     get(publishOpenAtom) ||
     get(createWorkspaceOpenAtom) ||
-    get(inboxOpenAtom) ||
-    get(artifactsOpenAtom) ||
     get(automationsOpenAtom) ||
-    get(sessionsOpenAtom) ||
     get(settingsOpenAtom) ||
     get(marketplaceOpenAtom) ||
     get(activeInternalTabIdAtom) !== null ||

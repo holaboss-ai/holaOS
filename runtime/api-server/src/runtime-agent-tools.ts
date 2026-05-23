@@ -3161,21 +3161,66 @@ export class RuntimeAgentToolsService {
 
   listIntegrationCatalog(params: { workspaceId: string }): JsonObject {
     this.requireWorkspace(params.workspaceId);
+    // Index user's active connections + the workspace default per
+    // provider so the agent can disambiguate when the user has
+    // multiple accounts for the same toolkit. Both fields appear on
+    // every provider row; when `connected_accounts.length > 1` and no
+    // `workspace_default_connection_id` is set, ask the user which one
+    // to use (or call `holaboss_workspace_integrations_set_default_account`).
+    const connectionsByProvider = new Map<
+      string,
+      Array<{ connection_id: string; account_label: string; account_handle: string | null; account_email: string | null }>
+    >();
+    try {
+      for (const conn of this.store.listIntegrationConnections()) {
+        if (conn.status.trim().toLowerCase() !== "active") continue;
+        const key = conn.providerId.trim().toLowerCase();
+        if (!key) continue;
+        const list = connectionsByProvider.get(key) ?? [];
+        list.push({
+          connection_id: conn.connectionId,
+          account_label: conn.accountLabel,
+          account_handle: conn.accountHandle ?? null,
+          account_email: conn.accountEmail ?? null,
+        });
+        connectionsByProvider.set(key, list);
+      }
+    } catch {
+      // best-effort enrichment; the static catalog still ships
+    }
     return {
       workspace_id: params.workspaceId,
       provider_ids: integrationCatalogProviderIds(),
-      providers: INTEGRATION_CATALOG_PROVIDERS.map((provider) => ({
-        provider_id: provider.provider_id,
-        display_name: provider.display_name,
-        description: provider.description,
-        auth_modes: [...provider.auth_modes],
-        supports_oss: provider.supports_oss,
-        supports_managed: provider.supports_managed,
-        default_scopes: [...provider.default_scopes],
-        docs_url: provider.docs_url,
-      })),
+      providers: INTEGRATION_CATALOG_PROVIDERS.map((provider) => {
+        const key = provider.provider_id.toLowerCase();
+        const accounts = connectionsByProvider.get(key) ?? [];
+        let defaultConnectionId: string | null = null;
+        try {
+          const binding = this.store.getIntegrationBindingByTarget({
+            workspaceId: params.workspaceId,
+            targetType: "workspace_default",
+            targetId: params.workspaceId,
+            integrationKey: key,
+          });
+          if (binding) defaultConnectionId = binding.connectionId;
+        } catch {
+          // best-effort
+        }
+        return {
+          provider_id: provider.provider_id,
+          display_name: provider.display_name,
+          description: provider.description,
+          auth_modes: [...provider.auth_modes],
+          supports_oss: provider.supports_oss,
+          supports_managed: provider.supports_managed,
+          default_scopes: [...provider.default_scopes],
+          docs_url: provider.docs_url,
+          connected_accounts: accounts as unknown as JsonValue,
+          workspace_default_connection_id: defaultConnectionId,
+        };
+      }),
       requirement:
-        "Use the exact canonical provider_id from this catalog in app.runtime.yaml integrations and createIntegrationClient(...). E.g. use 'twitter' for X.",
+        "Use the exact canonical provider_id from this catalog in app.runtime.yaml integrations and createIntegrationClient(...). E.g. use 'twitter' for X. When a provider has multiple `connected_accounts` and no `workspace_default_connection_id`, ask the user which account this workspace should default to, then call `holaboss_workspace_integrations_set_default_account` to persist the choice.",
     };
   }
 
@@ -5926,6 +5971,88 @@ export class RuntimeAgentToolsService {
         ? { polish_pass_queued: polishPassQueued }
         : {}),
     };
+  }
+
+  /**
+   * Polish-pass queueing for dashboard apps whose required integrations
+   * have just become bound (typically called from integrations.ts's
+   * onConnectionActive hook after a connection becomes active).
+   *
+   * Forensic context: ensureWorkspaceAppsRunning defers polish when
+   * pending_integrations is non-empty (polish needs a real UI to
+   * screenshot, not the integration_not_bound empty state). After the
+   * user binds, nothing else explicitly re-evaluates polish — the
+   * agent's session is idle by then and won't call ensure-running
+   * again on its own. This method bridges the gap: iterate registered
+   * dashboard apps in the workspace, and for each one whose pending
+   * integrations are now empty, queue the polish input to the most
+   * recently active main session.
+   */
+  queuePolishForCompletedBindings(workspaceId: string): JsonObject[] {
+    let workspaceDir: string;
+    try {
+      this.requireWorkspace(workspaceId);
+      workspaceDir = path.join(this.options.workspaceRoot, workspaceId);
+    } catch {
+      return [];
+    }
+
+    const sessionId = this.latestMainSessionId(workspaceId);
+    if (!sessionId) return [];
+
+    const apps = this.listRegisteredWorkspaceAppEntries(workspaceId)
+      .map((entry) => (typeof entry.app_id === "string" ? entry.app_id : ""))
+      .filter((appId) => appId.length > 0 && appIsDashboardShape(workspaceDir, appId));
+    if (apps.length === 0) return [];
+
+    const queued: JsonObject[] = [];
+    for (const appId of apps) {
+      const pending = pendingIntegrationsFromAppManifests({
+        workspaceDir,
+        appIds: [appId],
+        store: this.store,
+        workspaceId,
+      });
+      if (pending.length > 0) continue;
+
+      const idempotencyKey = `polish-pass:${sessionId}:${appId}`;
+      try {
+        const input = this.store.enqueueInput({
+          workspaceId,
+          sessionId,
+          idempotencyKey,
+          payload: {
+            text: buildPolishPassPrompt(appId),
+            image_urls: [],
+            context: {
+              source: "runtime_auto_queue",
+              source_type: "post_binding_polish_pass",
+              app_id: appId,
+            },
+          },
+        });
+        queued.push({ app_id: appId, input_id: input.inputId, session_id: sessionId });
+      } catch {
+        // best-effort
+      }
+    }
+    return queued;
+  }
+
+  /** Return the most recently updated non-archived main session in the
+   *  workspace, or null when no main session exists yet. */
+  private latestMainSessionId(workspaceId: string): string | null {
+    try {
+      const sessions = this.store.listSessions({
+        workspaceId,
+        includeArchived: false,
+        limit: 50,
+      });
+      const main = sessions.find((s) => s.kind === "main_session");
+      return main?.sessionId ?? null;
+    } catch {
+      return null;
+    }
   }
 
   async restartWorkspaceApp(

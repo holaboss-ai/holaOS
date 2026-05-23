@@ -16,11 +16,20 @@ import {
   ComposioService,
   type ComposioConnectionSummary,
 } from "./composio-service.js";
+import {
+  WORKSPACE_DEFAULT_TARGET_TYPE,
+} from "./active-account-resolver.js";
+
+type ComposioMcpManagerStore = Pick<
+  RuntimeStateStore,
+  | "listWorkspaceIntegrationOverrides"
+  | "getIntegrationBindingByTarget"
+>;
 
 export interface ComposioMcpManagerDeps {
   composio: ComposioService;
   workspaceRoot: string;
-  store?: Pick<RuntimeStateStore, "listWorkspaceIntegrationOverrides"> | null;
+  store?: ComposioMcpManagerStore | null;
   logger?: Pick<typeof console, "info" | "warn" | "error">;
 }
 
@@ -105,10 +114,20 @@ export class ComposioMcpManager {
     }
 
     const overrides = this.readOverrides(workspaceId);
-    const selected = applyOverrides(active, overrides);
-    if (selected.length === 0) {
+    const overrideFiltered = applyOverrides(active, overrides);
+    if (overrideFiltered.length === 0) {
       return { status: "skipped", reason: "all_toolkits_disabled_in_workspace" };
     }
+    // When a workspace has multiple active accounts for the same toolkit
+    // (e.g. two gmail accounts), the host can only register one set of
+    // tools per toolkit — registering both produces duplicate tool names
+    // and the second silently overwrites the first. Pick one connection
+    // per toolkit using the active-account resolver (which honors the
+    // workspace_default binding when set, else falls back to first
+    // active). Resolver is the same one composio.execute / the runtime
+    // tool layer uses, so direct-call and MCP-routed paths land on the
+    // same default.
+    const selected = this.pickOnePerToolkit(workspaceId, overrideFiltered);
     const fetchTools = (slug: string) => this.composio.listToolkitTools(slug);
     const catalogPerConn = await Promise.all(
       selected.map((conn) => buildToolkitCatalogAsync(conn.toolkitSlug, conn.id, fetchTools)),
@@ -214,6 +233,64 @@ export class ComposioMcpManager {
         { workspaceId, err: error },
       );
       return [];
+    }
+  }
+
+  /** Group connections by toolkit slug and pick a single representative
+   *  per toolkit. When the workspace has set a `workspace_default`
+   *  binding for the toolkit, use that connection; otherwise use the
+   *  first active connection (lexicographic on connection_id for
+   *  deterministic ordering). The picked connection is what the
+   *  composio-mcp host registers tools against. */
+  private pickOnePerToolkit(
+    workspaceId: string,
+    connections: ComposioConnectionSummary[],
+  ): ComposioConnectionSummary[] {
+    const byToolkit = new Map<string, ComposioConnectionSummary[]>();
+    for (const conn of connections) {
+      const slug = conn.toolkitSlug.trim().toLowerCase();
+      if (!slug) continue;
+      const list = byToolkit.get(slug) ?? [];
+      list.push(conn);
+      byToolkit.set(slug, list);
+    }
+    const picked: ComposioConnectionSummary[] = [];
+    for (const [slug, candidates] of byToolkit) {
+      if (candidates.length === 0) continue;
+      if (candidates.length === 1) {
+        picked.push(candidates[0]!);
+        continue;
+      }
+      const defaultConnectionId = this.store
+        ? this.workspaceDefaultConnectionId(workspaceId, slug)
+        : null;
+      const match = defaultConnectionId
+        ? candidates.find((conn) => conn.id === defaultConnectionId)
+        : null;
+      picked.push(match ?? candidates[0]!);
+    }
+    return picked;
+  }
+
+  private workspaceDefaultConnectionId(
+    workspaceId: string,
+    providerId: string,
+  ): string | null {
+    if (!this.store) return null;
+    try {
+      const binding = this.store.getIntegrationBindingByTarget({
+        workspaceId,
+        targetType: WORKSPACE_DEFAULT_TARGET_TYPE,
+        targetId: workspaceId,
+        integrationKey: providerId,
+      });
+      return binding?.connectionId ?? null;
+    } catch (error) {
+      this.logger.warn(
+        "composio-mcp manager: workspace_default lookup failed",
+        { workspaceId, providerId, err: error },
+      );
+      return null;
     }
   }
 }

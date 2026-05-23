@@ -252,7 +252,8 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
   >(new Map());
   const [expandedProviderId, setExpandedProviderId] = useState<string | null>(null);
   const [mutatingOverrideKey, setMutatingOverrideKey] = useState<string | null>(null);
-  const { workspaces } = useWorkspaceDesktop();
+  const { workspaces, selectedWorkspace } = useWorkspaceDesktop();
+  const selectedWorkspaceId = selectedWorkspace?.id ?? null;
   const accountMetadata = useIntegrationAccountMetadata(connections);
 
   const loadData = useCallback(async () => {
@@ -705,6 +706,35 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
           owner_user_id: userId,
           account_label: `${integration.name} (Managed)`,
         });
+        // Layer-2 auto-default: when the user explicitly connects an
+        // account from Settings AND the selected workspace has no
+        // workspace_default set for this provider yet, the just-
+        // connected account becomes the workspace's default. This
+        // satisfies the common single-account case (one Gmail, one
+        // GitHub) without an extra step, AND seeds first-connect for
+        // multi-account users. Never overrides an existing default —
+        // a workspace that already chose work-gmail keeps it even if
+        // the user adds a second personal-gmail from Settings.
+        if (selectedWorkspaceId) {
+          try {
+            const existing = await window.electronAPI.workspace.getWorkspaceDefaultAccount(
+              selectedWorkspaceId,
+              integration.providerId,
+            );
+            if (!existing.connection_id) {
+              await window.electronAPI.workspace.setWorkspaceDefaultAccount(
+                selectedWorkspaceId,
+                integration.providerId,
+                connectedAccountId,
+              );
+            }
+          } catch {
+            // Auto-default is a convenience; failure does not block
+            // the connect flow. The user can still call
+            // `set_default_account` via chat or wait for the runtime
+            // resolver to fall back to first-active.
+          }
+        }
         setStatusMessage("");
         void loadData();
         return;

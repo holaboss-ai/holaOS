@@ -28,15 +28,14 @@ import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import {
-  artifactsOpenAtom,
   automationsOpenAtom,
+  chatPanelViewAtom,
   createWorkspaceOpenAtom,
-  inboxOpenAtom,
   marketplaceOpenAtom,
   newTabOpenAtom,
   searchOpenAtom,
-  sessionsOpenAtom,
   settingsOpenAtom,
+  sidebarSectionAtom,
 } from "./state/ui";
 
 function hostFromUrl(url: string): string {
@@ -79,10 +78,9 @@ function SearchContent({ onSelect }: { onSelect: () => void }) {
     useWorkspaceSelection();
   const { browserState: userBrowser } = useWorkspaceBrowser("user");
   const setNewTabOpen = useSetAtom(newTabOpenAtom);
-  const setInboxOpen = useSetAtom(inboxOpenAtom);
-  const setArtifactsOpen = useSetAtom(artifactsOpenAtom);
+  const setSidebarSection = useSetAtom(sidebarSectionAtom);
   const setAutomationsOpen = useSetAtom(automationsOpenAtom);
-  const setSessionsOpen = useSetAtom(sessionsOpenAtom);
+  const setChatPanelView = useSetAtom(chatPanelViewAtom);
   const setMarketplaceOpen = useSetAtom(marketplaceOpenAtom);
   const setSettingsOpen = useSetAtom(settingsOpenAtom);
   const setCreateWorkspaceOpen = useSetAtom(createWorkspaceOpenAtom);
@@ -163,12 +161,12 @@ function SearchContent({ onSelect }: { onSelect: () => void }) {
           <ActionItem
             label="Open Inbox"
             icon={<Inbox />}
-            onSelect={wrap(() => setInboxOpen(true))}
+            onSelect={wrap(() => setSidebarSection("inbox"))}
           />
           <ActionItem
             label="Open Artifacts"
             icon={<Package />}
-            onSelect={wrap(() => setArtifactsOpen(true))}
+            onSelect={wrap(() => setSidebarSection("artifacts"))}
           />
           <ActionItem
             label="Open Automations"
@@ -178,7 +176,7 @@ function SearchContent({ onSelect }: { onSelect: () => void }) {
           <ActionItem
             label="Open Sessions"
             icon={<FileText />}
-            onSelect={wrap(() => setSessionsOpen(true))}
+            onSelect={wrap(() => setChatPanelView("sessions"))}
           />
           <ActionItem
             label="Open Marketplace"

@@ -1278,6 +1278,19 @@ interface RuntimeNotificationListOptionsPayload {
     items: WorkspaceOutputRecordPayload[];
   }
 
+  interface WorkspaceOutputFolderRecordPayload {
+    id: string;
+    workspace_id: string;
+    name: string;
+    position: number;
+    created_at: string;
+    updated_at: string;
+  }
+
+  interface WorkspaceOutputFolderListResponsePayload {
+    items: WorkspaceOutputFolderRecordPayload[];
+  }
+
   interface WorkspaceSkillRecordPayload {
     skill_id: string;
     source_dir: string;
@@ -1939,6 +1952,7 @@ interface RuntimeNotificationListOptionsPayload {
       installAppFromCatalog: (params: InstallAppFromCatalogRequest) => Promise<InstallAppFromCatalogResponse>;
       installAppFromArchiveFile: (params: { workspaceId: string }) => Promise<InstallAppFromCatalogResponse | null>;
       listOutputs: (payload: string | WorkspaceOutputListRequestPayload) => Promise<WorkspaceOutputListResponsePayload>;
+      listOutputFolders: (workspaceId: string) => Promise<WorkspaceOutputFolderListResponsePayload>;
       listSkills: (workspaceId: string) => Promise<WorkspaceSkillListResponsePayload>;
       getWorkspaceRoot: (workspaceId: string) => Promise<string>;
       createWorkspace: (payload: HolabossCreateWorkspacePayload) => Promise<WorkspaceResponsePayload>;
@@ -2036,6 +2050,8 @@ interface RuntimeNotificationListOptionsPayload {
       listIntegrationCatalog: () => Promise<IntegrationCatalogResponsePayload>;
       listIntegrationConnections: (params?: { providerId?: string; ownerUserId?: string }) => Promise<IntegrationConnectionListResponsePayload>;
       listIntegrationBindings: (workspaceId: string) => Promise<IntegrationBindingListResponsePayload>;
+      getWorkspaceDefaultAccount: (workspaceId: string, providerId: string) => Promise<{ connection_id: string | null }>;
+      setWorkspaceDefaultAccount: (workspaceId: string, providerId: string, connectionId: string) => Promise<{ connection_id: string }>;
       upsertIntegrationBinding: (workspaceId: string, targetType: string, targetId: string, integrationKey: string, payload: IntegrationUpsertBindingPayload) => Promise<IntegrationBindingPayload>;
       createIntegrationConnection: (payload: IntegrationCreateConnectionPayload) => Promise<IntegrationConnectionPayload>;
       updateIntegrationConnection: (connectionId: string, payload: IntegrationUpdateConnectionPayload) => Promise<IntegrationConnectionPayload>;

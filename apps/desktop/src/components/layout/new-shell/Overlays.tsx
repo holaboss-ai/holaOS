@@ -3,57 +3,26 @@ import { useAtom, useSetAtom, type PrimitiveAtom } from "jotai";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { OperationsInboxPane } from "@/components/layout/OperationsDrawer";
 import { SettingsScreenRoot } from "@/components/layout/SettingsScreenRoot";
-import { ArtifactsPane } from "@/components/panes/ArtifactsPane";
 import { AutomationsPane } from "@/components/panes/AutomationsPane";
 import { MarketplacePane } from "@/components/panes/MarketplacePane";
-import { SubagentSessionsPane } from "@/components/panes/SubagentSessionsPane";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import {
-  artifactsOpenAtom,
   automationsOpenAtom,
-  inboxOpenAtom,
   marketplaceOpenAtom,
-  sessionsOpenAtom,
   settingsOpenAtom,
   settingsSectionAtom,
 } from "./state/ui";
 import { useSettingsState } from "./useSettingsState";
-import { useTaskProposals } from "./useTaskProposals";
 
 export function Overlays() {
   return (
     <>
-      <InboxOverlay />
-      <ArtifactsOverlay />
       <AutomationsOverlay />
-      <SessionsOverlay />
       <MarketplaceOverlay />
       <SettingsOverlay />
     </>
-  );
-}
-
-function InboxOverlay() {
-  const { selectedWorkspaceId } = useWorkspaceSelection();
-  const { proposals, isLoading, statusMessage, action, accept, dismiss } =
-    useTaskProposals(selectedWorkspaceId || null);
-  return (
-    <PaneOverlay openAtom={inboxOpenAtom} title="Inbox" size="md">
-      <div className="h-full overflow-y-auto">
-        <OperationsInboxPane
-          proposals={proposals}
-          isLoadingProposals={isLoading}
-          proposalStatusMessage={statusMessage}
-          proposalAction={action}
-          onAcceptProposal={accept}
-          onDismissProposal={dismiss}
-          hasWorkspace={Boolean(selectedWorkspaceId)}
-        />
-      </div>
-    </PaneOverlay>
   );
 }
 
@@ -110,15 +79,6 @@ function PaneOverlay({
   );
 }
 
-function ArtifactsOverlay() {
-  const { selectedWorkspaceId } = useWorkspaceSelection();
-  return (
-    <PaneOverlay openAtom={artifactsOpenAtom} title="Artifacts">
-      <ArtifactsPane workspaceId={selectedWorkspaceId || null} />
-    </PaneOverlay>
-  );
-}
-
 function AutomationsOverlay() {
   const { selectedWorkspaceId } = useWorkspaceSelection();
   return (
@@ -131,19 +91,6 @@ function AutomationsOverlay() {
     </PaneOverlay>
   );
 }
-
-function SessionsOverlay() {
-  const { selectedWorkspaceId } = useWorkspaceSelection();
-  return (
-    <PaneOverlay openAtom={sessionsOpenAtom} title="Sessions">
-      <SubagentSessionsPane
-        workspaceId={selectedWorkspaceId || null}
-        variant="full"
-      />
-    </PaneOverlay>
-  );
-}
-
 
 function MarketplaceOverlay() {
   return (

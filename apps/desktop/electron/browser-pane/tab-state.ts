@@ -1780,16 +1780,27 @@ export function createBrowserPaneTabState(
           return { action: "deny" };
         }
         if (deps.shouldAllowBrowserPopupWindow(normalizedUrl, frameName, features)) {
+          // OAuth popups (Google sign-in, etc.) must NOT be fullscreenable.
+          // On macOS, a fullscreen-capable child of a fullscreen parent will
+          // open into the parent's fullscreen space with its chrome hidden,
+          // leaving the user no way to close the popup without exiting the
+          // parent's fullscreen entirely. Once that happens, the parent often
+          // can't re-enter fullscreen until the popup is fully torn down.
+          const mainWindow = deps.getMainWindow();
+          const parentIsFullscreen =
+            process.platform === "darwin" &&
+            Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isFullScreen());
           return {
             action: "allow",
             overrideBrowserWindowOptions: {
-              parent: deps.getMainWindow() ?? undefined,
+              parent: parentIsFullscreen ? undefined : (mainWindow ?? undefined),
               autoHideMenuBar: true,
               backgroundColor: "#050907",
               width: 520,
               height: 760,
               minWidth: 420,
               minHeight: 620,
+              fullscreenable: false,
               webPreferences: {
                 session: workspace.session,
                 preload: path.join(deps.preloadDir, "browserPopupPreload.cjs"),

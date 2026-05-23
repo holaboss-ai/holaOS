@@ -48,7 +48,7 @@ function toastGradientStyle(level: RuntimeNotificationLevel): CSSProperties {
   const tone = toneTokenName(level);
   return {
     backgroundColor: "var(--card)",
-    backgroundImage: `linear-gradient(to right, color-mix(in srgb, var(--${tone}) 14%, transparent) 0%, transparent 60%)`,
+    backgroundImage: `linear-gradient(to right, color-mix(in srgb, var(--${tone}) 8%, transparent) 0%, transparent 55%)`,
   };
 }
 

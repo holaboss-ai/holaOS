@@ -9985,6 +9985,48 @@ async function listIntegrationBindings(
   );
 }
 
+interface WorkspaceDefaultAccountResponsePayload {
+  connection_id: string | null;
+}
+
+interface SetWorkspaceDefaultAccountResponsePayload {
+  connection_id: string;
+}
+
+// Layer 2 of the four-layer account-resolution model — "when this
+// workspace makes a direct (non-app) Composio call for provider X,
+// use this connection by default". REST routes are on the runtime
+// API server; these IPC wrappers exist so the Settings UI + the
+// IntegrationsPane connect flow can read / write them. See
+// active-account-resolver.ts for the full resolution stack.
+async function getWorkspaceDefaultAccount(
+  workspaceId: string,
+  providerId: string,
+): Promise<WorkspaceDefaultAccountResponsePayload> {
+  return requestWorkspaceRuntimeJson<WorkspaceDefaultAccountResponsePayload>(
+    workspaceId,
+    {
+      method: "GET",
+      path: `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/integrations/${encodeURIComponent(providerId)}/default-account`,
+    },
+  );
+}
+
+async function setWorkspaceDefaultAccount(
+  workspaceId: string,
+  providerId: string,
+  connectionId: string,
+): Promise<SetWorkspaceDefaultAccountResponsePayload> {
+  return requestWorkspaceRuntimeJson<SetWorkspaceDefaultAccountResponsePayload>(
+    workspaceId,
+    {
+      method: "PUT",
+      path: `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/integrations/${encodeURIComponent(providerId)}/default-account`,
+      payload: { connection_id: connectionId },
+    },
+  );
+}
+
 async function upsertIntegrationBinding(
   workspaceId: string,
   targetType: string,
@@ -14525,6 +14567,19 @@ async function listOutputs(
       (item) => !shouldHideWorkspaceManagedArtifactOutput(item),
     ),
   };
+}
+
+async function listOutputFolders(
+  workspaceId: string,
+): Promise<WorkspaceOutputFolderListResponsePayload> {
+  return requestWorkspaceRuntimeJson<WorkspaceOutputFolderListResponsePayload>(
+    workspaceId,
+    {
+      method: "GET",
+      path: "/api/v1/output-folders",
+      params: { workspace_id: workspaceId },
+    },
+  );
 }
 
 function normalizeWorkspaceSkillId(value: unknown): string | null {
@@ -23418,6 +23473,11 @@ app.whenReady().then(async () => {
       listOutputs(payload),
   );
   handleTrustedIpc(
+    "workspace:listOutputFolders",
+    ["main"],
+    async (_event, workspaceId: string) => listOutputFolders(workspaceId),
+  );
+  handleTrustedIpc(
     "workspace:listSkills",
     ["main"],
     async (_event, workspaceId: string) => listWorkspaceSkills(workspaceId),
@@ -23733,6 +23793,22 @@ app.whenReady().then(async () => {
     "workspace:listIntegrationBindings",
     ["main"],
     async (_event, workspaceId: string) => listIntegrationBindings(workspaceId),
+  );
+  handleTrustedIpc(
+    "workspace:getWorkspaceDefaultAccount",
+    ["main"],
+    async (_event, workspaceId: string, providerId: string) =>
+      getWorkspaceDefaultAccount(workspaceId, providerId),
+  );
+  handleTrustedIpc(
+    "workspace:setWorkspaceDefaultAccount",
+    ["main"],
+    async (
+      _event,
+      workspaceId: string,
+      providerId: string,
+      connectionId: string,
+    ) => setWorkspaceDefaultAccount(workspaceId, providerId, connectionId),
   );
   handleTrustedIpc(
     "workspace:upsertIntegrationBinding",

@@ -3430,14 +3430,20 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       warn: (meta, message) => app.log.warn(meta, message),
     },
   });
-  // Deferred holder: the queue worker isn't constructed until after
-  // composio + workspace integration setup, but RuntimeIntegrationService
-  // needs to call into it from onConnectionActive. We pass a closure
-  // that reads the holder at call time — by then the worker is set.
+  // Deferred holders: some dependents aren't constructed until after the
+  // integration service, but onConnectionActive needs to call into them.
+  // We pass closures that read the holders at call time — by then the
+  // dependents are set.
   const queueWorkerHolder: { worker: { wake: () => void } | null } = { worker: null };
   const integrationContextAutofetchWorkerHolder: {
     worker: IntegrationContextAutofetchWorkerLike | null;
   } = { worker: null };
+  const composioMcpManagerHolder: {
+    manager: { restart: (workspaceId: string) => Promise<unknown> } | null;
+  } = { manager: null };
+  const runtimeAgentToolsHolder: {
+    service: { queuePolishForCompletedBindings: (workspaceId: string) => unknown } | null;
+  } = { service: null };
   const integrationService = new RuntimeIntegrationService(store, {
     onConnectionActive: ({ connectionId, providerId }) => {
       try {
@@ -3451,25 +3457,89 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           "resumePendingIntegrationInputs failed",
         );
       }
-      if (!supportsIntegrationContextFetchProvider(providerId)) {
-        return;
+      if (supportsIntegrationContextFetchProvider(providerId)) {
+        void integrationContextFetchManager.start({
+          connectionId,
+        }).catch((error) => {
+          const detail = error instanceof Error ? error.message : String(error);
+          const normalized = normalizeComposioError(error);
+          app.log.warn(
+            {
+              connectionId,
+              providerId,
+              statusCode: normalized.statusCode,
+              error: detail,
+            },
+            "integration context fetch start failed",
+          );
+        });
+        integrationContextAutofetchWorkerHolder.worker?.wake();
       }
-      void integrationContextFetchManager.start({
-        connectionId,
-      }).catch((error) => {
-        const detail = error instanceof Error ? error.message : String(error);
-        const normalized = normalizeComposioError(error);
-        app.log.warn(
-          {
-            connectionId,
-            providerId,
-            statusCode: normalized.statusCode,
-            error: detail,
-          },
-          "integration context fetch start failed",
-        );
-      });
-      integrationContextAutofetchWorkerHolder.worker?.wake();
+
+      // When a new connection becomes active, the composio-mcp host for
+      // every workspace has the OLD connection set cached and won't pick
+      // up the new toolkit's tools on its own — ensureRunning is
+      // memoized per-workspace. Restart each known workspace's host so
+      // the next agent turn sees the new tools surfaced. Failures are
+      // best-effort; the agent can still invoke direct app tools.
+      const manager = composioMcpManagerHolder.manager;
+      if (manager) {
+        try {
+          for (const workspace of store.listWorkspaces({ includeDeleted: false })) {
+            manager
+              .restart(workspace.id)
+              .catch((error) => {
+                app.log.warn(
+                  {
+                    err: error instanceof Error ? error.message : String(error),
+                    workspaceId: workspace.id,
+                  },
+                  "composio-mcp manager restart on new connection failed",
+                );
+              });
+          }
+        } catch (error) {
+          app.log.warn(
+            { error: error instanceof Error ? error.message : String(error) },
+            "iterating workspaces for composio-mcp restart failed",
+          );
+        }
+      }
+
+      // When a connection becomes active for a dashboard app's required
+      // provider, the pending_integrations gate that was deferring the
+      // polish pass may have just unblocked. ensureWorkspaceAppsRunning
+      // is the natural place to queue polish, but nothing calls it
+      // automatically after a binding completes — the agent's session
+      // is idle by then. Trigger the polish-queue logic directly for
+      // every workspace; the method internally re-checks pending
+      // integrations and dashboard shape per app.
+      const runtimeAgentTools = runtimeAgentToolsHolder.service;
+      if (runtimeAgentTools) {
+        try {
+          for (const workspace of store.listWorkspaces({ includeDeleted: false })) {
+            try {
+              const queued = runtimeAgentTools.queuePolishForCompletedBindings(workspace.id);
+              if (Array.isArray(queued) && queued.length > 0) {
+                queueWorkerHolder.worker?.wake();
+              }
+            } catch (error) {
+              app.log.warn(
+                {
+                  err: error instanceof Error ? error.message : String(error),
+                  workspaceId: workspace.id,
+                },
+                "queuePolishForCompletedBindings failed",
+              );
+            }
+          }
+        } catch (error) {
+          app.log.warn(
+            { error: error instanceof Error ? error.message : String(error) },
+            "iterating workspaces for polish queue failed",
+          );
+        }
+      }
     },
   });
   // workspaceIntegrationsService initialized after composioService below.
@@ -3491,6 +3561,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         },
       })
     : null;
+  composioMcpManagerHolder.manager = composioMcpManager;
   const brokerService = new IntegrationBrokerService(store, composioService);
   const oauthService = new OAuthService(store);
   const runnerExecutor = options.runnerExecutor ?? new NativeRunnerExecutor();
@@ -3573,6 +3644,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       },
     },
   });
+  runtimeAgentToolsHolder.service = runtimeAgentToolsService;
   async function maybeShapeCapabilityToolResult(params: {
     headers: Record<string, unknown>;
     toolId: string;
@@ -3941,10 +4013,19 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   async function refreshAppsForIntegrationBinding(params: {
     workspaceId: string;
     integrationKey: string;
-    targetType: "workspace" | "app" | "agent";
+    targetType: "workspace" | "app" | "agent" | "workspace_default" | "conversation_pin";
     targetId: string;
   }): Promise<void> {
-    if (params.targetType === "agent") {
+    // Agent bindings + the two new account-routing target types
+    // (workspace_default chooses default account per provider;
+    // conversation_pin is session-scoped) don't affect per-app
+    // readiness — they're routing decisions, not declarations that an
+    // app's required integration just became bound.
+    if (
+      params.targetType === "agent" ||
+      params.targetType === "workspace_default" ||
+      params.targetType === "conversation_pin"
+    ) {
       return;
     }
 
@@ -6909,6 +6990,76 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     },
   );
 
+  // ---------------------------------------------------------------------
+  // Workspace-default account selection (Layer 2 in the four-layer
+  // account-resolution model). When the user has multiple accounts
+  // active for the same provider, this records which one this workspace
+  // prefers by default. composio-mcp host reads this on next restart to
+  // pick the right tools.
+  // ---------------------------------------------------------------------
+
+  app.get(
+    "/api/v1/workspaces/:workspaceId/integrations/:providerId/default-account",
+    (request, _reply) => {
+      const params = request.params as { workspaceId: string; providerId: string };
+      const workspaceId = requiredString(params.workspaceId, "workspaceId");
+      const providerId = requiredString(params.providerId, "providerId");
+      return workspaceIntegrationsService.getWorkspaceDefaultAccount({
+        workspaceId,
+        providerId,
+      });
+    },
+  );
+
+  app.put(
+    "/api/v1/workspaces/:workspaceId/integrations/:providerId/default-account",
+    async (request, reply) => {
+      const params = request.params as { workspaceId: string; providerId: string };
+      const workspaceId = requiredString(params.workspaceId, "workspaceId");
+      const providerId = requiredString(params.providerId, "providerId");
+      const body = isRecord(request.body) ? request.body : {};
+      const connectionId = optionalString(body.connection_id);
+      if (!connectionId) {
+        return sendError(reply, 400, "connection_id is required");
+      }
+      try {
+        const result = workspaceIntegrationsService.setWorkspaceDefaultAccount({
+          workspaceId,
+          providerId,
+          connectionId,
+        });
+        // Restart so the new default takes effect on the next agent turn.
+        if (composioMcpManager) {
+          await composioMcpManager.restart(workspaceId).catch(() => undefined);
+        }
+        return result;
+      } catch (error) {
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "set workspace default account failed",
+        );
+      }
+    },
+  );
+
+  app.delete(
+    "/api/v1/workspaces/:workspaceId/integrations/:providerId/default-account",
+    async (request, _reply) => {
+      const params = request.params as { workspaceId: string; providerId: string };
+      const workspaceId = requiredString(params.workspaceId, "workspaceId");
+      const providerId = requiredString(params.providerId, "providerId");
+      const result = workspaceIntegrationsService.clearWorkspaceDefaultAccount({
+        workspaceId,
+        providerId,
+      });
+      if (composioMcpManager) {
+        await composioMcpManager.restart(workspaceId).catch(() => undefined);
+      }
+      return result;
+    },
+  );
+
   app.post(
     "/api/v1/capabilities/runtime-tools/workspace-apps/:appId/build",
     async (request, reply) => {
@@ -7280,6 +7431,40 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           error instanceof Error
             ? error.message
             : "holaboss_workspace_integrations_propose_connect failed",
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/v1/capabilities/runtime-tools/workspace-integrations/set-default-account",
+    async (request, reply) => {
+      const body = isRecord(request.body) ? request.body : {};
+      try {
+        const workspaceId = requiredCapabilityWorkspaceId({
+          headers: request.headers as Record<string, unknown>,
+          body,
+        });
+        const result = workspaceIntegrationsService.setWorkspaceDefaultAccount({
+          workspaceId,
+          providerId: requiredString(body.provider_id, "provider_id"),
+          connectionId: requiredString(body.connection_id, "connection_id"),
+        });
+        if (composioMcpManager) {
+          await composioMcpManager.restart(workspaceId).catch(() => undefined);
+        }
+        return {
+          provider_id: requiredString(body.provider_id, "provider_id").toLowerCase(),
+          connection_id: result.connection_id,
+          note: "Workspace default updated. The composio-mcp host has restarted; the new account's tools become available to the agent starting from the next user turn.",
+        };
+      } catch (error) {
+        return sendError(
+          reply,
+          400,
+          error instanceof Error
+            ? error.message
+            : "holaboss_workspace_integrations_set_default_account failed",
         );
       }
     },

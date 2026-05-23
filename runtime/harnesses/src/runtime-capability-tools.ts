@@ -1069,6 +1069,24 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         required: ["toolkit_slug"],
         additionalProperties: false,
       };
+    case "holaboss_workspace_integrations_set_default_account":
+      return {
+        type: "object",
+        properties: {
+          provider_id: {
+            type: "string",
+            description:
+              "Lowercase Composio provider slug, e.g. 'gmail', 'github', 'notion'.",
+          },
+          connection_id: {
+            type: "string",
+            description:
+              "The integration_connections.connection_id of the account to make this workspace's default for the provider. Obtain from `workspace_integrations_list_catalog` — the entries list connected accounts per toolkit.",
+          },
+        },
+        required: ["provider_id", "connection_id"],
+        additionalProperties: false,
+      };
   }
 }
 
@@ -1246,6 +1264,7 @@ function runtimeToolPromptGuidelines(toolId: RuntimeAgentToolId): string[] {
     return [
       "When the user wants to USE a third-party service directly via chat (Gmail, Slack, Notion, Linear, GitHub, …) and there is NO matching `<toolkit>_<verb>` tool already in your tool list, call this tool. Connecting an integration is one OAuth click for the user, not an engineering task.",
       "DO NOT call this tool to satisfy a 'build me an app that uses X' request. App-building has its own connect+bind flow: scaffold the app first, declare the required `integration` in `app.runtime.yaml`, and let `workspace_apps_register` / `workspace_apps_ensure_running` surface `pending_integrations`. The chat UI auto-renders the per-app binding card from that response — that card both opens OAuth (if no accounts exist) AND binds the chosen account to the specific app. Calling propose_connect up-front creates a workspace-level connection without binding it to anything, the user clicks Connect once and thinks they're done, then the freshly-built app reports `integration_not_bound` because the per-app binding step was skipped. The screenshot the user takes is of an empty 'Connect X' state, polish has nothing meaningful to compare against, the dashboard ships broken.",
+      "DELEGATE THE BUILD, DO NOT INLINE IT. App-building (scaffold → install → register → build → ensure_running, ~50+ tool calls) must run inside `holaboss_delegate_task`, NOT in the main chat session. The main session stays responsive for the user; the subagent does the long pipeline. After propose_connect (when it's actually needed) or after the user binds a connection, your follow-up action for the build phase is `holaboss_delegate_task` with the build brief — never `workspace_apps_scaffold` inline. Building in main session blocks chat, pollutes the user's turn history with read/edit/bash spam, and makes the polish pass turn (which the runtime auto-queues) collide with build output.",
       "INTEGRATION-VS-APP-BINDING — Integrations are user-level OAuth accounts; a single connected Gmail account can power any number of apps. Apps consume those accounts via a per-app binding. Two different chat cards exist for the two situations: a 'Connect <provider>' card (this tool) opens the OAuth flow for a brand-new account; a 'Pick a <provider> account for <app>' card auto-renders from `pending_integrations` and lets the user bind an existing connection to the app. Only call this tool when there is NO app context — the user is asking for direct-use of the service in chat.",
       "App context exception still applies: if `workspace_apps_register/build/ensure_running` returned `pending_integrations` entries where `available_accounts === 0`, you may call this tool once per such provider — the user has zero accounts and the binding card alone cannot open OAuth. For entries where `available_accounts >= 1`, the chat UI's binding card handles both account-pick and OAuth via 'Add another'; calling propose_connect on top creates a duplicate Connect card. Do NOT ship a 'safe mode' / 'manual mode' / 'no real recipient' fallback to avoid asking.",
       "Do NOT call `workspace_apps_scaffold` / `workspace_apps_build` to satisfy a 'connect X' request. Integrations and apps are separate concepts: integrations are user OAuth accounts, apps are user-built tools that consume those accounts.",
@@ -1261,6 +1280,7 @@ function runtimeToolPromptGuidelines(toolId: RuntimeAgentToolId): string[] {
       "If the user wants to connect, authorize, or otherwise gain OAuth access to a known third-party service, call `holaboss_workspace_integrations_propose_connect` instead — building an app for that is a category error.",
       "Use this only when the user actually asked for a new app, dashboard, tool, surface, internal product, or other UI/persistence/schedule-bearing capability.",
       "MANDATORY PRECONDITION: invoke `skill({ name: \"app-builder-sdk\" })` ONCE before calling this tool, and read its full output. The skill contains the SDK contract (5 primitives, provider id rules, package.json shape, density rules, anti-patterns, install protocol). Building from training-data priors alone produces apps that consistently miss the SDK shape, the npm semver pin, and the density/aesthetic rules — i.e. the failure mode users keep flagging. The 1-line catalog description is NOT enough; load the full SKILL.md.",
+      "DELEGATE OR YOU'RE IN THE WRONG SESSION. This tool is the entry point of a ~50+ tool-call pipeline (scaffold → bun install → register → build → ensure_running → polish). If you are running in the main chat session (not a delegated subagent), STOP and call `holaboss_delegate_task` with the full build brief instead — the subagent will run this pipeline in the background while the user's chat stays responsive. Calling this tool directly from main session is the symptom of a wrong control-flow choice; the user has explicitly flagged this as a poor experience. The only acceptable callers of this tool are subagent sessions spawned by holaboss_delegate_task.",
     ];
   }
   if (

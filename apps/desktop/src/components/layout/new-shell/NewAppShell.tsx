@@ -1,9 +1,11 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { FirstWorkspacePane } from "@/components/onboarding/FirstWorkspacePane";
+import { useWorkspaceBrowser } from "@/components/panes/useWorkspaceBrowser";
 import { PublishScreen } from "@/components/publish/PublishScreen";
 import { WorkspaceOnboardingSurface } from "@/features/workspace-onboarding/WorkspaceOnboardingSurface";
 import { DesktopBillingProvider } from "@/lib/billing/useDesktopBilling";
+import { cn } from "@/lib/utils";
 import {
   useWorkspaceDesktop,
   WorkspaceDesktopProvider,
@@ -15,17 +17,21 @@ import {
 import { Center } from "./Center";
 import { ChatPanel } from "./ChatPanel";
 import { NewTabDialog } from "./NewTabDialog";
+import { NotificationStack } from "./NotificationStack";
 import { Overlays } from "./Overlays";
 import { SearchDialog } from "./SearchDialog";
 import { Sidebar } from "./Sidebar";
+import { internalTabsAtom } from "./state/internalTabs";
 import {
   createWorkspaceOpenAtom,
+  focusModeAtom,
   newTabOpenAtom,
   publishOpenAtom,
   searchOpenAtom,
   sidebarCollapsedAtom,
 } from "./state/ui";
 import { TopChrome } from "./TopChrome";
+import { useChatLayout } from "./useChatLayout";
 
 export function NewAppShell() {
   return (
@@ -50,6 +56,22 @@ function NewAppShellContent() {
   const createWorkspaceOpen = useAtomValue(createWorkspaceOpenAtom);
   const setCreateWorkspaceOpen = useSetAtom(createWorkspaceOpenAtom);
   const hasWorkspaces = workspaces.length > 0;
+  const layout = useChatLayout();
+  const [focusMode, setFocusMode] = useAtom(focusModeAtom);
+  const { browserState } = useWorkspaceBrowser("user");
+  const internalTabs = useAtomValue(internalTabsAtom);
+  const totalTabs = browserState.tabs.length + internalTabs.length;
+  const prevTotalTabsRef = useRef(totalTabs);
+
+  // Auto-exit focus when a new tab appears (⌘T, chat link, sidebar app).
+  // Opening a tab is an explicit "show me this" signal; staying hidden
+  // would be confusing.
+  useEffect(() => {
+    if (focusMode && totalTabs > prevTotalTabsRef.current) {
+      setFocusMode(false);
+    }
+    prevTotalTabsRef.current = totalTabs;
+  }, [focusMode, totalTabs, setFocusMode]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -76,25 +98,33 @@ function NewAppShellContent() {
     );
   }
 
+  const showMiddle = layout === "split";
+
   return (
     <div className="flex h-screen w-screen overflow-hidden text-foreground antialiased">
       <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col bg-background">
-        <TopChrome />
-        <div className="flex min-h-0 flex-1">
-          {onboardingModeActive ? (
-            <ExperimentalWorkspaceOnboardingTakeover />
-          ) : (
-            <>
-              <Center />
-              <ChatPanel />
-            </>
-          )}
+      {onboardingModeActive ? (
+        <div className="flex min-w-0 flex-1 flex-col bg-background">
+          <ExperimentalWorkspaceOnboardingTakeover />
         </div>
-      </div>
+      ) : (
+        <>
+          <div
+            className={cn(
+              "flex min-w-0 flex-col bg-background",
+              showMiddle ? "flex-1" : "hidden",
+            )}
+          >
+            <TopChrome />
+            <Center />
+          </div>
+          <ChatPanel layout={layout} />
+        </>
+      )}
       <NewTabDialog />
       <SearchDialog />
       <Overlays />
+      <NotificationStack />
       {selectedWorkspaceId ? (
         <PublishScreen
           open={publishOpen}

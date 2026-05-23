@@ -35,7 +35,7 @@ export interface IntegrationConnectionPayload {
 export interface IntegrationBindingPayload {
   binding_id: string;
   workspace_id: string;
-  target_type: "workspace" | "app" | "agent";
+  target_type: "workspace" | "app" | "agent" | "workspace_default" | "conversation_pin";
   target_id: string;
   integration_key: string;
   connection_id: string;
@@ -53,7 +53,18 @@ export class IntegrationServiceError extends Error {
   }
 }
 
-const VALID_TARGET_TYPES = new Set(["workspace", "app", "agent"]);
+// `workspace_default` — workspace's preferred account per provider (set
+//   via holaboss_workspace_integrations_set_default_account or Settings).
+// `conversation_pin` — session-scoped account override (reserved; not
+//   yet consumed by the MCP host, but resolver path is wired).
+// See active-account-resolver.ts for the four-layer model.
+const VALID_TARGET_TYPES = new Set([
+  "workspace",
+  "app",
+  "agent",
+  "workspace_default",
+  "conversation_pin",
+]);
 
 function requiredString(value: unknown, fieldName: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -85,12 +96,22 @@ function optionalBoolean(value: unknown, defaultValue = false): boolean {
   return defaultValue;
 }
 
-function validateTargetType(targetType: string): "workspace" | "app" | "agent" {
+function validateTargetType(
+  targetType: string,
+): "workspace" | "app" | "agent" | "workspace_default" | "conversation_pin" {
   const normalized = requiredString(targetType, "target_type");
   if (!VALID_TARGET_TYPES.has(normalized)) {
-    throw new IntegrationServiceError(400, "target_type must be workspace, app, or agent");
+    throw new IntegrationServiceError(
+      400,
+      "target_type must be workspace, app, agent, workspace_default, or conversation_pin",
+    );
   }
-  return normalized as "workspace" | "app" | "agent";
+  return normalized as
+    | "workspace"
+    | "app"
+    | "agent"
+    | "workspace_default"
+    | "conversation_pin";
 }
 
 function requireWorkspace(store: RuntimeStateStore, workspaceId: string): void {

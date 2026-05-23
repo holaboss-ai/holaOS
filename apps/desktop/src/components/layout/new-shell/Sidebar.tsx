@@ -16,6 +16,13 @@ import {
 import { StatusDot } from "@/components/ui/status-dot";
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import { WorkspaceIconPicker } from "@/components/ui/workspace-icon-picker";
+import {
+  OutputArtifactIcon,
+  outputBrowserFilterForOutput,
+  outputKindLabel,
+  sortOutputsLatestFirst,
+} from "@/components/panes/ChatPane/ArtifactBrowserModal";
+import type { ArtifactBrowserFilter } from "@/components/panes/ChatPane/types";
 import { FileTypeIcon } from "@/lib/fileIcon";
 import { useIntegrationBinding } from "@/lib/useIntegrationBinding";
 import { cn } from "@/lib/utils";
@@ -25,6 +32,7 @@ import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   Clock,
@@ -40,13 +48,14 @@ import {
   RotateCw,
   Search,
   Settings,
+  Sparkles,
   Trash2,
   Upload,
   Wrench,
   X,
   Zap,
 } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SectionLabel } from "./shared";
 import {
   activeInternalTabIdAtom,
@@ -61,10 +70,8 @@ import {
 } from "./state/recentFiles";
 import {
   appsExpandedAtom,
-  artifactsOpenAtom,
   automationsOpenAtom,
   createWorkspaceOpenAtom,
-  inboxOpenAtom,
   publishOpenAtom,
   searchOpenAtom,
   SIDEBAR_MAX_WIDTH,
@@ -79,9 +86,12 @@ import {
 import { useTaskProposals } from "./useTaskProposals";
 import {
   useRecentBrowserHistory,
+  useWorkspaceArtifacts,
   useWorkspaceCronjobs,
+  useWorkspaceOutputFolders,
   useWorkspaceSkills,
 } from "./useWorkspaceLists";
+import { useOpenWorkspaceOutput } from "./useOpenWorkspaceOutput";
 
 type RecentItem =
   | { kind: "url"; ts: string; entry: BrowserHistoryEntryPayload }
@@ -406,83 +416,481 @@ function SidebarHomeSection() {
 
 function SidebarInboxSection() {
   const { selectedWorkspaceId } = useWorkspaceSelection();
-  const { proposals, isLoading } = useTaskProposals(selectedWorkspaceId || null);
-  const setInboxOpen = useSetAtom(inboxOpenAtom);
+  const { proposals, isLoading, statusMessage, action, accept, dismiss } =
+    useTaskProposals(selectedWorkspaceId || null);
+  const [expandedProposalId, setExpandedProposalId] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (
+      expandedProposalId &&
+      !proposals.some((p) => p.proposal_id === expandedProposalId)
+    ) {
+      setExpandedProposalId(null);
+    }
+  }, [expandedProposalId, proposals]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-3">
       <SectionLabel>
         Inbox
         {proposals.length > 0 ? (
           <span className="ml-auto text-foreground/30">{proposals.length}</span>
         ) : null}
       </SectionLabel>
-      {isLoading && proposals.length === 0 ? (
-        <div className="grid place-items-center py-8">
-          <Loader2 className="size-4 animate-spin text-foreground/40" />
-        </div>
-      ) : proposals.length === 0 ? (
-        <div className="grid place-items-center px-3 py-12 text-center">
-          <div className="flex flex-col items-center gap-2">
-            <Inbox className="size-5 text-foreground/30" />
-            <div className="text-xs text-foreground/55">
-              You're all caught up
+      {statusMessage ? (
+        <AnimatePresence initial={false}>
+          <motion.div
+            key={statusMessage}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.14, ease: INBOX_EASE }}
+            className="mx-0.5 mt-1 mb-1.5 rounded-md border border-border bg-foreground/[0.03] px-2 py-1.5 text-[11px] leading-snug text-foreground/65"
+          >
+            {statusMessage}
+          </motion.div>
+        </AnimatePresence>
+      ) : null}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {isLoading && proposals.length === 0 ? (
+          <div className="grid place-items-center py-8">
+            <Loader2 className="size-4 animate-spin text-foreground/40" />
+          </div>
+        ) : proposals.length === 0 ? (
+          <div className="grid place-items-center px-3 py-12 text-center">
+            <div className="flex flex-col items-center gap-2">
+              <Inbox className="size-5 text-foreground/30" />
+              <div className="text-xs text-foreground/55">
+                You're all caught up
+              </div>
             </div>
           </div>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-0.5">
-          {proposals.slice(0, 12).map((p) => (
-            <button
-              key={p.proposal_id}
-              type="button"
-              onClick={() => setInboxOpen(true)}
-              className="flex flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-xs text-foreground/80 transition-colors hover:bg-foreground/[0.04]"
-            >
-              <span className="truncate font-medium text-foreground">
-                {p.task_name || "Untitled proposal"}
-              </span>
-              {p.task_generation_rationale ? (
-                <span className="line-clamp-2 text-foreground/55">
-                  {p.task_generation_rationale}
-                </span>
-              ) : null}
-            </button>
-          ))}
-          {proposals.length > 12 ? (
-            <button
-              type="button"
-              onClick={() => setInboxOpen(true)}
-              className="mt-1 rounded-md px-2 py-1 text-left text-xs text-foreground/55 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
-            >
-              See all {proposals.length} →
-            </button>
-          ) : null}
-        </div>
-      )}
+        ) : (
+          <div className="flex flex-col gap-1.5 px-0.5 pt-1">
+            <AnimatePresence initial={false} mode="popLayout">
+              {proposals.map((proposal) => (
+                <InboxProposalCard
+                  key={proposal.proposal_id}
+                  proposal={proposal}
+                  expanded={expandedProposalId === proposal.proposal_id}
+                  onToggleExpand={() =>
+                    setExpandedProposalId((current) =>
+                      current === proposal.proposal_id
+                        ? null
+                        : proposal.proposal_id,
+                    )
+                  }
+                  pendingAction={
+                    action?.proposalId === proposal.proposal_id
+                      ? action.action
+                      : null
+                  }
+                  onAccept={() => void accept(proposal)}
+                  onDismiss={() => void dismiss(proposal)}
+                />
+              ))}
+            </AnimatePresence>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function SidebarArtifactsSection() {
-  const setArtifactsOpen = useSetAtom(artifactsOpenAtom);
+// Linear's signature ease — flat tail, no overshoot. Keeps card motion
+// restrained instead of the spring-y feel of easeOutExpo's [0.16, 1, 0.3, 1].
+const INBOX_EASE = [0.32, 0.72, 0, 1] as const;
+
+interface InboxProposalCardProps {
+  proposal: TaskProposalRecordPayload;
+  expanded: boolean;
+  pendingAction: "accept" | "dismiss" | null;
+  onToggleExpand: () => void;
+  onAccept: () => void;
+  onDismiss: () => void;
+}
+
+function InboxProposalCard({
+  proposal,
+  expanded,
+  pendingAction,
+  onToggleExpand,
+  onAccept,
+  onDismiss,
+}: InboxProposalCardProps) {
+  const isActing = pendingAction !== null;
+  const sourceLabel =
+    proposal.proposal_source === "evolve" ? "Evolve" : "Proactive";
+  const sourceIcon =
+    proposal.proposal_source === "evolve" ? (
+      <Sparkles className="size-2.5" />
+    ) : (
+      <Inbox className="size-2.5" />
+    );
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
-      <SectionLabel>Artifacts</SectionLabel>
-      <div className="grid place-items-center px-3 py-12 text-center">
-        <div className="flex flex-col items-center gap-3">
-          <Package className="size-5 text-foreground/30" />
-          <div className="text-xs text-foreground/55">
-            Artifacts from your agent runs will appear here.
+    <motion.div
+      layout="position"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{
+        opacity: 0,
+        transition: { duration: 0.12, ease: INBOX_EASE },
+      }}
+      transition={{
+        layout: { duration: 0.2, ease: INBOX_EASE },
+        default: { duration: 0.16, ease: INBOX_EASE },
+      }}
+      className="overflow-hidden rounded-lg border border-border bg-card"
+    >
+      <button
+        type="button"
+        onClick={onToggleExpand}
+        aria-expanded={expanded}
+        className="flex w-full items-start gap-2 px-2.5 py-2 text-left transition-colors hover:bg-foreground/[0.025]"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-foreground/[0.06] px-1.5 py-px text-[9.5px] font-medium uppercase tracking-wide text-foreground/55">
+              {sourceIcon}
+              {sourceLabel}
+            </span>
+            <span className="shrink-0 text-[10px] text-foreground/40">
+              {inboxRelativeTime(proposal.created_at)}
+            </span>
           </div>
-          <button
-            type="button"
-            onClick={() => setArtifactsOpen(true)}
-            className="rounded-md bg-foreground/[0.05] px-2.5 py-1 text-xs text-foreground/70 transition-colors hover:bg-foreground/[0.08] hover:text-foreground"
-          >
-            Open full Artifacts view
-          </button>
+          <div className="mt-1 truncate text-xs font-medium text-foreground">
+            {proposal.task_name || "Untitled proposal"}
+          </div>
+          {proposal.task_generation_rationale ? (
+            <div className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-foreground/55">
+              {proposal.task_generation_rationale}
+            </div>
+          ) : null}
         </div>
+        <ChevronRight
+          className="mt-0.5 size-3 shrink-0 text-foreground/30 transition-transform duration-snappy ease-emphasized"
+          style={{
+            transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
+          }}
+        />
+      </button>
+      <AnimatePresence initial={false}>
+        {expanded ? (
+          <motion.div
+            key="details"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{
+              height: { duration: 0.16, ease: INBOX_EASE },
+              opacity: { duration: 0.12, ease: INBOX_EASE },
+            }}
+            className="overflow-hidden"
+          >
+            <div className="border-t border-border/60 px-2.5 py-1.5">
+              {proposal.task_prompt ? (
+                <div className="max-h-24 overflow-y-auto rounded-md bg-foreground/[0.04] px-2 py-1 font-mono text-[10.5px] leading-snug whitespace-pre-wrap break-words text-foreground/75">
+                  {proposal.task_prompt}
+                </div>
+              ) : null}
+              <div className="mt-1.5 flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="default"
+                  disabled={isActing}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onAccept();
+                  }}
+                  className="h-6 px-2 text-[11px]"
+                >
+                  {pendingAction === "accept" ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <Check className="size-3" />
+                  )}
+                  Accept
+                </Button>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  disabled={isActing}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDismiss();
+                  }}
+                  className="h-6 px-2 text-[11px] text-foreground/55 hover:text-foreground"
+                >
+                  {pendingAction === "dismiss" ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <X className="size-3" />
+                  )}
+                  Dismiss
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+function inboxRelativeTime(value: string): string {
+  const ms = Date.now() - Date.parse(value);
+  if (Number.isNaN(ms)) return value;
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+const ARTIFACT_FILTER_OPTIONS: ReadonlyArray<{
+  id: ArtifactBrowserFilter;
+  label: string;
+}> = [
+  { id: "all", label: "All" },
+  { id: "documents", label: "Docs" },
+  { id: "images", label: "Images" },
+  { id: "code", label: "Code" },
+  { id: "links", label: "Links" },
+  { id: "apps", label: "Apps" },
+];
+
+const UNCATEGORIZED_FOLDER_KEY = "__uncategorized__";
+
+function SidebarArtifactsSection() {
+  const { selectedWorkspaceId } = useWorkspaceSelection();
+  const outputs = useWorkspaceArtifacts(selectedWorkspaceId || null);
+  const folders = useWorkspaceOutputFolders(selectedWorkspaceId || null);
+  const { openOutput } = useOpenWorkspaceOutput();
+  const [filter, setFilter] = useState<ArtifactBrowserFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  const folderNamesById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const folder of folders) {
+      map.set(folder.id, folder.name || "Untitled folder");
+    }
+    return map;
+  }, [folders]);
+
+  const folderOrderById = useMemo(() => {
+    const map = new Map<string, number>();
+    folders.forEach((folder, index) => {
+      map.set(folder.id, folder.position ?? index);
+    });
+    return map;
+  }, [folders]);
+
+  const sortedOutputs = useMemo(
+    () => sortOutputsLatestFirst(outputs),
+    [outputs],
+  );
+
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const filteredOutputs = useMemo(() => {
+    let result =
+      filter === "all"
+        ? sortedOutputs
+        : sortedOutputs.filter(
+            (output) => outputBrowserFilterForOutput(output) === filter,
+          );
+    if (normalizedSearchQuery) {
+      result = result.filter((output) => {
+        const title = (output.title ?? "").toLowerCase();
+        const kind = outputKindLabel(output).toLowerCase();
+        return (
+          title.includes(normalizedSearchQuery) ||
+          kind.includes(normalizedSearchQuery)
+        );
+      });
+    }
+    return result;
+  }, [sortedOutputs, filter, normalizedSearchQuery]);
+
+  // Bucket outputs by folder, then order folders by their server `position`
+  // with the unfoldered bucket last so explicit folders win the top slots.
+  const groupedOutputs = useMemo(() => {
+    const buckets = new Map<string, WorkspaceOutputRecordPayload[]>();
+    for (const output of filteredOutputs) {
+      const key = output.folder_id || UNCATEGORIZED_FOLDER_KEY;
+      const existing = buckets.get(key);
+      if (existing) {
+        existing.push(output);
+      } else {
+        buckets.set(key, [output]);
+      }
+    }
+    return Array.from(buckets.entries())
+      .map(([key, items]) => ({
+        key,
+        label:
+          key === UNCATEGORIZED_FOLDER_KEY
+            ? "Uncategorized"
+            : (folderNamesById.get(key) ?? "Untitled folder"),
+        order:
+          key === UNCATEGORIZED_FOLDER_KEY
+            ? Number.POSITIVE_INFINITY
+            : (folderOrderById.get(key) ?? Number.POSITIVE_INFINITY - 1),
+        items,
+      }))
+      .sort((left, right) => left.order - right.order);
+  }, [filteredOutputs, folderNamesById, folderOrderById]);
+
+  const totalCount = sortedOutputs.length;
+  const isFiltering = filter !== "all" || normalizedSearchQuery.length > 0;
+  const visibleCount = filteredOutputs.length;
+
+  const toggleFolder = useCallback((key: string) => {
+    setCollapsedFolders((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-3">
+      <SectionLabel>
+        Artifacts
+        {totalCount > 0 ? (
+          <span className="ml-auto text-foreground/30">{totalCount}</span>
+        ) : null}
+      </SectionLabel>
+
+      {totalCount > 0 ? (
+        <>
+          <div className="relative mb-1.5 mt-1">
+            <Search className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-foreground/40" />
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search artifacts"
+              aria-label="Search artifacts"
+              className="h-7 rounded-md pl-6.5 pr-6 text-xs focus-visible:ring-0"
+            />
+            {searchQuery ? (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                aria-label="Clear search"
+                className="absolute right-1 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-foreground/40 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+              >
+                <X className="size-3" />
+              </button>
+            ) : null}
+          </div>
+          <div className="-mx-0.5 mb-1.5 flex flex-wrap gap-0.5 px-0.5">
+            {ARTIFACT_FILTER_OPTIONS.map((option) => {
+              const active = filter === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setFilter(option.id)}
+                  className={cn(
+                    "rounded-full px-2 py-0.5 text-[10.5px] font-medium transition-colors",
+                    active
+                      ? "bg-foreground text-background"
+                      : "text-foreground/55 hover:bg-foreground/[0.04] hover:text-foreground",
+                  )}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {totalCount === 0 ? (
+          <div className="grid place-items-center px-3 py-12 text-center">
+            <div className="flex flex-col items-center gap-2">
+              <Package className="size-5 text-foreground/30" />
+              <div className="text-xs text-foreground/55">
+                Artifacts from your agent runs will appear here.
+              </div>
+            </div>
+          </div>
+        ) : visibleCount === 0 ? (
+          <div className="px-2 py-6 text-center text-xs text-foreground/45">
+            {isFiltering
+              ? "No artifacts match this view."
+              : "No artifacts yet."}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {groupedOutputs.map((group) => {
+              const collapsed = collapsedFolders.has(group.key);
+              return (
+                <div key={group.key} className="flex flex-col">
+                  <button
+                    type="button"
+                    onClick={() => toggleFolder(group.key)}
+                    aria-expanded={!collapsed}
+                    className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-[10.5px] font-medium uppercase tracking-wide text-foreground/50 transition-colors hover:bg-foreground/[0.04] hover:text-foreground/70"
+                  >
+                    <ChevronRight
+                      className="size-3 shrink-0 transition-transform duration-snappy ease-emphasized"
+                      style={{
+                        transform: collapsed ? "rotate(0deg)" : "rotate(90deg)",
+                      }}
+                    />
+                    <span className="min-w-0 flex-1 truncate">
+                      {group.label}
+                    </span>
+                    <span className="text-foreground/30">{group.items.length}</span>
+                  </button>
+                  {collapsed ? null : (
+                    <div className="flex flex-col gap-0.5 pt-0.5">
+                      {group.items.map((output) => {
+                        const kindLabel = outputKindLabel(output);
+                        return (
+                          <button
+                            key={output.id}
+                            type="button"
+                            onClick={() => void openOutput(output)}
+                            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground/80 transition-colors hover:bg-foreground/[0.04]"
+                          >
+                            <OutputArtifactIcon
+                              output={output}
+                              variant="bare"
+                            />
+                            <span className="min-w-0 flex-1 truncate text-foreground">
+                              {output.title || "Untitled artifact"}
+                            </span>
+                            <span className="shrink-0 text-foreground/45">
+                              {kindLabel}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -551,8 +959,6 @@ function AppsSection() {
   } = useWorkspaceDesktop();
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const [expanded, setExpanded] = useAtom(appsExpandedAtom);
-  const setSettingsOpen = useSetAtom(settingsOpenAtom);
-  const setSettingsSection = useSetAtom(settingsSectionAtom);
 
   const openApp = async (appId: string) => {
     if (!selectedWorkspaceId) return;
@@ -644,18 +1050,6 @@ function AppsSection() {
                 />
               );
             })}
-            <button
-              type="button"
-              onClick={() => {
-                setSettingsSection("integrations");
-                setSettingsOpen(true);
-              }}
-              tabIndex={expanded ? 0 : -1}
-              className="flex items-center gap-2 rounded-[6px] px-2 py-[5px] pl-6 text-left text-xs text-foreground/55 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
-            >
-              <Link2 className="size-3.5 shrink-0" />
-              <span className="truncate">Manage integrations…</span>
-            </button>
           </div>
         </div>
       </div>
@@ -1216,6 +1610,7 @@ function WorkspaceSwitcher() {
 
   const [query, setQuery] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [popoverOpen, setPopoverOpen] = useState(false);
 
   const filtered = useMemo(() => {
     const trimmed = query.trim().toLowerCase();
@@ -1240,7 +1635,7 @@ function WorkspaceSwitcher() {
 
   return (
     <div className="window-drag flex h-10 shrink-0 items-center px-2 pl-20">
-      <Popover>
+      <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
         <PopoverTrigger
           render={
             <Button
@@ -1324,7 +1719,10 @@ function WorkspaceSwitcher() {
                     <button
                       type="button"
                       disabled={isDeleting}
-                      onClick={() => setSelectedWorkspaceId(w.id)}
+                      onClick={() => {
+                        setSelectedWorkspaceId(w.id);
+                        setPopoverOpen(false);
+                      }}
                       className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm disabled:cursor-not-allowed"
                     >
                       <span className="truncate">{w.name}</span>
@@ -1359,7 +1757,10 @@ function WorkspaceSwitcher() {
             {selectedWorkspaceId ? (
               <button
                 type="button"
-                onClick={() => setPublishOpen(true)}
+                onClick={() => {
+                  setPopoverOpen(false);
+                  setPublishOpen(true);
+                }}
                 className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-foreground/[0.04]"
               >
                 <Upload className="size-3.5 text-foreground/60" />
@@ -1368,7 +1769,10 @@ function WorkspaceSwitcher() {
             ) : null}
             <button
               type="button"
-              onClick={() => setCreateWorkspaceOpen(true)}
+              onClick={() => {
+                setPopoverOpen(false);
+                setCreateWorkspaceOpen(true);
+              }}
               className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-foreground/[0.04]"
             >
               <Plus className="size-3.5 text-foreground/60" />

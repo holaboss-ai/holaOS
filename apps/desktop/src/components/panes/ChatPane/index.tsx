@@ -8695,14 +8695,12 @@ export function ChatPane({
 
         <div className="relative flex min-h-0 flex-1 flex-col">
           {!isOnboardingVariant && !isReadOnlyInspectionSession ? (
-            <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-4">
-              <div className="pointer-events-auto">
-                <BackgroundTasksPane
-                  workspaceId={selectedWorkspaceId}
-                  variant="inline"
-                  onOpenTaskSession={handleOpenBackgroundTaskSession}
-                />
-              </div>
+            <div className="flex shrink-0 justify-center px-4 pt-2 empty:hidden">
+              <BackgroundTasksPane
+                workspaceId={selectedWorkspaceId}
+                variant="inline"
+                onOpenTaskSession={handleOpenBackgroundTaskSession}
+              />
             </div>
           ) : null}
           <div

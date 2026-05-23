@@ -148,12 +148,12 @@ Both `@holaboss/app-builder-sdk` and `@holaboss/ui` are public npm packages. The
 
 ```json
 "dependencies": {
-  "@holaboss/app-builder-sdk": "^0.1.0",
-  "@holaboss/ui": "^0.3.0"
+  "@holaboss/app-builder-sdk": "latest",
+  "@holaboss/ui": "latest"
 }
 ```
 
-**Pin the major.minor explicitly.** Pre-1.0 caret semver is special — `^0.1.0` only matches `0.1.x`, NOT `0.2.x` or `0.3.x`. Writing the wrong major.minor locks the app to an old release that this skill no longer matches. Always use the current major.minor (currently `^0.1.0` for app-builder-sdk, `^0.3.0` for ui) in fresh apps. Do NOT install via `file:` paths or git refs — npm is the only supported source.
+**Always use `"latest"` for both.** These packages are lockstep-evolving alongside this skill — pre-1.0 caret semver (`^0.1.0`) only matches `0.1.x`, so any pinned dep silently drifts behind the skill when a new minor is published. `"latest"` keeps every fresh `bun install` aligned with the runtime's current expectations. Do NOT install via `file:` paths, git refs, or pinned versions — `"latest"` is the only supported form.
 
 ### Mount the styles — one import, done
 
@@ -318,13 +318,13 @@ After writing the 4 files into `<workspace>/apps/<app_id>/`, do these in order. 
   "private": true,
   "type": "module",
   "dependencies": {
-    "@holaboss/app-builder-sdk": "^0.1.0",
-    "@holaboss/ui": "^0.3.0"
+    "@holaboss/app-builder-sdk": "latest",
+    "@holaboss/ui": "latest"
   }
 }
 ```
 
-Both packages live on npmjs.com (public, Apache-2.0). `bun install` pulls them down like any normal dep — no repo checkout assumption, no machine-specific file: paths.
+Both packages live on npmjs.com (public, Apache-2.0). `bun install` pulls them down like any normal dep — no repo checkout assumption, no machine-specific file: paths. Use `"latest"` literally; do not pin a version.
 
 ### 2. `bun install` once in the app dir
 

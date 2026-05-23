@@ -493,6 +493,7 @@ test('ensureRunning consults the store and disables a toolkit when the override 
             updatedAt: '',
           },
         ],
+        getIntegrationBindingByTarget: () => null,
       },
       logger: { info: () => {}, warn: () => {}, error: () => {} },
     });

@@ -291,6 +291,12 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     description:
       "Ask the user to connect a Composio-backed integration (Gmail / Slack / Notion / Linear / GitHub / …) via OAuth. Use this when the user expresses intent to connect or use a known third-party service AND that toolkit is not already exposing tools to you (i.e. no `<toolkit>_<verb>` tool is currently in your tool list). DO NOT chain this with `workspace_apps_*` — connecting an integration does NOT require building an app; once OAuth completes, the toolkit's `<toolkit>_<verb>` tools become available automatically. The chat UI renders a Connect card from the result; do not write your own connect instructions, just briefly explain why this integration is needed. Args: `toolkit_slug` (one of the supported toolkit slugs from the workspace integration store catalog), optional `reason` (short user-facing one-liner shown on the card).",
     policy: "coordinate"
+  },
+  {
+    id: "holaboss_workspace_integrations_set_default_account",
+    description:
+      "Set the workspace's default account for a Composio provider when the user has multiple active accounts for the same toolkit (e.g. two Gmail accounts, three GitHub accounts). This binding persists across sessions and devices for the same workspace — it answers 'when this workspace makes a Gmail call, which of my Gmail accounts should it use?'. The composio-mcp host restarts after the change so the agent's next turn picks up the right account's tools. Use when (a) the user explicitly says 'use my work gmail / personal account / etc.' in a workspace that already has multiple active accounts for that provider, or (b) the user has multiple active accounts and no default is set and you would otherwise have to guess which one to call. Args: `provider_id` (lowercase Composio slug, e.g. 'gmail'), `connection_id` (the integration connection id; obtain from `workspace_integrations_list_catalog` which lists each provider's connected accounts).",
+    policy: "mutate"
   }
 ] as const;
 
