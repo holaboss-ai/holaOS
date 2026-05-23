@@ -789,15 +789,15 @@ test("composeAgentPrompt instructs subagents to record durable workspace knowled
 
   assert.match(
     prompt.systemPrompt,
-    /Record durable workspace knowledge in root `AGENTS\.md` with `update_workspace_instructions` when it is clearly stable, likely to recur, or explicitly confirmed by the user/i,
+    /Record workspace-wide operating defaults in root `AGENTS\.md` with `update_workspace_instructions` when they are clearly stable, likely to recur, or explicitly confirmed by the user/i,
   );
   assert.match(
     prompt.systemPrompt,
-    /durable requirements or preferences, verified commands or procedures, stable facts, conventions, decisions, and recurring blockers/i,
+    /durable requirements or preferences, verified recurring commands, default procedures, conventions, policies, decisions, and recurring blockers/i,
   );
   assert.match(
     prompt.systemPrompt,
-    /Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state\. When in doubt, leave it out until the pattern repeats or the user confirms it should persist\./i,
+    /Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state\. When in doubt, prefer memory or transient context over `AGENTS\.md`, and leave it out until the pattern repeats or the user confirms it should persist as a default\./i,
   );
 });
 
