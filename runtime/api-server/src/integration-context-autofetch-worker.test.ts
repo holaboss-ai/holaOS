@@ -107,8 +107,10 @@ test("integration context autofetch worker starts only due supported enabled con
 
   assert.deepEqual(
     dueConnectionIds.sort(),
-    ["github-never-fetched", "gmail-due"].sort(),
+    ["github-never-fetched", "gmail-due", "notion-due"].sort(),
   );
-  assert.deepEqual(started.sort(), ["github-never-fetched", "gmail-due"].sort());
+  assert.deepEqual(
+    started.sort(),
+    ["github-never-fetched", "gmail-due", "notion-due"].sort(),
+  );
 });
-

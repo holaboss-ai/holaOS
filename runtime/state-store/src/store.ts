@@ -6182,13 +6182,11 @@ export class RuntimeStateStore {
     const replace = db.transaction(() => {
       const now = utcNowIso();
       db.prepare(`
-        UPDATE interaction_summary_nodes
-        SET status = 'retired',
-            updated_at = ?
-        WHERE workspace_id = ? AND entity_id = ? AND status = 'active'
-      `).run(now, params.workspaceId, params.entityId);
-      db.prepare(`
         DELETE FROM interaction_tree_edges
+        WHERE workspace_id = ? AND entity_id = ?
+      `).run(params.workspaceId, params.entityId);
+      db.prepare(`
+        DELETE FROM interaction_summary_nodes
         WHERE workspace_id = ? AND entity_id = ?
       `).run(params.workspaceId, params.entityId);
 
@@ -6880,13 +6878,11 @@ export class RuntimeStateStore {
     const replace = db.transaction(() => {
       const now = utcNowIso();
       db.prepare(`
-        UPDATE integration_summary_nodes
-        SET status = 'retired',
-            updated_at = ?
-        WHERE tree_id = ? AND status = 'active'
-      `).run(now, params.treeId);
-      db.prepare(`
         DELETE FROM integration_tree_edges
+        WHERE tree_id = ?
+      `).run(params.treeId);
+      db.prepare(`
+        DELETE FROM integration_summary_nodes
         WHERE tree_id = ?
       `).run(params.treeId);
 

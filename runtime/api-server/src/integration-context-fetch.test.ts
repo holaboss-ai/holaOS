@@ -170,7 +170,7 @@ test("fetchIntegrationContextForConnection ingests Gmail profile and recent thre
   assert.equal(result.leaves_created, 4);
   assert.equal(result.messages_seen, 3);
   assert.equal(result.messages_persisted, 3);
-  assert.equal(result.summary_nodes, 5);
+  assert.equal(result.summary_nodes, 6);
 
   const updatedConnection = store.getIntegrationConnection("conn-gmail-1");
   assert.equal(updatedConnection?.accountEmail, "workspace@example.com");
@@ -215,7 +215,7 @@ test("fetchIntegrationContextForConnection ingests Gmail profile and recent thre
     limit: 100,
     offset: 0,
   });
-  assert.equal(summaries.length, 5);
+  assert.equal(summaries.length, 6);
 
   const memoryRoot = globalMemoryDirForWorkspaceRoot(workspaceRoot);
   for (const leaf of leaves) {
@@ -1097,8 +1097,8 @@ test("fetchIntegrationContextForConnection ingests Notion pages, markdown, datab
     })).sort((left, right) => left.subjectKey.localeCompare(right.subjectKey)),
     [
       { subjectKey: "database:db-1", entityKey: "database:db-1", branchKey: "overview" },
-      { subjectKey: "page:page-1", entityKey: "page:page-1", branchKey: "overview" },
       { subjectKey: "page_markdown:page-1", entityKey: "page:page-1", branchKey: "content" },
+      { subjectKey: "page:page-1", entityKey: "page:page-1", branchKey: "overview" },
       { subjectKey: "row:db-1:row-1", entityKey: "database:db-1", branchKey: "rows" },
       { subjectKey: "workspace_snapshot", entityKey: null, branchKey: "workspace" },
     ],
@@ -1289,7 +1289,7 @@ test("fetchIntegrationContextForConnection reports unsupported providers without
 
   const result = await fetchIntegrationContextForConnection({
     store,
-    connectionId: "conn-github-1",
+    connectionId: "conn-linear-1",
     composioClient: {
       async executeAction<TData = unknown>(_params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
         throw new Error("should not execute");
