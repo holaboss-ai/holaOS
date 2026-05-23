@@ -1567,7 +1567,6 @@ interface RuntimeNotificationListOptionsPayload {
     deleted_embeddings: number;
     deleted_files: number;
   }
-
   interface AllWorkspaceIntegrationOverridesPayload {
     overrides: Array<{
       workspace_id: string;

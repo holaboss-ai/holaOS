@@ -2,10 +2,15 @@
 
 import { execFileSync } from "node:child_process";
 import {
+  chmodSync,
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
+  readlinkSync,
+  realpathSync,
   rmSync,
   writeFileSync
 } from "node:fs";
@@ -84,6 +89,48 @@ function runNpmCommand(args, options = {}) {
 function runBunCommand(args, options = {}) {
   runCommand("bun", args, options);
 }
+
+function materializeAbsoluteSymlinks(rootPath) {
+  if (!existsSync(rootPath)) {
+    return;
+  }
+
+  const details = lstatSync(rootPath);
+  if (details.isSymbolicLink()) {
+    materializeAbsoluteSymlink(rootPath);
+    const replacementDetails = lstatSync(rootPath);
+    if (!replacementDetails.isDirectory()) {
+      return;
+    }
+  } else if (!details.isDirectory()) {
+    return;
+  }
+
+  for (const entry of readdirSync(rootPath)) {
+    materializeAbsoluteSymlinks(path.join(rootPath, entry));
+  }
+}
+
+function materializeAbsoluteSymlink(linkPath) {
+  const rawTargetPath = readlinkSync(linkPath);
+  if (!path.isAbsolute(rawTargetPath)) {
+    return;
+  }
+
+  const resolvedTargetPath = realpathSync(linkPath);
+  const targetDetails = lstatSync(resolvedTargetPath);
+  rmSync(linkPath, { recursive: true, force: true });
+
+  if (targetDetails.isDirectory()) {
+    cpSync(resolvedTargetPath, linkPath, { recursive: true, verbatimSymlinks: true });
+    return;
+  }
+
+  cpSync(resolvedTargetPath, linkPath);
+  chmodSync(linkPath, targetDetails.mode & 0o777);
+}
+
+export { materializeAbsoluteSymlinks };
 
 // Sibling-staged workspace packages — when the source declares
 // `"@holaboss/runtime-state-store": "workspace:*"` and we stage
@@ -194,6 +241,9 @@ function stageNodePackage(outputRoot, packageDir, outputName) {
   // bun's resolver doesn't have to figure out what's transitive-dev.
   rmSync(path.join(targetDir, "node_modules"), { recursive: true, force: true });
   runBunCommand(["install", "--production"], { cwd: targetDir });
+  // Bun materializes file: sibling deps as absolute symlinks; those break
+  // macOS bundle verification once the runtime is embedded inside a .app.
+  materializeAbsoluteSymlinks(targetDir);
 
   rmSync(path.join(targetDir, "src"), { recursive: true, force: true });
   rmSync(path.join(targetDir, "tsconfig.json"), { force: true });
@@ -221,6 +271,7 @@ function stageSourcePackage(outputRoot, packageDir, outputName) {
     Object.keys(packageJson.dependencies).length > 0;
   if (hasDependencies) {
     runBunCommand(["install", "--production"], { cwd: targetDir });
+    materializeAbsoluteSymlinks(targetDir);
   }
 }
 

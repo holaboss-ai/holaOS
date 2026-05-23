@@ -10627,7 +10627,6 @@ type IntegrationMemoryClearResponsePayload = {
   deleted_embeddings: number;
   deleted_files: number;
 };
-
 async function fetchIntegrationContext(
   connectionId: string,
 ): Promise<IntegrationContextFetchStartResponsePayload> {
@@ -10676,7 +10675,6 @@ async function clearIntegrationMemory(
     },
   });
 }
-
 // Single entry point for "desktop directly calls a Composio action via
 // the new /api/composio/internal/tools/execute surface."
 //

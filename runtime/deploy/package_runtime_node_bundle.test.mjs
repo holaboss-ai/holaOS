@@ -20,7 +20,10 @@ for (const targetPath of [macosPackagerPath, linuxPackagerPath]) {
     const source = await readFile(targetPath, "utf8");
     const targetPlatform = path.basename(targetPath).includes("macos") ? "macos" : "linux";
 
-    assert.match(source, /npm install --prefix "\$\{BUILD_NODE_RUNTIME_DIR\}" "node@\$\{NODE_VERSION\}" "npm@\$\{NPM_VERSION\}"/);
+    assert.match(
+      source,
+      /(?:npm install --prefix "\$\{BUILD_NODE_RUNTIME_DIR\}" "node@\$\{NODE_VERSION\}" "npm@\$\{NPM_VERSION\}"|bun add "node@\$\{NODE_VERSION\}" "npm@\$\{NPM_VERSION\}")/,
+    );
     assert.match(source, /DEFAULT_RUNTIME_NODE_VERSION="24\.14\.1"/);
     assert.match(source, /NODE_VERSION="\$\{HOLABOSS_RUNTIME_NODE_VERSION:-\$\{DEFAULT_RUNTIME_NODE_VERSION\}\}"/);
     assert.match(source, /BUILD_NODE_RUNTIME_DIR="\$\{STAGING_ROOT\}\/build-node-runtime"/);
