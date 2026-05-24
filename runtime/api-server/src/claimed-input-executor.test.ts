@@ -15,7 +15,10 @@ import {
 } from "./claimed-input-executor.js";
 import type { MemoryServiceLike } from "./memory.js";
 import type { RuntimeSentryCaptureOptions } from "./runtime-sentry.js";
-import type { PiContextUsage } from "./session-checkpoint.js";
+import type {
+  PiContextUsage,
+  SessionCheckpointSessionOps,
+} from "./session-checkpoint.js";
 import {
   persistWorkspaceHarnessSessionId,
   readWorkspaceHarnessSessionId,
@@ -5000,9 +5003,9 @@ test("claimed input compacts a reused PI session before a smaller-window model r
         reason: null,
         diagnostics: {
           context_usage: {
-            tokens: 650_000,
-            contextWindow: 1_000_000,
-            percent: 65,
+            tokens: 110_000,
+            contextWindow: 400_000,
+            percent: 27.5,
           },
         },
         error: null,
@@ -5062,6 +5065,200 @@ test("claimed input compacts a reused PI session before a smaller-window model r
   assert.equal(preRunTelemetry?.previous_selected_model, "openai_codex/gpt-5.4");
   assert.equal(preRunTelemetry?.target_selected_model, "openai_codex/gpt-5.5");
   assert.ok(latestPiCompactionEntry(sessionFile));
+  store.close();
+});
+
+test("claimed input uses compaction diagnostics for the final pre-run fit check", async () => {
+  const store = makeStore("hb-claimed-input-prerun-compaction-diagnostics-");
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const workspaceDir = store.workspaceDir(workspace.id);
+  const { sessionManager, sessionFile } = createPiSessionFile({
+    workspaceDir,
+    sessionDir: path.join(workspaceDir, ".holaboss", "pi-sessions"),
+  });
+  sessionManager.appendMessage(piUserMessage("x".repeat(900_000)));
+  sessionManager.appendMessage(piAssistantMessage("previous response"));
+  store.upsertBinding({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    harness: "pi",
+    harnessSessionId: sessionFile,
+  });
+  const previousInput = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: { text: "previous", model: "openai_codex/gpt-5.4" },
+  });
+  store.updateInput({
+    workspaceId: workspace.id,
+    inputId: previousInput.inputId,
+    fields: { status: "DONE" },
+  });
+  store.upsertTurnResult({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    inputId: previousInput.inputId,
+    startedAt: "2026-05-11T00:00:00.000Z",
+    completedAt: "2026-05-11T00:01:00.000Z",
+    status: "completed",
+    stopReason: "completed",
+    assistantText: "previous response",
+    toolUsageSummary: {
+      total_calls: 0,
+      completed_calls: 0,
+      failed_calls: 0,
+      tool_names: [],
+      tool_ids: [],
+    },
+    permissionDenials: [],
+    promptSectionIds: [],
+    capabilityManifestFingerprint: null,
+    requestSnapshotFingerprint: null,
+    promptCacheProfile: null,
+    contextBudgetDecisions: {
+      context_usage: {
+        tokens: 650_000,
+        context_window: 1_000_000,
+        percent: 65,
+      },
+    },
+    tokenUsage: null,
+  });
+  const queued = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: { text: "new task", model: "openai_codex/gpt-5.5" },
+  });
+  upsertTurnRequestSnapshotFixture({
+    store,
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    inputId: queued.inputId,
+    model: "openai_codex/gpt-5.5",
+    providerId: "openai_codex",
+    modelId: "gpt-5.5",
+    instructionSize: 2_048,
+  });
+  const claimed = store.claimInputs({
+    limit: 1,
+    claimedBy: "sandbox-agent-ts-worker",
+    leaseSeconds: 300,
+  });
+  let compactionCalls = 0;
+  let runnerCalled = false;
+  const sessionCheckpointSessionOps = {
+    currentLeafCheckpointState() {
+      const branch = openPiSessionManager(sessionFile).getBranch();
+      return {
+        leafId:
+          typeof branch.at(-1)?.id === "string" ? String(branch.at(-1)?.id) : null,
+        latestCompactionId:
+          typeof latestPiCompactionEntry(sessionFile)?.id === "string"
+            ? String(latestPiCompactionEntry(sessionFile)?.id)
+            : null,
+      };
+    },
+    canMergeCheckpointIntoLiveSession() {
+      return true;
+    },
+    appendSnapshotCompactionToLiveSession() {
+      return true;
+    },
+  } satisfies SessionCheckpointSessionOps;
+
+  await processClaimedInput({
+    store,
+    record: claimed[0],
+    claimedBy: "sandbox-agent-ts-worker",
+    registerRunStartedFn: async () => {},
+    relayRunEventFn: async () => {},
+    sessionCheckpointSessionOps,
+    resolveRuntimeModelClientFn: () => ({
+      providerId: "openai_codex",
+      configuredProviderId: "openai_codex",
+      modelId: "gpt-5.5",
+      modelToken: "openai_codex/gpt-5.5",
+      modelProxyProvider: "openai_compatible",
+      modelClient: {
+        model_proxy_provider: "openai_compatible",
+        api_key: "runtime-api-key",
+        base_url: "https://runtime.example/api/v1/model-proxy",
+        default_headers: {
+          "X-API-Key": "runtime-api-key",
+        },
+      },
+    }),
+    runPiSessionCompactionFn: async (requestPayload) => {
+      compactionCalls += 1;
+      return {
+        compacted: true,
+        session_file: String(requestPayload.harness_session_id),
+        result: {
+          summary: "Compacted history",
+          firstKeptEntryId: "entry-1",
+          tokensBefore: 650_000,
+          details: { readFiles: [], modifiedFiles: [] },
+        },
+        reason: null,
+        diagnostics: {
+          context_usage: {
+            tokens: 110_000,
+            contextWindow: 400_000,
+            percent: 27.5,
+          },
+        },
+        error: null,
+      };
+    },
+    executeRunnerRequestFn: async (payload, options = {}) => {
+      runnerCalled = true;
+      await options.onEvent?.({
+        session_id: String(payload.session_id),
+        input_id: String(payload.input_id),
+        sequence: 1,
+        event_type: "run_started",
+        payload: {},
+      });
+      await options.onEvent?.({
+        session_id: String(payload.session_id),
+        input_id: String(payload.input_id),
+        sequence: 2,
+        event_type: "run_completed",
+        payload: {
+          status: "completed",
+          harness_session_id: sessionFile,
+          context_usage: {
+            tokens: 110_000,
+            context_window: 400_000,
+            percent: 27.5,
+          },
+        },
+      });
+      return {
+        events: [],
+        skippedLines: [],
+        stderr: "",
+        returnCode: 0,
+        sawTerminal: true,
+      };
+    },
+  });
+
+  assert.equal(compactionCalls, 1);
+  assert.equal(runnerCalled, true);
+  const turnResult = turnResultForInput(store, queued);
+  const preRunTelemetry = recordValue(
+    recordValue(turnResult?.contextBudgetDecisions)?.pre_run_compaction,
+  );
+  assert.equal(turnResult?.status, "completed");
+  assert.ok(preRunTelemetry);
+  assert.equal(preRunTelemetry?.initial_decision, "would_overflow");
+  assert.equal(preRunTelemetry?.final_decision, "fit");
   store.close();
 });
 
@@ -5287,9 +5484,9 @@ test("claimed input synthesizes a turn request snapshot for main-session backgro
         reason: null,
         diagnostics: {
           context_usage: {
-            tokens: 650_000,
-            contextWindow: 1_000_000,
-            percent: 65,
+            tokens: 110_000,
+            contextWindow: 400_000,
+            percent: 27.5,
           },
         },
         error: null,

@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 
 import type { PostRunJobRecord, RuntimeStateStore } from "@holaboss/runtime-state-store";
 
+import type { HarnessCatalogModelEntry } from "../../harnesses/src/model-routing.js";
+import { resolveHarnessModelBudget } from "../../harnesses/src/model-routing.js";
 import { resolveRuntimeModelClient } from "./agent-runtime-config.js";
 import { buildRunnerEnv } from "./runner-worker.js";
 import { captureRuntimeException } from "./runtime-sentry.js";
@@ -30,6 +32,7 @@ interface SessionCheckpointJobPayload {
   base_leaf_id: string | null;
   base_latest_compaction_id: string | null;
   context_usage: PiContextUsage;
+  effective_session_tokens: number | null;
 }
 
 export interface PiCompactionCommandResult {
@@ -154,6 +157,8 @@ export interface ForceSessionCompactionResult {
   merged: boolean;
   boundaryWritten: boolean;
   compaction: SessionCheckpointCompactionRecord | null;
+  contextUsage: PiContextUsage | null;
+  effectiveSessionTokens: number | null;
 }
 
 const require = createRequire(import.meta.url);
@@ -165,6 +170,10 @@ const PI_SESSION_MANAGER_MODULE_PATH = path.join(
   "core",
   "session-manager.js",
 );
+const EMPTY_MODEL_CATALOG = Object.create(null) as Record<
+  string,
+  Record<string, HarnessCatalogModelEntry>
+>;
 
 function loadPiSessionManagerModule(): {
   SessionManager: PiSessionManagerStatic;
@@ -241,7 +250,7 @@ function estimateJsonTokens(value: unknown): number | null {
   return Math.ceil(bytes / ESTIMATED_BYTES_PER_TOKEN);
 }
 
-function maxFiniteNumber(...values: Array<number | null | undefined>): number | null {
+export function maxFiniteNumber(...values: Array<number | null | undefined>): number | null {
   let max: number | null = null;
   for (const value of values) {
     if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -318,20 +327,6 @@ function checkpointModelProxyProvider(
   return nonEmptyString(modelClient?.model_proxy_provider);
 }
 
-function normalizeHarnessModelId(modelId: string): string {
-  const normalized = modelId.trim().toLowerCase();
-  if (!normalized) {
-    return "";
-  }
-  if (normalized.startsWith("openai/")) {
-    return normalized.slice("openai/".length);
-  }
-  if (normalized.startsWith("holaboss_model_proxy/")) {
-    return normalized.slice("holaboss_model_proxy/".length);
-  }
-  return normalized;
-}
-
 function selectedModelParts(
   selectedModel: string | null,
 ): { providerId: string; modelId: string } | null {
@@ -349,15 +344,12 @@ function selectedModelParts(
   };
 }
 
-function isOpenAiGpt5Model(modelId: string): boolean {
-  return /^gpt-5(?:[.-]|$)/.test(modelId);
-}
-
 function targetModelContextWindow(params: {
   snapshotPayload: Record<string, unknown> | null;
   selectedModel: string | null;
   fallbackContextWindow?: number | null;
 }): number {
+  const fallback = finiteNumberOrNull(params.fallbackContextWindow);
   const selectedFromSnapshot = params.snapshotPayload
     ? checkpointSelectedModel({
         snapshotPayload: params.snapshotPayload,
@@ -369,60 +361,74 @@ function targetModelContextWindow(params: {
   const selectedParts =
     selectedFromSnapshot ??
     selectedModelParts(params.selectedModel);
-  const modelProxyProvider = checkpointModelProxyProvider(params.snapshotPayload);
   if (selectedParts) {
-    const providerId = selectedParts.providerId.trim().toLowerCase();
-    const normalizedModelId = normalizeHarnessModelId(selectedParts.modelId);
-    const openAiCompat =
-      modelProxyProvider?.trim().toLowerCase() === "openai_compatible";
-    if (openAiCompat && providerId === "openai_codex") {
-      switch (normalizedModelId) {
-        case "gpt-5.5":
-        case "gpt-5.3-codex":
-          return 400_000;
-        case "gpt-5.4":
-        case "gpt-5.4-pro":
-          return 1_000_000;
-        default:
-          break;
-      }
-    }
-    if (
-      openAiCompat &&
-      isOpenAiGpt5Model(normalizedModelId) &&
-      (providerId === "openai_direct" ||
-        providerId === "openai" ||
-        providerId === "holaboss_model_proxy" ||
-        providerId === "holaboss")
-    ) {
-      switch (normalizedModelId) {
-        case "gpt-5.4":
-        case "gpt-5.4-pro":
-          return 1_000_000;
-        case "gpt-5.4-mini":
-          return 1_050_000;
-        case "gpt-5.5":
-        case "gpt-5.2":
-          return 400_000;
-        default:
-          break;
-      }
-    }
+    const snapshotRuntimeConfig = checkpointSnapshotRuntimeConfig(
+      params.snapshotPayload,
+    );
+    const snapshotHarnessRequest =
+      params.snapshotPayload && isRecord(params.snapshotPayload.harness_request)
+        ? params.snapshotPayload.harness_request
+        : null;
+    const runtimeModelClient =
+      snapshotRuntimeConfig && isRecord(snapshotRuntimeConfig.model_client)
+        ? snapshotRuntimeConfig.model_client
+        : null;
+    const harnessModelClient =
+      snapshotHarnessRequest && isRecord(snapshotHarnessRequest.model_client)
+        ? snapshotHarnessRequest.model_client
+        : null;
+    return resolveHarnessModelBudget(
+      {
+        provider_id: selectedParts.providerId,
+        model_id: selectedParts.modelId,
+        model_client: {
+          model_proxy_provider:
+            nonEmptyString(runtimeModelClient?.model_proxy_provider) ??
+            nonEmptyString(harnessModelClient?.model_proxy_provider) ??
+            checkpointModelProxyProvider(params.snapshotPayload) ??
+            "",
+          api_key: "",
+          base_url:
+            nonEmptyString(runtimeModelClient?.base_url) ??
+            nonEmptyString(harnessModelClient?.base_url) ??
+            "https://checkpoint.invalid",
+          default_headers:
+            Object.keys(stringRecord(runtimeModelClient?.default_headers)).length > 0
+              ? stringRecord(runtimeModelClient?.default_headers)
+              : stringRecord(harnessModelClient?.default_headers),
+        },
+      },
+      {
+        modelCatalog: EMPTY_MODEL_CATALOG,
+        ...(fallback !== null && fallback > 0
+          ? {
+              fallbackBudget: {
+                contextWindow: fallback,
+                maxTokens: 128_000,
+              },
+            }
+          : {}),
+      },
+    ).contextWindow;
   }
-  const fallback = finiteNumberOrNull(params.fallbackContextWindow);
-  if (fallback !== null && fallback > 0) {
-    return fallback;
-  }
-  return DEFAULT_PRE_RUN_CONTEXT_WINDOW;
+  return fallback !== null && fallback > 0
+    ? fallback
+    : DEFAULT_PRE_RUN_CONTEXT_WINDOW;
 }
 
-function estimateSessionContextTokens(sessionFile: string): number | null {
+export function estimateSessionContextTokens(sessionFile: string): number | null {
   const sessionManager = openSessionManager(sessionFile);
   const sessionContext = sessionManager.buildSessionContext?.();
   const messages = Array.isArray(sessionContext?.messages)
     ? sessionContext.messages
     : null;
   return messages ? estimateJsonTokens(messages) : null;
+}
+
+export function effectiveSessionTokenCount(
+  values: Array<number | null | undefined>,
+): number | null {
+  return maxFiniteNumber(...values);
 }
 
 function estimateSnapshotRequestTokens(
@@ -460,6 +466,22 @@ function normalizePiContextUsage(value: unknown): PiContextUsage | null {
     contextWindow,
     percent,
   };
+}
+
+export function effectiveSessionTokensFromContextBudgetDecisions(
+  value: unknown,
+): number | null {
+  const decisions = isRecord(value) ? value : null;
+  const preRunCompaction =
+    decisions && isRecord(decisions.pre_run_compaction)
+      ? decisions.pre_run_compaction
+      : null;
+  return effectiveSessionTokenCount([
+    finiteNumberOrNull(decisions?.effective_session_tokens),
+    finiteNumberOrNull(preRunCompaction?.after_session_tokens),
+    finiteNumberOrNull(preRunCompaction?.before_session_tokens),
+    normalizePiContextUsage(decisions?.context_usage)?.tokens,
+  ]);
 }
 
 export function sessionCheckpointThresholdTokens(
@@ -509,11 +531,16 @@ function recordSessionCheckpointResult(params: {
   });
 }
 
-export function shouldQueueSessionCheckpoint(contextUsage: PiContextUsage | null): boolean {
+export function shouldQueueSessionCheckpoint(
+  contextUsage: PiContextUsage | null,
+  effectiveSessionTokens: number | null = finiteNumberOrNull(
+    contextUsage?.tokens,
+  ),
+): boolean {
   if (
     !contextUsage ||
-    contextUsage.tokens == null ||
-    !Number.isFinite(contextUsage.tokens) ||
+    effectiveSessionTokens == null ||
+    !Number.isFinite(effectiveSessionTokens) ||
     !Number.isFinite(contextUsage.contextWindow) ||
     contextUsage.contextWindow <= 0
   ) {
@@ -522,7 +549,7 @@ export function shouldQueueSessionCheckpoint(contextUsage: PiContextUsage | null
   const thresholdTokens = sessionCheckpointThresholdTokens(
     contextUsage.contextWindow,
   );
-  return thresholdTokens !== null && contextUsage.tokens > thresholdTokens;
+  return thresholdTokens !== null && effectiveSessionTokens > thresholdTokens;
 }
 
 export function evaluatePreRunSessionCompaction(params: {
@@ -531,6 +558,7 @@ export function evaluatePreRunSessionCompaction(params: {
   selectedModel: string | null;
   previousSelectedModel: string | null;
   previousContextUsage: PiContextUsage | null;
+  currentSessionTokensOverride?: number | null;
 }): PreRunSessionCompactionDecision {
   const previousContextWindow =
     finiteNumberOrNull(params.previousContextUsage?.contextWindow) ?? null;
@@ -539,10 +567,12 @@ export function evaluatePreRunSessionCompaction(params: {
     selectedModel: params.selectedModel,
     fallbackContextWindow: previousContextWindow,
   });
-  const currentSessionTokens = maxFiniteNumber(
-    finiteNumberOrNull(params.previousContextUsage?.tokens),
-    estimateSessionContextTokens(params.liveSessionFile),
-  );
+  const currentSessionTokens =
+    finiteNumberOrNull(params.currentSessionTokensOverride) ??
+    maxFiniteNumber(
+      finiteNumberOrNull(params.previousContextUsage?.tokens),
+      estimateSessionContextTokens(params.liveSessionFile),
+    );
   const estimatedRequestTokens = estimateSnapshotRequestTokens(params.snapshotPayload);
   const projectedTotalTokens =
     currentSessionTokens !== null && estimatedRequestTokens !== null
@@ -660,14 +690,25 @@ export function enqueueSessionCheckpointJob(params: {
   harness: string;
   harnessSessionId: string | null;
   contextUsage: PiContextUsage | null;
+  effectiveSessionTokens?: number | null;
   wakeWorker?: (() => void) | null;
   sessionOps?: SessionCheckpointSessionOps;
 }): PostRunJobRecord | null {
   const harnessSessionId = nonEmptyString(params.harnessSessionId);
-  if (!harnessSessionId || !shouldQueueSessionCheckpoint(params.contextUsage)) {
+  if (!harnessSessionId) {
     return null;
   }
   if (!fs.existsSync(harnessSessionId)) {
+    return null;
+  }
+  const effectiveSessionTokens = effectiveSessionTokenCount([
+    params.effectiveSessionTokens,
+    params.contextUsage?.tokens,
+    estimateSessionContextTokens(harnessSessionId),
+  ]);
+  if (
+    !shouldQueueSessionCheckpoint(params.contextUsage, effectiveSessionTokens)
+  ) {
     return null;
   }
   const checkpointState = (
@@ -696,6 +737,7 @@ export function enqueueSessionCheckpointJob(params: {
       base_leaf_id: checkpointState.leafId,
       base_latest_compaction_id: checkpointState.latestCompactionId,
       context_usage: params.contextUsage,
+      effective_session_tokens: effectiveSessionTokens,
     },
   });
   params.wakeWorker?.();
@@ -710,6 +752,10 @@ function decodeSessionCheckpointJobPayload(value: unknown): SessionCheckpointJob
   const baseLeafId = nonEmptyString(payload.base_leaf_id);
   const baseLatestCompactionId = nonEmptyString(payload.base_latest_compaction_id);
   const contextUsage = normalizePiContextUsage(payload.context_usage);
+  const effectiveSessionTokens = effectiveSessionTokenCount([
+    finiteNumberOrNull(payload.effective_session_tokens),
+    contextUsage?.tokens,
+  ]);
   if (!harness || !baseHarnessSessionId || !baseSessionFingerprint || !contextUsage) {
     throw new Error("session checkpoint payload is missing required fields");
   }
@@ -720,6 +766,7 @@ function decodeSessionCheckpointJobPayload(value: unknown): SessionCheckpointJob
     base_leaf_id: baseLeafId,
     base_latest_compaction_id: baseLatestCompactionId,
     context_usage: contextUsage,
+    effective_session_tokens: effectiveSessionTokens,
   };
 }
 
@@ -877,6 +924,15 @@ function summarizeCheckpointCompactionResult(
       ? (jsonValue(result.error) as Record<string, unknown>)
       : null,
   };
+}
+
+function compactionResultContextUsage(
+  result: PiCompactionCommandResult | null | undefined,
+): PiContextUsage | null {
+  const diagnostics = result && isRecord(result.diagnostics)
+    ? result.diagnostics
+    : null;
+  return normalizePiContextUsage(diagnostics?.context_usage);
 }
 
 function compactionResultFromError(
@@ -1141,6 +1197,10 @@ export async function forceCompactSessionWithSnapshotMerge(params: {
           },
         );
         const compaction = summarizeCheckpointCompactionResult(result);
+        const contextUsage = compactionResultContextUsage(result);
+        const effectiveSessionTokens = effectiveSessionTokenCount([
+          contextUsage?.tokens,
+        ]);
         if (!result.compacted) {
           return {
             outcome: "not_compacted",
@@ -1148,6 +1208,8 @@ export async function forceCompactSessionWithSnapshotMerge(params: {
             merged: false,
             boundaryWritten: false,
             compaction,
+            contextUsage,
+            effectiveSessionTokens,
           };
         }
         const latestHarnessSessionId =
@@ -1162,6 +1224,8 @@ export async function forceCompactSessionWithSnapshotMerge(params: {
             merged: false,
             boundaryWritten: false,
             compaction,
+            contextUsage,
+            effectiveSessionTokens,
           };
         }
         if (!fs.existsSync(liveSessionPath)) {
@@ -1171,6 +1235,8 @@ export async function forceCompactSessionWithSnapshotMerge(params: {
             merged: false,
             boundaryWritten: false,
             compaction,
+            contextUsage,
+            effectiveSessionTokens,
           };
         }
         if (
@@ -1186,6 +1252,8 @@ export async function forceCompactSessionWithSnapshotMerge(params: {
             merged: false,
             boundaryWritten: false,
             compaction,
+            contextUsage,
+            effectiveSessionTokens,
           };
         }
         const merged = sessionOps.appendSnapshotCompactionToLiveSession({
@@ -1200,6 +1268,8 @@ export async function forceCompactSessionWithSnapshotMerge(params: {
             merged: false,
             boundaryWritten: false,
             compaction,
+            contextUsage,
+            effectiveSessionTokens,
           };
         }
         return {
@@ -1207,6 +1277,8 @@ export async function forceCompactSessionWithSnapshotMerge(params: {
           merged: true,
           boundaryWritten: false,
           compaction,
+          contextUsage,
+          effectiveSessionTokens,
         };
       } finally {
         maybeDeleteFile(compactedSessionPath);
@@ -1230,7 +1302,12 @@ export async function processSessionCheckpointJob(params: {
   }
   const payload = decodeSessionCheckpointJobPayload(params.record.payload);
   const sessionOps = params.sessionOps ?? defaultSessionCheckpointSessionOps;
-  if (!shouldQueueSessionCheckpoint(payload.context_usage)) {
+  if (
+    !shouldQueueSessionCheckpoint(
+      payload.context_usage,
+      payload.effective_session_tokens,
+    )
+  ) {
     recordSessionCheckpointResult({
       store: params.store,
       record: params.record,

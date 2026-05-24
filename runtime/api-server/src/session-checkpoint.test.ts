@@ -7,6 +7,7 @@ import test from "node:test";
 import { RuntimeStateStore } from "@holaboss/runtime-state-store";
 
 import {
+  evaluatePreRunSessionCompaction,
   type SessionCheckpointSessionOps,
   enqueueSessionCheckpointJob,
   processSessionCheckpointJob,
@@ -103,6 +104,54 @@ test("session checkpoint queues only after PI context crosses the 70 percent res
     }),
     true,
   );
+});
+
+test("session checkpoint can queue from effective session tokens when provider context usage stays low", () => {
+  assert.equal(
+    shouldQueueSessionCheckpoint(
+      {
+        tokens: 63_004,
+        contextWindow: 1_050_000,
+        percent: 6.0,
+      },
+      470_721,
+    ),
+    true,
+  );
+});
+
+test("pre-run compaction can trust a compaction-provided session token override", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hb-prerun-override-"));
+  const sessionFile = path.join(root, "session.jsonl");
+  fs.writeFileSync(sessionFile, '{"type":"header"}\n', "utf8");
+  try {
+    const decision = evaluatePreRunSessionCompaction({
+      liveSessionFile: sessionFile,
+      snapshotPayload: {
+        harness_request: {
+          provider_id: "openai_codex",
+          model_id: "gpt-5.5",
+          model_client: {
+            model_proxy_provider: "openai_compatible",
+            base_url: "https://runtime.example/api/v1/model-proxy",
+          },
+          instruction: "continue",
+        },
+      },
+      selectedModel: "openai_codex/gpt-5.5",
+      previousSelectedModel: "openai_codex/gpt-5.4",
+      previousContextUsage: {
+        tokens: 650_000,
+        contextWindow: 1_000_000,
+        percent: 65,
+      },
+      currentSessionTokensOverride: 110_000,
+    });
+    assert.equal(decision.decision, "fit");
+    assert.equal(decision.currentSessionTokens, 110_000);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 function appendFakeCompaction(params: {

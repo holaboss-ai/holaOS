@@ -42,6 +42,9 @@ import {
 import type { MemoryServiceLike } from "./memory.js";
 import { createBackgroundTaskMemoryModelClient } from "./background-task-model.js";
 import {
+  effectiveSessionTokenCount,
+  effectiveSessionTokensFromContextBudgetDecisions,
+  estimateSessionContextTokens,
   evaluatePreRunSessionCompaction,
   enqueueSessionCheckpointJob,
   forceCompactSessionWithSnapshotMerge,
@@ -1940,6 +1943,32 @@ function contextUsagePayload(contextUsage: PiContextUsage | null): Record<string
   };
 }
 
+function effectiveSessionTokensForTurn(params: {
+  contextUsage: PiContextUsage | null;
+  harnessSessionId?: string | null;
+  preRunCompaction?: PreRunCompactionTelemetryRecord | null;
+}): number | null {
+  const preRunSessionTokens =
+    params.preRunCompaction?.after_session_tokens ??
+    params.preRunCompaction?.before_session_tokens ??
+    null;
+  let serializedSessionTokens: number | null = null;
+  if (params.harnessSessionId && fs.existsSync(params.harnessSessionId)) {
+    try {
+      serializedSessionTokens = estimateSessionContextTokens(
+        params.harnessSessionId,
+      );
+    } catch {
+      serializedSessionTokens = null;
+    }
+  }
+  return effectiveSessionTokenCount([
+    preRunSessionTokens,
+    params.contextUsage?.tokens,
+    serializedSessionTokens,
+  ]);
+}
+
 function latestPriorTurnCompactionContext(params: {
   store: RuntimeStateStore;
   workspaceId: string;
@@ -1966,14 +1995,29 @@ function latestPriorTurnCompactionContext(params: {
     const contextBudgetDecisions = isRecord(turn.contextBudgetDecisions)
       ? turn.contextBudgetDecisions
       : null;
+    const normalizedContextUsage = normalizePiContextUsage(
+      contextBudgetDecisions?.context_usage,
+    );
+    const previousEffectiveSessionTokens =
+      effectiveSessionTokensFromContextBudgetDecisions(contextBudgetDecisions);
     return {
       previousSelectedModel:
         typeof previousInput?.payload.model === "string"
           ? previousInput.payload.model.trim() || null
           : null,
-      previousContextUsage: normalizePiContextUsage(
-        contextBudgetDecisions?.context_usage,
-      ),
+      previousContextUsage:
+        normalizedContextUsage && previousEffectiveSessionTokens !== null
+          ? {
+              ...normalizedContextUsage,
+              tokens: previousEffectiveSessionTokens,
+              percent:
+                normalizedContextUsage.contextWindow > 0
+                  ? (previousEffectiveSessionTokens /
+                      normalizedContextUsage.contextWindow) *
+                    100
+                  : normalizedContextUsage.percent,
+            }
+          : normalizedContextUsage,
     };
   }
   return {
@@ -2234,6 +2278,7 @@ function buildContextBudgetObservabilityPayload(params: {
   telemetry: TurnContextBudgetTelemetry;
   toolCallCount: number;
   checkpointQueued: boolean;
+  effectiveSessionTokens?: number | null;
   preRunCompaction?: PreRunCompactionTelemetryRecord | null;
   overflowRecovery?: OverflowRecoveryTelemetryRecord | null;
   providerTerminationRecovery?: ProviderTerminationRecoveryTelemetryRecord | null;
@@ -2278,13 +2323,17 @@ function buildContextBudgetObservabilityPayload(params: {
     mode: "observability_only",
     pressure_stage: null,
     lane_decisions: [],
-    checkpoint_recommended: shouldQueueSessionCheckpoint(params.contextUsage),
+    checkpoint_recommended: shouldQueueSessionCheckpoint(
+      params.contextUsage,
+      params.effectiveSessionTokens ?? null,
+    ),
     checkpoint_queued: params.checkpointQueued,
     prompt_cache_stable_candidate: promptCacheStableCandidate(params.promptCacheProfile),
     tool_replay_trimmed: false,
     retrieval_clipped: false,
     reason_codes: [],
     context_usage: contextUsagePayload(params.contextUsage),
+    effective_session_tokens: params.effectiveSessionTokens ?? null,
     model_context_window: params.contextUsage?.contextWindow ?? null,
     ...(params.preRunCompaction
       ? { pre_run_compaction: preRunCompactionPayload(params.preRunCompaction) }
@@ -2344,6 +2393,7 @@ function buildMergedContextBudgetPayload(params: {
   toolReplayTrimmed: boolean;
   retrievalClipped?: boolean;
   checkpointQueued: boolean;
+  effectiveSessionTokens?: number | null;
   preRunCompaction?: PreRunCompactionTelemetryRecord | null;
   overflowRecovery?: OverflowRecoveryTelemetryRecord | null;
   providerTerminationRecovery?: ProviderTerminationRecoveryTelemetryRecord | null;
@@ -2360,6 +2410,7 @@ function buildMergedContextBudgetPayload(params: {
       telemetry: params.telemetry,
       toolCallCount: params.toolCallCount,
       checkpointQueued: params.checkpointQueued,
+      effectiveSessionTokens: params.effectiveSessionTokens,
       preRunCompaction: params.preRunCompaction,
       overflowRecovery: params.overflowRecovery,
       providerTerminationRecovery: params.providerTerminationRecovery,
@@ -4778,7 +4829,12 @@ export async function processClaimedInput(params: {
             snapshotPayload,
             selectedModel,
             previousSelectedModel,
-            previousContextUsage: null,
+            previousContextUsage: compactionResult.merged
+              ? compactionResult.contextUsage
+              : null,
+            currentSessionTokensOverride: compactionResult.merged
+              ? compactionResult.effectiveSessionTokens
+              : null,
           });
           const currentPreRunCompaction =
             preRunCompaction ?? initialPreRunCompaction;
@@ -5636,6 +5692,11 @@ export async function processClaimedInput(params: {
         store.getWorkspace(record.workspaceId)?.harness ??
         normalizeHarnessId(priorExecContext.harness) ??
         "pi";
+      const effectiveSessionTokens = effectiveSessionTokensForTurn({
+        contextUsage,
+        harnessSessionId: checkpointHarnessSessionId,
+        preRunCompaction,
+      });
       if (syncedEphemeralLiveSessionFile) {
         if (deferredTerminalEvent) {
           deferredTerminalEvent.payload.harness_session_id =
@@ -5667,6 +5728,7 @@ export async function processClaimedInput(params: {
               })?.harnessSessionId ??
                 null),
             contextUsage,
+            effectiveSessionTokens,
             wakeWorker: params.wakeDurableMemoryWorker ?? null,
           });
       const contextBudgetDecisions = buildMergedContextBudgetPayload({
@@ -5681,6 +5743,7 @@ export async function processClaimedInput(params: {
         toolCallCount: toolCallsById.size,
         toolReplayTrimmed,
         checkpointQueued: Boolean(checkpointJob),
+        effectiveSessionTokens,
         preRunCompaction,
         overflowRecovery,
         providerTerminationRecovery,
@@ -5940,6 +6003,11 @@ export async function processClaimedInput(params: {
       }
       const message = error instanceof Error ? error.message : String(error);
       const errorStopReason = executorFailureStopReason(error);
+      const effectiveSessionTokens = effectiveSessionTokensForTurn({
+        contextUsage,
+        harnessSessionId: checkpointHarnessSessionId,
+        preRunCompaction,
+      });
       store.updateInput({
         workspaceId: record.workspaceId,
         inputId: record.inputId,
@@ -5974,6 +6042,7 @@ export async function processClaimedInput(params: {
             toolCallCount: toolCallsById.size,
             toolReplayTrimmed,
             checkpointQueued: false,
+            effectiveSessionTokens,
             preRunCompaction,
             overflowRecovery,
             providerTerminationRecovery,
@@ -6022,6 +6091,7 @@ export async function processClaimedInput(params: {
           toolCallCount: toolCallsById.size,
           toolReplayTrimmed,
           checkpointQueued: false,
+          effectiveSessionTokens,
           preRunCompaction,
           overflowRecovery,
           providerTerminationRecovery,
