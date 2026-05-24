@@ -2694,8 +2694,10 @@ export function supportsIntegrationContextFetchProvider(providerId: string): boo
     || normalized === "github"
     || normalized === "notion"
     || normalized === "slack"
+    || normalized === "googlecalendar"
     || normalized === "googledrive"
-    || normalized === "twitter";
+    || normalized === "twitter"
+    || normalized === "linkedin";
 }
 
 async function fetchGmailIntegrationContext(params: {
@@ -4780,8 +4782,26 @@ export async function fetchIntegrationContextForConnection(params: {
       progress,
     });
   }
+  if (providerId === "googlecalendar") {
+    return fetchGoogleCalendarIntegrationContext({
+      store: params.store,
+      connectionId: connection.connectionId,
+      composio,
+      fetchedAt,
+      progress,
+    });
+  }
   if (providerId === "twitter") {
     return fetchTwitterIntegrationContext({
+      store: params.store,
+      connectionId: connection.connectionId,
+      composio,
+      fetchedAt,
+      progress,
+    });
+  }
+  if (providerId === "linkedin") {
+    return fetchLinkedInIntegrationContext({
       store: params.store,
       connectionId: connection.connectionId,
       composio,
