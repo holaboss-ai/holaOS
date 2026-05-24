@@ -1866,6 +1866,331 @@ test("fetchIntegrationContextForConnection ingests Twitter profile and recent po
   store.close();
 });
 
+test("fetchIntegrationContextForConnection ingests Google Calendar profile, calendars, and upcoming events into the global integration tree", async () => {
+  const root = makeTempDir("hb-integration-context-fetch-googlecalendar-");
+  const workspaceRoot = path.join(root, "workspace-root");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertIntegrationConnection({
+    connectionId: "conn-googlecalendar-1",
+    providerId: "googlecalendar",
+    ownerUserId: "user-1",
+    accountLabel: "Google Calendar (Managed)",
+    accountExternalId: "ca_calendar_1",
+    accountHandle: null,
+    accountEmail: null,
+    authMode: "composio",
+    grantedScopes: [],
+    status: "active",
+    secretRef: null,
+  });
+
+  const calls: Array<{ toolSlug: string; arguments: Record<string, unknown> }> = [];
+  const result = await fetchIntegrationContextForConnection({
+    store,
+    connectionId: "conn-googlecalendar-1",
+    composioClient: {
+      async executeAction<TData = unknown>(params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
+        calls.push({
+          toolSlug: params.toolSlug,
+          arguments: params.arguments ?? {},
+        });
+        if (params.toolSlug === "GOOGLECALENDAR_LIST_CALENDARS") {
+          return {
+            data: {
+              items: [
+                {
+                  id: "ops@example.com",
+                  summary: "Product Ops",
+                  description: "Primary operating calendar.",
+                  primary: true,
+                  accessRole: "owner",
+                  timeZone: "America/Los_Angeles",
+                },
+                {
+                  id: "team@example.com",
+                  summary: "Team Calendar",
+                  description: "Cross-functional planning calendar.",
+                  primary: false,
+                  accessRole: "reader",
+                  timeZone: "America/New_York",
+                },
+              ],
+            } as TData,
+            logId: "log-calendar-list",
+          };
+        }
+        if (params.toolSlug === "GOOGLECALENDAR_EVENTS_LIST" && params.arguments?.calendarId === "ops@example.com") {
+          return {
+            data: {
+              items: [
+                {
+                  id: "event-1",
+                  summary: "Launch sync",
+                  description: "Finalize launch checklist and owner handoff.",
+                  status: "confirmed",
+                  htmlLink: "https://calendar.google.com/calendar/event?eid=event-1",
+                  start: { dateTime: "2026-05-24T08:00:00Z" },
+                  end: { dateTime: "2026-05-24T08:30:00Z" },
+                  organizer: {
+                    displayName: "Ada",
+                    email: "ada@example.com",
+                  },
+                  location: "Zoom",
+                },
+                {
+                  id: "event-cancelled",
+                  summary: "Cancelled event",
+                  status: "cancelled",
+                  start: { dateTime: "2026-05-24T09:00:00Z" },
+                  end: { dateTime: "2026-05-24T09:30:00Z" },
+                },
+              ],
+            } as TData,
+            logId: "log-calendar-events-ops",
+          };
+        }
+        if (params.toolSlug === "GOOGLECALENDAR_EVENTS_LIST" && params.arguments?.calendarId === "team@example.com") {
+          return {
+            data: {
+              items: [
+                {
+                  id: "event-2",
+                  summary: "Team planning",
+                  description: "Review next sprint scope.",
+                  status: "confirmed",
+                  htmlLink: "https://calendar.google.com/calendar/event?eid=event-2",
+                  start: { dateTime: "2026-05-24T10:00:00Z" },
+                  end: { dateTime: "2026-05-24T11:00:00Z" },
+                  organizer: {
+                    displayName: "Grace",
+                    email: "grace@example.com",
+                  },
+                },
+              ],
+            } as TData,
+            logId: "log-calendar-events-team",
+          };
+        }
+        throw new Error(`unexpected tool slug: ${params.toolSlug}`);
+      },
+    },
+  });
+
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls[0], {
+    toolSlug: "GOOGLECALENDAR_LIST_CALENDARS",
+    arguments: {
+      max_results: 6,
+    },
+  });
+  assert.equal(calls[1]?.toolSlug, "GOOGLECALENDAR_EVENTS_LIST");
+  assert.equal(calls[1]?.arguments.calendarId, "ops@example.com");
+  assert.equal(calls[1]?.arguments.maxResults, 8);
+  assert.equal(calls[1]?.arguments.singleEvents, true);
+  assert.equal(calls[1]?.arguments.orderBy, "startTime");
+  assert.equal(typeof calls[1]?.arguments.timeMin, "string");
+  assert.equal(calls[2]?.toolSlug, "GOOGLECALENDAR_EVENTS_LIST");
+  assert.equal(calls[2]?.arguments.calendarId, "team@example.com");
+  assert.equal(calls[2]?.arguments.maxResults, 8);
+  assert.equal(calls[2]?.arguments.singleEvents, true);
+  assert.equal(calls[2]?.arguments.orderBy, "startTime");
+  assert.equal(typeof calls[2]?.arguments.timeMin, "string");
+  assert.equal(result.supported, true);
+  assert.equal(result.provider_id, "googlecalendar");
+  assert.equal(result.account_key, "ops@example.com");
+  assert.equal(result.account_label, "Product Ops");
+  assert.equal(result.leaves_created, 5);
+  assert.equal(result.messages_seen, 4);
+  assert.equal(result.messages_persisted, 4);
+  assert.ok(result.tree_id);
+  assert.equal(result.summary_nodes, countSummaryLikeSemanticIntegrationNodes({
+    store,
+    treeId: result.tree_id,
+  }));
+
+  const updatedConnection = store.getIntegrationConnection("conn-googlecalendar-1");
+  assert.equal(updatedConnection?.accountEmail, "ops@example.com");
+
+  const trees = store.listIntegrationTrees({
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.equal(trees.length, 1);
+  assert.equal(trees[0]?.provider, "googlecalendar");
+  assert.equal(trees[0]?.accountKey, "ops@example.com");
+
+  const leaves = store.listIntegrationLeaves({
+    treeId: trees[0]!.treeId,
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.equal(leaves.length, 5);
+  assert.deepEqual(
+    leaves.map((leaf) => ({
+      subjectKey: leaf.subjectKey,
+      entityKey: leaf.entityKey,
+      branchKey: leaf.branchKey,
+      sourceType: leaf.sourceType,
+    })).sort((left, right) => left.subjectKey.localeCompare(right.subjectKey)),
+    [
+      { subjectKey: "calendar:ops@example.com", entityKey: "calendar:ops@example.com", branchKey: "overview", sourceType: "googlecalendar.calendar" },
+      { subjectKey: "calendar:team@example.com", entityKey: "calendar:team@example.com", branchKey: "overview", sourceType: "googlecalendar.calendar" },
+      { subjectKey: "event:ops@example.com:event-1", entityKey: "calendar:ops@example.com", branchKey: "events", sourceType: "googlecalendar.event" },
+      { subjectKey: "event:team@example.com:event-2", entityKey: "calendar:team@example.com", branchKey: "events", sourceType: "googlecalendar.event" },
+      { subjectKey: "profile", entityKey: null, branchKey: "profile", sourceType: "googlecalendar.profile" },
+    ],
+  );
+
+  const semanticNodes = store.listSemanticMemoryNodes({
+    category: "integration",
+    treeId: trees[0]!.treeId,
+    limit: 100,
+    offset: 0,
+  });
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "calendars"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "calendar" && node.title === "Product Ops"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "calendar" && node.title === "Team Calendar"));
+
+  const memoryRoot = globalMemoryDirForWorkspaceRoot(workspaceRoot);
+  for (const leaf of leaves) {
+    assert.ok(fs.existsSync(path.join(memoryRoot, leaf.path)));
+  }
+
+  store.close();
+});
+
+test("fetchIntegrationContextForConnection ingests a LinkedIn profile into the global integration tree", async () => {
+  const root = makeTempDir("hb-integration-context-fetch-linkedin-");
+  const workspaceRoot = path.join(root, "workspace-root");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertIntegrationConnection({
+    connectionId: "conn-linkedin-1",
+    providerId: "linkedin",
+    ownerUserId: "user-1",
+    accountLabel: "LinkedIn (Managed)",
+    accountExternalId: "ca_linkedin_1",
+    accountHandle: null,
+    accountEmail: null,
+    authMode: "composio",
+    grantedScopes: [],
+    status: "active",
+    secretRef: null,
+  });
+
+  const calls: Array<{ toolSlug: string; arguments: Record<string, unknown> }> = [];
+  const result = await fetchIntegrationContextForConnection({
+    store,
+    connectionId: "conn-linkedin-1",
+    composioClient: {
+      async executeAction<TData = unknown>(params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
+        calls.push({
+          toolSlug: params.toolSlug,
+          arguments: params.arguments ?? {},
+        });
+        if (params.toolSlug === "LINKEDIN_GET_MY_INFO") {
+          return {
+            data: {
+              id: "person-1",
+              name: "Ada Lovelace",
+              email: "ada@example.com",
+              picture: "https://example.com/ada.jpg",
+              author: "urn:li:person:person-1",
+            } as TData,
+            logId: "log-linkedin-me",
+          };
+        }
+        throw new Error(`unexpected tool slug: ${params.toolSlug}`);
+      },
+    },
+  });
+
+  assert.deepEqual(calls, [
+    {
+      toolSlug: "LINKEDIN_GET_MY_INFO",
+      arguments: {},
+    },
+  ]);
+  assert.equal(result.supported, true);
+  assert.equal(result.provider_id, "linkedin");
+  assert.equal(result.account_key, "ada@example.com");
+  assert.equal(result.account_label, "Ada Lovelace");
+  assert.equal(result.leaves_created, 1);
+  assert.equal(result.messages_seen, 0);
+  assert.equal(result.messages_persisted, 0);
+  assert.ok(result.tree_id);
+  assert.equal(result.summary_nodes, countSummaryLikeSemanticIntegrationNodes({
+    store,
+    treeId: result.tree_id,
+  }));
+
+  const updatedConnection = store.getIntegrationConnection("conn-linkedin-1");
+  assert.equal(updatedConnection?.accountEmail, "ada@example.com");
+
+  const trees = store.listIntegrationTrees({
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.equal(trees.length, 1);
+  assert.equal(trees[0]?.provider, "linkedin");
+  assert.equal(trees[0]?.accountKey, "ada@example.com");
+
+  const leaves = store.listIntegrationLeaves({
+    treeId: trees[0]!.treeId,
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.equal(leaves.length, 1);
+  assert.deepEqual(
+    leaves.map((leaf) => ({
+      subjectKey: leaf.subjectKey,
+      entityKey: leaf.entityKey,
+      branchKey: leaf.branchKey,
+      sourceType: leaf.sourceType,
+    })).sort((left, right) => left.subjectKey.localeCompare(right.subjectKey)),
+    [
+      { subjectKey: "profile", entityKey: null, branchKey: "profile", sourceType: "linkedin.profile" },
+    ],
+  );
+
+  const semanticNodes = store.listSemanticMemoryNodes({
+    category: "integration",
+    treeId: trees[0]!.treeId,
+    limit: 100,
+    offset: 0,
+  });
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "profile"));
+  assert.ok(!semanticNodes.some((node) => node.nodeKind === "posts"));
+
+  const memoryRoot = globalMemoryDirForWorkspaceRoot(workspaceRoot);
+  for (const leaf of leaves) {
+    assert.ok(fs.existsSync(path.join(memoryRoot, leaf.path)));
+  }
+
+  store.close();
+});
+
 test("fetchIntegrationContextForConnection reports unsupported providers without writing tree state", async () => {
   const root = makeTempDir("hb-integration-context-unsupported-");
   const store = new RuntimeStateStore({

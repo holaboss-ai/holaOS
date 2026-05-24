@@ -25,7 +25,6 @@ const SLACK_CHANNEL_HISTORY_LIMIT = 12;
 const SLACK_CHANNEL_HISTORY_TARGETS = 4;
 const GOOGLE_CALENDAR_LIMIT = 6;
 const GOOGLE_CALENDAR_EVENT_LIMIT = 8;
-const LINKEDIN_POST_LIMIT = 10;
 
 type ComposioExecuteClient = Pick<ComposioApiClient, "executeAction"> & {
   proxyRequest?: ComposioApiClient["proxyRequest"];
@@ -247,30 +246,20 @@ interface GoogleCalendarEventPayload {
 }
 
 interface LinkedInUserInfoPayload {
+  id?: unknown;
+  author?: unknown;
   sub?: unknown;
   name?: unknown;
   given_name?: unknown;
   family_name?: unknown;
+  firstName?: unknown;
+  lastName?: unknown;
+  localizedFirstName?: unknown;
+  localizedLastName?: unknown;
   picture?: unknown;
   email?: unknown;
   email_verified?: unknown;
   locale?: unknown;
-}
-
-interface LinkedInMePayload {
-  id?: unknown;
-}
-
-interface LinkedInPostPayload {
-  id?: unknown;
-  commentary?: unknown;
-  lifecycleState?: unknown;
-  lastModifiedAt?: unknown;
-  createdAt?: unknown;
-  publishedAt?: unknown;
-  visibility?: unknown;
-  author?: unknown;
-  content?: unknown;
 }
 
 interface SlackAuthPayload {
@@ -752,15 +741,6 @@ function googleCalendarEventsFromData(value: unknown): GoogleCalendarEventPayloa
 function linkedInUserInfoFromData(value: unknown): LinkedInUserInfoPayload | null {
   const unwrapped = unwrapActionData(value);
   return isRecord(unwrapped) ? (unwrapped as LinkedInUserInfoPayload) : null;
-}
-
-function linkedInMeFromData(value: unknown): LinkedInMePayload | null {
-  const unwrapped = unwrapActionData(value);
-  return isRecord(unwrapped) ? (unwrapped as LinkedInMePayload) : null;
-}
-
-function linkedInPostsFromData(value: unknown): LinkedInPostPayload[] {
-  return recordsFromData(value, ["elements", "posts"]) as LinkedInPostPayload[];
 }
 
 function slackAuthFromData(value: unknown): SlackAuthPayload | null {
@@ -1950,16 +1930,34 @@ function buildGoogleCalendarEventCandidate(params: {
   };
 }
 
-function linkedInCommentaryText(value: unknown): string | null {
-  if (typeof value === "string") {
-    return compactWhitespace(value) || null;
+function linkedInProfileName(value: LinkedInUserInfoPayload): string | null {
+  const direct = normalizeString(value.name);
+  if (direct) {
+    return direct;
   }
-  if (!isRecord(value)) {
-    return null;
+  const given = normalizeString(value.given_name)
+    ?? normalizeString(value.firstName)
+    ?? normalizeString(value.localizedFirstName);
+  const family = normalizeString(value.family_name)
+    ?? normalizeString(value.lastName)
+    ?? normalizeString(value.localizedLastName);
+  const combined = [given, family]
+    .filter((part): part is string => Boolean(part))
+    .join(" ")
+    .trim();
+  return combined.length > 0 ? combined : null;
+}
+
+function linkedInProfilePersonId(value: LinkedInUserInfoPayload): string | null {
+  const direct = normalizeString(value.id);
+  if (direct) {
+    return direct;
   }
-  return normalizeString(value.text)
-    ?? normalizeString(value.commentary)
-    ?? null;
+  const author = normalizeString(value.author);
+  if (author?.startsWith("urn:li:person:")) {
+    return author.slice("urn:li:person:".length);
+  }
+  return null;
 }
 
 function buildLinkedInProfileCandidate(params: {
@@ -1971,7 +1969,7 @@ function buildLinkedInProfileCandidate(params: {
   personId: string | null;
   fetchedAt: string;
 }): IntegrationLeafCandidate {
-  const name = normalizeString(params.userInfo.name);
+  const name = linkedInProfileName(params.userInfo);
   const givenName = normalizeString(params.userInfo.given_name);
   const familyName = normalizeString(params.userInfo.family_name);
   const email = normalizeString(params.userInfo.email);
@@ -2021,71 +2019,6 @@ function buildLinkedInProfileCandidate(params: {
     externalObjectType: "linkedin_profile",
     observedAt: params.fetchedAt,
     confidence: 0.95,
-  };
-}
-
-function buildLinkedInPostCandidate(params: {
-  ownerUserId: string;
-  accountKey: string;
-  accountLabel: string;
-  authorUrn: string | null;
-  post: LinkedInPostPayload;
-  fetchedAt: string;
-}): IntegrationLeafCandidate | null {
-  const postId = normalizeString(params.post.id);
-  const commentary = linkedInCommentaryText(params.post.commentary) ?? "LinkedIn post";
-  if (!postId) {
-    return null;
-  }
-  const lifecycleState = normalizeString(params.post.lifecycleState);
-  const visibility = normalizeString(params.post.visibility);
-  const author = normalizeString(params.post.author) ?? params.authorUrn;
-  const observedAt = timestampToIso(params.post.publishedAt)
-    ?? timestampToIso(params.post.lastModifiedAt)
-    ?? timestampToIso(params.post.createdAt)
-    ?? params.fetchedAt;
-  const title = clipText(commentary, 72);
-  const lines = [
-    `# ${title}`,
-    "",
-    `- Account: ${params.accountLabel}`,
-    "- Provider: LinkedIn",
-    `- Post ID: ${postId}`,
-    author ? `- Author: ${author}` : null,
-    lifecycleState ? `- Lifecycle: ${lifecycleState}` : null,
-    visibility ? `- Visibility: ${visibility}` : null,
-    observedAt ? `- Observed at: ${observedAt}` : null,
-    "",
-    "## Summary",
-    "",
-    commentary,
-    "",
-  ].filter((line): line is string => typeof line === "string");
-  return {
-    provider: "linkedin",
-    ownerUserId: params.ownerUserId,
-    accountKey: params.accountKey,
-    accountLabel: params.accountLabel,
-    subjectKey: `post:${postId}`,
-    entityKey: `post:${postId}`,
-    entityLabel: title,
-    branchKey: "overview",
-    branchLabel: "Overview",
-    title,
-    summary: clipText(commentary, 220),
-    content: `${lines.join("\n").trim()}\n`,
-    tags: [
-      "linkedin",
-      "post",
-      ...(lifecycleState ? [safeTag(`state:${lifecycleState}`)] : []),
-      ...(visibility ? [safeTag(`visibility:${visibility}`)] : []),
-    ].filter((item): item is string => Boolean(item)),
-    sourceType: "linkedin.post",
-    sourceEventId: `linkedin-post:${postId}`,
-    externalObjectId: postId,
-    externalObjectType: "linkedin_post",
-    observedAt,
-    confidence: 0.82,
   };
 }
 
@@ -4055,9 +3988,6 @@ async function fetchGoogleCalendarIntegrationContext(params: {
   if (!connection) {
     throw new Error(`integration connection ${params.connectionId} not found`);
   }
-  if (!params.composio.proxyRequest) {
-    throw new Error("Google Calendar context fetch requires Composio proxyRequest support");
-  }
   const connectedAccountId = connection.accountExternalId ?? "";
   const persistStats = { created: 0, superseding: 0, unchanged: 0 };
   const actions: string[] = [];
@@ -4088,12 +4018,14 @@ async function fetchGoogleCalendarIntegrationContext(params: {
   };
 
   syncProgress({ current_chunk_label: "Fetching Google Calendar calendars" });
-  const calendarsResult = await params.composio.proxyRequest({
+  const calendarsResult = await params.composio.executeAction({
     connectedAccountId,
-    endpoint: `/calendar/v3/users/me/calendarList?maxResults=${GOOGLE_CALENDAR_LIMIT}&fields=items(id,summary,description,primary,accessRole,timeZone),nextPageToken`,
-    method: "GET",
+    toolSlug: "GOOGLECALENDAR_LIST_CALENDARS",
+    arguments: {
+      max_results: GOOGLE_CALENDAR_LIMIT,
+    },
   });
-  actions.push("GOOGLECALENDAR_PROXY:/calendar/v3/users/me/calendarList");
+  actions.push("GOOGLECALENDAR_LIST_CALENDARS");
   const calendars = googleCalendarListEntriesFromData(calendarsResult.data);
   const sortedCalendars = [...calendars].sort((left, right) => {
     const leftPrimary = normalizeBoolean(left.primary) === true ? 0 : 1;
@@ -4178,38 +4110,55 @@ async function fetchGoogleCalendarIntegrationContext(params: {
     }
 
     if (calendarId) {
-      const eventsResult = await params.composio.proxyRequest({
-        connectedAccountId,
-        endpoint: `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?maxResults=${GOOGLE_CALENDAR_EVENT_LIMIT}&singleEvents=true&orderBy=startTime&timeMin=${encodeURIComponent(params.fetchedAt)}&fields=items(id,summary,description,status,htmlLink,start,end,organizer(displayName,email),location),nextPageToken`,
-        method: "GET",
-      });
-      actions.push("GOOGLECALENDAR_PROXY:/calendar/v3/calendars/{id}/events");
-      const events = googleCalendarEventsFromData(eventsResult.data)
-        .filter((event) => normalizeString(event.status) !== "cancelled");
-      chunksTotal += events.length;
-      for (const event of events) {
-        const candidate = buildGoogleCalendarEventCandidate({
-          ownerUserId: connection.ownerUserId,
-          accountKey,
-          accountLabel,
-          calendarId,
-          calendarTitle,
-          event,
-          fetchedAt: params.fetchedAt,
+      try {
+        const eventsResult = await params.composio.executeAction({
+          connectedAccountId,
+          toolSlug: "GOOGLECALENDAR_EVENTS_LIST",
+          arguments: {
+            calendarId,
+            maxResults: GOOGLE_CALENDAR_EVENT_LIMIT,
+            singleEvents: true,
+            orderBy: "startTime",
+            timeMin: params.fetchedAt,
+          },
         });
-        contentSeen += 1;
-        if (!candidate) {
-          continue;
+        actions.push(`GOOGLECALENDAR_EVENTS_LIST:${calendarId}`);
+        const events = googleCalendarEventsFromData(eventsResult.data)
+          .filter((event) => normalizeString(event.status) !== "cancelled");
+        chunksTotal += events.length;
+        for (const event of events) {
+          const candidate = buildGoogleCalendarEventCandidate({
+            ownerUserId: connection.ownerUserId,
+            accountKey,
+            accountLabel,
+            calendarId,
+            calendarTitle,
+            event,
+            fetchedAt: params.fetchedAt,
+          });
+          contentSeen += 1;
+          if (!candidate) {
+            continue;
+          }
+          const persisted = await persistIntegrationCandidate({
+            store: params.store,
+            workspaceId: "",
+            candidate,
+            embeddingClient: null,
+          });
+          updatePersistStats(persisted, persistStats);
+          contentPersisted += 1;
+          chunksCompleted += 1;
         }
-        const persisted = await persistIntegrationCandidate({
-          store: params.store,
-          workspaceId: "",
-          candidate,
-          embeddingClient: null,
-        });
-        updatePersistStats(persisted, persistStats);
-        contentPersisted += 1;
-        chunksCompleted += 1;
+      } catch (error) {
+        if (!isComposioForbiddenError(error) && !isComposioNotFoundError(error)) {
+          throw error;
+        }
+        actions.push(
+          isComposioForbiddenError(error)
+            ? `GOOGLECALENDAR_EVENTS_LIST:${calendarId}:forbidden`
+            : `GOOGLECALENDAR_EVENTS_LIST:${calendarId}:missing`,
+        );
       }
     }
 
@@ -4278,9 +4227,6 @@ async function fetchLinkedInIntegrationContext(params: {
   if (!connection) {
     throw new Error(`integration connection ${params.connectionId} not found`);
   }
-  if (!params.composio.proxyRequest) {
-    throw new Error("LinkedIn context fetch requires Composio proxyRequest support");
-  }
   const connectedAccountId = connection.accountExternalId ?? "";
   const persistStats = { created: 0, superseding: 0, unchanged: 0 };
   const actions: string[] = [];
@@ -4290,7 +4236,7 @@ async function fetchLinkedInIntegrationContext(params: {
   let contentSeen = 0;
   let contentPersisted = 0;
   let summaryNodes = 0;
-  let chunksTotal = 5;
+  let chunksTotal = 3;
   let chunksCompleted = 0;
   const syncProgress = (patch: Partial<IntegrationContextFetchProgressSnapshot> = {}) => {
     params.progress?.patch({
@@ -4311,29 +4257,19 @@ async function fetchLinkedInIntegrationContext(params: {
   };
 
   syncProgress({ current_chunk_label: "Fetching LinkedIn profile" });
-  const userInfoResult = await params.composio.proxyRequest({
+  const userInfoResult = await params.composio.executeAction({
     connectedAccountId,
-    endpoint: "/v2/userinfo",
-    method: "GET",
+    toolSlug: "LINKEDIN_GET_MY_INFO",
+    arguments: {},
   });
-  actions.push("LINKEDIN_PROXY:/v2/userinfo");
+  actions.push("LINKEDIN_GET_MY_INFO");
   const userInfo = linkedInUserInfoFromData(userInfoResult.data) ?? {};
   chunksCompleted += 1;
-
-  syncProgress({ current_chunk_label: "Fetching LinkedIn person id" });
-  const meResult = await params.composio.proxyRequest({
-    connectedAccountId,
-    endpoint: "/v2/me?fields=id",
-    method: "GET",
-  });
-  actions.push("LINKEDIN_PROXY:/v2/me?fields=id");
-  const me = linkedInMeFromData(meResult.data);
-  const personId = normalizeString(me?.id);
-  chunksCompleted += 1;
+  const personId = linkedInProfilePersonId(userInfo);
 
   syncProgress({ current_chunk_label: "Saving LinkedIn profile" });
   const email = normalizeString(userInfo.email);
-  const name = normalizeString(userInfo.name);
+  const name = linkedInProfileName(userInfo);
   const sub = normalizeString(userInfo.sub);
   accountKey = email
     ?? normalizeString(connection.accountEmail)
@@ -4368,80 +4304,10 @@ async function fetchLinkedInIntegrationContext(params: {
   updatePersistStats(profilePersist, persistStats);
   treeId = profilePersist.tree.treeId;
   chunksCompleted += 1;
-  syncProgress({ current_chunk_label: "Fetching LinkedIn posts" });
-
-  let posts: LinkedInPostPayload[] = [];
-  const authorUrn = personId ? `urn:li:person:${personId}` : null;
-  if (authorUrn) {
-    const postsResult = await params.composio.proxyRequest({
-      connectedAccountId,
-      endpoint: `/rest/posts?q=author&author=${encodeURIComponent(authorUrn)}&count=${LINKEDIN_POST_LIMIT}&sortBy=LAST_MODIFIED`,
-      method: "GET",
-      headers: {
-        "X-Restli-Protocol-Version": "2.0.0",
-      },
-    });
-    actions.push("LINKEDIN_PROXY:/rest/posts?q=author");
-    posts = linkedInPostsFromData(postsResult.data)
-      .filter((post) => normalizeString(post.lifecycleState) !== "DELETED");
-  }
-  const postEntityKeys = new Set(
-    posts
-      .map((post) => normalizeString(post.id))
-      .filter((id): id is string => Boolean(id))
-      .map((id) => `post:${id}`),
-  );
-  chunksCompleted += 1;
-  chunksTotal += posts.length;
   syncProgress({
-    current_chunk_label:
-      posts.length > 0
-        ? `Importing LinkedIn posts (0/${posts.length})`
-        : "Rebuilding LinkedIn context summary",
+    current_chunk_label: "Rebuilding LinkedIn context summary",
   });
 
-  for (const [index, post] of posts.entries()) {
-    contentSeen += 1;
-    const candidate = buildLinkedInPostCandidate({
-      ownerUserId: connection.ownerUserId,
-      accountKey,
-      accountLabel,
-      authorUrn,
-      post,
-      fetchedAt: params.fetchedAt,
-    });
-    if (candidate) {
-      const persisted = await persistIntegrationCandidate({
-        store: params.store,
-        workspaceId: "",
-        candidate,
-        embeddingClient: null,
-      });
-      updatePersistStats(persisted, persistStats);
-      contentPersisted += 1;
-    }
-    chunksCompleted += 1;
-    syncProgress({
-      current_chunk_label:
-        index + 1 < posts.length
-          ? `Importing LinkedIn posts (${index + 1}/${posts.length})`
-          : "Reconciling LinkedIn posts",
-    });
-  }
-
-  const retiredPosts = retireIntegrationEntityLeaves({
-    store: params.store,
-    treeId,
-    entityPrefix: "post:",
-    keepEntityKeys: postEntityKeys,
-    supersededAt: params.fetchedAt,
-  });
-  if (retiredPosts > 0) {
-    actions.push(`LINKEDIN_RETIRED_POST_LEAVES:${retiredPosts}`);
-  }
-  chunksCompleted += 1;
-
-  syncProgress({ current_chunk_label: "Rebuilding LinkedIn context summary" });
   await rebuildIntegrationTree({
     store: params.store,
     treeId,

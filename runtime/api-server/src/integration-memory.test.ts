@@ -1362,3 +1362,360 @@ test("rebuildIntegrationTree writes the Twitter semantic memory hierarchy", asyn
     store.close();
   }
 });
+
+test("rebuildIntegrationTree writes the Google Calendar semantic memory hierarchy", async () => {
+  const root = makeTempDir("hb-integration-memory-googlecalendar-semantic-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  const treeId = "integration:googlecalendar:acct-1";
+  const treeSlug = "googlecalendar-product-ops-acct-1";
+
+  const writeLeafFile = (relativePath: string, content: string): void => {
+    const absolutePath = path.join(globalMemoryDirForWorkspaceRoot(workspaceRoot), relativePath);
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.writeFileSync(absolutePath, content, "utf8");
+  };
+
+  const requireNode = (nodeId: string) => {
+    const node = store.getSemanticMemoryNode({
+      category: "integration",
+      treeId,
+      nodeId,
+    });
+    assert.ok(node, `expected semantic node ${nodeId}`);
+    return node;
+  };
+
+  const childNodes = (parentNodeId: string) =>
+    store.listSemanticMemoryChildren({
+      category: "integration",
+      treeId,
+      parentNodeId,
+    }).map((edge) => requireNode(edge.childNodeId));
+
+  try {
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertIntegrationConnection({
+      connectionId: "googlecalendar-1",
+      providerId: "googlecalendar",
+      ownerUserId: "user-1",
+      accountLabel: "Product Ops",
+      accountEmail: "ops@example.com",
+      authMode: "composio",
+      grantedScopes: [],
+      status: "active",
+    });
+    store.upsertIntegrationTree({
+      treeId,
+      provider: "googlecalendar",
+      ownerUserId: "user-1",
+      accountKey: "ops@example.com",
+      accountLabel: "Product Ops",
+      slug: treeSlug,
+      summary: "Google Calendar operating memory.",
+      status: "active",
+    });
+
+    const leaves = [
+      {
+        leafId: "leaf-profile",
+        subjectKey: "profile",
+        entityKey: null,
+        entityLabel: null,
+        branchKey: "profile",
+        branchLabel: "Profile",
+        title: "Google Calendar profile for Product Ops",
+        summary: "Product Ops Google Calendar snapshot across 2 calendars.",
+        path: "integration/accounts/googlecalendar-product-ops-acct-1/leaves/leaf-profile.md",
+        sourceType: "googlecalendar.profile",
+        externalObjectId: "ops@example.com",
+        externalObjectType: "google_calendar_profile",
+        observedAt: "2026-05-24T00:00:00.000Z",
+      },
+      {
+        leafId: "leaf-calendar-ops",
+        subjectKey: "calendar:ops@example.com",
+        entityKey: "calendar:ops@example.com",
+        entityLabel: "Product Ops",
+        branchKey: "overview",
+        branchLabel: "Overview",
+        title: "Product Ops",
+        summary: "Primary operating calendar.",
+        path: "integration/accounts/googlecalendar-product-ops-acct-1/leaves/leaf-calendar-ops.md",
+        sourceType: "googlecalendar.calendar",
+        externalObjectId: "ops@example.com",
+        externalObjectType: "google_calendar",
+        observedAt: "2026-05-24T00:01:00.000Z",
+      },
+      {
+        leafId: "leaf-event-ops",
+        subjectKey: "event:ops@example.com:event-1",
+        entityKey: "calendar:ops@example.com",
+        entityLabel: "Product Ops",
+        branchKey: "events",
+        branchLabel: "Events",
+        title: "Launch sync",
+        summary: "Launch sync (2026-05-24T08:00:00.000Z -> 2026-05-24T08:30:00.000Z).",
+        path: "integration/accounts/googlecalendar-product-ops-acct-1/leaves/leaf-event-ops.md",
+        sourceType: "googlecalendar.event",
+        externalObjectId: "event-1",
+        externalObjectType: "google_calendar_event",
+        observedAt: "2026-05-24T08:00:00.000Z",
+      },
+      {
+        leafId: "leaf-calendar-team",
+        subjectKey: "calendar:team@example.com",
+        entityKey: "calendar:team@example.com",
+        entityLabel: "Team Calendar",
+        branchKey: "overview",
+        branchLabel: "Overview",
+        title: "Team Calendar",
+        summary: "Cross-functional planning calendar.",
+        path: "integration/accounts/googlecalendar-product-ops-acct-1/leaves/leaf-calendar-team.md",
+        sourceType: "googlecalendar.calendar",
+        externalObjectId: "team@example.com",
+        externalObjectType: "google_calendar",
+        observedAt: "2026-05-24T00:02:00.000Z",
+      },
+    ] as const;
+
+    for (const leaf of leaves) {
+      store.upsertIntegrationLeaf({
+        ...leaf,
+        treeId,
+        fingerprint: `fingerprint-${leaf.leafId}`,
+        bodySha256: `sha-${leaf.leafId}`,
+        tags: ["googlecalendar"],
+        sourceEventId: `evt-${leaf.leafId}`,
+        sourceMessageId: null,
+        admissionConfidence: 0.9,
+        supersedesLeafId: null,
+        status: "active",
+      });
+      writeLeafFile(leaf.path, `# ${leaf.title}\n\n${leaf.summary}\n`);
+    }
+
+    await rebuildIntegrationTree({
+      store,
+      treeId,
+      embeddingClient: null,
+    });
+
+    const rootNode = store.getSemanticMemoryNodeByPath({
+      category: "integration",
+      path: `semantic/integration/trees/${treeSlug}/content.md`,
+    });
+    assert.ok(rootNode);
+    assert.equal(rootNode.title, "Product Ops Google Calendar connection");
+
+    const rootChildren = childNodes(rootNode.nodeId);
+    assert.deepEqual(rootChildren.map((node) => node.nodeKind), ["profile", "calendars"]);
+
+    const calendarsNode = rootChildren[1]!;
+    const calendarChildren = childNodes(calendarsNode.nodeId);
+    assert.deepEqual(
+      calendarChildren.map((node) => ({ kind: node.nodeKind, title: node.title })),
+      [
+        { kind: "calendar", title: "Product Ops" },
+        { kind: "calendar", title: "Team Calendar" },
+      ],
+    );
+
+    const productOpsNode = calendarChildren[0]!;
+    const productOpsChildren = childNodes(productOpsNode.nodeId);
+    assert.deepEqual(
+      productOpsChildren.map((node) => ({ kind: node.nodeKind, title: node.title })),
+      [
+        { kind: "overview", title: "Overview" },
+        { kind: "events", title: "Events" },
+      ],
+    );
+    assert.deepEqual(
+      childNodes(productOpsChildren[0]!.nodeId).map((node) => node.title),
+      ["Product Ops"],
+    );
+    assert.deepEqual(
+      childNodes(productOpsChildren[1]!.nodeId).map((node) => node.title),
+      ["Launch sync"],
+    );
+
+    const calendarResult = await retrieveIntegrationMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "launch",
+      mode: "mixed",
+      nodeId: productOpsNode.nodeId,
+      maxResults: 5,
+    });
+    assert.ok(
+      (calendarResult.children ?? []).some((hit) => hit.node_kind === "branch" && hit.title === "Events"),
+    );
+
+    const calendarNodePath = path.join(
+      globalMemoryDirForWorkspaceRoot(workspaceRoot),
+      "semantic",
+      "integration",
+      "trees",
+      treeSlug,
+      "calendars",
+      "calendar-ops-example.com",
+      "content.md",
+    );
+    assert.match(fs.readFileSync(calendarNodePath, "utf8"), /# Product Ops/);
+  } finally {
+    store.close();
+  }
+});
+
+test("rebuildIntegrationTree writes the LinkedIn semantic memory hierarchy", async () => {
+  const root = makeTempDir("hb-integration-memory-linkedin-semantic-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  const treeId = "integration:linkedin:acct-1";
+  const treeSlug = "linkedin-ada-example-com-acct-1";
+
+  const writeLeafFile = (relativePath: string, content: string): void => {
+    const absolutePath = path.join(globalMemoryDirForWorkspaceRoot(workspaceRoot), relativePath);
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.writeFileSync(absolutePath, content, "utf8");
+  };
+
+  const requireNode = (nodeId: string) => {
+    const node = store.getSemanticMemoryNode({
+      category: "integration",
+      treeId,
+      nodeId,
+    });
+    assert.ok(node, `expected semantic node ${nodeId}`);
+    return node;
+  };
+
+  const childNodes = (parentNodeId: string) =>
+    store.listSemanticMemoryChildren({
+      category: "integration",
+      treeId,
+      parentNodeId,
+    }).map((edge) => requireNode(edge.childNodeId));
+
+  try {
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertIntegrationConnection({
+      connectionId: "linkedin-1",
+      providerId: "linkedin",
+      ownerUserId: "user-1",
+      accountLabel: "Ada Lovelace",
+      accountEmail: "ada@example.com",
+      authMode: "composio",
+      grantedScopes: [],
+      status: "active",
+    });
+    store.upsertIntegrationTree({
+      treeId,
+      provider: "linkedin",
+      ownerUserId: "user-1",
+      accountKey: "ada@example.com",
+      accountLabel: "Ada Lovelace",
+      slug: treeSlug,
+      summary: "LinkedIn profile memory.",
+      status: "active",
+    });
+
+    const leaves = [
+      {
+        leafId: "leaf-profile",
+        subjectKey: "profile",
+        entityKey: null,
+        entityLabel: null,
+        branchKey: "profile",
+        branchLabel: "Profile",
+        title: "LinkedIn profile for Ada Lovelace",
+        summary: "Ada Lovelace LinkedIn profile snapshot.",
+        path: "integration/accounts/linkedin-ada-example-com-acct-1/leaves/leaf-profile.md",
+        sourceType: "linkedin.profile",
+        externalObjectId: "person-1",
+        externalObjectType: "linkedin_profile",
+        observedAt: "2026-05-24T00:00:00.000Z",
+      },
+    ] as const;
+
+    for (const leaf of leaves) {
+      store.upsertIntegrationLeaf({
+        ...leaf,
+        treeId,
+        fingerprint: `fingerprint-${leaf.leafId}`,
+        bodySha256: `sha-${leaf.leafId}`,
+        tags: ["linkedin"],
+        sourceEventId: `evt-${leaf.leafId}`,
+        sourceMessageId: null,
+        admissionConfidence: 0.9,
+        supersedesLeafId: null,
+        status: "active",
+      });
+      writeLeafFile(leaf.path, `# ${leaf.title}\n\n${leaf.summary}\n`);
+    }
+
+    await rebuildIntegrationTree({
+      store,
+      treeId,
+      embeddingClient: null,
+    });
+
+    const rootNode = store.getSemanticMemoryNodeByPath({
+      category: "integration",
+      path: `semantic/integration/trees/${treeSlug}/content.md`,
+    });
+    assert.ok(rootNode);
+    assert.equal(rootNode.title, "Ada Lovelace LinkedIn connection");
+
+    const rootChildren = childNodes(rootNode.nodeId);
+    assert.deepEqual(rootChildren.map((node) => node.nodeKind), ["profile"]);
+
+    const profileNode = rootChildren[0]!;
+    const profileChildren = childNodes(profileNode.nodeId);
+    assert.deepEqual(
+      profileChildren.map((node) => ({ kind: node.nodeKind, title: node.title })),
+      [{ kind: "leaf", title: "LinkedIn profile for Ada Lovelace" }],
+    );
+
+    const profileResult = await retrieveIntegrationMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "Ada",
+      mode: "mixed",
+      nodeId: profileNode.nodeId,
+      maxResults: 5,
+    });
+    assert.ok(
+      (profileResult.children ?? []).some((hit) => hit.node_kind === "leaf" && hit.title === "LinkedIn profile for Ada Lovelace"),
+    );
+
+    const profileNodePath = path.join(
+      globalMemoryDirForWorkspaceRoot(workspaceRoot),
+      "semantic",
+      "integration",
+      "trees",
+      treeSlug,
+      "profile",
+      "content.md",
+    );
+    assert.match(fs.readFileSync(profileNodePath, "utf8"), /# Profile/);
+  } finally {
+    store.close();
+  }
+});
