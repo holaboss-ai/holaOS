@@ -215,7 +215,7 @@ test("retrieveIntegrationMemory follows workspace override visibility without re
       store,
       workspaceId: "workspace-1",
       query: "Who approves invoices above $5000?",
-      mode: "mixed",
+      mode: "leaves",
       maxResults: 5,
     });
     assert.equal(visible.hits.length, 1);

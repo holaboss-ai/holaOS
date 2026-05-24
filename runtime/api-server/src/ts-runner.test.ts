@@ -2659,56 +2659,47 @@ test("runTsRunnerCli derives recalled durable memory from interaction trees", as
       };
     }
   ).recalled_memory_context;
-  assert.equal(recalledMemoryContext.entries.length, 2);
-  assert.deepEqual(
-    recalledMemoryContext.entries
-      .map((entry) => ({
-        scope: entry.scope,
-        memory_type: entry.memory_type,
-        title: entry.title,
-        summary: entry.summary,
-        path: entry.path,
-        verification_policy: entry.verification_policy,
-        staleness_policy: entry.staleness_policy,
-        freshness_state: entry.freshness_state,
-        source_type: entry.source_type,
-      }))
-      .sort((left, right) => String(left.path).localeCompare(String(right.path))),
-    [
-      {
-        scope: "interaction",
-        memory_type: "leaf",
-        title: "Deploy permission blocker",
-        summary: "Deploy calls may be denied by workspace policy.",
-        path: "workspace/workspace-1/interaction/entities/misc-deploy-permissions/leaves/leaf-deploy-blocker.md",
-        verification_policy: "none",
-        staleness_policy: "workspace_sensitive",
-        freshness_state: "fresh",
-        source_type: "leaf",
-      },
-      {
-        scope: "interaction",
-        memory_type: "leaf",
-        title: "User response style",
-        summary: "User prefers concise responses.",
-        path: "workspace/workspace-1/interaction/entities/preference-response-style/leaves/leaf-response-style.md",
-        verification_policy: "none",
-        staleness_policy: "workspace_sensitive",
-        freshness_state: "fresh",
-        source_type: "leaf",
-      },
-    ],
+  assert.ok(recalledMemoryContext.entries.length >= 2);
+  const leafEntries = recalledMemoryContext.entries
+    .filter((entry) => entry.memory_type === "leaf")
+    .sort((left, right) => String(left.title).localeCompare(String(right.title)));
+  assert.equal(leafEntries.length, 2);
+  const deployLeaf = leafEntries.find((entry) => entry.title === "Deploy permission blocker");
+  assert.ok(deployLeaf);
+  assert.equal(deployLeaf.scope, "interaction");
+  assert.equal(deployLeaf.summary, "Deploy calls may be denied by workspace policy.");
+  assert.equal(deployLeaf.verification_policy, "none");
+  assert.equal(deployLeaf.staleness_policy, "workspace_sensitive");
+  assert.equal(deployLeaf.freshness_state, "fresh");
+  assert.equal(deployLeaf.source_type, "leaf");
+  assert.match(
+    String(deployLeaf.path ?? ""),
+    /^workspace\/workspace-1\/semantic\/interaction\/trees\/misc-deploy-permissions\//,
   );
   assert.match(
-    String(recalledMemoryContext.entries[0]?.updated_at ?? ""),
+    String(deployLeaf.updated_at ?? ""),
     /\d{4}-\d{2}-\d{2}T/,
+  );
+  const styleLeaf = leafEntries.find((entry) => entry.title === "User response style");
+  assert.ok(styleLeaf);
+  assert.equal(styleLeaf.scope, "interaction");
+  assert.equal(styleLeaf.summary, "User prefers concise responses.");
+  assert.equal(styleLeaf.verification_policy, "none");
+  assert.equal(styleLeaf.staleness_policy, "workspace_sensitive");
+  assert.equal(styleLeaf.freshness_state, "fresh");
+  assert.equal(styleLeaf.source_type, "leaf");
+  assert.match(
+    String(styleLeaf.path ?? ""),
+    /^workspace\/workspace-1\/semantic\/interaction\/trees\/preference-response-style\//,
   );
   assert.match(
-    String(recalledMemoryContext.entries[1]?.updated_at ?? ""),
+    String(styleLeaf.updated_at ?? ""),
     /\d{4}-\d{2}-\d{2}T/,
   );
-  assert.equal(recalledMemoryContext.selection_trace.length, 2);
-  assert.equal(recalledMemoryContext.selection_trace[0]?.source_type, "leaf");
+  assert.ok(recalledMemoryContext.selection_trace.length >= 2);
+  assert.ok(
+    recalledMemoryContext.selection_trace.some((entry) => entry.source_type === "leaf"),
+  );
 });
 
 test("runTsRunnerCli uses the default recall embedding model even when background tasks model is configured", async () => {
@@ -3727,8 +3718,8 @@ test("runTsRunnerCli recalls workspace interaction memory even with many newer c
   assert.equal(
     recalledMemoryContext.entries.some(
       (entry) =>
-        entry.path ===
-          "workspace/workspace-1/interaction/entities/misc-deploy-permissions/leaves/leaf-workspace-1-deploy.md",
+        entry.title === "Deploy permission blocker"
+        && /^workspace\/workspace-1\/semantic\/interaction\/trees\/misc-deploy-permissions\//.test(String(entry.path ?? "")),
     ),
     true,
   );

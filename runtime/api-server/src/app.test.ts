@@ -2165,6 +2165,13 @@ test("runtime memory_retrieve tool returns interaction leaf hits from the tree b
   );
   fs.mkdirSync(path.dirname(leafPath), { recursive: true });
   fs.writeFileSync(leafPath, "# Deploy procedure\n\nSteps for deployment.\n", "utf8");
+  await rebuildInteractionEntityTree({
+    store,
+    workspaceId: "workspace-1",
+    entityId: "interaction:workflow:deploy-procedure",
+    summaryModelClient: null,
+    embeddingClient: null,
+  });
   const app = buildTestRuntimeApiServer({ store });
 
   try {

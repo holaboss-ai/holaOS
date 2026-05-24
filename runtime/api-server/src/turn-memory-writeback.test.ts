@@ -676,10 +676,8 @@ test("writeTurnDurableMemory prevents overlapping extraction for the same sessio
         },
       },
     ],
-    onRequest: (body) => {
-      if (body.includes("extract durable memory candidates")) {
-        extractionRequestCount += 1;
-      }
+    onRequest: () => {
+      extractionRequestCount += 1;
     },
     run: async (modelContext) => {
       const firstWrite = writeTurnDurableMemory({

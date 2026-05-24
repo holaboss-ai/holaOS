@@ -2117,6 +2117,7 @@ function nodeScore(params: {
   mode: "mixed" | "summaries" | "leaves";
 }): { score: number; reasons: string[] } {
   const reasons: string[] = [];
+  const hasQuery = params.query.trim().length > 0;
   let score = textScore(
     params.query,
     params.candidate.entity.canonicalName,
@@ -2127,21 +2128,6 @@ function nodeScore(params: {
   if (score > 0) {
     reasons.push("lexical_match");
   }
-  if (params.mode === "summaries" && params.candidate.kind === "summary") {
-    score += 0.6;
-    reasons.push("summary_mode_boost");
-  }
-  if (params.mode === "leaves" && params.candidate.kind === "leaf") {
-    score += 0.6;
-    reasons.push("leaf_mode_boost");
-  }
-  if (params.candidate.kind === "summary" && params.candidate.level === 1) {
-    score += 0.15;
-  }
-  const updatedAt = Date.parse(params.candidate.updatedAt ?? "");
-  if (Number.isFinite(updatedAt)) {
-    score += Math.max(0, 0.15 - ((Date.now() - updatedAt) / (1000 * 60 * 60 * 24 * 30)) * 0.01);
-  }
   if (params.embeddingModelId && params.queryVector) {
     const embeddingKey = `${params.candidate.kind}:${params.candidate.id}:${params.embeddingModelId}`;
     const candidateVector = params.embeddingByKey.get(embeddingKey);
@@ -2151,6 +2137,24 @@ function nodeScore(params: {
         score += similarity * 0.8;
         reasons.push("embedding_similarity");
       }
+    }
+  }
+  const hasTopicalSignal = score > 0;
+  if (!hasQuery || hasTopicalSignal) {
+    if (params.mode === "summaries" && params.candidate.kind === "summary") {
+      score += 0.6;
+      reasons.push("summary_mode_boost");
+    }
+    if (params.mode === "leaves" && params.candidate.kind === "leaf") {
+      score += 0.6;
+      reasons.push("leaf_mode_boost");
+    }
+    if (params.candidate.kind === "summary" && params.candidate.level === 1) {
+      score += 0.15;
+    }
+    const updatedAt = Date.parse(params.candidate.updatedAt ?? "");
+    if (Number.isFinite(updatedAt)) {
+      score += Math.max(0, 0.15 - ((Date.now() - updatedAt) / (1000 * 60 * 60 * 24 * 30)) * 0.01);
     }
   }
   return { score, reasons };
