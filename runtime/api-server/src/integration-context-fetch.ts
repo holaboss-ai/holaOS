@@ -4237,9 +4237,7 @@ async function fetchGoogleCalendarIntegrationContext(params: {
   syncProgress({ current_chunk_label: "Rebuilding Google Calendar context summary" });
   await rebuildIntegrationTree({
     store: params.store,
-    workspaceId: "",
     treeId,
-    summaryModelClient: null,
     embeddingClient: null,
   });
   chunksCompleted += 1;
@@ -4446,9 +4444,7 @@ async function fetchLinkedInIntegrationContext(params: {
   syncProgress({ current_chunk_label: "Rebuilding LinkedIn context summary" });
   await rebuildIntegrationTree({
     store: params.store,
-    workspaceId: "",
     treeId,
-    summaryModelClient: null,
     embeddingClient: null,
   });
   chunksCompleted += 1;

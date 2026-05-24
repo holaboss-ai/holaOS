@@ -135,7 +135,7 @@ function semanticBrowserNodeKind(
   if (node.nodeKind === "partition") {
     return "summary";
   }
-  if (new Set(["workspace", "repo", "thread", "page", "database", "contact", "file", "folder", "post"]).has(node.nodeKind)) {
+  if (new Set(["workspace", "repo", "thread", "page", "database", "contact", "file", "folder", "post", "calendar"]).has(node.nodeKind)) {
     return "entity";
   }
   return "branch";

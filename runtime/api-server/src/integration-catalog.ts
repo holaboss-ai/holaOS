@@ -53,6 +53,16 @@ export const INTEGRATION_CATALOG_PROVIDERS: IntegrationCatalogProviderRecord[] =
     docs_url: null
   },
   {
+    provider_id: "googlecalendar",
+    display_name: "Google Calendar",
+    description: "Read calendars and upcoming events through Google Calendar.",
+    auth_modes: ["managed", "oauth_app", "manual_token"],
+    supports_oss: true,
+    supports_managed: true,
+    default_scopes: ["calendar.readonly"],
+    docs_url: null
+  },
+  {
     provider_id: "github",
     display_name: "GitHub",
     description: "Triage PRs, issues, and repository workflows.",
@@ -95,6 +105,9 @@ export const INTEGRATION_CATALOG_PROVIDERS: IntegrationCatalogProviderRecord[] =
 ];
 
 const PROVIDER_ALIASES: Record<string, string> = {
+  "google calendar": "googlecalendar",
+  "google-calendar": "googlecalendar",
+  "google_calendar": "googlecalendar",
   "google drive": "googledrive",
   "google-drive": "googledrive",
   "google_drive": "googledrive",
