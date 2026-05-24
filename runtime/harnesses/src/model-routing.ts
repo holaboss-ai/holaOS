@@ -603,6 +603,28 @@ function catalogModelCostForRequest(params: {
   return globalMatches.size === 1 ? Array.from(globalMatches.values())[0] ?? null : null;
 }
 
+export function resolveHarnessModelBudget(
+  request: HarnessModelRoutingRequest,
+  options: {
+    modelCatalog: Record<string, Record<string, HarnessCatalogModelEntry>>;
+    fallbackBudget?: HarnessModelBudget;
+  },
+): HarnessModelBudget {
+  const api = resolveHarnessModelApi(request);
+  return (
+    knownModelBudgetOverride(request, api) ??
+    catalogModelBudgetForRequest({
+      request,
+      api,
+      modelCatalog: options.modelCatalog,
+    }) ??
+    options.fallbackBudget ?? {
+      contextWindow: DEFAULT_FALLBACK_CONTEXT_WINDOW,
+      maxTokens: DEFAULT_FALLBACK_MAX_TOKENS,
+    }
+  );
+}
+
 export function resolveHarnessModelProfile(
   request: HarnessModelRoutingRequest,
   options: {
@@ -630,17 +652,7 @@ export function resolveHarnessModelProfile(
   const requestedThinkingLevel = requestedHarnessThinkingLevel(request);
   const requestedThinkingBudgets = requestedHarnessThinkingBudgets(request);
   const requestedCompat = api === "openai-completions" ? requestedOpenAiCompat(request) : undefined;
-  const budget =
-    knownModelBudgetOverride(request, api) ??
-    catalogModelBudgetForRequest({
-      request,
-      api,
-      modelCatalog: options.modelCatalog,
-    }) ??
-    options.fallbackBudget ?? {
-      contextWindow: DEFAULT_FALLBACK_CONTEXT_WINDOW,
-      maxTokens: DEFAULT_FALLBACK_MAX_TOKENS,
-    };
+  const budget = resolveHarnessModelBudget(request, options);
   const cost =
     catalogModelCostForRequest({
       request,
