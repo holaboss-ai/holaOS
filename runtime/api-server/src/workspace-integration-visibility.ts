@@ -9,6 +9,22 @@ function normalizeToken(value: string | null | undefined): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
+function candidateIntegrationAccountKeys(connection: IntegrationConnectionRecord): string[] {
+  const keys = new Set<string>();
+  for (const candidate of [
+    connection.accountHandle,
+    connection.accountEmail,
+    connection.accountExternalId,
+    connection.connectionId,
+  ]) {
+    const normalized = typeof candidate === "string" ? candidate.trim() : "";
+    if (normalized) {
+      keys.add(normalized);
+    }
+  }
+  return [...keys];
+}
+
 export function isActiveIntegrationConnection(connection: IntegrationConnectionRecord): boolean {
   return normalizeToken(connection.status) === "active";
 }
@@ -82,18 +98,23 @@ export function visibleIntegrationTreesForWorkspace(params: {
   const requestedTreeId = (params.treeId ?? "").trim();
   const byTreeId = new Map<string, IntegrationTreeRecord>();
   for (const connection of visibleIntegrationConnectionsForWorkspace(params)) {
-    const tree = params.store.getIntegrationTreeByAccountIdentity({
+    const trees = params.store.listIntegrationTrees({
       provider: connection.providerId,
       ownerUserId: connection.ownerUserId,
-      accountKey: stableIntegrationAccountKey(connection),
+      status: "active",
+      limit: 10_000,
+      offset: 0,
     });
-    if (!tree || tree.status !== "active") {
-      continue;
+    const candidateKeys = new Set(candidateIntegrationAccountKeys(connection));
+    for (const tree of trees) {
+      if (!candidateKeys.has(tree.accountKey.trim())) {
+        continue;
+      }
+      if (requestedTreeId && tree.treeId !== requestedTreeId) {
+        continue;
+      }
+      byTreeId.set(tree.treeId, tree);
     }
-    if (requestedTreeId && tree.treeId !== requestedTreeId) {
-      continue;
-    }
-    byTreeId.set(tree.treeId, tree);
   }
   return [...byTreeId.values()];
 }

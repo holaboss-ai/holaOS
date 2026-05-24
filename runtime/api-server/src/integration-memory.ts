@@ -3542,11 +3542,9 @@ export interface ClearedIntegrationMemoryResult {
   tree_ids: string[];
   deleted_trees: number;
   deleted_leaves: number;
-  deleted_summary_nodes: number;
-  deleted_tree_edges: number;
-  deleted_canonical_nodes: number;
-  deleted_canonical_edges: number;
-  deleted_relations: number;
+  deleted_semantic_nodes: number;
+  deleted_semantic_edges: number;
+  deleted_semantic_relations: number;
   deleted_embeddings: number;
   deleted_files: number;
 }
@@ -3607,11 +3605,9 @@ export function clearIntegrationMemoryForConnection(params: {
   const trees = integrationMemoryTreesForConnection(params);
   let deletedTrees = 0;
   let deletedLeaves = 0;
-  let deletedSummaryNodes = 0;
-  let deletedTreeEdges = 0;
-  let deletedCanonicalNodes = 0;
-  let deletedCanonicalEdges = 0;
-  let deletedRelations = 0;
+  let deletedSemanticNodes = 0;
+  let deletedSemanticEdges = 0;
+  let deletedSemanticRelations = 0;
   let deletedEmbeddings = 0;
   let deletedFiles = 0;
   for (const tree of trees) {
@@ -3629,11 +3625,9 @@ export function clearIntegrationMemoryForConnection(params: {
     });
     deletedTrees += deleted.deletedTree ? 1 : 0;
     deletedLeaves += deleted.deletedLeaves;
-    deletedSummaryNodes += deleted.deletedSummaryNodes;
-    deletedTreeEdges += deleted.deletedTreeEdges;
-    deletedCanonicalNodes += deleted.deletedCanonicalNodes;
-    deletedCanonicalEdges += deleted.deletedCanonicalEdges;
-    deletedRelations += deleted.deletedRelations;
+    deletedSemanticNodes += deleted.deletedSemanticNodes;
+    deletedSemanticEdges += deleted.deletedSemanticEdges;
+    deletedSemanticRelations += deleted.deletedSemanticRelations;
     deletedEmbeddings += deleted.deletedEmbeddings;
   }
   return {
@@ -3644,11 +3638,9 @@ export function clearIntegrationMemoryForConnection(params: {
     tree_ids: trees.map((tree) => tree.treeId),
     deleted_trees: deletedTrees,
     deleted_leaves: deletedLeaves,
-    deleted_summary_nodes: deletedSummaryNodes,
-    deleted_tree_edges: deletedTreeEdges,
-    deleted_canonical_nodes: deletedCanonicalNodes,
-    deleted_canonical_edges: deletedCanonicalEdges,
-    deleted_relations: deletedRelations,
+    deleted_semantic_nodes: deletedSemanticNodes,
+    deleted_semantic_edges: deletedSemanticEdges,
+    deleted_semantic_relations: deletedSemanticRelations,
     deleted_embeddings: deletedEmbeddings,
     deleted_files: deletedFiles,
   };

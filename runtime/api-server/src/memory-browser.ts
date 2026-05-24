@@ -558,9 +558,16 @@ function readStoredMemoryFile(params: {
 function browserPathForStoredPath(workspaceId: string, targetPath: string): string {
   const normalized = normalizeBrowserPath(targetPath);
   const workspacePrefix = `workspace/${workspaceId}/`;
-  return normalized.startsWith(workspacePrefix)
+  const relative = normalized.startsWith(workspacePrefix)
     ? normalized.slice(workspacePrefix.length)
     : normalized;
+  if (relative.startsWith("semantic/interaction/trees/")) {
+    return relative.slice("semantic/".length);
+  }
+  if (relative.startsWith("semantic/integration/trees/")) {
+    return relative.slice("semantic/".length);
+  }
+  return relative;
 }
 
 function canonicalNodeFallbackContent(params: {

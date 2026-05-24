@@ -229,7 +229,7 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
             "Retrieval mode. Use `mixed` by default, `summaries` for broad context, and `leaves` for exact evidence.",
           ),
           tree_id: { type: "string", description: "Optional interaction tree id to scope retrieval." },
-          node_id: { type: "string", description: "Optional summary node id to expand or drill into." },
+          node_id: { type: "string", description: "Optional semantic node id to expand or drill into." },
           max_results: {
             type: "integer",
             description: "Optional maximum number of hits to return.",
