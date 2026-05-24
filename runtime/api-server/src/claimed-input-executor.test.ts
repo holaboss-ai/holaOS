@@ -5003,9 +5003,9 @@ test("claimed input compacts a reused PI session before a smaller-window model r
         reason: null,
         diagnostics: {
           context_usage: {
-            tokens: 650_000,
-            contextWindow: 1_000_000,
-            percent: 65,
+            tokens: 110_000,
+            contextWindow: 400_000,
+            percent: 27.5,
           },
         },
         error: null,
@@ -5484,9 +5484,9 @@ test("claimed input synthesizes a turn request snapshot for main-session backgro
         reason: null,
         diagnostics: {
           context_usage: {
-            tokens: 650_000,
-            contextWindow: 1_000_000,
-            percent: 65,
+            tokens: 110_000,
+            contextWindow: 400_000,
+            percent: 27.5,
           },
         },
         error: null,
