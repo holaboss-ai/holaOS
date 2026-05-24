@@ -435,9 +435,17 @@ test("writeTurnDurableMemory waits for a full three-turn batch and does not repl
   const interactionEntities = listActiveInteractionEntities(store, "workspace-1");
   const blockerLeaf = interactionLeaves[0];
 
-  assert.equal(filePaths.length, 2);
+  assert.ok(filePaths.length >= 2);
   assert.ok(filePaths.includes(blockerLeaf.path));
   assert.ok(filePaths.includes("workspace/workspace-1/semantic/interaction/trees/system-recurring-deploy-policy-blocker/content.md"));
+  assert.equal(
+    filePaths.some(
+      (filePath) =>
+        filePath.startsWith("workspace/workspace-1/semantic/interaction/trees/system-recurring-deploy-policy-blocker/")
+        && filePath !== "workspace/workspace-1/semantic/interaction/trees/system-recurring-deploy-policy-blocker/content.md",
+    ),
+    true,
+  );
   assert.equal(interactionLeaves.length, 1);
   assert.equal(blockerLeaf.entityId, "interaction:system:recurring-deploy-policy-blocker");
   assert.match(
@@ -638,7 +646,7 @@ test("writeTurnDurableMemory prevents overlapping extraction for the same sessio
     ],
   });
 
-  let requestCount = 0;
+  let extractionRequestCount = 0;
   await withModelExtractionResponses({
     responses: [
       {
@@ -668,8 +676,10 @@ test("writeTurnDurableMemory prevents overlapping extraction for the same sessio
         },
       },
     ],
-    onRequest: () => {
-      requestCount += 1;
+    onRequest: (body) => {
+      if (body.includes("extract durable memory candidates")) {
+        extractionRequestCount += 1;
+      }
     },
     run: async (modelContext) => {
       const firstWrite = writeTurnDurableMemory({
@@ -687,12 +697,12 @@ test("writeTurnDurableMemory prevents overlapping extraction for the same sessio
       });
       assert.equal(secondWrite.inputId, turnResult.inputId);
       assert.equal(interactionBatchCursor(store), null);
-      assert.equal(requestCount, 1);
+      assert.equal(extractionRequestCount, 1);
       await firstWrite;
     },
   });
 
-  assert.equal(requestCount, 1);
+  assert.equal(extractionRequestCount, 1);
   assert.equal(interactionBatchCursor(store), "3");
   assert.equal(listActiveInteractionLeaves(store, "workspace-1").length, 1);
 

@@ -56,7 +56,11 @@ test("rebuildIntegrationTree writes deterministic semantic summaries for integra
     store.upsertIntegrationLeaf({
       leafId,
       treeId: "integration:github:acct-1",
-      subjectKey: `release-item:${index}`,
+      subjectKey: `repo:holaboss-ai/release:pr:${index}`,
+      entityKey: "repo:holaboss-ai/release",
+      entityLabel: "holaboss-ai/release",
+      branchKey: "pull_requests",
+      branchLabel: "Pull requests",
       path: `integration/accounts/github-release-acct-1/leaves/${leafId}.md`,
       title: `Release item ${index}`,
       summary: `Summary for release item ${index}.`,
@@ -111,7 +115,7 @@ test("rebuildIntegrationTree writes deterministic semantic summaries for integra
         store,
         treeId: "integration:github:acct-1",
       }),
-      1,
+      3,
     );
     assert.equal(rootNode.summary, "Release GitHub memory.");
     const rootPath = path.join(
@@ -166,6 +170,10 @@ test("retrieveIntegrationMemory follows workspace override visibility without re
       leafId: "leaf-1",
       treeId: "integration:gmail:acct-1",
       subjectKey: "message:1",
+      entityKey: "thread:thread-1",
+      entityLabel: "Invoice approval thread",
+      branchKey: "messages",
+      branchLabel: "Messages",
       path: "integration/accounts/gmail-ops-example-com-acct-1/leaves/leaf-1.md",
       title: "Invoice approval thread",
       summary: "Invoices above $5000 require finance approval.",
@@ -197,6 +205,11 @@ test("retrieveIntegrationMemory follows workspace override visibility without re
       "# Invoice approval thread\n\nInvoices above $5000 require finance approval.\n",
       "utf8",
     );
+    await rebuildIntegrationTree({
+      store,
+      treeId: "integration:gmail:acct-1",
+      embeddingClient: null,
+    });
 
     const visible = await retrieveIntegrationMemory({
       store,

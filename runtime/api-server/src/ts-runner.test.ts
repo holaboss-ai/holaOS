@@ -20,6 +20,7 @@ import {
   runTsRunnerCli,
   type TsRunnerExecutionDeps,
 } from "./ts-runner.js";
+import { rebuildInteractionEntityTree } from "./interaction-memory.js";
 import {
   requireRuntimeHarnessAdapter,
   type RuntimeHarnessPlugin,
@@ -2580,6 +2581,20 @@ test("runTsRunnerCli derives recalled durable memory from interaction trees", as
     subjectKey: "permission:deploy",
     sourceType: "leaf",
   });
+  await rebuildInteractionEntityTree({
+    store,
+    workspaceId: "workspace-1",
+    entityId: "interaction:preference:response-style",
+    summaryModelClient: null,
+    embeddingClient: null,
+  });
+  await rebuildInteractionEntityTree({
+    store,
+    workspaceId: "workspace-1",
+    entityId: "interaction:misc:deploy-permissions",
+    summaryModelClient: null,
+    embeddingClient: null,
+  });
   store.close();
 
   let capturedProjectRequest: Record<string, unknown> | null = null;
@@ -3633,6 +3648,20 @@ test("runTsRunnerCli recalls workspace interaction memory even with many newer c
       observedAt: `2026-03-01T00:${minute}:${second}.000Z`,
     });
   }
+  await rebuildInteractionEntityTree({
+    store,
+    workspaceId: "workspace-1",
+    entityId: "interaction:misc:deploy-permissions",
+    summaryModelClient: null,
+    embeddingClient: null,
+  });
+  await rebuildInteractionEntityTree({
+    store,
+    workspaceId: "workspace-2",
+    entityId: "interaction:misc:workspace-2-notes",
+    summaryModelClient: null,
+    embeddingClient: null,
+  });
   store.close();
 
   let capturedProjectRequest: Record<string, unknown> | null = null;

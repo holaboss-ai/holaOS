@@ -17,6 +17,8 @@ import * as tar from "tar";
 
 import { buildRuntimeApiServer, type BuildRuntimeApiServerOptions } from "./app.js";
 import { appLocalNpmCacheDir, buildAppSetupEnv } from "./app-setup-env.js";
+import { rebuildIntegrationTree } from "./integration-memory.js";
+import { rebuildInteractionEntityTree } from "./interaction-memory.js";
 import { ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE } from "./runtime-agent-tools.js";
 import {
   parseInstalledAppRuntime,
@@ -2240,6 +2242,10 @@ test("runtime memory_retrieve tool returns integration leaf hits from the tree b
     leafId: "leaf-release-pr",
     treeId: "integration:github:acct-1",
     subjectKey: "pr:release-123",
+    entityKey: "repo:holaboss-ai/release",
+    entityLabel: "holaboss-ai/release",
+    branchKey: "pull_requests",
+    branchLabel: "Pull requests",
     path: "integration/accounts/github-jeff-acct-1/leaves/leaf-release-pr.md",
     title: "Release PR #123 owner",
     summary: "The release PR owner is Maya Chen.",
@@ -2266,6 +2272,11 @@ test("runtime memory_retrieve tool returns integration leaf hits from the tree b
   );
   fs.mkdirSync(path.dirname(leafPath), { recursive: true });
   fs.writeFileSync(leafPath, "# Release PR #123 owner\n\nThe release PR owner is Maya Chen.\n", "utf8");
+  await rebuildIntegrationTree({
+    store,
+    treeId: "integration:github:acct-1",
+    embeddingClient: null,
+  });
   const app = buildTestRuntimeApiServer({ store });
 
   try {
@@ -2352,6 +2363,13 @@ test("runtime memory_retrieve searches both interaction and integration trees wh
   );
   fs.mkdirSync(path.dirname(interactionLeafPath), { recursive: true });
   fs.writeFileSync(interactionLeafPath, "# Atlas API incident bridge\n\nThe incident bridge channel is #atlas-api-rollout.\n", "utf8");
+  await rebuildInteractionEntityTree({
+    store,
+    workspaceId: "workspace-1",
+    entityId: "interaction:project:atlas-api",
+    summaryModelClient: null,
+    embeddingClient: null,
+  });
 
   store.upsertIntegrationConnection({
     connectionId: "conn-github-2",
@@ -2389,6 +2407,10 @@ test("runtime memory_retrieve searches both interaction and integration trees wh
     leafId: "leaf-atlas-pr-owner",
     treeId: "integration:github:acct-2",
     subjectKey: "release-pr-owner",
+    entityKey: "repo:holaboss-ai/atlas-api",
+    entityLabel: "holaboss-ai/atlas-api",
+    branchKey: "pull_requests",
+    branchLabel: "Pull requests",
     path: "integration/accounts/github-atlas-acct-2/leaves/leaf-atlas-pr-owner.md",
     title: "Atlas API release PR owner",
     summary: "The Atlas API release PR owner is Noah Bell.",
@@ -2415,6 +2437,11 @@ test("runtime memory_retrieve searches both interaction and integration trees wh
   );
   fs.mkdirSync(path.dirname(integrationLeafPath), { recursive: true });
   fs.writeFileSync(integrationLeafPath, "# Atlas API release PR owner\n\nThe Atlas API release PR owner is Noah Bell.\n", "utf8");
+  await rebuildIntegrationTree({
+    store,
+    treeId: "integration:github:acct-2",
+    embeddingClient: null,
+  });
 
   const app = buildTestRuntimeApiServer({ store });
   try {
