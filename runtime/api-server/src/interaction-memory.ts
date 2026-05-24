@@ -6,7 +6,6 @@ import {
   type InteractionEntityRecord,
   type InteractionEntityType,
   type InteractionLeafRecord,
-  type InteractionSummaryNodeRecord,
   type InteractionTreeChildKind,
   type RuntimeStateStore,
   utcNowIso,
@@ -301,6 +300,30 @@ interface TempSummaryNode {
 
 type TempSummaryChild = TempSummaryNode["children"][number];
 
+type SemanticInteractionDraftChild = {
+  kind: InteractionTreeChildKind;
+  id: string;
+  title: string;
+  summary: string;
+  excerpt: string | null;
+  observedAt: string | null;
+};
+
+type SemanticInteractionDraftNode = {
+  nodeId: string;
+  nodeClass: "semantic" | "leaf";
+  nodeKind: "tree" | "partition" | "leaf";
+  sourceLeafId: string | null;
+  path: string;
+  title: string;
+  summary: string;
+  bodySha256: string;
+  childCount: number;
+  observedAt: string | null;
+  isMaterialized: boolean;
+  metadata: Record<string, unknown>;
+};
+
 interface SemanticDuplicateCandidate {
   leaf: InteractionLeafRecord;
   similarity: number;
@@ -375,6 +398,10 @@ function interactionEntityDir(workspaceDir: string, slug: string): string {
   return path.join(interactionMemoryRootDir(workspaceDir), "entities", slug);
 }
 
+function semanticInteractionTreeDir(workspaceDir: string, slug: string): string {
+  return path.join(workspaceMemoryDir(workspaceDir), "semantic", "interaction", "trees", slug);
+}
+
 function interactionLeafRelativePath(workspaceId: string, entitySlug: string, leafId: string): string {
   return path.posix.join(
     "workspace",
@@ -415,6 +442,59 @@ function interactionCanonicalContentPath(baseSegments: string[]): string {
 
 function interactionCanonicalSummaryFolderName(level: number, nodeId: string): string {
   return `L${level}-${nodeId.slice(-6)}`;
+}
+
+function semanticInteractionRootNodeId(entityId: string): string {
+  return `semantic:interaction:${entityId}:tree`;
+}
+
+function semanticInteractionLeafNodeId(entityId: string, leafId: string): string {
+  return `semantic:interaction:${entityId}:leaf:${leafId}`;
+}
+
+function semanticInteractionTreeBaseSegments(workspaceId: string, entitySlug: string): string[] {
+  return ["workspace", workspaceId, "semantic", "interaction", "trees", entitySlug];
+}
+
+function semanticInteractionTreeRelativePath(workspaceId: string, entitySlug: string): string {
+  return path.posix.join(...semanticInteractionTreeBaseSegments(workspaceId, entitySlug), "content.md");
+}
+
+function semanticInteractionChildRelativePath(parentRelativePath: string, childSlug: string): string {
+  return path.posix.join(path.posix.dirname(parentRelativePath), childSlug, "content.md");
+}
+
+function semanticInteractionLeafRelativePath(
+  parentRelativePath: string,
+  leaf: Pick<InteractionLeafRecord, "leafId" | "subjectKey" | "title">,
+): string {
+  return semanticInteractionChildRelativePath(
+    parentRelativePath,
+    interactionCanonicalLeafFolderName({
+      leafId: leaf.leafId,
+      subjectKey: leaf.subjectKey,
+      title: leaf.title,
+    }),
+  );
+}
+
+function semanticTreePathDepth(pathValue: string, markerSegments: [string, string, string]): number | null {
+  const normalized = pathValue.replaceAll("\\", "/");
+  const segments = normalized.split("/").filter(Boolean);
+  const markerIndex = segments.findIndex(
+    (segment, index) =>
+      segment === markerSegments[0]
+      && segments[index + 1] === markerSegments[1]
+      && segments[index + 2] === markerSegments[2],
+  );
+  if (markerIndex < 0 || segments[segments.length - 1] !== "content.md") {
+    return null;
+  }
+  const treeSlugIndex = markerIndex + markerSegments.length;
+  if (!segments[treeSlugIndex]) {
+    return null;
+  }
+  return Math.max(0, segments.length - (treeSlugIndex + 2));
 }
 
 function interactionCanonicalLeafFolderName(params: {
@@ -1217,6 +1297,42 @@ function summaryNodeBody(params: {
   return `${lines.join("\n").trim()}\n`;
 }
 
+function semanticInteractionNodeBody(params: {
+  entity: InteractionEntityRecord;
+  nodeKind: "tree" | "partition";
+  title: string;
+  summary: string;
+  childCount: number;
+  isMaterialized: boolean;
+  children: Array<{ title: string; summary: string }>;
+}): string {
+  const lines = [
+    `# ${params.title}`,
+    "",
+    `- Category: interaction`,
+    `- Entity: \`${params.entity.entityId}\``,
+    `- Entity name: ${params.entity.canonicalName}`,
+    `- Entity type: ${params.entity.entityType}`,
+    `- Node kind: ${params.nodeKind}`,
+    `- Child count: ${params.childCount}`,
+    params.isMaterialized ? "- Materialized: yes" : null,
+    "",
+    "## Summary",
+    "",
+    params.summary,
+    "",
+  ].filter((line): line is string => typeof line === "string");
+  if (params.children.length > 0) {
+    lines.push(
+      "## Children",
+      "",
+      ...params.children.map((child) => `- **${child.title}**: ${child.summary}`),
+      "",
+    );
+  }
+  return `${lines.join("\n").trim()}\n`;
+}
+
 function deterministicSummaryText(params: {
   entity: InteractionEntityRecord;
   childCount: number;
@@ -1282,52 +1398,6 @@ async function generateSummaryText(params: {
   return summary ? clipText(summary, 320) : fallback;
 }
 
-async function buildTempSummaryNode(params: {
-  entity: InteractionEntityRecord;
-  children: Array<{
-    kind: InteractionTreeChildKind;
-    id: string;
-    title: string;
-    summary: string;
-    excerpt: string | null;
-  }>;
-  depthFromLeaves: number;
-  ordinal: number;
-  modelClient: MemoryModelClientConfig | null;
-}): Promise<TempSummaryNode> {
-  const summary = await generateSummaryText({
-    entity: params.entity,
-    children: params.children,
-    depthFromLeaves: params.depthFromLeaves,
-    ordinal: params.ordinal,
-    modelClient: params.modelClient,
-  });
-  const title = params.depthFromLeaves === 1 && params.children.length > 1
-    ? `${params.entity.canonicalName} root summary`
-    : `${params.entity.canonicalName} branch ${params.ordinal}`;
-  const body = summaryNodeBody({
-    entity: params.entity,
-    title,
-    summary,
-    children: params.children.map((child) => ({
-      title: child.title,
-      summary: child.summary,
-    })),
-  });
-  return {
-    tempId: sha256(JSON.stringify({
-      entityId: params.entity.entityId,
-      depthFromLeaves: params.depthFromLeaves,
-      ordinal: params.ordinal,
-      children: params.children.map((child) => `${child.kind}:${child.id}`),
-    })).slice(0, 24),
-    title,
-    summary,
-    body,
-    children: params.children,
-  };
-}
-
 function chunkArray<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let index = 0; index < items.length; index += size) {
@@ -1336,360 +1406,262 @@ function chunkArray<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
-async function buildSummaryTreePlan(params: {
-  workspaceId: string;
+async function buildSemanticInteractionPartitionNode(params: {
   entity: InteractionEntityRecord;
-  leaves: InteractionLeafRecord[];
+  rootPath: string;
+  children: SemanticInteractionDraftChild[];
+  depthFromLeaves: number;
+  ordinal: number;
   modelClient: MemoryModelClientConfig | null;
 }): Promise<{
-  nodes: Array<{
-    nodeId: string;
-    level: number;
-    ordinal: number;
-    path: string;
-    title: string;
-    summary: string;
-    body: string;
-    bodySha256: string;
-    childCount: number;
-    sealedAt: string;
-  }>;
-  edges: Array<{
-    parentNodeId: string;
-    childKind: InteractionTreeChildKind;
-    childId: string;
-    position: number;
-  }>;
+  node: SemanticInteractionDraftNode;
+  body: string;
+  child: SemanticInteractionDraftChild;
 }> {
-  if (params.leaves.length <= 1) {
-    return { nodes: [], edges: [] };
-  }
-
-  const leafChildren: TempSummaryChild[] = params.leaves.map((leaf) => ({
-    kind: "leaf" as const,
-    id: leaf.leafId,
-    title: leaf.title,
-    summary: leaf.summary,
-    excerpt: null,
-  }));
-
-  const layers: TempSummaryNode[][] = [];
-  let current: TempSummaryChild[] = leafChildren;
-  let depthFromLeaves = 1;
-  const build = async () => {
-    while (current.length > 1 || layers.length === 0) {
-      const layer = await Promise.all(
-        chunkArray(current, INTERACTION_BRANCH_FACTOR).map((group, index) =>
-          buildTempSummaryNode({
-            entity: params.entity,
-            children: group,
-            depthFromLeaves,
-            ordinal: index + 1,
-            modelClient: params.modelClient,
-          }),
-        ),
-      );
-      layers.push(layer);
-      current = layer.map((node) => ({
-        kind: "summary" as const,
-        id: node.tempId,
-        title: node.title,
-        summary: node.summary,
-        excerpt: markdownExcerpt(node.body),
-      }));
-      depthFromLeaves += 1;
-      if (current.length === 1) {
-        break;
-      }
-    }
-
-    const totalLayers = layers.length;
-    const nodeIdByTempId = new Map<string, { nodeId: string; level: number }>();
-    const nodes: Array<{
-      nodeId: string;
-      level: number;
-      ordinal: number;
-      path: string;
-      title: string;
-      summary: string;
-      body: string;
-      bodySha256: string;
-      childCount: number;
-      sealedAt: string;
-    }> = [];
-    const sealedAt = utcNowIso();
-
-    for (let layerIndex = layers.length - 1; layerIndex >= 0; layerIndex -= 1) {
-      const layer = layers[layerIndex];
-      const level = totalLayers - layerIndex;
-      for (let index = 0; index < layer.length; index += 1) {
-        const node = layer[index];
-        const childIdentity = node.children
-          .map((child) => `${child.kind}:${child.id}`)
-          .join("|");
-        const nodeId = `summary-${sha256(`${params.entity.entityId}|L${level}|${childIdentity}`).slice(0, 24)}`;
-        nodeIdByTempId.set(node.tempId, { nodeId, level });
-        nodes.push({
-          nodeId,
-          level,
-          ordinal: index + 1,
-          path: interactionSummaryRelativePath(
-            params.workspaceId,
-            params.entity.slug,
-            level,
-            nodeId,
-          ),
-          title: node.title,
-          summary: node.summary,
-          body: node.body,
-          bodySha256: sha256(node.body),
-          childCount: node.children.length,
-          sealedAt,
-        });
-      }
-    }
-
-    const edges: Array<{
-      parentNodeId: string;
-      childKind: InteractionTreeChildKind;
-      childId: string;
-      position: number;
-    }> = [];
-    for (let layerIndex = layers.length - 1; layerIndex >= 0; layerIndex -= 1) {
-      const layer = layers[layerIndex];
-      for (const tempNode of layer) {
-        const parent = nodeIdByTempId.get(tempNode.tempId);
-        if (!parent) {
-          continue;
-        }
-        tempNode.children.forEach((child, childIndex) => {
-          const childId =
-            child.kind === "summary"
-              ? (nodeIdByTempId.get(child.id)?.nodeId ?? child.id)
-              : child.id;
-          edges.push({
-            parentNodeId: parent.nodeId,
-            childKind: child.kind,
-            childId,
-            position: childIndex + 1,
-          });
-        });
-      }
-    }
-
-    return { nodes, edges };
+  const summary = await generateSummaryText({
+    entity: params.entity,
+    children: params.children.map((child) => ({
+      kind: child.kind,
+      id: child.id,
+      title: child.title,
+      summary: child.summary,
+      excerpt: child.excerpt,
+    })),
+    depthFromLeaves: params.depthFromLeaves,
+    ordinal: params.ordinal,
+    modelClient: params.modelClient,
+  });
+  const childIdentity = params.children.map((child) => `${child.kind}:${child.id}`).join("|");
+  const nodeId = `semantic:interaction:${params.entity.entityId}:partition:L${params.depthFromLeaves}:${sha256(childIdentity).slice(0, 16)}`;
+  const title = `Slice ${params.ordinal}`;
+  const path = semanticInteractionChildRelativePath(
+    params.rootPath,
+    `slice-l${params.depthFromLeaves}-${String(params.ordinal).padStart(2, "0")}-${nodeId.slice(-6)}`,
+  );
+  const body = semanticInteractionNodeBody({
+    entity: params.entity,
+    nodeKind: "partition",
+    title,
+    summary,
+    childCount: params.children.length,
+    isMaterialized: true,
+    children: params.children.map((child) => ({
+      title: child.title,
+      summary: child.summary,
+    })),
+  });
+  const observedAt = params.children
+    .map((child) => child.observedAt)
+    .find((value) => Boolean(value)) ?? null;
+  return {
+    node: {
+      nodeId,
+      nodeClass: "semantic",
+      nodeKind: "partition",
+      sourceLeafId: null,
+      path,
+      title,
+      summary,
+      bodySha256: sha256(body),
+      childCount: params.children.length,
+      observedAt,
+      isMaterialized: true,
+      metadata: {
+        depth_from_leaves: params.depthFromLeaves,
+        ordinal: params.ordinal,
+      },
+    },
+    body,
+    child: {
+      kind: "summary",
+      id: nodeId,
+      title,
+      summary,
+      excerpt: markdownExcerpt(body),
+      observedAt,
+    },
   };
-
-  return await build();
 }
 
-function buildInteractionCanonicalNodesAndEdges(params: {
+async function buildSemanticInteractionTree(params: {
   workspaceId: string;
   entity: InteractionEntityRecord;
   leaves: InteractionLeafRecord[];
   leafBodies: Map<string, string>;
-  summaryPlan: Awaited<ReturnType<typeof buildSummaryTreePlan>>;
-}): {
-  nodes: Array<{
-    nodeId: string;
-    nodeKind: "tree" | "summary" | "leaf";
-    path: string;
-    title: string;
-    summary: string;
-    bodySha256: string;
-    level: number | null;
-    ordinal: number | null;
-    childCount: number;
-    observedAt: string | null;
-    metadata: Record<string, unknown>;
-  }>;
+  modelClient: MemoryModelClientConfig | null;
+}): Promise<{
+  nodes: SemanticInteractionDraftNode[];
   edges: Array<{
     parentNodeId: string;
     childNodeId: string;
     position: number;
   }>;
-} {
-  const rootNodeId = `tree:interaction:${params.entity.entityId}`;
-  const rootPath = interactionCanonicalContentPath(
-    interactionCanonicalTreeBaseSegments(params.workspaceId, params.entity.slug),
-  );
+  bodiesByPath: Map<string, string>;
+}> {
+  const rootNodeId = semanticInteractionRootNodeId(params.entity.entityId);
+  const rootPath = semanticInteractionTreeRelativePath(params.workspaceId, params.entity.slug);
+  const nodes: SemanticInteractionDraftNode[] = [];
+  const leafNodesById = new Map<string, SemanticInteractionDraftNode>();
+  const leavesByNodeId = new Map<string, InteractionLeafRecord>();
+  const edges: Array<{
+    parentNodeId: string;
+    childNodeId: string;
+    position: number;
+  }> = [];
+  const bodiesByPath = new Map<string, string>();
 
-  const nodeDefs = new Map<string, {
-    nodeKind: "tree" | "summary" | "leaf";
-    title: string;
-    summary: string;
-    body: string;
-    bodySha256: string;
-    level: number | null;
-    ordinal: number | null;
-    observedAt: string | null;
-    metadata: Record<string, unknown>;
-  }>();
-  nodeDefs.set(rootNodeId, {
+  for (const leaf of params.leaves) {
+    const leafNodeId = semanticInteractionLeafNodeId(params.entity.entityId, leaf.leafId);
+    const node: SemanticInteractionDraftNode = {
+      nodeId: leafNodeId,
+      nodeClass: "leaf",
+      nodeKind: "leaf",
+      sourceLeafId: leaf.leafId,
+      path: leaf.path,
+      title: leaf.title,
+      summary: leaf.summary,
+      bodySha256: leaf.bodySha256,
+      childCount: 0,
+      observedAt: leaf.observedAt ?? leaf.updatedAt,
+      isMaterialized: false,
+      metadata: {
+        subject_key: leaf.subjectKey,
+        tags: leaf.tags,
+        secondary_entity_ids: leaf.secondaryEntityIds,
+        source_type: leaf.sourceType,
+        evidence_path: leaf.path,
+        source_event_id: leaf.sourceEventId,
+        source_message_id: leaf.sourceMessageId,
+        source_turn_input_id: leaf.sourceTurnInputId,
+      },
+    };
+    nodes.push(node);
+    leafNodesById.set(leafNodeId, node);
+    leavesByNodeId.set(leafNodeId, leaf);
+  }
+
+  let currentChildren: SemanticInteractionDraftChild[] = params.leaves.map((leaf) => ({
+    kind: "leaf",
+    id: semanticInteractionLeafNodeId(params.entity.entityId, leaf.leafId),
+    title: leaf.title,
+    summary: leaf.summary,
+    excerpt: markdownExcerpt(
+      params.leafBodies.get(leaf.leafId) ?? interactionFallbackLeafBody(leaf),
+    ),
+    observedAt: leaf.observedAt ?? leaf.updatedAt,
+  }));
+  let depthFromLeaves = 1;
+  while (currentChildren.length > INTERACTION_BRANCH_FACTOR) {
+    const nextChildren: SemanticInteractionDraftChild[] = [];
+    const groups = chunkArray(currentChildren, INTERACTION_BRANCH_FACTOR);
+    const layer = await Promise.all(
+      groups.map((group, index) =>
+        buildSemanticInteractionPartitionNode({
+          entity: params.entity,
+          rootPath,
+          children: group,
+          depthFromLeaves,
+          ordinal: index + 1,
+          modelClient: params.modelClient,
+        })),
+    );
+    for (const [index, partition] of layer.entries()) {
+      nodes.push(partition.node);
+      bodiesByPath.set(partition.node.path, partition.body);
+      nextChildren.push(partition.child);
+      for (const [childIndex, child] of (groups[index] ?? []).entries()) {
+        if (child.kind === "leaf") {
+          const leaf = leavesByNodeId.get(child.id);
+          const leafNode = leafNodesById.get(child.id);
+          if (leaf && leafNode) {
+            leafNode.path = semanticInteractionLeafRelativePath(partition.node.path, leaf);
+            bodiesByPath.set(
+              leafNode.path,
+              params.leafBodies.get(leaf.leafId) ?? interactionFallbackLeafBody(leaf),
+            );
+          }
+        }
+        edges.push({
+          parentNodeId: partition.node.nodeId,
+          childNodeId: child.id,
+          position: childIndex + 1,
+        });
+      }
+    }
+    currentChildren = nextChildren;
+    depthFromLeaves += 1;
+  }
+
+  const rootSummary = currentChildren.length > 0
+    ? await generateSummaryText({
+        entity: params.entity,
+        children: currentChildren.map((child) => ({
+          kind: child.kind,
+          id: child.id,
+          title: child.title,
+          summary: child.summary,
+          excerpt: child.excerpt,
+        })),
+        depthFromLeaves,
+        ordinal: 1,
+        modelClient: params.modelClient,
+      })
+    : (params.entity.summary?.trim() || `${params.entity.canonicalName} interaction memory.`);
+  const rootBody = semanticInteractionNodeBody({
+    entity: params.entity,
     nodeKind: "tree",
     title: params.entity.canonicalName,
-    summary: params.entity.summary ?? `${params.entity.canonicalName} interaction memory tree.`,
-    body: interactionTreeBody({
-      entity: params.entity,
-      leafCount: params.leaves.length,
-      summaryCount: params.summaryPlan.nodes.length,
-    }),
-    bodySha256: "",
-    level: 0,
-    ordinal: 1,
+    summary: rootSummary,
+    childCount: currentChildren.length,
+    isMaterialized: false,
+    children: currentChildren.map((child) => ({
+      title: child.title,
+      summary: child.summary,
+    })),
+  });
+  bodiesByPath.set(rootPath, rootBody);
+  nodes.push({
+    nodeId: rootNodeId,
+    nodeClass: "semantic",
+    nodeKind: "tree",
+    sourceLeafId: null,
+    path: rootPath,
+    title: params.entity.canonicalName,
+    summary: rootSummary,
+    bodySha256: sha256(rootBody),
+    childCount: currentChildren.length,
     observedAt: params.entity.updatedAt,
+    isMaterialized: false,
     metadata: {
       entity_id: params.entity.entityId,
       entity_type: params.entity.entityType,
       entity_slug: params.entity.slug,
     },
   });
-  for (const summary of params.summaryPlan.nodes) {
-    nodeDefs.set(summary.nodeId, {
-      nodeKind: "summary",
-      title: summary.title,
-      summary: summary.summary,
-      body: summary.body,
-      bodySha256: summary.bodySha256,
-      level: summary.level,
-      ordinal: summary.ordinal,
-      observedAt: summary.sealedAt,
-      metadata: {
-        source: "interaction_summary",
-      },
-    });
-  }
-  for (const leaf of params.leaves) {
-    const body = params.leafBodies.get(leaf.leafId) ?? interactionFallbackLeafBody(leaf);
-    nodeDefs.set(leaf.leafId, {
-      nodeKind: "leaf",
-      title: leaf.title,
-      summary: leaf.summary,
-      body,
-      bodySha256: sha256(body),
-      level: null,
-      ordinal: null,
-      observedAt: leaf.observedAt ?? leaf.updatedAt,
-      metadata: {
-        subject_key: leaf.subjectKey,
-        tags: leaf.tags,
-        secondary_entity_ids: leaf.secondaryEntityIds,
-        source_type: leaf.sourceType,
-        source_event_id: leaf.sourceEventId,
-        source_message_id: leaf.sourceMessageId,
-        source_turn_input_id: leaf.sourceTurnInputId,
-      },
-    });
-  }
-  const rootDef = nodeDefs.get(rootNodeId)!;
-  rootDef.bodySha256 = sha256(rootDef.body);
-
-  const childSummaryIds = new Set(
-    params.summaryPlan.edges
-      .filter((edge) => edge.childKind === "summary")
-      .map((edge) => edge.childId),
-  );
-  const topSummaryNodes = params.summaryPlan.nodes
-    .filter((node) => !childSummaryIds.has(node.nodeId))
-    .sort((left, right) => left.level - right.level || left.ordinal - right.ordinal || left.nodeId.localeCompare(right.nodeId));
-
-  const edges: Array<{
-    parentNodeId: string;
-    childNodeId: string;
-    position: number;
-  }> = [];
-  if (topSummaryNodes.length > 0) {
-    topSummaryNodes.forEach((node, index) => {
-      edges.push({
-        parentNodeId: rootNodeId,
-        childNodeId: node.nodeId,
-        position: index + 1,
-      });
-    });
-  } else {
-    params.leaves.forEach((leaf, index) => {
-      edges.push({
-        parentNodeId: rootNodeId,
-        childNodeId: leaf.leafId,
-        position: index + 1,
-      });
-    });
-  }
-  for (const edge of params.summaryPlan.edges) {
+  currentChildren.forEach((child, index) => {
+    if (child.kind === "leaf") {
+      const leaf = leavesByNodeId.get(child.id);
+      const leafNode = leafNodesById.get(child.id);
+      if (leaf && leafNode) {
+        leafNode.path = semanticInteractionLeafRelativePath(rootPath, leaf);
+        bodiesByPath.set(
+          leafNode.path,
+          params.leafBodies.get(leaf.leafId) ?? interactionFallbackLeafBody(leaf),
+        );
+      }
+    }
     edges.push({
-      parentNodeId: edge.parentNodeId,
-      childNodeId: edge.childId,
-      position: edge.position,
+      parentNodeId: rootNodeId,
+      childNodeId: child.id,
+      position: index + 1,
     });
-  }
+  });
 
-  const childrenByParent = new Map<string, Array<{ childNodeId: string; position: number }>>();
-  for (const edge of edges) {
-    const bucket = childrenByParent.get(edge.parentNodeId) ?? [];
-    bucket.push({
-      childNodeId: edge.childNodeId,
-      position: edge.position,
-    });
-    childrenByParent.set(edge.parentNodeId, bucket);
-  }
-  for (const bucket of childrenByParent.values()) {
-    bucket.sort((left, right) => left.position - right.position || left.childNodeId.localeCompare(right.childNodeId));
-  }
-
-  const pathByNodeId = new Map<string, string>([[rootNodeId, rootPath]]);
-  const assignChildPaths = (parentNodeId: string) => {
-    const parentPath = pathByNodeId.get(parentNodeId);
-    if (!parentPath) {
-      return;
-    }
-    const parentSegments = parentPath.split("/").filter(Boolean);
-    const nodeDirSegments = parentSegments.slice(0, -1);
-    for (const child of childrenByParent.get(parentNodeId) ?? []) {
-      if (pathByNodeId.has(child.childNodeId)) {
-        assignChildPaths(child.childNodeId);
-        continue;
-      }
-      const childDef = nodeDefs.get(child.childNodeId);
-      if (!childDef) {
-        continue;
-      }
-      const folderName = childDef.nodeKind === "summary"
-        ? interactionCanonicalSummaryFolderName(childDef.level ?? 1, child.childNodeId)
-        : (() => {
-            const leaf = params.leaves.find((candidate) => candidate.leafId === child.childNodeId);
-            return interactionCanonicalLeafFolderName({
-              leafId: child.childNodeId,
-              subjectKey: leaf?.subjectKey ?? childDef.title,
-              title: childDef.title,
-            });
-          })();
-      const childPath = path.posix.join(
-        ...nodeDirSegments,
-        "branches",
-        folderName,
-        "content.md",
-      );
-      pathByNodeId.set(child.childNodeId, childPath);
-      assignChildPaths(child.childNodeId);
-    }
+  return {
+    nodes,
+    edges,
+    bodiesByPath,
   };
-  assignChildPaths(rootNodeId);
-
-  const nodes = Array.from(nodeDefs.entries()).map(([nodeId, def]) => ({
-    nodeId,
-    nodeKind: def.nodeKind,
-    path: pathByNodeId.get(nodeId) ?? rootPath,
-    title: def.title,
-    summary: def.summary,
-    bodySha256: def.bodySha256,
-    level: def.level,
-    ordinal: def.ordinal,
-    childCount: childrenByParent.get(nodeId)?.length ?? 0,
-    observedAt: def.observedAt,
-    metadata: def.metadata,
-  }));
-
-  return { nodes, edges };
 }
 
 async function syncNodeEmbedding(params: {
@@ -1896,9 +1868,10 @@ export async function rebuildInteractionEntityTree(params: {
   }
   const workspaceDir = params.store.workspaceDir(params.workspaceId);
   const entityDir = interactionEntityDir(workspaceDir, entity.slug);
+  const semanticTreeDir = semanticInteractionTreeDir(workspaceDir, entity.slug);
   const summariesDir = path.join(entityDir, "summaries");
   fs.rmSync(summariesDir, { recursive: true, force: true });
-  fs.mkdirSync(summariesDir, { recursive: true });
+  fs.rmSync(semanticTreeDir, { recursive: true, force: true });
   fs.rmSync(
     absolutePathForRelative(
       workspaceDir,
@@ -1933,73 +1906,37 @@ export async function rebuildInteractionEntityTree(params: {
     leafBodies.set(leaf.leafId, body);
   }
 
-  const plan = await buildSummaryTreePlan({
-    workspaceId: params.workspaceId,
-    entity,
-    leaves: activeLeaves,
-    modelClient: params.summaryModelClient ?? null,
-  });
-  for (const node of plan.nodes) {
-    writeFileIfChanged(absolutePathForRelative(workspaceDir, node.path), node.body);
-  }
-  const canonical = buildInteractionCanonicalNodesAndEdges({
+  const semantic = await buildSemanticInteractionTree({
     workspaceId: params.workspaceId,
     entity,
     leaves: activeLeaves,
     leafBodies,
-    summaryPlan: plan,
+    modelClient: params.summaryModelClient ?? null,
   });
-  const canonicalBodyByPath = new Map<string, string>();
-  for (const node of canonical.nodes) {
-    if (node.nodeKind === "tree") {
-      canonicalBodyByPath.set(
-        node.path,
-        interactionTreeBody({
-          entity,
-          leafCount: activeLeaves.length,
-          summaryCount: plan.nodes.length,
-        }),
-      );
-      continue;
-    }
-    if (node.nodeKind === "summary") {
-      const summaryNode = plan.nodes.find((candidate) => candidate.nodeId === node.nodeId);
-      if (summaryNode) {
-        canonicalBodyByPath.set(node.path, summaryNode.body);
-      }
-      continue;
-    }
-    const leafBody = leafBodies.get(node.nodeId);
-    if (leafBody) {
-      canonicalBodyByPath.set(node.path, leafBody);
-    }
-  }
-  for (const [relativePath, body] of canonicalBodyByPath) {
+  for (const [relativePath, body] of semantic.bodiesByPath) {
     writeFileIfChanged(absolutePathForRelative(workspaceDir, relativePath), body);
   }
-  params.store.replaceInteractionSummaryTree({
-    workspaceId: params.workspaceId,
-    entityId: params.entityId,
-    nodes: plan.nodes.map((node) => ({
-      nodeId: node.nodeId,
-      level: node.level,
-      ordinal: node.ordinal,
-      path: node.path,
-      title: node.title,
-      summary: node.summary,
-      bodySha256: node.bodySha256,
-      childCount: node.childCount,
-      sealedAt: node.sealedAt,
-    })),
-    edges: plan.edges,
-  });
-  params.store.replaceInteractionMemoryTree({
+  params.store.replaceSemanticMemoryTree({
+    category: "interaction",
     workspaceId: params.workspaceId,
     treeId: params.entityId,
-    nodes: canonical.nodes,
-    edges: canonical.edges,
+    nodes: semantic.nodes,
+    edges: semantic.edges,
   });
-  for (const node of plan.nodes) {
+  params.store.replaceSemanticMemoryRelations({
+    category: "interaction",
+    workspaceId: params.workspaceId,
+    treeId: params.entityId,
+    relations: [],
+  });
+  for (const node of semantic.nodes) {
+    if (node.nodeClass !== "semantic") {
+      continue;
+    }
+    const body = semantic.bodiesByPath.get(node.path);
+    if (!body) {
+      continue;
+    }
     await syncNodeEmbedding({
       store: params.store,
       workspaceId: params.workspaceId,
@@ -2008,7 +1945,7 @@ export async function rebuildInteractionEntityTree(params: {
       nodeId: node.nodeId,
       title: node.title,
       summary: node.summary,
-      body: node.body,
+      body,
       embeddingClient: params.embeddingClient ?? null,
     });
   }
@@ -2049,13 +1986,15 @@ export async function rebuildAllInteractionTrees(params: {
       summaryModelClient,
       embeddingClient,
     });
-    summaryCount += params.store.listInteractionSummaryNodes({
+    summaryCount += params.store.listSemanticMemoryNodes({
+      category: "interaction",
       workspaceId: params.workspaceId,
-      entityId: entity.entityId,
+      treeId: entity.entityId,
+      nodeClass: "semantic",
       status: "active",
       limit: 10_000,
       offset: 0,
-    }).length;
+    }).filter((node) => isSummaryLikeSemanticInteractionNode(node)).length;
   }
   return {
     entities: entities.length,
@@ -2118,11 +2057,36 @@ function buildLeafCandidate(params: {
   };
 }
 
-function buildSummaryCandidate(params: {
+function semanticInteractionCandidateKind(
+  node: ReturnType<RuntimeStateStore["listSemanticMemoryNodes"]>[number],
+): InteractionTreeChildKind {
+  return node.nodeClass === "leaf" ? "leaf" : "summary";
+}
+
+function isSummaryLikeSemanticInteractionNode(
+  node: ReturnType<RuntimeStateStore["listSemanticMemoryNodes"]>[number],
+): boolean {
+  return node.nodeClass === "semantic" && (node.nodeKind !== "tree" || node.childCount > 1);
+}
+
+function semanticInteractionNodeLevel(
+  node: ReturnType<RuntimeStateStore["listSemanticMemoryNodes"]>[number],
+): number | null {
+  if (node.nodeClass === "leaf") {
+    return null;
+  }
+  const nodesDepth = semanticTreePathDepth(node.path, ["semantic", "interaction", "trees"]);
+  if (nodesDepth === null) {
+    return null;
+  }
+  return node.nodeKind === "tree" ? 1 : nodesDepth + 1;
+}
+
+function buildSemanticCandidate(params: {
   store: RuntimeStateStore;
   workspaceId: string;
   entity: InteractionEntityRecord;
-  node: InteractionSummaryNodeRecord;
+  node: ReturnType<RuntimeStateStore["listSemanticMemoryNodes"]>[number];
 }): NodeCandidate {
   const filePath = absolutePathForRelative(
     params.store.workspaceDir(params.workspaceId),
@@ -2130,43 +2094,14 @@ function buildSummaryCandidate(params: {
   );
   const body = readFileIfExists(filePath);
   return {
-    kind: "summary",
+    kind: semanticInteractionCandidateKind(params.node),
     id: params.node.nodeId,
     entity: params.entity,
     title: params.node.title,
     summary: params.node.summary,
     excerpt: body ? markdownExcerpt(body, 320) : null,
     path: params.node.path,
-    level: params.node.level,
-    childCount: params.node.childCount,
-    observedAt: params.node.sealedAt,
-    updatedAt: params.node.updatedAt,
-  };
-}
-
-function buildCanonicalCandidate(params: {
-  store: RuntimeStateStore;
-  workspaceId: string;
-  entity: InteractionEntityRecord;
-  node: ReturnType<RuntimeStateStore["listInteractionMemoryNodes"]>[number];
-}): NodeCandidate | null {
-  if (params.node.nodeKind !== "summary" && params.node.nodeKind !== "leaf") {
-    return null;
-  }
-  const filePath = absolutePathForRelative(
-    params.store.workspaceDir(params.workspaceId),
-    params.node.path,
-  );
-  const body = readFileIfExists(filePath);
-  return {
-    kind: params.node.nodeKind,
-    id: params.node.nodeId,
-    entity: params.entity,
-    title: params.node.title,
-    summary: params.node.summary,
-    excerpt: body ? markdownExcerpt(body, 320) : null,
-    path: params.node.path,
-    level: params.node.level,
+    level: semanticInteractionNodeLevel(params.node),
     childCount: params.node.childCount,
     observedAt: params.node.observedAt,
     updatedAt: params.node.updatedAt,
@@ -2256,37 +2191,47 @@ async function childHitsForNode(params: {
   queryVector: number[] | null;
   embeddingByKey: Map<string, number[]>;
 }): Promise<InteractionMemoryRetrieveHit[]> {
-  const canonicalParent = params.store.getInteractionMemoryNode({
+  const semanticEntity = params.store.listInteractionEntities({
     workspaceId: params.workspaceId,
-    nodeId: params.parentNodeId,
-  });
-  if (canonicalParent) {
-    const entity = params.store.getInteractionEntity({
-      workspaceId: params.workspaceId,
-      entityId: canonicalParent.treeId,
-    });
-    if (!entity) {
-      return [];
-    }
-    const candidates = params.store
-      .listInteractionMemoryChildren({
+    status: "active",
+    includeSystem: true,
+    limit: 10_000,
+    offset: 0,
+  }).find((entity) =>
+    Boolean(
+      params.store.getSemanticMemoryNode({
+        category: "interaction",
         workspaceId: params.workspaceId,
+        treeId: entity.entityId,
+        nodeId: params.parentNodeId,
+      }),
+    ),
+  ) ?? null;
+  if (semanticEntity) {
+    const candidates = params.store
+      .listSemanticMemoryChildren({
+        category: "interaction",
+        workspaceId: params.workspaceId,
+        treeId: semanticEntity.entityId,
         parentNodeId: params.parentNodeId,
       })
       .map((child) =>
-        params.store.getInteractionMemoryNode({
+        params.store.getSemanticMemoryNode({
+          category: "interaction",
           workspaceId: params.workspaceId,
+          treeId: semanticEntity.entityId,
           nodeId: child.childNodeId,
         }))
       .filter((node): node is NonNullable<typeof node> => Boolean(node))
       .map((node) =>
-        buildCanonicalCandidate({
+        buildSemanticCandidate({
           store: params.store,
           workspaceId: params.workspaceId,
-          entity,
+          entity: semanticEntity,
           node,
         }))
-      .filter((candidate): candidate is NodeCandidate => Boolean(candidate));
+      .filter((candidate) => params.mode === "mixed"
+        || (params.mode === "leaves" ? candidate.kind === "leaf" : candidate.kind === "summary"));
     return candidates
       .map((candidate) => {
         const scored = nodeScore({
@@ -2305,72 +2250,7 @@ async function childHitsForNode(params: {
       })
       .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path));
   }
-
-  const parent = params.store.getInteractionSummaryNode({
-    workspaceId: params.workspaceId,
-    nodeId: params.parentNodeId,
-  });
-  if (!parent) {
-    return [];
-  }
-  const entity = params.store.getInteractionEntity({
-    workspaceId: params.workspaceId,
-    entityId: parent.entityId,
-  });
-  if (!entity) {
-    return [];
-  }
-  const children = params.store.listInteractionTreeChildren({
-    workspaceId: params.workspaceId,
-    parentNodeId: params.parentNodeId,
-  });
-  const candidates: NodeCandidate[] = [];
-  for (const child of children) {
-    if (child.childKind === "summary") {
-      const node = params.store.getInteractionSummaryNode({
-        workspaceId: params.workspaceId,
-        nodeId: child.childId,
-      });
-      if (node && node.status === "active") {
-        candidates.push(buildSummaryCandidate({
-          store: params.store,
-          workspaceId: params.workspaceId,
-          entity,
-          node,
-        }));
-      }
-      continue;
-    }
-    const leaf = params.store.getInteractionLeaf({
-      workspaceId: params.workspaceId,
-      leafId: child.childId,
-    });
-    if (leaf && leaf.status === "active") {
-      candidates.push(buildLeafCandidate({
-        store: params.store,
-        workspaceId: params.workspaceId,
-        entity,
-        leaf,
-      }));
-    }
-  }
-  return candidates
-    .map((candidate) => {
-      const scored = nodeScore({
-        query: params.query,
-        candidate,
-        embeddingModelId: params.embeddingModelId,
-        queryVector: params.queryVector,
-        embeddingByKey: params.embeddingByKey,
-        mode: params.mode,
-      });
-      return candidateToHit({
-        candidate,
-        score: scored.score,
-        reasons: scored.reasons.length > 0 ? scored.reasons : ["child_traversal"],
-      });
-    })
-    .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path));
+  return [];
 }
 
 export async function retrieveInteractionMemory(params: {
@@ -2442,66 +2322,30 @@ export async function retrieveInteractionMemory(params: {
 
   const candidates: NodeCandidate[] = [];
   for (const entity of entities) {
-    const canonicalNodes = params.store.listInteractionMemoryNodes({
+    const semanticNodes = params.store.listSemanticMemoryNodes({
+      category: "interaction",
       workspaceId: params.workspaceId,
       treeId: entity.entityId,
       status: "active",
       limit: 10_000,
       offset: 0,
     });
-    if (canonicalNodes.length > 0) {
-      for (const node of canonicalNodes) {
-        if (mode === "leaves" && node.nodeKind !== "leaf") {
-          continue;
-        }
-        if (mode === "summaries" && node.nodeKind !== "summary") {
-          continue;
-        }
-        const candidate = buildCanonicalCandidate({
+    if (semanticNodes.length > 0) {
+      for (const node of semanticNodes) {
+        const candidate = buildSemanticCandidate({
           store: params.store,
           workspaceId: params.workspaceId,
           entity,
           node,
         });
-        if (candidate) {
-          candidates.push(candidate);
+        if (mode === "leaves" && candidate.kind !== "leaf") {
+          continue;
         }
+        if (mode === "summaries" && candidate.kind !== "summary") {
+          continue;
+        }
+        candidates.push(candidate);
       }
-      continue;
-    }
-    const activeSummaries = mode === "leaves"
-      ? []
-      : params.store.listInteractionSummaryNodes({
-          workspaceId: params.workspaceId,
-          entityId: entity.entityId,
-          status: "active",
-          limit: 10_000,
-          offset: 0,
-        });
-    const activeLeaves = mode === "summaries"
-      ? []
-      : params.store.listInteractionLeaves({
-          workspaceId: params.workspaceId,
-          entityId: entity.entityId,
-          status: "active",
-          limit: 10_000,
-          offset: 0,
-        });
-    for (const node of activeSummaries) {
-      candidates.push(buildSummaryCandidate({
-        store: params.store,
-        workspaceId: params.workspaceId,
-        entity,
-        node,
-      }));
-    }
-    for (const leaf of activeLeaves) {
-      candidates.push(buildLeafCandidate({
-        store: params.store,
-        workspaceId: params.workspaceId,
-        entity,
-        leaf,
-      }));
     }
   }
 

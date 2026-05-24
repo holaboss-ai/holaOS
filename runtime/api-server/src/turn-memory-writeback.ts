@@ -133,6 +133,12 @@ const MODEL_EXTRACTION_MIN_EVIDENCE_CHARS = 36;
 
 const activeInteractionBatchLeases = new Map<string, string>();
 
+function isSummaryLikeSemanticInteractionNode(
+  node: ReturnType<RuntimeStateStore["listSemanticMemoryNodes"]>[number],
+): boolean {
+  return node.nodeClass === "semantic" && (node.nodeKind !== "tree" || node.childCount > 1);
+}
+
 function safePathSegment(value: string, fallback: string): string {
   const normalized = value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
   return normalized || fallback;
@@ -827,14 +833,28 @@ export async function refreshMemoryIndexes(params: {
     store: params.store,
     workspaceId: params.workspaceId,
   });
-  return params.store
-    .listInteractionSummaryNodes({
+  const semanticPaths = params.store
+    .listInteractionEntities({
       workspaceId: params.workspaceId,
       status: "active",
+      includeSystem: true,
       limit: 10_000,
       offset: 0,
     })
+    .flatMap((entity) =>
+      params.store.listSemanticMemoryNodes({
+        category: "interaction",
+        workspaceId: params.workspaceId,
+        treeId: entity.entityId,
+        nodeClass: "semantic",
+        status: "active",
+        limit: 10_000,
+        offset: 0,
+      }),
+    )
+    .filter((node) => isSummaryLikeSemanticInteractionNode(node))
     .map((node) => node.path);
+  return semanticPaths;
 }
 
 export async function writeTurnDurableMemory(params: {

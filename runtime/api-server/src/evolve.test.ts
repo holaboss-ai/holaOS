@@ -135,13 +135,15 @@ function listActiveInteractionLeaves(store: RuntimeStateStore, workspaceId: stri
   });
 }
 
-function listActiveInteractionSummaries(store: RuntimeStateStore, workspaceId: string) {
-  return store.listInteractionSummaryNodes({
+function listSummaryLikeSemanticInteractionNodes(store: RuntimeStateStore, workspaceId: string) {
+  return store.listSemanticMemoryNodes({
+    category: "interaction",
     workspaceId,
+    nodeClass: "semantic",
     status: "active",
     limit: 10_000,
     offset: 0,
-  });
+  }).filter((node) => node.nodeKind !== "tree" || node.childCount > 1);
 }
 
 function seedWorkspace(store: RuntimeStateStore): void {
@@ -323,7 +325,7 @@ test("queued evolve memory writeback persists durable memories and refreshes ind
   );
   assert.ok(releaseLeaf);
   assert.match(files[releaseLeaf.path], /Project Falcon release workflow/);
-  assert.equal(listActiveInteractionSummaries(store, "workspace-1").length, 0);
+  assert.equal(listSummaryLikeSemanticInteractionNodes(store, "workspace-1").length, 0);
 
   store.close();
 });
@@ -1043,7 +1045,7 @@ test("queued evolve memory writeback skips empty index generation when no durabl
 
   assert.deepEqual(Object.keys(files), []);
   assert.deepEqual(listActiveInteractionLeaves(store, "workspace-1"), []);
-  assert.deepEqual(listActiveInteractionSummaries(store, "workspace-1"), []);
+  assert.deepEqual(listSummaryLikeSemanticInteractionNodes(store, "workspace-1"), []);
 
   store.close();
 });

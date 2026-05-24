@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, test } from "node:test";
 
 import { RuntimeStateStore } from "@holaboss/runtime-state-store";
 
-import { rebuildIntegrationTree, retrieveIntegrationMemory } from "./integration-memory.js";
+import {
+  countSummaryLikeSemanticIntegrationNodes,
+  rebuildIntegrationTree,
+  retrieveIntegrationMemory,
+} from "./integration-memory.js";
 import { globalMemoryDirForWorkspaceRoot } from "./workspace-bundle-paths.js";
 
 const tempDirs: string[] = [];
@@ -24,7 +27,7 @@ function makeTempDir(prefix: string): string {
   return dir;
 }
 
-test("rebuildIntegrationTree uses LLM-authored summaries when a summary model client is available", async () => {
+test("rebuildIntegrationTree writes deterministic semantic summaries for integration roots", async () => {
   const root = makeTempDir("hb-integration-memory-summary-");
   const workspaceRoot = path.join(root, "workspace");
   const store = new RuntimeStateStore({
@@ -86,93 +89,42 @@ test("rebuildIntegrationTree uses LLM-authored summaries when a summary model cl
     );
   }
 
-  const requests: Array<Record<string, unknown>> = [];
-  const server = http.createServer((request, response) => {
-    if (request.method !== "POST" || request.url !== "/openai/v1/chat/completions") {
-      response.statusCode = 404;
-      response.end();
-      return;
-    }
-    const chunks: Buffer[] = [];
-    request.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
-    request.on("end", () => {
-      requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
-      response.statusCode = 200;
-      response.setHeader("content-type", "application/json");
-      response.end(
-        JSON.stringify({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  summary: "The GitHub account memory highlights the current release artifacts and ownership details needed for follow-up.",
-                }),
-              },
-            },
-          ],
-        }),
-      );
-    });
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => resolve());
-  });
-
   try {
-    const address = server.address();
-    assert.ok(address && typeof address === "object");
     await rebuildIntegrationTree({
       store,
-      workspaceId: "workspace-1",
       treeId: "integration:github:acct-1",
-      summaryModelClient: {
-        baseUrl: `http://127.0.0.1:${address.port}/openai/v1`,
-        apiKey: "test-key",
-        modelId: "openai/gpt-4.1-mini",
-      },
       embeddingClient: null,
     });
 
-    const summaries = store.listIntegrationSummaryNodes({
+    const semanticNodes = store.listSemanticMemoryNodes({
+      category: "integration",
       treeId: "integration:github:acct-1",
       status: "active",
       limit: 10_000,
       offset: 0,
     });
+    const rootNode = semanticNodes.find((node) => node.nodeKind === "connection");
 
-    assert.equal(requests.length, 1);
-    assert.equal(requests[0]?.model, "gpt-4.1-mini");
-    assert.equal(summaries.length, 1);
+    assert.ok(rootNode);
     assert.equal(
-      summaries[0]?.summary,
-      "The GitHub account memory highlights the current release artifacts and ownership details needed for follow-up.",
+      countSummaryLikeSemanticIntegrationNodes({
+        store,
+        treeId: "integration:github:acct-1",
+      }),
+      1,
     );
-    const summaryPath = path.join(
+    assert.equal(rootNode.summary, "Release GitHub memory.");
+    const rootPath = path.join(
       globalMemoryDirForWorkspaceRoot(workspaceRoot),
+      "semantic",
       "integration",
       "trees",
       "github-release-acct-1",
-      "branches",
-      `L${summaries[0]?.level ?? 1}-${summaries[0]?.nodeId.slice(-6)}`,
       "content.md",
     );
-    assert.match(
-      fs.readFileSync(summaryPath, "utf8"),
-      /The GitHub account memory highlights the current release artifacts and ownership details needed for follow-up\./,
-    );
+    assert.match(fs.readFileSync(rootPath, "utf8"), /Release GitHub memory\./);
   } finally {
     store.close();
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
-      });
-    });
   }
 });
 
@@ -360,9 +312,7 @@ test("retrieveIntegrationMemory surfaces Gmail contact nodes and contact-thread 
 
     await rebuildIntegrationTree({
       store,
-      workspaceId: "workspace-1",
       treeId: "integration:gmail:acct-1",
-      summaryModelClient: null,
       embeddingClient: null,
     });
 
@@ -585,9 +535,7 @@ test("rebuildIntegrationTree writes the GitHub semantic memory hierarchy", async
 
     await rebuildIntegrationTree({
       store,
-      workspaceId: "workspace-1",
       treeId,
-      summaryModelClient: null,
       embeddingClient: null,
     });
 
@@ -842,9 +790,7 @@ test("rebuildIntegrationTree writes the Notion semantic memory hierarchy", async
 
     await rebuildIntegrationTree({
       store,
-      workspaceId: "workspace-1",
       treeId,
-      summaryModelClient: null,
       embeddingClient: null,
     });
 
@@ -1130,9 +1076,7 @@ test("rebuildIntegrationTree writes the Google Drive semantic memory hierarchy",
 
     await rebuildIntegrationTree({
       store,
-      workspaceId: "workspace-1",
       treeId,
-      summaryModelClient: null,
       embeddingClient: null,
     });
 
@@ -1343,9 +1287,7 @@ test("rebuildIntegrationTree writes the Twitter semantic memory hierarchy", asyn
 
     await rebuildIntegrationTree({
       store,
-      workspaceId: "workspace-1",
       treeId,
-      summaryModelClient: null,
       embeddingClient: null,
     });
 

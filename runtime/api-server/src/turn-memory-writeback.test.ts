@@ -118,14 +118,20 @@ function listActiveInteractionLeaves(store: RuntimeStateStore, workspaceId: stri
   });
 }
 
-function listActiveInteractionSummaries(store: RuntimeStateStore, workspaceId: string, entityId?: string) {
-  return store.listInteractionSummaryNodes({
+function listSummaryLikeSemanticInteractionNodes(
+  store: RuntimeStateStore,
+  workspaceId: string,
+  treeId?: string,
+) {
+  return store.listSemanticMemoryNodes({
+    category: "interaction",
     workspaceId,
-    entityId: entityId ?? null,
+    treeId: treeId ?? undefined,
+    nodeClass: "semantic",
     status: "active",
     limit: 10_000,
     offset: 0,
-  });
+  }).filter((node) => node.nodeKind !== "tree" || node.childCount > 1);
 }
 
 function listActiveInteractionEntities(store: RuntimeStateStore, workspaceId: string) {
@@ -425,21 +431,13 @@ test("writeTurnDurableMemory waits for a full three-turn batch and does not repl
   const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
   const filePaths = Object.keys(files).sort((left, right) => left.localeCompare(right));
   const interactionLeaves = listActiveInteractionLeaves(store, "workspace-1");
-  const interactionSummaries = listActiveInteractionSummaries(store, "workspace-1");
+  const interactionSummaries = listSummaryLikeSemanticInteractionNodes(store, "workspace-1");
   const interactionEntities = listActiveInteractionEntities(store, "workspace-1");
   const blockerLeaf = interactionLeaves[0];
 
-  assert.equal(filePaths.length, 3);
+  assert.equal(filePaths.length, 2);
   assert.ok(filePaths.includes(blockerLeaf.path));
-  assert.ok(filePaths.includes("workspace/workspace-1/interaction/trees/system-recurring-deploy-policy-blocker/content.md"));
-  assert.equal(
-    filePaths.some((candidate) =>
-      /^workspace\/workspace-1\/interaction\/trees\/system-recurring-deploy-policy-blocker\/branches\/deploy-policy-blocker-recurring-[a-f0-9]{6}\/content\.md$/.test(
-        candidate,
-      )
-    ),
-    true,
-  );
+  assert.ok(filePaths.includes("workspace/workspace-1/semantic/interaction/trees/system-recurring-deploy-policy-blocker/content.md"));
   assert.equal(interactionLeaves.length, 1);
   assert.equal(blockerLeaf.entityId, "interaction:system:recurring-deploy-policy-blocker");
   assert.match(
@@ -761,7 +759,7 @@ test("writeTurnDurableMemory skips recall-only batches instead of re-learning re
   const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
   assert.equal(requestCount, 0);
   assert.deepEqual(listActiveInteractionLeaves(store, "workspace-1"), []);
-  assert.deepEqual(listActiveInteractionSummaries(store, "workspace-1"), []);
+  assert.deepEqual(listSummaryLikeSemanticInteractionNodes(store, "workspace-1"), []);
   assert.deepEqual(Object.keys(files), []);
   assert.equal(interactionBatchCursor(store), "3");
 
@@ -924,7 +922,7 @@ test("writeTurnDurableMemory persists model-extracted workspace facts and proced
   assert.match(files[verificationFact!.path], /`npm run test`/);
   assert.match(files[releaseProcedure!.path], /^# Release procedure/m);
   assert.match(files[releaseProcedure!.path], /running tests, building the bundle, and then publishing it/i);
-  assert.equal(listActiveInteractionSummaries(store, "workspace-1").length, 0);
+  assert.equal(listSummaryLikeSemanticInteractionNodes(store, "workspace-1").length, 0);
   assert.equal(verificationFact?.sourceType, "assistant_turn");
   assert.equal(verificationFact?.admissionConfidence, 0.94);
   assert.equal(releaseProcedure?.sourceType, "assistant_turn");
@@ -1008,7 +1006,7 @@ test("writeTurnDurableMemory persists model-extracted business facts and procedu
   const cadenceFact = interactionLeaves.find((leaf) => leaf.title === "Sales review cadence");
   const approvalFact = interactionLeaves.find((leaf) => leaf.title === "Finance approval rule");
   const followUpProcedure = interactionLeaves.find((leaf) => leaf.title === "Follow-up procedure");
-  const uncategorizedSummaries = listActiveInteractionSummaries(store, "workspace-1", "interaction:uncategorized");
+  const uncategorizedSummaries = listSummaryLikeSemanticInteractionNodes(store, "workspace-1", "interaction:uncategorized");
 
   assert.ok(cadenceFact);
   assert.ok(approvalFact);
@@ -1160,7 +1158,7 @@ test("writeTurnDurableMemory rejects weak model-extracted durable candidates", a
 
   const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
   assert.deepEqual(listActiveInteractionLeaves(store, "workspace-1"), []);
-  assert.deepEqual(listActiveInteractionSummaries(store, "workspace-1"), []);
+  assert.deepEqual(listSummaryLikeSemanticInteractionNodes(store, "workspace-1"), []);
   assert.deepEqual(Object.keys(files), []);
   assert.equal(interactionBatchCursor(store), "3");
 
@@ -1353,12 +1351,13 @@ test("refreshMemoryIndexes rebuilds large interaction trees without truncation",
     memoryService,
     workspaceId: "workspace-1",
   });
-  const summaryNodes = listActiveInteractionSummaries(store, "workspace-1", "interaction:uncategorized");
+  const summaryNodes = listSummaryLikeSemanticInteractionNodes(store, "workspace-1", "interaction:uncategorized");
 
   assert.equal(summaryNodes.length, 81);
   assert.equal(restoredPaths.length, 81);
-  assert.equal(restoredPaths.some((entry) => entry.includes("/summaries/L1/")), true);
-  assert.equal(restoredPaths.some((entry) => entry.includes("/summaries/L4/")), true);
+  assert.equal(restoredPaths.includes("workspace/workspace-1/semantic/interaction/trees/uncategorized/content.md"), true);
+  assert.equal(restoredPaths.some((entry) => entry.includes("/slice-l1-")), true);
+  assert.equal(restoredPaths.some((entry) => entry.includes("/slice-l3-")), true);
 
   store.close();
 });
@@ -1454,7 +1453,7 @@ test("writeTurnDurableMemory rebuilds interaction summaries after new leaves are
   });
   const files = snapshotMemoryFiles(workspaceRoot, "workspace-1");
   const leaves = listActiveInteractionLeaves(store, "workspace-1");
-  const summaries = listActiveInteractionSummaries(store, "workspace-1", "interaction:uncategorized");
+  const summaries = listSummaryLikeSemanticInteractionNodes(store, "workspace-1", "interaction:uncategorized");
 
   assert.equal(leaves.length, 2);
   assert.equal(summaries.length, 1);
@@ -1462,7 +1461,7 @@ test("writeTurnDurableMemory rebuilds interaction summaries after new leaves are
   const verificationLeaf = leaves.find((leaf) => leaf.title === "Verification command");
   assert.ok(verificationLeaf);
   assert.ok(files[verificationLeaf!.path]);
-  assert.ok(files[summaries[0].path]);
+  assert.ok(files["workspace/workspace-1/semantic/interaction/trees/uncategorized/content.md"]);
   assert.equal(interactionBatchCursor(store), "3");
 
   store.close();

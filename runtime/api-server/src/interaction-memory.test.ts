@@ -7,7 +7,7 @@ import { afterEach, test } from "node:test";
 
 import { RuntimeStateStore } from "@holaboss/runtime-state-store";
 
-import { persistInteractionCandidate, rebuildInteractionEntityTree } from "./interaction-memory.js";
+import { persistInteractionCandidate, rebuildInteractionEntityTree, retrieveInteractionMemory } from "./interaction-memory.js";
 import { workspaceMemoryDir } from "./workspace-bundle-paths.js";
 
 const tempDirs: string[] = [];
@@ -183,29 +183,30 @@ test("rebuildInteractionEntityTree uses LLM-authored summaries when a summary mo
       embeddingClient: null,
     });
 
-    const summaries = store.listInteractionSummaryNodes({
+    const semanticNodes = store.listSemanticMemoryNodes({
+      category: "interaction",
       workspaceId: "workspace-1",
-      entityId: "interaction:workflow:deploy-procedure",
+      treeId: "interaction:workflow:deploy-procedure",
       status: "active",
       limit: 10_000,
       offset: 0,
     });
+    const rootNode = semanticNodes.find((node) => node.nodeKind === "tree");
 
     assert.equal(requests.length, 1);
     assert.equal(requests[0]?.model, "gpt-4.1-mini");
-    assert.equal(summaries.length, 1);
+    assert.ok(rootNode);
     assert.equal(
-      summaries[0]?.summary,
+      rootNode?.summary,
       "Deployment memory emphasizes validating the release flow before rollout and keeping the procedure consistent.",
     );
     const summaryPath = path.join(
       workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+      "semantic",
       "interaction",
-      "entities",
+      "trees",
       "workflow-deploy-procedure",
-      "summaries",
-      "L1",
-      `${summaries[0]?.nodeId}.md`,
+      "content.md",
     );
     assert.match(
       fs.readFileSync(summaryPath, "utf8"),
@@ -222,6 +223,161 @@ test("rebuildInteractionEntityTree uses LLM-authored summaries when a summary mo
         resolve();
       });
     });
+  }
+});
+
+test("rebuildInteractionEntityTree writes semantic interaction trees and retrieval drills into materialized partitions", async () => {
+  const root = makeTempDir("hb-interaction-memory-semantic-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertInteractionEntity({
+    workspaceId: "workspace-1",
+    entityId: "interaction:workflow:deploy-procedure",
+    entityType: "workflow",
+    canonicalName: "Deploy procedure",
+    slug: "workflow-deploy-procedure",
+    summary: "Deployment procedure memory.",
+    aliases: [],
+    isSystem: false,
+    status: "active",
+  });
+
+  for (let index = 1; index <= 10; index += 1) {
+    const leafId = `leaf-${index}`;
+    const relativePath = `workspace/workspace-1/interaction/entities/workflow-deploy-procedure/leaves/${leafId}.md`;
+    store.upsertInteractionLeaf({
+      workspaceId: "workspace-1",
+      leafId,
+      entityId: "interaction:workflow:deploy-procedure",
+      subjectKey: `procedure:deploy:${index}`,
+      path: relativePath,
+      title: `Deploy step ${index}`,
+      summary: `Summary for deploy step ${index}.`,
+      fingerprint: `fingerprint-${leafId}`,
+      bodySha256: `sha-${leafId}`,
+      tags: ["deploy"],
+      secondaryEntityIds: [],
+      sourceType: "manual",
+      sourceEventId: null,
+      sourceMessageId: null,
+      sourceTurnInputId: "input-seed",
+      admissionConfidence: 0.9,
+      entityConfidence: 0.9,
+      observedAt: `2026-05-20T00:${String(index).padStart(2, "0")}:00.000Z`,
+      supersedesLeafId: null,
+      status: "active",
+    });
+    const absolutePath = path.join(
+      workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+      "interaction",
+      "entities",
+      "workflow-deploy-procedure",
+      "leaves",
+      `${leafId}.md`,
+    );
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.writeFileSync(
+      absolutePath,
+      `# Deploy step ${index}\n\nSummary for deploy step ${index}.\n`,
+      "utf8",
+    );
+  }
+
+  try {
+    await rebuildInteractionEntityTree({
+      store,
+      workspaceId: "workspace-1",
+      entityId: "interaction:workflow:deploy-procedure",
+      summaryModelClient: null,
+      embeddingClient: null,
+    });
+
+    const semanticNodes = store.listSemanticMemoryNodes({
+      category: "interaction",
+      workspaceId: "workspace-1",
+      treeId: "interaction:workflow:deploy-procedure",
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    });
+    const rootNode = semanticNodes.find((node) => node.nodeKind === "tree");
+    const partitionNodes = semanticNodes.filter((node) => node.nodeKind === "partition");
+    const leafNodes = semanticNodes.filter((node) => node.nodeClass === "leaf");
+
+    assert.ok(rootNode);
+    assert.equal(partitionNodes.length, 2);
+    assert.equal(leafNodes.length, 10);
+
+    const rootChildren = store.listSemanticMemoryChildren({
+      category: "interaction",
+      workspaceId: "workspace-1",
+      treeId: "interaction:workflow:deploy-procedure",
+      parentNodeId: rootNode!.nodeId,
+    });
+    assert.equal(rootChildren.length, 2);
+
+    const firstPartition = partitionNodes.find((node) => node.title === "Slice 1") ?? partitionNodes[0];
+    assert.ok(firstPartition);
+    const firstPartitionChildren = store.listSemanticMemoryChildren({
+      category: "interaction",
+      workspaceId: "workspace-1",
+      treeId: "interaction:workflow:deploy-procedure",
+      parentNodeId: firstPartition!.nodeId,
+    });
+    assert.equal(firstPartitionChildren.length, 8);
+
+    const semanticRootPath = path.join(
+      workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+      "semantic",
+      "interaction",
+      "trees",
+      "workflow-deploy-procedure",
+      "content.md",
+    );
+    assert.match(fs.readFileSync(semanticRootPath, "utf8"), /## Summary/);
+
+    const summaryResult = await retrieveInteractionMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "deploy procedure",
+      mode: "summaries",
+      treeId: "interaction:workflow:deploy-procedure",
+      maxResults: 5,
+    });
+    assert.ok(summaryResult.hits.some((hit) => hit.node_id === rootNode!.nodeId && hit.node_kind === "summary"));
+
+    const partitionResult = await retrieveInteractionMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "deploy step",
+      treeId: "interaction:workflow:deploy-procedure",
+      nodeId: rootNode!.nodeId,
+      maxResults: 10,
+    });
+    assert.equal(partitionResult.children?.length, 2);
+    assert.ok(partitionResult.children?.every((hit) => hit.node_kind === "summary"));
+
+    const leafResult = await retrieveInteractionMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "deploy step",
+      treeId: "interaction:workflow:deploy-procedure",
+      nodeId: firstPartition!.nodeId,
+      maxResults: 10,
+    });
+    assert.equal(leafResult.children?.length, 8);
+    assert.ok(leafResult.children?.every((hit) => hit.node_kind === "leaf"));
+  } finally {
+    store.close();
   }
 });
 

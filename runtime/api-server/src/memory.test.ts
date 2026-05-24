@@ -226,14 +226,15 @@ test("filesystem memory service preserves search/get/upsert/status/sync payload 
   const custom = status.custom as Record<string, unknown>;
   assert.equal(custom.interaction_entities, 1);
   assert.equal(custom.interaction_leaves, 1);
-  assert.equal(custom.interaction_summary_nodes, 0);
-  assert.equal(custom.interaction_canonical_nodes, 0);
-  assert.equal(custom.interaction_canonical_edges, 0);
+  assert.equal(custom.interaction_semantic_nodes, 0);
+  assert.equal(custom.interaction_semantic_internal_nodes, 0);
+  assert.equal(custom.interaction_semantic_edges, 0);
   assert.equal(custom.integration_trees, 0);
   assert.equal(custom.integration_leaves, 0);
-  assert.equal(custom.integration_summary_nodes, 0);
-  assert.equal(custom.integration_canonical_nodes, 0);
-  assert.equal(custom.integration_canonical_edges, 0);
+  assert.equal(custom.integration_semantic_nodes, 0);
+  assert.equal(custom.integration_semantic_internal_nodes, 0);
+  assert.equal(custom.integration_semantic_edges, 0);
+  assert.equal(custom.integration_semantic_relations, 0);
   assert.equal(typeof custom.workspace_memory_root_dir, "string");
   assert.equal(typeof custom.global_memory_root_dir, "string");
   assert.equal(custom.workspace_scope, "workspace/workspace-1");
@@ -258,8 +259,9 @@ test("filesystem memory service preserves search/get/upsert/status/sync payload 
       chunks: 5,
       custom: {
         ...custom,
-        interaction_canonical_nodes: 2,
-        interaction_canonical_edges: 2,
+        interaction_semantic_nodes: 2,
+        interaction_semantic_internal_nodes: 1,
+        interaction_semantic_edges: 1,
       },
     },
   });

@@ -2457,9 +2457,7 @@ async function fetchGmailIntegrationContext(params: {
 
   await rebuildIntegrationTree({
     store: params.store,
-    workspaceId: "",
     treeId,
-    summaryModelClient: null,
     embeddingClient: null,
   });
   chunksCompleted += 1;
@@ -2877,9 +2875,7 @@ async function fetchGitHubIntegrationContext(params: {
   syncProgress({ current_chunk_label: "Rebuilding GitHub context summary" });
   await rebuildIntegrationTree({
     store: params.store,
-    workspaceId: "",
     treeId,
-    summaryModelClient: null,
     embeddingClient: null,
   });
   chunksCompleted += 1;
@@ -3205,9 +3201,7 @@ async function fetchNotionIntegrationContext(params: {
   syncProgress({ current_chunk_label: "Rebuilding Notion context summary" });
   await rebuildIntegrationTree({
     store: params.store,
-    workspaceId: "",
     treeId,
-    summaryModelClient: null,
     embeddingClient: null,
   });
   chunksCompleted += 1;
@@ -3391,9 +3385,7 @@ async function fetchGoogleDriveIntegrationContext(params: {
   syncProgress({ current_chunk_label: "Rebuilding Google Drive context summary" });
   await rebuildIntegrationTree({
     store: params.store,
-    workspaceId: "",
     treeId,
-    summaryModelClient: null,
     embeddingClient: null,
   });
   chunksCompleted += 1;
@@ -3602,9 +3594,7 @@ async function fetchTwitterIntegrationContext(params: {
   syncProgress({ current_chunk_label: "Rebuilding Twitter context summary" });
   await rebuildIntegrationTree({
     store: params.store,
-    workspaceId: "",
     treeId,
-    summaryModelClient: null,
     embeddingClient: null,
   });
   chunksCompleted += 1;
@@ -3838,9 +3828,7 @@ async function fetchSlackIntegrationContext(params: {
   syncProgress({ current_chunk_label: "Rebuilding Slack context summary" });
   await rebuildIntegrationTree({
     store: params.store,
-    workspaceId: "",
     treeId,
-    summaryModelClient: null,
     embeddingClient: null,
   });
   chunksCompleted += 1;

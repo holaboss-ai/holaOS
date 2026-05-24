@@ -581,35 +581,38 @@ export class FilesystemMemoryService implements MemoryServiceLike {
         limit: 10_000,
         offset: 0,
       });
-      const summaries = store.listInteractionSummaryNodes({
-        workspaceId,
-        status: "active",
-        limit: 10_000,
-        offset: 0,
-      });
-      const interactionCanonicalNodes = store.listInteractionMemoryNodes({
-        workspaceId,
-        status: "active",
-        limit: 10_000,
-        offset: 0,
-      });
-      const interactionCanonicalEdges = entities.reduce(
+      const interactionSemanticNodes = entities.flatMap((entity) =>
+        store.listSemanticMemoryNodes({
+          category: "interaction",
+          workspaceId,
+          treeId: entity.entityId,
+          status: "active",
+          limit: 10_000,
+          offset: 0,
+          }),
+      );
+      const interactionSemanticEdges = entities.reduce(
         (count, entity) =>
-          count + store.listInteractionMemoryChildren({
+          count + store.listSemanticMemoryNodes({
+            category: "interaction",
             workspaceId,
-            parentNodeId: `tree:interaction:${entity.entityId}`,
-          }).length,
+            treeId: entity.entityId,
+            nodeClass: "semantic",
+            status: "active",
+            limit: 10_000,
+            offset: 0,
+          }).reduce(
+            (subtotal, node) =>
+              subtotal + store.listSemanticMemoryChildren({
+                category: "interaction",
+                workspaceId,
+                treeId: entity.entityId,
+                parentNodeId: node.nodeId,
+              }).length,
+            0,
+          ),
         0,
-      ) + interactionCanonicalNodes
-        .filter((node) => node.nodeKind !== "leaf")
-        .reduce(
-          (count, node) =>
-            count + store.listInteractionMemoryChildren({
-              workspaceId,
-              parentNodeId: node.nodeId,
-            }).length,
-          0,
-        );
+      );
       const integrationTrees = visibleIntegrationTreesForWorkspace({
         store,
         workspaceId,
@@ -622,38 +625,29 @@ export class FilesystemMemoryService implements MemoryServiceLike {
           offset: 0,
         }),
       );
-      const integrationSummaries = integrationTrees.flatMap((tree) =>
-        store.listIntegrationSummaryNodes({
+      const integrationSemanticNodes = integrationTrees.flatMap((tree) =>
+        store.listSemanticMemoryNodes({
+          category: "integration",
           treeId: tree.treeId,
           status: "active",
           limit: 10_000,
           offset: 0,
         }),
       );
-      const integrationCanonicalNodes = integrationTrees.flatMap((tree) =>
-        store.listIntegrationMemoryNodes({
-          treeId: tree.treeId,
-          status: "active",
-          limit: 10_000,
-          offset: 0,
-        }),
-      );
-      const integrationCanonicalEdges = integrationTrees.reduce(
+      const integrationSemanticEdges = integrationTrees.reduce(
         (count, tree) =>
-          count + store.listIntegrationMemoryChildren({
+          count + store.listSemanticMemoryNodes({
+            category: "integration",
             treeId: tree.treeId,
-            parentNodeId: `tree:integration:${tree.treeId}`,
-          }).length
-          + store.listIntegrationMemoryNodes({
-            treeId: tree.treeId,
+            nodeClass: "semantic",
             status: "active",
             limit: 10_000,
             offset: 0,
           })
-            .filter((node) => node.nodeKind !== "leaf")
             .reduce(
               (subtotal, node) =>
-                subtotal + store.listIntegrationMemoryChildren({
+                subtotal + store.listSemanticMemoryChildren({
+                  category: "integration",
                   treeId: tree.treeId,
                   parentNodeId: node.nodeId,
                 }).length,
@@ -661,19 +655,29 @@ export class FilesystemMemoryService implements MemoryServiceLike {
             ),
         0,
       );
+      const integrationSemanticRelations = integrationTrees.reduce(
+        (count, tree) =>
+          count + store.listSemanticMemoryRelations({
+            category: "integration",
+            treeId: tree.treeId,
+            limit: 10_000,
+          }).length,
+        0,
+      );
       status.provider = "interaction_tree";
       status.custom = {
         ...(status.custom as Record<string, unknown>),
         interaction_entities: entities.length,
         interaction_leaves: leaves.length,
-        interaction_summary_nodes: summaries.length,
-        interaction_canonical_nodes: interactionCanonicalNodes.length,
-        interaction_canonical_edges: interactionCanonicalEdges,
+        interaction_semantic_nodes: interactionSemanticNodes.length,
+        interaction_semantic_internal_nodes: interactionSemanticNodes.filter((node) => node.nodeClass === "semantic").length,
+        interaction_semantic_edges: interactionSemanticEdges,
         integration_trees: integrationTrees.length,
         integration_leaves: integrationLeaves.length,
-        integration_summary_nodes: integrationSummaries.length,
-        integration_canonical_nodes: integrationCanonicalNodes.length,
-        integration_canonical_edges: integrationCanonicalEdges,
+        integration_semantic_nodes: integrationSemanticNodes.length,
+        integration_semantic_internal_nodes: integrationSemanticNodes.filter((node) => node.nodeClass === "semantic").length,
+        integration_semantic_edges: integrationSemanticEdges,
+        integration_semantic_relations: integrationSemanticRelations,
       };
     }
     return status;

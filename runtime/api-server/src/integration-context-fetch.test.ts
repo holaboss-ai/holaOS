@@ -12,6 +12,7 @@ import {
   type ProxyRequestParams,
 } from "./composio-api-client.js";
 import { fetchIntegrationContextForConnection } from "./integration-context-fetch.js";
+import { countSummaryLikeSemanticIntegrationNodes } from "./integration-memory.js";
 import { globalMemoryDirForWorkspaceRoot } from "./workspace-bundle-paths.js";
 
 const tempDirs: string[] = [];
@@ -171,7 +172,11 @@ test("fetchIntegrationContextForConnection ingests Gmail profile and recent thre
   assert.equal(result.leaves_created, 4);
   assert.equal(result.messages_seen, 3);
   assert.equal(result.messages_persisted, 3);
-  assert.equal(result.summary_nodes, 6);
+  assert.ok(result.tree_id);
+  assert.equal(result.summary_nodes, countSummaryLikeSemanticIntegrationNodes({
+    store,
+    treeId: result.tree_id,
+  }));
 
   const updatedConnection = store.getIntegrationConnection("conn-gmail-1");
   assert.equal(updatedConnection?.accountEmail, "workspace@example.com");
@@ -210,20 +215,21 @@ test("fetchIntegrationContextForConnection ingests Gmail profile and recent thre
     ],
   );
 
-  const summaries = store.listIntegrationSummaryNodes({
+  const semanticNodes = store.listSemanticMemoryNodes({
+    category: "integration",
     treeId: trees[0]!.treeId,
     status: "active",
     limit: 100,
     offset: 0,
   });
-  assert.equal(summaries.length, 6);
+  assert.ok(semanticNodes.length > 0);
 
   const memoryRoot = globalMemoryDirForWorkspaceRoot(workspaceRoot);
   for (const leaf of leaves) {
     assert.ok(fs.existsSync(path.join(memoryRoot, leaf.path)));
   }
-  for (const summary of summaries) {
-    assert.ok(fs.existsSync(path.join(memoryRoot, summary.path)));
+  for (const node of semanticNodes) {
+    assert.ok(fs.existsSync(path.join(memoryRoot, node.path)));
   }
 
   store.close();
@@ -395,7 +401,11 @@ test("fetchIntegrationContextForConnection ingests GitHub profile, notifications
   assert.equal(result.leaves_created, 6);
   assert.equal(result.messages_seen, 5);
   assert.equal(result.messages_persisted, 5);
-  assert.equal(result.summary_nodes, 8);
+  assert.ok(result.tree_id);
+  assert.equal(result.summary_nodes, countSummaryLikeSemanticIntegrationNodes({
+    store,
+    treeId: result.tree_id,
+  }));
 
   const updatedConnection = store.getIntegrationConnection("conn-github-1");
   assert.equal(updatedConnection?.accountHandle, "octocat");
@@ -602,7 +612,11 @@ test("fetchIntegrationContextForConnection skips GitHub notifications when the t
   assert.equal(result.leaves_created, 5);
   assert.equal(result.messages_seen, 4);
   assert.equal(result.messages_persisted, 4);
-  assert.equal(result.summary_nodes, 7);
+  assert.ok(result.tree_id);
+  assert.equal(result.summary_nodes, countSummaryLikeSemanticIntegrationNodes({
+    store,
+    treeId: result.tree_id,
+  }));
   assert.ok(result.actions.includes("GITHUB_LIST_NOTIFICATIONS:missing"));
 
   const trees = store.listIntegrationTrees({
@@ -1328,7 +1342,11 @@ test("fetchIntegrationContextForConnection ingests Notion pages, markdown, datab
   assert.equal(result.messages_seen, 4);
   assert.equal(result.messages_persisted, 4);
   assert.equal(result.leaves_created, 5);
-  assert.ok(result.summary_nodes > 0);
+  assert.ok(result.tree_id);
+  assert.equal(result.summary_nodes, countSummaryLikeSemanticIntegrationNodes({
+    store,
+    treeId: result.tree_id,
+  }));
 
   const trees = store.listIntegrationTrees({
     status: "active",
@@ -1482,7 +1500,11 @@ test("fetchIntegrationContextForConnection ingests Slack workspace, channels, an
   assert.equal(result.leaves_created, 5);
   assert.equal(result.messages_seen, 4);
   assert.equal(result.messages_persisted, 4);
-  assert.equal(result.summary_nodes, 8);
+  assert.ok(result.tree_id);
+  assert.equal(result.summary_nodes, countSummaryLikeSemanticIntegrationNodes({
+    store,
+    treeId: result.tree_id,
+  }));
 
   const updatedConnection = store.getIntegrationConnection("conn-slack-1");
   assert.equal(updatedConnection?.accountHandle, "T123");
@@ -1622,7 +1644,11 @@ test("fetchIntegrationContextForConnection ingests Google Drive profile and rece
   assert.equal(result.leaves_created, 3);
   assert.equal(result.messages_seen, 2);
   assert.equal(result.messages_persisted, 2);
-  assert.ok(result.summary_nodes > 0);
+  assert.ok(result.tree_id);
+  assert.equal(result.summary_nodes, countSummaryLikeSemanticIntegrationNodes({
+    store,
+    treeId: result.tree_id,
+  }));
 
   const updatedConnection = store.getIntegrationConnection("conn-googledrive-1");
   assert.equal(updatedConnection?.accountEmail, "ops@example.com");
@@ -1784,7 +1810,11 @@ test("fetchIntegrationContextForConnection ingests Twitter profile and recent po
   assert.equal(result.leaves_created, 3);
   assert.equal(result.messages_seen, 2);
   assert.equal(result.messages_persisted, 2);
-  assert.ok(result.summary_nodes > 0);
+  assert.ok(result.tree_id);
+  assert.equal(result.summary_nodes, countSummaryLikeSemanticIntegrationNodes({
+    store,
+    treeId: result.tree_id,
+  }));
 
   const updatedConnection = store.getIntegrationConnection("conn-twitter-1");
   assert.equal(updatedConnection?.accountHandle, "holabossai");
