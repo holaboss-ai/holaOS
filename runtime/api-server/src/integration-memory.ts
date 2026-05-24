@@ -24,6 +24,20 @@ const MAX_RETRIEVE_RESULTS = 12;
 const EMBEDDING_EXCERPT_CHARS = 480;
 type IntegrationRetrieveNodeKind = "tree" | "entity" | "branch" | "summary" | "leaf";
 
+export function countSummaryLikeSemanticIntegrationNodes(params: {
+  store: RuntimeStateStore;
+  treeId: string;
+}): number {
+  return params.store.listSemanticMemoryNodes({
+    category: "integration",
+    treeId: params.treeId,
+    nodeClass: "semantic",
+    status: "active",
+    limit: 10_000,
+    offset: 0,
+  }).filter((node) => node.nodeKind !== "connection").length;
+}
+
 export interface IntegrationLeafCandidate {
   provider: string;
   ownerUserId: string;
@@ -115,6 +129,14 @@ interface TempSummaryNode {
 }
 
 type TempSummaryChild = TempSummaryNode["children"][number];
+type IntegrationRelationInput = {
+  fromNodeKind: MemoryNodeKind;
+  fromNodeId: string;
+  toNodeKind: MemoryNodeKind;
+  toNodeId: string;
+  relationType: string;
+  metadata: Record<string, unknown>;
+};
 
 function compactWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
@@ -199,6 +221,10 @@ function integrationTreeDir(workspaceRoot: string, slug: string): string {
 
 function legacyIntegrationTreeDir(workspaceRoot: string, slug: string): string {
   return path.join(integrationMemoryRootDir(workspaceRoot), "accounts", slug);
+}
+
+function semanticIntegrationTreeDir(workspaceRoot: string, slug: string): string {
+  return path.join(globalMemoryDirForWorkspaceRoot(workspaceRoot), "semantic", "integration", "trees", slug);
 }
 
 function integrationEntitySlug(key: string | null | undefined, label: string | null | undefined): string | null {
@@ -308,6 +334,1485 @@ function integrationSummaryRelativePath(
     "content.md",
   ];
   return path.posix.join(...segments);
+}
+
+type SemanticMemoryDraftNode = {
+  nodeId: string;
+  nodeClass: "semantic" | "leaf";
+  nodeKind: string;
+  sourceLeafId?: string | null;
+  path: string;
+  title: string;
+  summary?: string | null;
+  body?: string;
+  bodySha256?: string;
+  observedAt?: string | null;
+  isMaterialized?: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+type SemanticMemoryDraftEdge = {
+  parentNodeId: string;
+  childNodeId: string;
+  position: number;
+};
+
+type SemanticMemoryDraftRelation = {
+  fromNodeId: string;
+  toNodeId: string;
+  relationType: string;
+  metadata?: Record<string, unknown>;
+};
+
+function semanticIntegrationRootNodeId(treeId: string): string {
+  return `semantic:integration:${treeId}:connection`;
+}
+
+function semanticIntegrationLeafNodeId(treeId: string, leafId: string): string {
+  return `semantic:integration:${treeId}:leaf:${leafId}`;
+}
+
+function semanticIntegrationTreeBaseSegments(treeSlug: string): string[] {
+  return ["semantic", "integration", "trees", treeSlug];
+}
+
+function semanticIntegrationTreeRelativePath(treeSlug: string): string {
+  return path.posix.join(...semanticIntegrationTreeBaseSegments(treeSlug), "content.md");
+}
+
+function semanticChildRelativePath(parentRelativePath: string, childSlug: string): string {
+  return path.posix.join(path.posix.dirname(parentRelativePath), childSlug, "content.md");
+}
+
+function semanticLeafRelativePath(
+  parentRelativePath: string,
+  leaf: Pick<IntegrationLeafRecord, "leafId" | "subjectKey" | "title" | "externalObjectId">,
+): string {
+  return semanticChildRelativePath(
+    parentRelativePath,
+    integrationLeafFolderName({
+      leafId: leaf.leafId,
+      subjectKey: leaf.subjectKey,
+      title: leaf.title,
+      externalObjectId: leaf.externalObjectId ?? null,
+    }),
+  );
+}
+
+function semanticBranchTitle(branchKey: string, branchLabel?: string | null): string {
+  if (compactWhitespace(branchLabel ?? "")) {
+    return branchLabel!.trim();
+  }
+  switch (branchKey) {
+    case "overview":
+      return "Overview";
+    case "profile":
+      return "Profile";
+    case "content":
+      return "Content";
+    case "rows":
+      return "Rows";
+    case "messages":
+      return "Messages";
+    case "issues":
+      return "Issues";
+    case "pull_requests":
+      return "Pull requests";
+    case "notifications":
+      return "Notifications";
+    case "readme":
+      return "README";
+    default:
+      return branchKey;
+  }
+}
+
+function appendSemanticLeafNode(params: {
+  drafts: SemanticMemoryDraftNode[];
+  edges: SemanticMemoryDraftEdge[];
+  treeId: string;
+  parentNodeId: string;
+  parentPath: string;
+  position: number;
+  leaf: IntegrationLeafRecord;
+  body: string;
+}): string {
+  const leafNodeId = semanticIntegrationLeafNodeId(params.treeId, params.leaf.leafId);
+  params.drafts.push({
+    nodeId: leafNodeId,
+    nodeClass: "leaf",
+    nodeKind: "leaf",
+    sourceLeafId: params.leaf.leafId,
+    path: semanticLeafRelativePath(params.parentPath, params.leaf),
+    title: params.leaf.title,
+    summary: params.leaf.summary,
+    body: params.body,
+    observedAt: params.leaf.observedAt ?? params.leaf.updatedAt,
+    metadata: {
+      subject_key: params.leaf.subjectKey,
+      source_type: params.leaf.sourceType,
+      branch_key: params.leaf.branchKey,
+      entity_key: params.leaf.entityKey,
+      external_object_id: params.leaf.externalObjectId,
+      external_object_type: params.leaf.externalObjectType,
+      evidence_path: params.leaf.path,
+    },
+    bodySha256: params.leaf.bodySha256,
+  });
+  params.edges.push({
+    parentNodeId: params.parentNodeId,
+    childNodeId: leafNodeId,
+    position: params.position,
+  });
+  return leafNodeId;
+}
+
+type SemanticIntegrationTreeBuildResult = {
+  nodes: Array<{
+    nodeId: string;
+    nodeClass: "semantic" | "leaf";
+    nodeKind: string;
+    sourceLeafId: string | null;
+    path: string;
+    title: string;
+    summary: string;
+    bodySha256: string;
+    childCount: number;
+    observedAt: string | null;
+    isMaterialized: boolean;
+    metadata: Record<string, unknown>;
+  }>;
+  edges: SemanticMemoryDraftEdge[];
+  relations: SemanticMemoryDraftRelation[];
+  bodiesByPath: Map<string, string>;
+};
+
+function semanticNodeBody(params: {
+  tree: IntegrationTreeRecord;
+  nodeKind: string;
+  title: string;
+  summary: string;
+  childCount: number;
+  isMaterialized: boolean;
+  children: Array<{ title: string; summary: string }>;
+}): string {
+  const lines = [
+    `# ${params.title}`,
+    "",
+    `- Category: integration`,
+    `- Tree: \`${params.tree.treeId}\``,
+    `- Provider: ${params.tree.provider}`,
+    `- Account: ${params.tree.accountLabel}`,
+    `- Node kind: ${params.nodeKind}`,
+    `- Child count: ${params.childCount}`,
+    params.isMaterialized ? "- Materialized: yes" : null,
+    "",
+    "## Summary",
+    "",
+    params.summary,
+    "",
+  ].filter((line): line is string => typeof line === "string");
+  if (params.children.length > 0) {
+    lines.push(
+      "## Children",
+      "",
+      ...params.children.map((child) => `- **${child.title}**: ${child.summary}`),
+      "",
+    );
+  }
+  return `${lines.join("\n").trim()}\n`;
+}
+
+function finalizeSemanticMemoryDraft(params: {
+  tree: IntegrationTreeRecord;
+  nodes: SemanticMemoryDraftNode[];
+  edges: SemanticMemoryDraftEdge[];
+}): {
+  nodes: Array<{
+    nodeId: string;
+    nodeClass: "semantic" | "leaf";
+    nodeKind: string;
+    sourceLeafId: string | null;
+    path: string;
+    title: string;
+    summary: string;
+    bodySha256: string;
+    childCount: number;
+    observedAt: string | null;
+    isMaterialized: boolean;
+    metadata: Record<string, unknown>;
+  }>;
+  edges: SemanticMemoryDraftEdge[];
+  bodiesByPath: Map<string, string>;
+} {
+  const nodeById = new Map(params.nodes.map((node) => [node.nodeId, node]));
+  const childBuckets = new Map<string, SemanticMemoryDraftNode[]>();
+  for (const edge of [...params.edges].sort((left, right) => left.position - right.position)) {
+    const child = nodeById.get(edge.childNodeId);
+    if (!child) {
+      continue;
+    }
+    const bucket = childBuckets.get(edge.parentNodeId) ?? [];
+    bucket.push(child);
+    childBuckets.set(edge.parentNodeId, bucket);
+  }
+
+  const bodiesByPath = new Map<string, string>();
+  const nodes = params.nodes.map((node) => {
+    const children = childBuckets.get(node.nodeId) ?? [];
+    const childCount = children.length;
+    const summary = compactWhitespace(node.summary ?? "")
+      || (childCount > 0
+        ? deterministicSummaryText({
+            scopeLabel: `${params.tree.accountLabel} ${node.title}`.trim(),
+            childCount,
+            childTitles: children.map((child) => child.title),
+          })
+        : clipText(`${node.title} semantic memory node.`, 240));
+    let bodySha256 = "";
+    if (node.nodeClass === "semantic") {
+      const body = semanticNodeBody({
+        tree: params.tree,
+        nodeKind: node.nodeKind,
+        title: node.title,
+        summary,
+        childCount,
+        isMaterialized: node.isMaterialized ?? false,
+        children: children.map((child) => ({
+          title: child.title,
+          summary: compactWhitespace(child.summary ?? "") || clipText(`${child.title} child node.`, 240),
+        })),
+      });
+      bodySha256 = sha256(body);
+      bodiesByPath.set(node.path, body);
+    } else {
+      const body = node.body ?? `# ${node.title}\n\n${summary}\n`;
+      bodySha256 = node.bodySha256 ?? sha256(body);
+      bodiesByPath.set(node.path, body);
+    }
+    return {
+      nodeId: node.nodeId,
+      nodeClass: node.nodeClass,
+      nodeKind: node.nodeKind,
+      sourceLeafId: node.sourceLeafId ?? null,
+      path: node.path,
+      title: node.title,
+      summary,
+      bodySha256,
+      childCount,
+      observedAt: node.observedAt ?? null,
+      isMaterialized: node.isMaterialized ?? false,
+      metadata: node.metadata ?? {},
+    };
+  });
+
+  return {
+    nodes,
+    edges: params.edges,
+    bodiesByPath,
+  };
+}
+
+function buildNotionSemanticMemoryTree(params: {
+  tree: IntegrationTreeRecord;
+  leaves: IntegrationLeafRecord[];
+  leafBodies: Map<string, string>;
+}): SemanticIntegrationTreeBuildResult {
+  const drafts: SemanticMemoryDraftNode[] = [];
+  const edges: SemanticMemoryDraftEdge[] = [];
+  const rootNodeId = semanticIntegrationRootNodeId(params.tree.treeId);
+  const rootPath = semanticIntegrationTreeRelativePath(params.tree.slug);
+  const rootTitle = `${params.tree.accountLabel} Notion connection`;
+  drafts.push({
+    nodeId: rootNodeId,
+    nodeClass: "semantic",
+    nodeKind: "connection",
+    path: rootPath,
+    title: rootTitle,
+    summary: params.tree.summary ?? `Notion connection memory for ${params.tree.accountLabel}.`,
+    observedAt: params.tree.updatedAt,
+    metadata: {
+      provider: params.tree.provider,
+      account_key: params.tree.accountKey,
+      account_label: params.tree.accountLabel,
+    },
+  });
+
+  const workspaceLeaf = params.leaves.find((leaf) => leaf.subjectKey === "workspace_snapshot")
+    ?? params.leaves.find((leaf) => leaf.branchKey === "workspace" && !leaf.entityKey);
+  const workspaceSlug = safePathSegment(
+    String(workspaceLeaf?.externalObjectId ?? params.tree.accountKey ?? params.tree.accountLabel),
+    "workspace",
+  );
+  const workspaceNodeId = `semantic:integration:${params.tree.treeId}:workspace:${workspaceSlug}`;
+  const workspacePath = semanticChildRelativePath(rootPath, `workspace-${workspaceSlug}`);
+  drafts.push({
+    nodeId: workspaceNodeId,
+    nodeClass: "semantic",
+    nodeKind: "workspace",
+    path: workspacePath,
+    title: workspaceLeaf?.title ?? `Notion workspace for ${params.tree.accountLabel}`,
+    summary: workspaceLeaf?.summary ?? `Notion workspace memory for ${params.tree.accountLabel}.`,
+    observedAt: workspaceLeaf?.observedAt ?? params.tree.updatedAt,
+    metadata: {
+      source_leaf_id: workspaceLeaf?.leafId ?? null,
+    },
+  });
+  edges.push({ parentNodeId: rootNodeId, childNodeId: workspaceNodeId, position: 1 });
+
+  let workspaceChildPosition = 1;
+  if (workspaceLeaf) {
+    const workspaceOverviewNodeId = `semantic:integration:${params.tree.treeId}:workspace:${workspaceSlug}:overview`;
+    const workspaceOverviewPath = semanticChildRelativePath(workspacePath, "overview");
+    drafts.push({
+      nodeId: workspaceOverviewNodeId,
+      nodeClass: "semantic",
+      nodeKind: "overview",
+      path: workspaceOverviewPath,
+      title: "Overview",
+      summary: workspaceLeaf.summary,
+      observedAt: workspaceLeaf.observedAt ?? null,
+      metadata: {
+        leaf_subject_key: workspaceLeaf.subjectKey,
+      },
+    });
+    edges.push({
+      parentNodeId: workspaceNodeId,
+      childNodeId: workspaceOverviewNodeId,
+      position: workspaceChildPosition++,
+    });
+    appendSemanticLeafNode({
+      drafts,
+      edges,
+      treeId: params.tree.treeId,
+      parentNodeId: workspaceOverviewNodeId,
+      parentPath: workspaceOverviewPath,
+      position: 1,
+      leaf: workspaceLeaf,
+      body: params.leafBodies.get(workspaceLeaf.leafId) ?? fallbackLeafBody(workspaceLeaf),
+    });
+  }
+
+  const pageGroups = new Map<string, { title: string; leaves: IntegrationLeafRecord[] }>();
+  const databaseGroups = new Map<string, { title: string; leaves: IntegrationLeafRecord[] }>();
+  for (const leaf of params.leaves) {
+    if (leaf.entityKey?.startsWith("page:")) {
+      const pageId = leaf.entityKey.slice("page:".length);
+      const group = pageGroups.get(pageId) ?? {
+        title: leaf.entityLabel ?? leaf.title.replace(/\s+content$/i, ""),
+        leaves: [],
+      };
+      group.leaves.push(leaf);
+      pageGroups.set(pageId, group);
+      continue;
+    }
+    if (leaf.entityKey?.startsWith("database:")) {
+      const databaseId = leaf.entityKey.slice("database:".length);
+      const group = databaseGroups.get(databaseId) ?? {
+        title: leaf.entityLabel ?? leaf.title,
+        leaves: [],
+      };
+      group.leaves.push(leaf);
+      databaseGroups.set(databaseId, group);
+    }
+  }
+
+  if (pageGroups.size > 0) {
+    const pagesNodeId = `semantic:integration:${params.tree.treeId}:workspace:${workspaceSlug}:pages`;
+    const pagesPath = semanticChildRelativePath(workspacePath, "pages");
+    drafts.push({
+      nodeId: pagesNodeId,
+      nodeClass: "semantic",
+      nodeKind: "pages",
+      path: pagesPath,
+      title: "Pages",
+      summary: null,
+      observedAt: params.tree.updatedAt,
+    });
+    edges.push({ parentNodeId: workspaceNodeId, childNodeId: pagesNodeId, position: workspaceChildPosition++ });
+
+    const sortedPages = Array.from(pageGroups.entries()).sort((left, right) => left[1].title.localeCompare(right[1].title));
+    let pagePosition = 1;
+    for (const [pageId, group] of sortedPages) {
+      const pageSlug = safePathSegment(pageId, "page");
+      const pageNodeId = `semantic:integration:${params.tree.treeId}:page:${pageId}`;
+      const pagePath = semanticChildRelativePath(pagesPath, `page-${pageSlug}`);
+      const overviewLeaf = group.leaves.find((leaf) => leaf.branchKey === "overview") ?? null;
+      drafts.push({
+        nodeId: pageNodeId,
+        nodeClass: "semantic",
+        nodeKind: "page",
+        path: pagePath,
+        title: group.title,
+        summary: overviewLeaf?.summary ?? null,
+        observedAt: overviewLeaf?.observedAt ?? group.leaves[0]?.observedAt ?? null,
+        metadata: {
+          external_object_id: overviewLeaf?.externalObjectId ?? pageId,
+        },
+      });
+      edges.push({ parentNodeId: pagesNodeId, childNodeId: pageNodeId, position: pagePosition++ });
+
+      const branchOrder = ["overview", "content"];
+      const sortedLeaves = [...group.leaves].sort((left, right) =>
+        (branchOrder.indexOf(left.branchKey ?? "") === -1 ? 99 : branchOrder.indexOf(left.branchKey ?? ""))
+        - (branchOrder.indexOf(right.branchKey ?? "") === -1 ? 99 : branchOrder.indexOf(right.branchKey ?? ""))
+        || left.title.localeCompare(right.title),
+      );
+      const leavesByBranch = new Map<string, IntegrationLeafRecord[]>();
+      for (const leaf of sortedLeaves) {
+        const key = leaf.branchKey ?? "items";
+        const bucket = leavesByBranch.get(key) ?? [];
+        bucket.push(leaf);
+        leavesByBranch.set(key, bucket);
+      }
+
+      let branchPosition = 1;
+      const orderedBranchKeys = [
+        ...branchOrder.filter((key) => leavesByBranch.has(key)),
+        ...Array.from(leavesByBranch.keys())
+          .filter((key) => !branchOrder.includes(key))
+          .sort((left, right) => left.localeCompare(right)),
+      ];
+      for (const branchKey of orderedBranchKeys) {
+        const branchLeaves = leavesByBranch.get(branchKey) ?? [];
+        const branchNodeId = `semantic:integration:${params.tree.treeId}:page:${pageId}:${branchKey}`;
+        const branchPath = semanticChildRelativePath(pagePath, safePathSegment(branchKey, "facet"));
+        drafts.push({
+          nodeId: branchNodeId,
+          nodeClass: "semantic",
+          nodeKind: branchKey,
+          path: branchPath,
+          title: semanticBranchTitle(branchKey, branchLeaves[0]?.branchLabel ?? null),
+          summary: branchLeaves.length === 1 ? branchLeaves[0]?.summary ?? null : null,
+          observedAt: branchLeaves[0]?.observedAt ?? null,
+        });
+        edges.push({ parentNodeId: pageNodeId, childNodeId: branchNodeId, position: branchPosition++ });
+        let leafPosition = 1;
+        for (const leaf of branchLeaves) {
+          appendSemanticLeafNode({
+            drafts,
+            edges,
+            treeId: params.tree.treeId,
+            parentNodeId: branchNodeId,
+            parentPath: branchPath,
+            position: leafPosition++,
+            leaf,
+            body: params.leafBodies.get(leaf.leafId) ?? fallbackLeafBody(leaf),
+          });
+        }
+      }
+    }
+  }
+
+  if (databaseGroups.size > 0) {
+    const databasesNodeId = `semantic:integration:${params.tree.treeId}:workspace:${workspaceSlug}:databases`;
+    const databasesPath = semanticChildRelativePath(workspacePath, "databases");
+    drafts.push({
+      nodeId: databasesNodeId,
+      nodeClass: "semantic",
+      nodeKind: "databases",
+      path: databasesPath,
+      title: "Databases",
+      summary: null,
+      observedAt: params.tree.updatedAt,
+    });
+    edges.push({ parentNodeId: workspaceNodeId, childNodeId: databasesNodeId, position: workspaceChildPosition++ });
+
+    const sortedDatabases = Array.from(databaseGroups.entries()).sort((left, right) => left[1].title.localeCompare(right[1].title));
+    let databasePosition = 1;
+    for (const [databaseId, group] of sortedDatabases) {
+      const databaseSlug = safePathSegment(databaseId, "database");
+      const databaseNodeId = `semantic:integration:${params.tree.treeId}:database:${databaseId}`;
+      const databasePath = semanticChildRelativePath(databasesPath, `database-${databaseSlug}`);
+      const overviewLeaf = group.leaves.find((leaf) => leaf.branchKey === "overview") ?? null;
+      drafts.push({
+        nodeId: databaseNodeId,
+        nodeClass: "semantic",
+        nodeKind: "database",
+        path: databasePath,
+        title: group.title,
+        summary: overviewLeaf?.summary ?? null,
+        observedAt: overviewLeaf?.observedAt ?? group.leaves[0]?.observedAt ?? null,
+        metadata: {
+          external_object_id: overviewLeaf?.externalObjectId ?? databaseId,
+        },
+      });
+      edges.push({ parentNodeId: databasesNodeId, childNodeId: databaseNodeId, position: databasePosition++ });
+
+      const branchOrder = ["overview", "rows"];
+      const sortedLeaves = [...group.leaves].sort((left, right) =>
+        (branchOrder.indexOf(left.branchKey ?? "") === -1 ? 99 : branchOrder.indexOf(left.branchKey ?? ""))
+        - (branchOrder.indexOf(right.branchKey ?? "") === -1 ? 99 : branchOrder.indexOf(right.branchKey ?? ""))
+        || left.title.localeCompare(right.title),
+      );
+      const leavesByBranch = new Map<string, IntegrationLeafRecord[]>();
+      for (const leaf of sortedLeaves) {
+        const key = leaf.branchKey ?? "items";
+        const bucket = leavesByBranch.get(key) ?? [];
+        bucket.push(leaf);
+        leavesByBranch.set(key, bucket);
+      }
+
+      let branchPosition = 1;
+      const orderedBranchKeys = [
+        ...branchOrder.filter((key) => leavesByBranch.has(key)),
+        ...Array.from(leavesByBranch.keys())
+          .filter((key) => !branchOrder.includes(key))
+          .sort((left, right) => left.localeCompare(right)),
+      ];
+      for (const branchKey of orderedBranchKeys) {
+        const branchLeaves = leavesByBranch.get(branchKey) ?? [];
+        const branchNodeId = `semantic:integration:${params.tree.treeId}:database:${databaseId}:${branchKey}`;
+        const branchPath = semanticChildRelativePath(databasePath, safePathSegment(branchKey, "facet"));
+        drafts.push({
+          nodeId: branchNodeId,
+          nodeClass: "semantic",
+          nodeKind: branchKey,
+          path: branchPath,
+          title: semanticBranchTitle(branchKey, branchLeaves[0]?.branchLabel ?? null),
+          summary: branchLeaves.length === 1 ? branchLeaves[0]?.summary ?? null : null,
+          observedAt: branchLeaves[0]?.observedAt ?? null,
+        });
+        edges.push({ parentNodeId: databaseNodeId, childNodeId: branchNodeId, position: branchPosition++ });
+        let leafPosition = 1;
+        for (const leaf of branchLeaves) {
+          appendSemanticLeafNode({
+            drafts,
+            edges,
+            treeId: params.tree.treeId,
+            parentNodeId: branchNodeId,
+            parentPath: branchPath,
+            position: leafPosition++,
+            leaf,
+            body: params.leafBodies.get(leaf.leafId) ?? fallbackLeafBody(leaf),
+          });
+        }
+      }
+    }
+  }
+
+  const finalized = finalizeSemanticMemoryDraft({
+    tree: params.tree,
+    nodes: drafts,
+    edges,
+  });
+  return {
+    ...finalized,
+    relations: [],
+  };
+}
+
+function buildGitHubSemanticMemoryTree(params: {
+  tree: IntegrationTreeRecord;
+  leaves: IntegrationLeafRecord[];
+  leafBodies: Map<string, string>;
+}): SemanticIntegrationTreeBuildResult {
+  const drafts: SemanticMemoryDraftNode[] = [];
+  const edges: SemanticMemoryDraftEdge[] = [];
+  const rootNodeId = semanticIntegrationRootNodeId(params.tree.treeId);
+  const rootPath = semanticIntegrationTreeRelativePath(params.tree.slug);
+  drafts.push({
+    nodeId: rootNodeId,
+    nodeClass: "semantic",
+    nodeKind: "connection",
+    path: rootPath,
+    title: `${params.tree.accountLabel} GitHub connection`,
+    summary: params.tree.summary ?? `GitHub connection memory for ${params.tree.accountLabel}.`,
+    observedAt: params.tree.updatedAt,
+    metadata: {
+      provider: params.tree.provider,
+      account_key: params.tree.accountKey,
+      account_label: params.tree.accountLabel,
+    },
+  });
+
+  let rootChildPosition = 1;
+  const profileLeaf = params.leaves.find((leaf) => leaf.branchKey === "profile" && !leaf.entityKey) ?? null;
+  if (profileLeaf) {
+    const profileNodeId = `semantic:integration:${params.tree.treeId}:profile`;
+    const profilePath = semanticChildRelativePath(rootPath, "profile");
+    drafts.push({
+      nodeId: profileNodeId,
+      nodeClass: "semantic",
+      nodeKind: "profile",
+      path: profilePath,
+      title: "Profile",
+      summary: profileLeaf.summary,
+      observedAt: profileLeaf.observedAt ?? profileLeaf.updatedAt,
+      metadata: {
+        source_leaf_id: profileLeaf.leafId,
+      },
+    });
+    edges.push({ parentNodeId: rootNodeId, childNodeId: profileNodeId, position: rootChildPosition++ });
+    appendSemanticLeafNode({
+      drafts,
+      edges,
+      treeId: params.tree.treeId,
+      parentNodeId: profileNodeId,
+      parentPath: profilePath,
+      position: 1,
+      leaf: profileLeaf,
+      body: params.leafBodies.get(profileLeaf.leafId) ?? fallbackLeafBody(profileLeaf),
+    });
+  }
+
+  const repoGroups = new Map<string, { title: string; leaves: IntegrationLeafRecord[] }>();
+  const accountBranchGroups = new Map<string, IntegrationLeafRecord[]>();
+  for (const leaf of params.leaves) {
+    if (leaf.entityKey?.startsWith("repo:")) {
+      const repoKey = leaf.entityKey.slice("repo:".length);
+      const group = repoGroups.get(repoKey) ?? {
+        title: leaf.entityLabel ?? repoKey,
+        leaves: [],
+      };
+      group.leaves.push(leaf);
+      repoGroups.set(repoKey, group);
+      continue;
+    }
+    if (!leaf.entityKey && leaf.branchKey && leaf.branchKey !== "profile") {
+      const bucket = accountBranchGroups.get(leaf.branchKey) ?? [];
+      bucket.push(leaf);
+      accountBranchGroups.set(leaf.branchKey, bucket);
+    }
+  }
+
+  if (repoGroups.size > 0) {
+    const repositoriesNodeId = `semantic:integration:${params.tree.treeId}:repositories`;
+    const repositoriesPath = semanticChildRelativePath(rootPath, "repositories");
+    drafts.push({
+      nodeId: repositoriesNodeId,
+      nodeClass: "semantic",
+      nodeKind: "repositories",
+      path: repositoriesPath,
+      title: "Repositories",
+      summary: null,
+      observedAt: params.tree.updatedAt,
+      isMaterialized: true,
+    });
+    edges.push({
+      parentNodeId: rootNodeId,
+      childNodeId: repositoriesNodeId,
+      position: rootChildPosition++,
+    });
+
+    const branchOrder = ["overview", "readme", "issues", "pull_requests", "notifications"];
+    const sortedRepos = Array.from(repoGroups.entries()).sort((left, right) => left[1].title.localeCompare(right[1].title));
+    let repoPosition = 1;
+    for (const [repoKey, group] of sortedRepos) {
+      const repoSlug = safePathSegment(repoKey, "repo");
+      const repoNodeId = `semantic:integration:${params.tree.treeId}:repo:${repoKey}`;
+      const repoPath = semanticChildRelativePath(repositoriesPath, `repo-${repoSlug}`);
+      const overviewLeaf = group.leaves.find((leaf) => leaf.branchKey === "overview") ?? null;
+      drafts.push({
+        nodeId: repoNodeId,
+        nodeClass: "semantic",
+        nodeKind: "repo",
+        path: repoPath,
+        title: group.title,
+        summary: overviewLeaf?.summary ?? null,
+        observedAt: overviewLeaf?.observedAt ?? group.leaves[0]?.observedAt ?? null,
+        metadata: {
+          entity_key: `repo:${repoKey}`,
+          external_object_id: overviewLeaf?.externalObjectId ?? repoKey,
+        },
+      });
+      edges.push({ parentNodeId: repositoriesNodeId, childNodeId: repoNodeId, position: repoPosition++ });
+
+      const leavesByBranch = new Map<string, IntegrationLeafRecord[]>();
+      for (const leaf of group.leaves) {
+        const key = leaf.branchKey ?? "items";
+        const bucket = leavesByBranch.get(key) ?? [];
+        bucket.push(leaf);
+        leavesByBranch.set(key, bucket);
+      }
+      const orderedBranchKeys = [
+        ...branchOrder.filter((key) => leavesByBranch.has(key)),
+        ...Array.from(leavesByBranch.keys())
+          .filter((key) => !branchOrder.includes(key))
+          .sort((left, right) => left.localeCompare(right)),
+      ];
+      let branchPosition = 1;
+      for (const branchKey of orderedBranchKeys) {
+        const branchLeaves = leavesByBranch.get(branchKey) ?? [];
+        const branchNodeId = `semantic:integration:${params.tree.treeId}:repo:${repoKey}:${branchKey}`;
+        const branchPath = semanticChildRelativePath(repoPath, safePathSegment(branchKey, "facet"));
+        drafts.push({
+          nodeId: branchNodeId,
+          nodeClass: "semantic",
+          nodeKind: branchKey,
+          path: branchPath,
+          title: semanticBranchTitle(branchKey, branchLeaves[0]?.branchLabel ?? null),
+          summary: branchLeaves.length === 1 ? branchLeaves[0]?.summary ?? null : null,
+          observedAt: branchLeaves[0]?.observedAt ?? null,
+        });
+        edges.push({ parentNodeId: repoNodeId, childNodeId: branchNodeId, position: branchPosition++ });
+        let leafPosition = 1;
+        for (const leaf of branchLeaves) {
+          appendSemanticLeafNode({
+            drafts,
+            edges,
+            treeId: params.tree.treeId,
+            parentNodeId: branchNodeId,
+            parentPath: branchPath,
+            position: leafPosition++,
+            leaf,
+            body: params.leafBodies.get(leaf.leafId) ?? fallbackLeafBody(leaf),
+          });
+        }
+      }
+    }
+  }
+
+  const sortedAccountBranches = Array.from(accountBranchGroups.entries()).sort((left, right) => left[0].localeCompare(right[0]));
+  for (const [branchKey, branchLeaves] of sortedAccountBranches) {
+    const branchNodeId = `semantic:integration:${params.tree.treeId}:account:${branchKey}`;
+    const branchPath = semanticChildRelativePath(rootPath, safePathSegment(branchKey, "facet"));
+    drafts.push({
+      nodeId: branchNodeId,
+      nodeClass: "semantic",
+      nodeKind: branchKey,
+      path: branchPath,
+      title: semanticBranchTitle(branchKey, branchLeaves[0]?.branchLabel ?? null),
+      summary: branchLeaves.length === 1 ? branchLeaves[0]?.summary ?? null : null,
+      observedAt: branchLeaves[0]?.observedAt ?? null,
+    });
+    edges.push({ parentNodeId: rootNodeId, childNodeId: branchNodeId, position: rootChildPosition++ });
+    let leafPosition = 1;
+    for (const leaf of branchLeaves.sort((left, right) => left.title.localeCompare(right.title))) {
+      appendSemanticLeafNode({
+        drafts,
+        edges,
+        treeId: params.tree.treeId,
+        parentNodeId: branchNodeId,
+        parentPath: branchPath,
+        position: leafPosition++,
+        leaf,
+        body: params.leafBodies.get(leaf.leafId) ?? fallbackLeafBody(leaf),
+      });
+    }
+  }
+
+  const finalized = finalizeSemanticMemoryDraft({
+    tree: params.tree,
+    nodes: drafts,
+    edges,
+  });
+  return {
+    ...finalized,
+    relations: [],
+  };
+}
+
+function buildGmailSemanticMemoryTree(params: {
+  tree: IntegrationTreeRecord;
+  leaves: IntegrationLeafRecord[];
+  leafBodies: Map<string, string>;
+  relations: IntegrationRelationInput[];
+}): SemanticIntegrationTreeBuildResult {
+  const drafts: SemanticMemoryDraftNode[] = [];
+  const edges: SemanticMemoryDraftEdge[] = [];
+  const semanticRelations: SemanticMemoryDraftRelation[] = [];
+  const rootNodeId = semanticIntegrationRootNodeId(params.tree.treeId);
+  const rootPath = semanticIntegrationTreeRelativePath(params.tree.slug);
+  drafts.push({
+    nodeId: rootNodeId,
+    nodeClass: "semantic",
+    nodeKind: "connection",
+    path: rootPath,
+    title: `${params.tree.accountLabel} Gmail connection`,
+    summary: params.tree.summary ?? `Gmail connection memory for ${params.tree.accountLabel}.`,
+    observedAt: params.tree.updatedAt,
+    metadata: {
+      provider: params.tree.provider,
+      account_key: params.tree.accountKey,
+      account_label: params.tree.accountLabel,
+    },
+  });
+
+  let rootChildPosition = 1;
+  const profileLeaf = params.leaves.find((leaf) => leaf.branchKey === "profile" && !leaf.entityKey) ?? null;
+  if (profileLeaf) {
+    const profileNodeId = `semantic:integration:${params.tree.treeId}:profile`;
+    const profilePath = semanticChildRelativePath(rootPath, "profile");
+    drafts.push({
+      nodeId: profileNodeId,
+      nodeClass: "semantic",
+      nodeKind: "profile",
+      path: profilePath,
+      title: "Profile",
+      summary: profileLeaf.summary,
+      observedAt: profileLeaf.observedAt ?? profileLeaf.updatedAt,
+      metadata: {
+        source_leaf_id: profileLeaf.leafId,
+      },
+    });
+    edges.push({ parentNodeId: rootNodeId, childNodeId: profileNodeId, position: rootChildPosition++ });
+    appendSemanticLeafNode({
+      drafts,
+      edges,
+      treeId: params.tree.treeId,
+      parentNodeId: profileNodeId,
+      parentPath: profilePath,
+      position: 1,
+      leaf: profileLeaf,
+      body: params.leafBodies.get(profileLeaf.leafId) ?? fallbackLeafBody(profileLeaf),
+    });
+  }
+
+  const threadGroups = new Map<string, { title: string; leaves: IntegrationLeafRecord[] }>();
+  const accountBranchGroups = new Map<string, IntegrationLeafRecord[]>();
+  for (const leaf of params.leaves) {
+    if (leaf.entityKey?.startsWith("thread:")) {
+      const threadId = leaf.entityKey.slice("thread:".length);
+      const group = threadGroups.get(threadId) ?? {
+        title: leaf.entityLabel ?? leaf.title,
+        leaves: [],
+      };
+      group.leaves.push(leaf);
+      threadGroups.set(threadId, group);
+      continue;
+    }
+    if (!leaf.entityKey && leaf.branchKey && leaf.branchKey !== "profile") {
+      const bucket = accountBranchGroups.get(leaf.branchKey) ?? [];
+      bucket.push(leaf);
+      accountBranchGroups.set(leaf.branchKey, bucket);
+    }
+  }
+
+  if (threadGroups.size > 0) {
+    const threadsNodeId = `semantic:integration:${params.tree.treeId}:threads`;
+    const threadsPath = semanticChildRelativePath(rootPath, "threads");
+    drafts.push({
+      nodeId: threadsNodeId,
+      nodeClass: "semantic",
+      nodeKind: "threads",
+      path: threadsPath,
+      title: "Threads",
+      summary: null,
+      observedAt: params.tree.updatedAt,
+      isMaterialized: true,
+    });
+    edges.push({ parentNodeId: rootNodeId, childNodeId: threadsNodeId, position: rootChildPosition++ });
+
+    const branchOrder = ["messages"];
+    const sortedThreads = Array.from(threadGroups.entries()).sort((left, right) => left[1].title.localeCompare(right[1].title));
+    let threadPosition = 1;
+    for (const [threadId, group] of sortedThreads) {
+      const threadNodeId = `semantic:integration:${params.tree.treeId}:thread:${threadId}`;
+      const threadPath = semanticChildRelativePath(threadsPath, `thread-${safePathSegment(threadId, "thread")}`);
+      const firstLeaf = [...group.leaves].sort((left, right) =>
+        (left.observedAt ?? left.updatedAt).localeCompare(right.observedAt ?? right.updatedAt),
+      )[0] ?? null;
+      drafts.push({
+        nodeId: threadNodeId,
+        nodeClass: "semantic",
+        nodeKind: "thread",
+        path: threadPath,
+        title: group.title,
+        summary: firstLeaf?.summary ?? null,
+        observedAt: firstLeaf?.observedAt ?? null,
+        metadata: {
+          entity_key: `thread:${threadId}`,
+          related_leaf_ids: group.leaves.map((leaf) => leaf.leafId),
+        },
+      });
+      edges.push({ parentNodeId: threadsNodeId, childNodeId: threadNodeId, position: threadPosition++ });
+
+      const leavesByBranch = new Map<string, IntegrationLeafRecord[]>();
+      for (const leaf of group.leaves) {
+        const key = leaf.branchKey ?? "items";
+        const bucket = leavesByBranch.get(key) ?? [];
+        bucket.push(leaf);
+        leavesByBranch.set(key, bucket);
+      }
+      const orderedBranchKeys = [
+        ...branchOrder.filter((key) => leavesByBranch.has(key)),
+        ...Array.from(leavesByBranch.keys())
+          .filter((key) => !branchOrder.includes(key))
+          .sort((left, right) => left.localeCompare(right)),
+      ];
+      let branchPosition = 1;
+      for (const branchKey of orderedBranchKeys) {
+        const branchLeaves = leavesByBranch.get(branchKey) ?? [];
+        const branchNodeId = `semantic:integration:${params.tree.treeId}:thread:${threadId}:${branchKey}`;
+        const branchPath = semanticChildRelativePath(threadPath, safePathSegment(branchKey, "facet"));
+        drafts.push({
+          nodeId: branchNodeId,
+          nodeClass: "semantic",
+          nodeKind: branchKey,
+          path: branchPath,
+          title: semanticBranchTitle(branchKey, branchLeaves[0]?.branchLabel ?? null),
+          summary: branchLeaves.length === 1 ? branchLeaves[0]?.summary ?? null : null,
+          observedAt: branchLeaves[0]?.observedAt ?? null,
+        });
+        edges.push({ parentNodeId: threadNodeId, childNodeId: branchNodeId, position: branchPosition++ });
+        let leafPosition = 1;
+        for (const leaf of branchLeaves.sort((left, right) => left.title.localeCompare(right.title))) {
+          appendSemanticLeafNode({
+            drafts,
+            edges,
+            treeId: params.tree.treeId,
+            parentNodeId: branchNodeId,
+            parentPath: branchPath,
+            position: leafPosition++,
+            leaf,
+            body: params.leafBodies.get(leaf.leafId) ?? fallbackLeafBody(leaf),
+          });
+        }
+      }
+    }
+  }
+
+  const contacts = buildIntegrationContactEntries({
+    treeId: params.tree.treeId,
+    relations: params.relations,
+  });
+  if (contacts.size > 0) {
+    const contactsNodeId = `semantic:integration:${params.tree.treeId}:contacts`;
+    const contactsPath = semanticChildRelativePath(rootPath, "contacts");
+    drafts.push({
+      nodeId: contactsNodeId,
+      nodeClass: "semantic",
+      nodeKind: "contacts",
+      path: contactsPath,
+      title: "Contacts",
+      summary: `Derived Gmail contacts for ${params.tree.accountLabel}.`,
+      observedAt: params.tree.updatedAt,
+      isMaterialized: true,
+    });
+    edges.push({ parentNodeId: rootNodeId, childNodeId: contactsNodeId, position: rootChildPosition++ });
+
+    const sortedContacts = Array.from(contacts.values()).sort((left, right) => left.label.localeCompare(right.label));
+    let contactPosition = 1;
+    for (const contact of sortedContacts) {
+      const contactNodeId = `semantic:integration:${params.tree.treeId}:contact:${contact.email}`;
+      const contactPath = semanticChildRelativePath(contactsPath, `contact-${safePathSegment(contact.email, "contact")}`);
+      drafts.push({
+        nodeId: contactNodeId,
+        nodeClass: "semantic",
+        nodeKind: "contact",
+        path: contactPath,
+        title: contact.label,
+        summary: `${contact.label} appears in ${contact.relatedThreadIds.length} thread${contact.relatedThreadIds.length === 1 ? "" : "s"} in this mailbox.`,
+        observedAt: params.tree.updatedAt,
+        isMaterialized: true,
+        metadata: {
+          contact_entity_key: contact.entityKey,
+          contact_email: contact.email,
+        },
+      });
+      edges.push({ parentNodeId: contactsNodeId, childNodeId: contactNodeId, position: contactPosition++ });
+    }
+  }
+
+  for (const relation of params.relations) {
+    if (relation.relationType !== "participant") {
+      continue;
+    }
+    const contactEmail = typeof relation.metadata.contact_email === "string"
+      ? relation.metadata.contact_email.trim().toLowerCase()
+      : "";
+    const threadEntityKey = typeof relation.metadata.thread_entity_key === "string"
+      ? relation.metadata.thread_entity_key
+      : "";
+    const semanticThreadNodeId = semanticGmailThreadNodeId(params.tree.treeId, threadEntityKey);
+    if (!contactEmail || !semanticThreadNodeId) {
+      continue;
+    }
+    semanticRelations.push({
+      fromNodeId: `semantic:integration:${params.tree.treeId}:contact:${contactEmail}`,
+      toNodeId: semanticThreadNodeId,
+      relationType: relation.relationType,
+      metadata: relation.metadata,
+    });
+  }
+
+  const sortedAccountBranches = Array.from(accountBranchGroups.entries()).sort((left, right) => left[0].localeCompare(right[0]));
+  for (const [branchKey, branchLeaves] of sortedAccountBranches) {
+    const branchNodeId = `semantic:integration:${params.tree.treeId}:account:${branchKey}`;
+    const branchPath = semanticChildRelativePath(rootPath, safePathSegment(branchKey, "facet"));
+    drafts.push({
+      nodeId: branchNodeId,
+      nodeClass: "semantic",
+      nodeKind: branchKey,
+      path: branchPath,
+      title: semanticBranchTitle(branchKey, branchLeaves[0]?.branchLabel ?? null),
+      summary: branchLeaves.length === 1 ? branchLeaves[0]?.summary ?? null : null,
+      observedAt: branchLeaves[0]?.observedAt ?? null,
+    });
+    edges.push({ parentNodeId: rootNodeId, childNodeId: branchNodeId, position: rootChildPosition++ });
+    let leafPosition = 1;
+    for (const leaf of branchLeaves.sort((left, right) => left.title.localeCompare(right.title))) {
+      appendSemanticLeafNode({
+        drafts,
+        edges,
+        treeId: params.tree.treeId,
+        parentNodeId: branchNodeId,
+        parentPath: branchPath,
+        position: leafPosition++,
+        leaf,
+        body: params.leafBodies.get(leaf.leafId) ?? fallbackLeafBody(leaf),
+      });
+    }
+  }
+
+  const finalized = finalizeSemanticMemoryDraft({
+    tree: params.tree,
+    nodes: drafts,
+    edges,
+  });
+  return {
+    ...finalized,
+    relations: semanticRelations,
+  };
+}
+
+function buildGoogleDriveSemanticMemoryTree(params: {
+  tree: IntegrationTreeRecord;
+  leaves: IntegrationLeafRecord[];
+  leafBodies: Map<string, string>;
+}): SemanticIntegrationTreeBuildResult {
+  const drafts: SemanticMemoryDraftNode[] = [];
+  const edges: SemanticMemoryDraftEdge[] = [];
+  const rootNodeId = semanticIntegrationRootNodeId(params.tree.treeId);
+  const rootPath = semanticIntegrationTreeRelativePath(params.tree.slug);
+  drafts.push({
+    nodeId: rootNodeId,
+    nodeClass: "semantic",
+    nodeKind: "connection",
+    path: rootPath,
+    title: `${params.tree.accountLabel} Google Drive connection`,
+    summary: params.tree.summary ?? `Google Drive connection memory for ${params.tree.accountLabel}.`,
+    observedAt: params.tree.updatedAt,
+    metadata: {
+      provider: params.tree.provider,
+      account_key: params.tree.accountKey,
+      account_label: params.tree.accountLabel,
+    },
+  });
+
+  let rootChildPosition = 1;
+  const profileLeaf = params.leaves.find((leaf) => leaf.branchKey === "profile" && !leaf.entityKey) ?? null;
+  if (profileLeaf) {
+    const profileNodeId = `semantic:integration:${params.tree.treeId}:profile`;
+    const profilePath = semanticChildRelativePath(rootPath, "profile");
+    drafts.push({
+      nodeId: profileNodeId,
+      nodeClass: "semantic",
+      nodeKind: "profile",
+      path: profilePath,
+      title: "Profile",
+      summary: profileLeaf.summary,
+      observedAt: profileLeaf.observedAt ?? profileLeaf.updatedAt,
+      metadata: {
+        source_leaf_id: profileLeaf.leafId,
+      },
+    });
+    edges.push({ parentNodeId: rootNodeId, childNodeId: profileNodeId, position: rootChildPosition++ });
+    appendSemanticLeafNode({
+      drafts,
+      edges,
+      treeId: params.tree.treeId,
+      parentNodeId: profileNodeId,
+      parentPath: profilePath,
+      position: 1,
+      leaf: profileLeaf,
+      body: params.leafBodies.get(profileLeaf.leafId) ?? fallbackLeafBody(profileLeaf),
+    });
+  }
+
+  const fileGroups = new Map<string, { title: string; nodeKind: "file" | "folder"; leaves: IntegrationLeafRecord[] }>();
+  const accountBranchGroups = new Map<string, IntegrationLeafRecord[]>();
+  for (const leaf of params.leaves) {
+    if (leaf.entityKey?.startsWith("file:")) {
+      const fileId = leaf.entityKey.slice("file:".length);
+      const nodeKind = leaf.sourceType === "googledrive.folder" || leaf.externalObjectType === "google_drive_folder"
+        ? "folder"
+        : "file";
+      const group = fileGroups.get(fileId) ?? {
+        title: leaf.entityLabel ?? leaf.title,
+        nodeKind,
+        leaves: [],
+      };
+      if (nodeKind === "folder") {
+        group.nodeKind = "folder";
+      }
+      group.leaves.push(leaf);
+      fileGroups.set(fileId, group);
+      continue;
+    }
+    if (!leaf.entityKey && leaf.branchKey && leaf.branchKey !== "profile") {
+      const bucket = accountBranchGroups.get(leaf.branchKey) ?? [];
+      bucket.push(leaf);
+      accountBranchGroups.set(leaf.branchKey, bucket);
+    }
+  }
+
+  if (fileGroups.size > 0) {
+    const filesNodeId = `semantic:integration:${params.tree.treeId}:files`;
+    const filesPath = semanticChildRelativePath(rootPath, "files");
+    drafts.push({
+      nodeId: filesNodeId,
+      nodeClass: "semantic",
+      nodeKind: "files",
+      path: filesPath,
+      title: "Files",
+      summary: null,
+      observedAt: params.tree.updatedAt,
+      isMaterialized: true,
+    });
+    edges.push({ parentNodeId: rootNodeId, childNodeId: filesNodeId, position: rootChildPosition++ });
+
+    const branchOrder = ["overview"];
+    const sortedFiles = Array.from(fileGroups.entries()).sort((left, right) => left[1].title.localeCompare(right[1].title));
+    let filePosition = 1;
+    for (const [fileId, group] of sortedFiles) {
+      const fileSlug = safePathSegment(fileId, "file");
+      const fileNodeId = `semantic:integration:${params.tree.treeId}:file:${fileId}`;
+      const filePath = semanticChildRelativePath(filesPath, `${group.nodeKind}-${fileSlug}`);
+      const overviewLeaf = group.leaves.find((leaf) => leaf.branchKey === "overview") ?? null;
+      drafts.push({
+        nodeId: fileNodeId,
+        nodeClass: "semantic",
+        nodeKind: group.nodeKind,
+        path: filePath,
+        title: group.title,
+        summary: overviewLeaf?.summary ?? null,
+        observedAt: overviewLeaf?.observedAt ?? group.leaves[0]?.observedAt ?? null,
+        metadata: {
+          entity_key: `file:${fileId}`,
+          external_object_id: overviewLeaf?.externalObjectId ?? fileId,
+        },
+      });
+      edges.push({ parentNodeId: filesNodeId, childNodeId: fileNodeId, position: filePosition++ });
+
+      const leavesByBranch = new Map<string, IntegrationLeafRecord[]>();
+      for (const leaf of group.leaves) {
+        const key = leaf.branchKey ?? "items";
+        const bucket = leavesByBranch.get(key) ?? [];
+        bucket.push(leaf);
+        leavesByBranch.set(key, bucket);
+      }
+      const orderedBranchKeys = [
+        ...branchOrder.filter((key) => leavesByBranch.has(key)),
+        ...Array.from(leavesByBranch.keys())
+          .filter((key) => !branchOrder.includes(key))
+          .sort((left, right) => left.localeCompare(right)),
+      ];
+      let branchPosition = 1;
+      for (const branchKey of orderedBranchKeys) {
+        const branchLeaves = leavesByBranch.get(branchKey) ?? [];
+        const branchNodeId = `semantic:integration:${params.tree.treeId}:file:${fileId}:${branchKey}`;
+        const branchPath = semanticChildRelativePath(filePath, safePathSegment(branchKey, "facet"));
+        drafts.push({
+          nodeId: branchNodeId,
+          nodeClass: "semantic",
+          nodeKind: branchKey,
+          path: branchPath,
+          title: semanticBranchTitle(branchKey, branchLeaves[0]?.branchLabel ?? null),
+          summary: branchLeaves.length === 1 ? branchLeaves[0]?.summary ?? null : null,
+          observedAt: branchLeaves[0]?.observedAt ?? null,
+        });
+        edges.push({ parentNodeId: fileNodeId, childNodeId: branchNodeId, position: branchPosition++ });
+        let leafPosition = 1;
+        for (const leaf of branchLeaves.sort((left, right) => left.title.localeCompare(right.title))) {
+          appendSemanticLeafNode({
+            drafts,
+            edges,
+            treeId: params.tree.treeId,
+            parentNodeId: branchNodeId,
+            parentPath: branchPath,
+            position: leafPosition++,
+            leaf,
+            body: params.leafBodies.get(leaf.leafId) ?? fallbackLeafBody(leaf),
+          });
+        }
+      }
+    }
+  }
+
+  const sortedAccountBranches = Array.from(accountBranchGroups.entries()).sort((left, right) => left[0].localeCompare(right[0]));
+  for (const [branchKey, branchLeaves] of sortedAccountBranches) {
+    const branchNodeId = `semantic:integration:${params.tree.treeId}:account:${branchKey}`;
+    const branchPath = semanticChildRelativePath(rootPath, safePathSegment(branchKey, "facet"));
+    drafts.push({
+      nodeId: branchNodeId,
+      nodeClass: "semantic",
+      nodeKind: branchKey,
+      path: branchPath,
+      title: semanticBranchTitle(branchKey, branchLeaves[0]?.branchLabel ?? null),
+      summary: branchLeaves.length === 1 ? branchLeaves[0]?.summary ?? null : null,
+      observedAt: branchLeaves[0]?.observedAt ?? null,
+    });
+    edges.push({ parentNodeId: rootNodeId, childNodeId: branchNodeId, position: rootChildPosition++ });
+    let leafPosition = 1;
+    for (const leaf of branchLeaves.sort((left, right) => left.title.localeCompare(right.title))) {
+      appendSemanticLeafNode({
+        drafts,
+        edges,
+        treeId: params.tree.treeId,
+        parentNodeId: branchNodeId,
+        parentPath: branchPath,
+        position: leafPosition++,
+        leaf,
+        body: params.leafBodies.get(leaf.leafId) ?? fallbackLeafBody(leaf),
+      });
+    }
+  }
+
+  const finalized = finalizeSemanticMemoryDraft({
+    tree: params.tree,
+    nodes: drafts,
+    edges,
+  });
+  return {
+    ...finalized,
+    relations: [],
+  };
+}
+
+function buildTwitterSemanticMemoryTree(params: {
+  tree: IntegrationTreeRecord;
+  leaves: IntegrationLeafRecord[];
+  leafBodies: Map<string, string>;
+}): SemanticIntegrationTreeBuildResult {
+  const drafts: SemanticMemoryDraftNode[] = [];
+  const edges: SemanticMemoryDraftEdge[] = [];
+  const rootNodeId = semanticIntegrationRootNodeId(params.tree.treeId);
+  const rootPath = semanticIntegrationTreeRelativePath(params.tree.slug);
+  drafts.push({
+    nodeId: rootNodeId,
+    nodeClass: "semantic",
+    nodeKind: "connection",
+    path: rootPath,
+    title: `${params.tree.accountLabel} Twitter connection`,
+    summary: params.tree.summary ?? `Twitter connection memory for ${params.tree.accountLabel}.`,
+    observedAt: params.tree.updatedAt,
+    metadata: {
+      provider: params.tree.provider,
+      account_key: params.tree.accountKey,
+      account_label: params.tree.accountLabel,
+    },
+  });
+
+  let rootChildPosition = 1;
+  const profileLeaf = params.leaves.find((leaf) => leaf.branchKey === "profile" && !leaf.entityKey) ?? null;
+  if (profileLeaf) {
+    const profileNodeId = `semantic:integration:${params.tree.treeId}:profile`;
+    const profilePath = semanticChildRelativePath(rootPath, "profile");
+    drafts.push({
+      nodeId: profileNodeId,
+      nodeClass: "semantic",
+      nodeKind: "profile",
+      path: profilePath,
+      title: "Profile",
+      summary: profileLeaf.summary,
+      observedAt: profileLeaf.observedAt ?? profileLeaf.updatedAt,
+      metadata: {
+        source_leaf_id: profileLeaf.leafId,
+      },
+    });
+    edges.push({ parentNodeId: rootNodeId, childNodeId: profileNodeId, position: rootChildPosition++ });
+    appendSemanticLeafNode({
+      drafts,
+      edges,
+      treeId: params.tree.treeId,
+      parentNodeId: profileNodeId,
+      parentPath: profilePath,
+      position: 1,
+      leaf: profileLeaf,
+      body: params.leafBodies.get(profileLeaf.leafId) ?? fallbackLeafBody(profileLeaf),
+    });
+  }
+
+  const postGroups = new Map<string, { title: string; leaves: IntegrationLeafRecord[] }>();
+  const accountBranchGroups = new Map<string, IntegrationLeafRecord[]>();
+  for (const leaf of params.leaves) {
+    if (leaf.entityKey?.startsWith("post:")) {
+      const postId = leaf.entityKey.slice("post:".length);
+      const group = postGroups.get(postId) ?? {
+        title: leaf.entityLabel ?? leaf.title,
+        leaves: [],
+      };
+      group.leaves.push(leaf);
+      postGroups.set(postId, group);
+      continue;
+    }
+    if (!leaf.entityKey && leaf.branchKey && leaf.branchKey !== "profile") {
+      const bucket = accountBranchGroups.get(leaf.branchKey) ?? [];
+      bucket.push(leaf);
+      accountBranchGroups.set(leaf.branchKey, bucket);
+    }
+  }
+
+  if (postGroups.size > 0) {
+    const timelineNodeId = `semantic:integration:${params.tree.treeId}:timeline`;
+    const timelinePath = semanticChildRelativePath(rootPath, "timeline");
+    drafts.push({
+      nodeId: timelineNodeId,
+      nodeClass: "semantic",
+      nodeKind: "timeline",
+      path: timelinePath,
+      title: "Timeline",
+      summary: null,
+      observedAt: params.tree.updatedAt,
+      isMaterialized: true,
+    });
+    edges.push({ parentNodeId: rootNodeId, childNodeId: timelineNodeId, position: rootChildPosition++ });
+
+    const branchOrder = ["overview"];
+    const sortedPosts = Array.from(postGroups.entries()).sort((left, right) => {
+      const leftObservedAt = left[1].leaves[0]?.observedAt ?? left[1].leaves[0]?.updatedAt ?? "";
+      const rightObservedAt = right[1].leaves[0]?.observedAt ?? right[1].leaves[0]?.updatedAt ?? "";
+      return rightObservedAt.localeCompare(leftObservedAt) || left[1].title.localeCompare(right[1].title);
+    });
+    let postPosition = 1;
+    for (const [postId, group] of sortedPosts) {
+      const postSlug = safePathSegment(postId, "post");
+      const postNodeId = `semantic:integration:${params.tree.treeId}:post:${postId}`;
+      const postPath = semanticChildRelativePath(timelinePath, `post-${postSlug}`);
+      const overviewLeaf = group.leaves.find((leaf) => leaf.branchKey === "overview") ?? null;
+      drafts.push({
+        nodeId: postNodeId,
+        nodeClass: "semantic",
+        nodeKind: "post",
+        path: postPath,
+        title: group.title,
+        summary: overviewLeaf?.summary ?? null,
+        observedAt: overviewLeaf?.observedAt ?? group.leaves[0]?.observedAt ?? null,
+        metadata: {
+          entity_key: `post:${postId}`,
+          external_object_id: overviewLeaf?.externalObjectId ?? postId,
+        },
+      });
+      edges.push({ parentNodeId: timelineNodeId, childNodeId: postNodeId, position: postPosition++ });
+
+      const leavesByBranch = new Map<string, IntegrationLeafRecord[]>();
+      for (const leaf of group.leaves) {
+        const key = leaf.branchKey ?? "items";
+        const bucket = leavesByBranch.get(key) ?? [];
+        bucket.push(leaf);
+        leavesByBranch.set(key, bucket);
+      }
+      const orderedBranchKeys = [
+        ...branchOrder.filter((key) => leavesByBranch.has(key)),
+        ...Array.from(leavesByBranch.keys())
+          .filter((key) => !branchOrder.includes(key))
+          .sort((left, right) => left.localeCompare(right)),
+      ];
+      let branchPosition = 1;
+      for (const branchKey of orderedBranchKeys) {
+        const branchLeaves = leavesByBranch.get(branchKey) ?? [];
+        const branchNodeId = `semantic:integration:${params.tree.treeId}:post:${postId}:${branchKey}`;
+        const branchPath = semanticChildRelativePath(postPath, safePathSegment(branchKey, "facet"));
+        drafts.push({
+          nodeId: branchNodeId,
+          nodeClass: "semantic",
+          nodeKind: branchKey,
+          path: branchPath,
+          title: semanticBranchTitle(branchKey, branchLeaves[0]?.branchLabel ?? null),
+          summary: branchLeaves.length === 1 ? branchLeaves[0]?.summary ?? null : null,
+          observedAt: branchLeaves[0]?.observedAt ?? null,
+        });
+        edges.push({ parentNodeId: postNodeId, childNodeId: branchNodeId, position: branchPosition++ });
+        let leafPosition = 1;
+        for (const leaf of branchLeaves.sort((left, right) => left.title.localeCompare(right.title))) {
+          appendSemanticLeafNode({
+            drafts,
+            edges,
+            treeId: params.tree.treeId,
+            parentNodeId: branchNodeId,
+            parentPath: branchPath,
+            position: leafPosition++,
+            leaf,
+            body: params.leafBodies.get(leaf.leafId) ?? fallbackLeafBody(leaf),
+          });
+        }
+      }
+    }
+  }
+
+  const sortedAccountBranches = Array.from(accountBranchGroups.entries()).sort((left, right) => left[0].localeCompare(right[0]));
+  for (const [branchKey, branchLeaves] of sortedAccountBranches) {
+    const branchNodeId = `semantic:integration:${params.tree.treeId}:account:${branchKey}`;
+    const branchPath = semanticChildRelativePath(rootPath, safePathSegment(branchKey, "facet"));
+    drafts.push({
+      nodeId: branchNodeId,
+      nodeClass: "semantic",
+      nodeKind: branchKey,
+      path: branchPath,
+      title: semanticBranchTitle(branchKey, branchLeaves[0]?.branchLabel ?? null),
+      summary: branchLeaves.length === 1 ? branchLeaves[0]?.summary ?? null : null,
+      observedAt: branchLeaves[0]?.observedAt ?? null,
+    });
+    edges.push({ parentNodeId: rootNodeId, childNodeId: branchNodeId, position: rootChildPosition++ });
+    let leafPosition = 1;
+    for (const leaf of branchLeaves.sort((left, right) => left.title.localeCompare(right.title))) {
+      appendSemanticLeafNode({
+        drafts,
+        edges,
+        treeId: params.tree.treeId,
+        parentNodeId: branchNodeId,
+        parentPath: branchPath,
+        position: leafPosition++,
+        leaf,
+        body: params.leafBodies.get(leaf.leafId) ?? fallbackLeafBody(leaf),
+      });
+    }
+  }
+
+  const finalized = finalizeSemanticMemoryDraft({
+    tree: params.tree,
+    nodes: drafts,
+    edges,
+  });
+  return {
+    ...finalized,
+    relations: [],
+  };
+}
+
+function buildSemanticIntegrationTree(params: {
+  tree: IntegrationTreeRecord;
+  leaves: IntegrationLeafRecord[];
+  leafBodies: Map<string, string>;
+  relations: IntegrationRelationInput[];
+}): SemanticIntegrationTreeBuildResult | null {
+  switch (params.tree.provider) {
+    case "notion":
+      return buildNotionSemanticMemoryTree({
+        tree: params.tree,
+        leaves: params.leaves,
+        leafBodies: params.leafBodies,
+      });
+    case "github":
+      return buildGitHubSemanticMemoryTree({
+        tree: params.tree,
+        leaves: params.leaves,
+        leafBodies: params.leafBodies,
+      });
+    case "gmail":
+      return buildGmailSemanticMemoryTree({
+        tree: params.tree,
+        leaves: params.leaves,
+        leafBodies: params.leafBodies,
+        relations: params.relations,
+      });
+    case "googledrive":
+      return buildGoogleDriveSemanticMemoryTree({
+        tree: params.tree,
+        leaves: params.leaves,
+        leafBodies: params.leafBodies,
+      });
+    case "twitter":
+      return buildTwitterSemanticMemoryTree({
+        tree: params.tree,
+        leaves: params.leaves,
+        leafBodies: params.leafBodies,
+      });
+    default:
+      return null;
+  }
 }
 
 function sha256(value: string): string {
@@ -1009,6 +2514,61 @@ function virtualIntegrationContactContent(params: {
   return `${lines.join("\n").trim()}\n`;
 }
 
+function buildIntegrationContactEntries(params: {
+  treeId: string;
+  relations: IntegrationRelationInput[];
+}): Map<string, IntegrationContactEntry> {
+  const contacts = new Map<string, IntegrationContactEntry>();
+  for (const relation of params.relations) {
+    if (relation.relationType !== "participant" || relation.fromNodeKind !== "entity") {
+      continue;
+    }
+    const entityKey = parseIntegrationEntityNodeId(params.treeId, relation.fromNodeId);
+    if (!entityKey?.startsWith("contact:")) {
+      continue;
+    }
+    const email = String(relation.metadata.contact_email ?? entityKey.replace(/^contact:/, ""));
+    const label = String(relation.metadata.contact_label ?? email);
+    const existing = contacts.get(entityKey);
+    if (existing) {
+      if (!existing.relatedThreadIds.includes(relation.toNodeId)) {
+        existing.relatedThreadIds.push(relation.toNodeId);
+      }
+      const threadKey = String(relation.metadata.thread_entity_key ?? "");
+      if (threadKey && !existing.relatedThreadKeys.includes(threadKey)) {
+        existing.relatedThreadKeys.push(threadKey);
+      }
+      for (const leafId of Array.isArray(relation.metadata.message_leaf_ids) ? relation.metadata.message_leaf_ids : []) {
+        if (typeof leafId === "string" && !existing.messageLeafIds.includes(leafId)) {
+          existing.messageLeafIds.push(leafId);
+        }
+      }
+      for (const role of Array.isArray(relation.metadata.roles) ? relation.metadata.roles : []) {
+        if (typeof role === "string" && !existing.roles.includes(role)) {
+          existing.roles.push(role);
+        }
+      }
+      continue;
+    }
+    contacts.set(entityKey, {
+      entityKey,
+      email,
+      label,
+      relatedThreadIds: [relation.toNodeId],
+      relatedThreadKeys: typeof relation.metadata.thread_entity_key === "string"
+        ? [relation.metadata.thread_entity_key]
+        : [],
+      messageLeafIds: Array.isArray(relation.metadata.message_leaf_ids)
+        ? relation.metadata.message_leaf_ids.filter((value): value is string => typeof value === "string")
+        : [],
+      roles: Array.isArray(relation.metadata.roles)
+        ? relation.metadata.roles.filter((value): value is string => typeof value === "string")
+        : [],
+    });
+  }
+  return contacts;
+}
+
 function buildIntegrationStructureView(params: {
   store: RuntimeStateStore;
   tree: IntegrationTreeRecord;
@@ -1109,55 +2669,10 @@ function buildIntegrationStructureView(params: {
       return acc;
     }, new Map());
   const accountScopes = Array.from(scopeByKey.values()).filter((scope) => !scope.entityKey);
-
-  const contacts = new Map<string, IntegrationContactEntry>();
-  for (const relation of params.relations) {
-    if (relation.relationType !== "participant" || relation.fromNodeKind !== "entity") {
-      continue;
-    }
-    const entityKey = parseIntegrationEntityNodeId(params.tree.treeId, relation.fromNodeId);
-    if (!entityKey?.startsWith("contact:")) {
-      continue;
-    }
-    const email = String(relation.metadata.contact_email ?? entityKey.replace(/^contact:/, ""));
-    const label = String(relation.metadata.contact_label ?? email);
-    const existing = contacts.get(entityKey);
-    if (existing) {
-      if (!existing.relatedThreadIds.includes(relation.toNodeId)) {
-        existing.relatedThreadIds.push(relation.toNodeId);
-      }
-      const threadKey = String(relation.metadata.thread_entity_key ?? "");
-      if (threadKey && !existing.relatedThreadKeys.includes(threadKey)) {
-        existing.relatedThreadKeys.push(threadKey);
-      }
-      for (const leafId of Array.isArray(relation.metadata.message_leaf_ids) ? relation.metadata.message_leaf_ids : []) {
-        if (typeof leafId === "string" && !existing.messageLeafIds.includes(leafId)) {
-          existing.messageLeafIds.push(leafId);
-        }
-      }
-      for (const role of Array.isArray(relation.metadata.roles) ? relation.metadata.roles : []) {
-        if (typeof role === "string" && !existing.roles.includes(role)) {
-          existing.roles.push(role);
-        }
-      }
-      continue;
-    }
-    contacts.set(entityKey, {
-      entityKey,
-      email,
-      label,
-      relatedThreadIds: [relation.toNodeId],
-      relatedThreadKeys: typeof relation.metadata.thread_entity_key === "string"
-        ? [relation.metadata.thread_entity_key]
-        : [],
-      messageLeafIds: Array.isArray(relation.metadata.message_leaf_ids)
-        ? relation.metadata.message_leaf_ids.filter((value): value is string => typeof value === "string")
-        : [],
-      roles: Array.isArray(relation.metadata.roles)
-        ? relation.metadata.roles.filter((value): value is string => typeof value === "string")
-        : [],
-    });
-  }
+  const contacts = buildIntegrationContactEntries({
+    treeId: params.tree.treeId,
+    relations: params.relations,
+  });
 
   return {
     rootSummary,
@@ -2234,11 +3749,11 @@ export async function rebuildIntegrationTree(params: {
     leafBodies.set(leaf.leafId, body);
   }
 
-  fs.rmSync(integrationTreeDir(params.store.workspaceRoot, tree.slug), {
+  fs.rmSync(legacyIntegrationTreeDir(params.store.workspaceRoot, tree.slug), {
     recursive: true,
     force: true,
   });
-  fs.rmSync(legacyIntegrationTreeDir(params.store.workspaceRoot, tree.slug), {
+  fs.rmSync(semanticIntegrationTreeDir(params.store.workspaceRoot, tree.slug), {
     recursive: true,
     force: true,
   });
@@ -2296,160 +3811,76 @@ export async function rebuildIntegrationTree(params: {
     rewrittenLeaves.push(leaf);
   }
 
-  const plan = await buildSummaryTreePlan({
-    workspaceId: params.workspaceId,
-    tree,
-    leaves: rewrittenLeaves,
-    modelClient: params.summaryModelClient ?? null,
-  });
-
-  const treeContent = integrationTreeBody({
-    tree,
-    leafCount: rewrittenLeaves.length,
-    summaryCount: plan.nodes.length,
-  });
-  writeFileIfChanged(
-    absolutePathForRelative(
-      params.store.workspaceRoot,
-      path.posix.join(...integrationTreeBaseSegments(tree.slug), "content.md"),
-    ),
-    treeContent,
-  );
-
-  type ScopeGroup = {
-    entityKey: string | null;
-    entityLabel: string | null;
-    entitySlug: string | null;
-    branchKey: string | null;
-    branchLabel: string | null;
-    branchSlug: string | null;
-    leaves: IntegrationLeafRecord[];
-  };
-  const scopeGroups = new Map<string, ScopeGroup>();
-  for (const leaf of rewrittenLeaves) {
-    const entitySlug = integrationEntitySlug(leaf.entityKey, leaf.entityLabel);
-    const branchSlug = integrationBranchSlug(leaf.branchKey, leaf.branchLabel);
-    const key = `${leaf.entityKey ?? "__account__"}::${leaf.branchKey ?? "__none__"}`;
-    const existing = scopeGroups.get(key);
-    if (existing) {
-      existing.leaves.push(leaf);
-      continue;
-    }
-    scopeGroups.set(key, {
-      entityKey: leaf.entityKey ?? null,
-      entityLabel: leaf.entityLabel ?? null,
-      entitySlug,
-      branchKey: leaf.branchKey ?? null,
-      branchLabel: leaf.branchLabel ?? null,
-      branchSlug,
-      leaves: [leaf],
-    });
-  }
-
-  const entityGroups = new Map<string, ScopeGroup[]>();
-  for (const scope of scopeGroups.values()) {
-    if (!scope.entityKey) {
-      continue;
-    }
-    const bucket = entityGroups.get(scope.entityKey) ?? [];
-    bucket.push(scope);
-    entityGroups.set(scope.entityKey, bucket);
-  }
-
-  for (const scopes of entityGroups.values()) {
-    const first = scopes[0]!;
-    if (!first.entityKey || !first.entitySlug) {
-      continue;
-    }
-    const entityContent = integrationEntityBody({
-      tree,
-      entityKey: first.entityKey,
-      entityLabel: first.entityLabel ?? first.entityKey,
-      branchCount: scopes.filter((scope) => scope.branchKey).length,
-      leafCount: scopes.reduce((total, scope) => total + scope.leaves.length, 0),
-    });
-    writeFileIfChanged(
-      absolutePathForRelative(
-        params.store.workspaceRoot,
-        path.posix.join(...integrationEntitySegments(tree.slug, first.entitySlug), "content.md"),
-      ),
-      entityContent,
-    );
-  }
-
-  for (const scope of scopeGroups.values()) {
-    if (!scope.branchKey || !scope.branchSlug) {
-      continue;
-    }
-    const branchContent = integrationBranchBody({
-      tree,
-      entityLabel: scope.entityLabel ?? null,
-      branchKey: scope.branchKey,
-      branchLabel: scope.branchLabel ?? scope.branchKey,
-      leafCount: scope.leaves.length,
-    });
-    writeFileIfChanged(
-      absolutePathForRelative(
-        params.store.workspaceRoot,
-        path.posix.join(
-          ...integrationBranchSegments({
-            treeSlug: tree.slug,
-            entitySlug: scope.entitySlug ?? null,
-            branchSlug: scope.branchSlug,
-          }),
-          "content.md",
-        ),
-      ),
-      branchContent,
-    );
-  }
-
-  for (const node of plan.nodes) {
-    writeFileIfChanged(absolutePathForRelative(params.store.workspaceRoot, node.path), node.body);
-  }
-  params.store.replaceIntegrationSummaryTree({
-    treeId: params.treeId,
-    nodes: plan.nodes.map((node) => ({
-      nodeId: node.nodeId,
-      level: node.level,
-      ordinal: node.ordinal,
-      path: node.path,
-      title: node.title,
-      summary: node.summary,
-      bodySha256: node.bodySha256,
-      childCount: node.childCount,
-      sealedAt: node.sealedAt,
-    })),
-    edges: plan.edges,
-  });
   const relations = buildIntegrationRelations({
     tree,
     leaves: rewrittenLeaves,
     leafBodies,
   });
-  params.store.replaceIntegrationNodeRelations({
-    treeId: tree.treeId,
-    relations,
-  });
-  const canonical = buildIntegrationCanonicalNodesAndEdges({
+  const semantic = buildSemanticIntegrationTree({
     tree,
     leaves: rewrittenLeaves,
-    summaries: plan.nodes,
     leafBodies,
     relations,
   });
-  for (const [relativePath, body] of canonical.bodiesByPath) {
-    writeFileIfChanged(
-      absolutePathForRelative(params.store.workspaceRoot, relativePath),
-      body,
-    );
+  if (semantic) {
+    for (const [relativePath, body] of semantic.bodiesByPath) {
+      writeFileIfChanged(
+        absolutePathForRelative(params.store.workspaceRoot, relativePath),
+        body,
+      );
+    }
+    params.store.replaceSemanticMemoryTree({
+      category: "integration",
+      treeId: params.treeId,
+      nodes: semantic.nodes.map((node) => ({
+        nodeId: node.nodeId,
+        nodeClass: node.nodeClass,
+        nodeKind: node.nodeKind,
+        sourceLeafId: node.sourceLeafId,
+        path: node.path,
+        title: node.title,
+        summary: node.summary,
+        bodySha256: node.bodySha256,
+        childCount: node.childCount,
+        observedAt: node.observedAt,
+        isMaterialized: node.isMaterialized,
+        metadata: node.metadata,
+      })),
+      edges: semantic.edges,
+    });
+    params.store.replaceSemanticMemoryRelations({
+      category: "integration",
+      treeId: params.treeId,
+      relations: semantic.relations.map((relation) => ({
+        fromNodeId: relation.fromNodeId,
+        toNodeId: relation.toNodeId,
+        relationType: relation.relationType,
+        metadata: relation.metadata,
+      })),
+    });
+    params.store.replaceIntegrationSummaryTree({
+      treeId: params.treeId,
+      nodes: [],
+      edges: [],
+    });
+    params.store.replaceIntegrationNodeRelations({
+      treeId: tree.treeId,
+      relations: [],
+    });
+    params.store.replaceIntegrationMemoryTree({
+      treeId: params.treeId,
+      nodes: [],
+      edges: [],
+    });
   }
-  params.store.replaceIntegrationMemoryTree({
-    treeId: params.treeId,
-    nodes: canonical.nodes,
-    edges: canonical.edges,
-  });
-  for (const node of plan.nodes) {
+  for (const node of semantic?.nodes ?? []) {
+    if (node.nodeClass !== "semantic") {
+      continue;
+    }
+    const body = semantic?.bodiesByPath.get(node.path);
+    if (!body) {
+      continue;
+    }
     await syncNodeEmbedding({
       store: params.store,
       tree,
@@ -2457,7 +3888,7 @@ export async function rebuildIntegrationTree(params: {
       nodeId: node.nodeId,
       title: node.title,
       summary: node.summary,
-      body: node.body,
+      body,
       embeddingClient: params.embeddingClient ?? null,
     });
   }
@@ -2546,10 +3977,13 @@ export function clearIntegrationMemoryForConnection(params: {
   for (const tree of trees) {
     const canonicalDir = integrationTreeDir(params.store.workspaceRoot, tree.slug);
     const legacyDir = legacyIntegrationTreeDir(params.store.workspaceRoot, tree.slug);
+    const semanticDir = semanticIntegrationTreeDir(params.store.workspaceRoot, tree.slug);
     deletedFiles += countFilesRecursive(canonicalDir);
     deletedFiles += countFilesRecursive(legacyDir);
+    deletedFiles += countFilesRecursive(semanticDir);
     fs.rmSync(canonicalDir, { recursive: true, force: true });
     fs.rmSync(legacyDir, { recursive: true, force: true });
+    fs.rmSync(semanticDir, { recursive: true, force: true });
     const deleted = params.store.deleteIntegrationTreeMemory({
       treeId: tree.treeId,
     });
@@ -2613,12 +4047,10 @@ export async function rebuildAllIntegrationTrees(params: {
       summaryModelClient,
       embeddingClient,
     });
-    summaryCount += params.store.listIntegrationSummaryNodes({
+    summaryCount += countSummaryLikeSemanticIntegrationNodes({
+      store: params.store,
       treeId: tree.treeId,
-      status: "active",
-      limit: 10_000,
-      offset: 0,
-    }).length;
+    });
   }
   return { trees: trees.length, summaries: summaryCount };
 }
@@ -2914,6 +4346,71 @@ function buildCanonicalCandidate(params: {
   };
 }
 
+function semanticNodeDepth(pathValue: string): number | null {
+  const normalized = pathValue.replaceAll("\\", "/");
+  const segments = normalized.split("/").filter(Boolean);
+  const markerIndex = segments.findIndex(
+    (segment, index) =>
+      segment === "semantic"
+      && segments[index + 1] === "integration"
+      && segments[index + 2] === "trees",
+  );
+  if (markerIndex < 0 || segments[segments.length - 1] !== "content.md") {
+    return null;
+  }
+  const treeSlugIndex = markerIndex + 3;
+  if (!segments[treeSlugIndex]) {
+    return null;
+  }
+  return Math.max(0, segments.length - (treeSlugIndex + 2));
+}
+
+function semanticCandidateKind(
+  node: ReturnType<RuntimeStateStore["listSemanticMemoryNodes"]>[number],
+): IntegrationRetrieveNodeKind {
+  if (node.nodeClass === "leaf") {
+    return "leaf";
+  }
+  if (node.nodeKind === "connection") {
+    return "tree";
+  }
+  if (new Set(["workspace", "repo", "thread", "page", "database", "contact", "file", "folder", "post"]).has(node.nodeKind)) {
+    return "entity";
+  }
+  return "branch";
+}
+
+function buildSemanticCandidate(params: {
+  store: RuntimeStateStore;
+  tree: IntegrationTreeRecord;
+  node: ReturnType<RuntimeStateStore["listSemanticMemoryNodes"]>[number];
+}): NodeCandidate {
+  const filePath = absolutePathForRelative(
+    params.store.workspaceRoot,
+    params.node.path,
+  );
+  const body = readFileIfExists(filePath);
+  return {
+    kind: semanticCandidateKind(params.node),
+    id: params.node.nodeId,
+    tree: params.tree,
+    title: params.node.title,
+    summary: params.node.summary,
+    excerpt: body ? markdownExcerpt(body, 320) : null,
+    path: params.node.path,
+    level: semanticNodeDepth(params.node.path),
+    childCount: params.node.childCount,
+    observedAt: params.node.observedAt,
+    updatedAt: params.node.updatedAt,
+  };
+}
+
+function semanticGmailThreadNodeId(treeId: string, threadEntityKey: string): string | null {
+  return threadEntityKey.startsWith("thread:")
+    ? `semantic:integration:${treeId}:thread:${threadEntityKey.slice("thread:".length)}`
+    : null;
+}
+
 function nodeScore(params: {
   query: string;
   candidate: NodeCandidate;
@@ -3132,89 +4629,11 @@ async function childHitsForNode(params: {
   queryVector: number[] | null;
   embeddingByKey: Map<string, number[]>;
 }): Promise<IntegrationMemoryRetrieveHit[]> {
-  const canonicalTreeId = params.parentNodeId.startsWith("tree:integration:")
-    ? params.parentNodeId.replace(/^tree:integration:/, "")
-    : accessibleIntegrationTreesForWorkspace({
-        store: params.store,
-        workspaceId: params.workspaceId,
-      }).find((candidateTree) =>
-        Boolean(
-          params.store.getIntegrationMemoryNode({
-            treeId: candidateTree.treeId,
-            nodeId: params.parentNodeId,
-          }),
-        ),
-      )?.treeId ?? null;
-  if (canonicalTreeId) {
-    const tree = params.store.getIntegrationTree({ treeId: canonicalTreeId });
-    const parentNode = tree
-      ? params.store.getIntegrationMemoryNode({
-          treeId: canonicalTreeId,
-          nodeId: params.parentNodeId,
-        })
-      : null;
-    if (tree && parentNode) {
-      const scoreCandidates = (candidates: NodeCandidate[], extraReason?: string): IntegrationMemoryRetrieveHit[] =>
-        candidates
-          .map((candidate) => {
-            const scored = nodeScore({
-              query: params.query,
-              candidate,
-              embeddingModelId: params.embeddingModelId,
-              queryVector: params.queryVector,
-              embeddingByKey: params.embeddingByKey,
-              mode: params.mode,
-            });
-            return candidateToHit({
-              candidate,
-              score: scored.score,
-              reasons: scored.reasons.length > 0 ? scored.reasons : [extraReason ?? "child_traversal"],
-            });
-          })
-          .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path));
-
-      const candidates = params.store
-        .listIntegrationMemoryChildren({
-          treeId: canonicalTreeId,
-          parentNodeId: params.parentNodeId,
-        })
-        .map((child) =>
-          params.store.getIntegrationMemoryNode({
-            treeId: canonicalTreeId,
-            nodeId: child.childNodeId,
-          }))
-        .filter((node): node is NonNullable<typeof node> => Boolean(node))
-        .map((node) => buildCanonicalCandidate({
-          store: params.store,
-          tree,
-          node,
-        }));
-      const relationCandidates = params.store
-        .listIntegrationNodeRelations({
-          treeId: canonicalTreeId,
-          fromNodeId: params.parentNodeId,
-          limit: 10_000,
-        })
-        .map((relation) =>
-          params.store.getIntegrationMemoryNode({
-            treeId: canonicalTreeId,
-            nodeId: relation.toNodeId,
-          }))
-        .filter((node): node is NonNullable<typeof node> => Boolean(node))
-        .map((node) => buildCanonicalCandidate({
-          store: params.store,
-          tree,
-          node,
-        }));
-      return scoreCandidates(
-        [...candidates, ...relationCandidates].filter((candidate, index, bucket) =>
-          bucket.findIndex((entry) => entry.id === candidate.id) === index,
-        ),
-      );
-    }
-  }
-
-  const scoreCandidates = (candidates: NodeCandidate[]): IntegrationMemoryRetrieveHit[] =>
+  const visibleTrees = accessibleIntegrationTreesForWorkspace({
+    store: params.store,
+    workspaceId: params.workspaceId,
+  });
+  const scoreCandidates = (candidates: NodeCandidate[], extraReason?: string): IntegrationMemoryRetrieveHit[] =>
     candidates
       .map((candidate) => {
         const scored = nodeScore({
@@ -3228,156 +4647,76 @@ async function childHitsForNode(params: {
         return candidateToHit({
           candidate,
           score: scored.score,
-          reasons: scored.reasons.length > 0 ? scored.reasons : ["child_traversal"],
+          reasons: scored.reasons.length > 0 ? scored.reasons : [extraReason ?? "child_traversal"],
         });
       })
       .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path));
 
-  const summaryParent = params.store.getIntegrationSummaryNode({ nodeId: params.parentNodeId });
-  if (summaryParent) {
-    const tree = params.store.getIntegrationTree({ treeId: summaryParent.treeId });
-    if (!tree) {
+  const semanticTree = visibleTrees.find((candidateTree) =>
+    params.parentNodeId.startsWith(`semantic:integration:${candidateTree.treeId}:`)
+    && Boolean(
+      params.store.getSemanticMemoryNode({
+        category: "integration",
+        treeId: candidateTree.treeId,
+        nodeId: params.parentNodeId,
+      }),
+    ),
+  ) ?? null;
+  if (semanticTree) {
+    const parentNode = params.store.getSemanticMemoryNode({
+      category: "integration",
+      treeId: semanticTree.treeId,
+      nodeId: params.parentNodeId,
+    });
+    if (!parentNode) {
       return [];
     }
-    const children = params.store.listIntegrationTreeChildren({ parentNodeId: params.parentNodeId });
-    const candidates: NodeCandidate[] = [];
-    for (const child of children) {
-      if (child.childKind === "summary") {
-        const node = params.store.getIntegrationSummaryNode({ nodeId: child.childId });
-        if (node && node.status === "active") {
-          candidates.push(buildSummaryCandidate({
-            store: params.store,
-            tree,
-            node,
-          }));
-        }
-        continue;
-      }
-      const leaf = params.store.getIntegrationLeaf({ leafId: child.childId });
-      if (leaf && leaf.status === "active") {
-        candidates.push(buildLeafCandidate({
-          store: params.store,
-          tree,
-          leaf,
-        }));
-      }
-    }
-    return scoreCandidates(candidates);
-  }
 
-  const tree = params.parentNodeId.startsWith("tree:integration:")
-    ? params.store.getIntegrationTree({
-        treeId: params.parentNodeId.replace(/^tree:integration:/, ""),
+    const candidates = params.store
+      .listSemanticMemoryChildren({
+        category: "integration",
+        treeId: semanticTree.treeId,
+        parentNodeId: params.parentNodeId,
       })
-    : accessibleIntegrationTreesForWorkspace({
+      .map((edge) =>
+        params.store.getSemanticMemoryNode({
+          category: "integration",
+          treeId: semanticTree.treeId,
+          nodeId: edge.childNodeId,
+        }))
+      .filter((node): node is NonNullable<typeof node> => Boolean(node))
+      .map((node) => buildSemanticCandidate({
         store: params.store,
-        workspaceId: params.workspaceId,
-      }).find((candidateTree) =>
-        Boolean(
-          parseIntegrationEntityNodeId(candidateTree.treeId, params.parentNodeId)
-          || parseIntegrationBranchNodeId(candidateTree.treeId, params.parentNodeId),
-        ),
-      ) ?? null;
-  if (!tree) {
-    return [];
-  }
-  const summaries = params.store.listIntegrationSummaryNodes({
-    treeId: tree.treeId,
-    status: "active",
-    limit: 10_000,
-    offset: 0,
-  });
-  const leaves = params.store.listIntegrationLeaves({
-    treeId: tree.treeId,
-    status: "active",
-    limit: 10_000,
-    offset: 0,
-  });
-  const relations = params.store.listIntegrationNodeRelations({
-    treeId: tree.treeId,
-    limit: 10_000,
-  });
-  const structural = buildStructuralCandidates({
-    store: params.store,
-    tree,
-    summaries,
-    leaves,
-    relations,
-  });
+        tree: semanticTree,
+        node,
+      }));
+    const relationCandidates = params.store
+      .listSemanticMemoryRelations({
+        category: "integration",
+        treeId: semanticTree.treeId,
+        fromNodeId: params.parentNodeId,
+        limit: 10_000,
+      })
+      .map((relation) =>
+        params.store.getSemanticMemoryNode({
+          category: "integration",
+          treeId: semanticTree.treeId,
+          nodeId: relation.toNodeId,
+        }))
+      .filter((node): node is NonNullable<typeof node> => Boolean(node))
+      .map((node) => buildSemanticCandidate({
+        store: params.store,
+        tree: semanticTree,
+        node,
+      }));
 
-  const candidates: NodeCandidate[] = [];
-  if (params.parentNodeId === integrationTreeNodeId(tree.treeId)) {
-    if (structural.contactBranchCandidate) {
-      candidates.push(structural.contactBranchCandidate);
-    }
-    candidates.push(...structural.entityCandidates.values());
-    candidates.push(
-      ...structural.structure.accountScopes
-        .map((scope) => scope.branchKey ? structural.branchCandidates.get(`${scope.entityKey ?? "account"}::${scope.branchKey}`) ?? null : null)
-        .filter((candidate): candidate is NodeCandidate => Boolean(candidate)),
+    return scoreCandidates(
+      [...candidates, ...relationCandidates].filter((candidate, index, bucket) =>
+        bucket.findIndex((entry) => entry.id === candidate.id) === index,
+      ),
     );
-    return scoreCandidates(candidates);
   }
-
-  const entityKey = parseIntegrationEntityNodeId(tree.treeId, params.parentNodeId);
-  if (entityKey) {
-    if (entityKey.startsWith("contact:")) {
-      const contact = structural.contactCandidates.get(entityKey);
-      if (!contact) {
-        return [];
-      }
-      for (const threadKey of structural.structure.contacts.get(entityKey)?.relatedThreadKeys ?? []) {
-        const threadCandidate = structural.entityCandidates.get(threadKey);
-        if (threadCandidate) {
-          candidates.push(threadCandidate);
-        }
-      }
-      return scoreCandidates(candidates);
-    }
-    for (const scope of structural.structure.entityScopes.get(entityKey) ?? []) {
-      if (!scope.branchKey) {
-        continue;
-      }
-      const branchCandidate = structural.branchCandidates.get(`${scope.entityKey ?? "account"}::${scope.branchKey}`);
-      if (branchCandidate) {
-        candidates.push(branchCandidate);
-      }
-    }
-    return scoreCandidates(candidates);
-  }
-
-  const branchNode = parseIntegrationBranchNodeId(tree.treeId, params.parentNodeId);
-  if (!branchNode) {
-    return [];
-  }
-  if (branchNode.entityKey === null && branchNode.branchKey === "contacts") {
-    return scoreCandidates(Array.from(structural.contactCandidates.values()));
-  }
-  const scopeKey = integrationScopeKey({
-    entityKey: branchNode.entityKey,
-    branchKey: branchNode.branchKey,
-  });
-  const summaryNode = structural.structure.rootSummaryByScope.get(scopeKey);
-  if (summaryNode) {
-    return await childHitsForNode({
-      store: params.store,
-      workspaceId: params.workspaceId,
-      parentNodeId: summaryNode.nodeId,
-      query: params.query,
-      mode: params.mode,
-      embeddingModelId: params.embeddingModelId,
-      queryVector: params.queryVector,
-      embeddingByKey: params.embeddingByKey,
-    });
-  }
-  for (const leaf of structural.structure.leavesByScope.get(scopeKey) ?? []) {
-    candidates.push(buildLeafCandidate({
-      store: params.store,
-      tree,
-      leaf,
-    }));
-  }
-  return scoreCandidates(candidates);
+  return [];
 }
 
 export async function retrieveIntegrationMemory(params: {
@@ -3438,73 +4777,31 @@ export async function retrieveIntegrationMemory(params: {
 
   const candidates: NodeCandidate[] = [];
   for (const tree of trees) {
-    const canonicalNodes = params.store.listIntegrationMemoryNodes({
+    const semanticNodes = params.store.listSemanticMemoryNodes({
+      category: "integration",
       treeId: tree.treeId,
       status: "active",
       limit: 10_000,
       offset: 0,
     });
-    if (canonicalNodes.length > 0) {
-      for (const node of canonicalNodes) {
-        if (node.nodeKind === "tree") {
+    if (semanticNodes.length > 0) {
+      for (const node of semanticNodes) {
+        const kind = semanticCandidateKind(node);
+        if (kind === "tree") {
           continue;
         }
-        if (mode === "leaves" && node.nodeKind !== "leaf") {
+        if (mode === "leaves" && kind !== "leaf") {
           continue;
         }
-        if (mode === "summaries" && node.nodeKind === "leaf") {
+        if (mode === "summaries" && kind === "leaf") {
           continue;
         }
-        candidates.push(buildCanonicalCandidate({
+        candidates.push(buildSemanticCandidate({
           store: params.store,
           tree,
           node,
         }));
       }
-      continue;
-    }
-    const allSummaries = params.store.listIntegrationSummaryNodes({
-      treeId: tree.treeId,
-      status: "active",
-      limit: 10_000,
-      offset: 0,
-    });
-    const allLeaves = params.store.listIntegrationLeaves({
-      treeId: tree.treeId,
-      status: "active",
-      limit: 10_000,
-      offset: 0,
-    });
-    const relations = params.store.listIntegrationNodeRelations({
-      treeId: tree.treeId,
-      limit: 10_000,
-    });
-    const structural = buildStructuralCandidates({
-      store: params.store,
-      tree,
-      summaries: allSummaries,
-      leaves: allLeaves,
-      relations,
-      includeTree: false,
-    });
-    if (mode !== "leaves") {
-      candidates.push(...structural.entityCandidates.values());
-      candidates.push(...structural.branchCandidates.values());
-      candidates.push(...structural.contactCandidates.values());
-    }
-    for (const node of mode === "leaves" ? [] : allSummaries) {
-      candidates.push(buildSummaryCandidate({
-        store: params.store,
-        tree,
-        node,
-      }));
-    }
-    for (const leaf of mode === "summaries" ? [] : allLeaves) {
-      candidates.push(buildLeafCandidate({
-        store: params.store,
-        tree,
-        leaf,
-      }));
     }
   }
 

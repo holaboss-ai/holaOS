@@ -1522,6 +1522,320 @@ test("fetchIntegrationContextForConnection ingests Slack workspace, channels, an
   store.close();
 });
 
+test("fetchIntegrationContextForConnection ingests Google Drive profile and recent files into the global integration tree", async () => {
+  const root = makeTempDir("hb-integration-context-fetch-googledrive-");
+  const workspaceRoot = path.join(root, "workspace-root");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertIntegrationConnection({
+    connectionId: "conn-googledrive-1",
+    providerId: "googledrive",
+    ownerUserId: "user-1",
+    accountLabel: "Google Drive (Managed)",
+    accountExternalId: "ca_drive_1",
+    accountHandle: null,
+    accountEmail: null,
+    authMode: "composio",
+    grantedScopes: [],
+    status: "active",
+    secretRef: null,
+  });
+
+  const proxyCalls: string[] = [];
+  const result = await fetchIntegrationContextForConnection({
+    store,
+    connectionId: "conn-googledrive-1",
+    composioClient: {
+      async executeAction<TData = unknown>(_params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
+        throw new Error("unexpected executeAction");
+      },
+      async proxyRequest<TData = unknown>(params: ProxyRequestParams): Promise<{ data: TData | null; status: number; headers: Record<string, string> }> {
+        proxyCalls.push(params.endpoint);
+        if (params.endpoint.startsWith("/drive/v3/about")) {
+          return {
+            data: {
+              user: {
+                displayName: "Product Ops",
+                emailAddress: "ops@example.com",
+                permissionId: "perm-1",
+              },
+              storageQuota: {
+                limit: "1000",
+                usage: "400",
+                usageInDrive: "350",
+                usageInDriveTrash: "50",
+              },
+            } as TData,
+            status: 200,
+            headers: {},
+          };
+        }
+        if (params.endpoint.startsWith("/drive/v3/files")) {
+          return {
+            data: {
+              files: [
+                {
+                  id: "file-1",
+                  name: "Q2 Plan",
+                  mimeType: "application/vnd.google-apps.document",
+                  modifiedTime: "2026-05-24T08:30:00Z",
+                  webViewLink: "https://drive.google.com/file/d/file-1/view",
+                  owners: [{ displayName: "Product Ops", emailAddress: "ops@example.com" }],
+                  size: "5120",
+                  description: "Planning notes for Q2 launch work.",
+                },
+                {
+                  id: "folder-1",
+                  name: "Launch Assets",
+                  mimeType: "application/vnd.google-apps.folder",
+                  modifiedTime: "2026-05-24T09:00:00Z",
+                  webViewLink: "https://drive.google.com/drive/folders/folder-1",
+                  owners: [{ displayName: "Product Ops", emailAddress: "ops@example.com" }],
+                },
+              ],
+            } as TData,
+            status: 200,
+            headers: {},
+          };
+        }
+        throw new Error(`unexpected proxy endpoint: ${params.endpoint}`);
+      },
+    },
+  });
+
+  assert.deepEqual(proxyCalls, [
+    "/drive/v3/about?fields=user(displayName,emailAddress,permissionId),storageQuota(limit,usage,usageInDrive,usageInDriveTrash)",
+    "/drive/v3/files?pageSize=25&orderBy=modifiedTime%20desc&includeItemsFromAllDrives=true&supportsAllDrives=true&fields=nextPageToken,files(id,name,mimeType,modifiedTime,createdTime,webViewLink,owners(displayName,emailAddress),parents,shared,starred,trashed,size,description)",
+  ]);
+  assert.equal(result.supported, true);
+  assert.equal(result.provider_id, "googledrive");
+  assert.equal(result.account_key, "ops@example.com");
+  assert.equal(result.account_label, "Product Ops");
+  assert.equal(result.leaves_created, 3);
+  assert.equal(result.messages_seen, 2);
+  assert.equal(result.messages_persisted, 2);
+  assert.ok(result.summary_nodes > 0);
+
+  const updatedConnection = store.getIntegrationConnection("conn-googledrive-1");
+  assert.equal(updatedConnection?.accountEmail, "ops@example.com");
+
+  const trees = store.listIntegrationTrees({
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.equal(trees.length, 1);
+  assert.equal(trees[0]?.provider, "googledrive");
+  assert.equal(trees[0]?.accountKey, "ops@example.com");
+
+  const leaves = store.listIntegrationLeaves({
+    treeId: trees[0]!.treeId,
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.equal(leaves.length, 3);
+  assert.deepEqual(
+    leaves.map((leaf) => ({
+      subjectKey: leaf.subjectKey,
+      entityKey: leaf.entityKey,
+      branchKey: leaf.branchKey,
+      sourceType: leaf.sourceType,
+    })).sort((left, right) => left.subjectKey.localeCompare(right.subjectKey)),
+    [
+      { subjectKey: "file:file-1", entityKey: "file:file-1", branchKey: "overview", sourceType: "googledrive.file" },
+      { subjectKey: "file:folder-1", entityKey: "file:folder-1", branchKey: "overview", sourceType: "googledrive.folder" },
+      { subjectKey: "profile", entityKey: null, branchKey: "profile", sourceType: "googledrive.profile" },
+    ],
+  );
+
+  const semanticNodes = store.listSemanticMemoryNodes({
+    category: "integration",
+    treeId: trees[0]!.treeId,
+    limit: 100,
+    offset: 0,
+  });
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "files"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "file" && node.title === "Q2 Plan"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "folder" && node.title === "Launch Assets"));
+
+  const memoryRoot = globalMemoryDirForWorkspaceRoot(workspaceRoot);
+  for (const leaf of leaves) {
+    assert.ok(fs.existsSync(path.join(memoryRoot, leaf.path)));
+  }
+
+  store.close();
+});
+
+test("fetchIntegrationContextForConnection ingests Twitter profile and recent posts into the global integration tree", async () => {
+  const root = makeTempDir("hb-integration-context-fetch-twitter-");
+  const workspaceRoot = path.join(root, "workspace-root");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertIntegrationConnection({
+    connectionId: "conn-twitter-1",
+    providerId: "twitter",
+    ownerUserId: "user-1",
+    accountLabel: "Twitter (Managed)",
+    accountExternalId: "ca_twitter_1",
+    accountHandle: null,
+    accountEmail: null,
+    authMode: "composio",
+    grantedScopes: [],
+    status: "active",
+    secretRef: null,
+  });
+
+  const proxyCalls: string[] = [];
+  const result = await fetchIntegrationContextForConnection({
+    store,
+    connectionId: "conn-twitter-1",
+    composioClient: {
+      async executeAction<TData = unknown>(_params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
+        throw new Error("unexpected executeAction");
+      },
+      async proxyRequest<TData = unknown>(params: ProxyRequestParams): Promise<{ data: TData | null; status: number; headers: Record<string, string> }> {
+        proxyCalls.push(params.endpoint);
+        if (params.endpoint === "/2/users/me?user.fields=created_at,description,id,location,name,profile_image_url,public_metrics,url,username,verified") {
+          return {
+            data: {
+              id: "user-42",
+              username: "holabossai",
+              name: "HolaBoss",
+              description: "Workspace memory experiments and agent runtime notes.",
+              verified: true,
+              public_metrics: {
+                followers_count: 1200,
+                following_count: 18,
+                tweet_count: 84,
+              },
+            } as TData,
+            status: 200,
+            headers: {},
+          };
+        }
+        if (params.endpoint.startsWith("/2/users/user-42/timelines/reverse_chronological")) {
+          return {
+            data: {
+              data: [
+                {
+                  id: "post-1",
+                  text: "Shipped semantic memory trees for Gmail, GitHub, and Notion.",
+                  author_id: "user-42",
+                  conversation_id: "conv-1",
+                  created_at: "2026-05-24T08:00:00Z",
+                  lang: "en",
+                  public_metrics: {
+                    like_count: 12,
+                    reply_count: 2,
+                    retweet_count: 3,
+                    quote_count: 1,
+                  },
+                },
+                {
+                  id: "post-2",
+                  text: "Next up is wiring Google Drive and Twitter into context fetch.",
+                  author_id: "user-42",
+                  conversation_id: "conv-2",
+                  created_at: "2026-05-24T09:00:00Z",
+                  lang: "en",
+                  public_metrics: {
+                    like_count: 8,
+                    reply_count: 1,
+                    retweet_count: 1,
+                    quote_count: 0,
+                  },
+                },
+              ],
+            } as TData,
+            status: 200,
+            headers: {},
+          };
+        }
+        throw new Error(`unexpected proxy endpoint: ${params.endpoint}`);
+      },
+    },
+  });
+
+  assert.deepEqual(proxyCalls, [
+    "/2/users/me?user.fields=created_at,description,id,location,name,profile_image_url,public_metrics,url,username,verified",
+    "/2/users/user-42/timelines/reverse_chronological?max_results=20&exclude=replies&tweet.fields=author_id,conversation_id,created_at,entities,lang,public_metrics,referenced_tweets",
+  ]);
+  assert.equal(result.supported, true);
+  assert.equal(result.provider_id, "twitter");
+  assert.equal(result.account_key, "holabossai");
+  assert.equal(result.account_label, "HolaBoss (@holabossai)");
+  assert.equal(result.leaves_created, 3);
+  assert.equal(result.messages_seen, 2);
+  assert.equal(result.messages_persisted, 2);
+  assert.ok(result.summary_nodes > 0);
+
+  const updatedConnection = store.getIntegrationConnection("conn-twitter-1");
+  assert.equal(updatedConnection?.accountHandle, "holabossai");
+
+  const trees = store.listIntegrationTrees({
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.equal(trees.length, 1);
+  assert.equal(trees[0]?.provider, "twitter");
+  assert.equal(trees[0]?.accountKey, "holabossai");
+
+  const leaves = store.listIntegrationLeaves({
+    treeId: trees[0]!.treeId,
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.equal(leaves.length, 3);
+  assert.deepEqual(
+    leaves.map((leaf) => ({
+      subjectKey: leaf.subjectKey,
+      entityKey: leaf.entityKey,
+      branchKey: leaf.branchKey,
+      sourceType: leaf.sourceType,
+    })).sort((left, right) => left.subjectKey.localeCompare(right.subjectKey)),
+    [
+      { subjectKey: "post:post-1", entityKey: "post:post-1", branchKey: "overview", sourceType: "twitter.post" },
+      { subjectKey: "post:post-2", entityKey: "post:post-2", branchKey: "overview", sourceType: "twitter.post" },
+      { subjectKey: "profile", entityKey: null, branchKey: "profile", sourceType: "twitter.profile" },
+    ],
+  );
+
+  const semanticNodes = store.listSemanticMemoryNodes({
+    category: "integration",
+    treeId: trees[0]!.treeId,
+    limit: 100,
+    offset: 0,
+  });
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "timeline"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "post" && node.title.includes("Shipped semantic memory trees")));
+
+  const memoryRoot = globalMemoryDirForWorkspaceRoot(workspaceRoot);
+  for (const leaf of leaves) {
+    assert.ok(fs.existsSync(path.join(memoryRoot, leaf.path)));
+  }
+
+  store.close();
+});
+
 test("fetchIntegrationContextForConnection reports unsupported providers without writing tree state", async () => {
   const root = makeTempDir("hb-integration-context-unsupported-");
   const store = new RuntimeStateStore({

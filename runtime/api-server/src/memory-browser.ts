@@ -129,6 +129,62 @@ function integrationLeafGraphNodeId(leafId: string): string {
   return `leaf:integration:${leafId}`;
 }
 
+function semanticBrowserNodeKind(
+  node: ReturnType<RuntimeStateStore["listSemanticMemoryNodes"]>[number],
+): MemoryBrowserGraphNodeKind {
+  if (node.nodeClass === "leaf") {
+    return "leaf";
+  }
+  if (node.nodeKind === "tree" || node.nodeKind === "connection") {
+    return "tree";
+  }
+  if (node.nodeKind === "partition") {
+    return "summary";
+  }
+  if (new Set(["workspace", "repo", "thread", "page", "database", "contact", "file", "folder", "post"]).has(node.nodeKind)) {
+    return "entity";
+  }
+  return "branch";
+}
+
+function semanticNodeDepth(pathValue: string): number | null {
+  const normalized = pathValue.replaceAll("\\", "/");
+  const segments = normalized.split("/").filter(Boolean);
+  const markerIndex = segments.findIndex(
+    (segment, index) =>
+      segment === "semantic"
+      && segments[index + 1] === "integration"
+      && segments[index + 2] === "trees",
+  );
+  if (markerIndex < 0 || segments[segments.length - 1] !== "content.md") {
+    return null;
+  }
+  const treeSlugIndex = markerIndex + 3;
+  if (!segments[treeSlugIndex]) {
+    return null;
+  }
+  return Math.max(0, segments.length - (treeSlugIndex + 2));
+}
+
+function semanticInteractionNodeDepth(pathValue: string): number | null {
+  const normalized = pathValue.replaceAll("\\", "/");
+  const segments = normalized.split("/").filter(Boolean);
+  const markerIndex = segments.findIndex(
+    (segment, index) =>
+      segment === "semantic"
+      && segments[index + 1] === "interaction"
+      && segments[index + 2] === "trees",
+  );
+  if (markerIndex < 0 || segments[segments.length - 1] !== "content.md") {
+    return null;
+  }
+  const treeSlugIndex = markerIndex + 3;
+  if (!segments[treeSlugIndex]) {
+    return null;
+  }
+  return Math.max(0, segments.length - (treeSlugIndex + 2));
+}
+
 function parseIntegrationSummaryScope(params: {
   treeSlug: string;
   path: string;
@@ -473,10 +529,16 @@ function readStoredMemoryFile(params: {
 }): VirtualMemoryFileEntry | null {
   const normalized = params.relativePath.replaceAll("\\", "/").replace(/^\/+/, "");
   let absolutePath: string;
-  if (normalized.startsWith("integration/")) {
+  const workspacePrefix = `workspace/${params.workspaceId}/`;
+  if (normalized.startsWith("integration/") || normalized.startsWith("semantic/")) {
     absolutePath = path.join(
       globalMemoryDirForWorkspaceRoot(params.store.workspaceRoot),
       normalized,
+    );
+  } else if (normalized.startsWith(workspacePrefix)) {
+    absolutePath = path.join(
+      workspaceMemoryDir(params.store.workspaceDir(params.workspaceId)),
+      normalized.slice(workspacePrefix.length),
     );
   } else {
     absolutePath = path.join(
@@ -679,15 +741,16 @@ function buildVirtualMemoryBrowserModel(params: {
   });
   ensureVirtualDirectory(rootBuilder, ["interaction", "trees"]);
   for (const entity of interactionTrees) {
-    const canonicalNodes = params.store.listInteractionMemoryNodes({
+    const semanticNodes = params.store.listSemanticMemoryNodes({
+      category: "interaction",
       workspaceId: params.workspaceId,
       treeId: entity.entityId,
       status: "active",
       limit: 10_000,
       offset: 0,
     });
-    if (canonicalNodes.length > 0) {
-      for (const node of canonicalNodes) {
+    if (semanticNodes.length > 0) {
+      for (const node of semanticNodes) {
         const stored = readStoredMemoryFile({
           store: params.store,
           workspaceId: params.workspaceId,
@@ -703,121 +766,6 @@ function buildVirtualMemoryBrowserModel(params: {
           stored?.modifiedAt ?? node.updatedAt,
         );
         graphNodePaths.set(node.nodeId, browserPath);
-      }
-      continue;
-    }
-    const summaries = params.store.listInteractionSummaryNodes({
-      workspaceId: params.workspaceId,
-      entityId: entity.entityId,
-      status: "active",
-      limit: 10_000,
-    });
-    const leaves = params.store.listInteractionLeaves({
-      workspaceId: params.workspaceId,
-      entityId: entity.entityId,
-      status: "active",
-      limit: 10_000,
-    });
-    const treeSegments = ["interaction", "trees", entity.slug];
-    const treeContentPath = path.posix.join(...treeSegments, "content.md");
-    addContentFile(
-      treeContentPath,
-      virtualInteractionTreeContent({
-        entity,
-        leaves,
-        summaries,
-      }),
-      entity.updatedAt,
-    );
-    graphNodePaths.set(interactionTreeNodeId(entity.entityId), treeContentPath);
-
-    const summaryById = new Map(summaries.map((summary) => [summary.nodeId, summary]));
-    const leafById = new Map(leaves.map((leaf) => [leaf.leafId, leaf]));
-    const childSummaryIds = new Set<string>();
-    const childEdgesByParent = new Map<string, ReturnType<RuntimeStateStore["listInteractionTreeChildren"]>>();
-    for (const summary of summaries) {
-      const children = params.store.listInteractionTreeChildren({
-        workspaceId: params.workspaceId,
-        parentNodeId: summary.nodeId,
-      });
-      childEdgesByParent.set(summary.nodeId, children);
-      for (const child of children) {
-        if (child.childKind === "summary") {
-          childSummaryIds.add(child.childId);
-        }
-      }
-    }
-
-    const attachInteractionLeaf = (
-      parentSegments: string[],
-      leaf: typeof leaves[number],
-    ): void => {
-      const stored = readStoredMemoryFile({
-        store: params.store,
-        workspaceId: params.workspaceId,
-        relativePath: leaf.path,
-      });
-      const leafSegments = [
-        ...parentSegments,
-        "branches",
-        interactionLeafFolderName(leaf),
-      ];
-      const contentPath = path.posix.join(...leafSegments, "content.md");
-      addContentFile(
-        contentPath,
-        stored?.content
-          ?? `# ${leaf.title}\n\n${leaf.summary}\n`,
-        stored?.modifiedAt ?? leaf.updatedAt,
-      );
-      graphNodePaths.set(interactionLeafGraphNodeId(leaf.leafId), contentPath);
-    };
-
-    const attachInteractionSummary = (
-      parentSegments: string[],
-      summary: typeof summaries[number],
-      depth: number,
-    ): void => {
-      const stored = readStoredMemoryFile({
-        store: params.store,
-        workspaceId: params.workspaceId,
-        relativePath: summary.path,
-      });
-      const summarySegments = [
-        ...parentSegments,
-        "branches",
-        summaryFolderName(depth, summary.ordinal),
-      ];
-      const contentPath = path.posix.join(...summarySegments, "content.md");
-      addContentFile(
-        contentPath,
-        stored?.content
-          ?? `# ${summary.title}\n\n${summary.summary}\n`,
-        stored?.modifiedAt ?? summary.updatedAt,
-      );
-      graphNodePaths.set(interactionSummaryGraphNodeId(summary.nodeId), contentPath);
-      for (const child of childEdgesByParent.get(summary.nodeId) ?? []) {
-        if (child.childKind === "summary") {
-          const childSummary = summaryById.get(child.childId);
-          if (childSummary) {
-            attachInteractionSummary(summarySegments, childSummary, depth + 1);
-          }
-          continue;
-        }
-        const childLeaf = leafById.get(child.childId);
-        if (childLeaf) {
-          attachInteractionLeaf(summarySegments, childLeaf);
-        }
-      }
-    };
-
-    const rootSummaries = summaries.filter((summary) => !childSummaryIds.has(summary.nodeId));
-    if (rootSummaries.length > 0) {
-      for (const summary of rootSummaries) {
-        attachInteractionSummary(treeSegments, summary, 1);
-      }
-    } else {
-      for (const leaf of leaves) {
-        attachInteractionLeaf(treeSegments, leaf);
       }
     }
   }
@@ -828,14 +776,15 @@ function buildVirtualMemoryBrowserModel(params: {
   });
   ensureVirtualDirectory(rootBuilder, ["integration", "trees"]);
   for (const tree of integrationTrees) {
-    const canonicalNodes = params.store.listIntegrationMemoryNodes({
+    const semanticNodes = params.store.listSemanticMemoryNodes({
+      category: "integration",
       treeId: tree.treeId,
       status: "active",
       limit: 10_000,
       offset: 0,
     });
-    if (canonicalNodes.length > 0) {
-      for (const node of canonicalNodes) {
+    if (semanticNodes.length > 0) {
+      for (const node of semanticNodes) {
         const stored = readStoredMemoryFile({
           store: params.store,
           workspaceId: params.workspaceId,
@@ -851,447 +800,6 @@ function buildVirtualMemoryBrowserModel(params: {
           stored?.modifiedAt ?? node.updatedAt,
         );
         graphNodePaths.set(node.nodeId, browserPath);
-      }
-      continue;
-    }
-    const summaries = params.store.listIntegrationSummaryNodes({
-      treeId: tree.treeId,
-      status: "active",
-      limit: 10_000,
-    });
-    const leaves = params.store.listIntegrationLeaves({
-      treeId: tree.treeId,
-      status: "active",
-      limit: 10_000,
-    });
-    const labelIndex = buildIntegrationLabelIndex(leaves);
-    const treeSegments = ["integration", "trees", tree.slug];
-
-    const summaryById = new Map(summaries.map((summary) => [summary.nodeId, summary]));
-    const leafById = new Map(leaves.map((leaf) => [leaf.leafId, leaf]));
-    const childEdgesByParent = new Map<string, ReturnType<RuntimeStateStore["listIntegrationTreeChildren"]>>();
-    const childSummaryIds = new Set<string>();
-    for (const summary of summaries) {
-      const children = params.store.listIntegrationTreeChildren({
-        parentNodeId: summary.nodeId,
-      });
-      childEdgesByParent.set(summary.nodeId, children);
-      for (const child of children) {
-        if (child.childKind === "summary") {
-          childSummaryIds.add(child.childId);
-        }
-      }
-    }
-
-    type ScopeIdentity = {
-      entityKey: string | null;
-      entityLabel: string | null;
-      entitySlug: string | null;
-      branchKey: string | null;
-      branchLabel: string | null;
-      branchSlug: string | null;
-    };
-    const scopeKeyFor = (scope: ScopeIdentity): string =>
-      `${scope.entityKey ?? "__account__"}::${scope.branchKey ?? "__none__"}`;
-    const scopeByKey = new Map<string, ScopeIdentity>();
-    for (const leaf of leaves) {
-      const key = scopeKeyFor({
-        entityKey: leaf.entityKey ?? null,
-        entityLabel: leaf.entityLabel ?? null,
-        entitySlug: integrationEntitySlug(leaf.entityKey, leaf.entityLabel),
-        branchKey: leaf.branchKey ?? null,
-        branchLabel: leaf.branchLabel ?? null,
-        branchSlug: integrationBranchSlug(leaf.branchKey, leaf.branchLabel),
-      });
-      if (!scopeByKey.has(key)) {
-        scopeByKey.set(key, {
-          entityKey: leaf.entityKey ?? null,
-          entityLabel: leaf.entityLabel ?? null,
-          entitySlug: integrationEntitySlug(leaf.entityKey, leaf.entityLabel),
-          branchKey: leaf.branchKey ?? null,
-          branchLabel: leaf.branchLabel ?? null,
-          branchSlug: integrationBranchSlug(leaf.branchKey, leaf.branchLabel),
-        });
-      }
-    }
-
-    const rootSummary = summaries.find((summary) => {
-      if (childSummaryIds.has(summary.nodeId)) {
-        return false;
-      }
-      const scope = parseIntegrationSummaryScope({
-        treeSlug: tree.slug,
-        path: summary.path,
-      });
-      return scope.root;
-    }) ?? null;
-
-    const rootSummaryContent = rootSummary
-      ? readStoredMemoryFile({
-          store: params.store,
-          workspaceId: params.workspaceId,
-          relativePath: rootSummary.path,
-        })?.content ?? null
-      : null;
-
-    const treeContentPath = path.posix.join(...treeSegments, "content.md");
-    addContentFile(
-      treeContentPath,
-      virtualIntegrationTreeContent({
-        tree,
-        leaves,
-        summaries,
-        rootSummaryContent,
-      }),
-      tree.updatedAt,
-    );
-    graphNodePaths.set(integrationTreeNodeId(tree.treeId), treeContentPath);
-
-    const rootSummaryByScope = new Map<string, typeof summaries[number]>();
-    for (const summary of summaries) {
-      if (childSummaryIds.has(summary.nodeId)) {
-        continue;
-      }
-      const scope = parseIntegrationSummaryScope({
-        treeSlug: tree.slug,
-        path: summary.path,
-      });
-      if (scope.root) {
-        continue;
-      }
-      const inferredEntitySlug =
-        !scope.entitySlug
-        && scope.branchSlug
-        && labelIndex.entityKeyBySlug.has(scope.branchSlug)
-        && !labelIndex.branchIdentityBySlug.has(scope.branchSlug)
-          ? scope.branchSlug
-          : scope.entitySlug;
-      const entityKey = inferredEntitySlug
-        ? labelIndex.entityKeyBySlug.get(inferredEntitySlug) ?? null
-        : null;
-      let branchKey: string | null = null;
-      let branchLabel: string | null = null;
-      if (scope.branchSlug && scope.branchSlug !== inferredEntitySlug) {
-        const identity = labelIndex.branchIdentityBySlug.get(scope.branchSlug);
-        branchKey = identity?.branchKey ?? scope.branchSlug;
-        branchLabel = labelIndex.branchLabelByKey.get(
-          `${identity?.entityKey ?? entityKey ?? "account"}::${branchKey}`,
-        ) ?? scope.branchSlug;
-      }
-      const key = scopeKeyFor({
-        entityKey,
-        entityLabel: entityKey ? (labelIndex.entityLabelByKey.get(entityKey) ?? entityKey) : null,
-        entitySlug: inferredEntitySlug,
-        branchKey,
-        branchLabel,
-        branchSlug: scope.branchSlug && scope.branchSlug !== inferredEntitySlug ? scope.branchSlug : null,
-      });
-      rootSummaryByScope.set(key, summary);
-    }
-
-    const leavesByScope = new Map<string, typeof leaves>();
-    for (const leaf of leaves) {
-      const key = scopeKeyFor({
-        entityKey: leaf.entityKey ?? null,
-        entityLabel: leaf.entityLabel ?? null,
-        entitySlug: integrationEntitySlug(leaf.entityKey, leaf.entityLabel),
-        branchKey: leaf.branchKey ?? null,
-        branchLabel: leaf.branchLabel ?? null,
-        branchSlug: integrationBranchSlug(leaf.branchKey, leaf.branchLabel),
-      });
-      const bucket = leavesByScope.get(key);
-      if (bucket) {
-        bucket.push(leaf);
-      } else {
-        leavesByScope.set(key, [leaf]);
-      }
-    }
-
-    const attachIntegrationLeaf = (
-      parentSegments: string[],
-      leaf: typeof leaves[number],
-    ): void => {
-      const stored = readStoredMemoryFile({
-        store: params.store,
-        workspaceId: params.workspaceId,
-        relativePath: leaf.path,
-      });
-      const leafSegments = [
-        ...parentSegments,
-        "branches",
-        integrationLeafFolderName(leaf),
-      ];
-      const contentPath = path.posix.join(...leafSegments, "content.md");
-      addContentFile(
-        contentPath,
-        stored?.content
-          ?? `# ${leaf.title}\n\n${leaf.summary}\n`,
-        stored?.modifiedAt ?? leaf.updatedAt,
-      );
-      graphNodePaths.set(integrationLeafGraphNodeId(leaf.leafId), contentPath);
-    };
-
-    const attachIntegrationSummaryChildren = (
-      parentSegments: string[],
-      parentSummaryId: string,
-    ): void => {
-      for (const child of childEdgesByParent.get(parentSummaryId) ?? []) {
-        if (child.childKind === "summary") {
-          const childSummary = summaryById.get(child.childId);
-          if (!childSummary) {
-            continue;
-          }
-          const stored = readStoredMemoryFile({
-            store: params.store,
-            workspaceId: params.workspaceId,
-            relativePath: childSummary.path,
-          });
-          const childSegments = [
-            ...parentSegments,
-            "branches",
-            integrationSummaryFolderName(childSummary),
-          ];
-          const contentPath = path.posix.join(...childSegments, "content.md");
-          addContentFile(
-            contentPath,
-            stored?.content
-              ?? `# ${childSummary.title}\n\n${childSummary.summary}\n`,
-            stored?.modifiedAt ?? childSummary.updatedAt,
-          );
-          graphNodePaths.set(integrationSummaryGraphNodeId(childSummary.nodeId), contentPath);
-          attachIntegrationSummaryChildren(childSegments, childSummary.nodeId);
-          continue;
-        }
-        const childLeaf = leafById.get(child.childId);
-        if (childLeaf) {
-          attachIntegrationLeaf(parentSegments, childLeaf);
-        }
-      }
-    };
-
-    const entityScopes = Array.from(scopeByKey.values())
-      .filter((scope) => scope.entityKey)
-      .reduce<Map<string, ScopeIdentity[]>>((acc, scope) => {
-        const bucket = acc.get(scope.entityKey!) ?? [];
-        bucket.push(scope);
-        acc.set(scope.entityKey!, bucket);
-        return acc;
-      }, new Map());
-
-    const accountScopes = Array.from(scopeByKey.values()).filter((scope) => !scope.entityKey);
-
-    for (const scope of accountScopes) {
-      if (!scope.branchKey || !scope.branchSlug) {
-        continue;
-      }
-      const scopeKey = scopeKeyFor(scope);
-      const branchSegments = [
-        ...treeSegments,
-        "branches",
-        scope.branchSlug,
-      ];
-      const branchSummary = rootSummaryByScope.get(scopeKey) ?? null;
-      const branchSummaryContent = branchSummary
-        ? readStoredMemoryFile({
-            store: params.store,
-            workspaceId: params.workspaceId,
-            relativePath: branchSummary.path,
-          })?.content ?? null
-        : null;
-      const branchContentPath = path.posix.join(...branchSegments, "content.md");
-      addContentFile(
-        branchContentPath,
-        virtualIntegrationBranchContent({
-          tree,
-          entityLabel: null,
-          branchKey: scope.branchKey,
-          branchLabel: scope.branchLabel ?? scope.branchKey,
-          leafCount: leavesByScope.get(scopeKey)?.length ?? 0,
-          summaryContent: branchSummaryContent,
-        }),
-        branchSummary?.updatedAt ?? tree.updatedAt,
-      );
-      graphNodePaths.set(
-        integrationBranchNodeId(tree.treeId, null, scope.branchKey),
-        branchContentPath,
-      );
-      if (branchSummary) {
-        attachIntegrationSummaryChildren(branchSegments, branchSummary.nodeId);
-      } else {
-        for (const leaf of leavesByScope.get(scopeKey) ?? []) {
-          attachIntegrationLeaf(branchSegments, leaf);
-        }
-      }
-    }
-
-    for (const [entityKey, scopes] of entityScopes.entries()) {
-      const entityLabel = scopes[0]?.entityLabel
-        ?? labelIndex.entityLabelByKey.get(entityKey)
-        ?? entityKey.replace(/^[^:]+:/, "");
-      const entitySlug = scopes[0]?.entitySlug
-        ?? integrationEntitySlug(entityKey, entityLabel)
-        ?? safePathSegment(entityKey, "entity");
-      const entityScopeKey = scopeKeyFor({
-        entityKey,
-        entityLabel,
-        entitySlug,
-        branchKey: null,
-        branchLabel: null,
-        branchSlug: null,
-      });
-      const entitySummary = rootSummaryByScope.get(entityScopeKey) ?? null;
-      const entitySummaryContent = entitySummary
-        ? readStoredMemoryFile({
-            store: params.store,
-            workspaceId: params.workspaceId,
-            relativePath: entitySummary.path,
-          })?.content ?? null
-        : null;
-      const entitySegments = [
-        ...treeSegments,
-        "branches",
-        entitySlug,
-      ];
-      const entityContentPath = path.posix.join(...entitySegments, "content.md");
-      addContentFile(
-        entityContentPath,
-        virtualIntegrationEntityContent({
-          tree,
-          entityKey,
-          entityLabel,
-          leafCount: scopes.reduce(
-            (total, scope) => total + (leavesByScope.get(scopeKeyFor(scope))?.length ?? 0),
-            0,
-          ),
-          branchCount: scopes.filter((scope) => scope.branchKey).length,
-          summaryContent: entitySummaryContent,
-        }),
-        entitySummary?.updatedAt ?? tree.updatedAt,
-      );
-      graphNodePaths.set(
-        integrationEntityNodeId(tree.treeId, entityKey),
-        entityContentPath,
-      );
-
-      for (const scope of scopes) {
-        if (!scope.branchKey || !scope.branchSlug) {
-          continue;
-        }
-        const scopeKey = scopeKeyFor(scope);
-        const branchSegments = [
-          ...entitySegments,
-          "branches",
-          scope.branchSlug,
-        ];
-        const branchSummary = rootSummaryByScope.get(scopeKey) ?? null;
-        const branchSummaryContent = branchSummary
-          ? readStoredMemoryFile({
-              store: params.store,
-              workspaceId: params.workspaceId,
-              relativePath: branchSummary.path,
-            })?.content ?? null
-          : null;
-        const branchContentPath = path.posix.join(...branchSegments, "content.md");
-        addContentFile(
-          branchContentPath,
-          virtualIntegrationBranchContent({
-            tree,
-            entityLabel,
-            branchKey: scope.branchKey,
-            branchLabel: scope.branchLabel ?? scope.branchKey,
-            leafCount: leavesByScope.get(scopeKey)?.length ?? 0,
-            summaryContent: branchSummaryContent,
-          }),
-          branchSummary?.updatedAt ?? tree.updatedAt,
-        );
-        graphNodePaths.set(
-          integrationBranchNodeId(tree.treeId, entityKey, scope.branchKey),
-          branchContentPath,
-        );
-        if (branchSummary) {
-          attachIntegrationSummaryChildren(branchSegments, branchSummary.nodeId);
-        } else {
-          for (const leaf of leavesByScope.get(scopeKey) ?? []) {
-            attachIntegrationLeaf(branchSegments, leaf);
-          }
-        }
-      }
-    }
-
-    const relations = params.store.listIntegrationNodeRelations({
-      treeId: tree.treeId,
-      limit: 10_000,
-    });
-    const contactBranchSegments = [
-      ...treeSegments,
-      "branches",
-      "contacts",
-    ];
-    const contactBranchNodeId = integrationBranchNodeId(tree.treeId, null, "contacts");
-    const contactEntries = new Map<string, {
-      entityKey: string;
-      email: string;
-      label: string;
-      relatedThreadIds: string[];
-    }>();
-    for (const relation of relations) {
-      if (relation.relationType !== "participant" || relation.fromNodeKind !== "entity") {
-        continue;
-      }
-      const entityKey = integrationEntityKeyFromNodeId(tree.treeId, relation.fromNodeId);
-      if (!entityKey?.startsWith("contact:")) {
-        continue;
-      }
-      const email = String(relation.metadata.contact_email ?? entityKey.replace(/^contact:/, ""));
-      const label = String(relation.metadata.contact_label ?? email);
-      const existing = contactEntries.get(entityKey);
-      if (existing) {
-        if (!existing.relatedThreadIds.includes(relation.toNodeId)) {
-          existing.relatedThreadIds.push(relation.toNodeId);
-        }
-        continue;
-      }
-      contactEntries.set(entityKey, {
-        entityKey,
-        email,
-        label,
-        relatedThreadIds: [relation.toNodeId],
-      });
-    }
-    if (contactEntries.size > 0) {
-      addContentFile(
-        path.posix.join(...contactBranchSegments, "content.md"),
-        `# Contacts\n\n- Tree: ${tree.accountLabel}\n- Provider: ${tree.provider}\n- Contact count: ${contactEntries.size}\n\n## Summary\n\nDerived Gmail contacts for ${tree.accountLabel}.\n`,
-        tree.updatedAt,
-      );
-      graphNodePaths.set(contactBranchNodeId, path.posix.join(...contactBranchSegments, "content.md"));
-      for (const entry of contactEntries.values()) {
-        const contactSlug = safePathSegment(entry.email, "contact");
-        const contactSegments = [
-          ...contactBranchSegments,
-          "branches",
-          contactSlug,
-        ];
-        const contentPath = path.posix.join(...contactSegments, "content.md");
-        addContentFile(
-          contentPath,
-          [
-            `# ${entry.label}`,
-            "",
-            `- Email: ${entry.email}`,
-            `- Related threads: ${entry.relatedThreadIds.length}`,
-            "",
-            "## Summary",
-            "",
-            `${entry.label} appears in ${entry.relatedThreadIds.length} thread${entry.relatedThreadIds.length === 1 ? "" : "s"} in this mailbox.`,
-            "",
-          ].join("\n"),
-          tree.updatedAt,
-        );
-        graphNodePaths.set(
-          integrationEntityNodeId(tree.treeId, entry.entityKey),
-          contentPath,
-        );
       }
     }
   }
@@ -1355,177 +863,56 @@ function buildInteractionGraph(params: {
   }
 
   for (const entity of entities) {
-    const canonicalNodes = params.store.listInteractionMemoryNodes({
+    const semanticNodes = params.store.listSemanticMemoryNodes({
+      category: "interaction",
       workspaceId: params.workspaceId,
       treeId: entity.entityId,
       status: "active",
       limit: 10_000,
       offset: 0,
     });
-    if (canonicalNodes.length > 0) {
-      const nodeById = new Map(canonicalNodes.map((node) => [node.nodeId, node]));
-      for (const node of canonicalNodes) {
-        appendUniqueGraphNode(nodes, nodeIds, {
-          id: node.nodeId,
-          kind: node.nodeKind,
-          category: "interaction",
-          tree_id: entity.entityId,
-          label: shortLabel(node.title, node.nodeId),
-          subtitle: node.nodeKind === "tree"
-            ? interactionTreeSubtitle(entity.entityType)
-            : node.nodeKind === "summary" && node.level != null
-              ? `L${node.level}`
-              : null,
-          status: node.status,
-          level: node.level ?? (node.nodeKind === "tree" ? 1 : null),
-          child_count: node.childCount,
-          path: params.graphNodePaths.get(node.nodeId) ?? browserPathForStoredPath(params.workspaceId, node.path),
-        });
-      }
-      appendUniqueGraphEdge(edges, edgeIds, {
-        from: rootNodeId,
-        to: `tree:interaction:${entity.entityId}`,
-        kind: "contains",
+    if (semanticNodes.length === 0) {
+      continue;
+    }
+    const rootSemanticNode = semanticNodes.find((node) => node.nodeKind === "tree")
+      ?? semanticNodes.find((node) => semanticBrowserNodeKind(node) === "tree")
+      ?? semanticNodes[0]!;
+    for (const node of semanticNodes) {
+      const kind = semanticBrowserNodeKind(node);
+      const depth = semanticInteractionNodeDepth(node.path);
+      appendUniqueGraphNode(nodes, nodeIds, {
+        id: node.nodeId,
+        kind,
+        category: "interaction",
+        tree_id: entity.entityId,
+        label: shortLabel(node.title, node.nodeId),
+        subtitle: kind === "tree"
+          ? interactionTreeSubtitle(entity.entityType)
+          : kind === "summary" && node.nodeKind === "partition"
+            ? "materialized"
+            : null,
+        status: node.status,
+        level: kind === "tree" ? 1 : depth === null ? null : depth + 1,
+        child_count: node.childCount,
+        path: params.graphNodePaths.get(node.nodeId) ?? browserPathForStoredPath(params.workspaceId, node.path),
       });
-      for (const edge of params.store.listInteractionMemoryChildren({
+    }
+    appendUniqueGraphEdge(edges, edgeIds, {
+      from: rootNodeId,
+      to: rootSemanticNode.nodeId,
+      kind: "contains",
+    });
+    for (const node of semanticNodes.filter((candidate) => candidate.nodeClass === "semantic")) {
+      for (const edge of params.store.listSemanticMemoryChildren({
+        category: "interaction",
         workspaceId: params.workspaceId,
-        parentNodeId: `tree:interaction:${entity.entityId}`,
+        treeId: entity.entityId,
+        parentNodeId: node.nodeId,
       })) {
         appendUniqueGraphEdge(edges, edgeIds, {
           from: edge.parentNodeId,
           to: edge.childNodeId,
-          kind: "contains",
-        });
-      }
-      for (const node of canonicalNodes.filter((candidate) => candidate.nodeKind !== "tree")) {
-        for (const edge of params.store.listInteractionMemoryChildren({
-          workspaceId: params.workspaceId,
-          parentNodeId: node.nodeId,
-        })) {
-          appendUniqueGraphEdge(edges, edgeIds, {
-            from: edge.parentNodeId,
-            to: edge.childNodeId,
-            kind: "parent_child",
-          });
-        }
-      }
-      continue;
-    }
-
-    const treeNodeId = interactionTreeNodeId(entity.entityId);
-    appendUniqueGraphNode(nodes, nodeIds, {
-      id: treeNodeId,
-      kind: "tree",
-      category: "interaction",
-      tree_id: entity.entityId,
-      label: shortLabel(entity.canonicalName, entity.slug),
-      subtitle: interactionTreeSubtitle(entity.entityType),
-      status: entity.status,
-      level: 1,
-      child_count: null,
-      path: params.graphNodePaths.get(treeNodeId) ?? null,
-    });
-    appendUniqueGraphEdge(edges, edgeIds, {
-      from: rootNodeId,
-      to: treeNodeId,
-      kind: "contains",
-    });
-
-    const summaries = params.store.listInteractionSummaryNodes({
-      workspaceId: params.workspaceId,
-      entityId: entity.entityId,
-      status: "active",
-      limit: 5000,
-    });
-    const leaves = params.store.listInteractionLeaves({
-      workspaceId: params.workspaceId,
-      entityId: entity.entityId,
-      status: "active",
-      limit: 5000,
-    });
-    const childSummaryIds = new Set<string>();
-    const connectedLeafIds = new Set<string>();
-
-    for (const summary of summaries) {
-      appendUniqueGraphNode(nodes, nodeIds, {
-        id: interactionSummaryGraphNodeId(summary.nodeId),
-        kind: "summary",
-        category: "interaction",
-        tree_id: entity.entityId,
-        label: shortLabel(summary.title, `L${summary.level}`),
-        subtitle: `L${summary.level}`,
-        status: summary.status,
-        level: summary.level,
-        child_count: summary.childCount,
-        path: params.graphNodePaths.get(interactionSummaryGraphNodeId(summary.nodeId)) ?? summary.path,
-      });
-    }
-    for (const leaf of leaves) {
-      appendUniqueGraphNode(nodes, nodeIds, {
-        id: interactionLeafGraphNodeId(leaf.leafId),
-        kind: "leaf",
-        category: "interaction",
-        tree_id: entity.entityId,
-        label: shortLabel(leaf.title, leaf.subjectKey),
-        subtitle: leaf.subjectKey,
-        status: leaf.status,
-        level: null,
-        child_count: null,
-        path: params.graphNodePaths.get(interactionLeafGraphNodeId(leaf.leafId)) ?? leaf.path,
-      });
-    }
-
-    for (const summary of summaries) {
-      const children = params.store.listInteractionTreeChildren({
-        workspaceId: params.workspaceId,
-        parentNodeId: summary.nodeId,
-      });
-      for (const child of children) {
-        if (child.childKind === "summary") {
-          childSummaryIds.add(child.childId);
-          appendUniqueGraphEdge(edges, edgeIds, {
-            from: interactionSummaryGraphNodeId(summary.nodeId),
-            to: interactionSummaryGraphNodeId(child.childId),
-            kind: "parent_child",
-          });
-        } else {
-          connectedLeafIds.add(child.childId);
-          appendUniqueGraphEdge(edges, edgeIds, {
-            from: interactionSummaryGraphNodeId(summary.nodeId),
-            to: interactionLeafGraphNodeId(child.childId),
-            kind: "parent_child",
-          });
-        }
-      }
-    }
-
-    const rootSummaries = summaries.filter(
-      (summary) => !childSummaryIds.has(summary.nodeId),
-    );
-    for (const summary of rootSummaries) {
-      appendUniqueGraphEdge(edges, edgeIds, {
-        from: treeNodeId,
-        to: interactionSummaryGraphNodeId(summary.nodeId),
-        kind: "contains",
-      });
-    }
-    if (summaries.length === 0) {
-      for (const leaf of leaves) {
-        appendUniqueGraphEdge(edges, edgeIds, {
-          from: treeNodeId,
-          to: interactionLeafGraphNodeId(leaf.leafId),
-          kind: "contains",
-        });
-      }
-    } else {
-      for (const leaf of leaves) {
-        if (connectedLeafIds.has(leaf.leafId)) {
-          continue;
-        }
-        appendUniqueGraphEdge(edges, edgeIds, {
-          from: treeNodeId,
-          to: interactionLeafGraphNodeId(leaf.leafId),
-          kind: "contains",
+          kind: node.nodeKind === "tree" ? "contains" : "parent_child",
         });
       }
     }
@@ -1575,428 +962,71 @@ function buildIntegrationGraph(params: {
   });
 
   for (const tree of trees) {
-    const canonicalNodes = params.store.listIntegrationMemoryNodes({
+    const semanticNodes = params.store.listSemanticMemoryNodes({
+      category: "integration",
       treeId: tree.treeId,
       status: "active",
       limit: 10_000,
       offset: 0,
     });
-    if (canonicalNodes.length > 0) {
-      for (const node of canonicalNodes) {
+    if (semanticNodes.length > 0) {
+      const rootSemanticNode = semanticNodes.find((node) => node.nodeKind === "connection")
+        ?? semanticNodes.find((node) => semanticBrowserNodeKind(node) === "tree")
+        ?? semanticNodes[0]!;
+      for (const node of semanticNodes) {
+        const kind = semanticBrowserNodeKind(node);
+        const depth = semanticNodeDepth(node.path);
         appendUniqueGraphNode(nodes, nodeIds, {
           id: node.nodeId,
-          kind: node.nodeKind,
+          kind,
           category: "integration",
           tree_id: tree.treeId,
           label: shortLabel(node.title, node.nodeId),
-          subtitle: node.nodeKind === "tree"
+          subtitle: kind === "tree"
             ? integrationTreeSubtitle({
                 provider: tree.provider,
                 ownerUserId: tree.ownerUserId,
               })
-            : node.nodeKind === "summary" && node.level != null
-              ? `L${node.level}`
-              : null,
+            : null,
           status: node.status,
-          level: node.level ?? (node.nodeKind === "tree" ? 1 : null),
+          level: depth === null ? null : depth + 1,
           child_count: node.childCount,
           path: params.graphNodePaths.get(node.nodeId) ?? browserPathForStoredPath(params.workspaceId, node.path),
         });
       }
       appendUniqueGraphEdge(edges, edgeIds, {
         from: rootNodeId,
-        to: `tree:integration:${tree.treeId}`,
+        to: rootSemanticNode.nodeId,
         kind: "contains",
       });
-      for (const edge of params.store.listIntegrationMemoryChildren({
-        treeId: tree.treeId,
-        parentNodeId: `tree:integration:${tree.treeId}`,
-      })) {
-        appendUniqueGraphEdge(edges, edgeIds, {
-          from: edge.parentNodeId,
-          to: edge.childNodeId,
-          kind: "contains",
-        });
-      }
-      for (const node of canonicalNodes.filter((candidate) => candidate.nodeKind !== "tree")) {
-        for (const edge of params.store.listIntegrationMemoryChildren({
+      for (const node of semanticNodes.filter((candidate) => candidate.nodeClass === "semantic")) {
+        const parentKind = semanticBrowserNodeKind(node);
+        for (const edge of params.store.listSemanticMemoryChildren({
+          category: "integration",
           treeId: tree.treeId,
           parentNodeId: node.nodeId,
         })) {
           appendUniqueGraphEdge(edges, edgeIds, {
             from: edge.parentNodeId,
             to: edge.childNodeId,
-            kind: "parent_child",
+            kind: parentKind === "tree" ? "contains" : "parent_child",
           });
         }
       }
-      for (const relation of params.store.listIntegrationNodeRelations({
+      for (const relation of params.store.listSemanticMemoryRelations({
+        category: "integration",
         treeId: tree.treeId,
         limit: 10_000,
       })) {
+        if (!nodeIds.has(relation.fromNodeId) || !nodeIds.has(relation.toNodeId)) {
+          continue;
+        }
         appendUniqueGraphEdge(edges, edgeIds, {
           from: relation.fromNodeId,
           to: relation.toNodeId,
           kind: "reference",
         });
       }
-      continue;
-    }
-
-    const treeNodeId = integrationTreeNodeId(tree.treeId);
-    appendUniqueGraphNode(nodes, nodeIds, {
-      id: treeNodeId,
-      kind: "tree",
-      category: "integration",
-      tree_id: tree.treeId,
-      label: shortLabel(tree.accountLabel, tree.accountKey),
-      subtitle: integrationTreeSubtitle({
-        provider: tree.provider,
-        ownerUserId: tree.ownerUserId,
-      }),
-      status: tree.status,
-      level: 1,
-      child_count: null,
-      path: params.graphNodePaths.get(treeNodeId) ?? null,
-    });
-    appendUniqueGraphEdge(edges, edgeIds, {
-      from: rootNodeId,
-      to: treeNodeId,
-      kind: "contains",
-    });
-
-    const summaries = params.store.listIntegrationSummaryNodes({
-      treeId: tree.treeId,
-      status: "active",
-      limit: 5000,
-    });
-    const leaves = params.store.listIntegrationLeaves({
-      treeId: tree.treeId,
-      status: "active",
-      limit: 5000,
-    });
-    const labelIndex = buildIntegrationLabelIndex(leaves);
-    const relations = params.store.listIntegrationNodeRelations({
-      treeId: tree.treeId,
-      limit: 10_000,
-    });
-    const childSummaryIds = new Set<string>();
-    const connectedLeafIds = new Set<string>();
-    const entityNodeIds = new Map<string, string>();
-    const branchNodeIds = new Map<string, string>();
-
-    for (const leaf of leaves) {
-      if (leaf.entityKey) {
-        const entityNodeId = integrationEntityNodeId(tree.treeId, leaf.entityKey);
-        if (!entityNodeIds.has(leaf.entityKey)) {
-          entityNodeIds.set(leaf.entityKey, entityNodeId);
-          appendUniqueGraphNode(nodes, nodeIds, {
-            id: entityNodeId,
-            kind: "entity",
-            category: "integration",
-            tree_id: tree.treeId,
-            label: shortLabel(
-              leaf.entityLabel ?? leaf.entityKey.replace(/^[^:]+:/, ""),
-              leaf.entityKey,
-            ),
-            subtitle: leaf.entityKey.split(":")[0] ?? "entity",
-            status: null,
-            level: 2,
-            child_count: null,
-            path: params.graphNodePaths.get(entityNodeId) ?? null,
-          });
-          appendUniqueGraphEdge(edges, edgeIds, {
-            from: treeNodeId,
-            to: entityNodeId,
-            kind: "contains",
-          });
-        }
-      }
-      if (leaf.branchKey) {
-        const identityKey = `${leaf.entityKey ?? "account"}::${leaf.branchKey}`;
-        if (!branchNodeIds.has(identityKey)) {
-          const branchNodeId = integrationBranchNodeId(tree.treeId, leaf.entityKey ?? null, leaf.branchKey);
-          branchNodeIds.set(identityKey, branchNodeId);
-          appendUniqueGraphNode(nodes, nodeIds, {
-            id: branchNodeId,
-            kind: "branch",
-            category: "integration",
-            tree_id: tree.treeId,
-            label: shortLabel(leaf.branchLabel ?? leaf.branchKey.replaceAll("_", " "), leaf.branchKey),
-            subtitle: leaf.entityKey ? "branch" : "account branch",
-            status: null,
-            level: 3,
-            child_count: null,
-            path: params.graphNodePaths.get(branchNodeId) ?? null,
-          });
-          appendUniqueGraphEdge(edges, edgeIds, {
-            from: leaf.entityKey ? (entityNodeIds.get(leaf.entityKey) ?? treeNodeId) : treeNodeId,
-            to: branchNodeId,
-            kind: "contains",
-          });
-        }
-      }
-    }
-
-    for (const summary of summaries) {
-      const scope = parseIntegrationSummaryScope({
-        treeSlug: tree.slug,
-        path: summary.path,
-      });
-      const inferredEntitySlug =
-        !scope.entitySlug
-        && scope.branchSlug
-        && labelIndex.entityKeyBySlug.has(scope.branchSlug)
-        && !labelIndex.branchIdentityBySlug.has(scope.branchSlug)
-          ? scope.branchSlug
-          : scope.entitySlug;
-      appendUniqueGraphNode(nodes, nodeIds, {
-        id: integrationSummaryGraphNodeId(summary.nodeId),
-        kind: "summary",
-        category: "integration",
-        tree_id: tree.treeId,
-        label: shortLabel(summary.title, `L${summary.level}`),
-        subtitle: `L${summary.level}`,
-        status: summary.status,
-        level: summary.level,
-        child_count: summary.childCount,
-        path: params.graphNodePaths.get(integrationSummaryGraphNodeId(summary.nodeId)) ?? summary.path,
-      });
-      if (inferredEntitySlug) {
-        const entityKey = labelIndex.entityKeyBySlug.get(inferredEntitySlug);
-        if (entityKey && !entityNodeIds.has(entityKey)) {
-          const entityNodeId = integrationEntityNodeId(tree.treeId, entityKey);
-          entityNodeIds.set(entityKey, entityNodeId);
-          appendUniqueGraphNode(nodes, nodeIds, {
-            id: entityNodeId,
-            kind: "entity",
-            category: "integration",
-            tree_id: tree.treeId,
-            label: shortLabel(
-              labelIndex.entityLabelByKey.get(entityKey) ?? entityKey.replace(/^[^:]+:/, ""),
-              entityKey,
-            ),
-            subtitle: entityKey.split(":")[0] ?? "entity",
-            status: null,
-            level: 2,
-            child_count: null,
-            path: params.graphNodePaths.get(entityNodeId) ?? null,
-          });
-          appendUniqueGraphEdge(edges, edgeIds, {
-            from: treeNodeId,
-            to: entityNodeId,
-            kind: "contains",
-          });
-        }
-      }
-      if (scope.branchSlug && scope.branchSlug !== inferredEntitySlug) {
-        const branchIdentity =
-          labelIndex.branchIdentityBySlug.get(scope.branchSlug)
-          ?? (inferredEntitySlug
-            ? (() => {
-                const entityKey = labelIndex.entityKeyBySlug.get(inferredEntitySlug);
-                return entityKey ? { entityKey, branchKey: scope.branchSlug } : null;
-              })()
-            : { entityKey: null, branchKey: scope.branchSlug });
-        if (branchIdentity) {
-          const identityKey = `${branchIdentity.entityKey ?? "account"}::${branchIdentity.branchKey}`;
-          if (!branchNodeIds.has(identityKey)) {
-            const branchNodeId = integrationBranchNodeId(
-              tree.treeId,
-              branchIdentity.entityKey ?? null,
-              branchIdentity.branchKey,
-            );
-            branchNodeIds.set(identityKey, branchNodeId);
-            appendUniqueGraphNode(nodes, nodeIds, {
-              id: branchNodeId,
-              kind: "branch",
-              category: "integration",
-              tree_id: tree.treeId,
-              label: shortLabel(
-                labelIndex.branchLabelByKey.get(identityKey) ?? branchIdentity.branchKey.replaceAll("_", " "),
-                branchIdentity.branchKey,
-              ),
-              subtitle: branchIdentity.entityKey ? "branch" : "account branch",
-              status: null,
-              level: 3,
-              child_count: null,
-              path: params.graphNodePaths.get(branchNodeId) ?? null,
-            });
-            appendUniqueGraphEdge(edges, edgeIds, {
-              from: branchIdentity.entityKey
-                ? (entityNodeIds.get(branchIdentity.entityKey) ?? treeNodeId)
-                : treeNodeId,
-              to: branchNodeId,
-              kind: "contains",
-            });
-          }
-        }
-      }
-    }
-    for (const leaf of leaves) {
-      appendUniqueGraphNode(nodes, nodeIds, {
-        id: integrationLeafGraphNodeId(leaf.leafId),
-        kind: "leaf",
-        category: "integration",
-        tree_id: tree.treeId,
-        label: shortLabel(leaf.title, leaf.subjectKey),
-        subtitle: leaf.externalObjectType ?? leaf.subjectKey,
-        status: leaf.status,
-        level: null,
-        child_count: null,
-        path: params.graphNodePaths.get(integrationLeafGraphNodeId(leaf.leafId)) ?? leaf.path,
-      });
-    }
-
-    for (const summary of summaries) {
-      const children = params.store.listIntegrationTreeChildren({
-        parentNodeId: summary.nodeId,
-      });
-      for (const child of children) {
-        if (child.childKind === "summary") {
-          childSummaryIds.add(child.childId);
-          appendUniqueGraphEdge(edges, edgeIds, {
-            from: integrationSummaryGraphNodeId(summary.nodeId),
-            to: integrationSummaryGraphNodeId(child.childId),
-            kind: "parent_child",
-          });
-        } else {
-          connectedLeafIds.add(child.childId);
-          appendUniqueGraphEdge(edges, edgeIds, {
-            from: integrationSummaryGraphNodeId(summary.nodeId),
-            to: integrationLeafGraphNodeId(child.childId),
-            kind: "parent_child",
-          });
-        }
-      }
-    }
-
-    const rootSummaries = summaries.filter(
-      (summary) => !childSummaryIds.has(summary.nodeId),
-    );
-    for (const summary of rootSummaries) {
-      const scope = parseIntegrationSummaryScope({
-        treeSlug: tree.slug,
-        path: summary.path,
-      });
-      const inferredEntitySlug =
-        !scope.entitySlug
-        && scope.branchSlug
-        && labelIndex.entityKeyBySlug.has(scope.branchSlug)
-        && !labelIndex.branchIdentityBySlug.has(scope.branchSlug)
-          ? scope.branchSlug
-          : scope.entitySlug;
-      const branchIdentity = scope.branchSlug
-        && scope.branchSlug !== inferredEntitySlug
-        ? labelIndex.branchIdentityBySlug.get(scope.branchSlug)
-          ?? (inferredEntitySlug
-            ? (() => {
-                const entityKey = labelIndex.entityKeyBySlug.get(inferredEntitySlug);
-                return entityKey ? { entityKey, branchKey: scope.branchSlug! } : null;
-              })()
-            : { entityKey: null, branchKey: scope.branchSlug })
-        : null;
-      const branchNodeId = branchIdentity
-        ? branchNodeIds.get(`${branchIdentity.entityKey ?? "account"}::${branchIdentity.branchKey}`) ?? null
-        : null;
-      const entityNodeId = inferredEntitySlug
-        ? (() => {
-            const entityKey = labelIndex.entityKeyBySlug.get(inferredEntitySlug);
-            return entityKey ? (entityNodeIds.get(entityKey) ?? null) : null;
-          })()
-        : null;
-      appendUniqueGraphEdge(edges, edgeIds, {
-        from: branchNodeId ?? entityNodeId ?? treeNodeId,
-        to: integrationSummaryGraphNodeId(summary.nodeId),
-        kind: "contains",
-      });
-    }
-    if (summaries.length === 0) {
-      for (const leaf of leaves) {
-        const branchNodeId = leaf.branchKey
-          ? branchNodeIds.get(`${leaf.entityKey ?? "account"}::${leaf.branchKey}`) ?? null
-          : null;
-        const entityNodeId = leaf.entityKey ? entityNodeIds.get(leaf.entityKey) ?? null : null;
-        appendUniqueGraphEdge(edges, edgeIds, {
-          from: branchNodeId ?? entityNodeId ?? treeNodeId,
-          to: integrationLeafGraphNodeId(leaf.leafId),
-          kind: "contains",
-        });
-      }
-    } else {
-      for (const leaf of leaves) {
-        if (connectedLeafIds.has(leaf.leafId)) {
-          continue;
-        }
-        const branchNodeId = leaf.branchKey
-          ? branchNodeIds.get(`${leaf.entityKey ?? "account"}::${leaf.branchKey}`) ?? null
-          : null;
-        const entityNodeId = leaf.entityKey ? entityNodeIds.get(leaf.entityKey) ?? null : null;
-        appendUniqueGraphEdge(edges, edgeIds, {
-          from: branchNodeId ?? entityNodeId ?? treeNodeId,
-          to: integrationLeafGraphNodeId(leaf.leafId),
-          kind: "contains",
-        });
-      }
-    }
-
-    const contactBranchNodeId = integrationBranchNodeId(tree.treeId, null, "contacts");
-    const contactBranchPath = params.graphNodePaths.get(contactBranchNodeId) ?? null;
-    let contactBranchAttached = false;
-    for (const relation of relations) {
-      if (relation.relationType !== "participant" || relation.fromNodeKind !== "entity" || relation.toNodeKind !== "entity") {
-        continue;
-      }
-      const contactEntityKey = integrationEntityKeyFromNodeId(tree.treeId, relation.fromNodeId);
-      const threadEntityKey = integrationEntityKeyFromNodeId(tree.treeId, relation.toNodeId);
-      if (!contactEntityKey?.startsWith("contact:") || !threadEntityKey) {
-        continue;
-      }
-      if (!contactBranchAttached) {
-        appendUniqueGraphNode(nodes, nodeIds, {
-          id: contactBranchNodeId,
-          kind: "branch",
-          category: "integration",
-          tree_id: tree.treeId,
-          label: "Contacts",
-          subtitle: "derived branch",
-          status: null,
-          level: 2,
-          child_count: null,
-          path: contactBranchPath,
-        });
-        appendUniqueGraphEdge(edges, edgeIds, {
-          from: treeNodeId,
-          to: contactBranchNodeId,
-          kind: "contains",
-        });
-        contactBranchAttached = true;
-      }
-
-      const contactNodeId = integrationEntityNodeId(tree.treeId, contactEntityKey);
-      appendUniqueGraphNode(nodes, nodeIds, {
-        id: contactNodeId,
-        kind: "entity",
-        category: "integration",
-        tree_id: tree.treeId,
-        label: String(relation.metadata.contact_label ?? relation.metadata.contact_email ?? contactEntityKey.replace(/^contact:/, "")),
-        subtitle: "contact",
-        status: null,
-        level: 3,
-        child_count: null,
-        path: params.graphNodePaths.get(contactNodeId) ?? null,
-      });
-      appendUniqueGraphEdge(edges, edgeIds, {
-        from: contactBranchNodeId,
-        to: contactNodeId,
-        kind: "contains",
-      });
-
-      appendUniqueGraphEdge(edges, edgeIds, {
-        from: contactNodeId,
-        to: relation.toNodeId,
-        kind: "reference",
-      });
     }
   }
 

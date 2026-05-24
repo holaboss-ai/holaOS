@@ -43,6 +43,16 @@ export const INTEGRATION_CATALOG_PROVIDERS: IntegrationCatalogProviderRecord[] =
     docs_url: null
   },
   {
+    provider_id: "googledrive",
+    display_name: "Google Drive",
+    description: "Read and organize files and folders through Google Drive.",
+    auth_modes: ["managed", "oauth_app", "manual_token"],
+    supports_oss: true,
+    supports_managed: true,
+    default_scopes: ["drive.readonly"],
+    docs_url: null
+  },
+  {
     provider_id: "github",
     display_name: "GitHub",
     description: "Triage PRs, issues, and repository workflows.",
@@ -85,6 +95,9 @@ export const INTEGRATION_CATALOG_PROVIDERS: IntegrationCatalogProviderRecord[] =
 ];
 
 const PROVIDER_ALIASES: Record<string, string> = {
+  "google drive": "googledrive",
+  "google-drive": "googledrive",
+  "google_drive": "googledrive",
   x: "twitter",
 };
 

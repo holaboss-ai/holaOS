@@ -169,6 +169,7 @@ export function resolveIntegrationRuntime(params: {
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   google: "Google",
+  googledrive: "Google Drive",
   github: "GitHub",
   reddit: "Reddit",
   twitter: "Twitter / X",
