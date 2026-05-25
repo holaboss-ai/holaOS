@@ -1,6 +1,13 @@
-import { Check, LoaderCircle, Plug } from "lucide-react";
+import { Check, ChevronDown, LoaderCircle, Plug, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { bindConnectionToWorkspace } from "@/lib/bindConnectionToWorkspace";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 
@@ -84,13 +91,14 @@ export function DeterministicWorkspaceOnboardingSurface() {
   const [connectionIdByToolkit, setConnectionIdByToolkit] = useState<
     Record<string, string>
   >({});
-  // Existing active connections the user already has across all workspaces,
-  // keyed by provider slug. Lets onboarding skip re-OAuth + render a
-  // "Connected as @handle" state instead of a misleading fresh Connect
-  // button. Populated by an effect on mount and refreshed whenever the
-  // workspace switches.
-  const [existingConnectionBySlug, setExistingConnectionBySlug] = useState<
-    Record<string, IntegrationConnectionPayload>
+  // All existing active connections the user already has across all
+  // workspaces, keyed by provider slug. Stored as an ARRAY (not just the
+  // most-recent one) so the Switch-account menu can list every alternate
+  // the user can pick between — without this we'd be back to forcing a
+  // fresh OAuth for users who happen to have two Gmails already
+  // authorized. Ordered newest-first by `updated_at`.
+  const [existingConnectionsBySlug, setExistingConnectionsBySlug] = useState<
+    Record<string, IntegrationConnectionPayload[]>
   >({});
   const [contextFetchStatusByConnectionId, setContextFetchStatusByConnectionId] =
     useState<Record<string, IntegrationContextFetchStatusPayload>>({});
@@ -106,7 +114,7 @@ export function DeterministicWorkspaceOnboardingSurface() {
     setErrorByToolkit({});
     setConnectionIdByToolkit({});
     setContextFetchStatusByConnectionId({});
-    setExistingConnectionBySlug({});
+    setExistingConnectionsBySlug({});
   }, [selectedWorkspace?.id]);
 
   // Pull the user's existing active connections (across all workspaces)
@@ -120,24 +128,23 @@ export function DeterministicWorkspaceOnboardingSurface() {
         const { connections } =
           await window.electronAPI.workspace.listIntegrationConnections();
         if (cancelled) return;
-        // Index by lowercase provider slug. If the user has multiple
-        // accounts for the same provider, take the most-recently-updated
-        // one — same heuristic the agent uses elsewhere when resolving
-        // "the default Gmail account" for this user.
-        const byProvider: Record<string, IntegrationConnectionPayload> = {};
+        // Index by lowercase provider slug, keeping ALL active connections
+        // sorted newest-first. Multiple accounts surface in the Switch-
+        // account menu so the user can pick between e.g. work + personal
+        // Gmail without being forced through a fresh OAuth.
+        const byProvider: Record<string, IntegrationConnectionPayload[]> = {};
         for (const conn of connections) {
           if (conn.status !== "active") continue;
           const slug = conn.provider_id.trim().toLowerCase();
           if (!slug) continue;
-          const incumbent = byProvider[slug];
-          if (
-            !incumbent ||
-            Date.parse(conn.updated_at) > Date.parse(incumbent.updated_at)
-          ) {
-            byProvider[slug] = conn;
-          }
+          (byProvider[slug] ??= []).push(conn);
         }
-        setExistingConnectionBySlug(byProvider);
+        for (const list of Object.values(byProvider)) {
+          list.sort(
+            (a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at),
+          );
+        }
+        setExistingConnectionsBySlug(byProvider);
       } catch {
         // Onboarding can still function without the pre-existing scan —
         // user just sees the legacy "Connect everything fresh" UX.
@@ -148,19 +155,20 @@ export function DeterministicWorkspaceOnboardingSurface() {
     };
   }, [selectedWorkspace?.id]);
 
-  // Once both `heroEntries` and `existingConnectionBySlug` have loaded,
-  // mark any already-connected hero as `done` and seed its connection
-  // id into the tracked map. The continue step then binds those
-  // connections to the new workspace — without this seeding, the
+  // Once both `heroEntries` and `existingConnectionsBySlug` have loaded,
+  // mark any already-connected hero as `done` and seed the FIRST (newest)
+  // connection id into the tracked map. The continue step then binds
+  // those connections to the new workspace — without this seeding, the
   // collected map would be empty for unchanged tiles and Phase 2 would
-  // skip them entirely.
+  // skip them entirely. The user can still flip the selection via the
+  // Switch-account menu before clicking Continue.
   useEffect(() => {
     if (!heroEntries || heroEntries.length === 0) return;
-    if (Object.keys(existingConnectionBySlug).length === 0) return;
+    if (Object.keys(existingConnectionsBySlug).length === 0) return;
     setPhaseByToolkit((prev) => {
       const next = { ...prev };
       for (const entry of heroEntries) {
-        const existing = existingConnectionBySlug[entry.slug];
+        const existing = existingConnectionsBySlug[entry.slug]?.[0];
         if (existing && !next[entry.slug]) {
           next[entry.slug] = "done";
         }
@@ -170,14 +178,14 @@ export function DeterministicWorkspaceOnboardingSurface() {
     setConnectionIdByToolkit((prev) => {
       const next = { ...prev };
       for (const entry of heroEntries) {
-        const existing = existingConnectionBySlug[entry.slug];
+        const existing = existingConnectionsBySlug[entry.slug]?.[0];
         if (existing && !next[entry.slug]) {
           next[entry.slug] = existing.connection_id;
         }
       }
       return next;
     });
-  }, [heroEntries, existingConnectionBySlug]);
+  }, [heroEntries, existingConnectionsBySlug]);
 
   useEffect(() => {
     let cancelled = false;
@@ -294,11 +302,12 @@ export function DeterministicWorkspaceOnboardingSurface() {
     opts?: { force?: boolean },
   ) {
     // Short-circuit when this provider is already connected and the caller
-    // didn't explicitly ask for a fresh OAuth (the "Switch account" link
-    // sets force=true). Avoids creating a duplicate Composio
-    // connected_account row for users who already authorized Gmail in a
-    // previous workspace — they should be able to just click Continue.
-    const existing = existingConnectionBySlug[entry.slug];
+    // didn't explicitly ask for a fresh OAuth ("Add another account…" in
+    // the Switch-account menu sets force=true). Avoids creating a duplicate
+    // Composio connected_account row for users who already authorized
+    // Gmail in a previous workspace — they should be able to just click
+    // Continue.
+    const existing = existingConnectionsBySlug[entry.slug]?.[0];
     if (existing && !opts?.force) {
       setConnectionIdByToolkit((prev) => ({
         ...prev,
@@ -560,25 +569,32 @@ export function DeterministicWorkspaceOnboardingSurface() {
                 ) : (
                   <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                     {heroEntries.map((entry) => {
-                      const existing = existingConnectionBySlug[entry.slug];
+                      const accounts =
+                        existingConnectionsBySlug[entry.slug] ?? [];
+                      const selectedConnectionId =
+                        connectionIdByToolkit[entry.slug] ?? null;
                       return (
                         <HeroConnectCard
-                          connectedAccountLabel={
-                            existing
-                              ? accountDisplayHandle(existing)
-                              : null
-                          }
+                          accounts={accounts}
                           entry={entry}
                           error={errorByToolkit[entry.slug] ?? null}
                           key={entry.slug}
-                          onConnect={() => void handleConnect(entry)}
-                          onSwitchAccount={
-                            existing
-                              ? () =>
-                                  void handleConnect(entry, { force: true })
-                              : null
+                          onAddNewAccount={() =>
+                            void handleConnect(entry, { force: true })
                           }
+                          onConnect={() => void handleConnect(entry)}
+                          onSelectAccount={(connectionId) => {
+                            setConnectionIdByToolkit((prev) => ({
+                              ...prev,
+                              [entry.slug]: connectionId,
+                            }));
+                            setPhaseByToolkit((prev) => ({
+                              ...prev,
+                              [entry.slug]: "done",
+                            }));
+                          }}
                           phase={phaseByToolkit[entry.slug] ?? "idle"}
+                          selectedConnectionId={selectedConnectionId}
                         />
                       );
                     })}
@@ -637,23 +653,36 @@ function HeroConnectCard({
   phase,
   error,
   onConnect,
-  connectedAccountLabel,
-  onSwitchAccount,
+  accounts,
+  selectedConnectionId,
+  onSelectAccount,
+  onAddNewAccount,
 }: {
   entry: HeroEntry;
   phase: ConnectPhase;
   error: string | null;
   onConnect: () => void;
-  /** Friendly label of the already-connected account (e.g. "@jotyy" or
-   *  "josh@example.com"). Null when there's no pre-existing connection. */
-  connectedAccountLabel: string | null;
-  /** Triggers a fresh OAuth that creates a NEW connection for the same
-   *  provider. Null when the tile has no existing connection to switch
-   *  away from. */
-  onSwitchAccount: (() => void) | null;
+  /** Every active connection the user has for this provider, newest-first.
+   *  Empty array when no pre-existing connections — the tile renders a
+   *  plain Connect button in that case. */
+  accounts: IntegrationConnectionPayload[];
+  /** Which connection (from `accounts`) is currently chosen for this
+   *  workspace's binding. Null until the user picks one or accepts the
+   *  default-seeded newest entry. Drives the checkmark in the menu. */
+  selectedConnectionId: string | null;
+  /** Switch the workspace binding to a different already-authorized
+   *  connection — no OAuth, no new Composio row. */
+  onSelectAccount: (connectionId: string) => void;
+  /** Pop fresh OAuth to create a NEW connected_account for this provider.
+   *  The "Add another account…" menu item. */
+  onAddNewAccount: () => void;
 }) {
   const isDone = phase === "done";
   const isConnecting = phase === "connecting";
+  const selectedAccount =
+    accounts.find((acct) => acct.connection_id === selectedConnectionId) ??
+    accounts[0] ??
+    null;
   return (
     <li
       className={
@@ -680,9 +709,9 @@ function HeroConnectCard({
           <div className="truncate text-sm font-medium text-foreground">
             {entry.displayName}
           </div>
-          {isDone && connectedAccountLabel ? (
+          {isDone && selectedAccount ? (
             <div className="truncate text-[11px] leading-4 text-muted-foreground">
-              {connectedAccountLabel}
+              {accountDisplayHandle(selectedAccount)}
             </div>
           ) : null}
         </div>
@@ -709,17 +738,53 @@ function HeroConnectCard({
           </Button>
         )}
       </div>
-      {isDone && onSwitchAccount ? (
-        // Tiny escape hatch — most users will accept the reused account,
-        // but power users with multiple Gmails / GitHubs need a way to
-        // force a fresh OAuth into a different account for this workspace.
-        <button
-          className="self-start text-[11px] leading-4 text-muted-foreground transition-colors hover:text-foreground"
-          onClick={onSwitchAccount}
-          type="button"
-        >
-          Switch account
-        </button>
+      {isDone && accounts.length > 0 ? (
+        // Power users with multiple Gmails / GitHubs need a way to point
+        // this workspace at a specific one (or add a new one). The menu
+        // lists every active connection the user has for this provider —
+        // picking one is a pure binding swap (no OAuth), and "Add another
+        // account…" pops a fresh OAuth that creates a new Composio row.
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <button
+                className="inline-flex w-fit items-center gap-1 text-[11px] leading-4 text-muted-foreground transition-colors hover:text-foreground"
+                type="button"
+              >
+                Switch account
+                <ChevronDown className="size-3" />
+              </button>
+            }
+          />
+          <DropdownMenuContent align="start" className="min-w-[220px]">
+            {accounts.map((acct) => {
+              const isSelected = acct.connection_id === selectedConnectionId;
+              return (
+                <DropdownMenuItem
+                  key={acct.connection_id}
+                  onSelect={() => {
+                    if (isSelected) return;
+                    onSelectAccount(acct.connection_id);
+                  }}
+                >
+                  <Check
+                    className={
+                      isSelected
+                        ? "size-3.5 text-foreground"
+                        : "size-3.5 opacity-0"
+                    }
+                  />
+                  <span className="truncate">{accountDisplayHandle(acct)}</span>
+                </DropdownMenuItem>
+              );
+            })}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onAddNewAccount}>
+              <Plus className="size-3.5" />
+              <span>Add another account…</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       ) : null}
       {error ? (
         <p className="line-clamp-2 text-[11px] leading-4 text-destructive">
