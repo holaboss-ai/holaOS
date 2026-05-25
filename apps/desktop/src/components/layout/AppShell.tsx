@@ -1295,7 +1295,7 @@ function FocusPlaceholder({
         <div className="mt-3 text-[28px] font-semibold text-foreground">
           {title}
         </div>
-        <div className="mt-3 text-[13px] leading-7 text-muted-foreground">
+        <div className="mt-3 text-[13px] text-muted-foreground">
           {description}
         </div>
       </div>
@@ -1354,8 +1354,7 @@ function WorkspaceOnboardingTakeover({
   focusRequestKey: number;
 }) {
   return (
-    <section className="relative flex h-full min-h-0 min-w-0 overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_16%,rgba(247,90,84,0.1),transparent_28%),radial-gradient(circle_at_88%_10%,rgba(247,170,126,0.08),transparent_24%),radial-gradient(circle_at_50%_100%,rgba(247,90,84,0.06),transparent_34%)]" />
+    <section className="relative flex h-full min-h-0 min-w-0 overflow-hidden bg-background">
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
         <WorkspaceOnboardingSurface
           onOpenOutput={onOpenOutput}

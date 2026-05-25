@@ -95,6 +95,38 @@ export const COMPOSIO_POLL_MAX_TICKS = 100;
 export const COMPOSIO_POLL_TIMEOUT_MS =
   COMPOSIO_POLL_INTERVAL_MS * COMPOSIO_POLL_MAX_TICKS;
 
+/** Sleep for `ms` OR until the desktop window regains focus — whichever
+ *  comes first. Used by the OAuth poll loop so the moment the user
+ *  switches back from the browser after authorizing, we poll immediately
+ *  instead of waiting up to one full interval for the next tick. */
+function sleepUntilFocusOrTimeout(
+  ms: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const onAbort = () => finish();
+    const onFocus = () => finish();
+    const timer = setTimeout(() => finish(), ms);
+    function finish() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      window.removeEventListener("focus", onFocus);
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }
+    window.addEventListener("focus", onFocus, { once: true });
+    if (signal) {
+      if (signal.aborted) {
+        finish();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+  });
+}
+
 const ONBOARDING_ACTIVE_STATUSES = new Set(["pending", "awaiting_confirmation", "in_progress"]);
 const LOCAL_OSS_TEMPLATE_USER_ID = "local-oss";
 const DEFAULT_WORKSPACE_HARNESS: WorkspaceHarnessId = "pi";
@@ -1245,7 +1277,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
 
     let consecutiveErrors = 0;
     for (let tick = 0; tick < COMPOSIO_POLL_MAX_TICKS; tick++) {
-      await new Promise((r) => setTimeout(r, COMPOSIO_POLL_INTERVAL_MS));
+      await sleepUntilFocusOrTimeout(COMPOSIO_POLL_INTERVAL_MS, signal);
       throwIfAborted();
       let current;
       try {

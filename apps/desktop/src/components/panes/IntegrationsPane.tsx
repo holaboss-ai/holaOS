@@ -27,14 +27,6 @@ import {
   SettingsSection,
 } from "@/components/settings";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { accountDisplayLabel } from "@/lib/integrationDisplay";
 import { brandLogoOverride } from "@/lib/integrationLogo";
@@ -274,9 +266,6 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
   const [workspaceUsageByConnection, setWorkspaceUsageByConnection] = useState<
     Map<string, ConnectionWorkspaceUsageEntry["workspaces"]>
   >(new Map());
-  const [capabilitiesByToolkit, setCapabilitiesByToolkit] = useState<
-    Record<string, ComposioToolkitCapability[]>
-  >({});
   const [storeCatalog, setStoreCatalog] = useState<
     Map<string, IntegrationStoreCatalogEntry>
   >(new Map());
@@ -298,7 +287,6 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
         connectionResult,
         toolkitResult,
         usageResult,
-        capabilitiesResult,
         storeCatalogResult,
         overridesResult,
       ] = await Promise.all([
@@ -310,9 +298,6 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
         window.electronAPI.workspace
           .listConnectionWorkspaceUsage()
           .catch(() => ({ usage: [] as ConnectionWorkspaceUsageEntry[] })),
-        window.electronAPI.workspace
-          .listComposioToolkitCapabilities()
-          .catch(() => ({ toolkits: {} as Record<string, ComposioToolkitCapability[]> })),
         window.electronAPI.workspace
           .listIntegrationStoreCatalog()
           .catch(() => ({ entries: [] as IntegrationStoreCatalogEntry[] })),
@@ -331,7 +316,6 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
         usageMap.set(entry.connection_id, entry.workspaces);
       }
       setWorkspaceUsageByConnection(usageMap);
-      setCapabilitiesByToolkit(capabilitiesResult.toolkits ?? {});
       const storeMap = new Map<string, IntegrationStoreCatalogEntry>();
       for (const entry of storeCatalogResult.entries) {
         storeMap.set(entry.slug.trim().toLowerCase(), entry);
@@ -1278,7 +1262,6 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                 contextFetchStatusByConnectionId={
                   contextFetchStatusByConnectionId
                 }
-                toolkitCapabilities={capabilitiesByToolkit[integration.providerId] ?? []}
                 toolkitOverrides={
                   overridesByToolkit.get(integration.providerId) ?? new Map()
                 }
@@ -1496,7 +1479,6 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                   contextFetchStatusByConnectionId={
                     contextFetchStatusByConnectionId
                   }
-                  toolkitCapabilities={capabilitiesByToolkit[integration.providerId] ?? []}
                   toolkitOverrides={
                     overridesByToolkit.get(integration.providerId) ?? new Map()
                   }
@@ -1595,10 +1577,6 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
           open={Boolean(pendingMemoryClear)}
           title="Clear this account's memory?"
         />
-        <ComposioRuntimeDebugRow
-          capabilitiesByToolkit={capabilitiesByToolkit}
-          connections={connections}
-        />
       </div>
     );
   }
@@ -1651,7 +1629,6 @@ function ConnectedProviderCard({
   metadata,
   compact,
   workspaceUsageByConnection,
-  toolkitCapabilities,
   workspaces,
   toolkitOverrides,
   expanded,
@@ -1687,7 +1664,6 @@ function ConnectedProviderCard({
   metadata: Map<string, ComposioAccountStatus>;
   compact: boolean;
   workspaceUsageByConnection: Map<string, ConnectionWorkspaceUsageEntry["workspaces"]>;
-  toolkitCapabilities: ComposioToolkitCapability[];
   workspaces: WorkspaceSummary[];
   toolkitOverrides: Map<string, WorkspaceOverrideDescriptor>;
   expanded: boolean;
@@ -1945,7 +1921,6 @@ function ConnectedProviderCard({
           );
         })}
         <WorkspaceScopeSection
-          capabilities={toolkitCapabilities}
           expanded={expanded}
           mutatingOverrideKey={mutatingOverrideKey}
           onSetWorkspaceEnabled={onSetWorkspaceEnabled}
@@ -1963,7 +1938,6 @@ function WorkspaceScopeSection({
   workspaces,
   toolkitOverrides,
   toolkitSlug,
-  capabilities,
   expanded,
   onToggleExpanded,
   onSetWorkspaceEnabled,
@@ -1972,7 +1946,6 @@ function WorkspaceScopeSection({
   workspaces: WorkspaceSummary[];
   toolkitOverrides: Map<string, WorkspaceOverrideDescriptor>;
   toolkitSlug: string;
-  capabilities: ComposioToolkitCapability[];
   expanded: boolean;
   onToggleExpanded: () => void;
   onSetWorkspaceEnabled: (workspaceId: string, enabled: boolean) => void;
@@ -1993,7 +1966,6 @@ function WorkspaceScopeSection({
       : disabledNames.length === workspaces.length
         ? "Disabled in all workspaces"
         : `Disabled in: ${disabledNames.join(", ")}`;
-  const toolCount = capabilities.length;
   return (
     <div className="mt-1 border-border border-t pt-2">
       <button
@@ -2002,12 +1974,7 @@ function WorkspaceScopeSection({
         onClick={onToggleExpanded}
         type="button"
       >
-        <span className="truncate text-left">
-          {summary}
-          {toolCount > 0
-            ? ` · ${toolCount} agent ${toolCount === 1 ? "tool" : "tools"}`
-            : ""}
-        </span>
+        <span className="truncate text-left">{summary}</span>
         <span className="shrink-0">{expanded ? "Hide" : "Manage"}</span>
       </button>
       {expanded ? (
@@ -2050,313 +2017,9 @@ function WorkspaceScopeSection({
               })}
             </ul>
           )}
-
-          <AgentCapabilityList
-            capabilities={capabilities}
-            toolkitSlug={toolkitSlug}
-          />
         </div>
       ) : null}
     </div>
   );
 }
 
-// "Agent can …" panel for a connected toolkit. Splits the catalog into
-// two trust-relevant buckets — Read (safe, looks at your data) vs Write
-// (actions taken on your behalf) — so the user can quickly tell what
-// surface area they're authorizing. Default to 5 entries per bucket
-// with an inline expander, because dumping all of Composio's 20-40
-// tools at once is a wall of SCREAMING_SNAKE_CASE that erodes trust
-// instead of building it. The raw `tool_slug` is moved into the row's
-// `title` (hover tooltip) so power users / debuggers can still see it
-// without polluting the primary view.
-function AgentCapabilityList({
-  capabilities,
-  toolkitSlug,
-}: {
-  capabilities: ComposioToolkitCapability[];
-  toolkitSlug: string;
-}) {
-  if (capabilities.length === 0) return null;
-  const reads = capabilities.filter((cap) => cap.read_only);
-  const writes = capabilities.filter((cap) => !cap.read_only);
-  return (
-    <div>
-      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        Agent can
-      </div>
-      {reads.length > 0 ? (
-        <CapabilityGroup
-          capabilities={reads}
-          label="Read"
-          tone="muted"
-          toolkitSlug={toolkitSlug}
-        />
-      ) : null}
-      {writes.length > 0 ? (
-        <CapabilityGroup
-          capabilities={writes}
-          label="Write"
-          tone="emphasis"
-          toolkitSlug={toolkitSlug}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-const CAPABILITY_GROUP_VISIBLE = 5;
-
-function CapabilityGroup({
-  capabilities,
-  label,
-  tone,
-  toolkitSlug,
-}: {
-  capabilities: ComposioToolkitCapability[];
-  label: string;
-  /** "muted" = Read group (safe; quieter). "emphasis" = Write group (the
-   *  one users should actually read; subtle amber accent on the count). */
-  tone: "muted" | "emphasis";
-  toolkitSlug: string;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const visible = expanded
-    ? capabilities
-    : capabilities.slice(0, CAPABILITY_GROUP_VISIBLE);
-  const hidden = capabilities.length - visible.length;
-  return (
-    <div className="mt-2.5">
-      <div className="flex items-baseline gap-1.5 text-[10px] font-medium uppercase tracking-wide">
-        <span
-          className={
-            tone === "emphasis"
-              ? "text-amber-700 dark:text-amber-400"
-              : "text-muted-foreground"
-          }
-        >
-          {label}
-        </span>
-        <span className="font-normal normal-case text-muted-foreground/60">
-          · {capabilities.length}
-        </span>
-      </div>
-      <ul className="mt-1 space-y-1">
-        {visible.map((cap) => (
-          <li className="text-[11px]" key={cap.tool_slug} title={cap.tool_slug}>
-            <div className="font-medium text-foreground">
-              {humanizeCapabilityName(cap.name, toolkitSlug)}
-            </div>
-            <div className="line-clamp-2 text-[11px] leading-5 text-muted-foreground">
-              {cap.description}
-            </div>
-          </li>
-        ))}
-      </ul>
-      {hidden > 0 ? (
-        <button
-          className="mt-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-          onClick={() => setExpanded(true)}
-          type="button"
-        >
-          + {hidden} more
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-// `gmail_fetch_emails` → "Fetch emails". Strips the toolkit-prefix, swaps
-// underscores for spaces, sentence-cases the first word. Falls back to the
-// raw name when the prefix isn't where we expect — better than throwing.
-function humanizeCapabilityName(name: string, toolkitSlug: string): string {
-  const prefix = `${toolkitSlug.toLowerCase()}_`;
-  const sansPrefix = name.toLowerCase().startsWith(prefix)
-    ? name.slice(prefix.length)
-    : name;
-  const spaced = sansPrefix.replace(/_/g, " ").trim();
-  if (!spaced) return name;
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
-
-// Temporary diagnostic — hits runtime POST /api/v1/debug/composio-
-// runtime-test, which uses ComposioApiClient end-to-end (env-injected
-// HOLABOSS_AUTH_BEARER_TOKEN → Hono /internal/tools/execute → Composio).
-// Exposes a one-click "fetch 5 Gmail messages via runtime" probe so we
-// can confirm the full server-side path is alive before any product
-// feature lands. Editable provider + tool slug + args via small inputs;
-// defaults are the canonical Gmail fetch case. Safe to delete alongside
-// the runtime endpoint once a real consumer is in product.
-function ComposioRuntimeDebugRow({
-  connections,
-  capabilitiesByToolkit,
-}: {
-  connections: IntegrationConnectionPayload[];
-  capabilitiesByToolkit: Record<string, ComposioToolkitCapability[]>;
-}) {
-  const [providerSlug, setProviderSlug] = useState("gmail");
-  const [toolSlug, setToolSlug] = useState("GMAIL_FETCH_EMAILS");
-  const [argsText, setArgsText] = useState(
-    JSON.stringify({ max_results: 5 }, null, 2),
-  );
-
-  // One preset per connected provider whose toolkit catalog has at
-  // least one capability. Picking a preset fills all three inputs
-  // together so we never end up with e.g. linkedin + GMAIL_FETCH_EMAILS,
-  // which is the failure mode that made every non-gmail probe error.
-  const presets = useMemo(() => {
-    const seen = new Set<string>();
-    const list: {
-      providerSlug: string;
-      label: string;
-      toolSlug: string;
-      args: string;
-    }[] = [];
-    for (const c of connections) {
-      const slug = c.provider_id.trim().toLowerCase();
-      if (!slug || seen.has(slug)) continue;
-      seen.add(slug);
-      const caps = capabilitiesByToolkit[slug] ?? [];
-      const preferred = caps.find((cap) => cap.read_only) ?? caps[0];
-      if (!preferred) continue;
-      list.push({
-        providerSlug: slug,
-        label: `${slug} — ${preferred.tool_slug}`,
-        toolSlug: preferred.tool_slug,
-        args: slug === "gmail" ? JSON.stringify({ max_results: 5 }, null, 2) : "{}",
-      });
-    }
-    return list;
-  }, [connections, capabilitiesByToolkit]);
-
-  function applyPreset(value: string | null) {
-    if (!value) return;
-    const preset = presets.find((p) => p.providerSlug === value);
-    if (!preset) return;
-    setProviderSlug(preset.providerSlug);
-    setToolSlug(preset.toolSlug);
-    setArgsText(preset.args);
-  }
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<unknown>(null);
-  const [errorMessage, setErrorMessage] = useState("");
-
-  async function handleRun() {
-    setBusy(true);
-    setErrorMessage("");
-    setResult(null);
-    let parsedArgs: Record<string, unknown> = {};
-    try {
-      const raw = argsText.trim();
-      parsedArgs = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-    } catch (parseError) {
-      setBusy(false);
-      setErrorMessage(
-        `arguments must be valid JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
-      );
-      return;
-    }
-    try {
-      const response = await window.electronAPI.workspace.debugComposioRuntimeTest(
-        {
-          providerSlug: providerSlug.trim() || undefined,
-          toolSlug: toolSlug.trim() || undefined,
-          arguments: parsedArgs,
-        },
-      );
-      setResult(response);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-3 text-xs">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="font-medium text-foreground">
-            Debug — runtime → Composio via ComposioApiClient
-          </div>
-          <div className="text-muted-foreground">
-            Hits <code>POST /api/v1/debug/composio-runtime-test</code> on
-            the embedded runtime. Exercises the full path: env-injected
-            bearer token → ComposioApiClient → Hono{" "}
-            <code>/internal/tools/execute</code> → Composio. Defaults
-            fetch your 5 most recent Gmail messages.
-          </div>
-        </div>
-        <Button
-          className="h-7 px-3 text-xs"
-          disabled={busy}
-          onClick={() => void handleRun()}
-          size="sm"
-          type="button"
-          variant="outline"
-        >
-          {busy ? "Running…" : "Run probe"}
-        </Button>
-      </div>
-      {presets.length > 0 ? (
-        <label className="mt-3 flex flex-col gap-1">
-          <span className="text-[11px] text-muted-foreground">
-            preset (connected provider → first cataloged tool)
-          </span>
-          <Select onValueChange={applyPreset} value={providerSlug}>
-            <SelectTrigger className="h-7 text-xs">
-              <SelectValue placeholder="Pick a connected provider…" />
-            </SelectTrigger>
-            <SelectContent>
-              {presets.map((preset) => (
-                <SelectItem key={preset.providerSlug} value={preset.providerSlug}>
-                  {preset.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
-      ) : null}
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <label className="flex flex-col gap-1">
-          <span className="text-[11px] text-muted-foreground">
-            provider_slug
-          </span>
-          <Input
-            className="h-7 text-xs"
-            onChange={(e) => setProviderSlug(e.target.value)}
-            value={providerSlug}
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[11px] text-muted-foreground">tool_slug</span>
-          <Input
-            className="h-7 text-xs"
-            onChange={(e) => setToolSlug(e.target.value)}
-            value={toolSlug}
-          />
-        </label>
-      </div>
-      <label className="mt-2 flex flex-col gap-1">
-        <span className="text-[11px] text-muted-foreground">
-          arguments (JSON)
-        </span>
-        <textarea
-          className="h-20 w-full resize-y rounded-md border border-border bg-background px-2 py-1 font-mono text-[11px] leading-4 text-foreground focus:outline-none"
-          onChange={(e) => setArgsText(e.target.value)}
-          value={argsText}
-        />
-      </label>
-      {errorMessage ? (
-        <div className="mt-3 rounded-md bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
-          {errorMessage}
-        </div>
-      ) : null}
-      {result !== null ? (
-        <pre className="mt-3 max-h-80 w-full max-w-full overflow-auto whitespace-pre-wrap break-all rounded-md bg-background px-2 py-1.5 text-[11px] leading-5 text-foreground">
-          {JSON.stringify(result, null, 2)}
-        </pre>
-      ) : null}
-    </div>
-  );
-}

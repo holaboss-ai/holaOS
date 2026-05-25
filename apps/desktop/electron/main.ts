@@ -9781,6 +9781,37 @@ async function archiveBackgroundTask(
   );
 }
 
+async function continueBackgroundTask(
+  payload: ContinueBackgroundTaskPayload,
+): Promise<ContinueBackgroundTaskResponsePayload> {
+  if (!payload.workspaceId.trim()) {
+    throw new Error("workspaceId is required");
+  }
+  if (!payload.subagentId.trim()) {
+    throw new Error("subagentId is required");
+  }
+  if (!payload.ownerMainSessionId.trim()) {
+    throw new Error("ownerMainSessionId is required");
+  }
+  const instruction = payload.instruction.trim();
+  if (!instruction) {
+    throw new Error("instruction is required");
+  }
+  return requestWorkspaceRuntimeJson<ContinueBackgroundTaskResponsePayload>(
+    payload.workspaceId,
+    {
+      method: "POST",
+      path: `/api/v1/capabilities/runtime-tools/subagents/${encodeURIComponent(payload.subagentId)}/continue`,
+      payload: {
+        workspace_id: payload.workspaceId,
+        session_id: payload.ownerMainSessionId,
+        instruction,
+        title: payload.title ?? undefined,
+      },
+    },
+  );
+}
+
 async function acceptTaskProposal(
   payload: TaskProposalAcceptPayload,
 ): Promise<TaskProposalAcceptResponsePayload> {
@@ -10371,23 +10402,6 @@ async function listAllWorkspaceIntegrationOverrides(): Promise<{
   }>({
     method: "GET",
     path: "/api/v1/integrations/all-workspace-overrides",
-  });
-}
-
-async function listComposioToolkitCapabilities(): Promise<{
-  toolkits: Record<
-    string,
-    Array<{ name: string; description: string; tool_slug: string; read_only: boolean }>
-  >;
-}> {
-  return requestRuntimeJson<{
-    toolkits: Record<
-      string,
-      Array<{ name: string; description: string; tool_slug: string; read_only: boolean }>
-    >;
-  }>({
-    method: "GET",
-    path: "/api/v1/integrations/composio-capabilities",
   });
 }
 
@@ -23810,6 +23824,12 @@ app.whenReady().then(async () => {
       archiveBackgroundTask(payload),
   );
   handleTrustedIpc(
+    "workspace:continueBackgroundTask",
+    ["main"],
+    async (_event, payload: ContinueBackgroundTaskPayload) =>
+      continueBackgroundTask(payload),
+  );
+  handleTrustedIpc(
     "workspace:acceptTaskProposal",
     ["main"],
     async (_event, payload: TaskProposalAcceptPayload) =>
@@ -24032,11 +24052,6 @@ app.whenReady().then(async () => {
     "workspace:listConnectionWorkspaceUsage",
     ["main"],
     async () => listConnectionWorkspaceUsage(),
-  );
-  handleTrustedIpc(
-    "workspace:listComposioToolkitCapabilities",
-    ["main"],
-    async () => listComposioToolkitCapabilities(),
   );
   handleTrustedIpc(
     "workspace:listIntegrationStoreCatalog",

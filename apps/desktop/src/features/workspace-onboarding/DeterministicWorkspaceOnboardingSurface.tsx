@@ -1,5 +1,14 @@
-import { Check, ChevronDown, LoaderCircle, Plug, Plus } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  ChevronDown,
+  LoaderCircle,
+  Plus,
+  RotateCw,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { IntegrationLogo } from "@/components/integration/IntegrationLogo";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -9,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { bindConnectionToWorkspace } from "@/lib/bindConnectionToWorkspace";
+import { toolkitDisplayName } from "@/lib/toolkitDisplay";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 
 type HeroEntry = {
@@ -32,8 +42,36 @@ const HERO_PRIORITY = [
 
 const FETCH_TERMINAL_STATUSES = new Set(["completed", "failed", "unsupported"]);
 
+// "<Platform> (Managed)" / "<slug> (managed)" / bare slug — labels we
+// set ourselves during connect as a stand-in until whoami populates the
+// real account info. Treat them as missing for display purposes so the
+// row falls back to the canonical platform name (e.g. "Notion") instead
+// of leaking our internal placeholder.
+function isPlaceholderLabel(label: string, slug: string): boolean {
+  const cleaned = label.trim().toLowerCase();
+  if (!cleaned) return true;
+  const slugLower = slug.trim().toLowerCase();
+  if (cleaned === slugLower) return true;
+  if (cleaned === `${slugLower} (managed)`) return true;
+  const platform = toolkitDisplayName(slug).trim().toLowerCase();
+  if (cleaned === platform) return true;
+  if (cleaned === `${platform} (managed)`) return true;
+  return false;
+}
+
+function formatAccountHandle(handle: string): string {
+  const trimmed = handle.trim();
+  if (!trimmed) return "";
+  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
+}
+
 function contextFetchDisplayName(status: IntegrationContextFetchStatusPayload) {
-  return status.account_label || status.account_key || status.provider_id;
+  const slug = status.provider_id;
+  const label = status.account_label?.trim() ?? "";
+  if (label && !isPlaceholderLabel(label, slug)) return label;
+  const key = status.account_key?.trim() ?? "";
+  if (key && key.toLowerCase() !== slug.toLowerCase()) return key;
+  return toolkitDisplayName(slug);
 }
 
 function contextFetchChunkTotal(status: IntegrationContextFetchStatusPayload) {
@@ -72,6 +110,158 @@ function contextFetchStateLabel(status: IntegrationContextFetchStatusPayload) {
   return "Running";
 }
 
+type FetchErrorCategory =
+  | "auth_revoked"
+  | "permission_denied"
+  | "server_error"
+  | "rate_limit"
+  | "unknown";
+
+function categorizeFetchError(message: string | null | undefined): FetchErrorCategory {
+  const text = (message || "").toLowerCase();
+  if (!text) return "unknown";
+  if (
+    text.includes("revoked") ||
+    text.includes("active state") ||
+    text.includes("expired") ||
+    text.includes("invalid_grant") ||
+    text.includes("unauthorized") ||
+    text.includes("401")
+  ) {
+    return "auth_revoked";
+  }
+  if (text.includes("permission") || text.includes("scope") || text.includes("403")) {
+    return "permission_denied";
+  }
+  if (text.includes("rate limit") || text.includes("429") || text.includes("too many requests")) {
+    return "rate_limit";
+  }
+  if (
+    text.includes("internal server") ||
+    text.includes("500") ||
+    text.includes("502") ||
+    text.includes("503") ||
+    text.includes("504") ||
+    text.includes("timeout")
+  ) {
+    return "server_error";
+  }
+  return "unknown";
+}
+
+function humanizeFetchError(
+  category: FetchErrorCategory,
+  rawMessage: string,
+): string {
+  switch (category) {
+    case "auth_revoked":
+      return "Access was revoked — reconnect to retry.";
+    case "permission_denied":
+      return "Missing permissions — reconnect with full access.";
+    case "rate_limit":
+      return "Hit a rate limit — we'll retry shortly.";
+    case "server_error":
+      return "The provider returned a server error — we'll retry shortly.";
+    default:
+      return rawMessage.length > 120
+        ? `${rawMessage.slice(0, 117)}…`
+        : rawMessage;
+  }
+}
+
+interface FetchToneTokens {
+  /** Background tint + text color for a status pill. */
+  pill: string;
+  /** Filled dot color (small bg circle). */
+  dot: string;
+  /** Filled bar color (legacy horizontal progress fill). */
+  bar: string;
+  /** Text color class used by CircularProgress via `stroke-current`. */
+  ring: string;
+}
+
+function CircularProgress({
+  value,
+  size = 14,
+  strokeWidth = 2,
+  className,
+  trackClassName = "stroke-fg-4",
+}: {
+  value: number;
+  size?: number;
+  strokeWidth?: number;
+  className?: string;
+  trackClassName?: string;
+}) {
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const safeValue = Math.max(0, Math.min(100, value));
+  const offset = circumference - (safeValue / 100) * circumference;
+  return (
+    <svg
+      aria-hidden="true"
+      className={`shrink-0 ${className ?? ""}`}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      width={size}
+    >
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        fill="none"
+        r={radius}
+        strokeWidth={strokeWidth}
+        className={trackClassName}
+      />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        fill="none"
+        r={radius}
+        strokeDasharray={circumference}
+        strokeDashoffset={offset}
+        strokeLinecap="round"
+        strokeWidth={strokeWidth}
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        className="stroke-current transition-[stroke-dashoffset] duration-300"
+      />
+    </svg>
+  );
+}
+
+function fetchTone(status: string): FetchToneTokens {
+  switch (status) {
+    case "completed":
+      return {
+        pill: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+        dot: "bg-emerald-500",
+        bar: "bg-emerald-500",
+        ring: "text-emerald-500",
+      };
+    case "failed":
+      return {
+        pill: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+        dot: "bg-amber-500",
+        bar: "bg-amber-500",
+        ring: "text-amber-500",
+      };
+    case "unsupported":
+      return {
+        pill: "bg-muted text-muted-foreground",
+        dot: "bg-muted-foreground/60",
+        bar: "bg-muted-foreground/40",
+        ring: "text-muted-foreground/50",
+      };
+    default:
+      return {
+        pill: "bg-blue-500/10 text-blue-700 dark:text-blue-400",
+        dot: "bg-blue-500",
+        bar: "bg-blue-500",
+        ring: "text-blue-500",
+      };
+  }
+}
+
 export function DeterministicWorkspaceOnboardingSurface() {
   const {
     selectedWorkspace,
@@ -103,6 +293,12 @@ export function DeterministicWorkspaceOnboardingSurface() {
   const [contextFetchStatusByConnectionId, setContextFetchStatusByConnectionId] =
     useState<Record<string, IntegrationContextFetchStatusPayload>>({});
   const [isContinuing, setIsContinuing] = useState(false);
+  const [reconnectingProvider, setReconnectingProvider] = useState<
+    string | null
+  >(null);
+  const [dismissedWorkspaceError, setDismissedWorkspaceError] = useState<
+    string | null
+  >(null);
   const onboardingFlowState = (selectedWorkspace?.onboarding_state || "")
     .trim()
     .toLowerCase();
@@ -208,7 +404,7 @@ export function DeterministicWorkspaceOnboardingSurface() {
             const toolkit = composioToolkitsByProvider[entry.slug];
             return {
               slug: entry.slug,
-              displayName: toolkit?.name ?? entry.slug,
+              displayName: toolkitDisplayName(entry.slug),
               logo:
                 toolkit?.logo ?? `https://logos.composio.dev/api/${entry.slug}`,
             };
@@ -251,6 +447,27 @@ export function DeterministicWorkspaceOnboardingSurface() {
         ),
     [contextFetchStatusByConnectionId, trackedConnectionIds],
   );
+  // Render a row for every connection we're tracking — even before the
+  // first status poll returns — so the user immediately sees the tools
+  // they connected (with a "Preparing" placeholder) instead of an empty
+  // card during the network round-trip.
+  const trackedEntries = useMemo(() => {
+    return Object.entries(connectionIdByToolkit)
+      .map(([slug, connectionId]) => {
+        const id = connectionId.trim();
+        if (!id) return null;
+        const connection =
+          existingConnectionsBySlug[slug]?.find(
+            (c) => c.connection_id === id,
+          ) ?? null;
+        return { slug, connectionId: id, connection };
+      })
+      .filter(
+        (entry): entry is { slug: string; connectionId: string; connection: IntegrationConnectionPayload | null } =>
+          entry !== null,
+      )
+      .sort((a, b) => a.slug.localeCompare(b.slug));
+  }, [connectionIdByToolkit, existingConnectionsBySlug]);
   const supportedFetchStatuses = trackedFetchStatuses.filter(
     (status) => status.supported,
   );
@@ -363,6 +580,42 @@ export function DeterministicWorkspaceOnboardingSurface() {
     }
   }
 
+  // Trigger a fresh OAuth for a provider whose context fetch failed (e.g.
+  // Notion access revoked), then explicitly kick off the context fetch
+  // for the new connection. Without the fetchIntegrationContext call the
+  // runtime never re-enqueues the import — matches the post-OAuth path
+  // in handleConnect above.
+  async function handleReconnectFailed(providerId: string) {
+    if (!providerId || reconnectingProvider === providerId) return;
+    setReconnectingProvider(providerId);
+    try {
+      const { connectionId } = await connectIntegrationProvider({
+        provider: providerId,
+        accountLabel: `${toolkitDisplayName(providerId)} (Managed)`,
+      });
+      try {
+        const response =
+          await window.electronAPI.workspace.fetchIntegrationContext(
+            connectionId,
+          );
+        setContextFetchStatusByConnectionId((prev) => ({
+          ...prev,
+          [connectionId]: response.status,
+        }));
+      } catch {
+        // Context fetch trigger failed — the status poller will retry on
+        // the runtime side; user can also click Reconnect again.
+      }
+    } catch {
+      // OAuth itself failed (user closed popup, network, etc.) — leave
+      // the failed row visible so they can try again.
+    } finally {
+      setReconnectingProvider((current) =>
+        current === providerId ? null : current,
+      );
+    }
+  }
+
   async function handleContinue() {
     setIsContinuing(true);
     try {
@@ -392,7 +645,6 @@ export function DeterministicWorkspaceOnboardingSurface() {
     }
   }
 
-  const workspaceName = selectedWorkspace?.name?.trim() || "Workspace";
   const fetchingContextMessage =
     connectedCount > 0
       ? `We're importing the first batch of context from your ${connectedCount} connected ${connectedCount === 1 ? "tool" : "tools"} now. You can enter the workspace while that keeps running in the background.`
@@ -409,15 +661,15 @@ export function DeterministicWorkspaceOnboardingSurface() {
   const aggregateProgressPercent =
     aggregateChunkTotal > 0
       ? Math.max(
-          0,
-          Math.min(
-            100,
-            Math.round((aggregateChunkCompleted / aggregateChunkTotal) * 100),
-          ),
-        )
+        0,
+        Math.min(
+          100,
+          Math.round((aggregateChunkCompleted / aggregateChunkTotal) * 100),
+        ),
+      )
       : supportedFetchStatuses.every((status) =>
-            FETCH_TERMINAL_STATUSES.has(status.status),
-          ) && supportedFetchStatuses.length > 0
+        FETCH_TERMINAL_STATUSES.has(status.status),
+      ) && supportedFetchStatuses.length > 0
         ? 100
         : 0;
   const runningFetchStatuses = supportedFetchStatuses.filter(
@@ -440,132 +692,217 @@ export function DeterministicWorkspaceOnboardingSurface() {
   const aggregateDetailLine =
     runningFetchStatuses.length > 0
       ? runningFetchStatuses[0]?.current_chunk_label ||
-        "Importing the first chunks now."
+      "Importing the first chunks now."
       : failedFetchStatuses.length > 0
         ? failedFetchStatuses[0]?.error_message ||
-          "One of the background imports failed."
+        "One of the background imports failed."
         : completedFetchCount > 0
           ? "Your connected context is ready inside the workspace memory browser."
           : "Context fetch status will appear here as soon as the imports start.";
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-1 items-center justify-center overflow-y-auto px-6 py-10 sm:px-10">
-      <div className="flex w-full max-w-2xl flex-col items-center gap-6">
-        <div className="w-full rounded-[32px] border border-border/70 bg-background/90 px-8 py-10 shadow-[0_28px_90px_rgba(15,23,42,0.08)] backdrop-blur sm:px-12 sm:py-12">
+    <div className="flex h-full min-h-0 w-full flex-1 justify-center overflow-y-auto px-6 py-10 sm:px-10">
+      <div className="my-auto flex w-full max-w-3xl flex-col items-center gap-4">
+        <div className="w-full rounded-3xl border border-border bg-background px-8 py-8 sm:px-10 sm:py-10">
           {isFetchingContext ? (
-            <div className="flex flex-col items-center justify-center gap-6 py-6 text-center">
-              <div className="grid size-14 place-items-center rounded-full bg-accent/60 text-foreground">
-                <LoaderCircle className="size-6 animate-spin" />
+            <div className="flex flex-col gap-5">
+              <div className="text-xs font-medium text-muted-foreground">
+                Importing in background
               </div>
+
               <div className="space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.32em] text-muted-foreground">
-                  Set up {workspaceName}
-                </p>
                 <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-                  Fetching your context
+                  Your workspace is being prepared
                 </h1>
-                <p className="mx-auto max-w-md text-sm leading-7 text-muted-foreground">
+                <p className="max-w-xl text-sm text-muted-foreground">
                   {fetchingContextMessage}
                 </p>
-                <p className="mx-auto max-w-md text-sm leading-7 text-muted-foreground">
-                  This can take a minute depending on the accounts you linked.
-                </p>
               </div>
+
               {supportedFetchStatuses.length > 0 ? (
-                <div className="mx-auto w-full max-w-lg rounded-2xl border border-border/70 bg-background/70 p-4 text-left">
-                  <div className="flex items-center justify-between gap-3 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                    <span>Overall progress</span>
-                    <span>{aggregateStatusLine}</span>
+                <div className="rounded-2xl border border-border bg-fg-2 p-5">
+                  <div className="flex items-baseline justify-between gap-4">
+                    <div className="flex items-baseline gap-2.5">
+                      <span className="text-2xl font-semibold leading-none tabular-nums text-foreground">
+                        {aggregateProgressPercent}%
+                      </span>
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {aggregateChunkCompleted.toLocaleString()}/
+                        {aggregateChunkTotal.toLocaleString()} chunks
+                      </span>
+                    </div>
                   </div>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+                  <div className="mt-4 h-1 overflow-hidden rounded-full bg-fg-4">
                     <div
-                      className="h-full rounded-full bg-foreground transition-[width] duration-300"
+                      className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
                       style={{ width: `${aggregateProgressPercent}%` }}
                     />
                   </div>
-                  <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                  <div className="mt-2.5 line-clamp-1 text-xs text-muted-foreground">
                     {aggregateDetailLine}
-                  </p>
+                  </div>
                 </div>
               ) : null}
-              {trackedFetchStatuses.length > 0 ? (
-                <ul className="w-full space-y-3 text-left">
-                  {trackedFetchStatuses.map((status) => {
-                    const progressPercent = contextFetchProgressPercent(status);
-                    const chunkTotal = contextFetchChunkTotal(status);
-                    return (
-                      <li
-                        className="rounded-2xl border border-border/70 bg-background/70 p-4"
-                        key={status.connection_id}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-foreground">
-                              {contextFetchDisplayName(status)}
-                            </p>
-                            <p className="text-xs leading-5 text-muted-foreground">
-                              {status.current_chunk_label ||
-                                (status.supported
-                                  ? "Preparing background import."
-                                  : status.reason ||
-                                    "Context fetch is not supported yet for this integration.")}
+
+              {trackedEntries.length > 0 ? (
+                <ul className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-background">
+                  {trackedEntries.map((entry) => {
+                    const status =
+                      contextFetchStatusByConnectionId[entry.connectionId];
+                    if (!status) {
+                      const handle = entry.connection?.account_handle?.trim();
+                      const email = entry.connection?.account_email?.trim();
+                      const label = entry.connection?.account_label?.trim();
+                      const pendingName = handle
+                        ? formatAccountHandle(handle)
+                        : email
+                          ? email
+                          : label && !isPlaceholderLabel(label, entry.slug)
+                            ? label
+                            : toolkitDisplayName(entry.slug);
+                      return (
+                        <li
+                          className="flex items-center gap-3 px-3.5 py-2.5"
+                          key={entry.connectionId}
+                        >
+                          <IntegrationLogo
+                            alt={pendingName}
+                            size="sm"
+                            slug={entry.slug}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-medium text-foreground">
+                              {pendingName}
+                            </div>
+                            <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
+                              Preparing import…
                             </p>
                           </div>
-                          <p className="shrink-0 text-xs font-medium text-muted-foreground">
-                            {contextFetchStateLabel(status)}
-                          </p>
-                        </div>
-                        {status.supported ? (
-                          <>
-                            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
-                              <div
-                                className="h-full rounded-full bg-foreground transition-[width] duration-300"
-                                style={{ width: `${progressPercent}%` }}
-                              />
-                            </div>
-                            <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
-                              {chunkTotal > 0
-                                ? `${Math.min(status.chunks_completed, chunkTotal)}/${chunkTotal} chunks complete`
-                                : "Waiting for chunk progress"}
-                              {status.error_message
-                                ? ` - ${status.error_message}`
-                                : ""}
+                          <LoaderCircle className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+                        </li>
+                      );
+                    }
+                    const progressPercent =
+                      contextFetchProgressPercent(status);
+                    const chunkTotal = contextFetchChunkTotal(status);
+                    const tone = fetchTone(status.status);
+                    const isFailed = status.status === "failed";
+                    const errorCategory = isFailed
+                      ? categorizeFetchError(status.error_message)
+                      : "unknown";
+                    const canReconnect =
+                      isFailed &&
+                      (errorCategory === "auth_revoked" ||
+                        errorCategory === "permission_denied");
+                    const isReconnectingThis =
+                      reconnectingProvider === status.provider_id;
+                    const detailLine = isFailed
+                      ? humanizeFetchError(
+                          errorCategory,
+                          status.error_message || "Context fetch failed.",
+                        )
+                      : !status.supported
+                        ? status.reason || "Not supported yet."
+                        : null;
+                    const countLabel =
+                      chunkTotal > 0
+                        ? `${Math.min(status.chunks_completed, chunkTotal)}/${chunkTotal}`
+                        : "—";
+                    return (
+                      <li
+                        className={`flex items-center gap-3 px-3.5 py-2.5 ${isFailed ? "bg-amber-500/[0.03]" : ""}`}
+                        key={status.connection_id}
+                      >
+                        <IntegrationLogo
+                          alt={contextFetchDisplayName(status)}
+                          size="sm"
+                          slug={status.provider_id}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium text-foreground">
+                            {contextFetchDisplayName(status)}
+                          </div>
+                          {detailLine ? (
+                            <p
+                              className={`mt-0.5 line-clamp-1 text-[11px] ${isFailed ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}
+                            >
+                              {detailLine}
                             </p>
-                          </>
-                        ) : (
-                          <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
-                            {status.reason ||
-                              "Context fetch is not available yet for this provider."}
-                          </p>
-                        )}
+                          ) : null}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          {canReconnect ? (
+                            <button
+                              className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={isReconnectingThis}
+                              onClick={() =>
+                                void handleReconnectFailed(status.provider_id)
+                              }
+                              type="button"
+                            >
+                              {isReconnectingThis ? (
+                                <>
+                                  <LoaderCircle className="size-3 animate-spin" />
+                                  Connecting…
+                                </>
+                              ) : (
+                                <>
+                                  <RotateCw className="size-3" />
+                                  Reconnect
+                                </>
+                              )}
+                            </button>
+                          ) : (
+                            <>
+                              <span className="text-[11px] tabular-nums text-muted-foreground">
+                                {countLabel}
+                              </span>
+                              {status.supported ? (
+                                <CircularProgress
+                                  className={tone.ring}
+                                  size={14}
+                                  strokeWidth={1.75}
+                                  value={progressPercent}
+                                />
+                              ) : (
+                                <span
+                                  className={`size-1.5 rounded-full ${tone.dot}`}
+                                />
+                              )}
+                            </>
+                          )}
+                        </div>
                       </li>
                     );
                   })}
                 </ul>
               ) : null}
+
               {unsupportedFetchStatuses.length > 0 ? (
-                <p className="mx-auto max-w-lg text-xs leading-5 text-muted-foreground">
-                  Some connected tools do not support context import yet. You
-                  can still enter the workspace now.
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Some connected tools don't support context import yet —
+                  they'll still work once you're inside.
                 </p>
               ) : null}
             </div>
           ) : (
             <>
-              <div className="space-y-3 text-center">
-                <p className="text-xs font-semibold uppercase tracking-[0.32em] text-muted-foreground">
-                  Set up {workspaceName}
-                </p>
+              <div className="space-y-4 text-center">
                 <h1 className="text-3xl font-semibold tracking-tight text-foreground">
                   Hook up your tools
                 </h1>
-                <p className="mx-auto max-w-md text-sm leading-7 text-muted-foreground">
+                <p className="mx-auto max-w-md text-sm text-muted-foreground">
                   Connect anything you want the agent to use. One click each —
                   you can always add more from Settings later.
                 </p>
+                {heroEntries && heroEntries.length > 0 ? (
+                  <p className="text-xs tabular-nums text-muted-foreground">
+                    {connectedCount} of {heroEntries.length} connected
+                  </p>
+                ) : null}
               </div>
 
-              <div className="mt-8">
+              <div className="mt-10">
                 {heroEntries === null ? (
                   <HeroGridSkeleton />
                 ) : heroEntries.length === 0 ? (
@@ -575,7 +912,7 @@ export function DeterministicWorkspaceOnboardingSurface() {
                     continuing.
                   </p>
                 ) : (
-                  <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <ul className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3">
                     {heroEntries.map((entry) => {
                       const accounts =
                         existingConnectionsBySlug[entry.slug] ?? [];
@@ -613,7 +950,27 @@ export function DeterministicWorkspaceOnboardingSurface() {
           )}
         </div>
 
-        <div className="flex items-center gap-4">
+        {workspaceErrorMessage &&
+        workspaceErrorMessage !== dismissedWorkspaceError ? (
+          <div className="flex w-full max-w-md items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3">
+            <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <div className="min-w-0 flex-1 text-sm leading-5 text-foreground">
+              {workspaceErrorMessage}
+            </div>
+            <button
+              aria-label="Dismiss error"
+              className="-mr-1 -mt-1 shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-foreground"
+              onClick={() =>
+                setDismissedWorkspaceError(workspaceErrorMessage)
+              }
+              type="button"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        ) : null}
+
+        <div className="flex flex-col items-center gap-2">
           <Button
             className="min-w-[180px]"
             disabled={isContinuing}
@@ -628,16 +985,15 @@ export function DeterministicWorkspaceOnboardingSurface() {
               : isFetchingContext
                 ? "Enter workspace now"
                 : connectedCount > 0
-                ? `Continue (${connectedCount} connected)`
-                : "Continue"}
+                  ? `Continue (${connectedCount} connected)`
+                  : "Skip for now"}
           </Button>
+          {isFetchingContext ? (
+            <p className="text-[11px] text-muted-foreground">
+              Imports continue in the background while you work.
+            </p>
+          ) : null}
         </div>
-
-        {workspaceErrorMessage ? (
-          <p className="max-w-md text-center text-sm text-destructive">
-            {workspaceErrorMessage}
-          </p>
-        ) : null}
       </div>
     </div>
   );
@@ -694,58 +1050,46 @@ function HeroConnectCard({
   return (
     <li
       className={
-        "flex flex-col gap-1.5 rounded-xl border border-border bg-card px-3 py-2.5 transition-colors hover:bg-accent/40"
+        "group flex h-full flex-col gap-2 rounded-xl border border-border bg-card px-3.5 py-3 transition-colors hover:bg-accent/40"
       }
     >
-      <div className="flex items-center gap-2.5">
-        <div className="grid size-7 shrink-0 place-items-center overflow-hidden rounded-md border border-border bg-background">
-          {entry.logo ? (
-            <img
-              alt=""
-              className="size-full object-contain p-0.5"
-              onError={(e) => {
-                e.currentTarget.style.display = "none";
-              }}
-              referrerPolicy="no-referrer"
-              src={entry.logo}
-            />
-          ) : (
-            <Plug className="size-3.5 text-muted-foreground" />
-          )}
-        </div>
+      <div className="flex items-start gap-3">
+        <IntegrationLogo
+          slug={entry.slug}
+          overrideUrl={entry.logo}
+          alt={entry.displayName}
+          size="md"
+        />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-foreground">
+          <div className="line-clamp-2 text-sm font-medium leading-tight text-foreground">
             {entry.displayName}
           </div>
           {isDone && selectedAccount ? (
-            <div className="truncate text-[11px] leading-4 text-muted-foreground">
+            <div className="mt-0.5 truncate text-[11px] leading-4 text-muted-foreground">
               {accountDisplayHandle(selectedAccount)}
             </div>
           ) : null}
         </div>
-        {isDone ? (
-          <div className="grid size-7 place-items-center rounded-md bg-emerald-500/15 text-emerald-600">
-            <Check className="size-3.5" />
-          </div>
-        ) : (
-          <Button
-            className="h-7 px-2.5 text-xs"
-            disabled={isConnecting}
-            onClick={onConnect}
-            size="sm"
-            type="button"
-            variant={phase === "error" ? "outline" : "secondary"}
-          >
-            {isConnecting ? (
-              <LoaderCircle className="size-3 animate-spin" />
-            ) : phase === "error" ? (
-              "Retry"
-            ) : (
-              "Connect"
-            )}
-          </Button>
-        )}
       </div>
+      {!isDone ? (
+        <button
+          className="mt-auto inline-flex w-fit items-center gap-1 text-[11px] leading-4 font-medium text-foreground transition-colors hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={isConnecting}
+          onClick={onConnect}
+          type="button"
+        >
+          {isConnecting ? (
+            <>
+              <LoaderCircle className="size-3 animate-spin" />
+              Connecting…
+            </>
+          ) : phase === "error" ? (
+            "Retry"
+          ) : (
+            "Connect"
+          )}
+        </button>
+      ) : null}
       {isDone && accounts.length > 0 ? (
         // Power users with multiple Gmails / GitHubs need a way to point
         // this workspace at a specific one (or add a new one). The menu
@@ -756,7 +1100,7 @@ function HeroConnectCard({
           <DropdownMenuTrigger
             render={
               <button
-                className="inline-flex w-fit items-center gap-1 text-[11px] leading-4 text-muted-foreground transition-colors hover:text-foreground"
+                className="mt-auto inline-flex w-fit items-center gap-1 text-[11px] leading-4 text-muted-foreground opacity-0 transition-[opacity,color] duration-150 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
                 type="button"
               >
                 Switch account
