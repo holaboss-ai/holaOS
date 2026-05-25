@@ -187,7 +187,7 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
   assert.doesNotMatch(prompt.systemPrompt, /Connected MCP tools available now:/);
   assert.doesNotMatch(prompt.systemPrompt, /Skills available now:/);
   assert.doesNotMatch(prompt.systemPrompt, /Connected MCP access: available\./);
-  assert.ok(prompt.systemPrompt.length < 5200);
+  assert.ok(prompt.systemPrompt.length < 7300);
   assert.equal(prompt.contextMessages.length, 1);
   assert.match(prompt.contextMessages.join("\n\n"), /Capability availability snapshot:/);
   assert.match(prompt.contextMessages.join("\n\n"), /Inspect tools: available \(\d+ enabled\)\./);
@@ -319,6 +319,7 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /The main session is the default full-capability agent for this workspace, not a capability-thin coordinator\./);
   assert.match(prompt.systemPrompt, /use direct file, shell, browser, MCP\/app, and runtime tools when they are surfaced and they are the clearest path\./);
   assert.match(prompt.systemPrompt, /Use this session to understand the request, execute directly when appropriate, choose when to delegate, brief delegated work clearly, and translate results back to the user\./);
+  assert.match(prompt.systemPrompt, /For non-trivial requests, work in this order: inventory knowns and unknowns, confirm the unknowns that materially affect the next step, ask the user for confirmation if the remaining decision is high-stakes or judgment-based, then execute\./);
   assert.match(prompt.systemPrompt, /Use surfaced capabilities to inspect before mutating when possible, and verify results before claiming success\./);
   assert.match(prompt.systemPrompt, /Treat explicit user requirements, verification targets, and deliverable shape as completion criteria for direct and delegated work, not optional detail\./);
   assert.match(prompt.systemPrompt, /Do not report work as done, verified, or already satisfied unless direct inspection, direct tool results, or grounded child results confirm it\./);
@@ -667,6 +668,14 @@ test("composeAgentPrompt instructs main sessions to record durable workspace kno
   );
   assert.match(
     prompt.systemPrompt,
+    /For non-trivial requests, work in this order: inventory knowns and unknowns, confirm the unknowns that materially affect the next step, ask the user for confirmation if the remaining decision is high-stakes or judgment-based, then execute\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Build a temporary working model from current-turn context, recalled memory, and direct tool results before choosing retrieval or execution steps\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
     /Before choosing a retrieval path, first infer the most likely source of truth for the answer and prefer the most local authoritative source\./i,
   );
   assert.match(
@@ -755,6 +764,18 @@ test("composeBaseAgentPrompt instructs direct sessions to record durable workspa
   assert.match(
     prompt.systemPrompt,
     /Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state\. When in doubt, prefer memory or transient context over `AGENTS\.md`, and leave it out until the pattern repeats or the user confirms it should persist as a default\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /For non-trivial tasks, slow down: separate knowns, assumptions, and unknowns, then confirm the unknowns that materially affect the next action using the cheapest authoritative path available\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /If a remaining uncertainty affects a high-stakes, destructive, externally visible, costly, or hard-to-reverse action, do not guess; resolve it directly or ask the user for confirmation when the uncertainty is about intent, consent, account choice, judgment, or acceptable risk\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Build a temporary working model from current-turn context, recalled memory, and direct tool results before choosing tools\./i,
   );
   assert.match(
     prompt.systemPrompt,

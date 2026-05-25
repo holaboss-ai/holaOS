@@ -1386,6 +1386,8 @@ export function renderCapabilityPolicyCorePromptSection(
   ];
   if (normalizedSessionKind === "main_session") {
     lines.push(
+      "For non-trivial tasks, slow down: inventory knowns, unknowns, and assumptions first, then confirm the unknowns that materially affect the next action before acting.",
+      "If the remaining uncertainty affects a high-stakes, destructive, externally visible, costly, or hard-to-reverse action, resolve it with a direct check or ask the user for confirmation instead of guessing.",
       "Use surfaced capabilities to inspect before mutating workspace, app, browser, or runtime state whenever possible.",
       "After edits, shell commands, browser actions, MCP mutations, or runtime mutations, run a follow-up inspection or verification step before claiming success.",
       "Use coordination capabilities to track progress, consult available skills, delegate research or app-building work when appropriate, or ask for clarification instead of keeping hidden state.",
@@ -1395,6 +1397,8 @@ export function renderCapabilityPolicyCorePromptSection(
   }
   if (normalizedSessionKind === "onboarding") {
     lines.push(
+      "For non-trivial tasks, slow down: inventory knowns, unknowns, and assumptions first, then confirm the unknowns that materially affect the next action before acting.",
+      "If the remaining uncertainty affects a high-stakes, destructive, externally visible, costly, or hard-to-reverse action, resolve it with a direct check or ask the user for confirmation instead of guessing.",
       "Use surfaced capabilities to inspect, route, or verify before making claims about workspace, app, browser, or runtime state whenever possible.",
       "If state-changing work happens in this run or through a delegated child, verify the result before claiming success or completion.",
       "Use coordination capabilities to track progress, consult available skills, route execution, or ask for clarification instead of keeping hidden state.",
@@ -1403,6 +1407,8 @@ export function renderCapabilityPolicyCorePromptSection(
     return lines.join("\n");
   }
   lines.push(
+    "For non-trivial tasks, slow down: inventory knowns, unknowns, and assumptions first, then confirm the unknowns that materially affect the next action before acting.",
+    "If the remaining uncertainty affects a high-stakes, destructive, externally visible, costly, or hard-to-reverse action, resolve it with a direct check or ask the user for confirmation instead of guessing.",
     "Use inspection capabilities to gather context before mutating workspace, app, browser, or runtime state whenever possible.",
     "After edits, shell commands, browser actions, MCP mutations, or runtime mutations, run a follow-up inspection or verification step before claiming success.",
     "Use coordination capabilities to track progress, consult available skills, or ask for clarification instead of keeping hidden state.",

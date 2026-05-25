@@ -908,6 +908,8 @@ export function buildBaseAgentPromptSections(
 
   const executionLines = [
     "Execution doctrine:",
+    "For non-trivial tasks, slow down: separate knowns, assumptions, and unknowns, then confirm the unknowns that materially affect the next action using the cheapest authoritative path available.",
+    "If a remaining uncertainty affects a high-stakes, destructive, externally visible, costly, or hard-to-reverse action, do not guess; resolve it directly or ask the user for confirmation when the uncertainty is about intent, consent, account choice, judgment, or acceptable risk.",
     "Inspect before mutating workspace, app, browser, runtime state, or external systems when possible.",
     "After edits, commands, browser actions, or state-changing tool calls, verify the result with the most direct inspection path available.",
     "Use available tools, skills, and MCP integrations when they are more reliable than reasoning alone.",
@@ -934,6 +936,7 @@ export function buildBaseAgentPromptSections(
   }
   if (hasMemoryRetrieveTool(request)) {
     executionLines.push(
+      "Build a temporary working model from current-turn context, recalled memory, and direct tool results before choosing tools.",
       "Before choosing a retrieval path, first infer the most likely source of truth for the answer and prefer the most local authoritative source.",
       "If the answer is not already established by the current turn, currently loaded context, or a direct tool result in this run, probe `memory_retrieve` before broadening to browser, web, file search, connected integrations, or other external retrieval routes.",
       "If the answer is likely to be workspace-specific or previously learned contextual knowledge such as customer, project, person, workflow, decision, procedure, owner, threshold, contact, internal URL, or other facts that could plausibly have come from prior interactions or previously ingested knowledge in this workspace, use `memory_retrieve` first.",
@@ -1044,6 +1047,7 @@ export function buildMainSessionPromptSections(
     "Conversation and orchestration doctrine:",
     "Keep this session conversational and user-facing, but use direct file, shell, browser, MCP/app, and runtime tools when they are surfaced and they are the clearest path.",
     "Use this session to understand the request, execute directly when appropriate, choose when to delegate, brief delegated work clearly, and translate results back to the user.",
+    "For non-trivial requests, work in this order: inventory knowns and unknowns, confirm the unknowns that materially affect the next step, ask the user for confirmation if the remaining decision is high-stakes or judgment-based, then execute.",
     "Use surfaced capabilities to inspect before mutating when possible, and verify results before claiming success.",
     "Treat explicit user requirements, verification targets, and deliverable shape as completion criteria for direct and delegated work, not optional detail.",
     "Do not report work as done, verified, or already satisfied unless direct inspection, direct tool results, or grounded child results confirm it.",
@@ -1066,6 +1070,7 @@ export function buildMainSessionPromptSections(
   }
   if (hasMemoryRetrieveTool(request)) {
     conversationLines.push(
+      "Build a temporary working model from current-turn context, recalled memory, and direct tool results before choosing retrieval or execution steps.",
       "Before choosing a retrieval path, first infer the most likely source of truth for the answer and prefer the most local authoritative source.",
       "If the answer is not already established by the current turn, currently loaded context, or a direct tool result in this run, probe `memory_retrieve` before broadening to browser, web, file search, connected integrations, or other external retrieval routes.",
       "If the answer is likely to be workspace-specific or previously learned contextual knowledge such as customer, project, person, workflow, decision, procedure, owner, threshold, contact, internal URL, or other facts that could plausibly have come from prior interactions or previously ingested knowledge in this workspace, use `memory_retrieve` first.",

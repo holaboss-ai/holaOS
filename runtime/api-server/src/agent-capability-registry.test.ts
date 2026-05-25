@@ -832,6 +832,8 @@ test("renderCapabilityPolicyPromptSection surfaces full-capability front-session
   });
 
   const section = renderCapabilityPolicyPromptSection(manifest);
+  assert.match(section, /For non-trivial tasks, slow down: inventory knowns, unknowns, and assumptions first, then confirm the unknowns that materially affect the next action before acting\./i);
+  assert.match(section, /If the remaining uncertainty affects a high-stakes, destructive, externally visible, costly, or hard-to-reverse action, resolve it with a direct check or ask the user for confirmation instead of guessing\./i);
   assert.match(section, /Browser tools: none\./);
   assert.match(section, /This front session can execute directly with the surfaced tools above\./);
   assert.match(section, /Use `delegate_task` mainly for research or app-building work, or when background continuation is explicitly needed/i);
