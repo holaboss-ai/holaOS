@@ -19,12 +19,11 @@ test("deterministic workspace onboarding does not enqueue a starter prompt", asy
   assert.doesNotMatch(source, /queueSessionInput\(/);
   assert.match(
     source,
-    /async function handleContinue\(\) \{[\s\S]*await continueDeterministicOnboarding\(\);[\s\S]*\}/,
+    /async function handleContinue\(\) \{[\s\S]*await Promise\.allSettled\([\s\S]*startContextFetch\([\s\S]*await continueDeterministicOnboarding\(\);[\s\S]*\}/,
   );
   assert.match(source, /deterministic_context_fetching/);
-  assert.match(source, />\s*Fetching your context\s*</);
+  assert.match(source, /Importing in background/);
   assert.match(source, /listIntegrationContextFetchStatuses/);
-  assert.match(source, /Overall progress/);
   assert.match(source, /chunks complete/);
   assert.match(
     source,

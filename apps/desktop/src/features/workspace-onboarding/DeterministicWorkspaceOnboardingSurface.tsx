@@ -262,6 +262,42 @@ function fetchTone(status: string): FetchToneTokens {
   }
 }
 
+function makeContextFetchStartFailureStatus(params: {
+  connectionId: string;
+  providerId: string;
+  accountKey?: string | null;
+  accountLabel?: string | null;
+  errorMessage: string;
+}): IntegrationContextFetchStatusPayload {
+  const now = new Date().toISOString();
+  return {
+    connection_id: params.connectionId,
+    provider_id: params.providerId,
+    run_id: `local-start-failure-${params.connectionId}`,
+    supported: true,
+    status: "failed",
+    account_key: params.accountKey?.trim() || null,
+    account_label: params.accountLabel?.trim() || null,
+    tree_id: null,
+    current_chunk_label: `Context fetch failed for ${params.providerId}`,
+    chunks_total: 0,
+    chunks_completed: 0,
+    messages_seen: 0,
+    messages_persisted: 0,
+    leaves_created: 0,
+    leaves_superseding: 0,
+    leaves_unchanged: 0,
+    summary_nodes: 0,
+    actions: [],
+    started_at: now,
+    updated_at: now,
+    completed_at: now,
+    fetched_at: null,
+    error_message: params.errorMessage,
+    reason: null,
+  };
+}
+
 export function DeterministicWorkspaceOnboardingSurface() {
   const {
     selectedWorkspace,
@@ -528,6 +564,49 @@ export function DeterministicWorkspaceOnboardingSurface() {
     };
   }, [isFetchingContext, shouldPollFetchStatuses, trackedConnectionIds, trackedConnectionIdsKey]);
 
+  async function startContextFetch(params: {
+    connectionId: string;
+    providerId: string;
+    accountKey?: string | null;
+    accountLabel?: string | null;
+    errorToolkitSlug?: string;
+  }) {
+    try {
+      const response =
+        await window.electronAPI.workspace.fetchIntegrationContext(
+          params.connectionId,
+        );
+      setContextFetchStatusByConnectionId((prev) => ({
+        ...prev,
+        [params.connectionId]: response.status,
+      }));
+      return response.status;
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Context fetch could not be started.";
+      setContextFetchStatusByConnectionId((prev) => ({
+        ...prev,
+        [params.connectionId]: makeContextFetchStartFailureStatus({
+          connectionId: params.connectionId,
+          providerId: params.providerId,
+          accountKey: params.accountKey,
+          accountLabel: params.accountLabel,
+          errorMessage: message,
+        }),
+      }));
+      if (params.errorToolkitSlug) {
+        const toolkitSlug = params.errorToolkitSlug;
+        setErrorByToolkit((prev) => ({
+          ...prev,
+          [toolkitSlug]: `Connected, but context fetch could not be started: ${message}`,
+        }));
+      }
+      return null;
+    }
+  }
+
   async function handleConnect(
     entry: HeroEntry,
     opts?: { force?: boolean },
@@ -566,27 +645,12 @@ export function DeterministicWorkspaceOnboardingSurface() {
       // spinner appear stuck for the 30s–minutes that the runtime takes
       // to enqueue/start the fetch, which the user reads as "broken".
       setPhaseByToolkit((prev) => ({ ...prev, [entry.slug]: "done" }));
-      void (async () => {
-        try {
-          const response =
-            await window.electronAPI.workspace.fetchIntegrationContext(
-              connectionId,
-            );
-          setContextFetchStatusByConnectionId((prev) => ({
-            ...prev,
-            [connectionId]: response.status,
-          }));
-        } catch (error) {
-          const message =
-            error instanceof Error
-              ? error.message
-              : "Context fetch could not be started.";
-          setErrorByToolkit((prev) => ({
-            ...prev,
-            [entry.slug]: `Connected, but context fetch could not be started: ${message}`,
-          }));
-        }
-      })();
+      void startContextFetch({
+        connectionId,
+        providerId: entry.slug,
+        accountLabel: `${entry.displayName} (Managed)`,
+        errorToolkitSlug: entry.slug,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Connection failed.";
       setErrorByToolkit((prev) => ({ ...prev, [entry.slug]: msg }));
@@ -607,19 +671,11 @@ export function DeterministicWorkspaceOnboardingSurface() {
         provider: providerId,
         accountLabel: `${toolkitDisplayName(providerId)} (Managed)`,
       });
-      try {
-        const response =
-          await window.electronAPI.workspace.fetchIntegrationContext(
-            connectionId,
-          );
-        setContextFetchStatusByConnectionId((prev) => ({
-          ...prev,
-          [connectionId]: response.status,
-        }));
-      } catch {
-        // Context fetch trigger failed — the status poller will retry on
-        // the runtime side; user can also click Reconnect again.
-      }
+      await startContextFetch({
+        connectionId,
+        providerId,
+        accountLabel: `${toolkitDisplayName(providerId)} (Managed)`,
+      });
     } catch {
       // OAuth itself failed (user closed popup, network, etc.) — leave
       // the failed row visible so they can try again.
@@ -651,6 +707,26 @@ export function DeterministicWorkspaceOnboardingSurface() {
               connectionId,
             }),
           ),
+        );
+        await Promise.allSettled(
+          entries.map(async ([slug, connectionId]) => {
+            const existingConnection =
+              existingConnectionsBySlug[slug]?.find(
+                (connection) => connection.connection_id === connectionId,
+              ) ?? null;
+            await startContextFetch({
+              connectionId,
+              providerId: slug,
+              accountKey:
+                existingConnection?.account_handle ||
+                existingConnection?.account_email ||
+                existingConnection?.account_external_id ||
+                null,
+              accountLabel:
+                existingConnection?.account_label ||
+                `${toolkitDisplayName(slug)} (Managed)`,
+            });
+          }),
         );
       }
       await continueDeterministicOnboarding();
