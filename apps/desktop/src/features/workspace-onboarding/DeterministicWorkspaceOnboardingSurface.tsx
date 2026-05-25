@@ -1,6 +1,7 @@
 import { Check, LoaderCircle, Plug } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { bindConnectionToWorkspace } from "@/lib/bindConnectionToWorkspace";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 
 type HeroEntry = {
@@ -83,6 +84,14 @@ export function DeterministicWorkspaceOnboardingSurface() {
   const [connectionIdByToolkit, setConnectionIdByToolkit] = useState<
     Record<string, string>
   >({});
+  // Existing active connections the user already has across all workspaces,
+  // keyed by provider slug. Lets onboarding skip re-OAuth + render a
+  // "Connected as @handle" state instead of a misleading fresh Connect
+  // button. Populated by an effect on mount and refreshed whenever the
+  // workspace switches.
+  const [existingConnectionBySlug, setExistingConnectionBySlug] = useState<
+    Record<string, IntegrationConnectionPayload>
+  >({});
   const [contextFetchStatusByConnectionId, setContextFetchStatusByConnectionId] =
     useState<Record<string, IntegrationContextFetchStatusPayload>>({});
   const [isContinuing, setIsContinuing] = useState(false);
@@ -97,7 +106,78 @@ export function DeterministicWorkspaceOnboardingSurface() {
     setErrorByToolkit({});
     setConnectionIdByToolkit({});
     setContextFetchStatusByConnectionId({});
+    setExistingConnectionBySlug({});
   }, [selectedWorkspace?.id]);
+
+  // Pull the user's existing active connections (across all workspaces)
+  // so we can recognize tiles the user has already authorized. Without
+  // this, onboarding renders the same "Connect" button for every hero
+  // entry and re-OAuthing duplicates the Composio connected_account row.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { connections } =
+          await window.electronAPI.workspace.listIntegrationConnections();
+        if (cancelled) return;
+        // Index by lowercase provider slug. If the user has multiple
+        // accounts for the same provider, take the most-recently-updated
+        // one — same heuristic the agent uses elsewhere when resolving
+        // "the default Gmail account" for this user.
+        const byProvider: Record<string, IntegrationConnectionPayload> = {};
+        for (const conn of connections) {
+          if (conn.status !== "active") continue;
+          const slug = conn.provider_id.trim().toLowerCase();
+          if (!slug) continue;
+          const incumbent = byProvider[slug];
+          if (
+            !incumbent ||
+            Date.parse(conn.updated_at) > Date.parse(incumbent.updated_at)
+          ) {
+            byProvider[slug] = conn;
+          }
+        }
+        setExistingConnectionBySlug(byProvider);
+      } catch {
+        // Onboarding can still function without the pre-existing scan —
+        // user just sees the legacy "Connect everything fresh" UX.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWorkspace?.id]);
+
+  // Once both `heroEntries` and `existingConnectionBySlug` have loaded,
+  // mark any already-connected hero as `done` and seed its connection
+  // id into the tracked map. The continue step then binds those
+  // connections to the new workspace — without this seeding, the
+  // collected map would be empty for unchanged tiles and Phase 2 would
+  // skip them entirely.
+  useEffect(() => {
+    if (!heroEntries || heroEntries.length === 0) return;
+    if (Object.keys(existingConnectionBySlug).length === 0) return;
+    setPhaseByToolkit((prev) => {
+      const next = { ...prev };
+      for (const entry of heroEntries) {
+        const existing = existingConnectionBySlug[entry.slug];
+        if (existing && !next[entry.slug]) {
+          next[entry.slug] = "done";
+        }
+      }
+      return next;
+    });
+    setConnectionIdByToolkit((prev) => {
+      const next = { ...prev };
+      for (const entry of heroEntries) {
+        const existing = existingConnectionBySlug[entry.slug];
+        if (existing && !next[entry.slug]) {
+          next[entry.slug] = existing.connection_id;
+        }
+      }
+      return next;
+    });
+  }, [heroEntries, existingConnectionBySlug]);
 
   useEffect(() => {
     let cancelled = false;
@@ -209,7 +289,25 @@ export function DeterministicWorkspaceOnboardingSurface() {
     };
   }, [isFetchingContext, shouldPollFetchStatuses, trackedConnectionIds, trackedConnectionIdsKey]);
 
-  async function handleConnect(entry: HeroEntry) {
+  async function handleConnect(
+    entry: HeroEntry,
+    opts?: { force?: boolean },
+  ) {
+    // Short-circuit when this provider is already connected and the caller
+    // didn't explicitly ask for a fresh OAuth (the "Switch account" link
+    // sets force=true). Avoids creating a duplicate Composio
+    // connected_account row for users who already authorized Gmail in a
+    // previous workspace — they should be able to just click Continue.
+    const existing = existingConnectionBySlug[entry.slug];
+    if (existing && !opts?.force) {
+      setConnectionIdByToolkit((prev) => ({
+        ...prev,
+        [entry.slug]: existing.connection_id,
+      }));
+      setPhaseByToolkit((prev) => ({ ...prev, [entry.slug]: "done" }));
+      return;
+    }
+
     setPhaseByToolkit((prev) => ({ ...prev, [entry.slug]: "connecting" }));
     setErrorByToolkit((prev) => ({ ...prev, [entry.slug]: null }));
     try {
@@ -251,6 +349,26 @@ export function DeterministicWorkspaceOnboardingSurface() {
   async function handleContinue() {
     setIsContinuing(true);
     try {
+      // Phase 2: persist every (slug → connection_id) we collected during
+      // onboarding — whether the user freshly OAuth'd or we reused a
+      // pre-existing connection — into this workspace's binding state.
+      // Without this the IDs sit dead in React state and the workspace
+      // has no idea which integrations the user "chose" during setup.
+      const workspaceId = selectedWorkspace?.id;
+      if (workspaceId) {
+        const entries = Object.entries(connectionIdByToolkit).filter(
+          ([, connectionId]) => connectionId.trim().length > 0,
+        );
+        await Promise.allSettled(
+          entries.map(([slug, connectionId]) =>
+            bindConnectionToWorkspace({
+              workspaceId,
+              providerSlug: slug,
+              connectionId,
+            }),
+          ),
+        );
+      }
       await continueDeterministicOnboarding();
     } finally {
       setIsContinuing(false);
@@ -441,15 +559,29 @@ export function DeterministicWorkspaceOnboardingSurface() {
                   </p>
                 ) : (
                   <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    {heroEntries.map((entry) => (
-                      <HeroConnectCard
-                        entry={entry}
-                        error={errorByToolkit[entry.slug] ?? null}
-                        key={entry.slug}
-                        onConnect={() => void handleConnect(entry)}
-                        phase={phaseByToolkit[entry.slug] ?? "idle"}
-                      />
-                    ))}
+                    {heroEntries.map((entry) => {
+                      const existing = existingConnectionBySlug[entry.slug];
+                      return (
+                        <HeroConnectCard
+                          connectedAccountLabel={
+                            existing
+                              ? accountDisplayHandle(existing)
+                              : null
+                          }
+                          entry={entry}
+                          error={errorByToolkit[entry.slug] ?? null}
+                          key={entry.slug}
+                          onConnect={() => void handleConnect(entry)}
+                          onSwitchAccount={
+                            existing
+                              ? () =>
+                                  void handleConnect(entry, { force: true })
+                              : null
+                          }
+                          phase={phaseByToolkit[entry.slug] ?? "idle"}
+                        />
+                      );
+                    })}
                   </ul>
                 )}
               </div>
@@ -505,11 +637,20 @@ function HeroConnectCard({
   phase,
   error,
   onConnect,
+  connectedAccountLabel,
+  onSwitchAccount,
 }: {
   entry: HeroEntry;
   phase: ConnectPhase;
   error: string | null;
   onConnect: () => void;
+  /** Friendly label of the already-connected account (e.g. "@jotyy" or
+   *  "josh@example.com"). Null when there's no pre-existing connection. */
+  connectedAccountLabel: string | null;
+  /** Triggers a fresh OAuth that creates a NEW connection for the same
+   *  provider. Null when the tile has no existing connection to switch
+   *  away from. */
+  onSwitchAccount: (() => void) | null;
 }) {
   const isDone = phase === "done";
   const isConnecting = phase === "connecting";
@@ -539,6 +680,11 @@ function HeroConnectCard({
           <div className="truncate text-sm font-medium text-foreground">
             {entry.displayName}
           </div>
+          {isDone && connectedAccountLabel ? (
+            <div className="truncate text-[11px] leading-4 text-muted-foreground">
+              {connectedAccountLabel}
+            </div>
+          ) : null}
         </div>
         {isDone ? (
           <div className="grid size-7 place-items-center rounded-md bg-emerald-500/15 text-emerald-600">
@@ -563,6 +709,18 @@ function HeroConnectCard({
           </Button>
         )}
       </div>
+      {isDone && onSwitchAccount ? (
+        // Tiny escape hatch — most users will accept the reused account,
+        // but power users with multiple Gmails / GitHubs need a way to
+        // force a fresh OAuth into a different account for this workspace.
+        <button
+          className="self-start text-[11px] leading-4 text-muted-foreground transition-colors hover:text-foreground"
+          onClick={onSwitchAccount}
+          type="button"
+        >
+          Switch account
+        </button>
+      ) : null}
       {error ? (
         <p className="line-clamp-2 text-[11px] leading-4 text-destructive">
           {error}
@@ -570,4 +728,21 @@ function HeroConnectCard({
       ) : null}
     </li>
   );
+}
+
+// Pick the most-recognizable string from a connection for inline display
+// on the onboarding tile. Falls back through handle → email → label →
+// "Connected" so we always render something useful.
+function accountDisplayHandle(
+  connection: IntegrationConnectionPayload,
+): string {
+  const handle = connection.account_handle?.trim();
+  if (handle) {
+    return handle.startsWith("@") ? handle : `@${handle}`;
+  }
+  const email = connection.account_email?.trim();
+  if (email) return email;
+  const label = connection.account_label?.trim();
+  if (label) return label;
+  return "Connected";
 }
