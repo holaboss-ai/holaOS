@@ -7,7 +7,7 @@ import {
   RotateCw,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { IntegrationLogo } from "@/components/integration/IntegrationLogo";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +19,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { bindConnectionToWorkspace } from "@/lib/bindConnectionToWorkspace";
 import { toolkitDisplayName } from "@/lib/toolkitDisplay";
-import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import {
+  IntegrationConnectCancelled,
+  useWorkspaceDesktop,
+} from "@/lib/workspaceDesktop";
 
 type HeroEntry = {
   slug: string;
@@ -335,6 +338,20 @@ export function DeterministicWorkspaceOnboardingSurface() {
   const [dismissedWorkspaceError, setDismissedWorkspaceError] = useState<
     string | null
   >(null);
+
+  // Per-toolkit AbortControllers so each card's Cancel button can short-
+  // circuit `connectIntegrationProvider`'s ~5-minute timeout. One entry
+  // per slug; new attempts replace the prior controller. Cleared on
+  // workspace switch + on unmount.
+  const connectControllersRef = useRef<Record<string, AbortController>>({});
+  useEffect(() => {
+    return () => {
+      for (const controller of Object.values(connectControllersRef.current)) {
+        controller.abort();
+      }
+      connectControllersRef.current = {};
+    };
+  }, []);
   const onboardingFlowState = (selectedWorkspace?.onboarding_state || "")
     .trim()
     .toLowerCase();
@@ -361,6 +378,10 @@ export function DeterministicWorkspaceOnboardingSurface() {
     setContextFetchStatusByConnectionId({});
     setExistingConnectionsBySlug({});
     setHasReachedFetching(false);
+    for (const controller of Object.values(connectControllersRef.current)) {
+      controller.abort();
+    }
+    connectControllersRef.current = {};
   }, [selectedWorkspace?.id]);
 
   // Pull the user's existing active connections (across all workspaces)
@@ -629,10 +650,14 @@ export function DeterministicWorkspaceOnboardingSurface() {
 
     setPhaseByToolkit((prev) => ({ ...prev, [entry.slug]: "connecting" }));
     setErrorByToolkit((prev) => ({ ...prev, [entry.slug]: null }));
+    connectControllersRef.current[entry.slug]?.abort();
+    const controller = new AbortController();
+    connectControllersRef.current[entry.slug] = controller;
     try {
       const { connectionId } = await connectIntegrationProvider({
         provider: entry.slug,
-        accountLabel: `${entry.displayName} (Managed)`,
+        accountLabel: entry.displayName,
+        signal: controller.signal,
       });
       setConnectionIdByToolkit((prev) => ({
         ...prev,
@@ -652,10 +677,27 @@ export function DeterministicWorkspaceOnboardingSurface() {
         errorToolkitSlug: entry.slug,
       });
     } catch (err) {
+      // User cancelled — drop back to idle silently (no error, the user
+      // intended this).
+      if (
+        err instanceof IntegrationConnectCancelled ||
+        controller.signal.aborted
+      ) {
+        setPhaseByToolkit((prev) => ({ ...prev, [entry.slug]: "idle" }));
+        return;
+      }
       const msg = err instanceof Error ? err.message : "Connection failed.";
       setErrorByToolkit((prev) => ({ ...prev, [entry.slug]: msg }));
       setPhaseByToolkit((prev) => ({ ...prev, [entry.slug]: "error" }));
+    } finally {
+      if (connectControllersRef.current[entry.slug] === controller) {
+        delete connectControllersRef.current[entry.slug];
+      }
     }
+  }
+
+  function handleCancelConnect(slug: string) {
+    connectControllersRef.current[slug]?.abort();
   }
 
   // Trigger a fresh OAuth for a provider whose context fetch failed (e.g.
@@ -666,10 +708,14 @@ export function DeterministicWorkspaceOnboardingSurface() {
   async function handleReconnectFailed(providerId: string) {
     if (!providerId || reconnectingProvider === providerId) return;
     setReconnectingProvider(providerId);
+    connectControllersRef.current[providerId]?.abort();
+    const controller = new AbortController();
+    connectControllersRef.current[providerId] = controller;
     try {
       const { connectionId } = await connectIntegrationProvider({
         provider: providerId,
-        accountLabel: `${toolkitDisplayName(providerId)} (Managed)`,
+        accountLabel: toolkitDisplayName(providerId),
+        signal: controller.signal,
       });
       await startContextFetch({
         connectionId,
@@ -678,8 +724,12 @@ export function DeterministicWorkspaceOnboardingSurface() {
       });
     } catch {
       // OAuth itself failed (user closed popup, network, etc.) — leave
-      // the failed row visible so they can try again.
+      // the failed row visible so they can try again. Cancellation drops
+      // back silently for the same reason.
     } finally {
+      if (connectControllersRef.current[providerId] === controller) {
+        delete connectControllersRef.current[providerId];
+      }
       setReconnectingProvider((current) =>
         current === providerId ? null : current,
       );
@@ -1034,6 +1084,7 @@ export function DeterministicWorkspaceOnboardingSurface() {
                           onAddNewAccount={() =>
                             void handleConnect(entry, { force: true })
                           }
+                          onCancel={() => handleCancelConnect(entry.slug)}
                           onConnect={() => void handleConnect(entry)}
                           onSelectAccount={(connectionId) => {
                             setConnectionIdByToolkit((prev) => ({
@@ -1129,6 +1180,7 @@ function HeroConnectCard({
   phase,
   error,
   onConnect,
+  onCancel,
   accounts,
   selectedConnectionId,
   onSelectAccount,
@@ -1138,6 +1190,10 @@ function HeroConnectCard({
   phase: ConnectPhase;
   error: string | null;
   onConnect: () => void;
+  /** Abort the in-flight OAuth poll. Wired to the inline Cancel affordance
+   *  on the connecting state so the user doesn't have to wait through the
+   *  ~5-minute timeout after closing the OAuth browser. */
+  onCancel: () => void;
   /** Every active connection the user has for this provider, newest-first.
    *  Empty array when no pre-existing connections — the tile renders a
    *  plain Connect button in that case. */
@@ -1183,23 +1239,26 @@ function HeroConnectCard({
           ) : null}
         </div>
       </div>
-      {!isDone ? (
+      {!isDone && isConnecting ? (
+        <div className="mt-auto inline-flex items-center gap-1.5 text-[11px] leading-4 text-muted-foreground">
+          <LoaderCircle className="size-3 animate-spin" />
+          <span>Connecting…</span>
+          <button
+            aria-label="Cancel connection"
+            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-fg-4 hover:text-foreground"
+            onClick={onCancel}
+            type="button"
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      ) : !isDone ? (
         <button
-          className="mt-auto inline-flex w-fit items-center gap-1 text-[11px] leading-4 font-medium text-foreground transition-colors hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={isConnecting}
+          className="mt-auto inline-flex w-fit items-center gap-1 text-[11px] leading-4 font-medium text-foreground transition-colors hover:text-primary"
           onClick={onConnect}
           type="button"
         >
-          {isConnecting ? (
-            <>
-              <LoaderCircle className="size-3 animate-spin" />
-              Connecting…
-            </>
-          ) : phase === "error" ? (
-            "Retry"
-          ) : (
-            "Connect"
-          )}
+          {phase === "error" ? "Retry" : "Connect"}
         </button>
       ) : null}
       {isDone && accounts.length > 0 ? (

@@ -1430,6 +1430,13 @@ export function renderCapabilityToolRoutingPromptSection(
     lines.push("When creating or updating cronjobs, put the executable task in `instruction` and keep `description` as a short display summary only.");
     lines.push("Do not repeat schedule wording such as 'every 5 minutes' inside the cronjob `instruction` unless the task itself genuinely requires saying that phrase.");
   }
+  if (manifest.runtime_tools.some((capability) => capability.id === "holaboss_workspace_integrations_propose_connect")) {
+    ensureHeading();
+    lines.push("Integration routing: when the user references their OWN account on a known third-party service (their Twitter posts, their Gmail inbox, their GitHub repos, their Notion pages, their Slack channels, etc.) and the provider's `<toolkit>_<verb>` tools are NOT in your current tool list, call `holaboss_workspace_integrations_propose_connect` for that toolkit FIRST. The chat UI renders a one-click Connect card from the result.");
+    lines.push("Do NOT open a browser to scrape an unauthenticated public page, ask the user to paste their `@handle` so you can read public data, or fall back to a manual workaround when a Connect card is the actual answer. That undersells what the agent can do post-connection.");
+    lines.push("Browser fallback for a third-party service is appropriate only when the user explicitly asks for a browser-based action, when the provider has no integration in the workspace catalog, or when the integration is already connected and the specific page or interaction genuinely cannot be reached through its surfaced tools.");
+    lines.push("Scope-error recovery: when a Composio `<toolkit>_<verb>` tool returns `[composio_error:forbidden:<slug>]`, `[composio_error:permission_denied:<slug>]`, or `[composio_error:insufficient_scope:<slug>]`, the user's OAuth grant lacks a required scope (most often Google's granular consent screen left a box unchecked). Call `holaboss_workspace_integrations_propose_connect` for that slug with a `reason` mentioning the missing access — do NOT switch to browser, web search, or ask the user to paste data manually. The Reconnect card is the recovery path.");
+  }
   if (manifest.runtime_tools.some((capability) => capability.id === "delegate_task")) {
     ensureHeading();
     lines.push("Delegation routing: keep work inline by default. Use `delegate_task` primarily for research and investigation work that benefits from a separate execution branch, or for creating apps and making substantial app modifications.");

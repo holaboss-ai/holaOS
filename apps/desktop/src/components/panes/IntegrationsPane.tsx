@@ -722,7 +722,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
           connected_account_id: connectedAccountId,
           provider: integration.providerId,
           owner_user_id: userId,
-          account_label: `${integration.name} (Managed)`,
+          account_label: integration.name,
         });
         // Layer-2 auto-default: when the user explicitly connects an
         // account from Settings AND the selected workspace has no

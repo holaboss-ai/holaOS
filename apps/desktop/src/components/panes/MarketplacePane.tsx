@@ -206,7 +206,7 @@ export function MarketplacePane({
             connected_account_id: newConnection.id,
             provider,
             owner_user_id: userId,
-            account_label: `${provider} (Managed)`,
+            account_label: toolkitDisplayName(provider),
           });
           if (cancelled) {
             return;
