@@ -304,6 +304,19 @@ export function DeterministicWorkspaceOnboardingSurface() {
     .toLowerCase();
   const isFetchingContext =
     onboardingFlowState === "deterministic_context_fetching";
+  // Sticky latch — once the workspace has crossed into the fetching
+  // step, keep the fetching view visible even if `onboarding_state`
+  // briefly reads as something else (workspace re-fetch race, transient
+  // selectedWorkspace=null, etc.). Without this, the page occasionally
+  // flickers back to the connect grid mid-import. Resets only when the
+  // active workspace itself changes.
+  const [hasReachedFetching, setHasReachedFetching] = useState(false);
+  useEffect(() => {
+    if (isFetchingContext) {
+      setHasReachedFetching(true);
+    }
+  }, [isFetchingContext]);
+  const showFetchingView = isFetchingContext || hasReachedFetching;
 
   useEffect(() => {
     setPhaseByToolkit({});
@@ -311,6 +324,7 @@ export function DeterministicWorkspaceOnboardingSurface() {
     setConnectionIdByToolkit({});
     setContextFetchStatusByConnectionId({});
     setExistingConnectionsBySlug({});
+    setHasReachedFetching(false);
   }, [selectedWorkspace?.id]);
 
   // Pull the user's existing active connections (across all workspaces)
@@ -704,7 +718,24 @@ export function DeterministicWorkspaceOnboardingSurface() {
     <div className="flex h-full min-h-0 w-full flex-1 justify-center overflow-y-auto px-6 py-10 sm:px-10">
       <div className="my-auto flex w-full max-w-3xl flex-col items-center gap-4">
         <div className="w-full rounded-3xl border border-border bg-background px-8 py-8 sm:px-10 sm:py-10">
-          {isFetchingContext ? (
+          {showFetchingView && trackedConnectionIds.length === 0 ? (
+            // Skip the full fetching panel when the user continued with
+            // zero connections — there's nothing to render rows for, and
+            // showing an empty progress card reads as "broken". Hold a
+            // minimal loading state until the workspace transitions out
+            // and the parent unmounts us.
+            <div className="flex flex-col items-center gap-4 py-8 text-center">
+              <LoaderCircle className="size-6 animate-spin text-muted-foreground" />
+              <div className="space-y-1">
+                <h1 className="text-xl font-semibold text-foreground">
+                  Setting up your workspace
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  Almost ready…
+                </p>
+              </div>
+            </div>
+          ) : showFetchingView ? (
             <div className="flex flex-col gap-5">
               <div className="text-xs font-medium text-muted-foreground">
                 Importing in background
@@ -973,22 +1004,27 @@ export function DeterministicWorkspaceOnboardingSurface() {
         <div className="flex flex-col items-center gap-2">
           <Button
             className="min-w-[180px]"
-            disabled={isContinuing}
+            disabled={
+              isContinuing ||
+              (showFetchingView && trackedConnectionIds.length === 0)
+            }
             onClick={() => void handleContinue()}
             size="lg"
             type="button"
           >
             {isContinuing
-              ? isFetchingContext
+              ? showFetchingView
                 ? "Opening workspace..."
                 : "Continuing..."
-              : isFetchingContext
-                ? "Enter workspace now"
+              : showFetchingView
+                ? trackedConnectionIds.length === 0
+                  ? "Opening workspace..."
+                  : "Enter workspace now"
                 : connectedCount > 0
                   ? `Continue (${connectedCount} connected)`
                   : "Skip for now"}
           </Button>
-          {isFetchingContext ? (
+          {showFetchingView && trackedConnectionIds.length > 0 ? (
             <p className="text-[11px] text-muted-foreground">
               Imports continue in the background while you work.
             </p>
