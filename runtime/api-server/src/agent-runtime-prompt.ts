@@ -937,13 +937,14 @@ export function buildBaseAgentPromptSections(
       "If the answer is not already established by the current turn, currently loaded context, or a direct tool result in this run, probe `memory_retrieve` before broadening to browser, web, file search, connected integrations, or other external retrieval routes.",
       "If the answer is likely to be workspace-specific or previously learned contextual knowledge such as customer, project, person, workflow, decision, procedure, owner, threshold, contact, internal URL, or other facts that could plausibly have come from prior interactions or previously ingested knowledge in this workspace, use `memory_retrieve` first.",
       "Do not open a browser tab or other live external surface first for an unknown fact lookup when memory could plausibly already contain the answer.",
-      "Use browser, web, or other live external sources before memory only when the user is explicitly asking for current live state, current UI state, or other freshness-sensitive information that memory is unlikely to settle on its own.",
+      "Use browser as the top retrieval route only when the user is explicitly asking about the current page, current tab, or current browser UI state.",
+      "For other freshness-sensitive questions, do not jump to browser first; prefer current-turn context, then `memory_retrieve`, then the most direct connected integration or MCP/app route for that system before broader browser or web retrieval.",
       "If memory does not return a strong relevant result, then broaden outward to the next most plausible source, which may include local file search, connected integrations, workspace data/tools, or web search depending on where the answer is most likely to live."
     );
   }
   if (capabilityManifest?.browser_tools.length) {
     executionLines.push(
-      "When browser tools are available, treat them as a fallback UI surface, not the default route. Use them only when the user explicitly asks for browser use, the task inherently requires UI interaction, visual confirmation matters, or non-browser routes are blocked. When you do use them, prefer DOM-grounded actions and extraction. If a required fact may be rendered in attributes, custom elements, or hydration data instead of visible text, inspect those page-local DOM sources before concluding it is unavailable. Use screenshots only when visual confirmation matters."
+      "When browser tools are available, treat them as a fallback UI surface, not the default route. Browser is the top option only for questions about the current page, current tab, or current browser UI state. Otherwise use it only when the user explicitly asks for browser use, the task inherently requires UI interaction, visual confirmation matters, or non-browser routes are blocked. When you do use it, prefer DOM-grounded actions and extraction. If a required fact may be rendered in attributes, custom elements, or hydration data instead of visible text, inspect those page-local DOM sources before concluding it is unavailable. Use screenshots only when visual confirmation matters."
     );
   }
   if (request.workspaceSkillIds.length > 0) {
@@ -952,14 +953,20 @@ export function buildBaseAgentPromptSections(
   if (request.resolvedMcpToolRefs.length > 0) {
     executionLines.push(
       "Use MCP tools directly, and prefer surfaced MCP/app tools over browser work, web search, bash, or file inspection when they match the target system, including its URLs.",
-      "Do not route an MCP-backed task through the browser just because browser tools are available; use browser tools for that system only when the user explicitly asks for browser use, the task explicitly requires UI interaction, independent visual verification is required, or the MCP route is blocked."
     );
+    if (capabilityManifest?.browser_tools.length) {
+      executionLines.push(
+        "Do not treat browser as the default path for non-UI freshness checks in a connected system; for recent or important activity in that system, prefer the MCP/app route before browser when it can provide the live state directly.",
+        "Do not route an MCP-backed task through the browser just because browser tools are available; use browser tools for that system only when the user explicitly asks for browser use, the task explicitly requires UI interaction, independent visual verification is required, or the MCP route is blocked."
+      );
+    }
   } else if (
     (request.resolvedMcpServerIds?.length ?? 0) > 0 ||
     (request.capabilityManifest?.context.mcp_server_ids?.length ?? 0) > 0
   ) {
     executionLines.push(
       "If connected MCP access exists without tool names listed here, do not assume MCP is unavailable; use surfaced MCP tools when relevant.",
+      "For connected systems, recent-activity questions should broaden from current-turn context and memory to the connected MCP/app route before browser exploration.",
       "If browser tools are also available, do not default to browser exploration for the same connected system; keep MCP as the first route unless the user explicitly asks for browser use, the task explicitly requires UI interaction, or the MCP path is blocked."
     );
   }
@@ -1059,7 +1066,8 @@ export function buildMainSessionPromptSections(
       "If the answer is not already established by the current turn, currently loaded context, or a direct tool result in this run, probe `memory_retrieve` before broadening to browser, web, file search, connected integrations, or other external retrieval routes.",
       "If the answer is likely to be workspace-specific or previously learned contextual knowledge such as customer, project, person, workflow, decision, procedure, owner, threshold, contact, internal URL, or other facts that could plausibly have come from prior interactions or previously ingested knowledge in this workspace, use `memory_retrieve` first.",
       "Do not open a browser tab or other live external surface first for an unknown fact lookup when memory could plausibly already contain the answer.",
-      "Use browser, web, or other live external sources before memory only when the user is explicitly asking for current live state, current UI state, or other freshness-sensitive information that memory is unlikely to settle on its own.",
+      "Use browser as the top retrieval route only when the user is explicitly asking about the current page, current tab, or current browser UI state.",
+      "For other freshness-sensitive questions, do not jump to browser first; prefer current-turn context, then `memory_retrieve`, then the most direct connected integration or MCP/app route for that system before broader browser or web retrieval.",
       "If memory does not return a strong relevant result, then broaden outward to the next most plausible source, which may include local file search, connected integrations, workspace data/tools, or web search depending on where the answer is most likely to live."
     );
   }
@@ -1133,12 +1141,18 @@ export function buildMainSessionPromptSections(
       "Use relevant MCP tools directly instead of only describing them.",
       "Prefer surfaced MCP/app tools over opening the web app, browser exploration, or web research when they can satisfy the request, including when the user supplies a URL for that system; use browser/web around an MCP-backed system only when the user explicitly asks for browser use, for UI verification, for requested independent confirmation, or after the MCP path is blocked."
     );
+    if (capabilityManifest?.browser_tools.length) {
+      conversationLines.push(
+        "Do not treat browser as the default path for non-UI freshness checks in a connected system; for recent or important activity in that system, prefer the MCP/app route before browser when it can provide the live state directly.",
+      );
+    }
   } else if (
     (request.resolvedMcpServerIds?.length ?? 0) > 0 ||
     (request.capabilityManifest?.context.mcp_server_ids?.length ?? 0) > 0
   ) {
     conversationLines.push(
-      "If connected MCP access exists without tool names listed here, do not assume MCP is unavailable; use surfaced MCP tools when relevant."
+      "If connected MCP access exists without tool names listed here, do not assume MCP is unavailable; use surfaced MCP tools when relevant.",
+      "For connected systems, recent-activity questions should broaden from current-turn context and memory to the connected MCP/app route before browser exploration."
     );
   }
   pushPromptLayer(promptSections, {

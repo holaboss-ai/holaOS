@@ -124,7 +124,7 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
     prompt.systemPrompt,
     /Use MCP tools directly, and prefer surfaced MCP\/app tools over browser work, web search, bash, or file inspection when they match the target system, including its URLs\./
   );
-  assert.match(
+  assert.doesNotMatch(
     prompt.systemPrompt,
     /Do not route an MCP-backed task through the browser just because browser tools are available; use browser tools for that system only when the user explicitly asks for browser use, the task explicitly requires UI interaction, independent visual verification is required, or the MCP route is blocked\./
   );
@@ -683,7 +683,11 @@ test("composeAgentPrompt instructs main sessions to record durable workspace kno
   );
   assert.match(
     prompt.systemPrompt,
-    /Use browser, web, or other live external sources before memory only when the user is explicitly asking for current live state, current UI state, or other freshness-sensitive information that memory is unlikely to settle on its own\./i,
+    /Use browser as the top retrieval route only when the user is explicitly asking about the current page, current tab, or current browser UI state\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /For other freshness-sensitive questions, do not jump to browser first; prefer current-turn context, then `memory_retrieve`, then the most direct connected integration or MCP\/app route for that system before broader browser or web retrieval\./i,
   );
   assert.match(
     prompt.systemPrompt,
@@ -758,7 +762,11 @@ test("composeBaseAgentPrompt instructs direct sessions to record durable workspa
   );
   assert.match(
     prompt.systemPrompt,
-    /Use browser, web, or other live external sources before memory only when the user is explicitly asking for current live state, current UI state, or other freshness-sensitive information that memory is unlikely to settle on its own\./i,
+    /Use browser as the top retrieval route only when the user is explicitly asking about the current page, current tab, or current browser UI state\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /For other freshness-sensitive questions, do not jump to browser first; prefer current-turn context, then `memory_retrieve`, then the most direct connected integration or MCP\/app route for that system before broader browser or web retrieval\./i,
   );
   assert.match(
     prompt.systemPrompt,
@@ -1514,11 +1522,15 @@ test("composeBaseAgentPrompt requires proactive fallback when partial retrieval 
   );
   assert.match(
     prompt.systemPrompt,
-    /Use them only when the user explicitly asks for browser use, the task inherently requires UI interaction, visual confirmation matters, or non-browser routes are blocked\./
+    /Browser is the top option only for questions about the current page, current tab, or current browser UI state\./
   );
   assert.match(
     prompt.systemPrompt,
-    /When you do use them, prefer DOM-grounded actions and extraction\./
+    /Otherwise use it only when the user explicitly asks for browser use, the task inherently requires UI interaction, visual confirmation matters, or non-browser routes are blocked\./
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /When you do use it, prefer DOM-grounded actions and extraction\./
   );
   assert.match(
     prompt.systemPrompt,
@@ -1558,6 +1570,10 @@ test("composeBaseAgentPrompt keeps connected MCP server routes ahead of browser 
   assert.match(
     prompt.systemPrompt,
     /If connected MCP access exists without tool names listed here, do not assume MCP is unavailable; use surfaced MCP tools when relevant\./,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /For connected systems, recent-activity questions should broaden from current-turn context and memory to the connected MCP\/app route before browser exploration\./,
   );
   assert.match(
     prompt.systemPrompt,

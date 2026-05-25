@@ -1465,7 +1465,10 @@ export function renderCapabilityToolRoutingPromptSection(
     ensureHeading();
     lines.push("Remote file transfer: prefer `download_url` when you already have a direct asset URL and need a saved workspace file instead of relying on browser-only downloads or ad hoc shell fetches.");
   }
-  if (manifest.mcp_tools.length > 0) {
+  if (
+    manifest.mcp_tools.length > 0 ||
+    (manifest.context.mcp_server_ids?.length ?? 0) > 0
+  ) {
     ensureHeading();
     lines.push(
       "MCP-first routing: when surfaced MCP/app tools match the target system or supplied URL, use them before opening the web app, web search, bash, or file inspection.",
@@ -1473,6 +1476,16 @@ export function renderCapabilityToolRoutingPromptSection(
     if (manifest.mcp_tool_aliases.length > 0) {
       lines.push(
         "When the capability snapshot lists an MCP tool id alongside a callable alias, use the callable alias for tool invocation. The dotted tool id is an identifier, not necessarily the runtime callable name.",
+      );
+    }
+    if (manifest.mcp_tools.length === 0) {
+      lines.push(
+        "If only connected MCP server ids are listed, treat that as a signal that callable tools may be resolved dynamically by the runtime, not as a reason to fall back to browser or web.",
+      );
+    }
+    if (manifest.browser_tools.length > 0) {
+      lines.push(
+        "Do not treat browser as the default path for non-UI freshness checks in a connected system. For recent or important activity in that system, prefer the connected MCP/app route before browser when it can provide the live state directly.",
       );
     }
     lines.push(

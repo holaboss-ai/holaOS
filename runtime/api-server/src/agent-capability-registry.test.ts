@@ -313,8 +313,10 @@ test("renderCapabilityToolRoutingPromptSection prefers surfaced MCP tools before
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
     sessionKind: "subagent",
+    browserToolsAvailable: true,
+    browserToolIds: ["browser_get_state"],
     defaultTools: ["read", "bash"],
-    extraTools: [],
+    extraTools: ["browser_get_state"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [
       {
@@ -328,6 +330,7 @@ test("renderCapabilityToolRoutingPromptSection prefers surfaced MCP tools before
   const section = renderCapabilityToolRoutingPromptSection(manifest);
   assert.match(section, /MCP-first routing:/);
   assert.match(section, /when surfaced MCP\/app tools match the target system or supplied URL, use them before opening the web app, web search, bash, or file inspection/i);
+  assert.match(section, /Do not treat browser as the default path for non-UI freshness checks in a connected system\. For recent or important activity in that system, prefer the connected MCP\/app route before browser when it can provide the live state directly\./i);
   assert.match(section, /Do not open that system in the browser, run web search, or rediscover it from files or config when surfaced MCP\/app tools already cover it/i);
   assert.match(section, /Use file, config, browser, or web inspection around an MCP\/app route only after a surfaced tool call is blocked, fails/i);
   assert.match(section, /In executor sessions, prefer proving capability by actually invoking the relevant surfaced MCP\/app tool/i);
@@ -473,8 +476,10 @@ test("buildAgentCapabilityManifest marks connected MCP servers as available with
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
     sessionKind: "main_session",
+    browserToolsAvailable: true,
+    browserToolIds: ["browser_get_state"],
     defaultTools: ["read"],
-    extraTools: [],
+    extraTools: ["browser_get_state"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
     resolvedMcpServerIds: ["context7"],
@@ -483,8 +488,8 @@ test("buildAgentCapabilityManifest marks connected MCP servers as available with
   assert.deepEqual(manifest.context, {
     harness_id: "pi",
     session_kind: "main_session",
-    browser_tools_available: false,
-    browser_tool_ids: [],
+    browser_tools_available: true,
+    browser_tool_ids: ["browser_get_state"],
     runtime_tool_ids: [],
     workspace_command_ids: [],
     mcp_server_ids: ["context7"],
@@ -497,6 +502,9 @@ test("buildAgentCapabilityManifest marks connected MCP servers as available with
   const section = renderCapabilityPolicyPromptSection(manifest);
   assert.match(section, /Connected MCP access: available\./);
   assert.match(section, /Use surfaced MCP tools when relevant; tool names may be resolved dynamically by the runtime\./i);
+  assert.match(section, /MCP-first routing:/);
+  assert.match(section, /If only connected MCP server ids are listed, treat that as a signal that callable tools may be resolved dynamically by the runtime, not as a reason to fall back to browser or web\./i);
+  assert.match(section, /Do not treat browser as the default path for non-UI freshness checks in a connected system\. For recent or important activity in that system, prefer the connected MCP\/app route before browser when it can provide the live state directly\./i);
   assert.doesNotMatch(section, /MCP callable tool aliases for this run:/);
 });
 
