@@ -3434,20 +3434,20 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       warn: (meta, message) => app.log.warn(meta, message),
     },
   });
-  // Deferred holders: some dependents aren't constructed until after the
-  // integration service, but onConnectionActive needs to call into them.
-  // We pass closures that read the holders at call time — by then the
-  // dependents are set.
+  // Deferred holders: queue worker + composio MCP manager are both
+  // constructed after the integration service, but onConnectionActive
+  // needs to call into them. We pass closures that read the holders
+  // at call time — by then the dependents are set.
   const queueWorkerHolder: { worker: { wake: () => void } | null } = { worker: null };
-  const integrationContextAutofetchWorkerHolder: {
-    worker: IntegrationContextAutofetchWorkerLike | null;
-  } = { worker: null };
   const composioMcpManagerHolder: {
     manager: { restart: (workspaceId: string) => Promise<unknown> } | null;
   } = { manager: null };
   const runtimeAgentToolsHolder: {
     service: { queuePolishForCompletedBindings: (workspaceId: string) => unknown } | null;
   } = { service: null };
+  const integrationContextAutofetchWorkerHolder: {
+    worker: IntegrationContextAutofetchWorkerLike | null;
+  } = { worker: null };
 
   function tryQueuePolishForWorkspace(workspaceId: string): void {
     const runtimeAgentTools = runtimeAgentToolsHolder.service;
@@ -3494,24 +3494,6 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           "resumePendingIntegrationInputs failed",
         );
       }
-      if (supportsIntegrationContextFetchProvider(providerId)) {
-        void integrationContextFetchManager.start({
-          connectionId,
-        }).catch((error) => {
-          const detail = error instanceof Error ? error.message : String(error);
-          const normalized = normalizeComposioError(error);
-          app.log.warn(
-            {
-              connectionId,
-              providerId,
-              statusCode: normalized.statusCode,
-              error: detail,
-            },
-            "integration context fetch start failed",
-          );
-        });
-        integrationContextAutofetchWorkerHolder.worker?.wake();
-      }
 
       // When a new connection becomes active, the composio-mcp host for
       // every workspace has the OLD connection set cached and won't pick
@@ -3552,6 +3534,28 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       // every workspace; the method internally re-checks pending
       // integrations and dashboard shape per app.
       tryQueuePolishForAllWorkspaces();
+
+      // Kick off the integration-memory context autofetch for providers
+      // that support it (gmail / slack / linear / etc.).
+      if (!supportsIntegrationContextFetchProvider(providerId)) {
+        return;
+      }
+      void integrationContextFetchManager.start({
+        connectionId,
+      }).catch((error) => {
+        const detail = error instanceof Error ? error.message : String(error);
+        const normalized = normalizeComposioError(error);
+        app.log.warn(
+          {
+            connectionId,
+            providerId,
+            statusCode: normalized.statusCode,
+            error: detail,
+          },
+          "integration context fetch start failed",
+        );
+      });
+      integrationContextAutofetchWorkerHolder.worker?.wake();
     },
     onBindingCreated: ({ workspaceId }) => {
       // Binding an already-active connection to a new app does NOT
@@ -9925,7 +9929,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         order
       })
       .map((message: SessionMessageRecord) => {
-        const inputAttachments = sessionMessageAttachments(store, workspaceId, message);
+        const inputAttachments = sessionMessageAttachments(store, effectiveWorkspaceId, message);
         const metadata = inputAttachments.length > 0 ? { ...message.metadata, attachments: inputAttachments } : message.metadata;
         return sessionMessagePayload(message, metadata);
       });
@@ -11238,10 +11242,9 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
 
   // Diagnostic route — exercises the full runtime → Hono → Composio
   // path through ComposioApiClient using the env-injected
-  // HOLABOSS_AUTH_BEARER_TOKEN. The product integration-context fetch
-  // flow now uses /api/v1/integrations/context-fetch; keep this probe
-  // for manual end-to-end debugging while the provider fetch plans are
-  // still expanding.
+  // HOLABOSS_AUTH_BEARER_TOKEN. Called by the IntegrationsPane debug
+  // button so we can confirm desktop-side env injection + runtime SDK
+  // + Hono /internal/* + bearer plugin all line up end-to-end.
   app.post("/api/v1/debug/composio-runtime-test", async (request, reply) => {
     const { createComposioApiClientFromEnv, ComposioApiClientError } =
       await import("./composio-api-client.js");

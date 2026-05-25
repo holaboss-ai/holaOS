@@ -10,6 +10,27 @@ import {
 } from "./state/internalTabs";
 import { pushRecentFileAtom } from "./state/recentFiles";
 
+export function findBrowserTabMatch(
+  tabs: ReadonlyArray<{ id: string; url: string }>,
+  url: string,
+  dedupBy: "exact" | "origin",
+): { id: string; url: string } | null {
+  if (dedupBy === "origin") {
+    const targetOrigin = safeOrigin(url);
+    if (!targetOrigin) return null;
+    return tabs.find((t) => safeOrigin(t.url) === targetOrigin) ?? null;
+  }
+  return tabs.find((t) => t.url === url) ?? null;
+}
+
+function safeOrigin(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Shared "open this workspace output" handler. Resolves module-backed
  * outputs to an app-surface URL (opened as a browser tab) and file-backed
@@ -29,14 +50,24 @@ export function useOpenWorkspaceOutput() {
   );
 
   const openUrlInBrowserTab = useCallback(
-    async (url: string) => {
+    async (
+      url: string,
+      opts?: { forceNewTab?: boolean; dedupBy?: "exact" | "origin" },
+    ) => {
       if (!selectedWorkspaceId || !url.trim()) return;
       try {
         setActiveInternalTabId(null);
-        await window.electronAPI.browser.setActiveWorkspace(
+        const state = await window.electronAPI.browser.setActiveWorkspace(
           selectedWorkspaceId,
           "user",
         );
+        if (!opts?.forceNewTab) {
+          const match = findBrowserTabMatch(state.tabs, url, opts?.dedupBy ?? "exact");
+          if (match) {
+            await window.electronAPI.browser.setActiveTab(match.id);
+            return;
+          }
+        }
         await window.electronAPI.browser.newTab(url);
       } catch {
         // non-fatal

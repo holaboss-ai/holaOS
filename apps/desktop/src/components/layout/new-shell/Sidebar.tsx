@@ -1,3 +1,4 @@
+import { AppIntegrationsDialog } from "@/components/integration/AppIntegrationsDialog";
 import { AppIcon } from "@/components/marketplace/AppIcon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -5,6 +6,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -991,19 +993,22 @@ function AppsSection() {
   } = useWorkspaceDesktop();
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const [expanded, setExpanded] = useAtom(appsExpandedAtom);
+  const { openUrlInBrowserTab } = useOpenWorkspaceOutput();
 
-  const openApp = async (appId: string) => {
+  const openApp = async (
+    appId: string,
+    opts?: { forceNewTab?: boolean },
+  ) => {
     if (!selectedWorkspaceId) return;
     try {
       const url = await window.electronAPI.appSurface.resolveUrl(
         selectedWorkspaceId,
         appId,
       );
-      await window.electronAPI.browser.setActiveWorkspace(
-        selectedWorkspaceId,
-        "user",
-      );
-      await window.electronAPI.browser.newTab(url);
+      await openUrlInBrowserTab(url, {
+        forceNewTab: opts?.forceNewTab,
+        dedupBy: "origin",
+      });
     } catch {
       // status pip on the row already reflects non-ready apps
     }
@@ -1076,7 +1081,7 @@ function AppsSection() {
                   providerId={providerId}
                   iconUrl={display.logo}
                   expanded={expanded}
-                  onOpen={() => void openApp(app.id)}
+                  onOpen={(opts) => void openApp(app.id, opts)}
                   onReload={() => void reloadApp(app.id)}
                   onUninstall={() => void uninstallApp(app.id, label)}
                 />
@@ -1095,25 +1100,47 @@ interface AppRowProps {
   providerId: string | null;
   iconUrl: string | null;
   expanded: boolean;
-  onOpen: () => void;
+  onOpen: (opts?: { forceNewTab?: boolean }) => void;
   onReload: () => void;
   onUninstall: () => void;
 }
 
 function AppRow(props: AppRowProps) {
-  // Pick the row's "primary" integration: required wins, else first declared.
-  // Apps with no integrations (UI-only, data-only) skip the binding hook.
-  const declaredIntegration =
-    props.app.integrations?.find((entry) => entry.required) ??
-    props.app.integrations?.[0];
-  if (!declaredIntegration?.provider) {
+  // Bucket the app's declared integrations into "providers we care about".
+  // Apps with no integrations (UI-only, data-only) skip the binding hook
+  // entirely; apps with one keep the existing single-binding row; apps with
+  // two or more (e.g. X Engagement: twitter + gmail) need the multi-binding
+  // variant so each provider gets its own status / Reconnect path in the
+  // dropdown — the legacy single-provider row silently dropped everything
+  // beyond the first required entry.
+  const integrations: AppRowMultiIntegration[] = (props.app.integrations ?? [])
+    .filter((entry) => Boolean(entry.provider))
+    .map((entry) => ({
+      provider: entry.provider,
+      required: entry.required,
+      whoami: entry.whoami ?? null,
+    }));
+  if (integrations.length === 0) {
     return <AppRowPlain {...props} />;
   }
+  // Prefer required > first declared for the "primary" provider whose state
+  // drives the row's status dot when collapsed.
+  const primary =
+    integrations.find((entry) => entry.required) ?? integrations[0]!;
+  if (integrations.length === 1) {
+    return (
+      <AppRowWithBinding
+        {...props}
+        providerSlug={primary.provider}
+        whoami={primary.whoami}
+      />
+    );
+  }
   return (
-    <AppRowWithBinding
+    <AppRowWithMultiBinding
       {...props}
-      providerSlug={declaredIntegration.provider}
-      whoami={declaredIntegration.whoami ?? null}
+      integrations={integrations}
+      primaryProvider={primary.provider}
     />
   );
 }
@@ -1175,7 +1202,10 @@ function AppRowPlain({
       }}
       menuItems={
         <>
-          <DropdownMenuItem onClick={onOpen} disabled={tone !== "ready"}>
+          <DropdownMenuItem
+            onClick={() => onOpen({ forceNewTab: true })}
+            disabled={tone !== "ready"}
+          >
             <Plus className="size-3.5" />
             Open in new tab
           </DropdownMenuItem>
@@ -1322,7 +1352,10 @@ function AppRowWithBinding({
               Connect {providerName}…
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuItem onClick={onOpen} disabled={tone !== "ready"}>
+          <DropdownMenuItem
+            onClick={() => onOpen({ forceNewTab: true })}
+            disabled={tone !== "ready"}
+          >
             <Plus className="size-3.5" />
             Open in new tab
           </DropdownMenuItem>
@@ -1347,6 +1380,244 @@ function AppRowWithBinding({
       }
     />
   );
+}
+
+interface AppRowMultiIntegration {
+  provider: string;
+  required: boolean;
+  whoami: PendingIntegrationWhoami | null;
+}
+
+type ProviderRowStateSummary = {
+  kind: "loading" | "no_connection" | "needs_binding" | "bound" | "no_workspace";
+  busy: "connecting" | "binding" | null;
+  hasError: boolean;
+};
+
+function AppRowWithMultiBinding({
+  app,
+  label,
+  providerId,
+  iconUrl,
+  expanded,
+  onOpen,
+  onReload,
+  onUninstall,
+  integrations,
+}: AppRowProps & {
+  integrations: AppRowMultiIntegration[];
+  primaryProvider: string;
+}) {
+  // The popover-style nested dropdown got physically occluded by the
+  // workspace browser pane (it's a separate render layer that the renderer
+  // can't position popovers above). The dialog approach uses a top-level
+  // backdrop portaled to document.body, which sits above the webview's
+  // stacking context. The hidden ProviderStateReporter children run the
+  // binding hook so the row's status dot stays informative without forcing
+  // the user to open the dialog first.
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [byProvider, setByProvider] = useState<
+    Record<string, ProviderRowStateSummary>
+  >({});
+  const updateProviderState = useCallback(
+    (slug: string, summary: ProviderRowStateSummary) => {
+      setByProvider((prev) => {
+        const existing = prev[slug];
+        if (
+          existing &&
+          existing.kind === summary.kind &&
+          existing.busy === summary.busy &&
+          existing.hasError === summary.hasError
+        ) {
+          return prev;
+        }
+        return { ...prev, [slug]: summary };
+      });
+    },
+    [],
+  );
+
+  const errorMessage = app.error?.trim() || null;
+  const summaries = Object.values(byProvider);
+  const anyConnecting = summaries.some((s) => s.busy !== null);
+  const anyNeedsConnect = summaries.some(
+    (s) => s.kind === "no_connection" || s.kind === "needs_binding",
+  );
+  const tone: RowTone = errorMessage
+    ? "error"
+    : anyConnecting
+      ? "connecting"
+      : anyNeedsConnect
+        ? "needs_connect"
+        : !app.ready
+          ? "loading"
+          : "ready";
+
+  const pendingProviderNames = useMemo(
+    () =>
+      integrations
+        .filter((entry) => {
+          const summary = byProvider[entry.provider];
+          if (!summary) return false;
+          return (
+            summary.kind === "no_connection" || summary.kind === "needs_binding"
+          );
+        })
+        .map((entry) => entry.provider),
+    [integrations, byProvider],
+  );
+
+  const tooltip =
+    tone === "error" && errorMessage
+      ? errorMessage
+      : tone === "connecting"
+        ? `Authorizing integrations…`
+        : tone === "needs_connect"
+          ? pendingProviderNames.length > 0
+            ? `${pendingProviderNames.join(", ")} not connected — open menu to authorize`
+            : `Integrations need attention`
+          : tone === "loading"
+            ? `${label} — starting…`
+            : label;
+
+  const handleRowClick = () => {
+    if (tone === "ready") {
+      onOpen();
+      return;
+    }
+    if (tone === "needs_connect") {
+      setDialogOpen(true);
+    }
+  };
+
+  return (
+    <>
+      {integrations.map((integration) => (
+        <ProviderStateReporter
+          key={integration.provider}
+          appId={app.id}
+          provider={integration.provider}
+          whoami={integration.whoami}
+          onState={updateProviderState}
+        />
+      ))}
+      <AppRowShell
+        app={app}
+        label={label}
+        providerId={providerId}
+        iconUrl={iconUrl}
+        expanded={expanded}
+        tone={tone}
+        tooltip={tooltip}
+        onRowClick={handleRowClick}
+        renderTrailing={() => {
+          if (tone === "connecting") {
+            return (
+              <Loader2
+                className="size-3 animate-spin text-foreground/55"
+                aria-hidden
+              />
+            );
+          }
+          if (tone === "needs_connect") {
+            return (
+              <StatusDot
+                variant="warning"
+                title={`${pendingProviderNames.length} integration${
+                  pendingProviderNames.length === 1 ? "" : "s"
+                } need attention`}
+              />
+            );
+          }
+          if (tone === "loading") {
+            return <StatusDot variant="info" pulse title="Starting" />;
+          }
+          if (tone === "error") {
+            return (
+              <StatusDot
+                variant="destructive"
+                title={errorMessage ?? "Error"}
+              />
+            );
+          }
+          return null;
+        }}
+        menuItems={
+          <>
+            <DropdownMenuItem
+              onClick={() => onOpen({ forceNewTab: true })}
+              disabled={tone !== "ready"}
+            >
+              <Plus className="size-3.5" />
+              Open in new tab
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onReload}>
+              <RotateCw className="size-3.5" />
+              Reload
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setDialogOpen(true)}>
+              <Link2 className="size-3.5" />
+              Manage integrations
+              {pendingProviderNames.length > 0 ? (
+                <span className="ml-auto rounded-full bg-warning/15 px-1.5 py-px text-[10px] font-medium text-warning">
+                  {pendingProviderNames.length}
+                </span>
+              ) : null}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onUninstall} variant="destructive">
+              <Trash2 className="size-3.5" />
+              Uninstall
+            </DropdownMenuItem>
+          </>
+        }
+      />
+      <AppIntegrationsDialog
+        appId={app.id}
+        appName={label}
+        integrations={integrations.map((entry) => ({
+          provider: entry.provider,
+          required: entry.required,
+          whoami: entry.whoami,
+        }))}
+        onOpenChange={setDialogOpen}
+        open={dialogOpen}
+      />
+    </>
+  );
+}
+
+/**
+ * Headless companion to AppIntegrationsDialog: subscribes to each declared
+ * provider's binding state via useIntegrationBinding and reports a summary
+ * up to the parent so the row's status dot can show "warning" even before
+ * the user opens the dialog. Renders nothing.
+ */
+function ProviderStateReporter({
+  appId,
+  provider,
+  whoami,
+  onState,
+}: {
+  appId: string;
+  provider: string;
+  whoami: PendingIntegrationWhoami | null;
+  onState: (slug: string, summary: ProviderRowStateSummary) => void;
+}) {
+  const { state, busy, errorMessage } = useIntegrationBinding({
+    appId,
+    provider,
+    whoami,
+    considerWorkspaceDefault: true,
+  });
+  useEffect(() => {
+    onState(provider, {
+      kind: state.kind,
+      busy,
+      hasError: Boolean(errorMessage),
+    });
+  }, [state.kind, busy, errorMessage, provider, onState]);
+  return null;
 }
 
 function AppRowShell({
@@ -1430,20 +1701,13 @@ function AppRowShell({
 }
 
 function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
-  const { selectedWorkspaceId } = useWorkspaceSelection();
   const title = entry.title || hostFromUrl(entry.url) || entry.url;
   const [faviconError, setFaviconError] = useState(false);
   const showFavicon = Boolean(entry.faviconUrl) && !faviconError;
+  const { openUrlInBrowserTab } = useOpenWorkspaceOutput();
 
-  const handleOpen = async () => {
-    if (selectedWorkspaceId) {
-      await window.electronAPI.browser.setActiveWorkspace(
-        selectedWorkspaceId,
-        "user",
-      );
-    }
-    await window.electronAPI.browser.newTab(entry.url);
-  };
+  const handleOpen = (opts?: { forceNewTab?: boolean }) =>
+    openUrlInBrowserTab(entry.url, opts);
 
   const handleCopy = async () => {
     try {
@@ -1507,7 +1771,9 @@ function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
             }
           />
           <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
-            <DropdownMenuItem onClick={() => void handleOpen()}>
+            <DropdownMenuItem
+              onClick={() => void handleOpen({ forceNewTab: true })}
+            >
               <Plus className="size-3.5" />
               Open in new tab
             </DropdownMenuItem>

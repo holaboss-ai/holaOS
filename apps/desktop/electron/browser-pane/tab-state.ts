@@ -1075,11 +1075,14 @@ export function createBrowserPaneTabState(
 
   function browserPagePayload(tab: BrowserTabRecord): Record<string, unknown> {
     const wc = tab.view.webContents;
+    // Live truth, not event-cached: subresources (HMR ws, long-polling) can
+    // keep `did-stop-loading` from firing and leave the cache stuck at true.
+    const loading = !wc.isDestroyed() && wc.isLoadingMainFrame();
     return {
       tabId: tab.state.id,
       url: wc.getURL() || tab.state.url,
       title: wc.getTitle() || tab.state.title,
-      loading: tab.state.loading,
+      loading,
       initialized: tab.state.initialized,
       canGoBack: wc.navigationHistory.canGoBack(),
       canGoForward: wc.navigationHistory.canGoForward(),

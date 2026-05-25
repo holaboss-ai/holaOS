@@ -32,6 +32,20 @@ Sentry.init({
   },
 });
 
+// Swallow EPIPE on stdio writes — a benign teardown race that Electron
+// would otherwise surface as a "holaOS encountered an error" modal.
+// Trigger: a child / utility process (or the embedded runtime) writes via
+// `console.info`/`.warn`/`.error` after its stdio pipe has been closed on
+// the parent side. Sentry's `consoleLoggingIntegration` above wraps those
+// console methods and re-invokes the real ones, so the EPIPE surfaces here
+// with a stack that ends in `sentry/core/build/cjs/instrument/console.js`
+// — not actually a Sentry bug, just an unhandled write to a half-closed
+// socket. Anything other than EPIPE we leave alone so the existing Sentry
+// + Electron handlers still see it.
+process.on("uncaughtException", (err: NodeJS.ErrnoException) => {
+  if (err?.code === "EPIPE") return;
+});
+
 import { electronClient } from "@better-auth/electron/client";
 import { storage as electronAuthStorage } from "@better-auth/electron/storage";
 import { createAuthClient } from "better-auth/client";
@@ -10551,9 +10565,11 @@ function authBearerToken(): string {
 // Diagnostic helper — hits the runtime's /api/v1/debug/composio-
 // runtime-test endpoint, which exercises ComposioApiClient end-to-end
 // (runtime env-injected bearer token → Hono /internal/tools/execute →
-// Composio). The product integration context fetch flow now uses
-// /api/v1/integrations/context-fetch; keep this probe around for
-// low-level debugging while provider fetch plans are still expanding.
+// Composio). Wired to a button in IntegrationsPane so we can confirm
+// the full server-side stack. Also useful for low-level debugging
+// while provider fetch plans are still expanding (the product
+// integration context fetch flow now uses
+// /api/v1/integrations/context-fetch).
 async function debugComposioRuntimeTest(
   params: {
     providerSlug?: string;
@@ -10784,6 +10800,60 @@ interface ComposioProxyResponse<TData = unknown> {
 }
 
 /**
+ * Thrown by `composioProxyFetch` when the upstream provider (GitHub, Google,
+ * etc.) responded with a non-2xx status. Hono's /composio/proxy returns 200
+ * carrying `{ data, status, headers }` for the upstream response, so the
+ * caller can't tell success from failure by HTTP status alone — without
+ * this check, a 401 "Bad credentials" body gets handed to the whoami
+ * extractor as if it were a normal user object, which is how we ended up
+ * with the misleading "raw shape may have shifted" log instead of the
+ * actually-useful "user needs to reconnect" signal.
+ */
+class ProviderHttpError extends Error {
+  constructor(
+    readonly providerId: string,
+    readonly upstreamStatus: number,
+    readonly bodyExcerpt: string,
+  ) {
+    super(
+      `Provider ${providerId} returned HTTP ${upstreamStatus}: ${bodyExcerpt}`,
+    );
+    this.name = "ProviderHttpError";
+  }
+}
+
+function isProviderAuthFailure(err: unknown): err is ProviderHttpError {
+  return (
+    err instanceof ProviderHttpError &&
+    (err.upstreamStatus === 401 || err.upstreamStatus === 403)
+  );
+}
+
+// Capitalize a provider slug for user-facing copy. The desktop has a
+// richer toolkitDisplayName in src/lib/toolkitDisplay.ts but it isn't
+// accessible from the main process; this covers the providers that show
+// up in proxy whoami today (curated Hero pool) with a generic fallback
+// for everything else.
+function composioToolkitDisplayName(slug: string | null | undefined): string {
+  const normalized = (slug ?? "").trim().toLowerCase();
+  const KNOWN: Record<string, string> = {
+    github: "GitHub",
+    gmail: "Gmail",
+    google: "Google",
+    googlesheets: "Google Sheets",
+    twitter: "Twitter / X",
+    linkedin: "LinkedIn",
+    reddit: "Reddit",
+    notion: "Notion",
+    slack: "Slack",
+    discord: "Discord",
+  };
+  if (KNOWN[normalized]) return KNOWN[normalized];
+  if (!normalized) return "the provider";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+/**
  * Call a provider's own API as the connected account, via Composio's
  * proxy. Used for whoami fallbacks when Composio's generic
  * `/api/composio/account/{id}` endpoint doesn't carry provider-side
@@ -10795,6 +10865,10 @@ async function composioProxyFetch<TData>(
   endpoint: string,
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   body?: unknown,
+  // Passed through purely for ProviderHttpError context; not used in the
+  // request. Lets the caller see which provider the error came from when
+  // they don't have it on hand to attach themselves.
+  providerIdForErrors = "unknown",
 ): Promise<TData | null> {
   const wrapped = await composioFetch<ComposioProxyResponse<TData>>(
     "/api/composio/proxy",
@@ -10806,6 +10880,20 @@ async function composioProxyFetch<TData>(
       ...(body !== undefined ? { body } : {}),
     },
   );
+  if (wrapped.status >= 400) {
+    const excerpt = (() => {
+      try {
+        return JSON.stringify(wrapped.data).slice(0, 200);
+      } catch {
+        return String(wrapped.data).slice(0, 200);
+      }
+    })();
+    throw new ProviderHttpError(
+      providerIdForErrors,
+      wrapped.status,
+      excerpt,
+    );
+  }
   return wrapped.data ?? null;
 }
 
@@ -11065,6 +11153,7 @@ async function tryProxyWhoami(
       config.url,
       config.method,
       config.body,
+      normalized,
     );
     if (!data) {
       console.warn(
@@ -11092,6 +11181,15 @@ async function tryProxyWhoami(
     // proxy path 606s — without this re-throw, the metadata snapshot
     // never learns the row is dead.
     if (isComposioAccountMissingError(err)) {
+      throw err;
+    }
+    // Provider returned 401/403 — Composio's stored token doesn't work
+    // against the provider anymore (user revoked the app, token rotated
+    // externally, scope changed). Re-throw so the caller (Refresh button)
+    // can surface a specific "needs reconnect" message naming the
+    // provider, rather than the generic "shape shifted" copy that
+    // used to mask this case.
+    if (isProviderAuthFailure(err)) {
       throw err;
     }
     console.warn(
@@ -11415,7 +11513,19 @@ interface ComposioRefreshResult {
   /** True iff the probe resolved a new handle or email and we wrote it back. */
   changed: boolean;
   /** Short reason code when `changed === false`, for the UI to surface. */
-  reason?: "no_external_id" | "account_missing" | "no_new_identity";
+  reason?:
+    | "no_external_id"
+    | "account_missing"
+    | "no_new_identity"
+    | "provider_credentials_rejected";
+  /** Provider display name (e.g. "GitHub") — set when the UI needs to name
+   *  the specific provider in a reconnect prompt. Currently set alongside
+   *  `provider_credentials_rejected` so the message can read "GitHub
+   *  credentials rejected" instead of a generic note. */
+  providerLabel?: string;
+  /** Upstream HTTP status the provider returned (only set with
+   *  `provider_credentials_rejected`, typically 401 or 403). */
+  providerStatus?: number;
 }
 
 async function composioRefreshConnection(
@@ -11446,6 +11556,19 @@ async function composioRefreshConnection(
       // current persisted identity (Phase 2 / Slice 2 will mark these
       // rows stale + prompt the user to reconnect).
       return { connection: target, changed: false, reason: "account_missing" };
+    }
+    if (isProviderAuthFailure(err)) {
+      // Composio still has the connection but its stored access token
+      // failed against the provider (401/403). Surface a typed signal so
+      // the UI can render "GitHub credentials rejected — please reconnect"
+      // instead of the misleading generic "raw shape may have shifted".
+      return {
+        connection: target,
+        changed: false,
+        reason: "provider_credentials_rejected",
+        providerLabel: composioToolkitDisplayName(target.provider_id),
+        providerStatus: err.upstreamStatus,
+      };
     }
     throw err;
   }
@@ -22362,6 +22485,14 @@ function showNativeDesktopNotification(
       silent: false,
     });
     let settled = false;
+    let usedFallback = false;
+    const closeNativeNotification = () => {
+      try {
+        notification.close();
+      } catch {
+        // Notification may already be closed; ignore.
+      }
+    };
     const settle = (value: boolean) => {
       if (settled) {
         return;
@@ -22377,6 +22508,9 @@ function showNativeDesktopNotification(
         settle(false);
         return;
       }
+      // Suppress the native notification so it can't appear alongside the AppleScript one.
+      usedFallback = true;
+      closeNativeNotification();
       logNativeDesktopNotificationEvent("dev_fallback_attempt", {
         title,
         body,
@@ -22402,6 +22536,17 @@ function showNativeDesktopNotification(
     }, 1500);
     notification.on("show", () => {
       clearTimeout(showTimeout);
+      if (usedFallback) {
+        // Native notification arrived after we already triggered the dev fallback —
+        // dismiss it so the user doesn't see two notifications for the same event.
+        logNativeDesktopNotificationEvent("late_show_suppressed", {
+          title,
+          body,
+          force: payload.force,
+        });
+        closeNativeNotification();
+        return;
+      }
       logNativeDesktopNotificationEvent("shown", {
         title,
         body,
@@ -22521,6 +22666,23 @@ function installMacApplicationMenu() {
         {
           label: `Quit ${MAC_APP_MENU_PRODUCT_LABEL}`,
           role: "quit",
+        },
+      ],
+    },
+    {
+      label: "File",
+      submenu: [
+        {
+          label: "Close Tab",
+          accelerator: "CmdOrCtrl+W",
+          click: () => {
+            mainWindow?.webContents.send("app:closeActiveTab");
+          },
+        },
+        {
+          label: "Close Window",
+          accelerator: "CmdOrCtrl+Shift+W",
+          role: "close",
         },
       ],
     },
@@ -24347,6 +24509,73 @@ app.whenReady().then(async () => {
     "diagnostics:revealBundle",
     ["main"],
     async (_event, targetPath: string) => revealDiagnosticsBundle(targetPath),
+  );
+  handleTrustedIpc(
+    "tabs:showContextMenu",
+    ["main"],
+    async (
+      event,
+      opts: {
+        canCloseLeft: boolean;
+        canCloseRight: boolean;
+        canCloseOthers: boolean;
+        hasDeleteFile: boolean;
+      },
+    ): Promise<
+      | "close"
+      | "closeOthers"
+      | "closeToLeft"
+      | "closeToRight"
+      | "deleteFile"
+      | null
+    > => {
+      type Action =
+        | "close"
+        | "closeOthers"
+        | "closeToLeft"
+        | "closeToRight"
+        | "deleteFile";
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!win) return null;
+      return new Promise<Action | null>((resolve) => {
+        let settled = false;
+        const finish = (action: Action | null) => {
+          if (settled) return;
+          settled = true;
+          resolve(action);
+        };
+        const template: MenuItemConstructorOptions[] = [
+          {
+            label: "Close tab",
+            accelerator: "CmdOrCtrl+W",
+            click: () => finish("close"),
+          },
+          {
+            label: "Close others",
+            enabled: opts.canCloseOthers,
+            click: () => finish("closeOthers"),
+          },
+          {
+            label: "Close tabs to the left",
+            enabled: opts.canCloseLeft,
+            click: () => finish("closeToLeft"),
+          },
+          {
+            label: "Close tabs to the right",
+            enabled: opts.canCloseRight,
+            click: () => finish("closeToRight"),
+          },
+        ];
+        if (opts.hasDeleteFile) {
+          template.push(
+            { type: "separator" },
+            { label: "Delete file…", click: () => finish("deleteFile") },
+          );
+        }
+        const menu = Menu.buildFromTemplate(template);
+        menu.popup({ window: win, callback: () => finish(null) });
+      });
+    },
   );
   installBrowserPaneIpcHandlers({
     ipcMain,

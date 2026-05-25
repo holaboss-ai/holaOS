@@ -1,7 +1,8 @@
 import { Check, LoaderCircle, Plug } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import { rebindWorkspaceAppsForProvider } from "@/lib/rebindWorkspaceAppsForProvider";
 
 export interface AssistantTurnProposedIntegration {
   toolkit_slug: string;
@@ -62,6 +63,34 @@ function IntegrationProposalCard({
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Local `phase` resets to "idle" on every mount, so the post-connect "done"
+  // confirmation would vanish on app restart. Source the connected-state from
+  // the live integration_connections store instead — the table is the single
+  // truth, and the card stays consistent across restarts, sessions, and
+  // out-of-band disconnects.
+  const [alreadyConnected, setAlreadyConnected] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { connections } =
+          await window.electronAPI.workspace.listIntegrationConnections();
+        if (cancelled) return;
+        const active = connections.some(
+          (c) =>
+            c.provider_id.trim().toLowerCase() === slug &&
+            c.status === "active",
+        );
+        setAlreadyConnected(active);
+      } catch {
+        if (!cancelled) setAlreadyConnected(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
+
   const handleConnect = async () => {
     if (!workspaceId) {
       setErrorMessage("Open a workspace before connecting.");
@@ -71,10 +100,17 @@ function IntegrationProposalCard({
     setPhase("connecting");
     setErrorMessage(null);
     try {
-      await connectIntegrationProvider({
+      const { connectionId } = await connectIntegrationProvider({
         provider: slug,
         accountLabel: `${displayName} (Managed)`,
       });
+      if (workspaceId && connectionId) {
+        await rebindWorkspaceAppsForProvider({
+          workspaceId,
+          provider: slug,
+          connectionId,
+        });
+      }
       setPhase("done");
       onAfterConnect?.(slug);
     } catch (err) {
@@ -84,21 +120,47 @@ function IntegrationProposalCard({
     }
   };
 
-  if (phase === "done") {
+  // Wait for the readiness check before rendering, otherwise the Connect
+  // button flashes before flipping to the connected state.
+  if (alreadyConnected === null) return null;
+
+  // After a failed reconnect attempt, fall through to the Connect card so
+  // the error message is visible — the green card has nowhere to put it.
+  if ((phase === "done" || alreadyConnected) && phase !== "error") {
+    const reconnecting = phase === "connecting";
     return (
-      <div className="flex max-w-[420px] items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-sm">
+      <button
+        type="button"
+        // Always clickable: our local `integration_connections.status` lags
+        // behind real-world auth (tokens get revoked externally, scopes
+        // change, refresh quietly fails) — if the agent told the user to
+        // re-authorize, the green "connected" badge can be lying, and we
+        // need to give them a way out from this card itself.
+        onClick={() => void handleConnect()}
+        disabled={reconnecting || !workspaceId}
+        className="group/proposal flex max-w-[420px] items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent/40 disabled:cursor-default disabled:opacity-70"
+      >
         <div className="grid size-7 shrink-0 place-items-center rounded-md bg-emerald-500/15 text-emerald-600">
-          <Check className="size-3.5" />
+          {reconnecting ? (
+            <LoaderCircle className="size-3.5 animate-spin" />
+          ) : (
+            <Check className="size-3.5" />
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium text-foreground">
             {displayName} connected
           </div>
           <div className="truncate text-xs text-muted-foreground">
-            Send your next message — the agent can now use {displayName}.
+            {reconnecting
+              ? `Re-authorizing ${displayName}…`
+              : `Send your next message — the agent can now use ${displayName}.`}
           </div>
         </div>
-      </div>
+        <span className="shrink-0 text-[11px] text-muted-foreground opacity-0 transition-opacity group-hover/proposal:opacity-100">
+          Reconnect
+        </span>
+      </button>
     );
   }
 

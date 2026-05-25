@@ -11,7 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { FileTypeIcon } from "@/lib/fileIcon";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,10 +22,6 @@ import {
 import { useWorkspaceBrowser } from "@/components/panes/useWorkspaceBrowser";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { cn } from "@/lib/utils";
-import {
-  TabContextMenu,
-  type TabContextMenuTarget,
-} from "./TabContextMenu";
 import {
   activeInternalTabIdAtom,
   internalTabsAtom,
@@ -44,9 +40,6 @@ export function TopChrome() {
     activeInternalTabIdAtom,
   );
   const removeRecentFileByPath = useSetAtom(removeRecentFileByPathAtom);
-  const [menuTarget, setMenuTarget] = useState<TabContextMenuTarget | null>(
-    null,
-  );
 
   const handleSelectBrowserTab = (id: string) => {
     setActiveInternalTabId(null);
@@ -80,92 +73,100 @@ export function TopChrome() {
     });
   };
 
+  useEffect(() => {
+    return window.electronAPI.app.onCloseActiveTab(() => {
+      if (activeInternalTabId) {
+        handleCloseInternalTab(activeInternalTabId);
+        return;
+      }
+      const activeId = browserState.activeTabId;
+      if (activeId) {
+        void window.electronAPI.browser.closeTab(activeId);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeInternalTabId, browserState.activeTabId]);
+
   const openContextMenu =
     (list: "browser" | "internal", tabId: string) =>
     (e: React.MouseEvent) => {
       e.preventDefault();
-      setMenuTarget({ list, tabId, x: e.clientX, y: e.clientY });
-    };
+      const browserIds = browserState.tabs.map((t) => t.id);
+      const internalIds = internalTabs.map((t) => t.id);
+      const allIds = [...browserIds, ...internalIds];
+      const targetGlobalIdx = allIds.indexOf(tabId);
+      if (targetGlobalIdx === -1) return;
+      const idsLeft = allIds.slice(0, targetGlobalIdx);
+      const idsRight = allIds.slice(targetGlobalIdx + 1);
+      const idsOthers = [...idsLeft, ...idsRight];
+      const targetInternal =
+        list === "internal"
+          ? internalTabs.find((t) => t.id === tabId) ?? null
+          : null;
+      const deletableFile =
+        targetInternal && targetInternal.kind === "file" ? targetInternal : null;
 
-  const buildContextActions = () => {
-    if (!menuTarget) return null;
-    const browserTabs = browserState.tabs;
-    const browserIds = browserTabs.map((t) => t.id);
-    const internalIds = internalTabs.map((t) => t.id);
-    const allIds = [...browserIds, ...internalIds];
-    const targetGlobalIdx = allIds.indexOf(menuTarget.tabId);
-    if (targetGlobalIdx === -1) return null;
-    const idsLeft = allIds.slice(0, targetGlobalIdx);
-    const idsRight = allIds.slice(targetGlobalIdx + 1);
-    const idsOthers = [...idsLeft, ...idsRight];
-
-    const closeMany = (ids: string[]) => {
-      const internalSet = new Set(internalIds);
-      const browserToClose = ids.filter((id) => !internalSet.has(id));
-      const internalToClose = ids.filter((id) => internalSet.has(id));
-      for (const id of browserToClose) {
-        void window.electronAPI.browser.closeTab(id);
-      }
-      if (internalToClose.length > 0) {
-        setInternalTabs((prev) =>
-          prev.filter((t) => !internalToClose.includes(t.id)),
-        );
-        if (
-          activeInternalTabId &&
-          internalToClose.includes(activeInternalTabId)
-        ) {
-          setActiveInternalTabId(null);
+      const closeMany = (ids: string[]) => {
+        const internalSet = new Set(internalIds);
+        const browserToClose = ids.filter((id) => !internalSet.has(id));
+        const internalToClose = ids.filter((id) => internalSet.has(id));
+        for (const id of browserToClose) {
+          void window.electronAPI.browser.closeTab(id);
         }
-      }
-    };
-
-    const targetInternal =
-      menuTarget.list === "internal"
-        ? internalTabs.find((t) => t.id === menuTarget.tabId) ?? null
-        : null;
-
-    return {
-      onClose: () => {
-        if (menuTarget.list === "browser") handleCloseBrowserTab(menuTarget.tabId);
-        else handleCloseInternalTab(menuTarget.tabId);
-      },
-      onCloseOthers: () => closeMany(idsOthers),
-      onCloseToLeft: () => closeMany(idsLeft),
-      onCloseToRight: () => closeMany(idsRight),
-      onDeleteFile: (() => {
-        if (!targetInternal || targetInternal.kind !== "file") {
-          return undefined;
-        }
-        const tab = targetInternal;
-        return () => {
+        if (internalToClose.length > 0) {
+          setInternalTabs((prev) =>
+            prev.filter((t) => !internalToClose.includes(t.id)),
+          );
           if (
-            !window.confirm(
-              `Delete '${tab.label}'? This moves the file to the trash and can't be undone from here.`,
-            )
+            activeInternalTabId &&
+            internalToClose.includes(activeInternalTabId)
           ) {
+            setActiveInternalTabId(null);
+          }
+        }
+      };
+
+      void window.electronAPI.tabs
+        .showContextMenu({
+          canCloseLeft: idsLeft.length > 0,
+          canCloseRight: idsRight.length > 0,
+          canCloseOthers: idsOthers.length > 0,
+          hasDeleteFile: deletableFile !== null,
+        })
+        .then((action) => {
+          if (!action) return;
+          if (action === "close") {
+            if (list === "browser") handleCloseBrowserTab(tabId);
+            else handleCloseInternalTab(tabId);
             return;
           }
-          void window.electronAPI.fs
-            .deletePath(tab.filePath, selectedWorkspaceId ?? null)
-            .then(() => {
-              handleCloseInternalTab(tab.id);
-              removeRecentFileByPath({
-                filePath: tab.filePath,
-                workspaceId: selectedWorkspaceId ?? null,
+          if (action === "closeOthers") return closeMany(idsOthers);
+          if (action === "closeToLeft") return closeMany(idsLeft);
+          if (action === "closeToRight") return closeMany(idsRight);
+          if (action === "deleteFile" && deletableFile) {
+            const tab = deletableFile;
+            if (
+              !window.confirm(
+                `Delete '${tab.label}'? This moves the file to the trash and can't be undone from here.`,
+              )
+            ) {
+              return;
+            }
+            void window.electronAPI.fs
+              .deletePath(tab.filePath, selectedWorkspaceId ?? null)
+              .then(() => {
+                handleCloseInternalTab(tab.id);
+                removeRecentFileByPath({
+                  filePath: tab.filePath,
+                  workspaceId: selectedWorkspaceId ?? null,
+                });
+              })
+              .catch(() => {
+                // surfaced via OS notification when applicable
               });
-            })
-            .catch(() => {
-              // surfaced via OS notification when applicable; nothing
-              // useful to render inline.
-            });
-        };
-      })(),
-      canCloseLeft: idsLeft.length > 0,
-      canCloseRight: idsRight.length > 0,
-      canCloseOthers: idsOthers.length > 0,
+          }
+        });
     };
-  };
-  const ctxActions = buildContextActions();
 
   const agentTabCount = browserState.tabCounts.agent;
 
@@ -230,16 +231,6 @@ export function TopChrome() {
       >
         <Plus className="size-3.5" strokeWidth={1.75} />
       </Button>
-      {menuTarget && ctxActions ? (
-        <TabContextMenu
-          target={menuTarget}
-          actions={ctxActions}
-          canCloseLeft={ctxActions.canCloseLeft}
-          canCloseRight={ctxActions.canCloseRight}
-          canCloseOthers={ctxActions.canCloseOthers}
-          onDismiss={() => setMenuTarget(null)}
-        />
-      ) : null}
     </header>
   );
 }

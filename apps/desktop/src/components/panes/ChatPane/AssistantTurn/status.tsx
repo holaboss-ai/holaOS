@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { DotmSquare3 } from "@/components/ui/dotm-square-3";
 import { SimpleMarkdown } from "@/components/marketplace/SimpleMarkdown";
-import { IntegrationErrorBanner } from "../skeletons";
+import { TraceStepErrorPresentation } from "../skeletons";
 import type { ChatTraceStep } from "../types";
 
 export function LiveStatusEllipsis() {
@@ -65,11 +65,14 @@ export function TraceTimelineStepEntry({
       >
         <span className="mt-0.5 shrink-0">
           {step.status === "completed" ? (
-            <Check className="size-3 text-success" />
+            <Check
+              className="size-3 text-success motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-75 motion-safe:duration-200 motion-safe:ease-out"
+              key={`completed-${step.id}`}
+            />
           ) : step.status === "error" ? (
-            <AlertTriangle className="size-3 text-destructive" />
+            <AlertTriangle className="size-3 text-destructive motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150" />
           ) : step.status === "running" ? (
-            <Loader2 className="size-3 animate-spin text-muted-foreground" />
+            <Loader2 className="size-3 animate-spin text-muted-foreground motion-reduce:animate-none" />
           ) : (
             <Clock3 className="size-3 text-muted-foreground" />
           )}
@@ -88,16 +91,25 @@ export function TraceTimelineStepEntry({
           />
         ) : null}
       </button>
-      {expanded && step.details.length > 1 ? (
+      {expanded && step.details.length > 1 && !suppressLegacyDetails(step) ? (
         <div className="ml-6 mt-0.5 mb-1 rounded-md border border-border bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground whitespace-pre-wrap">
           {step.details.slice(1).join("\n")}
         </div>
       ) : null}
       {step.status === "error" ? (
-        <IntegrationErrorBanner details={step.details} />
+        <TraceStepErrorPresentation details={step.details} />
       ) : null}
     </div>
   );
+}
+
+// For error steps, TraceStepErrorPresentation surfaces the raw text under
+// its own "Show technical details" disclosure (GenericToolFailureBanner) or
+// hides it entirely when the integration banner takes over — skip the
+// legacy collapsed box either way so users don't see two copies of the
+// same dump.
+function suppressLegacyDetails(step: ChatTraceStep): boolean {
+  return step.status === "error";
 }
 
 export function ExecutionTimelineThinkingEntry({

@@ -4914,6 +4914,7 @@ function AppShellContent() {
             agentContent
           ) : paneId === "files" ? (
             <FileExplorerPane
+              key={selectedWorkspaceId ?? "no-workspace"}
               focusRequest={fileExplorerFocusRequest}
               onFocusRequestConsumed={(requestKey) => {
                 setFileExplorerFocusRequest((current) =>
@@ -5649,6 +5650,7 @@ function AppShellContent() {
                             >
                               {spaceExplorerMode === "files" ? (
                                 <FileExplorerPane
+                                  key={selectedWorkspaceId ?? "no-workspace"}
                                   focusRequest={fileExplorerFocusRequest}
                                   onFocusRequestConsumed={(requestKey) => {
                                     setFileExplorerFocusRequest((current) =>

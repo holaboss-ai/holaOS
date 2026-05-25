@@ -83,6 +83,18 @@ export function resolveAppDisplay(
   };
 }
 
+export class IntegrationConnectCancelled extends Error {
+  constructor() {
+    super("Integration connect cancelled by user");
+    this.name = "IntegrationConnectCancelled";
+  }
+}
+
+export const COMPOSIO_POLL_INTERVAL_MS = 3000;
+export const COMPOSIO_POLL_MAX_TICKS = 100;
+export const COMPOSIO_POLL_TIMEOUT_MS =
+  COMPOSIO_POLL_INTERVAL_MS * COMPOSIO_POLL_MAX_TICKS;
+
 const ONBOARDING_ACTIVE_STATUSES = new Set(["pending", "awaiting_confirmation", "in_progress"]);
 const LOCAL_OSS_TEMPLATE_USER_ID = "local-oss";
 const DEFAULT_WORKSPACE_HARNESS: WorkspaceHarnessId = "pi";
@@ -1184,13 +1196,6 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     setPendingAppInstall(null);
   }
 
-  class IntegrationConnectCancelled extends Error {
-    constructor() {
-      super("Integration connect cancelled by user");
-      this.name = "IntegrationConnectCancelled";
-    }
-  }
-
   async function connectIntegrationProvider({
     provider,
     accountLabel,
@@ -1209,8 +1214,6 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       }
     };
 
-    const COMPOSIO_POLL_INTERVAL_MS = 3000;
-    const COMPOSIO_POLL_MAX_TICKS = 100;
     const MAX_CONSECUTIVE_ERRORS = 20;
 
     const runtimeConfig = await window.electronAPI.runtime.getConfig();

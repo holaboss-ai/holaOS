@@ -168,7 +168,6 @@ test("runtime memory-retrieve client posts to the memory retrieval capability ro
         ? (JSON.parse(init.body) as Record<string, unknown>)
         : null;
     return new Response(JSON.stringify({ tool_id: "memory_retrieve", hits: [] }), {
-    return new Response(JSON.stringify({ tool_id: "memory_retrieve", hits: [] }), {
       status: 200,
       headers: { "content-type": "application/json; charset=utf-8" },
     });
@@ -196,6 +195,7 @@ test("runtime memory-retrieve client posts to the memory retrieval capability ro
     mode: "mixed",
     tree_id: "interaction:customer:orchid",
     max_results: 5,
+  });
 });
 
 test("runtime onboarding alignment-report client forwards structured report payloads", async () => {

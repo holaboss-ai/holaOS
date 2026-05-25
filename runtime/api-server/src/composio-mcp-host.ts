@@ -184,8 +184,15 @@ export function buildCallToolHandler(
       };
     } catch (error) {
       if (error instanceof ComposioToolExecutionError) {
+        const code = error.detail.code || "unknown_error";
+        const baseMessage =
+          error.detail.message ?? `Composio tool ${entry.tool_slug} failed`;
+        // Prepend a stable marker the chat UI pattern-matches on. We can't
+        // rely on MCP structuredContent surviving every Agent SDK bridge, so
+        // the wire-level text needs to carry code + toolkit too.
+        const markedMessage = `[composio_error:${code}:${entry.toolkit_slug}] ${baseMessage}`;
         return toolErrorResult(
-          error.detail.message ?? `Composio tool ${entry.tool_slug} failed`,
+          markedMessage,
           { error: error.detail, http_status: error.httpStatus },
         );
       }

@@ -6214,6 +6214,67 @@ test("raw cronjob routes keep draft lab jobs disabled by default", async () => {
   store.close();
 });
 
+test("raw cronjob routes keep draft lab jobs disabled by default", async () => {
+  const root = makeTempDir("hb-runtime-api-lab-cron-routes-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const app = buildTestRuntimeApiServer({ store });
+  const workspace = store.createWorkspace({
+    workspaceId: "lab-1",
+    name: "Lab Jobs",
+    harness: "pi",
+    status: "active",
+    workspaceRole: "draft_lab",
+    labPurpose: "workspace_onboarding",
+    labStatus: "active",
+  });
+
+  const createdJob = await app.inject({
+    method: "POST",
+    url: "/api/v1/cronjobs",
+    payload: {
+      workspace_id: workspace.id,
+      initiated_by: "workspace_agent",
+      cron: "0 9 * * *",
+      description: "Daily check",
+      instruction: "Say hello",
+      enabled: true,
+      delivery: { mode: "announce", channel: "session_run", to: null }
+    }
+  });
+  assert.equal(createdJob.statusCode, 200);
+  assert.equal(createdJob.json().enabled, false);
+  assert.equal(createdJob.json().next_run_at, null);
+  assert.deepEqual(createdJob.json().metadata, {
+    author_recommended_enabled: true,
+    lab_execution_disabled: true,
+  });
+  const jobId = createdJob.json().id as string;
+
+  const updatedJob = await app.inject({
+    method: "PATCH",
+    url: `/api/v1/cronjobs/${jobId}`,
+    payload: {
+      workspace_id: workspace.id,
+      description: "Updated check",
+      enabled: true,
+    }
+  });
+  assert.equal(updatedJob.statusCode, 200);
+  assert.equal(updatedJob.json().description, "Updated check");
+  assert.equal(updatedJob.json().enabled, false);
+  assert.equal(updatedJob.json().next_run_at, null);
+  assert.deepEqual(updatedJob.json().metadata, {
+    author_recommended_enabled: true,
+    lab_execution_disabled: true,
+  });
+
+  await app.close();
+  store.close();
+});
+
 test("workspace exec route runs inside the workspace directory", async () => {
   const root = makeTempDir("hb-runtime-api-");
   const workspaceRoot = path.join(root, "workspace");

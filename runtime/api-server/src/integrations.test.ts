@@ -107,13 +107,10 @@ test("fires onBindingCreated for new bindings and not for rebinding the same tar
     workspaceRoot: path.join(root, "workspace")
   });
   const createdBindings: Array<{
-    bindingId: string;
     workspaceId: string;
     targetType: string;
     targetId: string;
     integrationKey: string;
-    connectionId: string;
-    isDefault: boolean;
   }> = [];
   const service = new RuntimeIntegrationService(store, {
     onBindingCreated: (binding) => {

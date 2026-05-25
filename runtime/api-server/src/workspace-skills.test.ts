@@ -345,3 +345,34 @@ test("embedded app-builder-sdk skill only references bundled local assets", () =
     );
   }
 });
+
+test("embedded build-dashboard skill bundles the messaging-dashboard reference", () => {
+  const sourceDir = path.dirname(fileURLToPath(import.meta.url));
+  const skillDir = path.resolve(
+    sourceDir,
+    "../../harnesses/src/embedded-skills/build-dashboard",
+  );
+  // SKILL.md must exist and delegate the visual layer to this skill.
+  const skillBody = fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8");
+  assert.match(skillBody, /messaging-dashboard/);
+
+  // Reference must be bundled alongside the skill (not external) so the
+  // packaged runtime can read it without leaving the bundle dir.
+  for (const relativePath of [
+    "reference/messaging-dashboard/README.md",
+    "reference/messaging-dashboard/src/client/app.css",
+    "reference/messaging-dashboard/src/client/routes/__root.tsx",
+    "reference/messaging-dashboard/src/client/routes/index.tsx",
+    "reference/messaging-dashboard/src/client/components/header-bar.tsx",
+    "reference/messaging-dashboard/src/client/components/connection-pill.tsx",
+    "reference/messaging-dashboard/src/client/components/status-badge.tsx",
+    "reference/messaging-dashboard/src/client/components/messages-table.tsx",
+    "reference/messaging-dashboard/src/client/lib/sample-data.ts",
+  ]) {
+    assert.equal(
+      fs.existsSync(path.join(skillDir, relativePath)),
+      true,
+      `expected build-dashboard bundled asset to exist: ${relativePath}`,
+    );
+  }
+});

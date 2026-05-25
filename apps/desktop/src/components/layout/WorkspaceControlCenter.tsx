@@ -58,6 +58,15 @@ type PreviewChatMessage = ChatMessage & {
 
 type RuntimeCardState = "idle" | "queued" | "working" | "waiting" | "error";
 
+interface RunningSubTaskPreview {
+  sessionId: string;
+  state: "queued" | "working";
+  latestText: string;
+}
+
+const SUB_TASK_PREVIEW_HISTORY_LIMIT = 6;
+const SUB_TASK_PREVIEW_TEXT_LIMIT = 160;
+
 interface WorkspaceControlCenterProps {
   workspaces: WorkspaceRecordPayload[];
   selectedWorkspaceId: string | null;
@@ -457,6 +466,9 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
   const [artifactBrowserOutputs, setArtifactBrowserOutputs] = useState<
     WorkspaceOutputRecordPayload[]
   >([]);
+  const [runningSubTasks, setRunningSubTasks] = useState<
+    RunningSubTaskPreview[]
+  >([]);
   const previewScrollerRef = useRef<HTMLDivElement | null>(null);
   const messagesRef = useRef<PreviewChatMessage[]>([]);
   const shouldStickToBottomRef = useRef(true);
@@ -650,6 +662,54 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
         runtimeStates.items.find((item) => item.session_id === sessionId) ??
         null;
       const nextRuntimeCardState = previewStatusFromRuntimeState(nextRuntimeState);
+
+      const subTaskRuntimeRecords = runtimeStates.items.filter((item) => {
+        if (item.session_id === sessionId) {
+          return false;
+        }
+        const state = previewStatusFromRuntimeState(item);
+        return state === "working" || state === "queued";
+      });
+      const subTaskPreviewResults = await Promise.allSettled(
+        subTaskRuntimeRecords.map(async (record) => {
+          const subHistory =
+            await window.electronAPI.workspace.getSessionHistory({
+              workspaceId,
+              sessionId: record.session_id,
+              limit: SUB_TASK_PREVIEW_HISTORY_LIMIT,
+              offset: 0,
+              order: "desc",
+            });
+          const orderedSubMessages = historyMessagesInDisplayOrder(
+            subHistory.messages,
+            "desc",
+          );
+          const latestNonEmpty = [...orderedSubMessages]
+            .reverse()
+            .find((msg) => msg.text?.trim());
+          const latestText = (latestNonEmpty?.text ?? "")
+            .trim()
+            .slice(0, SUB_TASK_PREVIEW_TEXT_LIMIT);
+          const state = previewStatusFromRuntimeState(record);
+          return {
+            sessionId: record.session_id,
+            state:
+              state === "working" || state === "queued"
+                ? state
+                : "working",
+            latestText,
+          } satisfies RunningSubTaskPreview;
+        }),
+      );
+      if (disposedRef.current) {
+        return;
+      }
+      const nextSubTaskPreviews: RunningSubTaskPreview[] = subTaskPreviewResults
+        .filter(
+          (result): result is PromiseFulfilledResult<RunningSubTaskPreview> =>
+            result.status === "fulfilled",
+        )
+        .map((result) => result.value);
       const currentRuntimeInputId = (
         nextRuntimeState?.current_input_id || ""
       ).trim();
@@ -703,6 +763,7 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
       setMessages(nextRenderedMessages);
       setRuntimeState(nextRuntimeState);
       setRuntimeCardState(nextRuntimeCardState);
+      setRunningSubTasks(nextSubTaskPreviews);
       setIsResponding(
         nextRuntimeCardState === "queued" || nextRuntimeCardState === "working",
       );
@@ -1319,6 +1380,37 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
             </div>
           )}
         </div>
+
+        {runningSubTasks.length > 0 ? (
+          <div className="mx-2.5 mb-1 shrink-0 rounded border border-border/60 bg-fg-2 px-2 py-1 text-[10px]">
+            <div className="mb-0.5 flex items-center gap-1 text-muted-foreground">
+              <Loader2 className="size-2.5 animate-spin" />
+              <span>
+                {runningSubTasks.length} sub-task
+                {runningSubTasks.length === 1 ? "" : "s"} running
+              </span>
+            </div>
+            <ul className="space-y-0.5">
+              {runningSubTasks.slice(0, 3).map((subTask) => (
+                <li
+                  key={subTask.sessionId}
+                  className="flex items-start gap-1 text-foreground/80"
+                >
+                  <span className="mt-[2px] inline-block size-1 shrink-0 rounded-full bg-primary/70" />
+                  <span className="line-clamp-1 flex-1">
+                    {subTask.latestText ||
+                      (subTask.state === "queued" ? "Queued…" : "Working…")}
+                  </span>
+                </li>
+              ))}
+              {runningSubTasks.length > 3 ? (
+                <li className="text-muted-foreground">
+                  +{runningSubTasks.length - 3} more
+                </li>
+              ) : null}
+            </ul>
+          </div>
+        ) : null}
 
         {errorMessage ? (
           <div className="mx-2.5 mb-1.5 line-clamp-2 rounded border border-destructive/30 bg-destructive/5 px-2 py-1 text-[10px] text-destructive">

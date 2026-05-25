@@ -1704,6 +1704,14 @@ test("workspace app registration accepts a dashboard app that uses any @holaboss
     ].join("\n"),
     "utf8",
   );
+  // Satisfy the workspace_app_missing_tailwind_compile lint — every
+  // dashboard app with src/client/ must carry a .css entry under it that
+  // declares @import "tailwindcss" so the app's own utilities compile.
+  fs.writeFileSync(
+    path.join(clientDir, "app.css"),
+    "@import \"tailwindcss\";\n@source \"../client\";\n",
+    "utf8",
+  );
 
   const result = (await harness.service.registerWorkspaceApp({
     workspaceId: harness.workspaceId,

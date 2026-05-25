@@ -1,3 +1,5 @@
+import { IntegrationLogo } from "@/components/integration/IntegrationLogo";
+import { OAuthWaitIndicator } from "@/components/integration/OAuthWaitIndicator";
 import { AppsGallery } from "@/components/marketplace/AppsGallery";
 import { KitDetail } from "@/components/marketplace/KitDetail";
 import { KitEmoji } from "@/components/marketplace/KitEmoji";
@@ -5,6 +7,7 @@ import { MarketplaceGallery } from "@/components/marketplace/MarketplaceGallery"
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toolkitDisplayName } from "@/lib/toolkitDisplay";
 import {
   composioToolkitMatchesProvider,
   composioToolkitSlugForProvider,
@@ -30,7 +33,11 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 };
 
 function providerDisplayName(provider: string): string {
-  return PROVIDER_DISPLAY_NAMES[provider] ?? provider;
+  // Hand-written overrides win (e.g. "Twitter / X"), then the shared
+  // toolkitDisplayName map, then raw slug.
+  return (
+    PROVIDER_DISPLAY_NAMES[provider] ?? toolkitDisplayName(provider)
+  );
 }
 
 interface MarketplacePaneProps {
@@ -387,38 +394,49 @@ export function MarketplacePane({
                   This workspace needs access to the following services.
                 </p>
                 <div className="mt-4 space-y-2">
-                  {pendingIntegrations.missing_providers.map((provider) => (
-                    <div
-                      key={provider}
-                      className="flex items-center justify-between rounded-md border border-border px-3 py-2.5"
-                    >
-                      <span className="text-sm font-medium text-foreground">
-                        {providerDisplayName(provider)}
-                      </span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={
-                          connectingProvider === provider
-                            ? "outline"
-                            : "default"
-                        }
-                        disabled={
-                          connectingProvider !== null &&
-                          connectingProvider !== provider
-                        }
-                        onClick={() => {
-                          if (connectingProvider === provider) {
-                            cancelActiveConnect();
-                          } else {
-                            void handleConnectProvider(provider);
-                          }
-                        }}
+                  {pendingIntegrations.missing_providers.map((provider) => {
+                    const isConnecting = connectingProvider === provider;
+                    const displayName = providerDisplayName(provider);
+                    return (
+                      <div
+                        className="flex flex-col gap-2 rounded-md border border-border px-3 py-2.5"
+                        key={provider}
                       >
-                        {connectingProvider === provider ? "Cancel" : "Connect"}
-                      </Button>
-                    </div>
-                  ))}
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-2.5">
+                            <IntegrationLogo
+                              alt={displayName}
+                              size="sm"
+                              slug={composioToolkitSlugForProvider(provider)}
+                            />
+                            <span className="truncate text-sm font-medium text-foreground">
+                              {displayName}
+                            </span>
+                          </div>
+                          {!isConnecting ? (
+                            <Button
+                              disabled={connectingProvider !== null}
+                              onClick={() => {
+                                void handleConnectProvider(provider);
+                              }}
+                              size="sm"
+                              type="button"
+                              variant="default"
+                            >
+                              Connect
+                            </Button>
+                          ) : null}
+                        </div>
+                        {isConnecting ? (
+                          <OAuthWaitIndicator
+                            compact
+                            displayName={displayName}
+                            onCancel={() => cancelActiveConnect()}
+                          />
+                        ) : null}
+                      </div>
+                    );
+                  })}
                 </div>
                 {connectStatus ? (
                   <p className="mt-3 text-xs text-muted-foreground">

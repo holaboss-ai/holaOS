@@ -1,5 +1,5 @@
 import { type ReactNode, memo, useMemo, useState } from "react";
-import { AlertTriangle } from "lucide-react";
+import { CircleAlert } from "lucide-react";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { SimpleMarkdown } from "@/components/marketplace/SimpleMarkdown";
 import { chatMessageTimeLabel } from "../helpers";
@@ -249,12 +249,15 @@ function AssistantTurnComponent({
           ) : segment.tone === "error" ? (
             <div
               key={`output-${index}`}
-              className="theme-chat-system-bubble mt-2 first:mt-0 rounded-xl border px-3 py-2.5 text-xs text-foreground"
+              className="mt-2 first:mt-0 rounded-xl border border-destructive/30 bg-destructive/[0.04] px-3 py-2.5"
             >
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
+              <div className="flex items-start gap-2.5">
+                <CircleAlert
+                  className="mt-0.5 size-3.5 shrink-0 text-destructive"
+                  strokeWidth={2}
+                />
                 <SimpleMarkdown
-                  className="chat-markdown max-w-full text-foreground"
+                  className="chat-markdown max-w-full text-foreground leading-relaxed"
                   onLinkClick={onLinkClick}
                   onLocalLinkClick={onLocalLinkClick}
                 >

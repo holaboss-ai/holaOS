@@ -1001,6 +1001,7 @@ interface IntegrationUpdateConnectionPayload {
   last_context_fetch_status?: string | null;
 }
 
+
 interface ConnectionWorkspaceUsageEntry {
   connection_id: string;
   workspaces: Array<{
@@ -1237,6 +1238,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   app: {
     relaunch: () => ipcRenderer.invoke("app:relaunch") as Promise<void>,
+    onCloseActiveTab: (listener: () => void) => {
+      const wrapped = () => listener();
+      ipcRenderer.on("app:closeActiveTab", wrapped);
+      return () => ipcRenderer.removeListener("app:closeActiveTab", wrapped);
+    },
   },
   runtime: {
     getStatus: () => ipcRenderer.invoke("runtime:getStatus") as Promise<RuntimeStatusPayload>,
@@ -1786,6 +1792,22 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.on("auth:error", wrapped);
       return () => ipcRenderer.removeListener("auth:error", wrapped);
     }
+  },
+  tabs: {
+    showContextMenu: (opts: {
+      canCloseLeft: boolean;
+      canCloseRight: boolean;
+      canCloseOthers: boolean;
+      hasDeleteFile: boolean;
+    }) =>
+      ipcRenderer.invoke("tabs:showContextMenu", opts) as Promise<
+        | "close"
+        | "closeOthers"
+        | "closeToLeft"
+        | "closeToRight"
+        | "deleteFile"
+        | null
+      >,
   },
   browser: {
     setActiveWorkspace: (

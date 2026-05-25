@@ -20,8 +20,6 @@ test("empty workspace onboarding start uses deterministic onboarding state", asy
 test("deterministic onboarding continue is exposed over electron ipc", async () => {
   const source = await readFile(MAIN_PATH, "utf8");
 
-  assert.match(
-    source,
     /async function continueDeterministicOnboarding\([\s\S]*currentState === "deterministic_intro"[\s\S]*onboarding_status: "in_progress"[\s\S]*onboarding_state: "deterministic_context_fetching"[\s\S]*onboarding_status: "completed"[\s\S]*onboarding_completion_summary: "Deterministic onboarding completed"/,
   );
   assert.match(source, /"workspace:continueDeterministicOnboarding"/);

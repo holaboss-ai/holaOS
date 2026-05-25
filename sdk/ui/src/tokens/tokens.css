@@ -71,18 +71,18 @@
   --radius-3xl: calc(var(--radius) * 2); /* 16px */
   --radius-4xl: calc(var(--radius) * 2.5); /* 20px */
 
-  /* Font weights — each step ~50 lighter than Tailwind default, with
-     semibold and heavier all clamped to 500 so vibe-coded apps cannot
-     render anything bolder than bold. */
-  --font-weight-thin: 300;
-  --font-weight-extralight: 325;
-  --font-weight-light: 350;
-  --font-weight-normal: 350;
-  --font-weight-medium: 400;
-  --font-weight-semibold: 500;
-  --font-weight-bold: 500;
-  --font-weight-extrabold: 500;
-  --font-weight-black: 500;
+  /* Font weights — each step ~25-40 lighter than Tailwind default, with
+     semibold and heavier all clamped to 530 so vibe-coded apps cannot
+     render anything bolder than a touch past medium. */
+  --font-weight-thin: 325;
+  --font-weight-extralight: 350;
+  --font-weight-light: 375;
+  --font-weight-normal: 380;
+  --font-weight-medium: 440;
+  --font-weight-semibold: 530;
+  --font-weight-bold: 530;
+  --font-weight-extrabold: 530;
+  --font-weight-black: 530;
 
   /* Tight type scale — ~10-20% denser than Tailwind default. */
   --text-xs: 0.725rem;

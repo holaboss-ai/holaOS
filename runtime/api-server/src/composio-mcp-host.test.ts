@@ -171,6 +171,39 @@ test("buildCallToolHandler maps ComposioToolExecutionError to structured isError
   assert.equal(structured.error?.code, "connection_expired");
   assert.equal(structured.error?.user_action, "reconnect");
   assert.equal(structured.http_status, 401);
+  // Chat UI pattern-matches on a stable marker that travels in the text
+  // content (not just structuredContent, which the Agent SDK bridge may strip).
+  assert.match(
+    result.content[0]?.text ?? "",
+    /^\[composio_error:connection_expired:gmail\] /,
+  );
+});
+
+test("buildCallToolHandler marker uses unknown_error code when detail lacks one", async () => {
+  const fetchImpl: typeof fetch = async () =>
+    jsonResponse(
+      {
+        ok: false,
+        error: { message: "Something went wrong" },
+      },
+      { status: 502 },
+    );
+  const composio = new ComposioService({
+    honoBaseUrl: "https://app.holaboss.test",
+    authCookie: "hb_session=abc",
+    fetchImpl,
+  });
+  const handle = buildCallToolHandler([SAMPLE_GMAIL_TOOL], composio);
+
+  const result = (await handle("composio_gmail_get_profile", {})) as {
+    content: Array<{ type: string; text: string }>;
+    isError: boolean;
+  };
+  assert.equal(result.isError, true);
+  assert.match(
+    result.content[0]?.text ?? "",
+    /^\[composio_error:unknown_error:gmail\] /,
+  );
 });
 
 test("buildCallToolHandler forwards tool arguments to ComposioService", async () => {

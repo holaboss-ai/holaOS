@@ -37,6 +37,7 @@ import {
   FileType,
   Folder,
   Globe,
+  CircleAlert,
   Image as ImageIcon,
   Inbox,
   Bot,
@@ -108,7 +109,10 @@ import {
   pushRendererSentryActivity,
   useRendererSentrySection,
 } from "@/lib/rendererSentry";
-import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import {
+  composioToolkitMatchesProvider,
+  useWorkspaceDesktop,
+} from "@/lib/workspaceDesktop";
 import {
   listWorkspaceFiles,
   type WorkspaceFileEntry,
@@ -691,6 +695,37 @@ function parseOnboardingAlignmentQuestion(
 
 function optionalHistoryLoadErrorMessage(label: string, error: unknown) {
   return `${label} unavailable: ${normalizeErrorMessage(error)}`;
+}
+
+/**
+ * Walks the assistant turn history newest-to-oldest and returns the first
+ * non-empty `pendingIntegrations` array. That's the set we treat as the
+ * "frontier" — older turns either resolved their pending set or were
+ * superseded by a fresher emit. Returns [] when no turn has surfaced any.
+ */
+function findFrontierPendingIntegrations(
+  messages: ChatMessage[],
+): ChatPendingIntegration[] {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    const pending = message?.pendingIntegrations;
+    if (pending && pending.length > 0) {
+      return pending;
+    }
+  }
+  return [];
+}
+
+function OnboardingInlineError({ message }: { message: string }) {
+  return (
+    <div className="flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/[0.04] px-3 py-2 text-xs">
+      <CircleAlert
+        className="mt-px size-3.5 shrink-0 text-destructive"
+        strokeWidth={2}
+      />
+      <span className="leading-relaxed text-muted-foreground">{message}</span>
+    </div>
+  );
 }
 
 function serializedOnboardingQuestionKey(value: unknown) {
@@ -6456,6 +6491,43 @@ export function ChatPane({
   async function handleAfterIntegrationBind() {
     const sessionId = activeSessionIdRef.current || activeSessionId;
     if (!selectedWorkspaceId || !sessionId) return;
+
+    // Don't dispatch "continue" until EVERY (app, provider) the agent
+    // surfaced this turn has a matching app binding. Otherwise binding the
+    // first card immediately resumes the agent, which then hits a missing-
+    // grant error on the still-unbound providers (e.g. user clicks Twitter
+    // → continue → agent tries Gmail → "no Gmail token"). The frontier set
+    // is the most recent assistant message that emitted pending entries —
+    // older messages were already resolved or superseded.
+    const frontier = findFrontierPendingIntegrations(messages);
+    if (frontier.length > 0) {
+      try {
+        const { bindings } =
+          await window.electronAPI.workspace.listIntegrationBindings(
+            selectedWorkspaceId,
+          );
+        const stillUnbound = frontier.filter((entry) => {
+          const entryApp = entry.app_id.trim().toLowerCase();
+          const entryProvider = entry.provider_id.trim().toLowerCase();
+          return !bindings.some(
+            (b) =>
+              b.target_type === "app" &&
+              b.target_id.trim().toLowerCase() === entryApp &&
+              composioToolkitMatchesProvider(b.integration_key, entryProvider),
+          );
+        });
+        if (stillUnbound.length > 0) {
+          // More cards to go — leave the assistant turn paused so the user
+          // can complete the remaining ones. The next onAfterBind will
+          // re-evaluate.
+          return;
+        }
+      } catch {
+        // Treat the listing failure as "best-effort continue" — better to
+        // run the agent and surface a real error than to wedge here.
+      }
+    }
+
     try {
       await window.electronAPI.workspace.queueSessionInput({
         workspace_id: selectedWorkspaceId,
@@ -7974,9 +8046,7 @@ export function ChatPane({
             </div>
           ) : null}
           {onboardingQuestionError ? (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-              {onboardingQuestionError}
-            </div>
+            <OnboardingInlineError message={onboardingQuestionError} />
           ) : null}
           {isReadOnlyInspectionSession ? (
             <div className="text-xs text-muted-foreground">
@@ -8077,9 +8147,7 @@ export function ChatPane({
             </>
           )}
           {onboardingReviewActionError ? (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-              {onboardingReviewActionError}
-            </div>
+            <OnboardingInlineError message={onboardingReviewActionError} />
           ) : null}
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -8175,9 +8243,7 @@ export function ChatPane({
             </>
           )}
           {onboardingReviewActionError ? (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-              {onboardingReviewActionError}
-            </div>
+            <OnboardingInlineError message={onboardingReviewActionError} />
           ) : null}
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -8409,6 +8475,16 @@ export function ChatPane({
   ]);
 
   useEffect(() => {
+    // Don't auto-rewrite the saved preference while runtimeConfig hasn't
+    // finished loading. During the brief window between mount and the
+    // runtime/getConfig() resolution, effectiveChatModelPreference falls
+    // back to runtime default (e.g. GPT-5.5) because the provider catalog
+    // hasn't arrived yet — without this guard we overwrite the user's
+    // actual choice in localStorage with __runtime_default__ on every
+    // launch, which is exactly the "always reverts to GPT-5.5 after a
+    // restart" bug. Once runtimeConfig is non-null the auto-sync resumes
+    // its original role of fixing genuinely-stale preferences.
+    if (!runtimeConfig) return;
     if (!effectiveChatModelPreference) {
       return;
     }
@@ -8416,7 +8492,7 @@ export function ChatPane({
       return;
     }
     setChatModelPreference(effectiveChatModelPreference);
-  }, [chatModelPreference, effectiveChatModelPreference]);
+  }, [chatModelPreference, effectiveChatModelPreference, runtimeConfig]);
 
   useEffect(() => {
     if (!resolvedChatModel || !effectiveThinkingValue) {

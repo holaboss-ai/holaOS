@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Toaster } from "sonner";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { AppShell } from "@/components/layout/AppShell";
 import { NewAppShell } from "@/components/layout/new-shell";
@@ -85,6 +86,17 @@ function App() {
             {useNewShell ? <NewAppShell /> : <AppShell />}
           </RequireAuth>
         </TooltipProvider>
+        <Toaster
+          // top-center on purpose: the right and right-bottom areas often
+          // sit underneath a BrowserView (workspace browser pane) which
+          // is an OS-level overlay above the HTML renderer — anything
+          // sonner portals there gets visually clipped or hidden behind
+          // it, and z-index can't beat a BrowserView. Top-center is
+          // always pure HTML, can't be covered.
+          position="top-center"
+          richColors
+          theme="dark"
+        />
       </QueryClientProvider>
     </ErrorBoundary>
   );

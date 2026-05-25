@@ -243,7 +243,56 @@ export interface DashboardUiLintResult {
     snippet: string;
     reason: CssParallelSystemFinding["reason"];
   }>;
+  /** True when at least one app-local `.css` file under `src/client/`
+   *  contains `@import "tailwindcss"`. Required because `@holaboss/ui`'s
+   *  pre-built stylesheet only bakes in utilities used INSIDE the library
+   *  — every Tailwind utility the app itself writes (e.g. `max-w-3xl`,
+   *  `grid-cols-4`, `text-fg-48`) needs an app-side Tailwind compile pass
+   *  to land in the bundle. Without it the page renders unstyled
+   *  utilities and looks broken. */
+  hasAppLocalTailwindImport: boolean;
   scannedFiles: number;
+}
+
+// Detects `@import "tailwindcss"` (or single-quoted) on any non-comment
+// line in any `.css` file under `clientDir`. Block-comment aware to
+// match findParallelDesignSystemMarkers' tokenization.
+const TAILWIND_IMPORT_LINE =
+  /^\s*@import\s+["']tailwindcss(?:\/[^"']*)?["']\s*;?\s*$/;
+
+function hasTailwindImportSomewhere(clientDir: string): boolean {
+  const cssFiles = walkSourceFiles(clientDir, new Set([".css"]));
+  for (const file of cssFiles) {
+    let contents: string;
+    try {
+      contents = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    const lines = contents.split(/\r?\n/);
+    let inBlockComment = false;
+    for (let i = 0; i < lines.length; i += 1) {
+      let line = lines[i] ?? "";
+      if (inBlockComment) {
+        const close = line.indexOf("*/");
+        if (close < 0) continue;
+        line = line.slice(close + 2);
+        inBlockComment = false;
+      }
+      const open = line.indexOf("/*");
+      if (open >= 0) {
+        const close = line.indexOf("*/", open + 2);
+        if (close < 0) {
+          inBlockComment = true;
+          line = line.slice(0, open);
+        } else {
+          line = line.slice(0, open) + line.slice(close + 2);
+        }
+      }
+      if (TAILWIND_IMPORT_LINE.test(line)) return true;
+    }
+  }
+  return false;
 }
 
 export function inspectDashboardUiUsage(appDir: string): DashboardUiLintResult {
@@ -254,6 +303,7 @@ export function inspectDashboardUiUsage(appDir: string): DashboardUiLintResult {
       uniqueHolabossUiNamedImports: 0,
       holabossUiNamedImportNames: [],
       parallelDesignSystemMarkers: [],
+      hasAppLocalTailwindImport: false,
       scannedFiles: 0,
     };
   }
@@ -281,6 +331,7 @@ export function inspectDashboardUiUsage(appDir: string): DashboardUiLintResult {
     uniqueHolabossUiNamedImports: allImports.size,
     holabossUiNamedImportNames: [...allImports].sort(),
     parallelDesignSystemMarkers: cssMarkers,
+    hasAppLocalTailwindImport: hasTailwindImportSomewhere(clientDir),
     scannedFiles: sourceFiles.length,
   };
 }
@@ -288,7 +339,8 @@ export function inspectDashboardUiUsage(appDir: string): DashboardUiLintResult {
 export interface DashboardUiLintViolation {
   code:
     | "workspace_app_holaboss_ui_named_imports_too_few"
-    | "workspace_app_parallel_design_system";
+    | "workspace_app_parallel_design_system"
+    | "workspace_app_missing_tailwind_compile";
   message: string;
 }
 
@@ -316,6 +368,22 @@ export function dashboardUiLintViolations(
         SUGGESTED_PRIMITIVES.map((entry) => `  - ${entry}`).join("\n"),
         `Currently imported names: ${result.holabossUiNamedImportNames.length > 0 ? result.holabossUiNamedImportNames.join(", ") : "(none)"}.`,
         "If the library is genuinely missing a primitive, surface to the SDK team — do not redefine one locally.",
+      ].join("\n"),
+    });
+  }
+
+  if (!result.hasAppLocalTailwindImport) {
+    out.push({
+      code: "workspace_app_missing_tailwind_compile",
+      message: [
+        "Dashboard app has `src/client/` but no `.css` file under it contains `@import \"tailwindcss\"`.",
+        "Without it, every Tailwind utility class the app itself writes (e.g. `max-w-3xl`, `grid-cols-4`, `text-fg-48`, `text-foreground`, `bg-card`) silently drops out of the bundle. `@holaboss/ui/styles.css` only bakes in the utilities used INSIDE the library — not the ones your `src/client/` composes.",
+        "The visible symptom is that the page renders with most className utilities unstyled: text falls to browser defaults, spacing collapses, the layout looks broken even though the JSX is correct.",
+        "Fix: create `src/client/app.css` (or any name) containing exactly:",
+        "  @import \"tailwindcss\";",
+        "  @source \"../client\";   /* path relative to this file — point at your src/client/ tree */",
+        "and import it once at the dashboard root (alongside `import \"@holaboss/ui/styles.css\";`).",
+        "If you use TanStack Start or Vite, also add `@tailwindcss/vite` to your plugins so the @import + @source actually compile.",
       ].join("\n"),
     });
   }
