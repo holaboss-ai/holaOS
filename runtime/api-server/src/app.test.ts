@@ -2183,17 +2183,24 @@ test("runtime memory_retrieve tool returns interaction leaf hits from the tree b
       },
       payload: {
         query: "how do I deploy?",
-        mode: "leaves",
+        retrieval_policy: {
+          max_evidence: 4,
+        },
       },
     });
 
     assert.equal(response.statusCode, 200);
     assert.equal(response.json().tool_id, "memory_retrieve");
+    assert.equal(response.json().intent, "procedure_lookup");
     assert.equal(response.json().categories[0], "interaction");
-    assert.equal(response.json().hits.length, 1);
-    assert.equal(response.json().hits[0].title, "Deploy procedure");
-    assert.equal(response.json().hits[0].summary, "Steps for deployment.");
-    assert.equal("path" in response.json().hits[0], false);
+    assert.ok(response.json().evidence.length >= 1);
+    const deployEvidence = response
+      .json()
+      .evidence.find((item: { title?: string }) => item.title === "Deploy procedure");
+    assert.ok(deployEvidence);
+    assert.match(deployEvidence.summary, /deploy/i);
+    assert.equal("path" in deployEvidence, false);
+    assert.equal(response.json().retrieval_pack.known_facts[0].title, "Deploy procedure");
   } finally {
     await app.close();
     store.close();
@@ -2295,19 +2302,28 @@ test("runtime memory_retrieve tool returns integration leaf hits from the tree b
       },
       payload: {
         query: "who owns release pr 123?",
-        categories: ["integration"],
-        mode: "leaves",
+        scope: {
+          categories: ["integration"],
+        },
+        retrieval_policy: {
+          max_evidence: 4,
+        },
       },
     });
 
     assert.equal(response.statusCode, 200);
     assert.equal(response.json().tool_id, "memory_retrieve");
     assert.deepEqual(response.json().categories, ["integration"]);
-    assert.equal(response.json().hits.length, 1);
-    assert.equal(response.json().hits[0].title, "Release PR #123 owner");
-    assert.equal(response.json().hits[0].provider, "github");
-    assert.equal(response.json().hits[0].summary, "The release PR owner is Maya Chen.");
-    assert.equal("path" in response.json().hits[0], false);
+    assert.equal(response.json().intent, "fact_lookup");
+    assert.ok(response.json().evidence.length >= 1);
+    const releaseEvidence = response
+      .json()
+      .evidence.find((item: { title?: string }) => item.title === "Release PR #123 owner");
+    assert.ok(releaseEvidence);
+    assert.equal(releaseEvidence.provider, "github");
+    assert.equal(releaseEvidence.summary, "The release PR owner is Maya Chen.");
+    assert.equal(response.json().retrieval_pack.recommended_next_source, "github");
+    assert.equal("path" in releaseEvidence, false);
   } finally {
     await app.close();
     store.close();
@@ -2460,16 +2476,20 @@ test("runtime memory_retrieve searches both interaction and integration trees wh
       },
       payload: {
         query: "atlas api",
-        mode: "leaves",
+        intent: "briefing",
+        retrieval_policy: {
+          max_evidence: 6,
+        },
       },
     });
 
     assert.equal(response.statusCode, 200);
     assert.equal(response.json().tool_id, "memory_retrieve");
     assert.deepEqual(response.json().categories, ["interaction", "integration"]);
-    const titles = response.json().hits.map((hit: { title: string }) => hit.title);
+    const titles = response.json().evidence.map((hit: { title: string }) => hit.title);
     assert.ok(titles.includes("Atlas API incident bridge"));
     assert.ok(titles.includes("Atlas API release PR owner"));
+    assert.ok(Array.isArray(response.json().retrieval_pack.recent_high_signal_items));
   } finally {
     await app.close();
     store.close();

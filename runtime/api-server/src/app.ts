@@ -6186,18 +6186,46 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           body: request.body,
         }),
         query: requiredString(request.body.query, "query"),
-        categories: Array.isArray(request.body.categories)
-          ? request.body.categories
-            .filter((value): value is string => typeof value === "string")
-            .map((value) => value.trim().toLowerCase())
-            .filter((value): value is "interaction" | "integration" => value === "interaction" || value === "integration")
+        intent: nullableString(request.body.intent) ?? null,
+        scope: {
+          categories: isRecord(request.body.scope) && Array.isArray(request.body.scope.categories)
+            ? request.body.scope.categories
+              .filter((value): value is string => typeof value === "string")
+              .map((value) => value.trim().toLowerCase())
+              .filter((value): value is "interaction" | "integration" => value === "interaction" || value === "integration")
+            : undefined,
+          treeIds: isRecord(request.body.scope) && Array.isArray(request.body.scope.tree_ids)
+            ? request.body.scope.tree_ids
+              .filter((value): value is string => typeof value === "string")
+              .map((value) => value.trim())
+              .filter(Boolean)
+            : undefined,
+        },
+        retrievalPolicy: isRecord(request.body.retrieval_policy)
+          ? {
+              hybrid:
+                typeof request.body.retrieval_policy.hybrid === "boolean"
+                  ? request.body.retrieval_policy.hybrid
+                  : undefined,
+              include_neighbors:
+                typeof request.body.retrieval_policy.include_neighbors === "boolean"
+                  ? request.body.retrieval_policy.include_neighbors
+                  : undefined,
+              freshness_bias:
+                typeof request.body.retrieval_policy.freshness_bias === "string"
+                && ["low", "medium", "high"].includes(request.body.retrieval_policy.freshness_bias)
+                  ? request.body.retrieval_policy.freshness_bias as "low" | "medium" | "high"
+                  : undefined,
+              prefer_high_signal:
+                typeof request.body.retrieval_policy.prefer_high_signal === "boolean"
+                  ? request.body.retrieval_policy.prefer_high_signal
+                  : undefined,
+              max_evidence: hasOwn(request.body.retrieval_policy, "max_evidence")
+                ? optionalInteger(request.body.retrieval_policy.max_evidence, 8)
+                : undefined,
+            }
           : undefined,
-        mode: nullableString(request.body.mode) as "mixed" | "summaries" | "leaves" | null,
-        treeId: nullableString(request.body.tree_id) ?? null,
-        nodeId: nullableString(request.body.node_id) ?? null,
-        maxResults: hasOwn(request.body, "max_results")
-          ? optionalInteger(request.body.max_results, 8)
-          : undefined,
+        answerGoal: nullableString(request.body.answer_goal) ?? null,
       });
       return await maybeShapeCapabilityToolResult({
         headers: request.headers as Record<string, unknown>,

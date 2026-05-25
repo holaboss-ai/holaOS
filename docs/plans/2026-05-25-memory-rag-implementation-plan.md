@@ -43,7 +43,7 @@ The repo already has the core ingredients for a RAG system:
 
 The main gaps are product and orchestration gaps, not raw storage gaps:
 
-- retrieval does not consistently combine lexical, vector, and graph/entity expansion into one ranking pipeline
+- retrieval does not consistently combine lexical, vector, and graph/entity expansion into one first-pass fetch and reranking pipeline
 - results are returned as hits, not as a structured retrieval pack optimized for reasoning
 - "what matters?" and "what should I know?" queries are not ranked by urgency, novelty, or actionability
 - integration memory holds useful leaves, but not enough synthesized high-signal "shadow summaries"
@@ -53,7 +53,7 @@ The main gaps are product and orchestration gaps, not raw storage gaps:
 
 The durable memory system should behave like this:
 
-`query -> intent classification -> hybrid candidate retrieval -> rerank -> structured retrieval pack -> grounded reasoning -> targeted verification -> answer or action`
+`query -> intent classification -> hybrid first-pass fetch -> LLM rerank -> structured retrieval pack -> grounded reasoning -> targeted verification -> answer or action`
 
 For the model, the important shift is:
 
@@ -153,8 +153,8 @@ Work:
 - record that durable memory retrieval now targets a RAG pipeline, not only note lookup
 - define the target retrieval stages:
   - intent classification
-  - hybrid retrieval
-  - reranking
+  - hybrid first-pass fetch
+  - LLM reranking
   - retrieval pack synthesis
   - optional live verification
 - define `memory_retrieve v2` as the primary agent retrieval boundary
@@ -253,7 +253,7 @@ Notes:
 - if browse/debug behavior is still needed, expose it through a separate `memory_browse` contract
 - the agent should resume reasoning from `retrieval_pack`, `evidence`, and `gaps`, not from raw hit lists
 
-## Phase 1: Introduce a shared hybrid retrieval pipeline
+## Phase 1: Introduce a shared hybrid first-pass fetch pipeline
 
 Files:
 
@@ -284,13 +284,13 @@ Work:
   - `briefing`
   - `planning`
   - `delta`
-- move current category retrieval into a shared hybrid pipeline
+- move current category retrieval into a shared hybrid first-pass fetch pipeline
 - merge lexical, vector, and metadata candidates into one candidate set
 - add optional neighbor expansion keyed by:
   - shared `entity_key`
   - `subject_key`
   - provider-specific object grouping
-- make `retrieveWorkspaceMemory` route through this shared pipeline instead of only sorting per-category hits and concatenating them
+- make `retrieveWorkspaceMemory` route through this shared first-pass fetch pipeline instead of only sorting per-category hits and concatenating them
 - redesign `memory_retrieve` around `retrieval_pack + evidence + gaps + recommended_next_source`
 - remove browse-oriented fields from the main retrieval tool contract:
   - `mode`
@@ -305,7 +305,7 @@ Exit criteria:
 - `memory_retrieve v2` returns reasoning-ready context rather than legacy search hits
 - the agent can continue planning directly from the retrieval result without bespoke post-processing
 
-## Phase 2: Add a RAG-grade reranker
+## Phase 2: Add an LLM-based RAG-grade reranker
 
 Files:
 
@@ -321,7 +321,9 @@ Recommended new helper module:
 
 Work:
 
-- keep current keyword/metadata/freshness scoring as a baseline
+- keep current keyword/metadata/freshness scoring only as a coarse shortlist baseline
+- rerank the shortlist with the model by default rather than making LLM reranking optional
+- keep the model rerank bounded to a small shortlisted candidate set rather than the full fetched pool
 - add intent-aware reranking features:
   - urgency
   - novelty

@@ -13,10 +13,10 @@ import {
   type AgentOperatorSurfaceContext,
   type AgentPendingUserMemoryContext,
   type AgentRecentRuntimeContext,
-  type AgentRecalledMemoryContext,
   type AgentSessionAttachmentContext,
   type AgentScratchpadContext,
 } from "./agent-runtime-prompt.js";
+import type { AgentRecalledMemoryContext } from "./memory-retrieval-pack.js";
 import type {
   AgentPromptCacheProfile,
   AgentPromptChannelContents,

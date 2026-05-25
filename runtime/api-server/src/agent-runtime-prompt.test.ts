@@ -1411,41 +1411,110 @@ test("composeBaseAgentPrompt includes recalled durable memory as context message
     sessionKind: "main_session",
     sessionMode: "code",
     recalledMemoryContext: {
-      entries: [
+      intent: "briefing",
+      retrieval_pack: {
+        known_facts: [
+          {
+            evidence_id: "interaction:style",
+            category: "interaction",
+            kind: "leaf",
+            title: "User response style",
+            summary: "User prefers concise responses.",
+            freshness_state: "stable",
+            score: 4.8,
+            reason: "recalled_fact",
+          },
+        ],
+        recent_high_signal_items: [
+          {
+            evidence_id: "integration:funded",
+            category: "integration",
+            kind: "leaf",
+            title: "Your OpenAI API account has been funded",
+            summary: "Email from OpenAI about your API account being funded.",
+            freshness_state: "fresh",
+            score: 5.2,
+            reason: "high_signal",
+          },
+        ],
+        constraints: [],
+        blockers: [
+          {
+            evidence_id: "interaction:deploy",
+            category: "interaction",
+            kind: "leaf",
+            title: "Deploy permission blocker",
+            summary: "Deploy calls may be denied by workspace policy.",
+            freshness_state: "fresh",
+            score: 4.9,
+            reason: "blocker_or_risk",
+          },
+        ],
+        open_questions: [
+          {
+            question: "Does \"Your OpenAI API account has been funded\" still require attention right now?",
+            best_source: "gmail",
+          },
+        ],
+        recommended_next_source: "gmail",
+        recommended_next_step: {
+          type: "verify_live_state",
+          source: "gmail",
+          reason: "Top recalled items still have live-state uncertainty that should be narrowed through a direct source.",
+        },
+      },
+      evidence: [
         {
-          scope: "user",
-          memory_type: "preference",
+          id: "interaction:style",
+          category: "interaction",
+          kind: "leaf",
+          tree_id: "interaction:preferences:style",
           title: "User response style",
           summary: "User prefers concise responses.",
-          path: "preference/response-style.md",
-          verification_policy: "none",
-          staleness_policy: "stable",
+          summary_for_prompt: "User response style: User prefers concise responses.",
           freshness_state: "stable",
-          freshness_note: "This memory is treated as stable unless explicitly changed.",
+          freshness_note: "leaf memory from user preferences.",
+          score: 4.8,
+          reasons: ["embedding_similarity", "vector_first_pass", "llm_rerank"],
+          entity_name: "User preferences",
         },
         {
-          scope: "workspace",
-          memory_type: "blocker",
+          id: "interaction:deploy",
+          category: "interaction",
+          kind: "leaf",
+          tree_id: "interaction:workflow:deploy",
           title: "Deploy permission blocker",
           summary: "Deploy calls may be denied by workspace policy.",
-          path: "workspace/workspace-1/knowledge/blockers/deploy.md",
-          verification_policy: "check_before_use",
-          staleness_policy: "workspace_sensitive",
+          summary_for_prompt: "Deploy permission blocker: Deploy calls may be denied by workspace policy.",
           freshness_state: "fresh",
-          freshness_note: "Verify this memory against the current workspace state before acting on it.",
+          freshness_note: "leaf memory from deploy workflow.",
+          score: 4.9,
+          reasons: ["embedding_similarity", "vector_first_pass", "llm_rerank"],
+          entity_name: "Deploy workflow",
         },
         {
-          scope: "integration",
-          memory_type: "leaf",
+          id: "integration:funded",
+          category: "integration",
+          kind: "leaf",
+          tree_id: "integration:gmail:acct-1",
           title: "Your OpenAI API account has been funded",
           summary: "Email from OpenAI about your API account being funded.",
-          path: "integration/accounts/gmail-jeffreyli-imerch.ai-89418944a655/leaves/leaf-65461043924305269f729543.md",
-          verification_policy: "none",
-          staleness_policy: "workspace_sensitive",
+          summary_for_prompt: "Your OpenAI API account has been funded: Email from OpenAI about your API account being funded.",
           freshness_state: "fresh",
-          freshness_note: "Leaf memory from gmail account jeffreyli@imerch.ai.",
+          freshness_note: "leaf memory from gmail account jeffreyli@imerch.ai.",
+          score: 5.2,
+          reasons: ["embedding_similarity", "vector_first_pass", "llm_rerank", "llm_requires_live_verification"],
+          provider: "gmail",
+          account_label: "jeffreyli@imerch.ai",
+          source_label: "jeffreyli@imerch.ai",
         },
       ],
+      coverage: {
+        used_lexical: true,
+        used_vector: true,
+        used_neighbors: false,
+        confidence: "high",
+      },
     },
   });
 
@@ -1461,12 +1530,13 @@ test("composeBaseAgentPrompt includes recalled durable memory as context message
   assert.equal(prompt.promptLayers.some((layer) => layer.id === "memory_recall"), false);
   assert.doesNotMatch(prompt.systemPrompt, /Recalled durable memory:/);
   assert.match(prompt.contextMessages.join("\n\n"), /Recalled durable memory:/);
+  assert.match(prompt.contextMessages.join("\n\n"), /Known facts:/);
   assert.match(prompt.contextMessages.join("\n\n"), /User response style/);
   assert.match(prompt.contextMessages.join("\n\n"), /Deploy permission blocker/);
+  assert.match(prompt.contextMessages.join("\n\n"), /Recommended next source: `gmail`\./);
+  assert.match(prompt.contextMessages.join("\n\n"), /Coverage: confidence=`high`, vector=yes, lexical=yes, neighbors=no\./);
+  assert.match(prompt.contextMessages.join("\n\n"), /Reasons: embedding_similarity, vector_first_pass, llm_rerank/);
   assert.doesNotMatch(prompt.contextMessages.join("\n\n"), /integration\/accounts\/gmail-jeffreyli-imerch.ai-89418944a655\/leaves\/leaf-65461043924305269f729543\.md/);
-  assert.match(prompt.contextMessages.join("\n\n"), /check_before_use/);
-  assert.match(prompt.contextMessages.join("\n\n"), /Freshness: `stable` \(`stable`\)/);
-  assert.match(prompt.contextMessages.join("\n\n"), /Freshness: `fresh` \(`workspace_sensitive`\)/);
 });
 
 test("composeBaseAgentPrompt includes cronjob delivery routing guidance when cronjob tools are available", () => {

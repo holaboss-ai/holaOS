@@ -50,6 +50,7 @@ import {
 } from "./session-todo.js";
 import type { TerminalSessionManagerLike } from "./terminal-session-manager.js";
 import type { QueueWorkerLike } from "./queue-worker.js";
+import type { MemoryRetrievalPolicy } from "./memory-hybrid-retrieval.js";
 import { retrieveWorkspaceMemory, type WorkspaceMemoryCategory } from "./workspace-memory.js";
 import type { ComposioMcpManager } from "./composio-mcp-manager.js";
 import { getStoreCatalogEntry } from "./integration-store-catalog.js";
@@ -403,11 +404,13 @@ export interface RuntimeAgentToolsRetrieveMemoryParams {
   inputId?: string | null;
   selectedModel?: string | null;
   query: string;
-  categories?: WorkspaceMemoryCategory[] | null;
-  mode?: "mixed" | "summaries" | "leaves" | null;
-  treeId?: string | null;
-  nodeId?: string | null;
-  maxResults?: number | null;
+  intent?: string | null;
+  scope?: {
+    categories?: WorkspaceMemoryCategory[] | null;
+    treeIds?: string[] | null;
+  } | null;
+  retrievalPolicy?: MemoryRetrievalPolicy | null;
+  answerGoal?: string | null;
 }
 
 export interface RuntimeAgentToolsContinueSubagentParams {
@@ -4281,40 +4284,29 @@ export class RuntimeAgentToolsService {
 
   async retrieveMemory(params: RuntimeAgentToolsRetrieveMemoryParams): Promise<JsonObject> {
     this.requireWorkspace(params.workspaceId);
-    const mode = normalizedString(params.mode) as "mixed" | "summaries" | "leaves";
-    if (mode && mode !== "mixed" && mode !== "summaries" && mode !== "leaves") {
-      throw new RuntimeAgentToolsServiceError(
-        400,
-        "memory_retrieve_mode_invalid",
-        "mode must be one of [\"mixed\",\"summaries\",\"leaves\"]",
-      );
-    }
     const result = await retrieveWorkspaceMemory({
       store: this.store,
       workspaceId: params.workspaceId,
       query: params.query,
-      categories: params.categories ?? null,
-      mode: mode || "mixed",
-      treeId: normalizedString(params.treeId) || null,
-      nodeId: normalizedString(params.nodeId) || null,
-      maxResults: normalizedInteger(params.maxResults, 8, 1, 50),
+      intent: normalizedString(params.intent) || null,
+      categories: params.scope?.categories ?? null,
+      treeIds: params.scope?.treeIds ?? null,
+      retrievalPolicy: params.retrievalPolicy ?? null,
+      answerGoal: normalizedString(params.answerGoal) || null,
       selectedModel: normalizedString(params.selectedModel) || null,
       sessionId: normalizedString(params.sessionId) || null,
       inputId: normalizedString(params.inputId) || null,
     });
-    const sanitizeHit = (hit: Record<string, unknown>): JsonObject => {
-      const { path: _path, absolute_path: _absolutePath, ...rest } = hit;
-      return { ...rest } as JsonObject;
-    };
     return {
       tool_id: "memory_retrieve",
+      intent: result.intent,
       categories: result.categories,
       query: result.query,
-      mode: result.mode,
-      tree_id: result.tree_id,
-      node_id: result.node_id,
-      hits: result.hits.map((hit) => sanitizeHit({ ...hit })),
-      children: result.children ? result.children.map((child) => sanitizeHit({ ...child })) : null,
+      answer_goal: result.answer_goal,
+      retrieval_pack: result.retrieval_pack as unknown as JsonValue,
+      evidence: result.evidence as unknown as JsonValue,
+      gaps: result.gaps as unknown as JsonValue,
+      coverage: result.coverage as unknown as JsonValue,
     };
   }
 

@@ -2654,52 +2654,44 @@ test("runTsRunnerCli derives recalled durable memory from interaction trees", as
   const recalledMemoryContext = (
     capturedProjectRequest as {
       recalled_memory_context: {
-        entries: Array<Record<string, unknown>>;
-        selection_trace: Array<Record<string, unknown>>;
+        intent?: string;
+        retrieval_pack?: Record<string, unknown>;
+        evidence?: Array<Record<string, unknown>>;
+        coverage?: Record<string, unknown>;
       };
     }
   ).recalled_memory_context;
-  assert.ok(recalledMemoryContext.entries.length >= 2);
-  const leafEntries = recalledMemoryContext.entries
-    .filter((entry) => entry.memory_type === "leaf")
+  assert.equal(recalledMemoryContext.intent, "fact_lookup");
+  assert.ok(Array.isArray(recalledMemoryContext.evidence));
+  assert.ok(recalledMemoryContext.evidence.length >= 2);
+  const leafEntries = recalledMemoryContext.evidence
+    .filter((entry) => entry.kind === "leaf")
     .sort((left, right) => String(left.title).localeCompare(String(right.title)));
   assert.equal(leafEntries.length, 2);
   const deployLeaf = leafEntries.find((entry) => entry.title === "Deploy permission blocker");
   assert.ok(deployLeaf);
-  assert.equal(deployLeaf.scope, "interaction");
+  assert.equal(deployLeaf.category, "interaction");
   assert.equal(deployLeaf.summary, "Deploy calls may be denied by workspace policy.");
-  assert.equal(deployLeaf.verification_policy, "none");
-  assert.equal(deployLeaf.staleness_policy, "workspace_sensitive");
   assert.equal(deployLeaf.freshness_state, "fresh");
-  assert.equal(deployLeaf.source_type, "leaf");
-  assert.match(
-    String(deployLeaf.path ?? ""),
-    /^workspace\/workspace-1\/semantic\/interaction\/trees\/misc-deploy-permissions\//,
-  );
+  assert.equal(deployLeaf.kind, "leaf");
+  assert.match(String(deployLeaf.tree_id ?? ""), /^interaction:/);
   assert.match(
     String(deployLeaf.updated_at ?? ""),
     /\d{4}-\d{2}-\d{2}T/,
   );
   const styleLeaf = leafEntries.find((entry) => entry.title === "User response style");
   assert.ok(styleLeaf);
-  assert.equal(styleLeaf.scope, "interaction");
+  assert.equal(styleLeaf.category, "interaction");
   assert.equal(styleLeaf.summary, "User prefers concise responses.");
-  assert.equal(styleLeaf.verification_policy, "none");
-  assert.equal(styleLeaf.staleness_policy, "workspace_sensitive");
-  assert.equal(styleLeaf.freshness_state, "fresh");
-  assert.equal(styleLeaf.source_type, "leaf");
-  assert.match(
-    String(styleLeaf.path ?? ""),
-    /^workspace\/workspace-1\/semantic\/interaction\/trees\/preference-response-style\//,
-  );
+  assert.equal(styleLeaf.freshness_state, "stable");
+  assert.equal(styleLeaf.kind, "leaf");
+  assert.match(String(styleLeaf.tree_id ?? ""), /^interaction:/);
   assert.match(
     String(styleLeaf.updated_at ?? ""),
     /\d{4}-\d{2}-\d{2}T/,
   );
-  assert.ok(recalledMemoryContext.selection_trace.length >= 2);
-  assert.ok(
-    recalledMemoryContext.selection_trace.some((entry) => entry.source_type === "leaf"),
-  );
+  assert.ok(recalledMemoryContext.retrieval_pack);
+  assert.ok(recalledMemoryContext.coverage);
 });
 
 test("runTsRunnerCli uses the default recall embedding model even when background tasks model is configured", async () => {
@@ -3711,26 +3703,146 @@ test("runTsRunnerCli recalls workspace interaction memory even with many newer c
   assert.ok(capturedProjectRequest);
   const recalledMemoryContext = (
     capturedProjectRequest as {
-      recalled_memory_context: { entries: Array<Record<string, unknown>> };
+      recalled_memory_context: { evidence: Array<Record<string, unknown>> };
     }
   ).recalled_memory_context;
-  assert.ok(Array.isArray(recalledMemoryContext.entries));
+  assert.ok(Array.isArray(recalledMemoryContext.evidence));
   assert.equal(
-    recalledMemoryContext.entries.some(
+    recalledMemoryContext.evidence.some(
       (entry) =>
         entry.title === "Deploy permission blocker"
-        && /^workspace\/workspace-1\/semantic\/interaction\/trees\/misc-deploy-permissions\//.test(String(entry.path ?? "")),
+        && /^interaction:/.test(String(entry.tree_id ?? "")),
     ),
     true,
   );
   assert.equal(
-    recalledMemoryContext.entries.every((entry) => {
-      const pathValue = String(entry.path ?? "");
-      return pathValue.startsWith("workspace/workspace-1/");
+    recalledMemoryContext.evidence.every((entry) => {
+      const treeValue = String(entry.tree_id ?? "");
+      return treeValue.startsWith("interaction:");
     }),
     true,
   );
 });
+
+test(
+  "runTsRunnerCli waits long enough to include a fast recalled memory prefetch",
+  { timeout: 3000 },
+  async () => {
+    setTempSandboxRoot("hb-ts-runner-recalled-memory-fast-");
+    let capturedProjectRequest: Record<string, unknown> | null = null;
+
+    const exitCode = await runTsRunnerCli(
+      ["--request-base64", encodeRequest(baseRequest())],
+      {
+        deps: {
+          ...testDeps(),
+          loadRecalledMemoryContext: async () => {
+            await new Promise((resolve) => setTimeout(resolve, 40));
+            return {
+              intent: "briefing",
+              retrieval_pack: {
+                known_facts: [],
+                recent_high_signal_items: [
+                  {
+                    evidence_id: "memory-1",
+                    category: "integration",
+                    kind: "leaf",
+                    title: "Customer escalation waiting on reply",
+                    summary: "Customer thread is waiting on a reply before Friday.",
+                    freshness_state: "fresh",
+                    score: 5.5,
+                    reason: "high_signal",
+                  },
+                ],
+                constraints: [],
+                blockers: [],
+                open_questions: [],
+                recommended_next_source: "gmail",
+                recommended_next_step: {
+                  type: "verify_live_state",
+                  source: "gmail",
+                  reason: "Email state may have changed.",
+                },
+              },
+              evidence: [
+                {
+                  id: "memory-1",
+                  category: "integration",
+                  kind: "leaf",
+                  tree_id: "integration:gmail:acct-1",
+                  title: "Customer escalation waiting on reply",
+                  summary: "Customer thread is waiting on a reply before Friday.",
+                  excerpt: null,
+                  freshness_state: "fresh",
+                  freshness_note: "leaf memory from gmail account Ops Gmail.",
+                  score: 5.5,
+                  reasons: ["lexical_match"],
+                  observed_at: "2026-05-24T00:00:00.000Z",
+                  updated_at: "2026-05-24T00:00:00.000Z",
+                  source_label: "Ops Gmail",
+                  entity_name: null,
+                  entity_type: null,
+                  provider: "gmail",
+                  account_label: "Ops Gmail",
+                },
+              ],
+              gaps: [],
+              coverage: {
+                used_lexical: true,
+                used_vector: false,
+                used_neighbors: false,
+                confidence: "high",
+              },
+            };
+          },
+          projectAgentRuntimeConfig: (request) => {
+            capturedProjectRequest = request as unknown as Record<
+              string,
+              unknown
+            >;
+            return {
+              provider_id: "openai",
+              model_id: "gpt-5.4",
+              mode: "code",
+              system_prompt: "You are concise.",
+              model_client: {
+                model_proxy_provider: "openai_compatible",
+                api_key: "token",
+                base_url: "http://127.0.0.1:4000/openai/v1",
+                default_headers: { "X-Test": "1" },
+              },
+              tools: { read: true },
+              workspace_tool_ids: [],
+              workspace_skill_ids: [],
+              output_schema_member_id: null,
+              output_format: null,
+              workspace_config_checksum: "checksum-1",
+            };
+          },
+        },
+        io: {
+          stdout: {
+            write() {
+              return true;
+            },
+          } as unknown as NodeJS.WritableStream,
+          stderr: {
+            write() {
+              return true;
+            },
+          } as unknown as NodeJS.WritableStream,
+        },
+      },
+    );
+
+    assert.equal(exitCode, 0);
+    assert.ok(capturedProjectRequest);
+    assert.ok(
+      (capturedProjectRequest as { recalled_memory_context?: unknown })
+        .recalled_memory_context,
+    );
+  },
+);
 
 test(
   "runTsRunnerCli does not block bootstrap when recalled memory prefetch is unresolved",

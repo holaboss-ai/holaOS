@@ -114,7 +114,7 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
   {
     id: "memory_retrieve",
     description:
-      "Retrieve durable interaction memory from the workspace-local memory tree. Supports broad summary recall, exact leaf recall, tree-scoped retrieval, and drill-down from one summary node into its direct children.",
+      "Resolve workspace memory into a reasoning-ready retrieval pack with recalled facts, recent high-signal items, supporting evidence, unresolved gaps, and a recommended next source. Use this for memory-first context building and problem solving, not for tree browsing.",
     policy: "inspect"
   },
   {

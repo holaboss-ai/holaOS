@@ -11,8 +11,8 @@ import {
   utcNowIso,
 } from "@holaboss/runtime-state-store";
 
-import type { AgentRecalledMemoryContext } from "./agent-runtime-prompt.js";
 import { createBackgroundTaskMemoryModelClient } from "./background-task-model.js";
+import type { AgentRecalledMemoryContext } from "./memory-retrieval-pack.js";
 import { queryMemoryModelEmbedding, queryMemoryModelJson, type MemoryModelClientConfig } from "./memory-model-client.js";
 import { createRecallEmbeddingModelClient } from "./recall-embedding-model.js";
 import { workspaceMemoryDir } from "./workspace-bundle-paths.js";
@@ -2266,6 +2266,7 @@ export async function retrieveInteractionMemory(params: {
   nodeId?: string | null;
   maxResults?: number;
   selectedModel?: string | null;
+  useEmbeddings?: boolean;
   sessionId?: string | null;
   inputId?: string | null;
 }): Promise<InteractionMemoryRetrieveResult> {
@@ -2287,13 +2288,15 @@ export async function retrieveInteractionMemory(params: {
         offset: 0,
       });
 
-  const embeddingQuery = await queryEmbeddingVector({
-    workspaceId: params.workspaceId,
-    sessionId: params.sessionId ?? null,
-    inputId: params.inputId ?? null,
-    selectedModel: params.selectedModel ?? null,
-    query: params.query,
-  });
+  const embeddingQuery = params.useEmbeddings === false
+    ? null
+    : await queryEmbeddingVector({
+        workspaceId: params.workspaceId,
+        sessionId: params.sessionId ?? null,
+        inputId: params.inputId ?? null,
+        selectedModel: params.selectedModel ?? null,
+        query: params.query,
+      });
   const embeddingByKey = new Map<string, number[]>();
   if (embeddingQuery) {
     for (const record of params.store.listInteractionNodeEmbeddings({
