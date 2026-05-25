@@ -23,8 +23,31 @@ const NOTION_DATABASE_ROW_LIMIT = 15;
 const SLACK_CHANNEL_LIMIT = 8;
 const SLACK_CHANNEL_HISTORY_LIMIT = 12;
 const SLACK_CHANNEL_HISTORY_TARGETS = 4;
+const SLACK_USER_LIMIT = 50;
+const SLACK_THREAD_TARGETS = 4;
 const GOOGLE_CALENDAR_LIMIT = 6;
 const GOOGLE_CALENDAR_EVENT_LIMIT = 8;
+const GOOGLE_CALENDAR_SETTINGS_LIMIT = 20;
+const GOOGLE_CALENDAR_RESOURCE_LIMIT = 12;
+const GOOGLE_CALENDAR_BUILDING_LIMIT = 12;
+const GOOGLE_DRIVE_SHARED_DRIVE_LIMIT = 10;
+const GOOGLE_DRIVE_PERMISSION_TARGETS = 6;
+const TWITTER_MENTION_LIMIT = 12;
+const TWITTER_DM_EVENT_LIMIT = 12;
+const OUTLOOK_MESSAGE_LIMIT = 20;
+const OUTLOOK_CONTACT_LIMIT = 20;
+const OUTLOOK_EVENT_LIMIT = 12;
+const GOOGLE_SHEETS_SPREADSHEET_LIMIT = 10;
+const GOOGLE_SHEETS_VALUE_TARGETS = 6;
+const GOOGLE_DOCS_DOCUMENT_LIMIT = 10;
+const HUBSPOT_CONTACT_LIMIT = 15;
+const HUBSPOT_COMPANY_LIMIT = 15;
+const HUBSPOT_DEAL_LIMIT = 15;
+const LINEAR_ISSUE_LIMIT = 20;
+const LINEAR_PROJECT_LIMIT = 10;
+const LINEAR_TEAM_LIMIT = 10;
+const JIRA_PROJECT_LIMIT = 12;
+const JIRA_ISSUE_LIMIT = 20;
 
 type ComposioExecuteClient = Pick<ComposioApiClient, "executeAction"> & {
   proxyRequest?: ComposioApiClient["proxyRequest"];
@@ -199,6 +222,25 @@ interface GoogleDriveFilePayload {
   description?: unknown;
 }
 
+interface GoogleDrivePermissionPayload {
+  id?: unknown;
+  role?: unknown;
+  type?: unknown;
+  emailAddress?: unknown;
+  domain?: unknown;
+  displayName?: unknown;
+  deleted?: unknown;
+  allowFileDiscovery?: unknown;
+}
+
+interface GoogleDriveSharedDrivePayload {
+  id?: unknown;
+  name?: unknown;
+  createdTime?: unknown;
+  hidden?: unknown;
+  restrictions?: unknown;
+}
+
 interface TwitterUserPayload {
   id?: unknown;
   name?: unknown;
@@ -224,6 +266,16 @@ interface TwitterPostPayload {
   entities?: unknown;
 }
 
+interface TwitterDmEventPayload {
+  dm_conversation_id?: unknown;
+  event_type?: unknown;
+  id?: unknown;
+  text?: unknown;
+  created_at?: unknown;
+  sender_id?: unknown;
+  message_create?: unknown;
+}
+
 interface GoogleCalendarListEntryPayload {
   id?: unknown;
   summary?: unknown;
@@ -245,6 +297,33 @@ interface GoogleCalendarEventPayload {
   location?: unknown;
 }
 
+interface GoogleCalendarSettingPayload {
+  id?: unknown;
+  etag?: unknown;
+  value?: unknown;
+}
+
+interface GoogleCalendarResourcePayload {
+  resourceId?: unknown;
+  resourceEmail?: unknown;
+  resourceName?: unknown;
+  resourceType?: unknown;
+  resourceCategory?: unknown;
+  generatedResourceName?: unknown;
+  buildingId?: unknown;
+  floorName?: unknown;
+  floorSection?: unknown;
+  capacity?: unknown;
+}
+
+interface GoogleCalendarBuildingPayload {
+  buildingId?: unknown;
+  buildingName?: unknown;
+  description?: unknown;
+  floors?: unknown;
+  kind?: unknown;
+}
+
 interface LinkedInUserInfoPayload {
   id?: unknown;
   author?: unknown;
@@ -260,6 +339,30 @@ interface LinkedInUserInfoPayload {
   email?: unknown;
   email_verified?: unknown;
   locale?: unknown;
+}
+
+interface LinkedInPersonPayload {
+  id?: unknown;
+  firstName?: unknown;
+  lastName?: unknown;
+  localizedFirstName?: unknown;
+  localizedLastName?: unknown;
+  headline?: unknown;
+  vanityName?: unknown;
+  profilePicture?: unknown;
+}
+
+interface LinkedInCompanyPayload {
+  id?: unknown;
+  organization_id?: unknown;
+  organization?: unknown;
+  name?: unknown;
+  vanityName?: unknown;
+  description?: unknown;
+  website?: unknown;
+  industries?: unknown;
+  staffCount?: unknown;
+  followerCount?: unknown;
 }
 
 interface SlackAuthPayload {
@@ -293,6 +396,179 @@ interface SlackMessagePayload {
   thread_ts?: unknown;
   reply_count?: unknown;
   latest_reply?: unknown;
+}
+
+interface SlackUserPayload {
+  id?: unknown;
+  name?: unknown;
+  deleted?: unknown;
+  is_bot?: unknown;
+  is_admin?: unknown;
+  tz?: unknown;
+  profile?: unknown;
+  real_name?: unknown;
+}
+
+interface OutlookProfilePayload {
+  id?: unknown;
+  displayName?: unknown;
+  givenName?: unknown;
+  surname?: unknown;
+  mail?: unknown;
+  userPrincipalName?: unknown;
+  jobTitle?: unknown;
+}
+
+interface OutlookMessagePayload {
+  id?: unknown;
+  subject?: unknown;
+  bodyPreview?: unknown;
+  conversationId?: unknown;
+  receivedDateTime?: unknown;
+  sentDateTime?: unknown;
+  from?: unknown;
+  categories?: unknown;
+  hasAttachments?: unknown;
+  webLink?: unknown;
+}
+
+interface OutlookContactPayload {
+  id?: unknown;
+  displayName?: unknown;
+  givenName?: unknown;
+  surname?: unknown;
+  companyName?: unknown;
+  jobTitle?: unknown;
+  emailAddresses?: unknown;
+}
+
+interface OutlookEventPayload {
+  id?: unknown;
+  subject?: unknown;
+  bodyPreview?: unknown;
+  start?: unknown;
+  end?: unknown;
+  location?: unknown;
+  organizer?: unknown;
+  webLink?: unknown;
+  isCancelled?: unknown;
+}
+
+interface GoogleSheetsSpreadsheetPayload {
+  spreadsheetId?: unknown;
+  id?: unknown;
+  name?: unknown;
+  title?: unknown;
+  modifiedTime?: unknown;
+  url?: unknown;
+  webViewLink?: unknown;
+}
+
+interface GoogleSheetsInfoPayload {
+  spreadsheetId?: unknown;
+  properties?: unknown;
+  sheets?: unknown;
+  spreadsheetUrl?: unknown;
+}
+
+interface GoogleDocsSearchPayload {
+  documentId?: unknown;
+  id?: unknown;
+  title?: unknown;
+  name?: unknown;
+  modifiedTime?: unknown;
+  webViewLink?: unknown;
+}
+
+interface GoogleDocsDocumentPayload {
+  documentId?: unknown;
+  title?: unknown;
+  revisionId?: unknown;
+}
+
+interface HubSpotContactPayload {
+  id?: unknown;
+  properties?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  archived?: unknown;
+}
+
+interface HubSpotCompanyPayload {
+  id?: unknown;
+  properties?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  archived?: unknown;
+}
+
+interface HubSpotDealPayload {
+  id?: unknown;
+  properties?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  archived?: unknown;
+}
+
+interface LinearUserPayload {
+  id?: unknown;
+  name?: unknown;
+  displayName?: unknown;
+  email?: unknown;
+  active?: unknown;
+}
+
+interface LinearIssuePayload {
+  id?: unknown;
+  identifier?: unknown;
+  title?: unknown;
+  description?: unknown;
+  url?: unknown;
+  updatedAt?: unknown;
+  createdAt?: unknown;
+  state?: unknown;
+  priority?: unknown;
+  team?: unknown;
+}
+
+interface LinearProjectPayload {
+  id?: unknown;
+  name?: unknown;
+  description?: unknown;
+  url?: unknown;
+  updatedAt?: unknown;
+  createdAt?: unknown;
+  state?: unknown;
+}
+
+interface LinearTeamPayload {
+  id?: unknown;
+  key?: unknown;
+  name?: unknown;
+  description?: unknown;
+}
+
+interface JiraCurrentUserPayload {
+  accountId?: unknown;
+  displayName?: unknown;
+  emailAddress?: unknown;
+  active?: unknown;
+  timeZone?: unknown;
+}
+
+interface JiraProjectPayload {
+  id?: unknown;
+  key?: unknown;
+  name?: unknown;
+  projectTypeKey?: unknown;
+  simplified?: unknown;
+}
+
+interface JiraIssuePayload {
+  id?: unknown;
+  key?: unknown;
+  fields?: unknown;
+  self?: unknown;
 }
 
 interface NotionSearchObjectPayload {
@@ -721,6 +997,14 @@ function googleDriveFilesFromData(value: unknown): GoogleDriveFilePayload[] {
   return recordsFromData(value, ["files", "items"]) as GoogleDriveFilePayload[];
 }
 
+function googleDrivePermissionsFromData(value: unknown): GoogleDrivePermissionPayload[] {
+  return recordsFromData(value, ["permissions"]) as GoogleDrivePermissionPayload[];
+}
+
+function googleDriveSharedDrivesFromData(value: unknown): GoogleDriveSharedDrivePayload[] {
+  return recordsFromData(value, ["drives", "items"]) as GoogleDriveSharedDrivePayload[];
+}
+
 function twitterUserFromData(value: unknown): TwitterUserPayload | null {
   const unwrapped = unwrapActionData(value);
   return isRecord(unwrapped) ? (unwrapped as TwitterUserPayload) : null;
@@ -728,6 +1012,10 @@ function twitterUserFromData(value: unknown): TwitterUserPayload | null {
 
 function twitterPostsFromData(value: unknown): TwitterPostPayload[] {
   return recordsFromData(value, ["data", "tweets", "posts"]) as TwitterPostPayload[];
+}
+
+function twitterDmEventsFromData(value: unknown): TwitterDmEventPayload[] {
+  return recordsFromData(value, ["data", "events", "dm_events"]) as TwitterDmEventPayload[];
 }
 
 function googleCalendarListEntriesFromData(value: unknown): GoogleCalendarListEntryPayload[] {
@@ -738,9 +1026,35 @@ function googleCalendarEventsFromData(value: unknown): GoogleCalendarEventPayloa
   return recordsFromData(value, ["items", "events"]) as GoogleCalendarEventPayload[];
 }
 
+function googleCalendarSettingsFromData(value: unknown): GoogleCalendarSettingPayload[] {
+  return recordsFromData(value, ["items", "settings"]) as GoogleCalendarSettingPayload[];
+}
+
+function googleCalendarResourcesFromData(value: unknown): GoogleCalendarResourcePayload[] {
+  return recordsFromData(value, ["items", "resources"]) as GoogleCalendarResourcePayload[];
+}
+
+function googleCalendarBuildingsFromData(value: unknown): GoogleCalendarBuildingPayload[] {
+  return recordsFromData(value, ["items", "buildings"]) as GoogleCalendarBuildingPayload[];
+}
+
 function linkedInUserInfoFromData(value: unknown): LinkedInUserInfoPayload | null {
   const unwrapped = unwrapActionData(value);
   return isRecord(unwrapped) ? (unwrapped as LinkedInUserInfoPayload) : null;
+}
+
+function linkedInPersonFromData(value: unknown): LinkedInPersonPayload | null {
+  const unwrapped = unwrapActionData(value);
+  return isRecord(unwrapped) ? (unwrapped as LinkedInPersonPayload) : null;
+}
+
+function linkedInCompaniesFromData(value: unknown): LinkedInCompanyPayload[] {
+  const records = recordsFromData(value, ["elements", "organizations", "companies"]) as LinkedInCompanyPayload[];
+  if (records.length > 0) {
+    return records;
+  }
+  const single = recordFromData(value);
+  return single ? [single as LinkedInCompanyPayload] : [];
 }
 
 function slackAuthFromData(value: unknown): SlackAuthPayload | null {
@@ -754,6 +1068,137 @@ function slackChannelsFromData(value: unknown): SlackChannelPayload[] {
 
 function slackMessagesFromData(value: unknown): SlackMessagePayload[] {
   return recordsFromData(value, ["messages"]) as SlackMessagePayload[];
+}
+
+function slackUsersFromData(value: unknown): SlackUserPayload[] {
+  return recordsFromData(value, ["members", "users"]) as SlackUserPayload[];
+}
+
+function outlookProfileFromData(value: unknown): OutlookProfilePayload | null {
+  const unwrapped = unwrapActionData(value);
+  return isRecord(unwrapped) ? (unwrapped as OutlookProfilePayload) : null;
+}
+
+function outlookMessagesFromData(value: unknown): OutlookMessagePayload[] {
+  return recordsFromData(value, ["value", "messages"]) as OutlookMessagePayload[];
+}
+
+function outlookContactsFromData(value: unknown): OutlookContactPayload[] {
+  return recordsFromData(value, ["value", "contacts"]) as OutlookContactPayload[];
+}
+
+function outlookEventsFromData(value: unknown): OutlookEventPayload[] {
+  return recordsFromData(value, ["value", "events"]) as OutlookEventPayload[];
+}
+
+function googleSheetsSpreadsheetsFromData(value: unknown): GoogleSheetsSpreadsheetPayload[] {
+  return recordsFromData(value, ["spreadsheets", "files", "items", "results"]) as GoogleSheetsSpreadsheetPayload[];
+}
+
+function googleSheetsInfoFromData(value: unknown): GoogleSheetsInfoPayload | null {
+  const unwrapped = unwrapActionData(value);
+  return isRecord(unwrapped) ? (unwrapped as GoogleSheetsInfoPayload) : null;
+}
+
+function googleSheetNamesFromData(value: unknown): string[] {
+  const unwrapped = unwrapActionData(value);
+  if (Array.isArray(unwrapped)) {
+    return stringList(unwrapped);
+  }
+  if (!isRecord(unwrapped)) {
+    return [];
+  }
+  const rawSheets = Array.isArray(unwrapped.sheetNames)
+    ? unwrapped.sheetNames
+    : Array.isArray(unwrapped.sheets)
+      ? unwrapped.sheets
+      : [];
+  const names = rawSheets
+    .map((item) => {
+      if (!isRecord(item)) {
+        return normalizeString(item);
+      }
+      const properties = isRecord(item.properties) ? item.properties : null;
+      return normalizeString(item.title)
+        ?? normalizeString(properties?.title);
+    })
+    .filter((item): item is string => Boolean(item));
+  return [...new Set(names)];
+}
+
+function googleSheetValuesFromData(value: unknown): string[][] {
+  const unwrapped = unwrapActionData(value);
+  if (!isRecord(unwrapped) || !Array.isArray(unwrapped.values)) {
+    return [];
+  }
+  return unwrapped.values
+    .filter(Array.isArray)
+    .map((row) => row.map((cell) => normalizeString(cell) ?? String(cell ?? "")));
+}
+
+function googleDocsSearchFromData(value: unknown): GoogleDocsSearchPayload[] {
+  return recordsFromData(value, ["documents", "items", "results"]) as GoogleDocsSearchPayload[];
+}
+
+function googleDocsDocumentFromData(value: unknown): GoogleDocsDocumentPayload | null {
+  const unwrapped = unwrapActionData(value);
+  return isRecord(unwrapped) ? (unwrapped as GoogleDocsDocumentPayload) : null;
+}
+
+function googleDocsPlainTextFromData(value: unknown): string | null {
+  const unwrapped = unwrapActionData(value);
+  if (typeof unwrapped === "string") {
+    return compactWhitespace(unwrapped);
+  }
+  if (!isRecord(unwrapped)) {
+    return null;
+  }
+  return normalizeString(unwrapped.text)
+    ?? normalizeString(unwrapped.content)
+    ?? normalizeString(unwrapped.plainText)
+    ?? null;
+}
+
+function hubSpotContactsFromData(value: unknown): HubSpotContactPayload[] {
+  return recordsFromData(value, ["results", "contacts", "items"]) as HubSpotContactPayload[];
+}
+
+function hubSpotCompaniesFromData(value: unknown): HubSpotCompanyPayload[] {
+  return recordsFromData(value, ["results", "companies", "items"]) as HubSpotCompanyPayload[];
+}
+
+function hubSpotDealsFromData(value: unknown): HubSpotDealPayload[] {
+  return recordsFromData(value, ["results", "deals", "items"]) as HubSpotDealPayload[];
+}
+
+function linearCurrentUserFromData(value: unknown): LinearUserPayload | null {
+  const unwrapped = unwrapActionData(value);
+  return isRecord(unwrapped) ? (unwrapped as LinearUserPayload) : null;
+}
+
+function linearIssuesFromData(value: unknown): LinearIssuePayload[] {
+  return recordsFromData(value, ["issues", "nodes", "results"]) as LinearIssuePayload[];
+}
+
+function linearProjectsFromData(value: unknown): LinearProjectPayload[] {
+  return recordsFromData(value, ["projects", "nodes", "results"]) as LinearProjectPayload[];
+}
+
+function linearTeamsFromData(value: unknown): LinearTeamPayload[] {
+  return recordsFromData(value, ["teams", "nodes", "results"]) as LinearTeamPayload[];
+}
+
+function jiraCurrentUserFromData(value: unknown): JiraCurrentUserPayload | null {
+  const unwrapped = unwrapActionData(value);
+  return isRecord(unwrapped) ? (unwrapped as JiraCurrentUserPayload) : null;
+}
+
+function jiraProjectsFromData(value: unknown): JiraProjectPayload[] {
+  return recordsFromData(value, ["values", "projects", "items"]) as JiraProjectPayload[];
+}
+
+function jiraIssuesFromData(value: unknown): JiraIssuePayload[] {
+  return recordsFromData(value, ["issues", "results", "items"]) as JiraIssuePayload[];
 }
 
 function notionObjectsFromData(value: unknown): NotionSearchObjectPayload[] {
@@ -1571,6 +2016,124 @@ function buildGoogleDriveFileCandidate(params: {
   };
 }
 
+function buildGoogleDrivePermissionCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  fileId: string;
+  fileTitle: string;
+  permission: GoogleDrivePermissionPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const permissionId = normalizeString(params.permission.id);
+  if (!permissionId) {
+    return null;
+  }
+  const role = normalizeString(params.permission.role);
+  const type = normalizeString(params.permission.type);
+  const emailAddress = normalizeString(params.permission.emailAddress);
+  const domain = normalizeString(params.permission.domain);
+  const displayName = normalizeString(params.permission.displayName);
+  const deleted = normalizeBoolean(params.permission.deleted);
+  const allowFileDiscovery = normalizeBoolean(params.permission.allowFileDiscovery);
+  const label = displayName ?? emailAddress ?? domain ?? permissionId;
+  const lines = [
+    `# Permission ${label}`,
+    "",
+    `- Account: ${params.accountLabel}`,
+    "- Provider: Google Drive",
+    `- File: ${params.fileTitle}`,
+    `- File ID: ${params.fileId}`,
+    `- Permission ID: ${permissionId}`,
+    role ? `- Role: ${role}` : null,
+    type ? `- Type: ${type}` : null,
+    emailAddress ? `- Email: ${emailAddress}` : null,
+    domain ? `- Domain: ${domain}` : null,
+    deleted !== null ? `- Deleted: ${deleted ? "yes" : "no"}` : null,
+    allowFileDiscovery !== null ? `- Discoverable: ${allowFileDiscovery ? "yes" : "no"}` : null,
+    "",
+    "## Summary",
+    "",
+    `${label} has ${role ?? "assigned"} access on ${params.fileTitle}.`,
+    "",
+  ].filter((line): line is string => typeof line === "string");
+  return {
+    provider: "googledrive",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `permission:${params.fileId}:${permissionId}`,
+    entityKey: `file:${params.fileId}`,
+    entityLabel: params.fileTitle,
+    branchKey: "permissions",
+    branchLabel: "Permissions",
+    title: label,
+    summary: clipText(`${label} has ${role ?? "assigned"} access on ${params.fileTitle}.`, 220),
+    content: `${lines.join("\n").trim()}\n`,
+    tags: [
+      "googledrive",
+      "permission",
+      ...(role ? [safeTag(`role:${role}`)] : []),
+      ...(type ? [safeTag(`type:${type}`)] : []),
+    ].filter((item): item is string => Boolean(item)),
+    sourceType: "googledrive.permission",
+    sourceEventId: `googledrive-permission:${params.fileId}:${permissionId}`,
+    externalObjectId: permissionId,
+    externalObjectType: "google_drive_permission",
+    observedAt: params.fetchedAt,
+    confidence: 0.78,
+  };
+}
+
+function buildGoogleDriveSharedDriveCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  sharedDrive: GoogleDriveSharedDrivePayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const sharedDriveId = normalizeString(params.sharedDrive.id);
+  const name = normalizeString(params.sharedDrive.name);
+  if (!sharedDriveId || !name) {
+    return null;
+  }
+  const createdAt = timestampToIso(params.sharedDrive.createdTime) ?? params.fetchedAt;
+  const hidden = normalizeBoolean(params.sharedDrive.hidden);
+  const lines = [
+    `# ${name}`,
+    "",
+    `- Account: ${params.accountLabel}`,
+    "- Provider: Google Drive",
+    `- Shared drive ID: ${sharedDriveId}`,
+    hidden !== null ? `- Hidden: ${hidden ? "yes" : "no"}` : null,
+    createdAt ? `- Created at: ${createdAt}` : null,
+    "",
+    "## Summary",
+    "",
+    `${name} shared drive available in Google Drive.`,
+    "",
+  ].filter((line): line is string => typeof line === "string");
+  return {
+    provider: "googledrive",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `shared-drive:${sharedDriveId}`,
+    branchKey: "shared-drives",
+    branchLabel: "Shared Drives",
+    title: name,
+    summary: clipText(`${name} shared drive available in Google Drive.`, 220),
+    content: `${lines.join("\n").trim()}\n`,
+    tags: ["googledrive", "shared-drive"],
+    sourceType: "googledrive.shared-drive",
+    sourceEventId: `googledrive-shared-drive:${sharedDriveId}`,
+    externalObjectId: sharedDriveId,
+    externalObjectType: "google_drive_shared_drive",
+    observedAt: createdAt,
+    confidence: 0.8,
+  };
+}
+
 function buildTwitterProfileCandidate(params: {
   ownerUserId: string;
   accountKey: string;
@@ -1646,6 +2209,12 @@ function buildTwitterPostCandidate(params: {
   authorUsername: string | null;
   post: TwitterPostPayload;
   fetchedAt: string;
+  branchKey?: string;
+  branchLabel?: string;
+  sourceType?: string;
+  sourcePrefix?: string;
+  subjectPrefix?: string;
+  extraTags?: string[];
 }): IntegrationLeafCandidate | null {
   const postId = normalizeString(params.post.id);
   const text = normalizeString(params.post.text);
@@ -1698,11 +2267,11 @@ function buildTwitterPostCandidate(params: {
     ownerUserId: params.ownerUserId,
     accountKey: params.accountKey,
     accountLabel: params.accountLabel,
-    subjectKey: `post:${postId}`,
+    subjectKey: `${params.subjectPrefix ?? "post"}:${postId}`,
     entityKey: `post:${postId}`,
     entityLabel: clipText(text, 72),
-    branchKey: "overview",
-    branchLabel: "Overview",
+    branchKey: params.branchKey ?? "overview",
+    branchLabel: params.branchLabel ?? "Overview",
     title: clipText(text, 72),
     summary: clipText(
       `${params.authorUsername ? `@${params.authorUsername}: ` : ""}${text}`,
@@ -1714,13 +2283,79 @@ function buildTwitterPostCandidate(params: {
       "post",
       ...(params.authorUsername ? [safeTag(`author:${params.authorUsername}`)] : []),
       ...referencedTypes.map((value) => safeTag(`reference:${value}`)),
+      ...(params.extraTags ?? []),
     ].filter((item): item is string => Boolean(item)),
-    sourceType: "twitter.post",
-    sourceEventId: `twitter-post:${postId}`,
+    sourceType: params.sourceType ?? "twitter.post",
+    sourceEventId: `${params.sourcePrefix ?? "twitter-post"}:${postId}`,
     externalObjectId: postId,
     externalObjectType: "twitter_post",
     observedAt: createdAt,
     confidence: 0.82,
+  };
+}
+
+function buildTwitterDirectMessageCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  event: TwitterDmEventPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const eventId = normalizeString(params.event.id);
+  if (!eventId) {
+    return null;
+  }
+  const messageCreate = isRecord(params.event.message_create) ? params.event.message_create : null;
+  const text = normalizeString(params.event.text)
+    ?? normalizeString(messageCreate?.text)
+    ?? normalizeString(isRecord(messageCreate?.message_data) ? messageCreate?.message_data.text : null);
+  if (!text) {
+    return null;
+  }
+  const conversationId = normalizeString(params.event.dm_conversation_id)
+    ?? normalizeString(messageCreate?.dm_conversation_id);
+  const eventType = normalizeString(params.event.event_type) ?? "MessageCreate";
+  const senderId = normalizeString(params.event.sender_id)
+    ?? normalizeString(messageCreate?.sender_id);
+  const createdAt = timestampToIso(params.event.created_at)
+    ?? timestampToIso(messageCreate?.created_at)
+    ?? params.fetchedAt;
+  const lines = [
+    `# Direct message ${eventId}`,
+    "",
+    `- Account: ${params.accountLabel}`,
+    "- Provider: Twitter / X",
+    `- Event ID: ${eventId}`,
+    conversationId ? `- Conversation ID: ${conversationId}` : null,
+    senderId ? `- Sender ID: ${senderId}` : null,
+    eventType ? `- Event type: ${eventType}` : null,
+    createdAt ? `- Created at: ${createdAt}` : null,
+    "",
+    "## Summary",
+    "",
+    clipText(text, 900),
+    "",
+  ].filter((line): line is string => typeof line === "string");
+  return {
+    provider: "twitter",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `dm:${eventId}`,
+    branchKey: "direct-messages",
+    branchLabel: "Direct Messages",
+    title: clipText(text, 72),
+    summary: clipText(`DM${senderId ? ` from ${senderId}` : ""}: ${text}`, 220),
+    content: `${lines.join("\n").trim()}\n`,
+    tags: ["twitter", "direct-message", safeTag(`event:${eventType}`)].filter(
+      (item): item is string => Boolean(item),
+    ),
+    sourceType: "twitter.direct-message",
+    sourceEventId: `twitter-dm:${eventId}`,
+    externalObjectId: eventId,
+    externalObjectType: "twitter_dm_event",
+    observedAt: createdAt,
+    confidence: 0.79,
   };
 }
 
@@ -1930,6 +2565,166 @@ function buildGoogleCalendarEventCandidate(params: {
   };
 }
 
+function buildGoogleCalendarSettingCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  setting: GoogleCalendarSettingPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const settingId = normalizeString(params.setting.id);
+  if (!settingId) {
+    return null;
+  }
+  const value = normalizeString(params.setting.value);
+  const lines = [
+    `# Calendar setting ${settingId}`,
+    "",
+    `- Account: ${params.accountLabel}`,
+    "- Provider: Google Calendar",
+    `- Setting ID: ${settingId}`,
+    value ? `- Value: ${value}` : null,
+    "",
+    "## Summary",
+    "",
+    value ? `${settingId} is set to ${value}.` : `${settingId} is present in Google Calendar settings.`,
+    "",
+  ].filter((line): line is string => typeof line === "string");
+  return {
+    provider: "googlecalendar",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `setting:${settingId}`,
+    branchKey: "settings",
+    branchLabel: "Settings",
+    title: settingId,
+    summary: clipText(value ? `${settingId} is set to ${value}.` : `${settingId} is present in Google Calendar settings.`, 220),
+    content: `${lines.join("\n").trim()}\n`,
+    tags: ["googlecalendar", "setting"],
+    sourceType: "googlecalendar.setting",
+    sourceEventId: `googlecalendar-setting:${settingId}`,
+    externalObjectId: settingId,
+    externalObjectType: "google_calendar_setting",
+    observedAt: params.fetchedAt,
+    confidence: 0.78,
+  };
+}
+
+function buildGoogleCalendarResourceCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  resource: GoogleCalendarResourcePayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const resourceId = normalizeString(params.resource.resourceId) ?? normalizeString(params.resource.resourceEmail);
+  const title = normalizeString(params.resource.resourceName)
+    ?? normalizeString(params.resource.generatedResourceName)
+    ?? normalizeString(params.resource.resourceEmail);
+  if (!resourceId || !title) {
+    return null;
+  }
+  const resourceEmail = normalizeString(params.resource.resourceEmail);
+  const buildingId = normalizeString(params.resource.buildingId);
+  const category = normalizeString(params.resource.resourceCategory);
+  const type = normalizeString(params.resource.resourceType);
+  const capacity = parseInteger(params.resource.capacity);
+  const floorName = normalizeString(params.resource.floorName);
+  const floorSection = normalizeString(params.resource.floorSection);
+  const lines = [
+    `# ${title}`,
+    "",
+    `- Account: ${params.accountLabel}`,
+    "- Provider: Google Calendar",
+    `- Resource ID: ${resourceId}`,
+    resourceEmail ? `- Email: ${resourceEmail}` : null,
+    buildingId ? `- Building: ${buildingId}` : null,
+    floorName ? `- Floor: ${floorName}` : null,
+    floorSection ? `- Floor section: ${floorSection}` : null,
+    category ? `- Category: ${category}` : null,
+    type ? `- Type: ${type}` : null,
+    capacity !== null ? `- Capacity: ${capacity}` : null,
+    "",
+    "## Summary",
+    "",
+    `${title} is available as a Google Calendar resource${capacity !== null ? ` for up to ${capacity}` : ""}.`,
+    "",
+  ].filter((line): line is string => typeof line === "string");
+  return {
+    provider: "googlecalendar",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `resource:${resourceId}`,
+    branchKey: "resources",
+    branchLabel: "Resources",
+    title,
+    summary: clipText(`${title} is available as a Google Calendar resource${capacity !== null ? ` for up to ${capacity}` : ""}.`, 220),
+    content: `${lines.join("\n").trim()}\n`,
+    tags: [
+      "googlecalendar",
+      "resource",
+      ...(category ? [safeTag(`category:${category}`)] : []),
+      ...(type ? [safeTag(`type:${type}`)] : []),
+    ].filter((item): item is string => Boolean(item)),
+    sourceType: "googlecalendar.resource",
+    sourceEventId: `googlecalendar-resource:${resourceId}`,
+    externalObjectId: resourceId,
+    externalObjectType: "google_calendar_resource",
+    observedAt: params.fetchedAt,
+    confidence: 0.79,
+  };
+}
+
+function buildGoogleCalendarBuildingCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  building: GoogleCalendarBuildingPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const buildingId = normalizeString(params.building.buildingId);
+  const title = normalizeString(params.building.buildingName) ?? buildingId;
+  if (!buildingId || !title) {
+    return null;
+  }
+  const description = normalizeString(params.building.description);
+  const floors = Array.isArray(params.building.floors) ? params.building.floors.length : null;
+  const lines = [
+    `# ${title}`,
+    "",
+    `- Account: ${params.accountLabel}`,
+    "- Provider: Google Calendar",
+    `- Building ID: ${buildingId}`,
+    floors !== null ? `- Floors: ${floors}` : null,
+    "",
+    "## Summary",
+    "",
+    description ?? `${title} is available as a Google Workspace building record.`,
+    "",
+  ].filter((line): line is string => typeof line === "string");
+  return {
+    provider: "googlecalendar",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `building:${buildingId}`,
+    branchKey: "buildings",
+    branchLabel: "Buildings",
+    title,
+    summary: clipText(description ?? `${title} is available as a Google Workspace building record.`, 220),
+    content: `${lines.join("\n").trim()}\n`,
+    tags: ["googlecalendar", "building"],
+    sourceType: "googlecalendar.building",
+    sourceEventId: `googlecalendar-building:${buildingId}`,
+    externalObjectId: buildingId,
+    externalObjectType: "google_calendar_building",
+    observedAt: params.fetchedAt,
+    confidence: 0.78,
+  };
+}
+
 function linkedInProfileName(value: LinkedInUserInfoPayload): string | null {
   const direct = normalizeString(value.name);
   if (direct) {
@@ -1958,6 +2753,23 @@ function linkedInProfilePersonId(value: LinkedInUserInfoPayload): string | null 
     return author.slice("urn:li:person:".length);
   }
   return null;
+}
+
+function linkedInPersonName(value: LinkedInPersonPayload): string | null {
+  const given = normalizeString(value.firstName) ?? normalizeString(value.localizedFirstName);
+  const family = normalizeString(value.lastName) ?? normalizeString(value.localizedLastName);
+  const combined = [given, family].filter((part): part is string => Boolean(part)).join(" ").trim();
+  return combined.length > 0 ? combined : null;
+}
+
+function linkedInOrganizationId(value: LinkedInCompanyPayload): string | null {
+  return normalizeString(value.organization_id)
+    ?? normalizeString(value.id)
+    ?? normalizeString(value.organization);
+}
+
+function linkedInOrganizationName(value: LinkedInCompanyPayload): string | null {
+  return normalizeString(value.name) ?? normalizeString(value.vanityName);
 }
 
 function buildLinkedInProfileCandidate(params: {
@@ -2019,6 +2831,107 @@ function buildLinkedInProfileCandidate(params: {
     externalObjectType: "linkedin_profile",
     observedAt: params.fetchedAt,
     confidence: 0.95,
+  };
+}
+
+function buildLinkedInPersonCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  personId: string;
+  person: LinkedInPersonPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const name = linkedInPersonName(params.person) ?? params.personId;
+  const headline = normalizeString(params.person.headline);
+  const vanityName = normalizeString(params.person.vanityName);
+  const lines = [
+    `# ${name}`,
+    "",
+    `- Account: ${params.accountLabel}`,
+    "- Provider: LinkedIn",
+    `- Person ID: ${params.personId}`,
+    vanityName ? `- Vanity name: ${vanityName}` : null,
+    headline ? `- Headline: ${headline}` : null,
+    "",
+    "## Summary",
+    "",
+    headline ?? `${name} LinkedIn person profile.`,
+    "",
+  ].filter((line): line is string => typeof line === "string");
+  return {
+    provider: "linkedin",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `person:${params.personId}`,
+    branchKey: "person",
+    branchLabel: "Person",
+    title: name,
+    summary: clipText(headline ?? `${name} LinkedIn person profile.`, 220),
+    content: `${lines.join("\n").trim()}\n`,
+    tags: ["linkedin", "person"],
+    sourceType: "linkedin.person",
+    sourceEventId: `linkedin-person:${params.personId}`,
+    externalObjectId: params.personId,
+    externalObjectType: "linkedin_person",
+    observedAt: params.fetchedAt,
+    confidence: 0.84,
+  };
+}
+
+function buildLinkedInOrganizationCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  organization: LinkedInCompanyPayload;
+  networkSize: number | null;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const organizationId = linkedInOrganizationId(params.organization);
+  const name = linkedInOrganizationName(params.organization);
+  if (!organizationId || !name) {
+    return null;
+  }
+  const description = normalizeString(params.organization.description);
+  const website = normalizeString(params.organization.website);
+  const industries = stringList(params.organization.industries);
+  const lines = [
+    `# ${name}`,
+    "",
+    `- Account: ${params.accountLabel}`,
+    "- Provider: LinkedIn",
+    `- Organization ID: ${organizationId}`,
+    website ? `- Website: ${website}` : null,
+    industries.length > 0 ? `- Industries: ${industries.join(", ")}` : null,
+    params.networkSize !== null ? `- Network size: ${params.networkSize}` : null,
+    "",
+    "## Summary",
+    "",
+    description ?? `${name} LinkedIn organization context.`,
+    "",
+  ].filter((line): line is string => typeof line === "string");
+  return {
+    provider: "linkedin",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `organization:${organizationId}`,
+    branchKey: "organizations",
+    branchLabel: "Organizations",
+    title: name,
+    summary: clipText(
+      `${name}${params.networkSize !== null ? ` has network size ${params.networkSize}.` : " organization context is available."}`,
+      220,
+    ),
+    content: `${lines.join("\n").trim()}\n`,
+    tags: ["linkedin", "organization"],
+    sourceType: "linkedin.organization",
+    sourceEventId: `linkedin-organization:${organizationId}`,
+    externalObjectId: organizationId,
+    externalObjectType: "linkedin_organization",
+    observedAt: params.fetchedAt,
+    confidence: 0.8,
   };
 }
 
@@ -2146,6 +3059,67 @@ function buildSlackChannelCandidate(params: {
   };
 }
 
+function buildSlackUserCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  user: SlackUserPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const userId = normalizeString(params.user.id);
+  const username = normalizeString(params.user.name);
+  const profile = isRecord(params.user.profile) ? params.user.profile : null;
+  const displayName = normalizeString(profile?.display_name)
+    ?? normalizeString(profile?.real_name)
+    ?? normalizeString(params.user.real_name)
+    ?? username;
+  if (!userId || !displayName) {
+    return null;
+  }
+  const deleted = normalizeBoolean(params.user.deleted);
+  const isBot = normalizeBoolean(params.user.is_bot);
+  const isAdmin = normalizeBoolean(params.user.is_admin);
+  const email = normalizeString(profile?.email);
+  const timezone = normalizeString(params.user.tz);
+  const lines = [
+    `# ${displayName}`,
+    "",
+    `- Account: ${params.accountLabel}`,
+    "- Provider: Slack",
+    `- User ID: ${userId}`,
+    username ? `- Username: ${username}` : null,
+    email ? `- Email: ${email}` : null,
+    timezone ? `- Time zone: ${timezone}` : null,
+    deleted !== null ? `- Deleted: ${deleted ? "yes" : "no"}` : null,
+    isBot !== null ? `- Bot: ${isBot ? "yes" : "no"}` : null,
+    isAdmin !== null ? `- Admin: ${isAdmin ? "yes" : "no"}` : null,
+    "",
+    "## Summary",
+    "",
+    `${displayName} is part of the Slack workspace.`,
+    "",
+  ].filter((line): line is string => typeof line === "string");
+  return {
+    provider: "slack",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `user:${userId}`,
+    branchKey: "directory",
+    branchLabel: "Directory",
+    title: displayName,
+    summary: clipText(`${displayName} is part of the Slack workspace.`, 220),
+    content: `${lines.join("\n").trim()}\n`,
+    tags: ["slack", "user", ...(isBot ? ["bot"] : [])],
+    sourceType: "slack.user",
+    sourceEventId: `slack-user:${userId}`,
+    externalObjectId: userId,
+    externalObjectType: "slack_user",
+    observedAt: params.fetchedAt,
+    confidence: 0.78,
+  };
+}
+
 function buildSlackMessageCandidate(params: {
   ownerUserId: string;
   accountKey: string;
@@ -2153,6 +3127,12 @@ function buildSlackMessageCandidate(params: {
   channelId: string;
   channelName: string;
   message: SlackMessagePayload;
+  branchKey?: string;
+  branchLabel?: string;
+  sourceType?: string;
+  sourcePrefix?: string;
+  subjectPrefix?: string;
+  extraTags?: string[];
 }): IntegrationLeafCandidate | null {
   const ts = normalizeString(params.message.ts);
   const text = normalizeString(params.message.text);
@@ -2190,11 +3170,11 @@ function buildSlackMessageCandidate(params: {
     ownerUserId: params.ownerUserId,
     accountKey: params.accountKey,
     accountLabel: params.accountLabel,
-    subjectKey: `message:${params.channelId}:${ts}`,
+    subjectKey: `${params.subjectPrefix ?? "message"}:${params.channelId}:${ts}`,
     entityKey: `channel:${params.channelId}`,
     entityLabel: `#${params.channelName}`,
-    branchKey: "messages",
-    branchLabel: "Messages",
+    branchKey: params.branchKey ?? "messages",
+    branchLabel: params.branchLabel ?? "Messages",
     title: `#${params.channelName}: ${clipText(text, 72)}`,
     summary: clipText(
       `${user ? `${user} in ` : ""}#${params.channelName}: ${text}`,
@@ -2206,9 +3186,10 @@ function buildSlackMessageCandidate(params: {
       "message",
       safeTag(`channel:${params.channelName}`),
       ...(threadTs ? ["thread"] : []),
+      ...(params.extraTags ?? []),
     ].filter((item): item is string => Boolean(item)),
-    sourceType: "slack.message",
-    sourceEventId: `slack-message:${params.channelId}:${ts}`,
+    sourceType: params.sourceType ?? "slack.message",
+    sourceEventId: `${params.sourcePrefix ?? "slack-message"}:${params.channelId}:${ts}`,
     externalObjectId: `${params.channelId}:${ts}`,
     externalObjectType: "slack_message",
     observedAt,
@@ -2489,6 +3470,1012 @@ function buildNotionRowCandidate(params: {
   };
 }
 
+function buildSimpleIntegrationCandidate(params: {
+  provider: string;
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  subjectKey: string;
+  title: string;
+  summary: string;
+  lines: Array<string | null>;
+  tags: Array<string | null>;
+  sourceType: string;
+  sourceEventId: string;
+  externalObjectId?: string | null;
+  externalObjectType?: string | null;
+  branchKey?: string | null;
+  branchLabel?: string | null;
+  entityKey?: string | null;
+  entityLabel?: string | null;
+  observedAt?: string | null;
+  confidence?: number | null;
+}): IntegrationLeafCandidate {
+  return {
+    provider: params.provider,
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: params.subjectKey,
+    entityKey: params.entityKey ?? null,
+    entityLabel: params.entityLabel ?? null,
+    branchKey: params.branchKey ?? null,
+    branchLabel: params.branchLabel ?? null,
+    title: params.title,
+    summary: params.summary,
+    content: `${params.lines.filter((line): line is string => typeof line === "string").join("\n").trim()}\n`,
+    tags: params.tags.filter((tag): tag is string => Boolean(tag)),
+    sourceType: params.sourceType,
+    sourceEventId: params.sourceEventId,
+    externalObjectId: params.externalObjectId ?? null,
+    externalObjectType: params.externalObjectType ?? null,
+    observedAt: params.observedAt ?? null,
+    confidence: params.confidence ?? 0.8,
+  };
+}
+
+function buildSyntheticConnectionProfileCandidate(params: {
+  provider: string;
+  providerLabel: string;
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  summary: string;
+  fetchedAt: string;
+}): IntegrationLeafCandidate {
+  return buildSimpleIntegrationCandidate({
+    provider: params.provider,
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: "profile",
+    title: `${params.providerLabel} profile for ${params.accountLabel}`,
+    summary: clipText(params.summary, 220),
+    lines: [
+      `# ${params.providerLabel} profile for ${params.accountLabel}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      `- Provider: ${params.providerLabel}`,
+      "",
+      "## Summary",
+      "",
+      params.summary,
+      "",
+    ],
+    tags: [params.provider, "profile"],
+    sourceType: `${params.provider}.profile`,
+    sourceEventId: `${params.provider}-profile:${params.accountKey}`,
+    externalObjectId: params.accountKey,
+    externalObjectType: `${params.provider}_profile`,
+    branchKey: "profile",
+    branchLabel: "Profile",
+    observedAt: params.fetchedAt,
+    confidence: 0.74,
+  });
+}
+
+function outlookEmailAddress(value: unknown): string | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  if (isRecord(value.emailAddress)) {
+    return normalizeString(value.emailAddress.address)
+      ?? normalizeString(value.emailAddress.name);
+  }
+  return normalizeString(value.address) ?? normalizeString(value.name);
+}
+
+function hubSpotPropertyValue(properties: unknown, key: string): string | null {
+  if (!isRecord(properties)) {
+    return null;
+  }
+  return normalizeString(properties[key]);
+}
+
+function linearTeamName(value: unknown): string | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return normalizeString(value.name) ?? normalizeString(value.key);
+}
+
+function jiraIssueFields(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+function buildOutlookProfileCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  profile: OutlookProfilePayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate {
+  const displayName = normalizeString(params.profile.displayName) ?? params.accountLabel;
+  const email = normalizeString(params.profile.mail) ?? normalizeString(params.profile.userPrincipalName);
+  const jobTitle = normalizeString(params.profile.jobTitle);
+  return buildSimpleIntegrationCandidate({
+    provider: "outlook",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: "profile",
+    title: `Outlook profile for ${displayName}`,
+    summary: clipText(email ? `${displayName} Outlook profile (${email}).` : `${displayName} Outlook profile.`, 220),
+    lines: [
+      `# Outlook profile for ${displayName}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: Outlook",
+      email ? `- Email: ${email}` : null,
+      jobTitle ? `- Job title: ${jobTitle}` : null,
+      "",
+      "## Summary",
+      "",
+      email ? `${displayName} Outlook profile (${email}).` : `${displayName} Outlook profile.`,
+      "",
+    ],
+    tags: ["outlook", "profile"],
+    sourceType: "outlook.profile",
+    sourceEventId: `outlook-profile:${params.accountKey}`,
+    externalObjectId: normalizeString(params.profile.id) ?? params.accountKey,
+    externalObjectType: "outlook_profile",
+    branchKey: "profile",
+    branchLabel: "Profile",
+    observedAt: params.fetchedAt,
+    confidence: 0.86,
+  });
+}
+
+function buildOutlookMessageCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  message: OutlookMessagePayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const messageId = normalizeString(params.message.id);
+  const subject = normalizeString(params.message.subject);
+  if (!messageId || !subject) {
+    return null;
+  }
+  const preview = normalizeString(params.message.bodyPreview) ?? subject;
+  const from = outlookEmailAddress(params.message.from);
+  const observedAt = timestampToIso(params.message.receivedDateTime)
+    ?? timestampToIso(params.message.sentDateTime)
+    ?? params.fetchedAt;
+  return buildSimpleIntegrationCandidate({
+    provider: "outlook",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `message:${messageId}`,
+    title: subject,
+    summary: clipText(from ? `${from}: ${preview}` : preview, 220),
+    lines: [
+      `# ${subject}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: Outlook",
+      `- Message ID: ${messageId}`,
+      from ? `- From: ${from}` : null,
+      observedAt ? `- Received at: ${observedAt}` : null,
+      "",
+      "## Summary",
+      "",
+      preview,
+      "",
+    ],
+    tags: ["outlook", "message"],
+    sourceType: "outlook.message",
+    sourceEventId: `outlook-message:${messageId}`,
+    externalObjectId: messageId,
+    externalObjectType: "outlook_message",
+    branchKey: "messages",
+    branchLabel: "Messages",
+    observedAt,
+    confidence: 0.8,
+  });
+}
+
+function buildOutlookContactCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  contact: OutlookContactPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const contactId = normalizeString(params.contact.id);
+  const title = normalizeString(params.contact.displayName)
+    ?? [normalizeString(params.contact.givenName), normalizeString(params.contact.surname)].filter(Boolean).join(" ");
+  if (!contactId || !title) {
+    return null;
+  }
+  const emails = Array.isArray(params.contact.emailAddresses)
+    ? params.contact.emailAddresses.map((item) => outlookEmailAddress(item)).filter((item): item is string => Boolean(item))
+    : [];
+  return buildSimpleIntegrationCandidate({
+    provider: "outlook",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `contact:${contactId}`,
+    title,
+    summary: clipText(emails[0] ? `${title} (${emails[0]})` : title, 220),
+    lines: [
+      `# ${title}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: Outlook",
+      `- Contact ID: ${contactId}`,
+      emails[0] ? `- Email: ${emails[0]}` : null,
+      normalizeString(params.contact.companyName) ? `- Company: ${normalizeString(params.contact.companyName)}` : null,
+      normalizeString(params.contact.jobTitle) ? `- Job title: ${normalizeString(params.contact.jobTitle)}` : null,
+      "",
+      "## Summary",
+      "",
+      emails[0] ? `${title} (${emails[0]})` : title,
+      "",
+    ],
+    tags: ["outlook", "contact"],
+    sourceType: "outlook.contact",
+    sourceEventId: `outlook-contact:${contactId}`,
+    externalObjectId: contactId,
+    externalObjectType: "outlook_contact",
+    branchKey: "contacts",
+    branchLabel: "Contacts",
+    observedAt: params.fetchedAt,
+    confidence: 0.77,
+  });
+}
+
+function buildOutlookEventCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  event: OutlookEventPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const eventId = normalizeString(params.event.id);
+  const subject = normalizeString(params.event.subject);
+  if (!eventId || !subject) {
+    return null;
+  }
+  const start = isRecord(params.event.start)
+    ? timestampToIso(params.event.start.dateTime) ?? normalizeString(params.event.start.dateTime)
+    : null;
+  const end = isRecord(params.event.end)
+    ? timestampToIso(params.event.end.dateTime) ?? normalizeString(params.event.end.dateTime)
+    : null;
+  const location = isRecord(params.event.location)
+    ? normalizeString(params.event.location.displayName)
+    : normalizeString(params.event.location);
+  return buildSimpleIntegrationCandidate({
+    provider: "outlook",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `event:${eventId}`,
+    title: subject,
+    summary: clipText(`${subject}${start ? ` starting ${start}` : ""}`, 220),
+    lines: [
+      `# ${subject}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: Outlook",
+      `- Event ID: ${eventId}`,
+      start ? `- Start: ${start}` : null,
+      end ? `- End: ${end}` : null,
+      location ? `- Location: ${location}` : null,
+      "",
+      "## Summary",
+      "",
+      `${subject}${start ? ` starting ${start}` : ""}`,
+      "",
+    ],
+    tags: ["outlook", "event"],
+    sourceType: "outlook.event",
+    sourceEventId: `outlook-event:${eventId}`,
+    externalObjectId: eventId,
+    externalObjectType: "outlook_event",
+    branchKey: "events",
+    branchLabel: "Events",
+    observedAt: start ?? params.fetchedAt,
+    confidence: 0.79,
+  });
+}
+
+function buildGoogleSheetsSpreadsheetCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  spreadsheet: GoogleSheetsSpreadsheetPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const spreadsheetId = normalizeString(params.spreadsheet.spreadsheetId) ?? normalizeString(params.spreadsheet.id);
+  const title = normalizeString(params.spreadsheet.title) ?? normalizeString(params.spreadsheet.name);
+  if (!spreadsheetId || !title) {
+    return null;
+  }
+  const observedAt = timestampToIso(params.spreadsheet.modifiedTime) ?? params.fetchedAt;
+  return buildSimpleIntegrationCandidate({
+    provider: "googlesheets",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `spreadsheet:${spreadsheetId}`,
+    title,
+    summary: clipText(`Google Sheet ${title}.`, 220),
+    lines: [
+      `# ${title}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: Google Sheets",
+      `- Spreadsheet ID: ${spreadsheetId}`,
+      observedAt ? `- Updated at: ${observedAt}` : null,
+      "",
+      "## Summary",
+      "",
+      `Google Sheet ${title}.`,
+      "",
+    ],
+    tags: ["googlesheets", "spreadsheet"],
+    sourceType: "googlesheets.spreadsheet",
+    sourceEventId: `googlesheets-spreadsheet:${spreadsheetId}`,
+    externalObjectId: spreadsheetId,
+    externalObjectType: "google_sheet",
+    branchKey: "spreadsheets",
+    branchLabel: "Spreadsheets",
+    observedAt,
+    confidence: 0.8,
+  });
+}
+
+function buildGoogleSheetsWorksheetCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  spreadsheetId: string;
+  spreadsheetTitle: string;
+  sheetNames: string[];
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  if (params.sheetNames.length === 0) {
+    return null;
+  }
+  return buildSimpleIntegrationCandidate({
+    provider: "googlesheets",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `worksheet-list:${params.spreadsheetId}`,
+    title: `${params.spreadsheetTitle} worksheets`,
+    summary: clipText(`Worksheets in ${params.spreadsheetTitle}: ${params.sheetNames.join(", ")}`, 220),
+    lines: [
+      `# ${params.spreadsheetTitle} worksheets`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: Google Sheets",
+      `- Spreadsheet ID: ${params.spreadsheetId}`,
+      "",
+      "## Worksheets",
+      "",
+      ...params.sheetNames.map((sheetName) => `- ${sheetName}`),
+      "",
+    ],
+    tags: ["googlesheets", "worksheet"],
+    sourceType: "googlesheets.worksheets",
+    sourceEventId: `googlesheets-worksheets:${params.spreadsheetId}`,
+    externalObjectId: params.spreadsheetId,
+    externalObjectType: "google_sheet_worksheets",
+    branchKey: "worksheets",
+    branchLabel: "Worksheets",
+    observedAt: params.fetchedAt,
+    confidence: 0.76,
+  });
+}
+
+function buildGoogleSheetsValuesCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  spreadsheetId: string;
+  spreadsheetTitle: string;
+  range: string;
+  values: string[][];
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  if (params.values.length === 0) {
+    return null;
+  }
+  const previewLines = params.values.slice(0, 8).map((row) => `- ${row.join(" | ")}`);
+  return buildSimpleIntegrationCandidate({
+    provider: "googlesheets",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `values:${params.spreadsheetId}:${params.range}`,
+    title: `${params.spreadsheetTitle} values preview`,
+    summary: clipText(`Spreadsheet values preview for ${params.spreadsheetTitle} (${params.range}).`, 220),
+    lines: [
+      `# ${params.spreadsheetTitle} values preview`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: Google Sheets",
+      `- Spreadsheet ID: ${params.spreadsheetId}`,
+      `- Range: ${params.range}`,
+      "",
+      "## Preview",
+      "",
+      ...previewLines,
+      "",
+    ],
+    tags: ["googlesheets", "values"],
+    sourceType: "googlesheets.values",
+    sourceEventId: `googlesheets-values:${params.spreadsheetId}:${params.range}`,
+    externalObjectId: params.spreadsheetId,
+    externalObjectType: "google_sheet_values",
+    branchKey: "values",
+    branchLabel: "Values",
+    observedAt: params.fetchedAt,
+    confidence: 0.74,
+  });
+}
+
+function buildGoogleDocsDocumentCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  document: GoogleDocsSearchPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const documentId = normalizeString(params.document.documentId) ?? normalizeString(params.document.id);
+  const title = normalizeString(params.document.title) ?? normalizeString(params.document.name);
+  if (!documentId || !title) {
+    return null;
+  }
+  const observedAt = timestampToIso(params.document.modifiedTime) ?? params.fetchedAt;
+  return buildSimpleIntegrationCandidate({
+    provider: "googledocs",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `document:${documentId}`,
+    title,
+    summary: clipText(`Google Doc ${title}.`, 220),
+    lines: [
+      `# ${title}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: Google Docs",
+      `- Document ID: ${documentId}`,
+      observedAt ? `- Updated at: ${observedAt}` : null,
+      "",
+      "## Summary",
+      "",
+      `Google Doc ${title}.`,
+      "",
+    ],
+    tags: ["googledocs", "document"],
+    sourceType: "googledocs.document",
+    sourceEventId: `googledocs-document:${documentId}`,
+    externalObjectId: documentId,
+    externalObjectType: "google_doc",
+    branchKey: "documents",
+    branchLabel: "Documents",
+    observedAt,
+    confidence: 0.8,
+  });
+}
+
+function buildGoogleDocsContentCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  documentId: string;
+  documentTitle: string;
+  plainText: string;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  if (!params.plainText) {
+    return null;
+  }
+  return buildSimpleIntegrationCandidate({
+    provider: "googledocs",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `document_content:${params.documentId}`,
+    title: `${params.documentTitle} content`,
+    summary: clipText(`Google Doc content for ${params.documentTitle}: ${params.plainText}`, 220),
+    lines: [
+      `# ${params.documentTitle} content`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: Google Docs",
+      `- Document ID: ${params.documentId}`,
+      "",
+      "## Summary",
+      "",
+      clipText(params.plainText, 4000),
+      "",
+    ],
+    tags: ["googledocs", "content"],
+    sourceType: "googledocs.content",
+    sourceEventId: `googledocs-content:${params.documentId}`,
+    externalObjectId: params.documentId,
+    externalObjectType: "google_doc_content",
+    branchKey: "content",
+    branchLabel: "Content",
+    observedAt: params.fetchedAt,
+    confidence: 0.78,
+  });
+}
+
+function buildHubSpotContactCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  contact: HubSpotContactPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const contactId = normalizeString(params.contact.id);
+  const firstName = hubSpotPropertyValue(params.contact.properties, "firstname");
+  const lastName = hubSpotPropertyValue(params.contact.properties, "lastname");
+  const email = hubSpotPropertyValue(params.contact.properties, "email");
+  const title = [firstName, lastName].filter(Boolean).join(" ") || email || contactId;
+  if (!contactId || !title) {
+    return null;
+  }
+  const observedAt = timestampToIso(params.contact.updatedAt) ?? timestampToIso(params.contact.createdAt) ?? params.fetchedAt;
+  return buildSimpleIntegrationCandidate({
+    provider: "hubspot",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `contact:${contactId}`,
+    title,
+    summary: clipText(email ? `${title} (${email})` : title, 220),
+    lines: [
+      `# ${title}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: HubSpot",
+      `- Contact ID: ${contactId}`,
+      email ? `- Email: ${email}` : null,
+      hubSpotPropertyValue(params.contact.properties, "company") ? `- Company: ${hubSpotPropertyValue(params.contact.properties, "company")}` : null,
+      "",
+      "## Summary",
+      "",
+      email ? `${title} (${email})` : title,
+      "",
+    ],
+    tags: ["hubspot", "contact"],
+    sourceType: "hubspot.contact",
+    sourceEventId: `hubspot-contact:${contactId}`,
+    externalObjectId: contactId,
+    externalObjectType: "hubspot_contact",
+    branchKey: "contacts",
+    branchLabel: "Contacts",
+    observedAt,
+    confidence: 0.79,
+  });
+}
+
+function buildHubSpotCompanyCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  company: HubSpotCompanyPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const companyId = normalizeString(params.company.id);
+  const title = hubSpotPropertyValue(params.company.properties, "name") ?? companyId;
+  if (!companyId || !title) {
+    return null;
+  }
+  const observedAt = timestampToIso(params.company.updatedAt) ?? timestampToIso(params.company.createdAt) ?? params.fetchedAt;
+  return buildSimpleIntegrationCandidate({
+    provider: "hubspot",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `company:${companyId}`,
+    title,
+    summary: clipText(`HubSpot company ${title}.`, 220),
+    lines: [
+      `# ${title}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: HubSpot",
+      `- Company ID: ${companyId}`,
+      hubSpotPropertyValue(params.company.properties, "domain") ? `- Domain: ${hubSpotPropertyValue(params.company.properties, "domain")}` : null,
+      hubSpotPropertyValue(params.company.properties, "industry") ? `- Industry: ${hubSpotPropertyValue(params.company.properties, "industry")}` : null,
+      "",
+      "## Summary",
+      "",
+      `HubSpot company ${title}.`,
+      "",
+    ],
+    tags: ["hubspot", "company"],
+    sourceType: "hubspot.company",
+    sourceEventId: `hubspot-company:${companyId}`,
+    externalObjectId: companyId,
+    externalObjectType: "hubspot_company",
+    branchKey: "companies",
+    branchLabel: "Companies",
+    observedAt,
+    confidence: 0.78,
+  });
+}
+
+function buildHubSpotDealCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  deal: HubSpotDealPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const dealId = normalizeString(params.deal.id);
+  const title = hubSpotPropertyValue(params.deal.properties, "dealname") ?? dealId;
+  if (!dealId || !title) {
+    return null;
+  }
+  const stage = hubSpotPropertyValue(params.deal.properties, "dealstage");
+  const amount = hubSpotPropertyValue(params.deal.properties, "amount");
+  const observedAt = timestampToIso(params.deal.updatedAt) ?? timestampToIso(params.deal.createdAt) ?? params.fetchedAt;
+  return buildSimpleIntegrationCandidate({
+    provider: "hubspot",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `deal:${dealId}`,
+    title,
+    summary: clipText(`${title}${stage ? ` (${stage})` : ""}${amount ? ` amount ${amount}` : ""}`, 220),
+    lines: [
+      `# ${title}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: HubSpot",
+      `- Deal ID: ${dealId}`,
+      stage ? `- Stage: ${stage}` : null,
+      amount ? `- Amount: ${amount}` : null,
+      "",
+      "## Summary",
+      "",
+      `${title}${stage ? ` (${stage})` : ""}${amount ? ` amount ${amount}` : ""}`,
+      "",
+    ],
+    tags: ["hubspot", "deal"],
+    sourceType: "hubspot.deal",
+    sourceEventId: `hubspot-deal:${dealId}`,
+    externalObjectId: dealId,
+    externalObjectType: "hubspot_deal",
+    branchKey: "deals",
+    branchLabel: "Deals",
+    observedAt,
+    confidence: 0.78,
+  });
+}
+
+function buildLinearProfileCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  user: LinearUserPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate {
+  const title = normalizeString(params.user.displayName) ?? normalizeString(params.user.name) ?? params.accountLabel;
+  const email = normalizeString(params.user.email);
+  return buildSimpleIntegrationCandidate({
+    provider: "linear",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: "profile",
+    title: `Linear profile for ${title}`,
+    summary: clipText(email ? `${title} Linear profile (${email}).` : `${title} Linear profile.`, 220),
+    lines: [
+      `# Linear profile for ${title}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: Linear",
+      email ? `- Email: ${email}` : null,
+      "",
+      "## Summary",
+      "",
+      email ? `${title} Linear profile (${email}).` : `${title} Linear profile.`,
+      "",
+    ],
+    tags: ["linear", "profile"],
+    sourceType: "linear.profile",
+    sourceEventId: `linear-profile:${params.accountKey}`,
+    externalObjectId: normalizeString(params.user.id) ?? params.accountKey,
+    externalObjectType: "linear_profile",
+    branchKey: "profile",
+    branchLabel: "Profile",
+    observedAt: params.fetchedAt,
+    confidence: 0.84,
+  });
+}
+
+function buildLinearIssueCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  issue: LinearIssuePayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const issueId = normalizeString(params.issue.id);
+  const title = normalizeString(params.issue.title);
+  if (!issueId || !title) {
+    return null;
+  }
+  const identifier = normalizeString(params.issue.identifier);
+  const teamName = linearTeamName(params.issue.team);
+  const observedAt = timestampToIso(params.issue.updatedAt) ?? timestampToIso(params.issue.createdAt) ?? params.fetchedAt;
+  return buildSimpleIntegrationCandidate({
+    provider: "linear",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `issue:${issueId}`,
+    title: identifier ? `${identifier}: ${title}` : title,
+    summary: clipText(`${identifier ?? "Issue"} ${title}${teamName ? ` (${teamName})` : ""}`, 220),
+    lines: [
+      `# ${identifier ? `${identifier}: ` : ""}${title}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: Linear",
+      `- Issue ID: ${issueId}`,
+      teamName ? `- Team: ${teamName}` : null,
+      normalizeString(params.issue.url) ? `- URL: ${normalizeString(params.issue.url)}` : null,
+      "",
+      "## Summary",
+      "",
+      normalizeString(params.issue.description) ? clipText(normalizeString(params.issue.description)!, 4000) : title,
+      "",
+    ],
+    tags: ["linear", "issue"],
+    sourceType: "linear.issue",
+    sourceEventId: `linear-issue:${issueId}`,
+    externalObjectId: issueId,
+    externalObjectType: "linear_issue",
+    branchKey: "issues",
+    branchLabel: "Issues",
+    observedAt,
+    confidence: 0.82,
+  });
+}
+
+function buildLinearProjectCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  project: LinearProjectPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const projectId = normalizeString(params.project.id);
+  const title = normalizeString(params.project.name);
+  if (!projectId || !title) {
+    return null;
+  }
+  const observedAt = timestampToIso(params.project.updatedAt) ?? timestampToIso(params.project.createdAt) ?? params.fetchedAt;
+  return buildSimpleIntegrationCandidate({
+    provider: "linear",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `project:${projectId}`,
+    title,
+    summary: clipText(`Linear project ${title}.`, 220),
+    lines: [
+      `# ${title}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: Linear",
+      `- Project ID: ${projectId}`,
+      normalizeString(params.project.url) ? `- URL: ${normalizeString(params.project.url)}` : null,
+      "",
+      "## Summary",
+      "",
+      normalizeString(params.project.description) ? clipText(normalizeString(params.project.description)!, 4000) : `Linear project ${title}.`,
+      "",
+    ],
+    tags: ["linear", "project"],
+    sourceType: "linear.project",
+    sourceEventId: `linear-project:${projectId}`,
+    externalObjectId: projectId,
+    externalObjectType: "linear_project",
+    branchKey: "projects",
+    branchLabel: "Projects",
+    observedAt,
+    confidence: 0.8,
+  });
+}
+
+function buildLinearTeamCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  team: LinearTeamPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const teamId = normalizeString(params.team.id);
+  const title = normalizeString(params.team.name) ?? normalizeString(params.team.key);
+  if (!teamId || !title) {
+    return null;
+  }
+  return buildSimpleIntegrationCandidate({
+    provider: "linear",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `team:${teamId}`,
+    title,
+    summary: clipText(`Linear team ${title}.`, 220),
+    lines: [
+      `# ${title}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: Linear",
+      `- Team ID: ${teamId}`,
+      normalizeString(params.team.key) ? `- Key: ${normalizeString(params.team.key)}` : null,
+      "",
+      "## Summary",
+      "",
+      normalizeString(params.team.description) ? clipText(normalizeString(params.team.description)!, 4000) : `Linear team ${title}.`,
+      "",
+    ],
+    tags: ["linear", "team"],
+    sourceType: "linear.team",
+    sourceEventId: `linear-team:${teamId}`,
+    externalObjectId: teamId,
+    externalObjectType: "linear_team",
+    branchKey: "teams",
+    branchLabel: "Teams",
+    observedAt: params.fetchedAt,
+    confidence: 0.78,
+  });
+}
+
+function buildJiraProfileCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  user: JiraCurrentUserPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate {
+  const title = normalizeString(params.user.displayName) ?? params.accountLabel;
+  const email = normalizeString(params.user.emailAddress);
+  return buildSimpleIntegrationCandidate({
+    provider: "jira",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: "profile",
+    title: `Jira profile for ${title}`,
+    summary: clipText(email ? `${title} Jira profile (${email}).` : `${title} Jira profile.`, 220),
+    lines: [
+      `# Jira profile for ${title}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: Jira",
+      email ? `- Email: ${email}` : null,
+      "",
+      "## Summary",
+      "",
+      email ? `${title} Jira profile (${email}).` : `${title} Jira profile.`,
+      "",
+    ],
+    tags: ["jira", "profile"],
+    sourceType: "jira.profile",
+    sourceEventId: `jira-profile:${params.accountKey}`,
+    externalObjectId: normalizeString(params.user.accountId) ?? params.accountKey,
+    externalObjectType: "jira_profile",
+    branchKey: "profile",
+    branchLabel: "Profile",
+    observedAt: params.fetchedAt,
+    confidence: 0.84,
+  });
+}
+
+function buildJiraProjectCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  project: JiraProjectPayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const projectId = normalizeString(params.project.id) ?? normalizeString(params.project.key);
+  const title = normalizeString(params.project.name) ?? normalizeString(params.project.key);
+  if (!projectId || !title) {
+    return null;
+  }
+  return buildSimpleIntegrationCandidate({
+    provider: "jira",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `project:${projectId}`,
+    title,
+    summary: clipText(`Jira project ${title}.`, 220),
+    lines: [
+      `# ${title}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: Jira",
+      `- Project ID: ${projectId}`,
+      normalizeString(params.project.key) ? `- Key: ${normalizeString(params.project.key)}` : null,
+      normalizeString(params.project.projectTypeKey) ? `- Project type: ${normalizeString(params.project.projectTypeKey)}` : null,
+      "",
+      "## Summary",
+      "",
+      `Jira project ${title}.`,
+      "",
+    ],
+    tags: ["jira", "project"],
+    sourceType: "jira.project",
+    sourceEventId: `jira-project:${projectId}`,
+    externalObjectId: projectId,
+    externalObjectType: "jira_project",
+    branchKey: "projects",
+    branchLabel: "Projects",
+    observedAt: params.fetchedAt,
+    confidence: 0.79,
+  });
+}
+
+function buildJiraIssueCandidate(params: {
+  ownerUserId: string;
+  accountKey: string;
+  accountLabel: string;
+  issue: JiraIssuePayload;
+  fetchedAt: string;
+}): IntegrationLeafCandidate | null {
+  const issueId = normalizeString(params.issue.id) ?? normalizeString(params.issue.key);
+  const fields = jiraIssueFields(params.issue.fields);
+  const summary = normalizeString(fields.summary);
+  if (!issueId || !summary) {
+    return null;
+  }
+  const key = normalizeString(params.issue.key);
+  const observedAt = timestampToIso(fields.updated) ?? timestampToIso(fields.created) ?? params.fetchedAt;
+  return buildSimpleIntegrationCandidate({
+    provider: "jira",
+    ownerUserId: params.ownerUserId,
+    accountKey: params.accountKey,
+    accountLabel: params.accountLabel,
+    subjectKey: `issue:${issueId}`,
+    title: key ? `${key}: ${summary}` : summary,
+    summary: clipText(`${key ?? "Issue"} ${summary}`, 220),
+    lines: [
+      `# ${key ? `${key}: ` : ""}${summary}`,
+      "",
+      `- Account: ${params.accountLabel}`,
+      "- Provider: Jira",
+      `- Issue ID: ${issueId}`,
+      key ? `- Key: ${key}` : null,
+      normalizeString(fields.status && isRecord(fields.status) ? fields.status.name : null)
+        ? `- Status: ${normalizeString(isRecord(fields.status) ? fields.status.name : null)}`
+        : null,
+      "",
+      "## Summary",
+      "",
+      normalizeString(fields.description) ? clipText(normalizeString(fields.description)!, 4000) : summary,
+      "",
+    ],
+    tags: ["jira", "issue"],
+    sourceType: "jira.issue",
+    sourceEventId: `jira-issue:${issueId}`,
+    externalObjectId: issueId,
+    externalObjectType: "jira_issue",
+    branchKey: "issues",
+    branchLabel: "Issues",
+    observedAt,
+    confidence: 0.82,
+  });
+}
+
 function updatePersistStats(
   result: PersistedIntegrationLeafResult,
   stats: { created: number; superseding: number; unchanged: number },
@@ -2630,7 +4617,13 @@ export function supportsIntegrationContextFetchProvider(providerId: string): boo
     || normalized === "googlecalendar"
     || normalized === "googledrive"
     || normalized === "twitter"
-    || normalized === "linkedin";
+    || normalized === "linkedin"
+    || normalized === "outlook"
+    || normalized === "googlesheets"
+    || normalized === "googledocs"
+    || normalized === "hubspot"
+    || normalized === "linear"
+    || normalized === "jira";
 }
 
 async function fetchGmailIntegrationContext(params: {
@@ -3720,6 +5713,119 @@ async function fetchGoogleDriveIntegrationContext(params: {
         index + 1 < files.length
           ? `Importing Google Drive files (${index + 1}/${files.length})`
           : "Reconciling Google Drive files",
+      });
+  }
+
+  chunksTotal += 1;
+  syncProgress({ current_chunk_label: "Fetching Google Drive shared drives" });
+  try {
+    const sharedDrivesResult = await params.composio.executeAction({
+      connectedAccountId,
+      toolSlug: "GOOGLEDRIVE_LIST_SHARED_DRIVES",
+      arguments: {
+        pageSize: GOOGLE_DRIVE_SHARED_DRIVE_LIMIT,
+      },
+    });
+    actions.push("GOOGLEDRIVE_LIST_SHARED_DRIVES");
+    const sharedDrives = googleDriveSharedDrivesFromData(sharedDrivesResult.data);
+    for (const sharedDrive of sharedDrives) {
+      const candidate = buildGoogleDriveSharedDriveCandidate({
+        ownerUserId: connection.ownerUserId,
+        accountKey,
+        accountLabel,
+        sharedDrive,
+        fetchedAt: params.fetchedAt,
+      });
+      contentSeen += 1;
+      if (!candidate) {
+        continue;
+      }
+      const persisted = await persistIntegrationCandidate({
+        store: params.store,
+        workspaceId: "",
+        candidate,
+        embeddingClient: null,
+      });
+      updatePersistStats(persisted, persistStats);
+      contentPersisted += 1;
+    }
+  } catch (error) {
+    if (!isComposioForbiddenError(error) && !isMissingComposioToolError(error, "GOOGLEDRIVE_LIST_SHARED_DRIVES")) {
+      throw error;
+    }
+    actions.push(
+      isComposioForbiddenError(error)
+        ? "GOOGLEDRIVE_LIST_SHARED_DRIVES:forbidden"
+        : "GOOGLEDRIVE_LIST_SHARED_DRIVES:missing",
+    );
+  }
+  chunksCompleted += 1;
+
+  const permissionFiles = files
+    .filter((file) => !isGoogleDriveFolderMimeType(normalizeString(file.mimeType)))
+    .map((file) => ({
+      id: normalizeString(file.id),
+      title: normalizeString(file.name) ?? "Drive file",
+    }))
+    .filter((file): file is { id: string; title: string } => Boolean(file.id))
+    .slice(0, GOOGLE_DRIVE_PERMISSION_TARGETS);
+  chunksTotal += permissionFiles.length;
+  syncProgress({
+    current_chunk_label:
+      permissionFiles.length > 0
+        ? `Fetching Google Drive permissions (0/${permissionFiles.length})`
+        : "Reconciling Google Drive files",
+  });
+  for (const [index, file] of permissionFiles.entries()) {
+    try {
+      const permissionsResult = await params.composio.executeAction({
+        connectedAccountId,
+        toolSlug: "GOOGLEDRIVE_LIST_PERMISSIONS",
+        arguments: {
+          fileId: file.id,
+        },
+      });
+      actions.push(`GOOGLEDRIVE_LIST_PERMISSIONS:${file.id}`);
+      const permissions = googleDrivePermissionsFromData(permissionsResult.data);
+      for (const permission of permissions) {
+        const candidate = buildGoogleDrivePermissionCandidate({
+          ownerUserId: connection.ownerUserId,
+          accountKey,
+          accountLabel,
+          fileId: file.id,
+          fileTitle: file.title,
+          permission,
+          fetchedAt: params.fetchedAt,
+        });
+        contentSeen += 1;
+        if (!candidate) {
+          continue;
+        }
+        const persisted = await persistIntegrationCandidate({
+          store: params.store,
+          workspaceId: "",
+          candidate,
+          embeddingClient: null,
+        });
+        updatePersistStats(persisted, persistStats);
+        contentPersisted += 1;
+      }
+    } catch (error) {
+      if (!isComposioForbiddenError(error) && !isMissingComposioToolError(error, "GOOGLEDRIVE_LIST_PERMISSIONS")) {
+        throw error;
+      }
+      actions.push(
+        isComposioForbiddenError(error)
+          ? `GOOGLEDRIVE_LIST_PERMISSIONS:${file.id}:forbidden`
+          : `GOOGLEDRIVE_LIST_PERMISSIONS:${file.id}:missing`,
+      );
+    }
+    chunksCompleted += 1;
+    syncProgress({
+      current_chunk_label:
+        index + 1 < permissionFiles.length
+          ? `Fetching Google Drive permissions (${index + 1}/${permissionFiles.length})`
+          : "Reconciling Google Drive files",
     });
   }
 
@@ -3929,8 +6035,112 @@ async function fetchTwitterIntegrationContext(params: {
         index + 1 < posts.length
           ? `Importing Twitter posts (${index + 1}/${posts.length})`
           : "Reconciling Twitter posts",
-    });
+      });
   }
+
+  if (username) {
+    chunksTotal += 1;
+    syncProgress({ current_chunk_label: `Searching recent Twitter mentions for @${username}` });
+    try {
+      const mentionsResult = await params.composio.executeAction({
+        connectedAccountId,
+        toolSlug: "TWITTER_RECENT_SEARCH",
+        arguments: {
+          query: `@${username}`,
+          max_results: TWITTER_MENTION_LIMIT,
+        },
+      });
+      actions.push("TWITTER_RECENT_SEARCH");
+      const mentionPosts = twitterPostsFromData(mentionsResult.data);
+      for (const post of mentionPosts) {
+        const candidate = buildTwitterPostCandidate({
+          ownerUserId: connection.ownerUserId,
+          accountKey,
+          accountLabel,
+          authorUsername: username,
+          post,
+          fetchedAt: params.fetchedAt,
+          branchKey: "mentions",
+          branchLabel: "Mentions",
+          sourceType: "twitter.mention",
+          sourcePrefix: "twitter-mention",
+          subjectPrefix: "mention",
+          extraTags: ["mention"],
+        });
+        contentSeen += 1;
+        if (!candidate) {
+          continue;
+        }
+        if (candidate.entityKey?.startsWith("post:")) {
+          postEntityKeys.add(candidate.entityKey);
+        }
+        const persisted = await persistIntegrationCandidate({
+          store: params.store,
+          workspaceId: "",
+          candidate,
+          embeddingClient: null,
+        });
+        updatePersistStats(persisted, persistStats);
+        contentPersisted += 1;
+      }
+    } catch (error) {
+      if (!isComposioForbiddenError(error) && !isMissingComposioToolError(error, "TWITTER_RECENT_SEARCH")) {
+        throw error;
+      }
+      actions.push(
+        isComposioForbiddenError(error)
+          ? "TWITTER_RECENT_SEARCH:forbidden"
+          : "TWITTER_RECENT_SEARCH:missing",
+      );
+    }
+    chunksCompleted += 1;
+  }
+
+  chunksTotal += 1;
+  syncProgress({ current_chunk_label: "Fetching recent Twitter direct messages" });
+  try {
+    const dmEventsResult = await params.composio.executeAction({
+      connectedAccountId,
+      toolSlug: "TWITTER_GET_RECENT_DM_EVENTS",
+      arguments: {
+        max_results: TWITTER_DM_EVENT_LIMIT,
+        event_types: ["MessageCreate"],
+      },
+    });
+    actions.push("TWITTER_GET_RECENT_DM_EVENTS");
+    const dmEvents = twitterDmEventsFromData(dmEventsResult.data);
+    for (const event of dmEvents) {
+      const candidate = buildTwitterDirectMessageCandidate({
+        ownerUserId: connection.ownerUserId,
+        accountKey,
+        accountLabel,
+        event,
+        fetchedAt: params.fetchedAt,
+      });
+      contentSeen += 1;
+      if (!candidate) {
+        continue;
+      }
+      const persisted = await persistIntegrationCandidate({
+        store: params.store,
+        workspaceId: "",
+        candidate,
+        embeddingClient: null,
+      });
+      updatePersistStats(persisted, persistStats);
+      contentPersisted += 1;
+    }
+  } catch (error) {
+    if (!isComposioForbiddenError(error) && !isMissingComposioToolError(error, "TWITTER_GET_RECENT_DM_EVENTS")) {
+      throw error;
+    }
+    actions.push(
+      isComposioForbiddenError(error)
+        ? "TWITTER_GET_RECENT_DM_EVENTS:forbidden"
+        : "TWITTER_GET_RECENT_DM_EVENTS:missing",
+    );
+  }
+  chunksCompleted += 1;
 
   const retiredPosts = retireIntegrationEntityLeaves({
     store: params.store,
@@ -4168,8 +6378,145 @@ async function fetchGoogleCalendarIntegrationContext(params: {
         index + 1 < sortedCalendars.length
           ? `Importing Google Calendar calendars (${index + 1}/${sortedCalendars.length})`
           : "Reconciling Google Calendar calendars",
-    });
+      });
   }
+
+  chunksTotal += 1;
+  syncProgress({ current_chunk_label: "Fetching Google Calendar settings" });
+  try {
+    const settingsResult = await params.composio.executeAction({
+      connectedAccountId,
+      toolSlug: "GOOGLECALENDAR_SETTINGS_LIST",
+      arguments: {
+        maxResults: GOOGLE_CALENDAR_SETTINGS_LIMIT,
+      },
+    });
+    actions.push("GOOGLECALENDAR_SETTINGS_LIST");
+    const settings = googleCalendarSettingsFromData(settingsResult.data);
+    for (const setting of settings) {
+      const candidate = buildGoogleCalendarSettingCandidate({
+        ownerUserId: connection.ownerUserId,
+        accountKey,
+        accountLabel,
+        setting,
+        fetchedAt: params.fetchedAt,
+      });
+      contentSeen += 1;
+      if (!candidate) {
+        continue;
+      }
+      const persisted = await persistIntegrationCandidate({
+        store: params.store,
+        workspaceId: "",
+        candidate,
+        embeddingClient: null,
+      });
+      updatePersistStats(persisted, persistStats);
+      contentPersisted += 1;
+    }
+  } catch (error) {
+    if (!isComposioForbiddenError(error) && !isMissingComposioToolError(error, "GOOGLECALENDAR_SETTINGS_LIST")) {
+      throw error;
+    }
+    actions.push(
+      isComposioForbiddenError(error)
+        ? "GOOGLECALENDAR_SETTINGS_LIST:forbidden"
+        : "GOOGLECALENDAR_SETTINGS_LIST:missing",
+    );
+  }
+  chunksCompleted += 1;
+
+  chunksTotal += 1;
+  syncProgress({ current_chunk_label: "Fetching Google Calendar resources" });
+  try {
+    const resourcesResult = await params.composio.executeAction({
+      connectedAccountId,
+      toolSlug: "GOOGLECALENDAR_LIST_CALENDAR_RESOURCES",
+      arguments: {
+        customer: "my_customer",
+        maxResults: GOOGLE_CALENDAR_RESOURCE_LIMIT,
+      },
+    });
+    actions.push("GOOGLECALENDAR_LIST_CALENDAR_RESOURCES");
+    const resources = googleCalendarResourcesFromData(resourcesResult.data);
+    for (const resource of resources) {
+      const candidate = buildGoogleCalendarResourceCandidate({
+        ownerUserId: connection.ownerUserId,
+        accountKey,
+        accountLabel,
+        resource,
+        fetchedAt: params.fetchedAt,
+      });
+      contentSeen += 1;
+      if (!candidate) {
+        continue;
+      }
+      const persisted = await persistIntegrationCandidate({
+        store: params.store,
+        workspaceId: "",
+        candidate,
+        embeddingClient: null,
+      });
+      updatePersistStats(persisted, persistStats);
+      contentPersisted += 1;
+    }
+  } catch (error) {
+    if (!isComposioForbiddenError(error) && !isMissingComposioToolError(error, "GOOGLECALENDAR_LIST_CALENDAR_RESOURCES")) {
+      throw error;
+    }
+    actions.push(
+      isComposioForbiddenError(error)
+        ? "GOOGLECALENDAR_LIST_CALENDAR_RESOURCES:forbidden"
+        : "GOOGLECALENDAR_LIST_CALENDAR_RESOURCES:missing",
+    );
+  }
+  chunksCompleted += 1;
+
+  chunksTotal += 1;
+  syncProgress({ current_chunk_label: "Fetching Google Calendar buildings" });
+  try {
+    const buildingsResult = await params.composio.executeAction({
+      connectedAccountId,
+      toolSlug: "GOOGLECALENDAR_LIST_BUILDINGS",
+      arguments: {
+        customer: "my_customer",
+        maxResults: GOOGLE_CALENDAR_BUILDING_LIMIT,
+      },
+    });
+    actions.push("GOOGLECALENDAR_LIST_BUILDINGS");
+    const buildings = googleCalendarBuildingsFromData(buildingsResult.data);
+    for (const building of buildings) {
+      const candidate = buildGoogleCalendarBuildingCandidate({
+        ownerUserId: connection.ownerUserId,
+        accountKey,
+        accountLabel,
+        building,
+        fetchedAt: params.fetchedAt,
+      });
+      contentSeen += 1;
+      if (!candidate) {
+        continue;
+      }
+      const persisted = await persistIntegrationCandidate({
+        store: params.store,
+        workspaceId: "",
+        candidate,
+        embeddingClient: null,
+      });
+      updatePersistStats(persisted, persistStats);
+      contentPersisted += 1;
+    }
+  } catch (error) {
+    if (!isComposioForbiddenError(error) && !isMissingComposioToolError(error, "GOOGLECALENDAR_LIST_BUILDINGS")) {
+      throw error;
+    }
+    actions.push(
+      isComposioForbiddenError(error)
+        ? "GOOGLECALENDAR_LIST_BUILDINGS:forbidden"
+        : "GOOGLECALENDAR_LIST_BUILDINGS:missing",
+    );
+  }
+  chunksCompleted += 1;
 
   const retiredCalendars = retireIntegrationEntityLeaves({
     store: params.store,
@@ -4304,6 +6651,127 @@ async function fetchLinkedInIntegrationContext(params: {
   updatePersistStats(profilePersist, persistStats);
   treeId = profilePersist.tree.treeId;
   chunksCompleted += 1;
+
+  if (personId) {
+    chunksTotal += 1;
+    syncProgress({ current_chunk_label: "Fetching LinkedIn person profile" });
+    try {
+      const personResult = await params.composio.executeAction({
+        connectedAccountId,
+        toolSlug: "LINKEDIN_GET_PERSON",
+        arguments: {
+          person_id: personId,
+        },
+      });
+      actions.push("LINKEDIN_GET_PERSON");
+      const person = linkedInPersonFromData(personResult.data);
+      const candidate = person
+        ? buildLinkedInPersonCandidate({
+          ownerUserId: connection.ownerUserId,
+          accountKey,
+          accountLabel,
+          personId,
+          person,
+          fetchedAt: params.fetchedAt,
+        })
+        : null;
+      contentSeen += 1;
+      if (candidate) {
+        const persisted = await persistIntegrationCandidate({
+          store: params.store,
+          workspaceId: "",
+          candidate,
+          embeddingClient: null,
+        });
+        updatePersistStats(persisted, persistStats);
+        contentPersisted += 1;
+      }
+    } catch (error) {
+      if (!isComposioForbiddenError(error) && !isMissingComposioToolError(error, "LINKEDIN_GET_PERSON")) {
+        throw error;
+      }
+      actions.push(
+        isComposioForbiddenError(error)
+          ? "LINKEDIN_GET_PERSON:forbidden"
+          : "LINKEDIN_GET_PERSON:missing",
+      );
+    }
+    chunksCompleted += 1;
+  }
+
+  chunksTotal += 1;
+  syncProgress({ current_chunk_label: "Fetching LinkedIn organizations" });
+  try {
+    const companyInfoResult = await params.composio.executeAction({
+      connectedAccountId,
+      toolSlug: "LINKEDIN_GET_COMPANY_INFO",
+      arguments: {},
+    });
+    actions.push("LINKEDIN_GET_COMPANY_INFO");
+    const organizations = linkedInCompaniesFromData(companyInfoResult.data);
+    chunksTotal += organizations.length;
+    for (const organization of organizations) {
+      let networkSize: number | null = null;
+      const organizationId = linkedInOrganizationId(organization);
+      if (organizationId) {
+        try {
+          const networkSizeResult = await params.composio.executeAction({
+            connectedAccountId,
+            toolSlug: "LINKEDIN_GET_NETWORK_SIZE",
+            arguments: {
+              organization_id: organizationId,
+            },
+          });
+          actions.push(`LINKEDIN_GET_NETWORK_SIZE:${organizationId}`);
+          const networkRecord = recordFromData(networkSizeResult.data);
+          networkSize = parseInteger(networkRecord?.network_size)
+            ?? parseInteger(networkRecord?.follower_count)
+            ?? parseInteger(networkRecord?.count)
+            ?? parseInteger(networkRecord?.first_degree_size);
+        } catch (error) {
+          if (!isComposioForbiddenError(error) && !isMissingComposioToolError(error, "LINKEDIN_GET_NETWORK_SIZE")) {
+            throw error;
+          }
+          actions.push(
+            isComposioForbiddenError(error)
+              ? `LINKEDIN_GET_NETWORK_SIZE:${organizationId}:forbidden`
+              : `LINKEDIN_GET_NETWORK_SIZE:${organizationId}:missing`,
+          );
+        }
+      }
+      const candidate = buildLinkedInOrganizationCandidate({
+        ownerUserId: connection.ownerUserId,
+        accountKey,
+        accountLabel,
+        organization,
+        networkSize,
+        fetchedAt: params.fetchedAt,
+      });
+      contentSeen += 1;
+      if (candidate) {
+        const persisted = await persistIntegrationCandidate({
+          store: params.store,
+          workspaceId: "",
+          candidate,
+          embeddingClient: null,
+        });
+        updatePersistStats(persisted, persistStats);
+        contentPersisted += 1;
+      }
+      chunksCompleted += 1;
+    }
+  } catch (error) {
+    if (!isComposioForbiddenError(error) && !isMissingComposioToolError(error, "LINKEDIN_GET_COMPANY_INFO")) {
+      throw error;
+    }
+    actions.push(
+      isComposioForbiddenError(error)
+        ? "LINKEDIN_GET_COMPANY_INFO:forbidden"
+        : "LINKEDIN_GET_COMPANY_INFO:missing",
+    );
+  }
+  chunksCompleted += 1;
+
   syncProgress({
     current_chunk_label: "Rebuilding LinkedIn context summary",
   });
@@ -4325,6 +6793,1285 @@ async function fetchLinkedInIntegrationContext(params: {
     ok: true,
     supported: true,
     provider_id: "linkedin",
+    connection_id: connection.connectionId,
+    account_key: accountKey,
+    account_label: accountLabel,
+    tree_id: treeId,
+    fetched_at: params.fetchedAt,
+    leaves_created: persistStats.created,
+    leaves_superseding: persistStats.superseding,
+    leaves_unchanged: persistStats.unchanged,
+    messages_seen: contentSeen,
+    messages_persisted: contentPersisted,
+    summary_nodes: summaryNodes,
+    actions,
+  };
+}
+
+async function fetchOutlookIntegrationContext(params: {
+  store: RuntimeStateStore;
+  connectionId: string;
+  composio: ComposioExecuteClient;
+  fetchedAt: string;
+  progress?: IntegrationContextFetchProgressReporter | null;
+}): Promise<IntegrationContextFetchResult> {
+  const connection = params.store.getIntegrationConnection(params.connectionId);
+  if (!connection) {
+    throw new Error(`integration connection ${params.connectionId} not found`);
+  }
+  const connectedAccountId = connection.accountExternalId ?? "";
+  const persistStats = { created: 0, superseding: 0, unchanged: 0 };
+  const actions: string[] = [];
+  let accountKey: string | null = null;
+  let accountLabel: string | null = connection.accountLabel;
+  let treeId: string | null = null;
+  let contentSeen = 0;
+  let contentPersisted = 0;
+  let summaryNodes = 0;
+  let chunksTotal = 6;
+  let chunksCompleted = 0;
+  const syncProgress = (patch: Partial<IntegrationContextFetchProgressSnapshot> = {}) => {
+    params.progress?.patch({
+      account_key: accountKey,
+      account_label: accountLabel,
+      tree_id: treeId,
+      chunks_total: chunksTotal,
+      chunks_completed: chunksCompleted,
+      messages_seen: contentSeen,
+      messages_persisted: contentPersisted,
+      leaves_created: persistStats.created,
+      leaves_superseding: persistStats.superseding,
+      leaves_unchanged: persistStats.unchanged,
+      summary_nodes: summaryNodes,
+      actions,
+      ...patch,
+    });
+  };
+
+  syncProgress({ current_chunk_label: "Fetching Outlook profile" });
+  const profileResult = await params.composio.executeAction({
+    connectedAccountId,
+    toolSlug: "OUTLOOK_GET_PROFILE",
+    arguments: {},
+  });
+  actions.push("OUTLOOK_GET_PROFILE");
+  const profile = outlookProfileFromData(profileResult.data) ?? {};
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Saving Outlook profile" });
+  const email = normalizeString(profile.mail) ?? normalizeString(profile.userPrincipalName);
+  const displayName = normalizeString(profile.displayName);
+  accountKey = email
+    ?? normalizeString(connection.accountEmail)
+    ?? normalizeString(connection.accountHandle)
+    ?? normalizeString(connection.accountExternalId)
+    ?? connection.connectionId;
+  if (email) {
+    persistConnectionIdentity({
+      store: params.store,
+      connectionId: connection.connectionId,
+      accountEmail: email,
+    });
+  }
+  accountLabel = displayName ?? email ?? accountKey;
+
+  const profilePersist = await persistIntegrationCandidate({
+    store: params.store,
+    workspaceId: "",
+    candidate: buildOutlookProfileCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      profile,
+      fetchedAt: params.fetchedAt,
+    }),
+    embeddingClient: null,
+  });
+  updatePersistStats(profilePersist, persistStats);
+  treeId = profilePersist.tree.treeId;
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Fetching Outlook messages" });
+  const messagesResult = await params.composio.executeAction({
+    connectedAccountId,
+    toolSlug: "OUTLOOK_LIST_MESSAGES",
+    arguments: {
+      top: OUTLOOK_MESSAGE_LIMIT,
+    },
+  });
+  actions.push("OUTLOOK_LIST_MESSAGES");
+  for (const message of outlookMessagesFromData(messagesResult.data).slice(0, OUTLOOK_MESSAGE_LIMIT)) {
+    const candidate = buildOutlookMessageCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      message,
+      fetchedAt: params.fetchedAt,
+    });
+    contentSeen += 1;
+    if (!candidate) {
+      continue;
+    }
+    const persisted = await persistIntegrationCandidate({
+      store: params.store,
+      workspaceId: "",
+      candidate,
+      embeddingClient: null,
+    });
+    updatePersistStats(persisted, persistStats);
+    contentPersisted += 1;
+  }
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Fetching Outlook contacts" });
+  let contactsToolSlug = "OUTLOOK_LIST_USER_CONTACTS";
+  let contacts: OutlookContactPayload[] = [];
+  try {
+    const contactsResult = await params.composio.executeAction({
+      connectedAccountId,
+      toolSlug: contactsToolSlug,
+      arguments: {
+        top: OUTLOOK_CONTACT_LIMIT,
+      },
+    });
+    actions.push(contactsToolSlug);
+    contacts = outlookContactsFromData(contactsResult.data);
+  } catch (error) {
+    if (!isMissingComposioToolError(error, contactsToolSlug)) {
+      throw error;
+    }
+    contactsToolSlug = "OUTLOOK_LIST_CONTACTS";
+    const contactsResult = await params.composio.executeAction({
+      connectedAccountId,
+      toolSlug: contactsToolSlug,
+      arguments: {
+        top: OUTLOOK_CONTACT_LIMIT,
+      },
+    });
+    actions.push(`${"OUTLOOK_LIST_USER_CONTACTS"}:missing`);
+    actions.push(contactsToolSlug);
+    contacts = outlookContactsFromData(contactsResult.data);
+  }
+  for (const contact of contacts.slice(0, OUTLOOK_CONTACT_LIMIT)) {
+    const candidate = buildOutlookContactCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      contact,
+      fetchedAt: params.fetchedAt,
+    });
+    contentSeen += 1;
+    if (!candidate) {
+      continue;
+    }
+    const persisted = await persistIntegrationCandidate({
+      store: params.store,
+      workspaceId: "",
+      candidate,
+      embeddingClient: null,
+    });
+    updatePersistStats(persisted, persistStats);
+    contentPersisted += 1;
+  }
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Fetching Outlook events" });
+  const eventsResult = await params.composio.executeAction({
+    connectedAccountId,
+    toolSlug: "OUTLOOK_LIST_EVENTS",
+    arguments: {
+      top: OUTLOOK_EVENT_LIMIT,
+    },
+  });
+  actions.push("OUTLOOK_LIST_EVENTS");
+  for (const event of outlookEventsFromData(eventsResult.data).slice(0, OUTLOOK_EVENT_LIMIT)) {
+    if (normalizeBoolean(event.isCancelled) === true) {
+      continue;
+    }
+    const candidate = buildOutlookEventCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      event,
+      fetchedAt: params.fetchedAt,
+    });
+    contentSeen += 1;
+    if (!candidate) {
+      continue;
+    }
+    const persisted = await persistIntegrationCandidate({
+      store: params.store,
+      workspaceId: "",
+      candidate,
+      embeddingClient: null,
+    });
+    updatePersistStats(persisted, persistStats);
+    contentPersisted += 1;
+  }
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Rebuilding Outlook context summary" });
+  await rebuildIntegrationTree({
+    store: params.store,
+    treeId,
+    embeddingClient: null,
+  });
+  chunksCompleted += 1;
+  summaryNodes = countSummaryLikeSemanticIntegrationNodes({
+    store: params.store,
+    treeId,
+  });
+  syncProgress({ current_chunk_label: "Outlook context fetch complete" });
+
+  return {
+    ok: true,
+    supported: true,
+    provider_id: "outlook",
+    connection_id: connection.connectionId,
+    account_key: accountKey,
+    account_label: accountLabel,
+    tree_id: treeId,
+    fetched_at: params.fetchedAt,
+    leaves_created: persistStats.created,
+    leaves_superseding: persistStats.superseding,
+    leaves_unchanged: persistStats.unchanged,
+    messages_seen: contentSeen,
+    messages_persisted: contentPersisted,
+    summary_nodes: summaryNodes,
+    actions,
+  };
+}
+
+async function fetchGoogleSheetsIntegrationContext(params: {
+  store: RuntimeStateStore;
+  connectionId: string;
+  composio: ComposioExecuteClient;
+  fetchedAt: string;
+  progress?: IntegrationContextFetchProgressReporter | null;
+}): Promise<IntegrationContextFetchResult> {
+  const connection = params.store.getIntegrationConnection(params.connectionId);
+  if (!connection) {
+    throw new Error(`integration connection ${params.connectionId} not found`);
+  }
+  const connectedAccountId = connection.accountExternalId ?? "";
+  const persistStats = { created: 0, superseding: 0, unchanged: 0 };
+  const actions: string[] = [];
+  const accountKey = normalizeString(connection.accountEmail)
+    ?? normalizeString(connection.accountHandle)
+    ?? normalizeString(connection.accountExternalId)
+    ?? connection.connectionId;
+  const accountLabel = normalizeString(connection.accountLabel) ?? accountKey;
+  let treeId: string | null = null;
+  let contentSeen = 0;
+  let contentPersisted = 0;
+  let summaryNodes = 0;
+  let chunksTotal = 4;
+  let chunksCompleted = 0;
+  const syncProgress = (patch: Partial<IntegrationContextFetchProgressSnapshot> = {}) => {
+    params.progress?.patch({
+      account_key: accountKey,
+      account_label: accountLabel,
+      tree_id: treeId,
+      chunks_total: chunksTotal,
+      chunks_completed: chunksCompleted,
+      messages_seen: contentSeen,
+      messages_persisted: contentPersisted,
+      leaves_created: persistStats.created,
+      leaves_superseding: persistStats.superseding,
+      leaves_unchanged: persistStats.unchanged,
+      summary_nodes: summaryNodes,
+      actions,
+      ...patch,
+    });
+  };
+
+  syncProgress({ current_chunk_label: "Saving Google Sheets profile" });
+  const profilePersist = await persistIntegrationCandidate({
+    store: params.store,
+    workspaceId: "",
+    candidate: buildSyntheticConnectionProfileCandidate({
+      provider: "googlesheets",
+      providerLabel: "Google Sheets",
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      summary: `Connected Google Sheets account ${accountLabel}.`,
+      fetchedAt: params.fetchedAt,
+    }),
+    embeddingClient: null,
+  });
+  updatePersistStats(profilePersist, persistStats);
+  treeId = profilePersist.tree.treeId;
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Searching Google Sheets spreadsheets" });
+  const searchResult = await params.composio.executeAction({
+    connectedAccountId,
+    toolSlug: "GOOGLESHEETS_SEARCH_SPREADSHEETS",
+    arguments: {
+      query: "",
+    },
+  });
+  actions.push("GOOGLESHEETS_SEARCH_SPREADSHEETS");
+  const spreadsheets = googleSheetsSpreadsheetsFromData(searchResult.data).slice(0, GOOGLE_SHEETS_SPREADSHEET_LIMIT);
+  chunksCompleted += 1;
+  syncProgress({
+    current_chunk_label:
+      spreadsheets.length > 0
+        ? `Importing Google Sheets spreadsheets (0/${spreadsheets.length})`
+        : "Rebuilding Google Sheets context summary",
+  });
+
+  let valueTargetsRemaining = GOOGLE_SHEETS_VALUE_TARGETS;
+  for (const [index, spreadsheet] of spreadsheets.entries()) {
+    const spreadsheetId = normalizeString(spreadsheet.spreadsheetId) ?? normalizeString(spreadsheet.id);
+    if (!spreadsheetId) {
+      continue;
+    }
+    let info = googleSheetsInfoFromData(spreadsheet);
+    try {
+      const infoResult = await params.composio.executeAction({
+        connectedAccountId,
+        toolSlug: "GOOGLESHEETS_GET_SPREADSHEET_INFO",
+        arguments: {
+          spreadsheetId,
+        },
+      });
+      actions.push(`GOOGLESHEETS_GET_SPREADSHEET_INFO:${spreadsheetId}`);
+      info = googleSheetsInfoFromData(infoResult.data) ?? info;
+    } catch (error) {
+      if (!isMissingComposioToolError(error, "GOOGLESHEETS_GET_SPREADSHEET_INFO")) {
+        throw error;
+      }
+      actions.push(`GOOGLESHEETS_GET_SPREADSHEET_INFO:${spreadsheetId}:missing`);
+    }
+
+    const properties = isRecord(info?.properties) ? info.properties : null;
+    const spreadsheetTitle = normalizeString(properties?.title)
+      ?? normalizeString(spreadsheet.title)
+      ?? normalizeString(spreadsheet.name)
+      ?? spreadsheetId;
+
+    const spreadsheetCandidate = buildGoogleSheetsSpreadsheetCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      spreadsheet: {
+        ...spreadsheet,
+        spreadsheetId,
+        title: spreadsheetTitle,
+      },
+      fetchedAt: params.fetchedAt,
+    });
+    contentSeen += 1;
+    if (spreadsheetCandidate) {
+      const persisted = await persistIntegrationCandidate({
+        store: params.store,
+        workspaceId: "",
+        candidate: spreadsheetCandidate,
+        embeddingClient: null,
+      });
+      updatePersistStats(persisted, persistStats);
+      contentPersisted += 1;
+    }
+
+    let sheetNames = googleSheetNamesFromData(info);
+    if (sheetNames.length === 0) {
+      try {
+        const sheetNamesResult = await params.composio.executeAction({
+          connectedAccountId,
+          toolSlug: "GOOGLESHEETS_GET_SHEET_NAMES",
+          arguments: {
+            spreadsheetId,
+          },
+        });
+        actions.push(`GOOGLESHEETS_GET_SHEET_NAMES:${spreadsheetId}`);
+        sheetNames = googleSheetNamesFromData(sheetNamesResult.data);
+      } catch (error) {
+        if (!isMissingComposioToolError(error, "GOOGLESHEETS_GET_SHEET_NAMES")) {
+          throw error;
+        }
+        actions.push(`GOOGLESHEETS_GET_SHEET_NAMES:${spreadsheetId}:missing`);
+      }
+    }
+
+    const worksheetCandidate = buildGoogleSheetsWorksheetCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      spreadsheetId,
+      spreadsheetTitle,
+      sheetNames,
+      fetchedAt: params.fetchedAt,
+    });
+    contentSeen += 1;
+    if (worksheetCandidate) {
+      const persisted = await persistIntegrationCandidate({
+        store: params.store,
+        workspaceId: "",
+        candidate: worksheetCandidate,
+        embeddingClient: null,
+      });
+      updatePersistStats(persisted, persistStats);
+      contentPersisted += 1;
+    }
+
+    if (valueTargetsRemaining > 0 && sheetNames[0]) {
+      const range = `${sheetNames[0]}!A1:E10`;
+      try {
+        const valuesResult = await params.composio.executeAction({
+          connectedAccountId,
+          toolSlug: "GOOGLESHEETS_VALUES_GET",
+          arguments: {
+            spreadsheetId,
+            range,
+          },
+        });
+        actions.push(`GOOGLESHEETS_VALUES_GET:${spreadsheetId}:${range}`);
+        const valuesCandidate = buildGoogleSheetsValuesCandidate({
+          ownerUserId: connection.ownerUserId,
+          accountKey,
+          accountLabel,
+          spreadsheetId,
+          spreadsheetTitle,
+          range,
+          values: googleSheetValuesFromData(valuesResult.data),
+          fetchedAt: params.fetchedAt,
+        });
+        contentSeen += 1;
+        if (valuesCandidate) {
+          const persisted = await persistIntegrationCandidate({
+            store: params.store,
+            workspaceId: "",
+            candidate: valuesCandidate,
+            embeddingClient: null,
+          });
+          updatePersistStats(persisted, persistStats);
+          contentPersisted += 1;
+          valueTargetsRemaining -= 1;
+        }
+      } catch (error) {
+        if (!isMissingComposioToolError(error, "GOOGLESHEETS_VALUES_GET")) {
+          throw error;
+        }
+        actions.push(`GOOGLESHEETS_VALUES_GET:${spreadsheetId}:${range}:missing`);
+      }
+    }
+
+    syncProgress({
+      current_chunk_label:
+        index + 1 < spreadsheets.length
+          ? `Importing Google Sheets spreadsheets (${index + 1}/${spreadsheets.length})`
+          : "Rebuilding Google Sheets context summary",
+    });
+  }
+
+  syncProgress({ current_chunk_label: "Rebuilding Google Sheets context summary" });
+  await rebuildIntegrationTree({
+    store: params.store,
+    treeId,
+    embeddingClient: null,
+  });
+  chunksCompleted += 1;
+  summaryNodes = countSummaryLikeSemanticIntegrationNodes({
+    store: params.store,
+    treeId,
+  });
+  syncProgress({ current_chunk_label: "Google Sheets context fetch complete" });
+
+  return {
+    ok: true,
+    supported: true,
+    provider_id: "googlesheets",
+    connection_id: connection.connectionId,
+    account_key: accountKey,
+    account_label: accountLabel,
+    tree_id: treeId,
+    fetched_at: params.fetchedAt,
+    leaves_created: persistStats.created,
+    leaves_superseding: persistStats.superseding,
+    leaves_unchanged: persistStats.unchanged,
+    messages_seen: contentSeen,
+    messages_persisted: contentPersisted,
+    summary_nodes: summaryNodes,
+    actions,
+  };
+}
+
+async function fetchGoogleDocsIntegrationContext(params: {
+  store: RuntimeStateStore;
+  connectionId: string;
+  composio: ComposioExecuteClient;
+  fetchedAt: string;
+  progress?: IntegrationContextFetchProgressReporter | null;
+}): Promise<IntegrationContextFetchResult> {
+  const connection = params.store.getIntegrationConnection(params.connectionId);
+  if (!connection) {
+    throw new Error(`integration connection ${params.connectionId} not found`);
+  }
+  const connectedAccountId = connection.accountExternalId ?? "";
+  const persistStats = { created: 0, superseding: 0, unchanged: 0 };
+  const actions: string[] = [];
+  const accountKey = normalizeString(connection.accountEmail)
+    ?? normalizeString(connection.accountHandle)
+    ?? normalizeString(connection.accountExternalId)
+    ?? connection.connectionId;
+  const accountLabel = normalizeString(connection.accountLabel) ?? accountKey;
+  let treeId: string | null = null;
+  let contentSeen = 0;
+  let contentPersisted = 0;
+  let summaryNodes = 0;
+  let chunksTotal = 4;
+  let chunksCompleted = 0;
+  const syncProgress = (patch: Partial<IntegrationContextFetchProgressSnapshot> = {}) => {
+    params.progress?.patch({
+      account_key: accountKey,
+      account_label: accountLabel,
+      tree_id: treeId,
+      chunks_total: chunksTotal,
+      chunks_completed: chunksCompleted,
+      messages_seen: contentSeen,
+      messages_persisted: contentPersisted,
+      leaves_created: persistStats.created,
+      leaves_superseding: persistStats.superseding,
+      leaves_unchanged: persistStats.unchanged,
+      summary_nodes: summaryNodes,
+      actions,
+      ...patch,
+    });
+  };
+
+  syncProgress({ current_chunk_label: "Saving Google Docs profile" });
+  const profilePersist = await persistIntegrationCandidate({
+    store: params.store,
+    workspaceId: "",
+    candidate: buildSyntheticConnectionProfileCandidate({
+      provider: "googledocs",
+      providerLabel: "Google Docs",
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      summary: `Connected Google Docs account ${accountLabel}.`,
+      fetchedAt: params.fetchedAt,
+    }),
+    embeddingClient: null,
+  });
+  updatePersistStats(profilePersist, persistStats);
+  treeId = profilePersist.tree.treeId;
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Searching Google Docs documents" });
+  const searchResult = await params.composio.executeAction({
+    connectedAccountId,
+    toolSlug: "GOOGLEDOCS_SEARCH_DOCUMENTS",
+    arguments: {
+      query: "",
+    },
+  });
+  actions.push("GOOGLEDOCS_SEARCH_DOCUMENTS");
+  const documents = googleDocsSearchFromData(searchResult.data).slice(0, GOOGLE_DOCS_DOCUMENT_LIMIT);
+  chunksCompleted += 1;
+  syncProgress({
+    current_chunk_label:
+      documents.length > 0
+        ? `Importing Google Docs documents (0/${documents.length})`
+        : "Rebuilding Google Docs context summary",
+  });
+
+  for (const [index, document] of documents.entries()) {
+    const documentId = normalizeString(document.documentId) ?? normalizeString(document.id);
+    if (!documentId) {
+      continue;
+    }
+    let resolvedDocument = document;
+    try {
+      const documentResult = await params.composio.executeAction({
+        connectedAccountId,
+        toolSlug: "GOOGLEDOCS_GET_DOCUMENT_BY_ID",
+        arguments: {
+          documentId,
+        },
+      });
+      actions.push(`GOOGLEDOCS_GET_DOCUMENT_BY_ID:${documentId}`);
+      const fetchedDocument = googleDocsDocumentFromData(documentResult.data);
+      if (fetchedDocument) {
+        resolvedDocument = {
+          ...document,
+          documentId,
+          title: normalizeString(fetchedDocument.title) ?? normalizeString(document.title) ?? normalizeString(document.name),
+        };
+      }
+    } catch (error) {
+      if (!isMissingComposioToolError(error, "GOOGLEDOCS_GET_DOCUMENT_BY_ID")) {
+        throw error;
+      }
+      actions.push(`GOOGLEDOCS_GET_DOCUMENT_BY_ID:${documentId}:missing`);
+    }
+
+    const documentCandidate = buildGoogleDocsDocumentCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      document: resolvedDocument,
+      fetchedAt: params.fetchedAt,
+    });
+    contentSeen += 1;
+    if (documentCandidate) {
+      const persisted = await persistIntegrationCandidate({
+        store: params.store,
+        workspaceId: "",
+        candidate: documentCandidate,
+        embeddingClient: null,
+      });
+      updatePersistStats(persisted, persistStats);
+      contentPersisted += 1;
+    }
+
+    try {
+      const plainTextResult = await params.composio.executeAction({
+        connectedAccountId,
+        toolSlug: "GOOGLEDOCS_GET_DOCUMENT_PLAINTEXT",
+        arguments: {
+          documentId,
+        },
+      });
+      actions.push(`GOOGLEDOCS_GET_DOCUMENT_PLAINTEXT:${documentId}`);
+      const plainText = googleDocsPlainTextFromData(plainTextResult.data);
+      const contentCandidate = plainText
+        ? buildGoogleDocsContentCandidate({
+          ownerUserId: connection.ownerUserId,
+          accountKey,
+          accountLabel,
+          documentId,
+          documentTitle: documentCandidate?.title ?? normalizeString(resolvedDocument.title) ?? normalizeString(resolvedDocument.name) ?? documentId,
+          plainText,
+          fetchedAt: params.fetchedAt,
+        })
+        : null;
+      contentSeen += 1;
+      if (contentCandidate) {
+        const persisted = await persistIntegrationCandidate({
+          store: params.store,
+          workspaceId: "",
+          candidate: contentCandidate,
+          embeddingClient: null,
+        });
+        updatePersistStats(persisted, persistStats);
+        contentPersisted += 1;
+      }
+    } catch (error) {
+      if (!isMissingComposioToolError(error, "GOOGLEDOCS_GET_DOCUMENT_PLAINTEXT")) {
+        throw error;
+      }
+      actions.push(`GOOGLEDOCS_GET_DOCUMENT_PLAINTEXT:${documentId}:missing`);
+    }
+
+    syncProgress({
+      current_chunk_label:
+        index + 1 < documents.length
+          ? `Importing Google Docs documents (${index + 1}/${documents.length})`
+          : "Rebuilding Google Docs context summary",
+    });
+  }
+
+  syncProgress({ current_chunk_label: "Rebuilding Google Docs context summary" });
+  await rebuildIntegrationTree({
+    store: params.store,
+    treeId,
+    embeddingClient: null,
+  });
+  chunksCompleted += 1;
+  summaryNodes = countSummaryLikeSemanticIntegrationNodes({
+    store: params.store,
+    treeId,
+  });
+  syncProgress({ current_chunk_label: "Google Docs context fetch complete" });
+
+  return {
+    ok: true,
+    supported: true,
+    provider_id: "googledocs",
+    connection_id: connection.connectionId,
+    account_key: accountKey,
+    account_label: accountLabel,
+    tree_id: treeId,
+    fetched_at: params.fetchedAt,
+    leaves_created: persistStats.created,
+    leaves_superseding: persistStats.superseding,
+    leaves_unchanged: persistStats.unchanged,
+    messages_seen: contentSeen,
+    messages_persisted: contentPersisted,
+    summary_nodes: summaryNodes,
+    actions,
+  };
+}
+
+async function fetchHubSpotIntegrationContext(params: {
+  store: RuntimeStateStore;
+  connectionId: string;
+  composio: ComposioExecuteClient;
+  fetchedAt: string;
+  progress?: IntegrationContextFetchProgressReporter | null;
+}): Promise<IntegrationContextFetchResult> {
+  const connection = params.store.getIntegrationConnection(params.connectionId);
+  if (!connection) {
+    throw new Error(`integration connection ${params.connectionId} not found`);
+  }
+  const connectedAccountId = connection.accountExternalId ?? "";
+  const persistStats = { created: 0, superseding: 0, unchanged: 0 };
+  const actions: string[] = [];
+  const accountKey = normalizeString(connection.accountEmail)
+    ?? normalizeString(connection.accountHandle)
+    ?? normalizeString(connection.accountExternalId)
+    ?? connection.connectionId;
+  const accountLabel = normalizeString(connection.accountLabel) ?? accountKey;
+  let treeId: string | null = null;
+  let contentSeen = 0;
+  let contentPersisted = 0;
+  let summaryNodes = 0;
+  let chunksTotal = 5;
+  let chunksCompleted = 0;
+  const syncProgress = (patch: Partial<IntegrationContextFetchProgressSnapshot> = {}) => {
+    params.progress?.patch({
+      account_key: accountKey,
+      account_label: accountLabel,
+      tree_id: treeId,
+      chunks_total: chunksTotal,
+      chunks_completed: chunksCompleted,
+      messages_seen: contentSeen,
+      messages_persisted: contentPersisted,
+      leaves_created: persistStats.created,
+      leaves_superseding: persistStats.superseding,
+      leaves_unchanged: persistStats.unchanged,
+      summary_nodes: summaryNodes,
+      actions,
+      ...patch,
+    });
+  };
+
+  syncProgress({ current_chunk_label: "Saving HubSpot profile" });
+  const profilePersist = await persistIntegrationCandidate({
+    store: params.store,
+    workspaceId: "",
+    candidate: buildSyntheticConnectionProfileCandidate({
+      provider: "hubspot",
+      providerLabel: "HubSpot",
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      summary: `Connected HubSpot account ${accountLabel}.`,
+      fetchedAt: params.fetchedAt,
+    }),
+    embeddingClient: null,
+  });
+  updatePersistStats(profilePersist, persistStats);
+  treeId = profilePersist.tree.treeId;
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Fetching HubSpot contacts" });
+  const contactsResult = await params.composio.executeAction({
+    connectedAccountId,
+    toolSlug: "HUBSPOT_LIST_CONTACTS",
+    arguments: {
+      limit: HUBSPOT_CONTACT_LIMIT,
+    },
+  });
+  actions.push("HUBSPOT_LIST_CONTACTS");
+  for (const contact of hubSpotContactsFromData(contactsResult.data).slice(0, HUBSPOT_CONTACT_LIMIT)) {
+    const candidate = buildHubSpotContactCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      contact,
+      fetchedAt: params.fetchedAt,
+    });
+    contentSeen += 1;
+    if (!candidate) {
+      continue;
+    }
+    const persisted = await persistIntegrationCandidate({
+      store: params.store,
+      workspaceId: "",
+      candidate,
+      embeddingClient: null,
+    });
+    updatePersistStats(persisted, persistStats);
+    contentPersisted += 1;
+  }
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Fetching HubSpot companies" });
+  const companiesResult = await params.composio.executeAction({
+    connectedAccountId,
+    toolSlug: "HUBSPOT_LIST_COMPANIES",
+    arguments: {
+      limit: HUBSPOT_COMPANY_LIMIT,
+    },
+  });
+  actions.push("HUBSPOT_LIST_COMPANIES");
+  for (const company of hubSpotCompaniesFromData(companiesResult.data).slice(0, HUBSPOT_COMPANY_LIMIT)) {
+    const candidate = buildHubSpotCompanyCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      company,
+      fetchedAt: params.fetchedAt,
+    });
+    contentSeen += 1;
+    if (!candidate) {
+      continue;
+    }
+    const persisted = await persistIntegrationCandidate({
+      store: params.store,
+      workspaceId: "",
+      candidate,
+      embeddingClient: null,
+    });
+    updatePersistStats(persisted, persistStats);
+    contentPersisted += 1;
+  }
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Fetching HubSpot deals" });
+  const dealsResult = await params.composio.executeAction({
+    connectedAccountId,
+    toolSlug: "HUBSPOT_LIST_DEALS",
+    arguments: {
+      limit: HUBSPOT_DEAL_LIMIT,
+    },
+  });
+  actions.push("HUBSPOT_LIST_DEALS");
+  for (const deal of hubSpotDealsFromData(dealsResult.data).slice(0, HUBSPOT_DEAL_LIMIT)) {
+    const candidate = buildHubSpotDealCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      deal,
+      fetchedAt: params.fetchedAt,
+    });
+    contentSeen += 1;
+    if (!candidate) {
+      continue;
+    }
+    const persisted = await persistIntegrationCandidate({
+      store: params.store,
+      workspaceId: "",
+      candidate,
+      embeddingClient: null,
+    });
+    updatePersistStats(persisted, persistStats);
+    contentPersisted += 1;
+  }
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Rebuilding HubSpot context summary" });
+  await rebuildIntegrationTree({
+    store: params.store,
+    treeId,
+    embeddingClient: null,
+  });
+  chunksCompleted += 1;
+  summaryNodes = countSummaryLikeSemanticIntegrationNodes({
+    store: params.store,
+    treeId,
+  });
+  syncProgress({ current_chunk_label: "HubSpot context fetch complete" });
+
+  return {
+    ok: true,
+    supported: true,
+    provider_id: "hubspot",
+    connection_id: connection.connectionId,
+    account_key: accountKey,
+    account_label: accountLabel,
+    tree_id: treeId,
+    fetched_at: params.fetchedAt,
+    leaves_created: persistStats.created,
+    leaves_superseding: persistStats.superseding,
+    leaves_unchanged: persistStats.unchanged,
+    messages_seen: contentSeen,
+    messages_persisted: contentPersisted,
+    summary_nodes: summaryNodes,
+    actions,
+  };
+}
+
+async function fetchLinearIntegrationContext(params: {
+  store: RuntimeStateStore;
+  connectionId: string;
+  composio: ComposioExecuteClient;
+  fetchedAt: string;
+  progress?: IntegrationContextFetchProgressReporter | null;
+}): Promise<IntegrationContextFetchResult> {
+  const connection = params.store.getIntegrationConnection(params.connectionId);
+  if (!connection) {
+    throw new Error(`integration connection ${params.connectionId} not found`);
+  }
+  const connectedAccountId = connection.accountExternalId ?? "";
+  const persistStats = { created: 0, superseding: 0, unchanged: 0 };
+  const actions: string[] = [];
+  let accountKey: string | null = null;
+  let accountLabel: string | null = connection.accountLabel;
+  let treeId: string | null = null;
+  let contentSeen = 0;
+  let contentPersisted = 0;
+  let summaryNodes = 0;
+  let chunksTotal = 6;
+  let chunksCompleted = 0;
+  const syncProgress = (patch: Partial<IntegrationContextFetchProgressSnapshot> = {}) => {
+    params.progress?.patch({
+      account_key: accountKey,
+      account_label: accountLabel,
+      tree_id: treeId,
+      chunks_total: chunksTotal,
+      chunks_completed: chunksCompleted,
+      messages_seen: contentSeen,
+      messages_persisted: contentPersisted,
+      leaves_created: persistStats.created,
+      leaves_superseding: persistStats.superseding,
+      leaves_unchanged: persistStats.unchanged,
+      summary_nodes: summaryNodes,
+      actions,
+      ...patch,
+    });
+  };
+
+  syncProgress({ current_chunk_label: "Fetching Linear profile" });
+  const profileResult = await params.composio.executeAction({
+    connectedAccountId,
+    toolSlug: "LINEAR_GET_CURRENT_USER",
+    arguments: {},
+  });
+  actions.push("LINEAR_GET_CURRENT_USER");
+  const user = linearCurrentUserFromData(profileResult.data) ?? {};
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Saving Linear profile" });
+  const email = normalizeString(user.email);
+  const displayName = normalizeString(user.displayName) ?? normalizeString(user.name);
+  accountKey = email
+    ?? normalizeString(connection.accountEmail)
+    ?? normalizeString(connection.accountHandle)
+    ?? normalizeString(connection.accountExternalId)
+    ?? connection.connectionId;
+  if (email) {
+    persistConnectionIdentity({
+      store: params.store,
+      connectionId: connection.connectionId,
+      accountEmail: email,
+    });
+  }
+  accountLabel = displayName ?? email ?? accountKey;
+
+  const profilePersist = await persistIntegrationCandidate({
+    store: params.store,
+    workspaceId: "",
+    candidate: buildLinearProfileCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      user,
+      fetchedAt: params.fetchedAt,
+    }),
+    embeddingClient: null,
+  });
+  updatePersistStats(profilePersist, persistStats);
+  treeId = profilePersist.tree.treeId;
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Fetching Linear issues" });
+  const issuesResult = await params.composio.executeAction({
+    connectedAccountId,
+    toolSlug: "LINEAR_LIST_LINEAR_ISSUES",
+    arguments: {
+      limit: LINEAR_ISSUE_LIMIT,
+    },
+  });
+  actions.push("LINEAR_LIST_LINEAR_ISSUES");
+  for (const issue of linearIssuesFromData(issuesResult.data).slice(0, LINEAR_ISSUE_LIMIT)) {
+    const candidate = buildLinearIssueCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      issue,
+      fetchedAt: params.fetchedAt,
+    });
+    contentSeen += 1;
+    if (!candidate) {
+      continue;
+    }
+    const persisted = await persistIntegrationCandidate({
+      store: params.store,
+      workspaceId: "",
+      candidate,
+      embeddingClient: null,
+    });
+    updatePersistStats(persisted, persistStats);
+    contentPersisted += 1;
+  }
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Fetching Linear projects" });
+  const projectsResult = await params.composio.executeAction({
+    connectedAccountId,
+    toolSlug: "LINEAR_LIST_LINEAR_PROJECTS",
+    arguments: {
+      limit: LINEAR_PROJECT_LIMIT,
+    },
+  });
+  actions.push("LINEAR_LIST_LINEAR_PROJECTS");
+  for (const project of linearProjectsFromData(projectsResult.data).slice(0, LINEAR_PROJECT_LIMIT)) {
+    const candidate = buildLinearProjectCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      project,
+      fetchedAt: params.fetchedAt,
+    });
+    contentSeen += 1;
+    if (!candidate) {
+      continue;
+    }
+    const persisted = await persistIntegrationCandidate({
+      store: params.store,
+      workspaceId: "",
+      candidate,
+      embeddingClient: null,
+    });
+    updatePersistStats(persisted, persistStats);
+    contentPersisted += 1;
+  }
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Fetching Linear teams" });
+  const teamsResult = await params.composio.executeAction({
+    connectedAccountId,
+    toolSlug: "LINEAR_LIST_LINEAR_TEAMS",
+    arguments: {
+      limit: LINEAR_TEAM_LIMIT,
+    },
+  });
+  actions.push("LINEAR_LIST_LINEAR_TEAMS");
+  for (const team of linearTeamsFromData(teamsResult.data).slice(0, LINEAR_TEAM_LIMIT)) {
+    const candidate = buildLinearTeamCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      team,
+      fetchedAt: params.fetchedAt,
+    });
+    contentSeen += 1;
+    if (!candidate) {
+      continue;
+    }
+    const persisted = await persistIntegrationCandidate({
+      store: params.store,
+      workspaceId: "",
+      candidate,
+      embeddingClient: null,
+    });
+    updatePersistStats(persisted, persistStats);
+    contentPersisted += 1;
+  }
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Rebuilding Linear context summary" });
+  await rebuildIntegrationTree({
+    store: params.store,
+    treeId,
+    embeddingClient: null,
+  });
+  chunksCompleted += 1;
+  summaryNodes = countSummaryLikeSemanticIntegrationNodes({
+    store: params.store,
+    treeId,
+  });
+  syncProgress({ current_chunk_label: "Linear context fetch complete" });
+
+  return {
+    ok: true,
+    supported: true,
+    provider_id: "linear",
+    connection_id: connection.connectionId,
+    account_key: accountKey,
+    account_label: accountLabel,
+    tree_id: treeId,
+    fetched_at: params.fetchedAt,
+    leaves_created: persistStats.created,
+    leaves_superseding: persistStats.superseding,
+    leaves_unchanged: persistStats.unchanged,
+    messages_seen: contentSeen,
+    messages_persisted: contentPersisted,
+    summary_nodes: summaryNodes,
+    actions,
+  };
+}
+
+async function fetchJiraIntegrationContext(params: {
+  store: RuntimeStateStore;
+  connectionId: string;
+  composio: ComposioExecuteClient;
+  fetchedAt: string;
+  progress?: IntegrationContextFetchProgressReporter | null;
+}): Promise<IntegrationContextFetchResult> {
+  const connection = params.store.getIntegrationConnection(params.connectionId);
+  if (!connection) {
+    throw new Error(`integration connection ${params.connectionId} not found`);
+  }
+  const connectedAccountId = connection.accountExternalId ?? "";
+  const persistStats = { created: 0, superseding: 0, unchanged: 0 };
+  const actions: string[] = [];
+  let accountKey: string | null = null;
+  let accountLabel: string | null = connection.accountLabel;
+  let treeId: string | null = null;
+  let contentSeen = 0;
+  let contentPersisted = 0;
+  let summaryNodes = 0;
+  let chunksTotal = 5;
+  let chunksCompleted = 0;
+  const syncProgress = (patch: Partial<IntegrationContextFetchProgressSnapshot> = {}) => {
+    params.progress?.patch({
+      account_key: accountKey,
+      account_label: accountLabel,
+      tree_id: treeId,
+      chunks_total: chunksTotal,
+      chunks_completed: chunksCompleted,
+      messages_seen: contentSeen,
+      messages_persisted: contentPersisted,
+      leaves_created: persistStats.created,
+      leaves_superseding: persistStats.superseding,
+      leaves_unchanged: persistStats.unchanged,
+      summary_nodes: summaryNodes,
+      actions,
+      ...patch,
+    });
+  };
+
+  syncProgress({ current_chunk_label: "Fetching Jira profile" });
+  const profileResult = await params.composio.executeAction({
+    connectedAccountId,
+    toolSlug: "JIRA_GET_CURRENT_USER",
+    arguments: {},
+  });
+  actions.push("JIRA_GET_CURRENT_USER");
+  const user = jiraCurrentUserFromData(profileResult.data) ?? {};
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Saving Jira profile" });
+  const email = normalizeString(user.emailAddress);
+  const displayName = normalizeString(user.displayName);
+  accountKey = email
+    ?? normalizeString(connection.accountEmail)
+    ?? normalizeString(connection.accountHandle)
+    ?? normalizeString(connection.accountExternalId)
+    ?? connection.connectionId;
+  if (email) {
+    persistConnectionIdentity({
+      store: params.store,
+      connectionId: connection.connectionId,
+      accountEmail: email,
+    });
+  }
+  accountLabel = displayName ?? email ?? accountKey;
+
+  const profilePersist = await persistIntegrationCandidate({
+    store: params.store,
+    workspaceId: "",
+    candidate: buildJiraProfileCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      user,
+      fetchedAt: params.fetchedAt,
+    }),
+    embeddingClient: null,
+  });
+  updatePersistStats(profilePersist, persistStats);
+  treeId = profilePersist.tree.treeId;
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Fetching Jira projects" });
+  const projectsResult = await params.composio.executeAction({
+    connectedAccountId,
+    toolSlug: "JIRA_GET_ALL_PROJECTS",
+    arguments: {
+      maxResults: JIRA_PROJECT_LIMIT,
+    },
+  });
+  actions.push("JIRA_GET_ALL_PROJECTS");
+  for (const project of jiraProjectsFromData(projectsResult.data).slice(0, JIRA_PROJECT_LIMIT)) {
+    const candidate = buildJiraProjectCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      project,
+      fetchedAt: params.fetchedAt,
+    });
+    contentSeen += 1;
+    if (!candidate) {
+      continue;
+    }
+    const persisted = await persistIntegrationCandidate({
+      store: params.store,
+      workspaceId: "",
+      candidate,
+      embeddingClient: null,
+    });
+    updatePersistStats(persisted, persistStats);
+    contentPersisted += 1;
+  }
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Fetching Jira issues" });
+  const issuesResult = await params.composio.executeAction({
+    connectedAccountId,
+    toolSlug: "JIRA_SEARCH_FOR_ISSUES_USING_JQL_GET",
+    arguments: {
+      jql: "ORDER BY updated DESC",
+      maxResults: JIRA_ISSUE_LIMIT,
+    },
+  });
+  actions.push("JIRA_SEARCH_FOR_ISSUES_USING_JQL_GET");
+  for (const issue of jiraIssuesFromData(issuesResult.data).slice(0, JIRA_ISSUE_LIMIT)) {
+    const candidate = buildJiraIssueCandidate({
+      ownerUserId: connection.ownerUserId,
+      accountKey,
+      accountLabel,
+      issue,
+      fetchedAt: params.fetchedAt,
+    });
+    contentSeen += 1;
+    if (!candidate) {
+      continue;
+    }
+    const persisted = await persistIntegrationCandidate({
+      store: params.store,
+      workspaceId: "",
+      candidate,
+      embeddingClient: null,
+    });
+    updatePersistStats(persisted, persistStats);
+    contentPersisted += 1;
+  }
+  chunksCompleted += 1;
+
+  syncProgress({ current_chunk_label: "Rebuilding Jira context summary" });
+  await rebuildIntegrationTree({
+    store: params.store,
+    treeId,
+    embeddingClient: null,
+  });
+  chunksCompleted += 1;
+  summaryNodes = countSummaryLikeSemanticIntegrationNodes({
+    store: params.store,
+    treeId,
+  });
+  syncProgress({ current_chunk_label: "Jira context fetch complete" });
+
+  return {
+    ok: true,
+    supported: true,
+    provider_id: "jira",
     connection_id: connection.connectionId,
     account_key: accountKey,
     account_label: accountLabel,
@@ -4496,6 +8243,7 @@ async function fetchSlackIntegrationContext(params: {
         : "Rebuilding Slack context summary",
   });
 
+  const threadTargets: Array<{ channelId: string; channelName: string; threadTs: string }> = [];
   for (const [index, channel] of historyChannels.entries()) {
     const historyResult = await params.composio.executeAction({
       connectedAccountId,
@@ -4519,6 +8267,15 @@ async function fetchSlackIntegrationContext(params: {
     });
     for (const message of messages) {
       contentSeen += 1;
+      const threadTs = normalizeString(message.thread_ts) ?? normalizeString(message.ts);
+      const replyCount = parseInteger(message.reply_count);
+      if (threadTs && replyCount !== null && replyCount > 0) {
+        threadTargets.push({
+          channelId: channel.id,
+          channelName: channel.name,
+          threadTs,
+        });
+      }
       const candidate = buildSlackMessageCandidate({
         ownerUserId: connection.ownerUserId,
         accountKey,
@@ -4539,6 +8296,124 @@ async function fetchSlackIntegrationContext(params: {
       updatePersistStats(persisted, persistStats);
       contentPersisted += 1;
     }
+  }
+
+  chunksTotal += 1;
+  syncProgress({ current_chunk_label: "Fetching Slack workspace users" });
+  try {
+    const usersResult = await params.composio.executeAction({
+      connectedAccountId,
+      toolSlug: "SLACK_LIST_ALL_USERS",
+      arguments: {
+        limit: SLACK_USER_LIMIT,
+      },
+    });
+    actions.push("SLACK_LIST_ALL_USERS");
+    const users = slackUsersFromData(usersResult.data)
+      .filter((user) => normalizeBoolean(user.deleted) !== true);
+    for (const user of users) {
+      const candidate = buildSlackUserCandidate({
+        ownerUserId: connection.ownerUserId,
+        accountKey,
+        accountLabel,
+        user,
+        fetchedAt: params.fetchedAt,
+      });
+      contentSeen += 1;
+      if (!candidate) {
+        continue;
+      }
+      const persisted = await persistIntegrationCandidate({
+        store: params.store,
+        workspaceId: "",
+        candidate,
+        embeddingClient: null,
+      });
+      updatePersistStats(persisted, persistStats);
+      contentPersisted += 1;
+    }
+  } catch (error) {
+    if (!isComposioForbiddenError(error) && !isMissingComposioToolError(error, "SLACK_LIST_ALL_USERS")) {
+      throw error;
+    }
+    actions.push(
+      isComposioForbiddenError(error)
+        ? "SLACK_LIST_ALL_USERS:forbidden"
+        : "SLACK_LIST_ALL_USERS:missing",
+    );
+  }
+  chunksCompleted += 1;
+
+  const uniqueThreadTargets = Array.from(
+    new Map(
+      threadTargets.map((target) => [`${target.channelId}:${target.threadTs}`, target] as const),
+    ).values(),
+  ).slice(0, SLACK_THREAD_TARGETS);
+  chunksTotal += uniqueThreadTargets.length;
+  syncProgress({
+    current_chunk_label:
+      uniqueThreadTargets.length > 0
+        ? `Fetching Slack threads (0/${uniqueThreadTargets.length})`
+        : "Rebuilding Slack context summary",
+  });
+  for (const [index, target] of uniqueThreadTargets.entries()) {
+    try {
+      const repliesResult = await params.composio.executeAction({
+        connectedAccountId,
+        toolSlug: "SLACK_FETCH_MESSAGE_THREAD_FROM_A_CONVERSATION",
+        arguments: {
+          channel: target.channelId,
+          ts: target.threadTs,
+        },
+      });
+      actions.push(`SLACK_FETCH_MESSAGE_THREAD_FROM_A_CONVERSATION:${target.channelId}:${target.threadTs}`);
+      const replies = slackMessagesFromData(repliesResult.data)
+        .filter((message) => normalizeString(message.ts) !== target.threadTs);
+      for (const reply of replies) {
+        const candidate = buildSlackMessageCandidate({
+          ownerUserId: connection.ownerUserId,
+          accountKey,
+          accountLabel,
+          channelId: target.channelId,
+          channelName: target.channelName,
+          message: reply,
+          branchKey: "threads",
+          branchLabel: "Threads",
+          sourceType: "slack.thread-reply",
+          sourcePrefix: "slack-thread-reply",
+          subjectPrefix: "thread",
+          extraTags: ["thread-reply"],
+        });
+        contentSeen += 1;
+        if (!candidate) {
+          continue;
+        }
+        const persisted = await persistIntegrationCandidate({
+          store: params.store,
+          workspaceId: "",
+          candidate,
+          embeddingClient: null,
+        });
+        updatePersistStats(persisted, persistStats);
+        contentPersisted += 1;
+      }
+    } catch (error) {
+      if (!isComposioForbiddenError(error) && !isMissingComposioToolError(error, "SLACK_FETCH_MESSAGE_THREAD_FROM_A_CONVERSATION")) {
+        throw error;
+      }
+      actions.push(
+        isComposioForbiddenError(error)
+          ? `SLACK_FETCH_MESSAGE_THREAD_FROM_A_CONVERSATION:${target.channelId}:${target.threadTs}:forbidden`
+          : `SLACK_FETCH_MESSAGE_THREAD_FROM_A_CONVERSATION:${target.channelId}:${target.threadTs}:missing`,
+      );
+    }
+    chunksCompleted += 1;
+    syncProgress({
+      current_chunk_label:
+        index + 1 < uniqueThreadTargets.length
+          ? `Fetching Slack threads (${index + 1}/${uniqueThreadTargets.length})`
+          : "Rebuilding Slack context summary",
+    });
   }
 
   syncProgress({ current_chunk_label: "Rebuilding Slack context summary" });
@@ -4664,6 +8539,60 @@ export async function fetchIntegrationContextForConnection(params: {
   }
   if (providerId === "linkedin") {
     return fetchLinkedInIntegrationContext({
+      store: params.store,
+      connectionId: connection.connectionId,
+      composio,
+      fetchedAt,
+      progress,
+    });
+  }
+  if (providerId === "outlook") {
+    return fetchOutlookIntegrationContext({
+      store: params.store,
+      connectionId: connection.connectionId,
+      composio,
+      fetchedAt,
+      progress,
+    });
+  }
+  if (providerId === "googlesheets") {
+    return fetchGoogleSheetsIntegrationContext({
+      store: params.store,
+      connectionId: connection.connectionId,
+      composio,
+      fetchedAt,
+      progress,
+    });
+  }
+  if (providerId === "googledocs") {
+    return fetchGoogleDocsIntegrationContext({
+      store: params.store,
+      connectionId: connection.connectionId,
+      composio,
+      fetchedAt,
+      progress,
+    });
+  }
+  if (providerId === "hubspot") {
+    return fetchHubSpotIntegrationContext({
+      store: params.store,
+      connectionId: connection.connectionId,
+      composio,
+      fetchedAt,
+      progress,
+    });
+  }
+  if (providerId === "linear") {
+    return fetchLinearIntegrationContext({
+      store: params.store,
+      connectionId: connection.connectionId,
+      composio,
+      fetchedAt,
+      progress,
+    });
+  }
+  if (providerId === "jira") {
+    return fetchJiraIntegrationContext({
       store: params.store,
       connectionId: connection.connectionId,
       composio,

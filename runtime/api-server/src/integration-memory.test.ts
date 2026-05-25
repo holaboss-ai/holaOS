@@ -378,6 +378,211 @@ test("retrieveIntegrationMemory surfaces Gmail contact nodes and contact-thread 
   }
 });
 
+test("rebuildIntegrationTree writes the Slack semantic memory hierarchy", async () => {
+  const root = makeTempDir("hb-integration-memory-slack-semantic-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  const treeId = "integration:slack:acct-1";
+  const treeSlug = "slack-holaboss-acct-1";
+
+  const writeLeafFile = (relativePath: string, content: string): void => {
+    const absolutePath = path.join(globalMemoryDirForWorkspaceRoot(workspaceRoot), relativePath);
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.writeFileSync(absolutePath, content, "utf8");
+  };
+
+  const childNodes = (parentNodeId: string) =>
+    store.listSemanticMemoryChildren({
+      category: "integration",
+      treeId,
+      parentNodeId,
+    }).map((edge) => {
+      const node = store.getSemanticMemoryNode({
+        category: "integration",
+        treeId,
+        nodeId: edge.childNodeId,
+      });
+      assert.ok(node);
+      return node;
+    });
+
+  try {
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertIntegrationConnection({
+      connectionId: "slack-1",
+      providerId: "slack",
+      ownerUserId: "user-1",
+      accountLabel: "Holaboss",
+      accountHandle: "holaboss",
+      accountExternalId: "T123",
+      authMode: "composio",
+      grantedScopes: [],
+      status: "active",
+    });
+    store.upsertIntegrationTree({
+      treeId,
+      provider: "slack",
+      ownerUserId: "user-1",
+      accountKey: "T123",
+      accountLabel: "Holaboss",
+      slug: treeSlug,
+      summary: "Slack workspace memory.",
+      status: "active",
+    });
+
+    const leaves = [
+      {
+        leafId: "leaf-profile",
+        subjectKey: "profile",
+        entityKey: null,
+        entityLabel: null,
+        branchKey: "profile",
+        branchLabel: "Profile",
+        title: "Slack workspace Holaboss",
+        summary: "Slack workspace for product and operations coordination.",
+        path: "integration/accounts/slack-holaboss-acct-1/leaves/leaf-profile.md",
+        sourceType: "slack.profile",
+        externalObjectId: "T123",
+        externalObjectType: "slack_workspace",
+        observedAt: "2026-05-24T00:00:00.000Z",
+      },
+      {
+        leafId: "leaf-channel",
+        subjectKey: "channel:C111",
+        entityKey: "channel:C111",
+        entityLabel: "general",
+        branchKey: "overview",
+        branchLabel: "Overview",
+        title: "general",
+        summary: "Primary workspace coordination channel.",
+        path: "integration/accounts/slack-holaboss-acct-1/leaves/leaf-channel.md",
+        sourceType: "slack.channel",
+        externalObjectId: "C111",
+        externalObjectType: "slack_channel",
+        observedAt: "2026-05-24T00:01:00.000Z",
+      },
+      {
+        leafId: "leaf-message",
+        subjectKey: "message:C111:1716412800.000100",
+        entityKey: "channel:C111",
+        entityLabel: "general",
+        branchKey: "messages",
+        branchLabel: "Messages",
+        title: "Captured the latest memory tree screenshots.",
+        summary: "Captured the latest memory tree screenshots.",
+        path: "integration/accounts/slack-holaboss-acct-1/leaves/leaf-message.md",
+        sourceType: "slack.message",
+        externalObjectId: "1716412800.000100",
+        externalObjectType: "slack_message",
+        observedAt: "2026-05-24T00:02:00.000Z",
+      },
+      {
+        leafId: "leaf-thread",
+        subjectKey: "thread:C111:1716412810.000300",
+        entityKey: "channel:C111",
+        entityLabel: "general",
+        branchKey: "threads",
+        branchLabel: "Threads",
+        title: "Shared the follow-up note in the thread.",
+        summary: "Shared the follow-up note in the thread.",
+        path: "integration/accounts/slack-holaboss-acct-1/leaves/leaf-thread.md",
+        sourceType: "slack.thread-reply",
+        externalObjectId: "1716412810.000300",
+        externalObjectType: "slack_thread_reply",
+        observedAt: "2026-05-24T00:03:00.000Z",
+      },
+      {
+        leafId: "leaf-user",
+        subjectKey: "user:U456",
+        entityKey: null,
+        entityLabel: null,
+        branchKey: "directory",
+        branchLabel: "Directory",
+        title: "Ada Lovelace",
+        summary: "Slack workspace member ada@example.com.",
+        path: "integration/accounts/slack-holaboss-acct-1/leaves/leaf-user.md",
+        sourceType: "slack.user",
+        externalObjectId: "U456",
+        externalObjectType: "slack_user",
+        observedAt: "2026-05-24T00:04:00.000Z",
+      },
+    ] as const;
+
+    for (const leaf of leaves) {
+      store.upsertIntegrationLeaf({
+        ...leaf,
+        treeId,
+        fingerprint: `fingerprint-${leaf.leafId}`,
+        bodySha256: `sha-${leaf.leafId}`,
+        tags: ["slack"],
+        sourceEventId: `evt-${leaf.leafId}`,
+        sourceMessageId: null,
+        admissionConfidence: 0.9,
+        supersedesLeafId: null,
+        status: "active",
+      });
+      writeLeafFile(leaf.path, `# ${leaf.title}\n\n${leaf.summary}\n`);
+    }
+
+    await rebuildIntegrationTree({
+      store,
+      treeId,
+      embeddingClient: null,
+    });
+
+    const rootNode = store.getSemanticMemoryNodeByPath({
+      category: "integration",
+      path: `semantic/integration/trees/${treeSlug}/content.md`,
+    });
+    assert.ok(rootNode);
+    assert.equal(rootNode.title, "Holaboss Slack connection");
+
+    const rootChildren = childNodes(rootNode.nodeId);
+    assert.deepEqual(rootChildren.map((node) => node.nodeKind), ["profile", "channels", "directory"]);
+
+    const channelsNode = rootChildren[1]!;
+    const channelNode = childNodes(channelsNode.nodeId)[0]!;
+    assert.equal(channelNode.nodeKind, "channel");
+    assert.equal(channelNode.title, "general");
+
+    const channelChildren = childNodes(channelNode.nodeId);
+    assert.deepEqual(
+      channelChildren.map((node) => ({ kind: node.nodeKind, title: node.title })),
+      [
+        { kind: "overview", title: "Overview" },
+        { kind: "messages", title: "Messages" },
+        { kind: "threads", title: "Threads" },
+      ],
+    );
+
+    const directoryNode = rootChildren[2]!;
+    const directoryChildren = childNodes(directoryNode.nodeId);
+    assert.ok(directoryChildren.some((node) => node.nodeClass === "leaf" && node.title === "Ada Lovelace"));
+
+    const channelChildrenResult = await retrieveIntegrationMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "thread",
+      mode: "mixed",
+      nodeId: channelNode.nodeId,
+      maxResults: 10,
+    });
+    assert.ok(
+      (channelChildrenResult.children ?? []).some((hit) => hit.node_kind === "branch" && hit.title === "Threads"),
+    );
+  } finally {
+    store.close();
+  }
+});
+
 test("rebuildIntegrationTree writes the GitHub semantic memory hierarchy", async () => {
   const root = makeTempDir("hb-integration-memory-github-semantic-");
   const workspaceRoot = path.join(root, "workspace");

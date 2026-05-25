@@ -450,8 +450,8 @@ export async function retrieveWorkspaceMemory(params: {
   const modelClient = useLlmRerank
     ? createBackgroundTaskMemoryModelClient({
         workspaceId: params.workspaceId,
-        sessionId: params.sessionId ?? null,
-        inputId: params.inputId ?? null,
+        sessionId: params.sessionId ?? `workspace-memory-rerank:${params.workspaceId}`,
+        inputId: params.inputId ?? `workspace-memory-rerank:${params.workspaceId}`,
         selectedModel: params.selectedModel ?? null,
       })
     : null;

@@ -40,6 +40,14 @@ export interface MemoryHybridRetrieveResult {
   coverage: MemoryRetrievalCoverage;
 }
 
+interface NormalizedMemoryRetrievalPolicy {
+  hybrid: boolean;
+  include_neighbors: boolean;
+  freshness_bias: MemoryRetrievalFreshnessBias;
+  prefer_high_signal: boolean;
+  max_evidence: number;
+}
+
 type HybridCandidate =
   | ({ category: "interaction" } & InteractionMemoryRetrieveHit)
   | IntegrationMemoryRetrieveHit;
@@ -152,7 +160,9 @@ function candidateToEvidence(candidate: HybridCandidate): MemoryRetrievalEvidenc
   return evidence;
 }
 
-function normalizePolicy(policy: MemoryRetrievalPolicy | null | undefined): Required<MemoryRetrievalPolicy> {
+function normalizePolicy(
+  policy: MemoryRetrievalPolicy | null | undefined,
+): NormalizedMemoryRetrievalPolicy {
   const freshnessBias = policy?.freshness_bias;
   return {
     hybrid: policy?.hybrid !== false,

@@ -1468,6 +1468,8 @@ test("fetchIntegrationContextForConnection ingests Slack workspace, channels, an
                       ts: "1716412800.000100",
                       user: "U123",
                       text: "Captured the latest memory tree screenshots.",
+                      thread_ts: "1716412800.000100",
+                      reply_count: 1,
                     },
                   ]
                   : [
@@ -1482,6 +1484,57 @@ test("fetchIntegrationContextForConnection ingests Slack workspace, channels, an
             logId: `log-slack-history-${channelId}`,
           };
         }
+        if (params.toolSlug === "SLACK_LIST_ALL_USERS") {
+          return {
+            data: {
+              data: {
+                members: [
+                  {
+                    id: "U123",
+                    name: "memory-bot",
+                    real_name: "Memory Bot",
+                    deleted: false,
+                    is_bot: true,
+                    profile: { email: "memory-bot@example.com" },
+                  },
+                  {
+                    id: "U456",
+                    name: "ada",
+                    real_name: "Ada Lovelace",
+                    deleted: false,
+                    is_bot: false,
+                    is_admin: true,
+                    profile: { email: "ada@example.com" },
+                  },
+                ],
+              },
+            } as TData,
+            logId: "log-slack-users",
+          };
+        }
+        if (params.toolSlug === "SLACK_FETCH_MESSAGE_THREAD_FROM_A_CONVERSATION") {
+          return {
+            data: {
+              data: {
+                messages: [
+                  {
+                    ts: "1716412800.000100",
+                    user: "U123",
+                    text: "Captured the latest memory tree screenshots.",
+                    thread_ts: "1716412800.000100",
+                  },
+                  {
+                    ts: "1716412810.000300",
+                    user: "U456",
+                    text: "Shared the follow-up note in the thread.",
+                    thread_ts: "1716412800.000100",
+                  },
+                ],
+              },
+            } as TData,
+            logId: "log-slack-thread-C111",
+          };
+        }
         throw new Error(`unexpected tool slug: ${params.toolSlug}`);
       },
     },
@@ -1492,14 +1545,16 @@ test("fetchIntegrationContextForConnection ingests Slack workspace, channels, an
     "SLACK_LIST_ALL_CHANNELS",
     "SLACK_FETCH_CONVERSATION_HISTORY",
     "SLACK_FETCH_CONVERSATION_HISTORY",
+    "SLACK_LIST_ALL_USERS",
+    "SLACK_FETCH_MESSAGE_THREAD_FROM_A_CONVERSATION",
   ]);
   assert.equal(result.supported, true);
   assert.equal(result.provider_id, "slack");
   assert.equal(result.account_key, "T123");
   assert.equal(result.account_label, "Holaboss");
-  assert.equal(result.leaves_created, 5);
-  assert.equal(result.messages_seen, 4);
-  assert.equal(result.messages_persisted, 4);
+  assert.equal(result.leaves_created, 8);
+  assert.equal(result.messages_seen, 7);
+  assert.equal(result.messages_persisted, 7);
   assert.ok(result.tree_id);
   assert.equal(result.summary_nodes, countSummaryLikeSemanticIntegrationNodes({
     store,
@@ -1524,7 +1579,7 @@ test("fetchIntegrationContextForConnection ingests Slack workspace, channels, an
     limit: 100,
     offset: 0,
   });
-  assert.equal(leaves.length, 5);
+  assert.equal(leaves.length, 8);
   assert.deepEqual(
     leaves.map((leaf) => leaf.subjectKey).sort(),
     [
@@ -1533,8 +1588,20 @@ test("fetchIntegrationContextForConnection ingests Slack workspace, channels, an
       "message:C111:1716412800.000100",
       "message:C222:1716412900.000200",
       "profile",
+      "thread:C111:1716412810.000300",
+      "user:U123",
+      "user:U456",
     ],
   );
+
+  const semanticNodes = store.listSemanticMemoryNodes({
+    category: "integration",
+    treeId: trees[0]!.treeId,
+    limit: 200,
+    offset: 0,
+  });
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "channels"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "directory"));
 
   const memoryRoot = globalMemoryDirForWorkspaceRoot(workspaceRoot);
   for (const leaf of leaves) {
@@ -1572,12 +1639,52 @@ test("fetchIntegrationContextForConnection ingests Google Drive profile and rece
   });
 
   const proxyCalls: string[] = [];
+  const actionCalls: string[] = [];
   const result = await fetchIntegrationContextForConnection({
     store,
     connectionId: "conn-googledrive-1",
     composioClient: {
-      async executeAction<TData = unknown>(_params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
-        throw new Error("unexpected executeAction");
+      async executeAction<TData = unknown>(params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
+        actionCalls.push(params.toolSlug);
+        if (params.toolSlug === "GOOGLEDRIVE_LIST_SHARED_DRIVES") {
+          return {
+            data: {
+              drives: [
+                {
+                  id: "drive-1",
+                  name: "Product Shared",
+                  createdTime: "2026-05-20T10:00:00Z",
+                  hidden: false,
+                },
+              ],
+            } as TData,
+            logId: "log-drive-shared-drives",
+          };
+        }
+        if (params.toolSlug === "GOOGLEDRIVE_LIST_PERMISSIONS") {
+          return {
+            data: {
+              permissions: [
+                {
+                  id: "perm-user-1",
+                  role: "writer",
+                  type: "user",
+                  emailAddress: "ada@example.com",
+                  displayName: "Ada Lovelace",
+                },
+                {
+                  id: "perm-domain-1",
+                  role: "reader",
+                  type: "domain",
+                  domain: "example.com",
+                  allowFileDiscovery: true,
+                },
+              ],
+            } as TData,
+            logId: "log-drive-permissions-file-1",
+          };
+        }
+        throw new Error(`unexpected tool slug: ${params.toolSlug}`);
       },
       async proxyRequest<TData = unknown>(params: ProxyRequestParams): Promise<{ data: TData | null; status: number; headers: Record<string, string> }> {
         proxyCalls.push(params.endpoint);
@@ -1637,13 +1744,17 @@ test("fetchIntegrationContextForConnection ingests Google Drive profile and rece
     "/drive/v3/about?fields=user(displayName,emailAddress,permissionId),storageQuota(limit,usage,usageInDrive,usageInDriveTrash)",
     "/drive/v3/files?pageSize=25&orderBy=modifiedTime%20desc&includeItemsFromAllDrives=true&supportsAllDrives=true&fields=nextPageToken,files(id,name,mimeType,modifiedTime,createdTime,webViewLink,owners(displayName,emailAddress),parents,shared,starred,trashed,size,description)",
   ]);
+  assert.deepEqual(actionCalls, [
+    "GOOGLEDRIVE_LIST_SHARED_DRIVES",
+    "GOOGLEDRIVE_LIST_PERMISSIONS",
+  ]);
   assert.equal(result.supported, true);
   assert.equal(result.provider_id, "googledrive");
   assert.equal(result.account_key, "ops@example.com");
   assert.equal(result.account_label, "Product Ops");
-  assert.equal(result.leaves_created, 3);
-  assert.equal(result.messages_seen, 2);
-  assert.equal(result.messages_persisted, 2);
+  assert.equal(result.leaves_created, 6);
+  assert.equal(result.messages_seen, 5);
+  assert.equal(result.messages_persisted, 5);
   assert.ok(result.tree_id);
   assert.equal(result.summary_nodes, countSummaryLikeSemanticIntegrationNodes({
     store,
@@ -1668,7 +1779,7 @@ test("fetchIntegrationContextForConnection ingests Google Drive profile and rece
     limit: 100,
     offset: 0,
   });
-  assert.equal(leaves.length, 3);
+  assert.equal(leaves.length, 6);
   assert.deepEqual(
     leaves.map((leaf) => ({
       subjectKey: leaf.subjectKey,
@@ -1679,7 +1790,10 @@ test("fetchIntegrationContextForConnection ingests Google Drive profile and rece
     [
       { subjectKey: "file:file-1", entityKey: "file:file-1", branchKey: "overview", sourceType: "googledrive.file" },
       { subjectKey: "file:folder-1", entityKey: "file:folder-1", branchKey: "overview", sourceType: "googledrive.folder" },
+      { subjectKey: "permission:file-1:perm-domain-1", entityKey: "file:file-1", branchKey: "permissions", sourceType: "googledrive.permission" },
+      { subjectKey: "permission:file-1:perm-user-1", entityKey: "file:file-1", branchKey: "permissions", sourceType: "googledrive.permission" },
       { subjectKey: "profile", entityKey: null, branchKey: "profile", sourceType: "googledrive.profile" },
+      { subjectKey: "shared-drive:drive-1", entityKey: null, branchKey: "shared-drives", sourceType: "googledrive.shared-drive" },
     ],
   );
 
@@ -1692,6 +1806,8 @@ test("fetchIntegrationContextForConnection ingests Google Drive profile and rece
   assert.ok(semanticNodes.some((node) => node.nodeKind === "files"));
   assert.ok(semanticNodes.some((node) => node.nodeKind === "file" && node.title === "Q2 Plan"));
   assert.ok(semanticNodes.some((node) => node.nodeKind === "folder" && node.title === "Launch Assets"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "permissions"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "shared-drives"));
 
   const memoryRoot = globalMemoryDirForWorkspaceRoot(workspaceRoot);
   for (const leaf of leaves) {
@@ -1729,12 +1845,54 @@ test("fetchIntegrationContextForConnection ingests Twitter profile and recent po
   });
 
   const proxyCalls: string[] = [];
+  const actionCalls: string[] = [];
   const result = await fetchIntegrationContextForConnection({
     store,
     connectionId: "conn-twitter-1",
     composioClient: {
-      async executeAction<TData = unknown>(_params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
-        throw new Error("unexpected executeAction");
+      async executeAction<TData = unknown>(params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
+        actionCalls.push(params.toolSlug);
+        if (params.toolSlug === "TWITTER_RECENT_SEARCH") {
+          return {
+            data: {
+              data: [
+                {
+                  id: "post-mention-1",
+                  text: "@holabossai any update on Google Drive context fetch?",
+                  author_id: "user-77",
+                  conversation_id: "conv-mention-1",
+                  created_at: "2026-05-24T09:30:00Z",
+                  lang: "en",
+                  public_metrics: {
+                    like_count: 2,
+                    reply_count: 1,
+                    retweet_count: 0,
+                    quote_count: 0,
+                  },
+                },
+              ],
+            } as TData,
+            logId: "log-twitter-mentions",
+          };
+        }
+        if (params.toolSlug === "TWITTER_GET_RECENT_DM_EVENTS") {
+          return {
+            data: {
+              data: [
+                {
+                  id: "dm-1",
+                  dm_conversation_id: "dm-conv-1",
+                  event_type: "MessageCreate",
+                  text: "Can you share the rollout notes?",
+                  sender_id: "user-88",
+                  created_at: "2026-05-24T09:45:00Z",
+                },
+              ],
+            } as TData,
+            logId: "log-twitter-dms",
+          };
+        }
+        throw new Error(`unexpected tool slug: ${params.toolSlug}`);
       },
       async proxyRequest<TData = unknown>(params: ProxyRequestParams): Promise<{ data: TData | null; status: number; headers: Record<string, string> }> {
         proxyCalls.push(params.endpoint);
@@ -1803,13 +1961,17 @@ test("fetchIntegrationContextForConnection ingests Twitter profile and recent po
     "/2/users/me?user.fields=created_at,description,id,location,name,profile_image_url,public_metrics,url,username,verified",
     "/2/users/user-42/timelines/reverse_chronological?max_results=20&exclude=replies&tweet.fields=author_id,conversation_id,created_at,entities,lang,public_metrics,referenced_tweets",
   ]);
+  assert.deepEqual(actionCalls, [
+    "TWITTER_RECENT_SEARCH",
+    "TWITTER_GET_RECENT_DM_EVENTS",
+  ]);
   assert.equal(result.supported, true);
   assert.equal(result.provider_id, "twitter");
   assert.equal(result.account_key, "holabossai");
   assert.equal(result.account_label, "HolaBoss (@holabossai)");
-  assert.equal(result.leaves_created, 3);
-  assert.equal(result.messages_seen, 2);
-  assert.equal(result.messages_persisted, 2);
+  assert.equal(result.leaves_created, 5);
+  assert.equal(result.messages_seen, 4);
+  assert.equal(result.messages_persisted, 4);
   assert.ok(result.tree_id);
   assert.equal(result.summary_nodes, countSummaryLikeSemanticIntegrationNodes({
     store,
@@ -1834,7 +1996,7 @@ test("fetchIntegrationContextForConnection ingests Twitter profile and recent po
     limit: 100,
     offset: 0,
   });
-  assert.equal(leaves.length, 3);
+  assert.equal(leaves.length, 5);
   assert.deepEqual(
     leaves.map((leaf) => ({
       subjectKey: leaf.subjectKey,
@@ -1843,6 +2005,8 @@ test("fetchIntegrationContextForConnection ingests Twitter profile and recent po
       sourceType: leaf.sourceType,
     })).sort((left, right) => left.subjectKey.localeCompare(right.subjectKey)),
     [
+      { subjectKey: "dm:dm-1", entityKey: null, branchKey: "direct-messages", sourceType: "twitter.direct-message" },
+      { subjectKey: "mention:post-mention-1", entityKey: "post:post-mention-1", branchKey: "mentions", sourceType: "twitter.mention" },
       { subjectKey: "post:post-1", entityKey: "post:post-1", branchKey: "overview", sourceType: "twitter.post" },
       { subjectKey: "post:post-2", entityKey: "post:post-2", branchKey: "overview", sourceType: "twitter.post" },
       { subjectKey: "profile", entityKey: null, branchKey: "profile", sourceType: "twitter.profile" },
@@ -1857,6 +2021,7 @@ test("fetchIntegrationContextForConnection ingests Twitter profile and recent po
   });
   assert.ok(semanticNodes.some((node) => node.nodeKind === "timeline"));
   assert.ok(semanticNodes.some((node) => node.nodeKind === "post" && node.title.includes("Shipped semantic memory trees")));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "direct-messages"));
 
   const memoryRoot = globalMemoryDirForWorkspaceRoot(workspaceRoot);
   for (const leaf of leaves) {
@@ -1980,12 +2145,55 @@ test("fetchIntegrationContextForConnection ingests Google Calendar profile, cale
             logId: "log-calendar-events-team",
           };
         }
+        if (params.toolSlug === "GOOGLECALENDAR_SETTINGS_LIST") {
+          return {
+            data: {
+              items: [
+                { id: "timezone", value: "America/Los_Angeles" },
+                { id: "weekStart", value: "1" },
+              ],
+            } as TData,
+            logId: "log-calendar-settings",
+          };
+        }
+        if (params.toolSlug === "GOOGLECALENDAR_LIST_CALENDAR_RESOURCES") {
+          return {
+            data: {
+              items: [
+                {
+                  resourceId: "room-1",
+                  resourceEmail: "room-1@example.com",
+                  resourceName: "Sunset Conference Room",
+                  resourceCategory: "CONFERENCE_ROOM",
+                  buildingId: "hq",
+                  capacity: 10,
+                },
+              ],
+            } as TData,
+            logId: "log-calendar-resources",
+          };
+        }
+        if (params.toolSlug === "GOOGLECALENDAR_LIST_BUILDINGS") {
+          return {
+            data: {
+              items: [
+                {
+                  buildingId: "hq",
+                  buildingName: "HQ",
+                  description: "Headquarters building",
+                  floors: [{ floorName: "1" }, { floorName: "2" }],
+                },
+              ],
+            } as TData,
+            logId: "log-calendar-buildings",
+          };
+        }
         throw new Error(`unexpected tool slug: ${params.toolSlug}`);
       },
     },
   });
 
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 6);
   assert.deepEqual(calls[0], {
     toolSlug: "GOOGLECALENDAR_LIST_CALENDARS",
     arguments: {
@@ -2004,13 +2212,33 @@ test("fetchIntegrationContextForConnection ingests Google Calendar profile, cale
   assert.equal(calls[2]?.arguments.singleEvents, true);
   assert.equal(calls[2]?.arguments.orderBy, "startTime");
   assert.equal(typeof calls[2]?.arguments.timeMin, "string");
+  assert.deepEqual(calls[3], {
+    toolSlug: "GOOGLECALENDAR_SETTINGS_LIST",
+    arguments: {
+      maxResults: 20,
+    },
+  });
+  assert.deepEqual(calls[4], {
+    toolSlug: "GOOGLECALENDAR_LIST_CALENDAR_RESOURCES",
+    arguments: {
+      customer: "my_customer",
+      maxResults: 12,
+    },
+  });
+  assert.deepEqual(calls[5], {
+    toolSlug: "GOOGLECALENDAR_LIST_BUILDINGS",
+    arguments: {
+      customer: "my_customer",
+      maxResults: 12,
+    },
+  });
   assert.equal(result.supported, true);
   assert.equal(result.provider_id, "googlecalendar");
   assert.equal(result.account_key, "ops@example.com");
   assert.equal(result.account_label, "Product Ops");
-  assert.equal(result.leaves_created, 5);
-  assert.equal(result.messages_seen, 4);
-  assert.equal(result.messages_persisted, 4);
+  assert.equal(result.leaves_created, 9);
+  assert.equal(result.messages_seen, 8);
+  assert.equal(result.messages_persisted, 8);
   assert.ok(result.tree_id);
   assert.equal(result.summary_nodes, countSummaryLikeSemanticIntegrationNodes({
     store,
@@ -2035,7 +2263,7 @@ test("fetchIntegrationContextForConnection ingests Google Calendar profile, cale
     limit: 100,
     offset: 0,
   });
-  assert.equal(leaves.length, 5);
+  assert.equal(leaves.length, 9);
   assert.deepEqual(
     leaves.map((leaf) => ({
       subjectKey: leaf.subjectKey,
@@ -2044,11 +2272,15 @@ test("fetchIntegrationContextForConnection ingests Google Calendar profile, cale
       sourceType: leaf.sourceType,
     })).sort((left, right) => left.subjectKey.localeCompare(right.subjectKey)),
     [
+      { subjectKey: "building:hq", entityKey: null, branchKey: "buildings", sourceType: "googlecalendar.building" },
       { subjectKey: "calendar:ops@example.com", entityKey: "calendar:ops@example.com", branchKey: "overview", sourceType: "googlecalendar.calendar" },
       { subjectKey: "calendar:team@example.com", entityKey: "calendar:team@example.com", branchKey: "overview", sourceType: "googlecalendar.calendar" },
       { subjectKey: "event:ops@example.com:event-1", entityKey: "calendar:ops@example.com", branchKey: "events", sourceType: "googlecalendar.event" },
       { subjectKey: "event:team@example.com:event-2", entityKey: "calendar:team@example.com", branchKey: "events", sourceType: "googlecalendar.event" },
       { subjectKey: "profile", entityKey: null, branchKey: "profile", sourceType: "googlecalendar.profile" },
+      { subjectKey: "resource:room-1", entityKey: null, branchKey: "resources", sourceType: "googlecalendar.resource" },
+      { subjectKey: "setting:timezone", entityKey: null, branchKey: "settings", sourceType: "googlecalendar.setting" },
+      { subjectKey: "setting:weekStart", entityKey: null, branchKey: "settings", sourceType: "googlecalendar.setting" },
     ],
   );
 
@@ -2061,6 +2293,9 @@ test("fetchIntegrationContextForConnection ingests Google Calendar profile, cale
   assert.ok(semanticNodes.some((node) => node.nodeKind === "calendars"));
   assert.ok(semanticNodes.some((node) => node.nodeKind === "calendar" && node.title === "Product Ops"));
   assert.ok(semanticNodes.some((node) => node.nodeKind === "calendar" && node.title === "Team Calendar"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "settings"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "resources"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "buildings"));
 
   const memoryRoot = globalMemoryDirForWorkspaceRoot(workspaceRoot);
   for (const leaf of leaves) {
@@ -2119,6 +2354,40 @@ test("fetchIntegrationContextForConnection ingests a LinkedIn profile into the g
             logId: "log-linkedin-me",
           };
         }
+        if (params.toolSlug === "LINKEDIN_GET_PERSON") {
+          return {
+            data: {
+              id: "person-1",
+              firstName: "Ada",
+              lastName: "Lovelace",
+              headline: "Founder, Workspace Memory",
+            } as TData,
+            logId: "log-linkedin-person",
+          };
+        }
+        if (params.toolSlug === "LINKEDIN_GET_COMPANY_INFO") {
+          return {
+            data: {
+              organizations: [
+                {
+                  id: "org-1",
+                  name: "HolaBoss",
+                  description: "Agent-native workspace platform.",
+                  website: "https://holaboss.ai",
+                },
+              ],
+            } as TData,
+            logId: "log-linkedin-company-info",
+          };
+        }
+        if (params.toolSlug === "LINKEDIN_GET_NETWORK_SIZE") {
+          return {
+            data: {
+              network_size: 1280,
+            } as TData,
+            logId: "log-linkedin-network-size",
+          };
+        }
         throw new Error(`unexpected tool slug: ${params.toolSlug}`);
       },
     },
@@ -2129,14 +2398,30 @@ test("fetchIntegrationContextForConnection ingests a LinkedIn profile into the g
       toolSlug: "LINKEDIN_GET_MY_INFO",
       arguments: {},
     },
+    {
+      toolSlug: "LINKEDIN_GET_PERSON",
+      arguments: {
+        person_id: "person-1",
+      },
+    },
+    {
+      toolSlug: "LINKEDIN_GET_COMPANY_INFO",
+      arguments: {},
+    },
+    {
+      toolSlug: "LINKEDIN_GET_NETWORK_SIZE",
+      arguments: {
+        organization_id: "org-1",
+      },
+    },
   ]);
   assert.equal(result.supported, true);
   assert.equal(result.provider_id, "linkedin");
   assert.equal(result.account_key, "ada@example.com");
   assert.equal(result.account_label, "Ada Lovelace");
-  assert.equal(result.leaves_created, 1);
-  assert.equal(result.messages_seen, 0);
-  assert.equal(result.messages_persisted, 0);
+  assert.equal(result.leaves_created, 3);
+  assert.equal(result.messages_seen, 2);
+  assert.equal(result.messages_persisted, 2);
   assert.ok(result.tree_id);
   assert.equal(result.summary_nodes, countSummaryLikeSemanticIntegrationNodes({
     store,
@@ -2161,7 +2446,7 @@ test("fetchIntegrationContextForConnection ingests a LinkedIn profile into the g
     limit: 100,
     offset: 0,
   });
-  assert.equal(leaves.length, 1);
+  assert.equal(leaves.length, 3);
   assert.deepEqual(
     leaves.map((leaf) => ({
       subjectKey: leaf.subjectKey,
@@ -2170,6 +2455,8 @@ test("fetchIntegrationContextForConnection ingests a LinkedIn profile into the g
       sourceType: leaf.sourceType,
     })).sort((left, right) => left.subjectKey.localeCompare(right.subjectKey)),
     [
+      { subjectKey: "organization:org-1", entityKey: null, branchKey: "organizations", sourceType: "linkedin.organization" },
+      { subjectKey: "person:person-1", entityKey: null, branchKey: "person", sourceType: "linkedin.person" },
       { subjectKey: "profile", entityKey: null, branchKey: "profile", sourceType: "linkedin.profile" },
     ],
   );
@@ -2181,7 +2468,8 @@ test("fetchIntegrationContextForConnection ingests a LinkedIn profile into the g
     offset: 0,
   });
   assert.ok(semanticNodes.some((node) => node.nodeKind === "profile"));
-  assert.ok(!semanticNodes.some((node) => node.nodeKind === "posts"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "person"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "organizations"));
 
   const memoryRoot = globalMemoryDirForWorkspaceRoot(workspaceRoot);
   for (const leaf of leaves) {
@@ -2191,11 +2479,547 @@ test("fetchIntegrationContextForConnection ingests a LinkedIn profile into the g
   store.close();
 });
 
-test("fetchIntegrationContextForConnection reports unsupported providers without writing tree state", async () => {
-  const root = makeTempDir("hb-integration-context-unsupported-");
+test("fetchIntegrationContextForConnection ingests Outlook profile, messages, contacts, and events into the global integration tree", async () => {
+  const root = makeTempDir("hb-integration-context-outlook-");
+  const workspaceRoot = path.join(root, "workspace-root");
   const store = new RuntimeStateStore({
     dbPath: path.join(root, "runtime.db"),
-    workspaceRoot: path.join(root, "workspace-root"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertIntegrationConnection({
+    connectionId: "conn-outlook-1",
+    providerId: "outlook",
+    ownerUserId: "user-1",
+    accountLabel: "Outlook (Managed)",
+    accountExternalId: "ca_outlook_1",
+    accountHandle: null,
+    accountEmail: null,
+    authMode: "composio",
+    grantedScopes: [],
+    status: "active",
+    secretRef: null,
+  });
+
+  const calls: Array<{ toolSlug: string; arguments: Record<string, unknown> }> = [];
+  const result = await fetchIntegrationContextForConnection({
+    store,
+    connectionId: "conn-outlook-1",
+    composioClient: {
+      async executeAction<TData = unknown>(params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
+        calls.push({
+          toolSlug: params.toolSlug,
+          arguments: params.arguments ?? {},
+        });
+        if (params.toolSlug === "OUTLOOK_GET_PROFILE") {
+          return {
+            data: {
+              id: "outlook-user-1",
+              displayName: "Ada Lovelace",
+              mail: "ada@outlook.example",
+              jobTitle: "Founder",
+            } as TData,
+            logId: "log-outlook-profile",
+          };
+        }
+        if (params.toolSlug === "OUTLOOK_LIST_MESSAGES") {
+          return {
+            data: {
+              value: [
+                {
+                  id: "msg-1",
+                  subject: "Launch checklist",
+                  bodyPreview: "Finalized the launch checklist and approvals.",
+                  receivedDateTime: "2026-05-24T08:00:00Z",
+                  from: { emailAddress: { address: "ops@example.com", name: "Ops" } },
+                },
+                {
+                  id: "msg-2",
+                  subject: "Customer escalation",
+                  bodyPreview: "Need immediate follow-up from support.",
+                  receivedDateTime: "2026-05-24T09:00:00Z",
+                  from: { emailAddress: { address: "support@example.com", name: "Support" } },
+                },
+              ],
+            } as TData,
+            logId: "log-outlook-messages",
+          };
+        }
+        if (params.toolSlug === "OUTLOOK_LIST_USER_CONTACTS") {
+          return {
+            data: {
+              value: [
+                {
+                  id: "contact-1",
+                  displayName: "Grace Hopper",
+                  companyName: "Navy",
+                  jobTitle: "Admiral",
+                  emailAddresses: [{ address: "grace@example.com", name: "Grace Hopper" }],
+                },
+              ],
+            } as TData,
+            logId: "log-outlook-contacts",
+          };
+        }
+        if (params.toolSlug === "OUTLOOK_LIST_EVENTS") {
+          return {
+            data: {
+              value: [
+                {
+                  id: "event-1",
+                  subject: "Board sync",
+                  start: { dateTime: "2026-05-24T10:00:00Z" },
+                  end: { dateTime: "2026-05-24T10:30:00Z" },
+                  location: { displayName: "Zoom" },
+                  isCancelled: false,
+                },
+              ],
+            } as TData,
+            logId: "log-outlook-events",
+          };
+        }
+        throw new Error(`unexpected tool slug: ${params.toolSlug}`);
+      },
+    },
+  });
+
+  assert.deepEqual(calls, [
+    { toolSlug: "OUTLOOK_GET_PROFILE", arguments: {} },
+    { toolSlug: "OUTLOOK_LIST_MESSAGES", arguments: { top: 20 } },
+    { toolSlug: "OUTLOOK_LIST_USER_CONTACTS", arguments: { top: 20 } },
+    { toolSlug: "OUTLOOK_LIST_EVENTS", arguments: { top: 12 } },
+  ]);
+  assert.equal(result.supported, true);
+  assert.equal(result.provider_id, "outlook");
+  assert.equal(result.account_key, "ada@outlook.example");
+  assert.equal(result.account_label, "Ada Lovelace");
+  assert.equal(result.leaves_created, 5);
+  assert.equal(result.messages_seen, 4);
+  assert.equal(result.messages_persisted, 4);
+  assert.ok(result.tree_id);
+
+  const leaves = store.listIntegrationLeaves({
+    treeId: result.tree_id!,
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.deepEqual(
+    leaves.map((leaf) => ({ subjectKey: leaf.subjectKey, branchKey: leaf.branchKey, sourceType: leaf.sourceType }))
+      .sort((left, right) => left.subjectKey.localeCompare(right.subjectKey)),
+    [
+      { subjectKey: "contact:contact-1", branchKey: "contacts", sourceType: "outlook.contact" },
+      { subjectKey: "event:event-1", branchKey: "events", sourceType: "outlook.event" },
+      { subjectKey: "message:msg-1", branchKey: "messages", sourceType: "outlook.message" },
+      { subjectKey: "message:msg-2", branchKey: "messages", sourceType: "outlook.message" },
+      { subjectKey: "profile", branchKey: "profile", sourceType: "outlook.profile" },
+    ],
+  );
+
+  const semanticNodes = store.listSemanticMemoryNodes({
+    category: "integration",
+    treeId: result.tree_id!,
+    limit: 100,
+    offset: 0,
+  });
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "profile"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "messages"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "contacts"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "events"));
+
+  store.close();
+});
+
+test("fetchIntegrationContextForConnection ingests Google Sheets spreadsheets, worksheets, and values into the global integration tree", async () => {
+  const root = makeTempDir("hb-integration-context-googlesheets-");
+  const workspaceRoot = path.join(root, "workspace-root");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertIntegrationConnection({
+    connectionId: "conn-googlesheets-1",
+    providerId: "googlesheets",
+    ownerUserId: "user-1",
+    accountLabel: "Google Sheets (Managed)",
+    accountExternalId: "ca_sheets_1",
+    accountHandle: null,
+    accountEmail: null,
+    authMode: "composio",
+    grantedScopes: [],
+    status: "active",
+    secretRef: null,
+  });
+
+  const calls: Array<{ toolSlug: string; arguments: Record<string, unknown> }> = [];
+  const result = await fetchIntegrationContextForConnection({
+    store,
+    connectionId: "conn-googlesheets-1",
+    composioClient: {
+      async executeAction<TData = unknown>(params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
+        calls.push({
+          toolSlug: params.toolSlug,
+          arguments: params.arguments ?? {},
+        });
+        if (params.toolSlug === "GOOGLESHEETS_SEARCH_SPREADSHEETS") {
+          return {
+            data: {
+              spreadsheets: [
+                {
+                  spreadsheetId: "sheet-1",
+                  title: "Launch Tracker",
+                  modifiedTime: "2026-05-24T08:00:00Z",
+                },
+              ],
+            } as TData,
+            logId: "log-sheets-search",
+          };
+        }
+        if (params.toolSlug === "GOOGLESHEETS_GET_SPREADSHEET_INFO") {
+          return {
+            data: {
+              spreadsheetId: "sheet-1",
+              properties: { title: "Launch Tracker" },
+              sheets: [{ properties: { title: "Backlog" } }],
+            } as TData,
+            logId: "log-sheets-info",
+          };
+        }
+        if (params.toolSlug === "GOOGLESHEETS_VALUES_GET") {
+          return {
+            data: {
+              values: [
+                ["Task", "Owner"],
+                ["Launch review", "Ada"],
+              ],
+            } as TData,
+            logId: "log-sheets-values",
+          };
+        }
+        throw new Error(`unexpected tool slug: ${params.toolSlug}`);
+      },
+    },
+  });
+
+  assert.deepEqual(calls, [
+    { toolSlug: "GOOGLESHEETS_SEARCH_SPREADSHEETS", arguments: { query: "" } },
+    { toolSlug: "GOOGLESHEETS_GET_SPREADSHEET_INFO", arguments: { spreadsheetId: "sheet-1" } },
+    { toolSlug: "GOOGLESHEETS_VALUES_GET", arguments: { spreadsheetId: "sheet-1", range: "Backlog!A1:E10" } },
+  ]);
+  assert.equal(result.supported, true);
+  assert.equal(result.provider_id, "googlesheets");
+  assert.equal(result.account_label, "Google Sheets (Managed)");
+  assert.equal(result.leaves_created, 4);
+  assert.equal(result.messages_seen, 3);
+  assert.equal(result.messages_persisted, 3);
+  assert.ok(result.tree_id);
+
+  const leaves = store.listIntegrationLeaves({
+    treeId: result.tree_id!,
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.deepEqual(
+    leaves.map((leaf) => ({ subjectKey: leaf.subjectKey, branchKey: leaf.branchKey, sourceType: leaf.sourceType }))
+      .sort((left, right) => left.subjectKey.localeCompare(right.subjectKey)),
+    [
+      { subjectKey: "profile", branchKey: "profile", sourceType: "googlesheets.profile" },
+      { subjectKey: "spreadsheet:sheet-1", branchKey: "spreadsheets", sourceType: "googlesheets.spreadsheet" },
+      { subjectKey: "values:sheet-1:Backlog!A1:E10", branchKey: "values", sourceType: "googlesheets.values" },
+      { subjectKey: "worksheet-list:sheet-1", branchKey: "worksheets", sourceType: "googlesheets.worksheets" },
+    ],
+  );
+
+  const semanticNodes = store.listSemanticMemoryNodes({
+    category: "integration",
+    treeId: result.tree_id!,
+    limit: 100,
+    offset: 0,
+  });
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "spreadsheets"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "worksheets"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "values"));
+
+  store.close();
+});
+
+test("fetchIntegrationContextForConnection ingests Google Docs documents and plaintext into the global integration tree", async () => {
+  const root = makeTempDir("hb-integration-context-googledocs-");
+  const workspaceRoot = path.join(root, "workspace-root");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertIntegrationConnection({
+    connectionId: "conn-googledocs-1",
+    providerId: "googledocs",
+    ownerUserId: "user-1",
+    accountLabel: "Google Docs (Managed)",
+    accountExternalId: "ca_docs_1",
+    accountHandle: null,
+    accountEmail: null,
+    authMode: "composio",
+    grantedScopes: [],
+    status: "active",
+    secretRef: null,
+  });
+
+  const calls: Array<{ toolSlug: string; arguments: Record<string, unknown> }> = [];
+  const result = await fetchIntegrationContextForConnection({
+    store,
+    connectionId: "conn-googledocs-1",
+    composioClient: {
+      async executeAction<TData = unknown>(params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
+        calls.push({
+          toolSlug: params.toolSlug,
+          arguments: params.arguments ?? {},
+        });
+        if (params.toolSlug === "GOOGLEDOCS_SEARCH_DOCUMENTS") {
+          return {
+            data: {
+              documents: [
+                {
+                  documentId: "doc-1",
+                  title: "Rollout Notes",
+                  modifiedTime: "2026-05-24T08:00:00Z",
+                },
+              ],
+            } as TData,
+            logId: "log-docs-search",
+          };
+        }
+        if (params.toolSlug === "GOOGLEDOCS_GET_DOCUMENT_BY_ID") {
+          return {
+            data: {
+              documentId: "doc-1",
+              title: "Rollout Notes",
+              revisionId: "rev-1",
+            } as TData,
+            logId: "log-docs-by-id",
+          };
+        }
+        if (params.toolSlug === "GOOGLEDOCS_GET_DOCUMENT_PLAINTEXT") {
+          return {
+            data: {
+              text: "Captured rollout tasks, launch risks, and owner notes.",
+            } as TData,
+            logId: "log-docs-plaintext",
+          };
+        }
+        throw new Error(`unexpected tool slug: ${params.toolSlug}`);
+      },
+    },
+  });
+
+  assert.deepEqual(calls, [
+    { toolSlug: "GOOGLEDOCS_SEARCH_DOCUMENTS", arguments: { query: "" } },
+    { toolSlug: "GOOGLEDOCS_GET_DOCUMENT_BY_ID", arguments: { documentId: "doc-1" } },
+    { toolSlug: "GOOGLEDOCS_GET_DOCUMENT_PLAINTEXT", arguments: { documentId: "doc-1" } },
+  ]);
+  assert.equal(result.supported, true);
+  assert.equal(result.provider_id, "googledocs");
+  assert.equal(result.leaves_created, 3);
+  assert.equal(result.messages_seen, 2);
+  assert.equal(result.messages_persisted, 2);
+  assert.ok(result.tree_id);
+
+  const leaves = store.listIntegrationLeaves({
+    treeId: result.tree_id!,
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.deepEqual(
+    leaves.map((leaf) => ({ subjectKey: leaf.subjectKey, branchKey: leaf.branchKey, sourceType: leaf.sourceType }))
+      .sort((left, right) => left.subjectKey.localeCompare(right.subjectKey)),
+    [
+      { subjectKey: "document_content:doc-1", branchKey: "content", sourceType: "googledocs.content" },
+      { subjectKey: "document:doc-1", branchKey: "documents", sourceType: "googledocs.document" },
+      { subjectKey: "profile", branchKey: "profile", sourceType: "googledocs.profile" },
+    ],
+  );
+
+  const semanticNodes = store.listSemanticMemoryNodes({
+    category: "integration",
+    treeId: result.tree_id!,
+    limit: 100,
+    offset: 0,
+  });
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "documents"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "content"));
+
+  store.close();
+});
+
+test("fetchIntegrationContextForConnection ingests HubSpot contacts, companies, and deals into the global integration tree", async () => {
+  const root = makeTempDir("hb-integration-context-hubspot-");
+  const workspaceRoot = path.join(root, "workspace-root");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertIntegrationConnection({
+    connectionId: "conn-hubspot-1",
+    providerId: "hubspot",
+    ownerUserId: "user-1",
+    accountLabel: "HubSpot (Managed)",
+    accountExternalId: "ca_hubspot_1",
+    accountHandle: null,
+    accountEmail: null,
+    authMode: "composio",
+    grantedScopes: [],
+    status: "active",
+    secretRef: null,
+  });
+
+  const calls: Array<{ toolSlug: string; arguments: Record<string, unknown> }> = [];
+  const result = await fetchIntegrationContextForConnection({
+    store,
+    connectionId: "conn-hubspot-1",
+    composioClient: {
+      async executeAction<TData = unknown>(params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
+        calls.push({
+          toolSlug: params.toolSlug,
+          arguments: params.arguments ?? {},
+        });
+        if (params.toolSlug === "HUBSPOT_LIST_CONTACTS") {
+          return {
+            data: {
+              results: [
+                {
+                  id: "contact-1",
+                  updatedAt: "2026-05-24T08:00:00Z",
+                  properties: {
+                    firstname: "Ada",
+                    lastname: "Lovelace",
+                    email: "ada@example.com",
+                    company: "HolaBoss",
+                  },
+                },
+              ],
+            } as TData,
+            logId: "log-hubspot-contacts",
+          };
+        }
+        if (params.toolSlug === "HUBSPOT_LIST_COMPANIES") {
+          return {
+            data: {
+              results: [
+                {
+                  id: "company-1",
+                  updatedAt: "2026-05-24T08:05:00Z",
+                  properties: {
+                    name: "HolaBoss",
+                    domain: "holaboss.ai",
+                    industry: "Software",
+                  },
+                },
+              ],
+            } as TData,
+            logId: "log-hubspot-companies",
+          };
+        }
+        if (params.toolSlug === "HUBSPOT_LIST_DEALS") {
+          return {
+            data: {
+              results: [
+                {
+                  id: "deal-1",
+                  updatedAt: "2026-05-24T08:10:00Z",
+                  properties: {
+                    dealname: "Expansion",
+                    dealstage: "contractsent",
+                    amount: "12000",
+                  },
+                },
+              ],
+            } as TData,
+            logId: "log-hubspot-deals",
+          };
+        }
+        throw new Error(`unexpected tool slug: ${params.toolSlug}`);
+      },
+    },
+  });
+
+  assert.deepEqual(calls, [
+    { toolSlug: "HUBSPOT_LIST_CONTACTS", arguments: { limit: 15 } },
+    { toolSlug: "HUBSPOT_LIST_COMPANIES", arguments: { limit: 15 } },
+    { toolSlug: "HUBSPOT_LIST_DEALS", arguments: { limit: 15 } },
+  ]);
+  assert.equal(result.supported, true);
+  assert.equal(result.provider_id, "hubspot");
+  assert.equal(result.leaves_created, 4);
+  assert.equal(result.messages_seen, 3);
+  assert.equal(result.messages_persisted, 3);
+  assert.ok(result.tree_id);
+
+  const leaves = store.listIntegrationLeaves({
+    treeId: result.tree_id!,
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.deepEqual(
+    leaves.map((leaf) => ({ subjectKey: leaf.subjectKey, branchKey: leaf.branchKey, sourceType: leaf.sourceType }))
+      .sort((left, right) => left.subjectKey.localeCompare(right.subjectKey)),
+    [
+      { subjectKey: "company:company-1", branchKey: "companies", sourceType: "hubspot.company" },
+      { subjectKey: "contact:contact-1", branchKey: "contacts", sourceType: "hubspot.contact" },
+      { subjectKey: "deal:deal-1", branchKey: "deals", sourceType: "hubspot.deal" },
+      { subjectKey: "profile", branchKey: "profile", sourceType: "hubspot.profile" },
+    ],
+  );
+
+  const semanticNodes = store.listSemanticMemoryNodes({
+    category: "integration",
+    treeId: result.tree_id!,
+    limit: 100,
+    offset: 0,
+  });
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "contacts"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "companies"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "deals"));
+
+  store.close();
+});
+
+test("fetchIntegrationContextForConnection ingests Linear profile, issues, projects, and teams into the global integration tree", async () => {
+  const root = makeTempDir("hb-integration-context-linear-");
+  const workspaceRoot = path.join(root, "workspace-root");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
   });
   store.upsertIntegrationConnection({
     connectionId: "conn-linear-1",
@@ -2211,9 +3035,271 @@ test("fetchIntegrationContextForConnection reports unsupported providers without
     secretRef: null,
   });
 
+  const calls: Array<{ toolSlug: string; arguments: Record<string, unknown> }> = [];
   const result = await fetchIntegrationContextForConnection({
     store,
     connectionId: "conn-linear-1",
+    composioClient: {
+      async executeAction<TData = unknown>(params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
+        calls.push({
+          toolSlug: params.toolSlug,
+          arguments: params.arguments ?? {},
+        });
+        if (params.toolSlug === "LINEAR_GET_CURRENT_USER") {
+          return {
+            data: {
+              id: "user-1",
+              displayName: "Ada Lovelace",
+              email: "ada@linear.example",
+            } as TData,
+            logId: "log-linear-profile",
+          };
+        }
+        if (params.toolSlug === "LINEAR_LIST_LINEAR_ISSUES") {
+          return {
+            data: {
+              issues: [
+                {
+                  id: "issue-1",
+                  identifier: "MEM-12",
+                  title: "Ship memory retrieval v2",
+                  description: "Finalize retrieval pack and context fetch improvements.",
+                  team: { name: "Platform" },
+                },
+              ],
+            } as TData,
+            logId: "log-linear-issues",
+          };
+        }
+        if (params.toolSlug === "LINEAR_LIST_LINEAR_PROJECTS") {
+          return {
+            data: {
+              projects: [
+                {
+                  id: "project-1",
+                  name: "Memory Runtime",
+                  description: "Improve memory retrieval and verification.",
+                },
+              ],
+            } as TData,
+            logId: "log-linear-projects",
+          };
+        }
+        if (params.toolSlug === "LINEAR_LIST_LINEAR_TEAMS") {
+          return {
+            data: {
+              teams: [
+                {
+                  id: "team-1",
+                  key: "PLAT",
+                  name: "Platform",
+                  description: "Platform workstream.",
+                },
+              ],
+            } as TData,
+            logId: "log-linear-teams",
+          };
+        }
+        throw new Error(`unexpected tool slug: ${params.toolSlug}`);
+      },
+    },
+  });
+
+  assert.deepEqual(calls, [
+    { toolSlug: "LINEAR_GET_CURRENT_USER", arguments: {} },
+    { toolSlug: "LINEAR_LIST_LINEAR_ISSUES", arguments: { limit: 20 } },
+    { toolSlug: "LINEAR_LIST_LINEAR_PROJECTS", arguments: { limit: 10 } },
+    { toolSlug: "LINEAR_LIST_LINEAR_TEAMS", arguments: { limit: 10 } },
+  ]);
+  assert.equal(result.supported, true);
+  assert.equal(result.provider_id, "linear");
+  assert.equal(result.account_key, "ada@linear.example");
+  assert.equal(result.account_label, "Ada Lovelace");
+  assert.equal(result.leaves_created, 4);
+  assert.equal(result.messages_seen, 3);
+  assert.equal(result.messages_persisted, 3);
+  assert.ok(result.tree_id);
+
+  const leaves = store.listIntegrationLeaves({
+    treeId: result.tree_id!,
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.deepEqual(
+    leaves.map((leaf) => ({ subjectKey: leaf.subjectKey, branchKey: leaf.branchKey, sourceType: leaf.sourceType }))
+      .sort((left, right) => left.subjectKey.localeCompare(right.subjectKey)),
+    [
+      { subjectKey: "issue:issue-1", branchKey: "issues", sourceType: "linear.issue" },
+      { subjectKey: "profile", branchKey: "profile", sourceType: "linear.profile" },
+      { subjectKey: "project:project-1", branchKey: "projects", sourceType: "linear.project" },
+      { subjectKey: "team:team-1", branchKey: "teams", sourceType: "linear.team" },
+    ],
+  );
+
+  const semanticNodes = store.listSemanticMemoryNodes({
+    category: "integration",
+    treeId: result.tree_id!,
+    limit: 100,
+    offset: 0,
+  });
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "issues"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "projects"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "teams"));
+
+  store.close();
+});
+
+test("fetchIntegrationContextForConnection ingests Jira profile, projects, and issues into the global integration tree", async () => {
+  const root = makeTempDir("hb-integration-context-jira-");
+  const workspaceRoot = path.join(root, "workspace-root");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertIntegrationConnection({
+    connectionId: "conn-jira-1",
+    providerId: "jira",
+    ownerUserId: "user-1",
+    accountLabel: "Jira (Managed)",
+    accountExternalId: "ca_jira_1",
+    accountHandle: null,
+    accountEmail: null,
+    authMode: "composio",
+    grantedScopes: [],
+    status: "active",
+    secretRef: null,
+  });
+
+  const calls: Array<{ toolSlug: string; arguments: Record<string, unknown> }> = [];
+  const result = await fetchIntegrationContextForConnection({
+    store,
+    connectionId: "conn-jira-1",
+    composioClient: {
+      async executeAction<TData = unknown>(params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
+        calls.push({
+          toolSlug: params.toolSlug,
+          arguments: params.arguments ?? {},
+        });
+        if (params.toolSlug === "JIRA_GET_CURRENT_USER") {
+          return {
+            data: {
+              accountId: "jira-user-1",
+              displayName: "Ada Lovelace",
+              emailAddress: "ada@jira.example",
+            } as TData,
+            logId: "log-jira-profile",
+          };
+        }
+        if (params.toolSlug === "JIRA_GET_ALL_PROJECTS") {
+          return {
+            data: {
+              values: [
+                {
+                  id: "project-1",
+                  key: "MEM",
+                  name: "Memory Runtime",
+                  projectTypeKey: "software",
+                },
+              ],
+            } as TData,
+            logId: "log-jira-projects",
+          };
+        }
+        if (params.toolSlug === "JIRA_SEARCH_FOR_ISSUES_USING_JQL_GET") {
+          return {
+            data: {
+              issues: [
+                {
+                  id: "issue-1",
+                  key: "MEM-42",
+                  fields: {
+                    summary: "Fix retrieval regression",
+                    description: "Investigate browser-first routing and memory ordering.",
+                    status: { name: "In Progress" },
+                  },
+                },
+              ],
+            } as TData,
+            logId: "log-jira-issues",
+          };
+        }
+        throw new Error(`unexpected tool slug: ${params.toolSlug}`);
+      },
+    },
+  });
+
+  assert.deepEqual(calls, [
+    { toolSlug: "JIRA_GET_CURRENT_USER", arguments: {} },
+    { toolSlug: "JIRA_GET_ALL_PROJECTS", arguments: { maxResults: 12 } },
+    { toolSlug: "JIRA_SEARCH_FOR_ISSUES_USING_JQL_GET", arguments: { jql: "ORDER BY updated DESC", maxResults: 20 } },
+  ]);
+  assert.equal(result.supported, true);
+  assert.equal(result.provider_id, "jira");
+  assert.equal(result.account_key, "ada@jira.example");
+  assert.equal(result.account_label, "Ada Lovelace");
+  assert.equal(result.leaves_created, 3);
+  assert.equal(result.messages_seen, 2);
+  assert.equal(result.messages_persisted, 2);
+  assert.ok(result.tree_id);
+
+  const leaves = store.listIntegrationLeaves({
+    treeId: result.tree_id!,
+    status: "active",
+    limit: 100,
+    offset: 0,
+  });
+  assert.deepEqual(
+    leaves.map((leaf) => ({ subjectKey: leaf.subjectKey, branchKey: leaf.branchKey, sourceType: leaf.sourceType }))
+      .sort((left, right) => left.subjectKey.localeCompare(right.subjectKey)),
+    [
+      { subjectKey: "issue:issue-1", branchKey: "issues", sourceType: "jira.issue" },
+      { subjectKey: "profile", branchKey: "profile", sourceType: "jira.profile" },
+      { subjectKey: "project:project-1", branchKey: "projects", sourceType: "jira.project" },
+    ],
+  );
+
+  const semanticNodes = store.listSemanticMemoryNodes({
+    category: "integration",
+    treeId: result.tree_id!,
+    limit: 100,
+    offset: 0,
+  });
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "projects"));
+  assert.ok(semanticNodes.some((node) => node.nodeKind === "issues"));
+
+  store.close();
+});
+
+test("fetchIntegrationContextForConnection reports unsupported providers without writing tree state", async () => {
+  const root = makeTempDir("hb-integration-context-unsupported-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace-root"),
+  });
+  store.upsertIntegrationConnection({
+    connectionId: "conn-unsupported-1",
+    providerId: "salesforce",
+    ownerUserId: "user-1",
+    accountLabel: "Salesforce (Managed)",
+    accountExternalId: "ca_salesforce_1",
+    accountHandle: null,
+    accountEmail: null,
+    authMode: "composio",
+    grantedScopes: [],
+    status: "active",
+    secretRef: null,
+  });
+
+  const result = await fetchIntegrationContextForConnection({
+    store,
+    connectionId: "conn-unsupported-1",
     composioClient: {
       async executeAction<TData = unknown>(_params: ExecuteActionParams): Promise<{ data: TData | null; logId: string | null }> {
         throw new Error("should not execute");
