@@ -26,7 +26,6 @@ import {
   SettingsCard,
   SettingsSection,
 } from "@/components/settings";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -38,6 +37,7 @@ import {
 } from "@/components/ui/select";
 import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { accountDisplayLabel } from "@/lib/integrationDisplay";
+import { brandLogoOverride } from "@/lib/integrationLogo";
 import { rebindWorkspaceAppsForProvider } from "@/lib/rebindWorkspaceAppsForProvider";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import {
@@ -166,20 +166,6 @@ function composioFallbackLogo(slug: string): string | null {
     return null;
   }
   return `https://logos.composio.dev/api/${cleaned}`;
-}
-
-// Composio's logo CDN returns wide wordmark SVGs (and sometimes a pure
-// white fill) for a handful of providers, so the square thumbnail in
-// the integrations grid renders as a sliver-in-a-banner or invisibly
-// white-on-white. Simple Icons publishes a square monochrome SVG per
-// brand at a stable unpkg URL — short-circuit just those slugs.
-const BRAND_LOGO_OVERRIDES: Record<string, string> = {
-  github: "https://unpkg.com/simple-icons@16.20.0/icons/github.svg",
-  linear: "https://unpkg.com/simple-icons@16.20.0/icons/linear.svg",
-};
-
-function brandLogoOverride(slug: string): string | null {
-  return BRAND_LOGO_OVERRIDES[slug.trim().toLowerCase()] ?? null;
 }
 
 function mergeIntegrationCards(
@@ -1926,7 +1912,7 @@ function ConnectedProviderCard({
                       {contextFetchStatus.current_chunk_label ||
                         contextFetchDisplayMessage(contextFetchStatus)}
                     </p>
-                    <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                    <span className="shrink-0 text-[10px] font-medium text-muted-foreground">
                       {contextFetchStatus.status}
                     </span>
                   </div>
@@ -2065,37 +2051,132 @@ function WorkspaceScopeSection({
             </ul>
           )}
 
-          {capabilities.length > 0 ? (
-            <div>
-              <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Agent can
-              </div>
-              <ul className="mt-1.5 space-y-1">
-                {capabilities.map((cap) => (
-                  <li className="text-[11px]" key={cap.tool_slug}>
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-medium text-foreground">{cap.name}</span>
-                      {cap.read_only ? (
-                        <Badge
-                          className="border-border bg-background/60 text-[9px] text-muted-foreground"
-                          variant="outline"
-                        >
-                          read-only
-                        </Badge>
-                      ) : null}
-                    </div>
-                    <div className="text-[11px] leading-5 text-muted-foreground">
-                      {cap.description}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
+          <AgentCapabilityList
+            capabilities={capabilities}
+            toolkitSlug={toolkitSlug}
+          />
         </div>
       ) : null}
     </div>
   );
+}
+
+// "Agent can …" panel for a connected toolkit. Splits the catalog into
+// two trust-relevant buckets — Read (safe, looks at your data) vs Write
+// (actions taken on your behalf) — so the user can quickly tell what
+// surface area they're authorizing. Default to 5 entries per bucket
+// with an inline expander, because dumping all of Composio's 20-40
+// tools at once is a wall of SCREAMING_SNAKE_CASE that erodes trust
+// instead of building it. The raw `tool_slug` is moved into the row's
+// `title` (hover tooltip) so power users / debuggers can still see it
+// without polluting the primary view.
+function AgentCapabilityList({
+  capabilities,
+  toolkitSlug,
+}: {
+  capabilities: ComposioToolkitCapability[];
+  toolkitSlug: string;
+}) {
+  if (capabilities.length === 0) return null;
+  const reads = capabilities.filter((cap) => cap.read_only);
+  const writes = capabilities.filter((cap) => !cap.read_only);
+  return (
+    <div>
+      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        Agent can
+      </div>
+      {reads.length > 0 ? (
+        <CapabilityGroup
+          capabilities={reads}
+          label="Read"
+          tone="muted"
+          toolkitSlug={toolkitSlug}
+        />
+      ) : null}
+      {writes.length > 0 ? (
+        <CapabilityGroup
+          capabilities={writes}
+          label="Write"
+          tone="emphasis"
+          toolkitSlug={toolkitSlug}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+const CAPABILITY_GROUP_VISIBLE = 5;
+
+function CapabilityGroup({
+  capabilities,
+  label,
+  tone,
+  toolkitSlug,
+}: {
+  capabilities: ComposioToolkitCapability[];
+  label: string;
+  /** "muted" = Read group (safe; quieter). "emphasis" = Write group (the
+   *  one users should actually read; subtle amber accent on the count). */
+  tone: "muted" | "emphasis";
+  toolkitSlug: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded
+    ? capabilities
+    : capabilities.slice(0, CAPABILITY_GROUP_VISIBLE);
+  const hidden = capabilities.length - visible.length;
+  return (
+    <div className="mt-2.5">
+      <div className="flex items-baseline gap-1.5 text-[10px] font-medium uppercase tracking-wide">
+        <span
+          className={
+            tone === "emphasis"
+              ? "text-amber-700 dark:text-amber-400"
+              : "text-muted-foreground"
+          }
+        >
+          {label}
+        </span>
+        <span className="font-normal normal-case text-muted-foreground/60">
+          · {capabilities.length}
+        </span>
+      </div>
+      <ul className="mt-1 space-y-1">
+        {visible.map((cap) => (
+          <li className="text-[11px]" key={cap.tool_slug} title={cap.tool_slug}>
+            <div className="font-medium text-foreground">
+              {humanizeCapabilityName(cap.name, toolkitSlug)}
+            </div>
+            <div className="line-clamp-2 text-[11px] leading-5 text-muted-foreground">
+              {cap.description}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {hidden > 0 ? (
+        <button
+          className="mt-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+          onClick={() => setExpanded(true)}
+          type="button"
+        >
+          + {hidden} more
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+// `gmail_fetch_emails` → "Fetch emails". Strips the toolkit-prefix, swaps
+// underscores for spaces, sentence-cases the first word. Falls back to the
+// raw name when the prefix isn't where we expect — better than throwing.
+function humanizeCapabilityName(name: string, toolkitSlug: string): string {
+  const prefix = `${toolkitSlug.toLowerCase()}_`;
+  const sansPrefix = name.toLowerCase().startsWith(prefix)
+    ? name.slice(prefix.length)
+    : name;
+  const spaced = sansPrefix.replace(/_/g, " ").trim();
+  if (!spaced) return name;
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
 // Temporary diagnostic — hits runtime POST /api/v1/debug/composio-

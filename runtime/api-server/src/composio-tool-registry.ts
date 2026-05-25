@@ -307,6 +307,72 @@ export function listAllToolkitCapabilities(): Record<string, ToolkitCapabilityEn
   return result;
 }
 
+/**
+ * Auto-discover variant of `listAllToolkitCapabilities`. For each requested
+ * toolkit slug:
+ *   1. Start with the hand-curated hero entries (zero or more).
+ *   2. Fall back to / fill in with Composio's full tool catalog, ranked by
+ *      `HEURISTIC_VERB_PATTERNS` (read/list/get verbs first; create/update
+ *      last) and capped at `topN`.
+ *   3. Skip any auto-discovered tool whose slug already appears in the
+ *      hero set so we don't render duplicates.
+ *
+ * This is what powers the UI's "Agent can" panel — without auto-discover
+ * the panel for Gmail shows the single `gmail_get_profile` entry the hero
+ * catalog defines, which dramatically undersells what the agent is wired
+ * to actually do via the composio-mcp host (it auto-discovers its own
+ * catalog via `buildToolkitCatalogAsync`). Now both layers read from the
+ * same Composio /tools surface.
+ */
+export async function listAllToolkitCapabilitiesAsync(params: {
+  slugs: ReadonlyArray<string>;
+  fetchTools: (toolkitSlug: string) => Promise<
+    Array<{
+      slug: string;
+      name: string;
+      description: string;
+      input_schema: Record<string, unknown>;
+      read_only: boolean;
+    }>
+  >;
+  topN?: number;
+}): Promise<Record<string, ToolkitCapabilityEntry[]>> {
+  const topN = params.topN ?? DEFAULT_HEURISTIC_TOP_N;
+  const result: Record<string, ToolkitCapabilityEntry[]> = {};
+
+  await Promise.all(
+    params.slugs.map(async (slug) => {
+      const hero = listToolkitCapabilities(slug);
+      let upstream: Awaited<ReturnType<typeof params.fetchTools>> = [];
+      try {
+        upstream = await params.fetchTools(slug);
+      } catch {
+        // Composio fetch is best-effort — fall back to hero only.
+      }
+      const heroSlugs = new Set(hero.map((entry) => entry.tool_slug));
+      const ranked = upstream
+        .filter((tool) => !heroSlugs.has(tool.slug))
+        .sort((a, b) => {
+          const ra = rankTool(a.slug);
+          const rb = rankTool(b.slug);
+          if (ra !== rb) return ra - rb;
+          return a.slug.localeCompare(b.slug);
+        })
+        .slice(0, Math.max(0, topN - hero.length))
+        .map((tool) => ({
+          name: `${slug}_${tool.slug
+            .replace(new RegExp(`^${slug.toUpperCase()}_`), "")
+            .toLowerCase()}`,
+          description: tool.description,
+          tool_slug: tool.slug,
+          read_only: tool.read_only,
+        }));
+      result[slug] = [...hero, ...ranked];
+    }),
+  );
+  return result;
+}
+
 export function buildToolkitCatalog(
   toolkitSlug: string,
   connectedAccountId: string,

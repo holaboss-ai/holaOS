@@ -136,7 +136,10 @@ import { resumePendingIntegrationInputs } from "./integration-proposal-gate.js";
 import { OAuthService } from "./oauth-service.js";
 import { ComposioService } from "./composio-service.js";
 import { ComposioMcpManager } from "./composio-mcp-manager.js";
-import { listAllToolkitCapabilities } from "./composio-tool-registry.js";
+import {
+  listAllToolkitCapabilities,
+  listAllToolkitCapabilitiesAsync,
+} from "./composio-tool-registry.js";
 import { listStoreCatalog } from "./integration-store-catalog.js";
 import { WorkspaceIntegrationsService } from "./workspace-integrations.js";
 import {
@@ -4865,8 +4868,61 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     return integrationService.getCatalog();
   });
 
+  // In-memory cache for the auto-discovered "Agent can" catalog. Each
+  // entry pulls ~30-50 Composio toolkit /tools fetches; without a cache
+  // the IntegrationsPane refresh fan-out would hammer Composio for every
+  // workspace switch. 10-minute TTL — toolkit tool lists are stable on
+  // the order of days, and Hono's own 24h cache already absorbs the
+  // upstream load, so this is mostly request-coalescing.
+  let composioCapabilitiesCache: {
+    expiresAt: number;
+    payload: Record<string, ReturnType<typeof listAllToolkitCapabilities>[string]>;
+  } | null = null;
+  const COMPOSIO_CAPABILITIES_TTL_MS = 10 * 60 * 1000;
+
   app.get("/api/v1/integrations/composio-capabilities", async () => {
-    return { toolkits: listAllToolkitCapabilities() };
+    const now = Date.now();
+    if (composioCapabilitiesCache && composioCapabilitiesCache.expiresAt > now) {
+      return { toolkits: composioCapabilitiesCache.payload };
+    }
+
+    // Without ComposioService we can't auto-discover — fall back to the
+    // hand-curated hero entries only. This keeps the runtime usable in
+    // local dev / test where the Composio bearer isn't wired, at the
+    // cost of the sparse "Agent can" panel the UI rewrite was meant to
+    // fix.
+    if (!composioService) {
+      const payload = listAllToolkitCapabilities();
+      composioCapabilitiesCache = {
+        expiresAt: now + COMPOSIO_CAPABILITIES_TTL_MS,
+        payload,
+      };
+      return { toolkits: payload };
+    }
+
+    // Union of every slug we'd plausibly advertise capabilities for:
+    // hand-curated hero entries (which may live outside the store
+    // catalog — e.g. early dev probes) + the curated store catalog
+    // (what the user can actually install via Settings → Integrations).
+    // Composio has 100+ toolkits; restricting to this union prevents
+    // each capabilities refresh from fanning out to all of them.
+    const slugs = Array.from(
+      new Set([
+        ...Object.keys(listAllToolkitCapabilities()),
+        ...listStoreCatalog().map((entry) => entry.slug.trim().toLowerCase()),
+      ]),
+    );
+
+    const payload = await listAllToolkitCapabilitiesAsync({
+      slugs,
+      fetchTools: (slug) => composioService.listToolkitTools(slug),
+      topN: 8,
+    });
+    composioCapabilitiesCache = {
+      expiresAt: now + COMPOSIO_CAPABILITIES_TTL_MS,
+      payload,
+    };
+    return { toolkits: payload };
   });
 
   // GET /integrations/store-catalog — the curated subset of Composio
