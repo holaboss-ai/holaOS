@@ -1418,6 +1418,9 @@ export function renderCapabilityToolRoutingPromptSection(
   const normalizedSessionKind = normalizeOptionalToken(
     manifest.context.session_kind,
   );
+  const hasMemoryRetrieve = manifest.runtime_tools.some(
+    (capability) => capability.id === "memory_retrieve",
+  );
   const ensureHeading = () => {
     if (lines.length === 0) {
       lines.push("Capability routing addenda:");
@@ -1465,6 +1468,20 @@ export function renderCapabilityToolRoutingPromptSection(
     ensureHeading();
     lines.push("Remote file transfer: prefer `download_url` when you already have a direct asset URL and need a saved workspace file instead of relying on browser-only downloads or ad hoc shell fetches.");
   }
+  if (hasMemoryRetrieve) {
+    ensureHeading();
+    lines.push(
+      "Memory-first routing: when `memory_retrieve` is surfaced, treat it as the first retrieval step for non-UI recall, triage, recent-activity, or `what should I know` questions unless the answer is already established by the current turn or a direct tool result in this run.",
+    );
+    lines.push(
+      "Do not skip `memory_retrieve` just because a browser surface is active, a relevant tab is already open, or a connected MCP/app surface looks partial.",
+    );
+    if (manifest.browser_tools.length > 0) {
+      lines.push(
+        "If browser tools are also available, browser remains a fallback UI surface for that order. Use browser first only for current page, current tab, or current browser UI state questions, or when UI interaction or visual verification is explicitly needed.",
+      );
+    }
+  }
   if (
     manifest.mcp_tools.length > 0 ||
     (manifest.context.mcp_server_ids?.length ?? 0) > 0
@@ -1486,6 +1503,14 @@ export function renderCapabilityToolRoutingPromptSection(
     if (manifest.browser_tools.length > 0) {
       lines.push(
         "Do not treat browser as the default path for non-UI freshness checks in a connected system. For recent or important activity in that system, prefer the connected MCP/app route before browser when it can provide the live state directly.",
+      );
+    }
+    if (hasMemoryRetrieve) {
+      lines.push(
+        "If `memory_retrieve` is also surfaced, check it before the connected MCP/app route for non-UI recall or recent-activity questions unless current-turn context or a direct tool result already answers the question.",
+      );
+      lines.push(
+        "If the surfaced MCP/app coverage for that system is partial, do not compensate by jumping to browser first; check memory first, then use the direct connected tool or surface the remaining limitation.",
       );
     }
     lines.push(
@@ -1512,6 +1537,9 @@ export function renderCapabilityAvailabilityContextPromptSection(
   const normalizedSessionKind = normalizeOptionalToken(
     manifest.context.session_kind,
   );
+  const hasMemoryRetrieve = manifest.runtime_tools.some(
+    (capability) => capability.id === "memory_retrieve",
+  );
   const lines = [
     "Capability availability snapshot:",
     "Treat this as the currently surfaced capability set for this run. Availability may differ in later runs.",
@@ -1523,6 +1551,22 @@ export function renderCapabilityAvailabilityContextPromptSection(
     summarizeAvailability("Workspace commands", manifest.workspace_commands.length),
     summarizeAvailability("Workspace skills", manifest.workspace_skills.length),
   ];
+  if (hasMemoryRetrieve) {
+    lines.push("Workspace memory retrieval: available via `memory_retrieve`.");
+    lines.push(
+      "Default non-UI retrieval order for this run: current-turn context/direct tool result, then `memory_retrieve`, then the most direct connected MCP/app or other narrow authoritative source, and only then browser or web.",
+    );
+    if (manifest.browser_tools.length > 0) {
+      lines.push(
+        "Browser availability does not override that order. Use browser first only for current page, current tab, or current browser UI state questions.",
+      );
+    }
+    if (manifest.mcp_tools.length > 0 || (manifest.context.mcp_server_ids?.length ?? 0) > 0) {
+      lines.push(
+        "If the connected tool surface for a system is partial, do not jump to browser first. Check `memory_retrieve` before the direct connected route, then surface any remaining capability gap.",
+      );
+    }
+  }
   if (manifest.skills.length > 0) {
     lines.push("Workspace skill catalog (id — when to use):");
     for (const skill of manifest.skills) {

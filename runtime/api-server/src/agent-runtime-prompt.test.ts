@@ -679,6 +679,18 @@ test("composeAgentPrompt instructs main sessions to record durable workspace kno
   );
   assert.match(
     prompt.systemPrompt,
+    /Hard retrieval order for non-UI questions: current-turn context or direct tool result in this run, then `memory_retrieve`, then the narrowest authoritative local or connected source, and only then browser or web\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /If you are about to inspect an open browser surface first for a non-UI question while `memory_retrieve` is available, stop and call `memory_retrieve` instead\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Do not skip `memory_retrieve` just because a connected tool surface looks partial, because a relevant browser tab is already open, or because the browser shares auth state with that system\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
     /Do not open a browser tab or other live external surface first for an unknown fact lookup when memory could plausibly already contain the answer\./i,
   );
   assert.match(
@@ -755,6 +767,18 @@ test("composeBaseAgentPrompt instructs direct sessions to record durable workspa
   assert.match(
     prompt.systemPrompt,
     /If the answer is likely to be workspace-specific or previously learned contextual knowledge such as customer, project, person, workflow, decision, procedure, owner, threshold, contact, internal URL, or other facts that could plausibly have come from prior interactions or previously ingested knowledge in this workspace, use `memory_retrieve` first\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Hard retrieval order for non-UI questions: current-turn context or direct tool result in this run, then `memory_retrieve`, then the narrowest authoritative local or connected source, and only then browser or web\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /If you are about to inspect an open browser surface first for a non-UI question while `memory_retrieve` is available, stop and call `memory_retrieve` instead\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Do not skip `memory_retrieve` just because a connected tool surface looks partial, because a relevant browser tab is already open, or because the browser shares auth state with that system\./i,
   );
   assert.match(
     prompt.systemPrompt,
@@ -1269,6 +1293,8 @@ test("composeBaseAgentPrompt includes operator surface context when provided", (
   assert.match(prompt.contextMessages.join("\n\n"), /Operator surface context:/);
   assert.match(prompt.contextMessages.join("\n\n"), /default referent for deictic questions such as `what am I looking at right now`/i);
   assert.match(prompt.contextMessages.join("\n\n"), /continue from what they already opened, navigated, selected, or prepared/i);
+  assert.match(prompt.contextMessages.join("\n\n"), /An active browser surface or already-open site is not by itself a routing signal for non-UI questions\./i);
+  assert.match(prompt.contextMessages.join("\n\n"), /For recall, triage, recent activity, or factual lookup requests, prefer current-turn context and other non-browser authoritative sources before inspecting browser state unless the user is asking about that surface\./i);
   assert.match(prompt.contextMessages.join("\n\n"), /do not answer from browser state just because browser tools are available/i);
   assert.match(prompt.contextMessages.join("\n\n"), /Operator surfaces are continuity context, not authority grants\./);
   assert.match(prompt.contextMessages.join("\n\n"), /Do not mutate a user-owned surface unless surfaced runtime capabilities explicitly allow takeover or direct control\./);
