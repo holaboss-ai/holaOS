@@ -328,26 +328,34 @@ export function DeterministicWorkspaceOnboardingSurface() {
         ...prev,
         [entry.slug]: connectionId,
       }));
-      try {
-        const response =
-          await window.electronAPI.workspace.fetchIntegrationContext(
-            connectionId,
-          );
-        setContextFetchStatusByConnectionId((prev) => ({
-          ...prev,
-          [connectionId]: response.status,
-        }));
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Context fetch could not be started.";
-        setErrorByToolkit((prev) => ({
-          ...prev,
-          [entry.slug]: `Connected, but context fetch could not be started: ${message}`,
-        }));
-      }
+      // OAuth is done — flip the tile to "Connected" immediately so the
+      // spinner stops as soon as the runtime returns a connection_id.
+      // Context fetch (Gmail history scan, Notion page crawl, etc.) is
+      // best-effort background work; gating the UI on it makes the
+      // spinner appear stuck for the 30s–minutes that the runtime takes
+      // to enqueue/start the fetch, which the user reads as "broken".
       setPhaseByToolkit((prev) => ({ ...prev, [entry.slug]: "done" }));
+      void (async () => {
+        try {
+          const response =
+            await window.electronAPI.workspace.fetchIntegrationContext(
+              connectionId,
+            );
+          setContextFetchStatusByConnectionId((prev) => ({
+            ...prev,
+            [connectionId]: response.status,
+          }));
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Context fetch could not be started.";
+          setErrorByToolkit((prev) => ({
+            ...prev,
+            [entry.slug]: `Connected, but context fetch could not be started: ${message}`,
+          }));
+        }
+      })();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Connection failed.";
       setErrorByToolkit((prev) => ({ ...prev, [entry.slug]: msg }));
