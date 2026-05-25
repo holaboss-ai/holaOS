@@ -37,6 +37,12 @@ The practical rules should be:
 
 The important constraint is that this redesign should change the canonical structure first, not leaf admission, provider fetch coverage, or retrieval product scope.
 
+The retrieval boundary should also be kept separate from storage shape:
+
+- the semantic tree is the durable substrate
+- the primary agent retrieval contract should be reasoning-first
+- explicit tree navigation, if still needed, should remain a separate browse concern rather than shaping `memory_retrieve`
+
 ## Scope
 
 This plan covers:
@@ -116,10 +122,15 @@ Work:
 - record that partition/materialization nodes are optional optimization artifacts
 - lock the migration rule that summaries are rebuilt from leaves rather than migrated
 - record that parentage is database-native and should no longer depend on path inference
+- record that the semantic tree model serves a reasoning-first retrieval contract rather than a browse-shaped tool contract
+- record the split between:
+  - `memory_retrieve` for reasoning and context resolution
+  - `memory_browse` for explicit tree navigation, inspection, or UI needs
 
 Exit criteria:
 
 - product and backend agree on the canonical model
+- product and backend agree that storage shape and retrieval contract are intentionally decoupled
 - the note and implementation plan are sufficient for schema work to begin
 
 ## Phase 1: Add the shared semantic-node substrate
