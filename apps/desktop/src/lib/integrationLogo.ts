@@ -33,11 +33,24 @@ export interface IntegrationLogoSource {
   isLocal: boolean;
 }
 
+function normalizeSlug(slug: string): string {
+  return slug.trim().toLowerCase();
+}
+
 export function getIntegrationLogo(slug: string): IntegrationLogoSource {
-  const key = slug.trim().toLowerCase();
+  const key = normalizeSlug(slug);
   if (!key) return { url: null, isLocal: false };
   if (KNOWN_BROKEN_LOGO_SLUGS.has(key)) {
     return { url: null, isLocal: false };
   }
   return { url: `${CDN_BASE}/${key}`, isLocal: false };
+}
+
+/**
+ * Compatibility shim for older callers that only expect a concrete
+ * brand-specific override URL and otherwise fall back to toolkit/CDN logos.
+ */
+export function brandLogoOverride(slug: string): string | null {
+  const { url, isLocal } = getIntegrationLogo(slug);
+  return isLocal ? url : null;
 }
