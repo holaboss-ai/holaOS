@@ -35,6 +35,24 @@ function versionFromReleaseTag(releaseTag) {
   return match ? match[1] : "";
 }
 
+function hasExplicitOutputDir(builderArgs) {
+  return builderArgs.some(
+    (arg) =>
+      arg === "--config.directories.output" ||
+      arg.startsWith("--config.directories.output=") ||
+      arg.startsWith("-c.directories.output="),
+  );
+}
+
+function isCiEnvironment(env) {
+  return Boolean(env.CI?.trim() || env.GITHUB_ACTIONS?.trim());
+}
+
+function buildLocalWindowsOutputDir() {
+  const timestamp = new Date().toISOString().replace(/[:]/g, "-").replace(/\.\d+Z$/, "Z");
+  return path.join("out", `release-local-${timestamp}`);
+}
+
 const explicitVersion = process.env.HOLABOSS_APP_VERSION?.trim() || "";
 const releaseTagVersion = versionFromReleaseTag(process.env.HOLABOSS_RELEASE_TAG);
 const buildVersion = explicitVersion || releaseTagVersion;
@@ -50,6 +68,19 @@ if (buildVersion) {
   builderArgs.push(`-c.extraMetadata.version=${buildVersion}`);
   builderArgs.push(`-c.buildVersion=${buildVersion}`);
   process.stdout.write(`[electron-builder] using app version ${buildVersion}\n`);
+}
+
+if (
+  process.platform === "win32" &&
+  inferredRuntimePlatform === "windows" &&
+  !isCiEnvironment(process.env) &&
+  !hasExplicitOutputDir(builderArgs)
+) {
+  const localOutputDir = buildLocalWindowsOutputDir();
+  builderArgs.push(`-c.directories.output=${localOutputDir}`);
+  process.stdout.write(
+    `[electron-builder] using fresh local Windows output directory ${localOutputDir}\n`,
+  );
 }
 
 const child = spawn(process.execPath, [electronBuilderCli, ...builderArgs], {

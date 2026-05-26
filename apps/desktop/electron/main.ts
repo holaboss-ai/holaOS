@@ -92,6 +92,7 @@ import {
   readdirSync,
   statSync,
   type FSWatcher,
+  unlinkSync,
   watch,
   writeFileSync,
 } from "node:fs";
@@ -404,7 +405,50 @@ function devLaunchContextPath(): string {
   return path.join(app.getPath("appData"), APP_DISPLAY_NAME, "dev-launch.json");
 }
 
+const DEFAULT_APP_PROTOCOL_FLAGS_WITH_SEPARATE_VALUE = new Set([
+  "--require",
+  "-r",
+]);
+
+function defaultAppLaunchTargetArg(): string | null {
+  for (let index = 1; index < process.argv.length; index += 1) {
+    const argument = process.argv[index]?.trim();
+    if (!argument) {
+      continue;
+    }
+    if (argument.startsWith("-")) {
+      if (
+        DEFAULT_APP_PROTOCOL_FLAGS_WITH_SEPARATE_VALUE.has(argument) &&
+        index + 1 < process.argv.length
+      ) {
+        index += 1;
+      }
+      continue;
+    }
+    if (maybeAuthCallbackUrl(argument)) {
+      continue;
+    }
+    return path.resolve(argument);
+  }
+  return null;
+}
+
+function clearStaleDevLaunchContext() {
+  if (defaultAppLaunchTargetArg()) {
+    return;
+  }
+  try {
+    unlinkSync(devLaunchContextPath());
+  } catch {
+    // Ignore missing or concurrently-removed files.
+  }
+}
+
 function loadRecoveredDevLaunchContext(): DevLaunchContext | null {
+  if (!defaultAppLaunchTargetArg()) {
+    return null;
+  }
+
   const hasAuthCallbackArgument = process.argv.some((value) =>
     maybeAuthCallbackUrl(value),
   );
@@ -432,6 +476,7 @@ function loadRecoveredDevLaunchContext(): DevLaunchContext | null {
   }
 }
 
+clearStaleDevLaunchContext();
 const recoveredDevLaunchContext = loadRecoveredDevLaunchContext();
 const RESOLVED_DEV_SERVER_URL =
   process.env.VITE_DEV_SERVER_URL?.trim() ||
@@ -1678,7 +1723,7 @@ function configureStableUserDataPath() {
 }
 
 function persistDevLaunchContext() {
-  if (!RESOLVED_DEV_SERVER_URL) {
+  if (!RESOLVED_DEV_SERVER_URL || !defaultAppLaunchTargetArg()) {
     return;
   }
 
@@ -8965,25 +9010,9 @@ function defaultAppProtocolClientArgs(): string[] {
     return [packageRoot];
   }
 
-  const flagsWithSeparateValue = new Set(["--require", "-r"]);
-  for (let index = 1; index < process.argv.length; index += 1) {
-    const argument = process.argv[index]?.trim();
-    if (!argument) {
-      continue;
-    }
-    if (argument.startsWith("-")) {
-      if (
-        flagsWithSeparateValue.has(argument) &&
-        index + 1 < process.argv.length
-      ) {
-        index += 1;
-      }
-      continue;
-    }
-    if (maybeAuthCallbackUrl(argument)) {
-      continue;
-    }
-    return [path.resolve(argument)];
+  const launchTargetArg = defaultAppLaunchTargetArg();
+  if (launchTargetArg) {
+    return [launchTargetArg];
   }
 
   const appPath = app.getAppPath().trim();

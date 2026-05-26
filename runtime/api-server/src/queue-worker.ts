@@ -443,6 +443,35 @@ export class RuntimeQueueWorker implements QueueWorkerLike {
         }
       }
 
+      if (recovery.failureKind === "claim_expired" && activeRun) {
+        const renewedClaim = this.#store.renewInputClaim({
+          workspaceId: record.workspaceId,
+          inputId: record.inputId,
+          claimedBy: this.#claimedBy,
+          leaseSeconds: this.#leaseSeconds,
+        });
+        if (renewedClaim?.claimedUntil) {
+          this.#store.updateRuntimeState({
+            workspaceId: record.workspaceId,
+            sessionId: record.sessionId,
+            status: "BUSY",
+            currentInputId: record.inputId,
+            currentWorkerId: this.#claimedBy,
+            leaseUntil: renewedClaim.claimedUntil,
+            lastError: null,
+          });
+          this.#logger?.info?.(
+            "Renewed expired claimed runtime input lease for local active run",
+            {
+              inputId: record.inputId,
+              workspaceId: record.workspaceId,
+              sessionId: record.sessionId,
+            },
+          );
+          continue;
+        }
+      }
+
       activeRun?.controller.abort("claim_expired");
       const events = this.#store.listOutputEvents({
         workspaceId: record.workspaceId,
