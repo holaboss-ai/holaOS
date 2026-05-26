@@ -266,8 +266,8 @@ export async function packageWindowsRuntime(
     mkdirSync(binDir, { recursive: true });
     if (!skipNodeDeps) {
       cpSync(buildNodeRuntimeDir, nodeRuntimeDir, { recursive: true, dereference: true });
-      prunePackagedTree(nodeRuntimeDir, "windows");
       stageWindowsNodeCommandLaunchers(outputRoot);
+      prunePackagedTree(nodeRuntimeDir, "windows");
     }
 
     const pythonStageResult = await stagePythonRuntime(outputRoot, "windows");

@@ -66,7 +66,7 @@ test("package_windows_runtime.mjs writes launchers that use the bundled node run
   assert.match(source, /HOLABOSS_RUNTIME_BUILD_NPM_CLI: buildNpmCli/);
   assert.match(source, /runNpm\(\["install", "--prefix", buildNodeRuntimeDir, `node@\$\{nodeVersion\}`, `npm@\$\{npmVersion\}`\]/);
   assert.match(source, /cpSync\(buildNodeRuntimeDir, nodeRuntimeDir, \{ recursive: true, dereference: true \}\)/);
-  assert.match(source, /prunePackagedTree\(nodeRuntimeDir, "windows"\)/);
+  assert.match(source, /stageWindowsNodeCommandLaunchers\(outputRoot\);\s*prunePackagedTree\(nodeRuntimeDir, "windows"\)/);
   assert.match(source, /const pythonStageResult = await stagePythonRuntime\(outputRoot, "windows"\);/);
   assert.match(source, /bundled_npm_bin: Boolean\(bundledNpmBin\)/);
   assert.match(source, /bundled_npm_version: skipNodeDeps \? null : npmVersion/);
