@@ -266,6 +266,18 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
   const [workspaceUsageByConnection, setWorkspaceUsageByConnection] = useState<
     Map<string, ConnectionWorkspaceUsageEntry["workspaces"]>
   >(new Map());
+  // workspace-default account per (provider slug, workspace id). Drives the
+  // "Default here" inline chip on connection rows and the Manage-expand
+  // dropdown that lets users pick which account each workspace defaults to.
+  // Nested map shape: providerSlug → workspaceId → connectionId.
+  const [defaultsByProvider, setDefaultsByProvider] = useState<
+    Map<string, Map<string, string>>
+  >(new Map());
+  // Connection id currently being mutated to a different default — used
+  // to disable the dropdown row while the PUT is in flight.
+  const [mutatingDefaultKey, setMutatingDefaultKey] = useState<string | null>(
+    null,
+  );
   const [storeCatalog, setStoreCatalog] = useState<
     Map<string, IntegrationStoreCatalogEntry>
   >(new Map());
@@ -347,6 +359,112 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
   useEffect(() => {
     void loadData();
   }, [isSignedIn, loadData]);
+
+  // Fetch each (workspace × provider-with-connections) default-account
+  // mapping. Runs whenever workspaces or connections shift. Keyed off
+  // connection ids so reordering or unchanged connection lists don't refetch.
+  const connectionIdsKey = useMemo(
+    () => connections.map((c) => c.connection_id).sort().join("|"),
+    [connections],
+  );
+  const workspaceIdsKey = useMemo(
+    () => workspaces.map((w) => w.id).sort().join("|"),
+    [workspaces],
+  );
+  useEffect(() => {
+    if (workspaces.length === 0 || connections.length === 0) {
+      setDefaultsByProvider(new Map());
+      return;
+    }
+    const distinctProviders = Array.from(
+      new Set(connections.map((c) => c.provider_id)),
+    );
+    const pairs: Array<{ wsId: string; provider: string }> = [];
+    for (const ws of workspaces) {
+      for (const provider of distinctProviders) {
+        pairs.push({ wsId: ws.id, provider });
+      }
+    }
+    let cancelled = false;
+    void Promise.all(
+      pairs.map((pair) =>
+        window.electronAPI.workspace
+          .getWorkspaceDefaultAccount(pair.wsId, pair.provider)
+          .then((res) => ({
+            ...pair,
+            connectionId: res.connection_id,
+          }))
+          .catch(() => ({
+            ...pair,
+            connectionId: null as string | null,
+          })),
+      ),
+    ).then((results) => {
+      if (cancelled) return;
+      const map = new Map<string, Map<string, string>>();
+      for (const r of results) {
+        if (!r.connectionId) continue;
+        let inner = map.get(r.provider);
+        if (!inner) {
+          inner = new Map();
+          map.set(r.provider, inner);
+        }
+        inner.set(r.wsId, r.connectionId);
+      }
+      setDefaultsByProvider(map);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // workspaceIdsKey + connectionIdsKey collapse identity-stable arrays into
+    // strings so this only re-runs on real membership change.
+  }, [workspaceIdsKey, connectionIdsKey, workspaces, connections]);
+
+  const handleSetWorkspaceDefault = useCallback(
+    async (
+      workspaceId: string,
+      providerId: string,
+      connectionId: string,
+    ) => {
+      const key = `${workspaceId}:${providerId}`;
+      setMutatingDefaultKey(key);
+      // Optimistic: snap the controlled <select> to the new value
+      // immediately, otherwise it would visibly bounce back during the
+      // in-flight PUT.
+      let previousDefault: string | undefined;
+      setDefaultsByProvider((prev) => {
+        const next = new Map(prev);
+        const inner = new Map(next.get(providerId) ?? new Map());
+        previousDefault = inner.get(workspaceId);
+        inner.set(workspaceId, connectionId);
+        next.set(providerId, inner);
+        return next;
+      });
+      try {
+        await window.electronAPI.workspace.setWorkspaceDefaultAccount(
+          workspaceId,
+          providerId,
+          connectionId,
+        );
+      } catch (error) {
+        setDefaultsByProvider((prev) => {
+          const next = new Map(prev);
+          const inner = new Map(next.get(providerId) ?? new Map());
+          if (previousDefault) {
+            inner.set(workspaceId, previousDefault);
+          } else {
+            inner.delete(workspaceId);
+          }
+          next.set(providerId, inner);
+          return next;
+        });
+        setStatusMessage(normalizeErrorMessage(error));
+      } finally {
+        setMutatingDefaultKey(null);
+      }
+    },
+    [],
+  );
 
   const runningContextFetchConnectionIds = useMemo(
     () =>
@@ -1267,6 +1385,18 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                 }
                 workspaceUsageByConnection={workspaceUsageByConnection}
                 workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
+                defaultsByWorkspace={
+                  defaultsByProvider.get(integration.providerId) ?? new Map()
+                }
+                selectedWorkspaceId={selectedWorkspaceId}
+                mutatingDefaultKey={mutatingDefaultKey}
+                onSetWorkspaceDefault={(workspaceId, connectionId) =>
+                  void handleSetWorkspaceDefault(
+                    workspaceId,
+                    integration.providerId,
+                    connectionId,
+                  )
+                }
               />
             ))}
           </div>
@@ -1484,6 +1614,18 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                   }
                   workspaceUsageByConnection={workspaceUsageByConnection}
                   workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
+                  defaultsByWorkspace={
+                    defaultsByProvider.get(integration.providerId) ?? new Map()
+                  }
+                  selectedWorkspaceId={selectedWorkspaceId}
+                  mutatingDefaultKey={mutatingDefaultKey}
+                  onSetWorkspaceDefault={(workspaceId, connectionId) =>
+                    void handleSetWorkspaceDefault(
+                      workspaceId,
+                      integration.providerId,
+                      connectionId,
+                    )
+                  }
                 />
               ))}
             </div>
@@ -1635,6 +1777,10 @@ function ConnectedProviderCard({
   onToggleExpanded,
   onSetWorkspaceEnabled,
   mutatingOverrideKey,
+  defaultsByWorkspace,
+  selectedWorkspaceId,
+  mutatingDefaultKey,
+  onSetWorkspaceDefault,
 }: {
   integration: IntegrationCard;
   connections: IntegrationConnectionPayload[];
@@ -1670,6 +1816,14 @@ function ConnectedProviderCard({
   onToggleExpanded: () => void;
   onSetWorkspaceEnabled: (workspaceId: string, enabled: boolean) => void;
   mutatingOverrideKey: string | null;
+  /** Map of workspaceId → default connectionId for THIS provider. */
+  defaultsByWorkspace: Map<string, string>;
+  /** Currently focused workspace — drives the inline "Default here" chip
+   *  on the connection row. */
+  selectedWorkspaceId: string | null;
+  /** Key `${workspaceId}:${providerId}` currently being mutated. */
+  mutatingDefaultKey: string | null;
+  onSetWorkspaceDefault: (workspaceId: string, connectionId: string) => void;
 }) {
   const containerClass = compact
     ? "flex flex-col gap-1 rounded-xl bg-card px-3 py-2.5 ring-1 ring-border"
@@ -1752,6 +1906,9 @@ function ConnectedProviderCard({
             : 0;
           const usage = workspaceUsageByConnection.get(conn.connection_id) ?? [];
           const workspaceCount = new Set(usage.map((u) => u.workspace_id)).size;
+          const isDefaultHere =
+            selectedWorkspaceId != null &&
+            defaultsByWorkspace.get(selectedWorkspaceId) === conn.connection_id;
           const flashRejected =
             flashRejectedConnectionId === conn.connection_id;
           return (
@@ -1791,6 +1948,14 @@ function ConnectedProviderCard({
                 <span className="min-w-0 flex-1 truncate text-xs text-foreground">
                   {label}
                 </span>
+                {isDefaultHere ? (
+                  <span
+                    className="shrink-0 rounded-sm bg-foreground/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-foreground"
+                    title="Default account for the currently-selected workspace"
+                  >
+                    Default here
+                  </span>
+                ) : null}
                 {workspaceCount > 0 ? (
                   <span className="shrink-0 text-[10px] text-muted-foreground">
                     {workspaceCount === 1
@@ -1928,6 +2093,11 @@ function ConnectedProviderCard({
           toolkitOverrides={toolkitOverrides}
           toolkitSlug={integration.providerId}
           workspaces={workspaces}
+          connections={connections}
+          metadata={metadata}
+          defaultsByWorkspace={defaultsByWorkspace}
+          mutatingDefaultKey={mutatingDefaultKey}
+          onSetWorkspaceDefault={onSetWorkspaceDefault}
         />
       </div>
     </div>
@@ -1942,6 +2112,11 @@ function WorkspaceScopeSection({
   onToggleExpanded,
   onSetWorkspaceEnabled,
   mutatingOverrideKey,
+  connections,
+  metadata,
+  defaultsByWorkspace,
+  mutatingDefaultKey,
+  onSetWorkspaceDefault,
 }: {
   workspaces: WorkspaceSummary[];
   toolkitOverrides: Map<string, WorkspaceOverrideDescriptor>;
@@ -1950,6 +2125,12 @@ function WorkspaceScopeSection({
   onToggleExpanded: () => void;
   onSetWorkspaceEnabled: (workspaceId: string, enabled: boolean) => void;
   mutatingOverrideKey: string | null;
+  connections: IntegrationConnectionPayload[];
+  metadata: Map<string, ComposioAccountStatus>;
+  /** Map of workspaceId → default connectionId for this provider. */
+  defaultsByWorkspace: Map<string, string>;
+  mutatingDefaultKey: string | null;
+  onSetWorkspaceDefault: (workspaceId: string, connectionId: string) => void;
 }) {
   const disabledWorkspaceIds: string[] = [];
   for (const ws of workspaces) {
@@ -1990,14 +2171,60 @@ function WorkspaceScopeSection({
                 const enabled = override?.state !== "disabled";
                 const key = `${ws.id}:${toolkitSlug}`;
                 const mutating = mutatingOverrideKey === key;
+                const defaultConnectionId = defaultsByWorkspace.get(ws.id) ?? "";
+                const defaultMutating =
+                  mutatingDefaultKey === `${ws.id}:${toolkitSlug}`;
+                // Hide the default picker when there's nothing to pick
+                // (zero or one connection) — the implicit default is
+                // unambiguous in that case.
+                const showDefaultPicker = enabled && connections.length > 1;
                 return (
                   <li
                     className="flex items-center justify-between gap-3 rounded-md bg-muted/40 px-2.5 py-1.5"
                     key={ws.id}
                   >
-                    <span className="truncate text-xs text-foreground">
+                    <span className="min-w-0 flex-1 truncate text-xs text-foreground">
                       {ws.name || ws.id}
                     </span>
+                    {showDefaultPicker ? (
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {defaultMutating ? (
+                          <Loader2 className="size-3 animate-spin text-muted-foreground" />
+                        ) : null}
+                        <select
+                          aria-label={`Default account for ${ws.name || ws.id}`}
+                          className="max-w-[160px] cursor-pointer truncate rounded-sm border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground outline-none focus:ring-1 focus:ring-ring"
+                          disabled={defaultMutating}
+                          onChange={(e) => {
+                            const nextId = e.currentTarget.value;
+                            if (!nextId || nextId === defaultConnectionId)
+                              return;
+                            onSetWorkspaceDefault(ws.id, nextId);
+                          }}
+                          value={defaultConnectionId}
+                        >
+                          {defaultConnectionId ? null : (
+                            <option value="">Auto (first available)</option>
+                          )}
+                          {connections.map((conn, connIndex) => {
+                            const m = metadata.get(conn.connection_id);
+                            const optLabel = accountDisplayLabel(
+                              conn,
+                              m,
+                              connIndex,
+                            );
+                            return (
+                              <option
+                                key={conn.connection_id}
+                                value={conn.connection_id}
+                              >
+                                {optLabel}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+                    ) : null}
                     <label className="flex shrink-0 cursor-pointer items-center gap-2 text-[10px] text-muted-foreground">
                       {mutating ? (
                         <Loader2 className="size-3 animate-spin" />
