@@ -80,6 +80,18 @@ test("continueSubagent queues a new input onto the same completed child session"
       kind: "main_session",
       createdBy: "workspace_user",
     });
+    const assignee = store.ensureGeneralTeammate(workspaceId);
+    store.createIssue({
+      workspaceId,
+      issueId: "HOL-1",
+      sessionId: childSessionId,
+      title: "Web search for AI",
+      description: "Search the web for AI.",
+      status: "done",
+      assigneeTeammateId: assignee.teammateId,
+      latestSubagentId: subagentId,
+      completedAt,
+    });
     store.ensureSession({
       workspaceId,
       sessionId: childSessionId,
@@ -118,6 +130,8 @@ test("continueSubagent queues a new input onto the same completed child session"
       title: "Web search for AI",
       goal: "Search the web for AI.",
       sourceType: "delegate_task",
+      issueId: "HOL-1",
+      teammateId: assignee.teammateId,
       effectiveModel: "openai/gpt-5.4",
       status: "completed",
       summary: "Top AI results.",
@@ -176,6 +190,11 @@ test("continueSubagent queues a new input onto the same completed child session"
       continued_from_input_id: firstInput.inputId,
       continued_from_status: "completed",
     });
+    const issue = store.getIssue({ workspaceId, issueId: "HOL-1" });
+    assert.equal(issue?.status, "todo");
+    assert.equal(issue?.latestSubagentId, subagentId);
+    assert.equal(issue?.activeSubagentId, null);
+    assert.equal(issue?.completedAt, null);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });
@@ -404,6 +423,104 @@ test("continueSubagent falls back to the controller session's latest model inste
     });
     assert.equal(nextInput?.payload.model, "openai/gpt-5.5");
     assert.equal(nextInput?.payload.thinking_value, "medium");
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("delegateTask creates issue-owned runs and routes to a matching custom teammate", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-delegate-issue-"));
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const mainSessionId = "main-1";
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.ensureSession({
+      workspaceId,
+      sessionId: mainSessionId,
+      kind: "main_session",
+      createdBy: "workspace_user",
+    });
+    const teammate = store.createTeammate({
+      workspaceId,
+      name: "Frontend",
+      instructions: "Own dashboard, UI, frontend, and React implementation work.",
+      skills: [
+        {
+          name: "Dashboard UI",
+          content: "# Dashboard UI\nImplement dashboard cards, charts, and React surfaces.",
+        },
+      ],
+    });
+    const parentInput = store.enqueueInput({
+      workspaceId,
+      sessionId: mainSessionId,
+      payload: {
+        text: "Ship the dashboard UI update.",
+      },
+    });
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    const result = service.delegateTask({
+      workspaceId,
+      sessionId: mainSessionId,
+      inputId: parentInput.inputId,
+      tasks: [
+        {
+          title: "Dashboard UI",
+          goal: "Implement the dashboard cards and charts in React.",
+          context: "This is frontend UI work for the workspace home dashboard.",
+        },
+      ],
+    }) as { tasks?: Array<Record<string, unknown>> };
+
+    const delegatedTask = result.tasks?.[0];
+    assert.ok(delegatedTask);
+    assert.equal(delegatedTask?.issue_id, "HOL-1");
+    assert.equal(delegatedTask?.teammate_id, teammate.teammateId);
+    const issue = store.getIssue({
+      workspaceId,
+      issueId: String(delegatedTask?.issue_id),
+    });
+    assert.ok(issue);
+    assert.equal(issue?.status, "todo");
+    assert.equal(issue?.assigneeTeammateId, teammate.teammateId);
+    assert.equal(issue?.latestSubagentId, delegatedTask?.subagent_id);
+    assert.equal(issue?.description, [
+      "Implement the dashboard cards and charts in React.",
+      "",
+      "Context:",
+      "This is frontend UI work for the workspace home dashboard.",
+    ].join("\n"));
+    assert.equal(delegatedTask?.child_session_id, issue?.sessionId);
+    const delegatedInput = store.getInput({
+      workspaceId,
+      inputId: String(delegatedTask?.latest_child_input_id ?? ""),
+    });
+    assert.ok(delegatedInput);
+    assert.equal(
+      (delegatedInput?.payload.context as Record<string, unknown> | undefined)?.issue_id,
+      issue?.issueId,
+    );
+    assert.equal(
+      (delegatedInput?.payload.context as Record<string, unknown> | undefined)?.teammate_id,
+      teammate.teammateId,
+    );
+    const issueSession = store.getSession({
+      workspaceId,
+      sessionId: String(delegatedTask?.child_session_id ?? ""),
+    });
+    assert.equal(issueSession?.parentSessionId, mainSessionId);
+    assert.equal(issueSession?.archivedAt, null);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });
@@ -676,6 +793,17 @@ test("background task sync preserves persisted waiting-on-user blockers", async 
       kind: "main_session",
       createdBy: "workspace_user",
     });
+    const assignee = store.ensureGeneralTeammate(workspaceId);
+    store.createIssue({
+      workspaceId,
+      issueId: "HOL-1",
+      sessionId: childSessionId,
+      title: "Check account stats",
+      description: "Inspect the account stats in the browser.",
+      status: "todo",
+      assigneeTeammateId: assignee.teammateId,
+      latestSubagentId: subagentId,
+    });
     store.ensureSession({
       workspaceId,
       sessionId: childSessionId,
@@ -713,6 +841,8 @@ test("background task sync preserves persisted waiting-on-user blockers", async 
       title: "Check account stats",
       goal: "Inspect the account stats in the browser.",
       sourceType: "delegate_task",
+      issueId: "HOL-1",
+      teammateId: assignee.teammateId,
       status: "completed",
       summary: "Blocked by login.",
       blockingPayload: {
@@ -743,6 +873,13 @@ test("background task sync preserves persisted waiting-on-user blockers", async 
       updatedRun?.blockingPayload?.blocking_question,
       "Please log in or complete the required access step, then tell me to continue.",
     );
+    const issue = store.getIssue({ workspaceId, issueId: "HOL-1" });
+    assert.equal(issue?.status, "blocked");
+    assert.equal(
+      issue?.blockerReason,
+      "Please log in or complete the required access step, then tell me to continue.",
+    );
+    assert.equal(issue?.activeSubagentId, null);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });
@@ -873,6 +1010,18 @@ test("resumeSubagent preserves the prior child thinking value", async () => {
       sessionId: mainSessionId,
       kind: "main_session",
       createdBy: "workspace_user",
+    });
+    const assignee = store.ensureGeneralTeammate(workspaceId);
+    store.createIssue({
+      workspaceId,
+      issueId: "HOL-1",
+      sessionId: childSessionId,
+      title: "Latest news on agent harnesses",
+      description: "Research the latest news on agent harnesses.",
+      status: "in_progress",
+      assigneeTeammateId: assignee.teammateId,
+      activeSubagentId: subagentId,
+      latestSubagentId: subagentId,
     });
     store.ensureSession({
       workspaceId,
@@ -1097,6 +1246,18 @@ test("cancelSubagent waits for a claimed child runtime to settle before returnin
       kind: "main_session",
       createdBy: "workspace_user",
     });
+    const assignee = store.ensureGeneralTeammate(workspaceId);
+    store.createIssue({
+      workspaceId,
+      issueId: "HOL-1",
+      sessionId: childSessionId,
+      title: "Latest news on agent harnesses",
+      description: "Research the latest news on agent harnesses.",
+      status: "in_progress",
+      assigneeTeammateId: assignee.teammateId,
+      activeSubagentId: subagentId,
+      latestSubagentId: subagentId,
+    });
     store.ensureSession({
       workspaceId,
       sessionId: childSessionId,
@@ -1138,6 +1299,8 @@ test("cancelSubagent waits for a claimed child runtime to settle before returnin
       title: "Latest news on agent harnesses",
       goal: "Research the latest news on agent harnesses.",
       sourceType: "delegate_task",
+      issueId: "HOL-1",
+      teammateId: assignee.teammateId,
       status: "running",
       startedAt,
     });
@@ -1207,6 +1370,10 @@ test("cancelSubagent waits for a claimed child runtime to settle before returnin
       latest_turn_status: "paused",
       latest_turn_stop_reason: "paused",
     });
+    const issue = store.getIssue({ workspaceId, issueId: "HOL-1" });
+    assert.equal(issue?.status, "blocked");
+    assert.equal(issue?.blockerReason, "Run cancelled by user.");
+    assert.equal(issue?.activeSubagentId, null);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });

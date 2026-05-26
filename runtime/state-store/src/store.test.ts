@@ -3821,6 +3821,147 @@ test("task proposal acceptance fields and child session metadata round trip", ()
   store.close();
 });
 
+test("issues round trip creates persistent sessions and stable HOL numbering", () => {
+  const root = makeTempDir("hb-state-store-issues-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Issue Workspace",
+    harness: "pi",
+    status: "active",
+  });
+
+  const general = store.ensureGeneralTeammate("workspace-1");
+  const first = store.createIssue({
+    workspaceId: "workspace-1",
+    title: "Implement dashboard",
+    description: "Build the initial dashboard surface.",
+    status: "todo",
+    priority: "high",
+    assigneeTeammateId: general.teammateId,
+    attachments: [
+      {
+        id: "attachment-1",
+        kind: "file",
+        name: "brief.md",
+        mimeType: "text/markdown",
+        sizeBytes: 128,
+        workspacePath: "docs/brief.md",
+      },
+    ],
+  });
+  const second = store.createIssue({
+    workspaceId: "workspace-1",
+    title: "Instrument homepage metrics",
+    status: "backlog",
+  });
+  const listed = store.listIssues({ workspaceId: "workspace-1" });
+  const fetchedBySession = store.getIssueBySessionId({
+    workspaceId: "workspace-1",
+    sessionId: first.sessionId,
+  });
+  const updated = store.updateIssue({
+    workspaceId: "workspace-1",
+    issueId: first.issueId,
+    fields: {
+      title: "Implement workspace dashboard",
+      status: "done",
+      priority: "critical",
+    }
+  });
+  const updatedSession = store.getSession({
+    workspaceId: "workspace-1",
+    sessionId: first.sessionId,
+  });
+
+  assert.equal(first.issueId, "HOL-1");
+  assert.equal(first.issueNumber, 1);
+  assert.equal(first.status, "todo");
+  assert.equal(first.priority, "high");
+  assert.equal(first.attachments.length, 1);
+  assert.equal(second.issueId, "HOL-2");
+  assert.equal(second.issueNumber, 2);
+  assert.equal(listed.length, 2);
+  assert.equal(fetchedBySession?.issueId, first.issueId);
+  assert.equal(updated?.status, "done");
+  assert.equal(updated?.priority, "critical");
+  assert.ok(updated?.completedAt);
+  assert.equal(updatedSession?.title, "Implement workspace dashboard");
+  store.close();
+});
+
+test("archiving a custom teammate unassigns issues and cancels linked runs", () => {
+  const root = makeTempDir("hb-state-store-teammates-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Teammate Workspace",
+    harness: "pi",
+    status: "active",
+  });
+
+  const custom = store.createTeammate({
+    workspaceId: "workspace-1",
+    name: "Coder",
+    instructions: "Own implementation tickets.",
+    skills: [
+      {
+        skillId: "skill-1",
+        name: "Frontend",
+        content: "# Frontend\nBuild UI surfaces.",
+      },
+    ],
+  });
+  const issue = store.createIssue({
+    workspaceId: "workspace-1",
+    title: "Ship issue board",
+    status: "in_progress",
+    assigneeTeammateId: custom.teammateId,
+    activeSubagentId: "run-1",
+  });
+  store.createSubagentRun({
+    subagentId: "run-1",
+    workspaceId: "workspace-1",
+    originMainSessionId: issue.sessionId,
+    ownerMainSessionId: issue.sessionId,
+    childSessionId: "subagent-session-1",
+    goal: "Ship issue board",
+    status: "running",
+    issueId: issue.issueId,
+    teammateId: custom.teammateId,
+  });
+
+  const archived = store.archiveTeammate({
+    workspaceId: "workspace-1",
+    teammateId: custom.teammateId,
+  });
+  const updatedIssue = store.getIssue({
+    workspaceId: "workspace-1",
+    issueId: issue.issueId,
+  });
+  const updatedRun = store.getSubagentRun({
+    workspaceId: "workspace-1",
+    subagentId: "run-1",
+  });
+  const visibleTeammates = store.listTeammates({ workspaceId: "workspace-1" });
+
+  assert.equal(archived?.status, "archived");
+  assert.ok(archived?.archivedAt);
+  assert.equal(updatedIssue?.status, "todo");
+  assert.equal(updatedIssue?.assigneeTeammateId, null);
+  assert.equal(updatedIssue?.activeSubagentId, null);
+  assert.equal(updatedRun?.status, "cancelled");
+  assert.equal(visibleTeammates.some((record) => record.teammateId === custom.teammateId), false);
+  assert.equal(visibleTeammates[0]?.teammateId, "general");
+  store.close();
+});
+
 test("listSessions preserves millisecond ordering for latest session selection", async () => {
   const root = makeTempDir("hb-state-store-");
   const store = new RuntimeStateStore({

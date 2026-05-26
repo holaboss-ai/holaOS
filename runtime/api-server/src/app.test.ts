@@ -6153,6 +6153,130 @@ test("cronjobs, task proposals, and session state routes preserve local payload 
   store.close();
 });
 
+test("teammate and issue routes preserve local payload shape", async () => {
+  const root = makeTempDir("hb-runtime-api-teammates-issues-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace Issues",
+    harness: "pi",
+    status: "active",
+  });
+  const workspaceDir = store.workspaceDir(workspace.id);
+  fs.mkdirSync(path.join(workspaceDir, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(workspaceDir, "docs", "brief.md"), "# Brief\n", "utf8");
+
+  const createdTeammate = await app.inject({
+    method: "POST",
+    url: "/api/v1/teammates",
+    payload: {
+      workspace_id: workspace.id,
+      name: "Coder",
+      instructions: "Own implementation tasks.",
+      skills: [
+        {
+          skill_id: "skill-1",
+          name: "Frontend",
+          content: "# Frontend\nBuild UI surfaces."
+        }
+      ]
+    }
+  });
+  assert.equal(createdTeammate.statusCode, 200);
+  assert.equal(createdTeammate.json().teammate.name, "Coder");
+  assert.equal(createdTeammate.json().teammate.skills.length, 1);
+
+  const listedTeammates = await app.inject({
+    method: "GET",
+    url: `/api/v1/teammates?workspace_id=${workspace.id}`
+  });
+  assert.equal(listedTeammates.statusCode, 200);
+  assert.equal(listedTeammates.json().count, 2);
+  assert.equal(listedTeammates.json().teammates[0]?.teammate_id, "general");
+
+  const createdIssue = await app.inject({
+    method: "POST",
+    url: "/api/v1/issues",
+    payload: {
+      workspace_id: workspace.id,
+      title: "Ship dashboard",
+      description: "Implement the workspace dashboard surface.",
+      status: "todo",
+      priority: "medium",
+      assignee_teammate_id: createdTeammate.json().teammate.teammate_id,
+      attachments: [
+        {
+          id: "attachment-1",
+          kind: "file",
+          name: "brief.md",
+          mime_type: "text/markdown",
+          size_bytes: 8,
+          workspace_path: "docs/brief.md"
+        }
+      ]
+    }
+  });
+  assert.equal(createdIssue.statusCode, 200);
+  assert.equal(createdIssue.json().issue.issue_id, "HOL-1");
+  assert.equal(createdIssue.json().issue.issue_number, 1);
+  assert.equal(createdIssue.json().issue.attachments.length, 1);
+  assert.equal(createdIssue.json().session.kind, "subagent");
+  const issueBinding = store.getBinding({
+    workspaceId: workspace.id,
+    sessionId: createdIssue.json().session.session_id,
+  });
+  assert.ok(issueBinding);
+  assert.equal(issueBinding?.harness, "pi");
+
+  const updatedIssue = await app.inject({
+    method: "PATCH",
+    url: "/api/v1/issues/HOL-1",
+    payload: {
+      workspace_id: workspace.id,
+      status: "blocked",
+      blocker_reason: "Need product sign-off"
+    }
+  });
+  assert.equal(updatedIssue.statusCode, 200);
+  assert.equal(updatedIssue.json().issue.status, "blocked");
+  assert.equal(updatedIssue.json().issue.blocker_reason, "Need product sign-off");
+
+  const archivedTeammate = await app.inject({
+    method: "PATCH",
+    url: `/api/v1/teammates/${createdTeammate.json().teammate.teammate_id}`,
+    payload: {
+      workspace_id: workspace.id,
+      status: "archived"
+    }
+  });
+  assert.equal(archivedTeammate.statusCode, 200);
+  assert.equal(archivedTeammate.json().teammate.status, "archived");
+
+  const fetchedIssue = await app.inject({
+    method: "GET",
+    url: `/api/v1/issues/HOL-1?workspace_id=${workspace.id}`
+  });
+  assert.equal(fetchedIssue.statusCode, 200);
+  assert.equal(fetchedIssue.json().issue.status, "todo");
+  assert.equal(fetchedIssue.json().issue.assignee_teammate_id, null);
+
+  const visibleTeammates = await app.inject({
+    method: "GET",
+    url: `/api/v1/teammates?workspace_id=${workspace.id}`
+  });
+  assert.equal(visibleTeammates.statusCode, 200);
+  assert.equal(visibleTeammates.json().count, 1);
+  assert.equal(visibleTeammates.json().teammates[0]?.teammate_id, "general");
+
+  await app.close();
+  store.close();
+});
+
 test("raw cronjob routes keep draft lab jobs disabled by default", async () => {
   const root = makeTempDir("hb-runtime-api-lab-cron-routes-");
   const store = new RuntimeStateStore({
@@ -9145,6 +9269,11 @@ test("accept task proposal creates a hidden subagent run with queued work", asyn
   assert.equal(body.proposal.proposal_source, "proactive");
   assert.equal(body.proposal.accepted_input_id, body.input.input_id);
   assert.equal(body.proposal.accepted_session_id, body.session.session_id);
+  assert.equal(body.issue.issue_id, "HOL-1");
+  assert.equal(body.issue.session_id, body.session.session_id);
+  assert.equal(body.issue.status, "todo");
+  assert.equal(body.issue.assignee_teammate_id, "general");
+  assert.equal(body.issue.description, "Write the follow-up and send a reminder");
   assert.equal(body.session.kind, "subagent");
   assert.equal(body.session.parent_session_id, "session-main");
   assert.equal(body.session.source_proposal_id, "proposal-1");
@@ -9179,6 +9308,8 @@ test("accept task proposal creates a hidden subagent run with queued work", asyn
     proposal_id: "proposal-1",
     proposal_source: "proactive",
     subagent_id: childContext.subagent_id,
+    issue_id: "HOL-1",
+    teammate_id: "general",
     parent_session_id: "session-main",
     origin_main_session_id: "session-main",
     owner_main_session_id: "session-main",
@@ -9192,6 +9323,8 @@ test("accept task proposal creates a hidden subagent run with queued work", asyn
   });
   assert.ok(subagentRun);
   assert.equal(subagentRun?.childSessionId, body.session.session_id);
+  assert.equal(subagentRun?.issueId, "HOL-1");
+  assert.equal(subagentRun?.teammateId, "general");
   assert.equal(subagentRun?.proposalId, "proposal-1");
   assert.equal(subagentRun?.sourceType, "task_proposal");
   assert.equal(subagentRun?.status, "queued");
@@ -9334,6 +9467,7 @@ test("accepting and dismissing evolve task proposals updates linked skill candid
   assert.equal(accepted.statusCode, 200);
   const acceptedBody = accepted.json();
   assert.equal(acceptedBody.proposal.proposal_source, "evolve");
+  assert.equal(acceptedBody.issue.assignee_teammate_id, "general");
   assert.equal(acceptedBody.session.kind, "subagent");
   const acceptedInput = store.getInput({ workspaceId: workspace.id, inputId: acceptedBody.input.input_id });
   assert.ok(acceptedInput);
@@ -9344,6 +9478,8 @@ test("accepting and dismissing evolve task proposals updates linked skill candid
     proposal_id: "evolve-proposal-1",
     proposal_source: "evolve",
     subagent_id: acceptedContext.subagent_id,
+    issue_id: acceptedBody.issue.issue_id,
+    teammate_id: "general",
     parent_session_id: "session-main",
     origin_main_session_id: "session-main",
     owner_main_session_id: "session-main",

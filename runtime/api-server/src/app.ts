@@ -19,6 +19,10 @@ import {
   type AppBuildRecord,
   type AppCatalogEntryRecord,
   type CronjobRecord,
+  type IssueAttachmentRecord,
+  type IssueRecord,
+  type TeammateRecord,
+  type TeammateSkillRecord,
   type MemoryUpdateProposalRecord,
   type OutputFolderRecord,
   type OutputRecord,
@@ -875,6 +879,44 @@ function attachmentsFromInputPayload(value: unknown): SessionInputAttachmentPayl
   return value.map((item) => parseSessionInputAttachment(item)).filter((item): item is SessionInputAttachmentPayload => Boolean(item));
 }
 
+function requiredIssueAttachments(value: unknown, workspaceDir: string): IssueAttachmentRecord[] {
+  return requiredSessionInputAttachments(value, workspaceDir).map((attachment) => ({
+    id: attachment.id,
+    kind: attachment.kind,
+    name: attachment.name,
+    mimeType: attachment.mime_type,
+    sizeBytes: attachment.size_bytes,
+    workspacePath: attachment.workspace_path,
+    createdAt: utcNowIso(),
+  }));
+}
+
+function requiredTeammateSkillInputs(
+  value: unknown,
+  fieldName: string,
+): Array<Partial<TeammateSkillRecord> & { name: string; content: string }> {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an array`);
+  }
+  return value.map((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`${fieldName}[${index}] must be an object`);
+    }
+    const name = requiredString(entry.name, `${fieldName}[${index}].name`);
+    const content = requiredString(entry.content, `${fieldName}[${index}].content`);
+    return {
+      skillId: nullableString(entry.skill_id) ?? undefined,
+      name,
+      content,
+      createdAt: nullableString(entry.created_at) ?? undefined,
+      updatedAt: nullableString(entry.updated_at) ?? undefined,
+    };
+  });
+}
+
 function sessionMessageAttachments(
   store: RuntimeStateStore,
   workspaceId: string,
@@ -1315,6 +1357,65 @@ function runtimeNotificationPayload(record: RuntimeNotificationRecord): Record<s
     dismissed_at: record.dismissedAt,
     created_at: record.createdAt,
     updated_at: record.updatedAt
+  };
+}
+
+function teammateSkillPayload(record: TeammateSkillRecord): Record<string, unknown> {
+  return {
+    skill_id: record.skillId,
+    name: record.name,
+    content: record.content,
+    created_at: record.createdAt,
+    updated_at: record.updatedAt,
+  };
+}
+
+function teammatePayload(record: TeammateRecord): Record<string, unknown> {
+  return {
+    teammate_id: record.teammateId,
+    workspace_id: record.workspaceId,
+    name: record.name,
+    kind: record.kind,
+    status: record.status,
+    instructions: record.instructions,
+    skills: record.skills.map((skill) => teammateSkillPayload(skill)),
+    created_at: record.createdAt,
+    updated_at: record.updatedAt,
+    archived_at: record.archivedAt,
+  };
+}
+
+function issueAttachmentPayload(record: IssueAttachmentRecord): Record<string, unknown> {
+  return {
+    id: record.id,
+    kind: record.kind,
+    name: record.name,
+    mime_type: record.mimeType,
+    size_bytes: record.sizeBytes,
+    workspace_path: record.workspacePath,
+    created_at: record.createdAt,
+  };
+}
+
+function issuePayload(record: IssueRecord): Record<string, unknown> {
+  return {
+    issue_id: record.issueId,
+    workspace_id: record.workspaceId,
+    issue_number: record.issueNumber,
+    session_id: record.sessionId,
+    title: record.title,
+    description: record.description,
+    status: record.status,
+    priority: record.priority,
+    assignee_teammate_id: record.assigneeTeammateId,
+    blocker_reason: record.blockerReason,
+    attachments: record.attachments.map((attachment) => issueAttachmentPayload(attachment)),
+    active_subagent_id: record.activeSubagentId,
+    latest_subagent_id: record.latestSubagentId,
+    created_by: record.createdBy,
+    created_at: record.createdAt,
+    updated_at: record.updatedAt,
+    completed_at: record.completedAt,
   };
 }
 
@@ -10792,6 +10893,270 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     };
   });
 
+  app.get("/api/v1/teammates", async (request, reply) => {
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(query.workspace_id);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
+    if (!store.getWorkspace(workspaceId)) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    if (!requireHealthyWorkspaceFolder(store, workspaceId, reply)) {
+      return;
+    }
+    const teammates = store
+      .listTeammates({
+        workspaceId,
+        includeArchived: optionalBoolean(query.include_archived),
+      })
+      .map((record) => teammatePayload(record));
+    return { teammates, count: teammates.length };
+  });
+
+  app.get("/api/v1/teammates/:teammateId", async (request, reply) => {
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(query.workspace_id);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
+    if (!store.getWorkspace(workspaceId)) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    if (!requireHealthyWorkspaceFolder(store, workspaceId, reply)) {
+      return;
+    }
+    const params = request.params as { teammateId: string };
+    const teammate = store.getTeammate({
+      workspaceId,
+      teammateId: requiredString(params.teammateId, "teammateId"),
+      includeArchived: optionalBoolean(query.include_archived),
+    });
+    if (!teammate) {
+      return sendError(reply, 404, "teammate not found");
+    }
+    return { teammate: teammatePayload(teammate) };
+  });
+
+  app.post("/api/v1/teammates", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
+    if (!store.getWorkspace(workspaceId)) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    if (!requireHealthyWorkspaceFolder(store, workspaceId, reply)) {
+      return;
+    }
+    try {
+      const teammate = store.createTeammate({
+        teammateId: nullableString(request.body.teammate_id) ?? undefined,
+        workspaceId,
+        name: requiredString(request.body.name, "name"),
+        instructions: nullableString(request.body.instructions) ?? null,
+        skills: requiredTeammateSkillInputs(request.body.skills, "skills"),
+      });
+      return { teammate: teammatePayload(teammate) };
+    } catch (error) {
+      return sendError(reply, 400, error instanceof Error ? error.message : "teammate create failed");
+    }
+  });
+
+  app.patch("/api/v1/teammates/:teammateId", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
+    if (!store.getWorkspace(workspaceId)) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    if (!requireHealthyWorkspaceFolder(store, workspaceId, reply)) {
+      return;
+    }
+    const params = request.params as { teammateId: string };
+    const existing = store.getTeammate({
+      workspaceId,
+      teammateId: requiredString(params.teammateId, "teammateId"),
+      includeArchived: true,
+    });
+    if (!existing) {
+      return sendError(reply, 404, "teammate not found");
+    }
+    if (existing.kind === "system") {
+      return sendError(reply, 403, "system teammates are fixed in v1");
+    }
+
+    try {
+      const requestedStatus = nullableString(request.body.status);
+      const teammate =
+        requestedStatus === "archived"
+          ? store.archiveTeammate({ workspaceId, teammateId: existing.teammateId })
+          : store.updateTeammate({
+              workspaceId,
+              teammateId: existing.teammateId,
+              fields: {
+                name: hasOwn(request.body, "name") ? requiredString(request.body.name, "name") : undefined,
+                status: requestedStatus === "active" ? "active" : undefined,
+                instructions: hasOwn(request.body, "instructions")
+                  ? (nullableString(request.body.instructions) ?? null)
+                  : undefined,
+                skills: hasOwn(request.body, "skills")
+                  ? requiredTeammateSkillInputs(request.body.skills, "skills")
+                  : undefined,
+                archivedAt: requestedStatus === "active" ? null : undefined,
+              },
+            });
+      if (!teammate) {
+        return sendError(reply, 404, "teammate not found");
+      }
+      return { teammate: teammatePayload(teammate) };
+    } catch (error) {
+      return sendError(reply, 400, error instanceof Error ? error.message : "teammate update failed");
+    }
+  });
+
+  app.get("/api/v1/issues", async (request, reply) => {
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(query.workspace_id);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
+    if (!store.getWorkspace(workspaceId)) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    if (!requireHealthyWorkspaceFolder(store, workspaceId, reply)) {
+      return;
+    }
+    const issues = store.listIssues({ workspaceId }).map((record) => issuePayload(record));
+    return { issues, count: issues.length };
+  });
+
+  app.get("/api/v1/issues/:issueId", async (request, reply) => {
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(query.workspace_id);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
+    if (!store.getWorkspace(workspaceId)) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    if (!requireHealthyWorkspaceFolder(store, workspaceId, reply)) {
+      return;
+    }
+    const params = request.params as { issueId: string };
+    const issue = store.getIssue({
+      workspaceId,
+      issueId: requiredString(params.issueId, "issueId"),
+    });
+    if (!issue) {
+      return sendError(reply, 404, "issue not found");
+    }
+    return { issue: issuePayload(issue) };
+  });
+
+  app.post("/api/v1/issues", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
+    const workspace = store.getWorkspace(workspaceId);
+    if (!workspace) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    const workspaceDir = requireHealthyWorkspaceFolder(store, workspaceId, reply);
+    if (!workspaceDir) {
+      return;
+    }
+    try {
+      const issue = store.createIssue({
+        issueId: nullableString(request.body.issue_id) ?? undefined,
+        workspaceId,
+        sessionId: nullableString(request.body.session_id) ?? undefined,
+        title: requiredString(request.body.title, "title"),
+        description: nullableString(request.body.description) ?? null,
+        status: requiredString(request.body.status, "status") as IssueRecord["status"],
+        priority: nullableString(request.body.priority) as IssueRecord["priority"],
+        assigneeTeammateId: nullableString(request.body.assignee_teammate_id) ?? null,
+        blockerReason: nullableString(request.body.blocker_reason) ?? null,
+        attachments: requiredIssueAttachments(request.body.attachments, workspaceDir),
+        createdBy: nullableString(request.body.created_by) ?? "workspace_user",
+      });
+      const session = store.getSession({ workspaceId, sessionId: issue.sessionId });
+      if (session && !store.getBinding({ workspaceId, sessionId: session.sessionId })) {
+        store.upsertBinding({
+          workspaceId,
+          sessionId: session.sessionId,
+          harness: resolvedWorkspaceHarness(workspace),
+          harnessSessionId: session.sessionId,
+        });
+      }
+      return {
+        issue: issuePayload(issue),
+        session: session ? agentSessionPayload(session, store) : null,
+      };
+    } catch (error) {
+      return sendError(reply, 400, error instanceof Error ? error.message : "issue create failed");
+    }
+  });
+
+  app.patch("/api/v1/issues/:issueId", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
+    if (!store.getWorkspace(workspaceId)) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    const workspaceDir = requireHealthyWorkspaceFolder(store, workspaceId, reply);
+    if (!workspaceDir) {
+      return;
+    }
+    const params = request.params as { issueId: string };
+    try {
+      const issue = store.updateIssue({
+        workspaceId,
+        issueId: requiredString(params.issueId, "issueId"),
+        fields: {
+          title: hasOwn(request.body, "title") ? requiredString(request.body.title, "title") : undefined,
+          description: hasOwn(request.body, "description")
+            ? (nullableString(request.body.description) ?? null)
+            : undefined,
+          status: hasOwn(request.body, "status")
+            ? (requiredString(request.body.status, "status") as IssueRecord["status"])
+            : undefined,
+          priority: hasOwn(request.body, "priority")
+            ? (nullableString(request.body.priority) as IssueRecord["priority"])
+            : undefined,
+          assigneeTeammateId: hasOwn(request.body, "assignee_teammate_id")
+            ? (nullableString(request.body.assignee_teammate_id) ?? null)
+            : undefined,
+          blockerReason: hasOwn(request.body, "blocker_reason")
+            ? (nullableString(request.body.blocker_reason) ?? null)
+            : undefined,
+          attachments: hasOwn(request.body, "attachments")
+            ? requiredIssueAttachments(request.body.attachments ?? [], workspaceDir)
+            : undefined,
+          activeSubagentId: hasOwn(request.body, "active_subagent_id")
+            ? (nullableString(request.body.active_subagent_id) ?? null)
+            : undefined,
+          latestSubagentId: hasOwn(request.body, "latest_subagent_id")
+            ? (nullableString(request.body.latest_subagent_id) ?? null)
+            : undefined,
+          completedAt: hasOwn(request.body, "completed_at")
+            ? (nullableString(request.body.completed_at) ?? null)
+            : undefined,
+        },
+      });
+      if (!issue) {
+        return sendError(reply, 404, "issue not found");
+      }
+      return { issue: issuePayload(issue) };
+    } catch (error) {
+      return sendError(reply, 400, error instanceof Error ? error.message : "issue update failed");
+    }
+  });
+
   app.get("/api/v1/task-proposals", async (request, reply) => {
     const query = isRecord(request.query) ? request.query : {};
     const workspaceId = optionalString(query.workspace_id);
@@ -10951,32 +11316,46 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       }
     }
 
-    const session = store.ensureSession({
+    const assignee = store.ensureGeneralTeammate(proposal.workspaceId);
+    const issue = store.createIssue({
       workspaceId: proposal.workspaceId,
       sessionId,
-      kind: "subagent",
       title: taskName,
-      parentSessionId,
-      sourceProposalId: proposal.proposalId,
-      createdBy
+      description: taskPrompt,
+      status: "todo",
+      assigneeTeammateId: assignee.teammateId,
+      createdBy,
     });
-    if (!store.getBinding({ workspaceId: proposal.workspaceId, sessionId })) {
+    const session = store.ensureSession(
+      {
+        workspaceId: proposal.workspaceId,
+        sessionId: issue.sessionId,
+        kind: "subagent",
+        title: taskName,
+        parentSessionId,
+        sourceProposalId: proposal.proposalId,
+        createdBy,
+        archivedAt: null,
+      },
+      { touchExisting: false },
+    );
+    if (!store.getBinding({ workspaceId: proposal.workspaceId, sessionId: session.sessionId })) {
       store.upsertBinding({
         workspaceId: proposal.workspaceId,
-        sessionId,
+        sessionId: session.sessionId,
         harness: resolvedWorkspaceHarness(workspace),
-        harnessSessionId: sessionId
+        harnessSessionId: session.sessionId
       });
     }
     store.ensureRuntimeState({
       workspaceId: proposal.workspaceId,
-      sessionId,
+      sessionId: session.sessionId,
       status: "QUEUED"
     });
 
     const record = store.enqueueInput({
       workspaceId: proposal.workspaceId,
-      sessionId,
+      sessionId: session.sessionId,
       priority,
       payload: {
         text: taskPrompt,
@@ -10989,6 +11368,8 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           proposal_id: proposal.proposalId,
           proposal_source: proposal.proposalSource,
           subagent_id: subagentId,
+          issue_id: issue.issueId,
+          teammate_id: assignee.teammateId,
           parent_session_id: parentSessionId,
           origin_main_session_id: parentSessionId,
           owner_main_session_id: parentSessionId,
@@ -11015,9 +11396,9 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       workspaceId: proposal.workspaceId,
       parentSessionId,
       parentInputId: null,
-      originMainSessionId: parentSessionId ?? sessionId,
-      ownerMainSessionId: parentSessionId ?? sessionId,
-      childSessionId: sessionId,
+      originMainSessionId: parentSessionId ?? session.sessionId,
+      ownerMainSessionId: parentSessionId ?? session.sessionId,
+      childSessionId: session.sessionId,
       initialChildInputId: record.inputId,
       currentChildInputId: record.inputId,
       latestChildInputId: record.inputId,
@@ -11026,6 +11407,8 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       context: null,
       sourceType: "task_proposal",
       sourceId: proposal.proposalId,
+      issueId: issue.issueId,
+      teammateId: assignee.teammateId,
       proposalId: proposal.proposalId,
       toolProfile: {
         requested_tools: ["terminal", "file", "browser", "web"],
@@ -11037,7 +11420,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     });
     store.updateRuntimeState({
       workspaceId: proposal.workspaceId,
-      sessionId,
+      sessionId: session.sessionId,
       status: "QUEUED",
       currentInputId: record.inputId,
       currentWorkerId: null,
@@ -11045,6 +11428,13 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       heartbeatAt: null,
       lastError: null
     });
+    const updatedIssue = store.updateIssue({
+      workspaceId: proposal.workspaceId,
+      issueId: issue.issueId,
+      fields: {
+        latestSubagentId: subagentId,
+      },
+    }) ?? issue;
 
     const updatedProposal = store.updateTaskProposal({
       workspaceId: proposal.workspaceId,
@@ -11053,7 +11443,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         taskName,
         taskPrompt,
         state: "accepted",
-        acceptedSessionId: sessionId,
+        acceptedSessionId: session.sessionId,
         acceptedInputId: record.inputId,
         acceptedAt: utcNowIso()
       }
@@ -11072,6 +11462,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
 
     return reply.send({
       proposal: taskProposalPayload(updatedProposal ?? proposal),
+      issue: issuePayload(updatedIssue),
       session: agentSessionPayload(session, store),
       input: {
         input_id: record.inputId,
