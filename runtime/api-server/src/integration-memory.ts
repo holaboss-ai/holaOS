@@ -20,6 +20,37 @@ import { globalMemoryDirForWorkspaceRoot } from "./workspace-bundle-paths.js";
 const INTEGRATION_BRANCH_FACTOR = 8;
 const MAX_RETRIEVE_RESULTS = 12;
 const EMBEDDING_EXCERPT_CHARS = 480;
+const RETRIEVAL_QUERY_STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "at",
+  "be",
+  "by",
+  "for",
+  "from",
+  "how",
+  "i",
+  "in",
+  "is",
+  "it",
+  "me",
+  "of",
+  "on",
+  "or",
+  "that",
+  "the",
+  "this",
+  "to",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
+  "with",
+]);
 type IntegrationRetrieveNodeKind = "tree" | "entity" | "branch" | "summary" | "leaf";
 
 export function countSummaryLikeSemanticIntegrationNodes(params: {
@@ -177,6 +208,26 @@ function textScore(query: string, ...texts: Array<string | null | undefined>): n
     }
   }
   return score + hitCount / Math.max(1, tokens.length);
+}
+
+function buildRetrievalFtsMatchQuery(query: string): string | null {
+  const rawTokens = [...new Set(tokenize(query))];
+  if (rawTokens.length === 0) {
+    return null;
+  }
+  const filteredTokens = rawTokens.filter((token) => !RETRIEVAL_QUERY_STOPWORDS.has(token));
+  const tokens = filteredTokens.length > 0 ? filteredTokens : rawTokens;
+  if (tokens.length === 0) {
+    return null;
+  }
+  return tokens.map((token) => `${token}*`).join(" OR ");
+}
+
+function lexicalRankBoost(rank: number | null | undefined): number {
+  if (!rank || !Number.isFinite(rank) || rank < 1) {
+    return 0;
+  }
+  return 1.4 / Math.sqrt(rank);
 }
 
 function cosineSimilarity(left: number[], right: number[]): number {
@@ -2228,6 +2279,27 @@ function buildSemanticIntegrationTree(params: {
   }
 }
 
+function semanticSearchDocsForIntegrationTree(params: {
+  semantic: SemanticIntegrationTreeBuildResult;
+}) {
+  return params.semantic.nodes.map((node) => {
+    const bodyText = params.semantic.bodiesByPath.get(node.path) ?? "";
+    return {
+      nodeId: node.nodeId,
+      nodeClass: node.nodeClass,
+      nodeKind: node.nodeKind,
+      path: node.path,
+      childCount: node.childCount,
+      title: node.title,
+      summary: node.summary,
+      bodyText,
+      excerpt: bodyText ? markdownExcerpt(bodyText, 320) : null,
+      observedAt: node.observedAt ?? null,
+      status: "active" as const,
+    };
+  });
+}
+
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -3927,6 +3999,13 @@ export async function rebuildIntegrationTree(params: {
         metadata: relation.metadata,
       })),
     });
+    params.store.replaceSemanticMemorySearchDocs({
+      category: "integration",
+      treeId: params.treeId,
+      docs: semanticSearchDocsForIntegrationTree({
+        semantic,
+      }),
+    });
   }
   for (const node of semantic?.nodes ?? []) {
     if (node.nodeClass !== "semantic") {
@@ -3960,6 +4039,7 @@ export interface ClearedIntegrationMemoryResult {
   deleted_semantic_nodes: number;
   deleted_semantic_edges: number;
   deleted_semantic_relations: number;
+  deleted_semantic_search_docs: number;
   deleted_embeddings: number;
   deleted_files: number;
 }
@@ -4023,6 +4103,7 @@ export function clearIntegrationMemoryForConnection(params: {
   let deletedSemanticNodes = 0;
   let deletedSemanticEdges = 0;
   let deletedSemanticRelations = 0;
+  let deletedSemanticSearchDocs = 0;
   let deletedEmbeddings = 0;
   let deletedFiles = 0;
   for (const tree of trees) {
@@ -4043,6 +4124,7 @@ export function clearIntegrationMemoryForConnection(params: {
     deletedSemanticNodes += deleted.deletedSemanticNodes;
     deletedSemanticEdges += deleted.deletedSemanticEdges;
     deletedSemanticRelations += deleted.deletedSemanticRelations;
+    deletedSemanticSearchDocs += deleted.deletedSemanticSearchDocs;
     deletedEmbeddings += deleted.deletedEmbeddings;
   }
   return {
@@ -4056,6 +4138,7 @@ export function clearIntegrationMemoryForConnection(params: {
     deleted_semantic_nodes: deletedSemanticNodes,
     deleted_semantic_edges: deletedSemanticEdges,
     deleted_semantic_relations: deletedSemanticRelations,
+    deleted_semantic_search_docs: deletedSemanticSearchDocs,
     deleted_embeddings: deletedEmbeddings,
     deleted_files: deletedFiles,
   };
@@ -4121,6 +4204,57 @@ async function queryEmbeddingVector(params: {
     modelId: client.modelId,
     vector: Array.from(embedding),
   };
+}
+
+function semanticSearchDocsByNodeId(params: {
+  store: RuntimeStateStore;
+  treeId: string;
+}): Map<string, ReturnType<RuntimeStateStore["listSemanticMemorySearchDocs"]>[number]> {
+  return new Map(
+    params.store.listSemanticMemorySearchDocs({
+      category: "integration",
+      treeId: params.treeId,
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    }).map((doc) => [doc.nodeId, doc]),
+  );
+}
+
+function semanticLexicalRanksByNodeId(params: {
+  store: RuntimeStateStore;
+  query: string;
+  mode: "mixed" | "summaries" | "leaves";
+  treeIds: string[];
+}): Map<string, number> {
+  const matchQuery = buildRetrievalFtsMatchQuery(params.query);
+  if (!matchQuery || params.treeIds.length === 0) {
+    return new Map();
+  }
+  const dedupedTreeIds = [...new Set(params.treeIds)];
+  const hits = dedupedTreeIds.flatMap((treeId) =>
+    params.store.searchSemanticMemorySearchDocs({
+      category: "integration",
+      treeId,
+      nodeClass: params.mode === "leaves" ? "leaf" : params.mode === "summaries" ? "semantic" : undefined,
+      status: "active",
+      matchQuery,
+      limit: dedupedTreeIds.length > 1 ? 120 : 500,
+      offset: 0,
+    }),
+  );
+  hits.sort((left, right) =>
+    left.bm25Score - right.bm25Score
+    || right.updatedAt.localeCompare(left.updatedAt)
+    || left.path.localeCompare(right.path),
+  );
+  const ranks = new Map<string, number>();
+  for (const hit of hits) {
+    if (!ranks.has(hit.nodeId)) {
+      ranks.set(hit.nodeId, ranks.size + 1);
+    }
+  }
+  return ranks;
 }
 
 function accessibleIntegrationTreesForWorkspace(params: {
@@ -4198,19 +4332,23 @@ function buildSemanticCandidate(params: {
   store: RuntimeStateStore;
   tree: IntegrationTreeRecord;
   node: ReturnType<RuntimeStateStore["listSemanticMemoryNodes"]>[number];
+  searchDoc?: ReturnType<RuntimeStateStore["getSemanticMemorySearchDoc"]> | null;
 }): NodeCandidate {
-  const filePath = absolutePathForRelative(
-    params.store.workspaceRoot,
-    params.node.path,
-  );
-  const body = readFileIfExists(filePath);
+  const excerpt = params.searchDoc?.excerpt ?? (() => {
+    const filePath = absolutePathForRelative(
+      params.store.workspaceRoot,
+      params.node.path,
+    );
+    const body = readFileIfExists(filePath);
+    return body ? markdownExcerpt(body, 320) : null;
+  })();
   return {
     kind: semanticCandidateKind(params.node),
     id: params.node.nodeId,
     tree: params.tree,
     title: params.node.title,
     summary: params.node.summary,
-    excerpt: body ? markdownExcerpt(body, 320) : null,
+    excerpt,
     path: params.node.path,
     level: semanticNodeDepth(params.node.path),
     childCount: params.node.childCount,
@@ -4228,6 +4366,7 @@ function semanticGmailThreadNodeId(treeId: string, threadEntityKey: string): str
 function nodeScore(params: {
   query: string;
   candidate: NodeCandidate;
+  lexicalRank: number | null;
   embeddingModelId: string | null;
   queryVector: number[] | null;
   embeddingByKey: Map<string, number[]>;
@@ -4245,6 +4384,11 @@ function nodeScore(params: {
   );
   if (score > 0) {
     reasons.push("lexical_match");
+  }
+  const lexicalBoost = lexicalRankBoost(params.lexicalRank);
+  if (lexicalBoost > 0) {
+    score += lexicalBoost;
+    reasons.push("fts_bm25");
   }
   if (params.embeddingModelId && params.queryVector) {
     const embeddingKey = `${params.candidate.kind}:${params.candidate.id}:${params.embeddingModelId}`;
@@ -4319,12 +4463,17 @@ async function childHitsForNode(params: {
     store: params.store,
     workspaceId: params.workspaceId,
   });
-  const scoreCandidates = (candidates: NodeCandidate[], extraReason?: string): IntegrationMemoryRetrieveHit[] =>
+  const scoreCandidates = (
+    candidates: NodeCandidate[],
+    lexicalRanksByNodeId: Map<string, number>,
+    extraReason?: string,
+  ): IntegrationMemoryRetrieveHit[] =>
     candidates
       .map((candidate) => {
         const scored = nodeScore({
           query: params.query,
           candidate,
+          lexicalRank: lexicalRanksByNodeId.get(candidate.id) ?? null,
           embeddingModelId: params.embeddingModelId,
           queryVector: params.queryVector,
           embeddingByKey: params.embeddingByKey,
@@ -4349,6 +4498,16 @@ async function childHitsForNode(params: {
     ),
   ) ?? null;
   if (semanticTree) {
+    const searchDocsByNodeId = semanticSearchDocsByNodeId({
+      store: params.store,
+      treeId: semanticTree.treeId,
+    });
+    const lexicalRanksByNodeId = semanticLexicalRanksByNodeId({
+      store: params.store,
+      query: params.query,
+      mode: params.mode,
+      treeIds: [semanticTree.treeId],
+    });
     const parentNode = params.store.getSemanticMemoryNode({
       category: "integration",
       treeId: semanticTree.treeId,
@@ -4375,6 +4534,7 @@ async function childHitsForNode(params: {
         store: params.store,
         tree: semanticTree,
         node,
+        searchDoc: searchDocsByNodeId.get(node.nodeId) ?? null,
       }));
     const relationCandidates = params.store
       .listSemanticMemoryRelations({
@@ -4394,12 +4554,14 @@ async function childHitsForNode(params: {
         store: params.store,
         tree: semanticTree,
         node,
+        searchDoc: searchDocsByNodeId.get(node.nodeId) ?? null,
       }));
 
     return scoreCandidates(
       [...candidates, ...relationCandidates].filter((candidate, index, bucket) =>
         bucket.findIndex((entry) => entry.id === candidate.id) === index,
       ),
+      lexicalRanksByNodeId,
     );
   }
   return [];
@@ -4440,6 +4602,12 @@ export async function retrieveIntegrationMemory(params: {
       embeddingByKey.set(`${record.nodeKind}:${record.nodeId}:${record.embeddingModel}`, record.vector);
     }
   }
+  const lexicalRanksByNodeId = semanticLexicalRanksByNodeId({
+    store: params.store,
+    query: params.query,
+    mode,
+    treeIds: trees.map((tree) => tree.treeId),
+  });
 
   if (params.nodeId) {
     return {
@@ -4463,6 +4631,10 @@ export async function retrieveIntegrationMemory(params: {
 
   const candidates: NodeCandidate[] = [];
   for (const tree of trees) {
+    const searchDocsByNodeId = semanticSearchDocsByNodeId({
+      store: params.store,
+      treeId: tree.treeId,
+    });
     const semanticNodes = params.store.listSemanticMemoryNodes({
       category: "integration",
       treeId: tree.treeId,
@@ -4486,6 +4658,7 @@ export async function retrieveIntegrationMemory(params: {
           store: params.store,
           tree,
           node,
+          searchDoc: searchDocsByNodeId.get(node.nodeId) ?? null,
         }));
       }
     }
@@ -4496,6 +4669,7 @@ export async function retrieveIntegrationMemory(params: {
       const scored = nodeScore({
         query: params.query,
         candidate,
+        lexicalRank: lexicalRanksByNodeId.get(candidate.id) ?? null,
         embeddingModelId: embeddingQuery?.modelId ?? null,
         queryVector: embeddingQuery?.vector ?? null,
         embeddingByKey,

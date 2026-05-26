@@ -667,6 +667,28 @@ export interface SemanticMemoryRelationRecord {
   updatedAt: string;
 }
 
+export interface SemanticMemorySearchDocRecord {
+  workspaceId: string | null;
+  category: SemanticMemoryCategory;
+  treeId: string;
+  nodeId: string;
+  nodeClass: SemanticMemoryNodeClass;
+  nodeKind: string;
+  path: string;
+  childCount: number;
+  title: string;
+  summary: string;
+  bodyText: string;
+  excerpt: string | null;
+  observedAt: string | null;
+  status: MemoryNodeStatus;
+  updatedAt: string;
+}
+
+export interface SemanticMemorySearchHitRecord extends SemanticMemorySearchDocRecord {
+  bm25Score: number;
+}
+
 export interface OutputFolderRecord {
   id: string;
   workspaceId: string;
@@ -6833,6 +6855,389 @@ export class RuntimeStateStore {
     });
   }
 
+  replaceSemanticMemorySearchDocs(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId: string;
+    docs: Array<{
+      nodeId: string;
+      nodeClass: SemanticMemoryNodeClass;
+      nodeKind: string;
+      path: string;
+      childCount?: number;
+      title: string;
+      summary: string;
+      bodyText: string;
+      excerpt?: string | null;
+      observedAt?: string | null;
+      status?: MemoryNodeStatus;
+      updatedAt?: string;
+    }>;
+  }): SemanticMemorySearchDocRecord[] {
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    const replace = scope.db.transaction(() => {
+      const now = utcNowIso();
+      if (scope.workspaceId !== null) {
+        scope.db.prepare(`
+          DELETE FROM semantic_memory_search_docs
+          WHERE workspace_id = ? AND category = ? AND tree_id = ?
+        `).run(scope.workspaceId, params.category, params.treeId);
+        scope.db.prepare(`
+          DELETE FROM semantic_memory_search_fts
+          WHERE workspace_id = ? AND category = ? AND tree_id = ?
+        `).run(scope.workspaceId, params.category, params.treeId);
+
+        const insertDoc = scope.db.prepare(`
+          INSERT INTO semantic_memory_search_docs (
+            workspace_id,
+            category,
+            tree_id,
+            node_id,
+            node_class,
+            node_kind,
+            path,
+            child_count,
+            title,
+            summary,
+            body_text,
+            excerpt,
+            observed_at,
+            status,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const insertFts = scope.db.prepare(`
+          INSERT INTO semantic_memory_search_fts (
+            workspace_id,
+            category,
+            tree_id,
+            node_id,
+            node_class,
+            node_kind,
+            path,
+            child_count,
+            title,
+            summary,
+            body_text,
+            excerpt,
+            observed_at,
+            status,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const doc of params.docs) {
+          const updatedAt = doc.updatedAt ?? now;
+          const childCount = doc.childCount ?? 0;
+          const excerpt = doc.excerpt ?? null;
+          const observedAt = doc.observedAt ?? null;
+          const status = doc.status ?? "active";
+          insertDoc.run(
+            scope.workspaceId,
+            params.category,
+            params.treeId,
+            doc.nodeId,
+            doc.nodeClass,
+            doc.nodeKind,
+            doc.path,
+            childCount,
+            doc.title,
+            doc.summary,
+            doc.bodyText,
+            excerpt,
+            observedAt,
+            status,
+            updatedAt,
+          );
+          insertFts.run(
+            scope.workspaceId,
+            params.category,
+            params.treeId,
+            doc.nodeId,
+            doc.nodeClass,
+            doc.nodeKind,
+            doc.path,
+            childCount,
+            doc.title,
+            doc.summary,
+            doc.bodyText,
+            excerpt,
+            observedAt,
+            status,
+            updatedAt,
+          );
+        }
+        return;
+      }
+
+      scope.db.prepare(`
+        DELETE FROM semantic_memory_search_docs
+        WHERE category = ? AND tree_id = ?
+      `).run(params.category, params.treeId);
+      scope.db.prepare(`
+        DELETE FROM semantic_memory_search_fts
+        WHERE category = ? AND tree_id = ?
+      `).run(params.category, params.treeId);
+
+      const insertDoc = scope.db.prepare(`
+        INSERT INTO semantic_memory_search_docs (
+          category,
+          tree_id,
+          node_id,
+          node_class,
+          node_kind,
+          path,
+          child_count,
+          title,
+          summary,
+          body_text,
+          excerpt,
+          observed_at,
+          status,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const insertFts = scope.db.prepare(`
+        INSERT INTO semantic_memory_search_fts (
+          category,
+          tree_id,
+          node_id,
+          node_class,
+          node_kind,
+          path,
+          child_count,
+          title,
+          summary,
+          body_text,
+          excerpt,
+          observed_at,
+          status,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const doc of params.docs) {
+        const updatedAt = doc.updatedAt ?? now;
+        const childCount = doc.childCount ?? 0;
+        const excerpt = doc.excerpt ?? null;
+        const observedAt = doc.observedAt ?? null;
+        const status = doc.status ?? "active";
+        insertDoc.run(
+          params.category,
+          params.treeId,
+          doc.nodeId,
+          doc.nodeClass,
+          doc.nodeKind,
+          doc.path,
+          childCount,
+          doc.title,
+          doc.summary,
+          doc.bodyText,
+          excerpt,
+          observedAt,
+          status,
+          updatedAt,
+        );
+        insertFts.run(
+          params.category,
+          params.treeId,
+          doc.nodeId,
+          doc.nodeClass,
+          doc.nodeKind,
+          doc.path,
+          childCount,
+          doc.title,
+          doc.summary,
+          doc.bodyText,
+          excerpt,
+          observedAt,
+          status,
+          updatedAt,
+        );
+      }
+    });
+    replace();
+    return this.listSemanticMemorySearchDocs({
+      category: params.category,
+      workspaceId: scope.workspaceId,
+      treeId: params.treeId,
+      status: "active",
+      limit: Math.max(200, params.docs.length + 10),
+    });
+  }
+
+  getSemanticMemorySearchDoc(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId: string;
+    nodeId: string;
+  }): SemanticMemorySearchDocRecord | null {
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    if (scope.workspaceId !== null) {
+      const row = scope.db
+        .prepare<[string, string, string, string], Record<string, unknown>>(
+          `
+            SELECT *
+            FROM semantic_memory_search_docs
+            WHERE workspace_id = ? AND category = ? AND tree_id = ? AND node_id = ?
+            LIMIT 1
+          `,
+        )
+        .get(scope.workspaceId, params.category, params.treeId, params.nodeId);
+      return row ? this.rowToSemanticMemorySearchDoc(row) : null;
+    }
+    const row = scope.db
+      .prepare<[string, string, string], Record<string, unknown>>(
+        `
+          SELECT *
+          FROM semantic_memory_search_docs
+          WHERE category = ? AND tree_id = ? AND node_id = ?
+          LIMIT 1
+        `,
+      )
+      .get(params.category, params.treeId, params.nodeId);
+    return row ? this.rowToSemanticMemorySearchDoc(row) : null;
+  }
+
+  listSemanticMemorySearchDocs(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId?: string | null;
+    nodeId?: string | null;
+    nodeClass?: SemanticMemoryNodeClass | null;
+    nodeKind?: string | null;
+    status?: MemoryNodeStatus | null;
+    limit?: number;
+    offset?: number;
+  }): SemanticMemorySearchDocRecord[] {
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    let query = `
+      SELECT *
+      FROM semantic_memory_search_docs
+      WHERE category = ?
+    `;
+    const values: Array<string | number> = [params.category];
+    if (scope.workspaceId !== null) {
+      query += " AND workspace_id = ?";
+      values.push(scope.workspaceId);
+    }
+    if (params.treeId !== undefined) {
+      if (params.treeId === null) {
+        query += " AND tree_id IS NULL";
+      } else {
+        query += " AND tree_id = ?";
+        values.push(params.treeId);
+      }
+    }
+    if (params.nodeId !== undefined) {
+      if (params.nodeId === null) {
+        query += " AND node_id IS NULL";
+      } else {
+        query += " AND node_id = ?";
+        values.push(params.nodeId);
+      }
+    }
+    if (params.nodeClass !== undefined) {
+      if (params.nodeClass === null) {
+        query += " AND node_class IS NULL";
+      } else {
+        query += " AND node_class = ?";
+        values.push(params.nodeClass);
+      }
+    }
+    if (params.nodeKind !== undefined) {
+      if (params.nodeKind === null) {
+        query += " AND node_kind IS NULL";
+      } else {
+        query += " AND node_kind = ?";
+        values.push(params.nodeKind);
+      }
+    }
+    if (params.status !== undefined) {
+      if (params.status === null) {
+        query += " AND status IS NULL";
+      } else {
+        query += " AND status = ?";
+        values.push(params.status);
+      }
+    }
+    query += `
+      ORDER BY updated_at DESC, path ASC, node_id ASC
+      LIMIT ? OFFSET ?
+    `;
+    values.push(params.limit ?? 500, params.offset ?? 0);
+    const rows = scope.db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToSemanticMemorySearchDoc(row));
+  }
+
+  searchSemanticMemorySearchDocs(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    matchQuery: string;
+    treeId?: string | null;
+    nodeClass?: SemanticMemoryNodeClass | null;
+    nodeKind?: string | null;
+    status?: MemoryNodeStatus | null;
+    limit?: number;
+    offset?: number;
+  }): SemanticMemorySearchHitRecord[] {
+    const matchQuery = params.matchQuery.trim();
+    if (!matchQuery) {
+      return [];
+    }
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    let query = `
+      SELECT *,
+             bm25(semantic_memory_search_fts, 4.0, 2.0, 1.0) AS bm25_score
+      FROM semantic_memory_search_fts
+      WHERE semantic_memory_search_fts MATCH ?
+    `;
+    const values: Array<string | number> = [matchQuery];
+    if (scope.workspaceId !== null) {
+      query += " AND workspace_id = ?";
+      values.push(scope.workspaceId);
+    }
+    query += " AND category = ?";
+    values.push(params.category);
+    if (params.treeId !== undefined) {
+      if (params.treeId === null) {
+        query += " AND tree_id IS NULL";
+      } else {
+        query += " AND tree_id = ?";
+        values.push(params.treeId);
+      }
+    }
+    if (params.nodeClass !== undefined) {
+      if (params.nodeClass === null) {
+        query += " AND node_class IS NULL";
+      } else {
+        query += " AND node_class = ?";
+        values.push(params.nodeClass);
+      }
+    }
+    if (params.nodeKind !== undefined) {
+      if (params.nodeKind === null) {
+        query += " AND node_kind IS NULL";
+      } else {
+        query += " AND node_kind = ?";
+        values.push(params.nodeKind);
+      }
+    }
+    if (params.status !== undefined) {
+      if (params.status === null) {
+        query += " AND status IS NULL";
+      } else {
+        query += " AND status = ?";
+        values.push(params.status);
+      }
+    }
+    query += `
+      ORDER BY bm25_score ASC, updated_at DESC, path ASC, node_id ASC
+      LIMIT ? OFFSET ?
+    `;
+    values.push(params.limit ?? 100, params.offset ?? 0);
+    const rows = scope.db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToSemanticMemorySearchHit(row));
+  }
+
   getSemanticMemoryNode(params: {
     category: SemanticMemoryCategory;
     workspaceId?: string | null;
@@ -7145,6 +7550,7 @@ export class RuntimeStateStore {
     deletedSemanticNodes: number;
     deletedSemanticEdges: number;
     deletedSemanticRelations: number;
+    deletedSemanticSearchDocs: number;
     deletedEmbeddings: number;
   } {
     const db = this.controlPlaneDb();
@@ -7190,10 +7596,25 @@ export class RuntimeStateStore {
           )
           .get(params.treeId) as { count?: number } | undefined)?.count ?? 0,
       );
+      const deletedSemanticSearchDocs = Number(
+        (db
+          .prepare(
+            `
+              SELECT COUNT(*) AS count
+              FROM semantic_memory_search_docs
+              WHERE category = 'integration' AND tree_id = ?
+            `,
+          )
+          .get(params.treeId) as { count?: number } | undefined)?.count ?? 0,
+      );
 
       db.prepare(`
         DELETE FROM integration_node_embeddings
         WHERE tree_id = ?
+      `).run(params.treeId);
+      db.prepare(`
+        DELETE FROM semantic_memory_search_fts
+        WHERE category = 'integration' AND tree_id = ?
       `).run(params.treeId);
       db.prepare(`
         DELETE FROM semantic_memory_edges
@@ -7205,6 +7626,10 @@ export class RuntimeStateStore {
       `).run(params.treeId);
       db.prepare(`
         DELETE FROM semantic_memory_nodes
+        WHERE category = 'integration' AND tree_id = ?
+      `).run(params.treeId);
+      db.prepare(`
+        DELETE FROM semantic_memory_search_docs
         WHERE category = 'integration' AND tree_id = ?
       `).run(params.treeId);
       db.prepare(`
@@ -7221,12 +7646,14 @@ export class RuntimeStateStore {
           || deletedSemanticNodes > 0
           || deletedSemanticRelations > 0
           || deletedSemanticEdges > 0
+          || deletedSemanticSearchDocs > 0
           || deletedEmbeddings > 0,
         deletedTree,
         deletedLeaves,
         deletedSemanticNodes,
         deletedSemanticEdges,
         deletedSemanticRelations,
+        deletedSemanticSearchDocs,
         deletedEmbeddings,
       };
     });
@@ -10026,6 +10453,7 @@ export class RuntimeStateStore {
     this.ensureMemoryEmbeddingIndexSchema(db);
     this.ensureIntegrationLeavesTableSchema(db);
     this.ensureSemanticMemoryTableSchema({ db, workspaceScoped: false });
+    this.ensureSemanticMemorySearchTableSchema({ db, workspaceScoped: false });
     this.migrateIntegrationConnectionIdentityColumns(db);
     this.migrateAppCatalogProviderColumns(db);
   }
@@ -10722,6 +11150,7 @@ export class RuntimeStateStore {
     this.ensureSessionMessagesTableSchema(db);
     this.ensureConversationBindingsTableSchema(db);
     this.ensureSemanticMemoryTableSchema({ db, workspaceScoped: true });
+    this.ensureSemanticMemorySearchTableSchema({ db, workspaceScoped: true });
     this.migrateLegacyMainSessionLabels(db);
     this.ensureSubagentRunsTableSchema(db);
     this.ensureSessionRuntimeStateTableSchema(db);
@@ -10885,6 +11314,61 @@ export class RuntimeStateStore {
 
       CREATE INDEX IF NOT EXISTS idx_semantic_memory_relations_tree_from_type
           ON semantic_memory_relations (${workspaceIdPrefix}category, tree_id, from_node_id, relation_type, updated_at DESC);
+    `);
+  }
+
+  private ensureSemanticMemorySearchTableSchema(params: {
+    db: Database.Database;
+    workspaceScoped: boolean;
+  }): void {
+    const prefix = params.workspaceScoped
+      ? `
+          workspace_id TEXT NOT NULL,
+      `
+      : "";
+    const workspaceIdPrefix = params.workspaceScoped ? "workspace_id, " : "";
+    params.db.exec(`
+      CREATE TABLE IF NOT EXISTS semantic_memory_search_docs (
+          ${prefix}category TEXT NOT NULL,
+          tree_id TEXT NOT NULL,
+          node_id TEXT NOT NULL,
+          node_class TEXT NOT NULL,
+          node_kind TEXT NOT NULL,
+          path TEXT NOT NULL,
+          child_count INTEGER NOT NULL DEFAULT 0,
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          body_text TEXT NOT NULL,
+          excerpt TEXT,
+          observed_at TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (${workspaceIdPrefix}category, tree_id, node_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_semantic_memory_search_docs_tree_status
+          ON semantic_memory_search_docs (${workspaceIdPrefix}category, tree_id, status, updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_semantic_memory_search_docs_tree_kind
+          ON semantic_memory_search_docs (${workspaceIdPrefix}category, tree_id, node_class, node_kind, updated_at DESC);
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS semantic_memory_search_fts USING fts5(
+          ${params.workspaceScoped ? "workspace_id UNINDEXED,\n" : ""}category UNINDEXED,
+          tree_id UNINDEXED,
+          node_id UNINDEXED,
+          node_class UNINDEXED,
+          node_kind UNINDEXED,
+          path UNINDEXED,
+          child_count UNINDEXED,
+          title,
+          summary,
+          body_text,
+          excerpt UNINDEXED,
+          observed_at UNINDEXED,
+          status UNINDEXED,
+          updated_at UNINDEXED,
+          tokenize = 'unicode61 remove_diacritics 2'
+      );
     `);
   }
 
@@ -12715,6 +13199,37 @@ export class RuntimeStateStore {
       metadata: this.parseJsonDict(row.metadata),
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
+    };
+  }
+
+  private rowToSemanticMemorySearchDoc(
+    row: Record<string, unknown>,
+  ): SemanticMemorySearchDocRecord {
+    return {
+      workspaceId: row.workspace_id == null ? null : String(row.workspace_id),
+      category: String(row.category) as SemanticMemoryCategory,
+      treeId: String(row.tree_id),
+      nodeId: String(row.node_id),
+      nodeClass: String(row.node_class) as SemanticMemoryNodeClass,
+      nodeKind: String(row.node_kind),
+      path: String(row.path),
+      childCount: Number(row.child_count ?? 0),
+      title: String(row.title),
+      summary: String(row.summary),
+      bodyText: String(row.body_text ?? ""),
+      excerpt: row.excerpt == null ? null : String(row.excerpt),
+      observedAt: row.observed_at == null ? null : String(row.observed_at),
+      status: String(row.status) as MemoryNodeStatus,
+      updatedAt: String(row.updated_at),
+    };
+  }
+
+  private rowToSemanticMemorySearchHit(
+    row: Record<string, unknown>,
+  ): SemanticMemorySearchHitRecord {
+    return {
+      ...this.rowToSemanticMemorySearchDoc(row),
+      bm25Score: Number(row.bm25_score),
     };
   }
 

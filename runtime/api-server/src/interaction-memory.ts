@@ -200,6 +200,37 @@ const PROJECT_SIGNAL_TOKENS = new Set([
   "staging",
   "verification",
 ]);
+const RETRIEVAL_QUERY_STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "at",
+  "be",
+  "by",
+  "for",
+  "from",
+  "how",
+  "i",
+  "in",
+  "is",
+  "it",
+  "me",
+  "of",
+  "on",
+  "or",
+  "that",
+  "the",
+  "this",
+  "to",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
+  "with",
+]);
 
 const INTERACTION_ENTITY_TYPES = new Set<InteractionEntityType>([
   "project",
@@ -640,6 +671,26 @@ function textScore(query: string, ...texts: Array<string | null | undefined>): n
     }
   }
   return score + hitCount / Math.max(1, tokens.length);
+}
+
+function buildRetrievalFtsMatchQuery(query: string): string | null {
+  const rawTokens = [...new Set(tokenize(query))];
+  if (rawTokens.length === 0) {
+    return null;
+  }
+  const filteredTokens = rawTokens.filter((token) => !RETRIEVAL_QUERY_STOPWORDS.has(token));
+  const tokens = filteredTokens.length > 0 ? filteredTokens : rawTokens;
+  if (tokens.length === 0) {
+    return null;
+  }
+  return tokens.map((token) => `${token}*`).join(" OR ");
+}
+
+function lexicalRankBoost(rank: number | null | undefined): number {
+  if (!rank || !Number.isFinite(rank) || rank < 1) {
+    return 0;
+  }
+  return 1.4 / Math.sqrt(rank);
 }
 
 function cosineSimilarity(left: number[], right: number[]): number {
@@ -1664,6 +1715,28 @@ async function buildSemanticInteractionTree(params: {
   };
 }
 
+function semanticSearchDocsForInteractionTree(params: {
+  nodes: Awaited<ReturnType<typeof buildSemanticInteractionTree>>["nodes"];
+  bodiesByPath: Awaited<ReturnType<typeof buildSemanticInteractionTree>>["bodiesByPath"];
+}) {
+  return params.nodes.map((node) => {
+    const bodyText = params.bodiesByPath.get(node.path) ?? "";
+    return {
+      nodeId: node.nodeId,
+      nodeClass: node.nodeClass,
+      nodeKind: node.nodeKind,
+      path: node.path,
+      childCount: node.childCount,
+      title: node.title,
+      summary: node.summary,
+      bodyText,
+      excerpt: bodyText ? markdownExcerpt(bodyText, 320) : null,
+      observedAt: node.observedAt ?? null,
+      status: "active" as const,
+    };
+  });
+}
+
 async function syncNodeEmbedding(params: {
   store: RuntimeStateStore;
   workspaceId: string;
@@ -1929,6 +2002,15 @@ export async function rebuildInteractionEntityTree(params: {
     treeId: params.entityId,
     relations: [],
   });
+  params.store.replaceSemanticMemorySearchDocs({
+    category: "interaction",
+    workspaceId: params.workspaceId,
+    treeId: params.entityId,
+    docs: semanticSearchDocsForInteractionTree({
+      nodes: semantic.nodes,
+      bodiesByPath: semantic.bodiesByPath,
+    }),
+  });
   for (const node of semantic.nodes) {
     if (node.nodeClass !== "semantic") {
       continue;
@@ -2031,6 +2113,47 @@ async function queryEmbeddingVector(params: {
   };
 }
 
+function semanticSearchDocsByNodeId(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  treeId: string;
+}): Map<string, ReturnType<RuntimeStateStore["listSemanticMemorySearchDocs"]>[number]> {
+  return new Map(
+    params.store.listSemanticMemorySearchDocs({
+      category: "interaction",
+      workspaceId: params.workspaceId,
+      treeId: params.treeId,
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    }).map((doc) => [doc.nodeId, doc]),
+  );
+}
+
+function semanticLexicalRanksByNodeId(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  query: string;
+  mode: "mixed" | "summaries" | "leaves";
+  treeId?: string | null;
+}): Map<string, number> {
+  const matchQuery = buildRetrievalFtsMatchQuery(params.query);
+  if (!matchQuery) {
+    return new Map();
+  }
+  const hits = params.store.searchSemanticMemorySearchDocs({
+    category: "interaction",
+    workspaceId: params.workspaceId,
+    treeId: params.treeId ?? undefined,
+    nodeClass: params.mode === "leaves" ? "leaf" : params.mode === "summaries" ? "semantic" : undefined,
+    status: "active",
+    matchQuery,
+    limit: 500,
+    offset: 0,
+  });
+  return new Map(hits.map((hit, index) => [hit.nodeId, index + 1]));
+}
+
 function buildLeafCandidate(params: {
   store: RuntimeStateStore;
   workspaceId: string;
@@ -2087,19 +2210,23 @@ function buildSemanticCandidate(params: {
   workspaceId: string;
   entity: InteractionEntityRecord;
   node: ReturnType<RuntimeStateStore["listSemanticMemoryNodes"]>[number];
+  searchDoc?: ReturnType<RuntimeStateStore["getSemanticMemorySearchDoc"]> | null;
 }): NodeCandidate {
-  const filePath = absolutePathForRelative(
-    params.store.workspaceDir(params.workspaceId),
-    params.node.path,
-  );
-  const body = readFileIfExists(filePath);
+  const excerpt = params.searchDoc?.excerpt ?? (() => {
+    const filePath = absolutePathForRelative(
+      params.store.workspaceDir(params.workspaceId),
+      params.node.path,
+    );
+    const body = readFileIfExists(filePath);
+    return body ? markdownExcerpt(body, 320) : null;
+  })();
   return {
     kind: semanticInteractionCandidateKind(params.node),
     id: params.node.nodeId,
     entity: params.entity,
     title: params.node.title,
     summary: params.node.summary,
-    excerpt: body ? markdownExcerpt(body, 320) : null,
+    excerpt,
     path: params.node.path,
     level: semanticInteractionNodeLevel(params.node),
     childCount: params.node.childCount,
@@ -2111,6 +2238,7 @@ function buildSemanticCandidate(params: {
 function nodeScore(params: {
   query: string;
   candidate: NodeCandidate;
+  lexicalRank: number | null;
   embeddingModelId: string | null;
   queryVector: number[] | null;
   embeddingByKey: Map<string, number[]>;
@@ -2127,6 +2255,11 @@ function nodeScore(params: {
   );
   if (score > 0) {
     reasons.push("lexical_match");
+  }
+  const lexicalBoost = lexicalRankBoost(params.lexicalRank);
+  if (lexicalBoost > 0) {
+    score += lexicalBoost;
+    reasons.push("fts_bm25");
   }
   if (params.embeddingModelId && params.queryVector) {
     const embeddingKey = `${params.candidate.kind}:${params.candidate.id}:${params.embeddingModelId}`;
@@ -2212,6 +2345,18 @@ async function childHitsForNode(params: {
     ),
   ) ?? null;
   if (semanticEntity) {
+    const searchDocsByNodeId = semanticSearchDocsByNodeId({
+      store: params.store,
+      workspaceId: params.workspaceId,
+      treeId: semanticEntity.entityId,
+    });
+    const lexicalRanksByNodeId = semanticLexicalRanksByNodeId({
+      store: params.store,
+      workspaceId: params.workspaceId,
+      query: params.query,
+      mode: params.mode,
+      treeId: semanticEntity.entityId,
+    });
     const candidates = params.store
       .listSemanticMemoryChildren({
         category: "interaction",
@@ -2233,6 +2378,7 @@ async function childHitsForNode(params: {
           workspaceId: params.workspaceId,
           entity: semanticEntity,
           node,
+          searchDoc: searchDocsByNodeId.get(node.nodeId) ?? null,
         }))
       .filter((candidate) => params.mode === "mixed"
         || (params.mode === "leaves" ? candidate.kind === "leaf" : candidate.kind === "summary"));
@@ -2241,6 +2387,7 @@ async function childHitsForNode(params: {
         const scored = nodeScore({
           query: params.query,
           candidate,
+          lexicalRank: lexicalRanksByNodeId.get(candidate.id) ?? null,
           embeddingModelId: params.embeddingModelId,
           queryVector: params.queryVector,
           embeddingByKey: params.embeddingByKey,
@@ -2303,6 +2450,13 @@ export async function retrieveInteractionMemory(params: {
       embeddingByKey.set(`${record.nodeKind}:${record.nodeId}:${record.embeddingModel}`, record.vector);
     }
   }
+  const lexicalRanksByNodeId = semanticLexicalRanksByNodeId({
+    store: params.store,
+    workspaceId: params.workspaceId,
+    query: params.query,
+    mode,
+    treeId: params.treeId ?? null,
+  });
 
   if (params.nodeId) {
     return {
@@ -2326,6 +2480,11 @@ export async function retrieveInteractionMemory(params: {
 
   const candidates: NodeCandidate[] = [];
   for (const entity of entities) {
+    const searchDocsByNodeId = semanticSearchDocsByNodeId({
+      store: params.store,
+      workspaceId: params.workspaceId,
+      treeId: entity.entityId,
+    });
     const semanticNodes = params.store.listSemanticMemoryNodes({
       category: "interaction",
       workspaceId: params.workspaceId,
@@ -2341,6 +2500,7 @@ export async function retrieveInteractionMemory(params: {
           workspaceId: params.workspaceId,
           entity,
           node,
+          searchDoc: searchDocsByNodeId.get(node.nodeId) ?? null,
         });
         if (mode === "leaves" && candidate.kind !== "leaf") {
           continue;
@@ -2358,6 +2518,7 @@ export async function retrieveInteractionMemory(params: {
       const scored = nodeScore({
         query: params.query,
         candidate,
+        lexicalRank: lexicalRanksByNodeId.get(candidate.id) ?? null,
         embeddingModelId: embeddingQuery?.modelId ?? null,
         queryVector: embeddingQuery?.vector ?? null,
         embeddingByKey,

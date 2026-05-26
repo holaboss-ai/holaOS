@@ -381,6 +381,115 @@ test("rebuildInteractionEntityTree writes semantic interaction trees and retriev
   }
 });
 
+test("retrieveInteractionMemory recalls deep-body leaf terms through the semantic search index", async () => {
+  const root = makeTempDir("hb-interaction-memory-fts-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertInteractionEntity({
+    workspaceId: "workspace-1",
+    entityId: "interaction:workflow:escalation-playbook",
+    entityType: "workflow",
+    canonicalName: "Escalation playbook",
+    slug: "workflow-escalation-playbook",
+    summary: "Escalation workflow memory.",
+    aliases: [],
+    isSystem: false,
+    status: "active",
+  });
+
+  const leafId = "leaf-deep-body";
+  const relativePath = `workspace/workspace-1/interaction/entities/workflow-escalation-playbook/leaves/${leafId}.md`;
+  const buriedToken = "zephyrchecksum42";
+  store.upsertInteractionLeaf({
+    workspaceId: "workspace-1",
+    leafId,
+    entityId: "interaction:workflow:escalation-playbook",
+    subjectKey: "procedure:escalation:timer",
+    path: relativePath,
+    title: "Escalation timer detail",
+    summary: "Escalations require a staging checksum before release approval.",
+    fingerprint: `fingerprint-${leafId}`,
+    bodySha256: `sha-${leafId}`,
+    tags: ["escalation", "release"],
+    secondaryEntityIds: [],
+    sourceType: "manual",
+    sourceEventId: null,
+    sourceMessageId: null,
+    sourceTurnInputId: "input-seed",
+    admissionConfidence: 0.9,
+    entityConfidence: 0.9,
+    observedAt: "2026-05-22T08:00:00.000Z",
+    supersedesLeafId: null,
+    status: "active",
+  });
+  const absolutePath = path.join(
+    workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+    "interaction",
+    "entities",
+    "workflow-escalation-playbook",
+    "leaves",
+    `${leafId}.md`,
+  );
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  fs.writeFileSync(
+    absolutePath,
+    `# Escalation timer detail\n\n${"filler ".repeat(90)}${buriedToken} must match before approval.\n`,
+    "utf8",
+  );
+
+  try {
+    await rebuildInteractionEntityTree({
+      store,
+      workspaceId: "workspace-1",
+      entityId: "interaction:workflow:escalation-playbook",
+      summaryModelClient: null,
+      embeddingClient: null,
+    });
+
+    const leafNode = store.listSemanticMemoryNodes({
+      category: "interaction",
+      workspaceId: "workspace-1",
+      treeId: "interaction:workflow:escalation-playbook",
+      nodeClass: "leaf",
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    })[0];
+    assert.ok(leafNode);
+
+    const indexedDoc = store.getSemanticMemorySearchDoc({
+      category: "interaction",
+      workspaceId: "workspace-1",
+      treeId: "interaction:workflow:escalation-playbook",
+      nodeId: leafNode!.nodeId,
+    });
+    assert.ok(indexedDoc);
+    assert.equal(indexedDoc?.bodyText.includes(buriedToken), true);
+    assert.equal(indexedDoc?.excerpt?.includes(buriedToken) ?? false, false);
+
+    const result = await retrieveInteractionMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: buriedToken,
+      mode: "leaves",
+      treeId: "interaction:workflow:escalation-playbook",
+      maxResults: 5,
+    });
+    assert.ok(result.hits.some((hit) => hit.title === "Escalation timer detail"));
+  } finally {
+    store.close();
+  }
+});
+
 test("persistInteractionCandidate no-ops when semantic dedupe classifies a candidate as the same memory", async () => {
   const root = makeTempDir("hb-interaction-memory-dedupe-same-");
   const workspaceRoot = path.join(root, "workspace");

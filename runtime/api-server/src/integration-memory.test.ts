@@ -132,6 +132,122 @@ test("rebuildIntegrationTree writes deterministic semantic summaries for integra
   }
 });
 
+test("retrieveIntegrationMemory recalls deep-body integration leaf terms through the semantic search index", async () => {
+  const root = makeTempDir("hb-integration-memory-fts-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  try {
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertIntegrationConnection({
+      connectionId: "github-1",
+      providerId: "github",
+      ownerUserId: "user-1",
+      accountLabel: "Release GitHub",
+      accountHandle: "release-github",
+      authMode: "composio",
+      grantedScopes: [],
+      status: "active",
+    });
+    store.upsertIntegrationTree({
+      treeId: "integration:github:acct-fts",
+      provider: "github",
+      ownerUserId: "user-1",
+      accountKey: "release-github",
+      accountLabel: "Release GitHub",
+      slug: "github-release-fts",
+      summary: "Release GitHub memory.",
+      status: "active",
+    });
+
+    const buriedToken = "orbitalfreeze88";
+    const leafId = "leaf-deep-body";
+    store.upsertIntegrationLeaf({
+      leafId,
+      treeId: "integration:github:acct-fts",
+      subjectKey: "repo:holaboss-ai/release:pr:fts",
+      entityKey: "repo:holaboss-ai/release",
+      entityLabel: "holaboss-ai/release",
+      branchKey: "pull_requests",
+      branchLabel: "Pull requests",
+      path: `integration/accounts/github-release-fts/leaves/${leafId}.md`,
+      title: "Release checksum gate",
+      summary: "Release approval depends on a checksum gate deep in the body.",
+      fingerprint: `fingerprint-${leafId}`,
+      bodySha256: `sha-${leafId}`,
+      tags: ["github", "release"],
+      sourceType: "github.pull_request",
+      sourceEventId: "evt-fts",
+      sourceMessageId: null,
+      externalObjectId: "9001",
+      externalObjectType: "pull_request",
+      admissionConfidence: 0.9,
+      observedAt: "2026-05-22T09:00:00.000Z",
+      supersedesLeafId: null,
+      status: "active",
+    });
+
+    const absolutePath = path.join(
+      globalMemoryDirForWorkspaceRoot(workspaceRoot),
+      "integration",
+      "accounts",
+      "github-release-fts",
+      "leaves",
+      `${leafId}.md`,
+    );
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.writeFileSync(
+      absolutePath,
+      `# Release checksum gate\n\n${"filler ".repeat(90)}${buriedToken} must be green before merge.\n`,
+      "utf8",
+    );
+
+    await rebuildIntegrationTree({
+      store,
+      treeId: "integration:github:acct-fts",
+      embeddingClient: null,
+    });
+
+    const leafNode = store.listSemanticMemoryNodes({
+      category: "integration",
+      treeId: "integration:github:acct-fts",
+      nodeClass: "leaf",
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    })[0];
+    assert.ok(leafNode);
+
+    const indexedDoc = store.getSemanticMemorySearchDoc({
+      category: "integration",
+      treeId: "integration:github:acct-fts",
+      nodeId: leafNode!.nodeId,
+    });
+    assert.ok(indexedDoc);
+    assert.equal(indexedDoc?.bodyText.includes(buriedToken), true);
+    assert.equal(indexedDoc?.excerpt?.includes(buriedToken) ?? false, false);
+
+    const result = await retrieveIntegrationMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: buriedToken,
+      mode: "leaves",
+      treeId: "integration:github:acct-fts",
+      maxResults: 5,
+    });
+    assert.ok(result.hits.some((hit) => hit.title === "Release checksum gate"));
+  } finally {
+    store.close();
+  }
+});
+
 test("retrieveIntegrationMemory follows workspace override visibility without requiring integration bindings", async () => {
   const root = makeTempDir("hb-integration-memory-visibility-");
   const workspaceRoot = path.join(root, "workspace");
