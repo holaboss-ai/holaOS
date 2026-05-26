@@ -36,7 +36,9 @@ import {
   CHAT_PANEL_MIN_WIDTH,
   chatComposerPrefillAtom,
   chatPanelViewAtom,
+  chatSessionOpenRequestAtom,
   chatPanelWidthAtom,
+  type ChatSessionOpenRequest,
   focusModeAtom,
   newTabOpenAtom,
 } from "./state/ui";
@@ -47,12 +49,6 @@ import { useOpenWorkspaceOutput } from "./useOpenWorkspaceOutput";
 // transitions so the shell feels of a piece with the inbox cards.
 const CHAT_EASE = [0.32, 0.72, 0, 1] as const;
 
-interface ChatSessionOpenRequest {
-  sessionId: string;
-  requestKey: number;
-  mode?: "session" | "draft";
-}
-
 export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const [internalTabs, setInternalTabs] = useAtom(internalTabsAtom);
@@ -61,8 +57,9 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
     useOpenWorkspaceOutput();
 
   const [view, setView] = useAtom(chatPanelViewAtom);
-  const [sessionOpenRequest, setSessionOpenRequest] =
-    useState<ChatSessionOpenRequest | null>(null);
+  const [sessionOpenRequest, setSessionOpenRequest] = useAtom(
+    chatSessionOpenRequestAtom,
+  );
   const sessionRequestKeyRef = useRef(0);
   const composerPrefill = useAtomValue(chatComposerPrefillAtom);
 
@@ -70,7 +67,8 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
   // workspace-scoped and would otherwise show stale items briefly.
   useEffect(() => {
     setView("chat");
-  }, [selectedWorkspaceId, setView]);
+    setSessionOpenRequest(null);
+  }, [selectedWorkspaceId, setSessionOpenRequest, setView]);
 
   // When a prefill request arrives from outside (e.g. Automations "New
   // schedule"), open a fresh draft session so the prefill lands in a clean
@@ -112,6 +110,15 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
       setView("chat");
     },
     [setView],
+  );
+
+  const handleSessionOpenRequestConsumed = useCallback(
+    (requestKey: number) => {
+      setSessionOpenRequest((current) =>
+        current?.requestKey === requestKey ? null : current,
+      );
+    },
+    [setSessionOpenRequest],
   );
 
   const handleOpenLocalLink = useCallback(
@@ -208,6 +215,7 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
         onOpenLocalLink={handleOpenLocalLink}
         onPreviewImageAttachment={handlePreviewImageAttachment}
         sessionOpenRequest={sessionOpenRequest}
+        onSessionOpenRequestConsumed={handleSessionOpenRequestConsumed}
         composerPrefillRequest={composerPrefill}
         onEnterFocusMode={isCanvas ? undefined : handleEnterFocusMode}
       />

@@ -1,0 +1,37 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const UI_STATE_PATH = new URL("./state/ui.ts", import.meta.url);
+const CHAT_PANEL_PATH = new URL("./ChatPanel.tsx", import.meta.url);
+const SIDEBAR_PATH = new URL("./Sidebar.tsx", import.meta.url);
+const USE_ISSUES_PATH = new URL("./useIssues.ts", import.meta.url);
+
+test("new shell issues sidebar routes issue sessions through the shared chat panel request atom", async () => {
+  const [uiStateSource, chatPanelSource, sidebarSource, useIssuesSource] =
+    await Promise.all([
+      readFile(UI_STATE_PATH, "utf8"),
+      readFile(CHAT_PANEL_PATH, "utf8"),
+      readFile(SIDEBAR_PATH, "utf8"),
+      readFile(USE_ISSUES_PATH, "utf8"),
+    ]);
+
+  assert.match(uiStateSource, /export type SidebarSection =[\s\S]*"issues"/);
+  assert.match(uiStateSource, /export const chatSessionOpenRequestAtom = atom<ChatSessionOpenRequest \| null>\(/);
+
+  assert.match(chatPanelSource, /const \[sessionOpenRequest, setSessionOpenRequest\] = useAtom\(\s*chatSessionOpenRequestAtom,/);
+  assert.match(chatPanelSource, /onSessionOpenRequestConsumed=\{handleSessionOpenRequestConsumed\}/);
+  assert.match(chatPanelSource, /setSessionOpenRequest\(\(current\) =>\s*current\?\.requestKey === requestKey \? null : current,\s*\)/);
+
+  assert.match(useIssuesSource, /window\.electronAPI\.workspace\.listIssues\(workspaceId\)/);
+  assert.match(useIssuesSource, /window\.electronAPI\.workspace\.listTeammates\(workspaceId\)/);
+
+  assert.match(sidebarSource, /section === "issues" \? <SidebarIssuesSection \/> : null/);
+  assert.match(sidebarSource, /\{ key: "issues", label: "Issues", icon: <CircleDot \/> \}/);
+  assert.match(sidebarSource, /function SidebarIssuesSection\(\) \{/);
+  assert.match(sidebarSource, /setChatPanelView\("chat"\);/);
+  assert.match(sidebarSource, /setSessionOpenRequest\(\{\s*sessionId: issue\.session_id,/);
+  assert.match(sidebarSource, /function SidebarInboxSection\(\) \{/);
+  assert.match(sidebarSource, /Inbox is empty for now/);
+  assert.doesNotMatch(sidebarSource, /useTaskProposals/);
+});

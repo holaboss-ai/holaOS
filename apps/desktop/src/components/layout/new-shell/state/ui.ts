@@ -29,7 +29,12 @@ export const sidebarWidthAtom = atomWithStorage<number>(
  * (Inbox / Artifacts / Automations) inside the sidebar so the main
  * canvas keeps painting whatever the user was looking at.
  */
-export type SidebarSection = "home" | "inbox" | "artifacts" | "automations";
+export type SidebarSection =
+  | "home"
+  | "issues"
+  | "inbox"
+  | "artifacts"
+  | "automations";
 export const sidebarSectionAtom = atomWithStorage<SidebarSection>(
   "holaboss-new-shell-sidebar-section-v1",
   "home",
@@ -111,6 +116,17 @@ export interface ChatComposerPrefill {
   mode?: "replace" | "append";
 }
 export const chatComposerPrefillAtom = atom<ChatComposerPrefill | null>(null);
+
+export interface ChatSessionOpenRequest {
+  sessionId: string;
+  requestKey: number;
+  mode?: "session" | "draft";
+  parentSessionId?: string | null;
+  readOnly?: boolean;
+}
+export const chatSessionOpenRequestAtom = atom<ChatSessionOpenRequest | null>(
+  null,
+);
 
 /**
  * True when any overlay is open. BrowserPane reads this to detach the

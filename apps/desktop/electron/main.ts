@@ -9735,6 +9735,41 @@ async function listTaskProposals(
   );
 }
 
+async function listTeammates(
+  workspaceId: string,
+  includeArchived = false,
+): Promise<TeammateListResponsePayload> {
+  if (!workspaceId.trim()) {
+    return { teammates: [], count: 0 };
+  }
+  return requestWorkspaceRuntimeJson<TeammateListResponsePayload>(
+    workspaceId,
+    {
+      method: "GET",
+      path: "/api/v1/teammates",
+      params: {
+        workspace_id: workspaceId,
+        include_archived: includeArchived,
+      },
+    },
+  );
+}
+
+async function listIssues(
+  workspaceId: string,
+): Promise<IssueListResponsePayload> {
+  if (!workspaceId.trim()) {
+    return { issues: [], count: 0 };
+  }
+  return requestWorkspaceRuntimeJson<IssueListResponsePayload>(workspaceId, {
+    method: "GET",
+    path: "/api/v1/issues",
+    params: {
+      workspace_id: workspaceId,
+    },
+  });
+}
+
 async function listBackgroundTasks(
   payload: BackgroundTaskListRequestPayload,
 ): Promise<BackgroundTaskListResponsePayload> {
@@ -23795,6 +23830,17 @@ app.whenReady().then(async () => {
       notificationId: string,
       payload: RuntimeNotificationUpdatePayload,
     ) => updateNotification(workspaceId, notificationId, payload),
+  );
+  handleTrustedIpc(
+    "workspace:listTeammates",
+    ["main"],
+    async (_event, workspaceId: string, includeArchived?: boolean) =>
+      listTeammates(workspaceId, includeArchived),
+  );
+  handleTrustedIpc(
+    "workspace:listIssues",
+    ["main"],
+    async (_event, workspaceId: string) => listIssues(workspaceId),
   );
   handleTrustedIpc(
     "workspace:listTaskProposals",

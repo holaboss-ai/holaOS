@@ -712,6 +712,79 @@ interface RuntimeNotificationListOptionsPayload {
     archived_at: string | null;
   }
 
+  type TeammateKindPayload = "system" | "custom";
+  type TeammateStatusPayload = "active" | "archived";
+
+  interface TeammateSkillPayload {
+    skill_id: string;
+    name: string;
+    content: string;
+    created_at: string;
+    updated_at: string;
+  }
+
+  interface TeammateRecordPayload {
+    teammate_id: string;
+    workspace_id: string;
+    name: string;
+    kind: TeammateKindPayload;
+    status: TeammateStatusPayload;
+    instructions: string | null;
+    skills: TeammateSkillPayload[];
+    created_at: string;
+    updated_at: string;
+    archived_at: string | null;
+  }
+
+  interface TeammateListResponsePayload {
+    teammates: TeammateRecordPayload[];
+    count: number;
+  }
+
+  type IssueStatusPayload =
+    | "backlog"
+    | "todo"
+    | "in_progress"
+    | "in_review"
+    | "done"
+    | "blocked";
+  type IssuePriorityPayload = "critical" | "high" | "medium" | "low";
+
+  interface IssueAttachmentPayload {
+    id: string;
+    kind: "image" | "file" | "folder";
+    name: string;
+    mime_type: string;
+    size_bytes: number;
+    workspace_path: string;
+    created_at: string;
+  }
+
+  interface IssueRecordPayload {
+    issue_id: string;
+    workspace_id: string;
+    issue_number: number;
+    session_id: string;
+    title: string;
+    description: string | null;
+    status: IssueStatusPayload;
+    priority: IssuePriorityPayload | null;
+    assignee_teammate_id: string | null;
+    blocker_reason: string | null;
+    attachments: IssueAttachmentPayload[];
+    active_subagent_id: string | null;
+    latest_subagent_id: string | null;
+    created_by: string | null;
+    created_at: string;
+    updated_at: string;
+    completed_at: string | null;
+  }
+
+  interface IssueListResponsePayload {
+    issues: IssueRecordPayload[];
+    count: number;
+  }
+
   interface MainSessionLegacyExportPayload {
     session_id: string;
     title: string | null;
@@ -789,6 +862,7 @@ interface RuntimeNotificationListOptionsPayload {
 
   interface TaskProposalAcceptResponsePayload {
     proposal: TaskProposalRecordPayload;
+    issue: IssueRecordPayload;
     session: AgentSessionRecordPayload;
     input: EnqueueSessionInputResponsePayload;
   }
@@ -1997,6 +2071,11 @@ interface RuntimeNotificationListOptionsPayload {
         notificationId: string,
         payload: RuntimeNotificationUpdatePayload
       ) => Promise<RuntimeNotificationRecordPayload>;
+      listTeammates: (
+        workspaceId: string,
+        includeArchived?: boolean
+      ) => Promise<TeammateListResponsePayload>;
+      listIssues: (workspaceId: string) => Promise<IssueListResponsePayload>;
       listTaskProposals: (workspaceId: string) => Promise<TaskProposalListResponsePayload>;
       listBackgroundTasks: (
         payload: BackgroundTaskListRequestPayload

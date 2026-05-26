@@ -1480,6 +1480,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ) as Promise<RuntimeNotificationListResponsePayload>,
     updateNotification: (workspaceId: string, notificationId: string, payload: RuntimeNotificationUpdatePayload) =>
       ipcRenderer.invoke("workspace:updateNotification", workspaceId, notificationId, payload) as Promise<RuntimeNotificationRecordPayload>,
+    listTeammates: (workspaceId: string, includeArchived = false) =>
+      ipcRenderer.invoke("workspace:listTeammates", workspaceId, includeArchived) as Promise<TeammateListResponsePayload>,
+    listIssues: (workspaceId: string) =>
+      ipcRenderer.invoke("workspace:listIssues", workspaceId) as Promise<IssueListResponsePayload>,
     listTaskProposals: (workspaceId: string) =>
       ipcRenderer.invoke("workspace:listTaskProposals", workspaceId) as Promise<TaskProposalListResponsePayload>,
     listBackgroundTasks: (payload: BackgroundTaskListRequestPayload) =>
