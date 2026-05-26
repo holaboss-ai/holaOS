@@ -19,17 +19,24 @@ test("desktop issues and teammates bridge exposes typed IPC on main and preload"
   assert.match(mainSource, /async function listIssues\(\s*workspaceId: string,/);
   assert.match(mainSource, /path: "\/api\/v1\/issues"/);
   assert.match(mainSource, /"workspace:listIssues"/);
+  assert.match(mainSource, /async function createIssue\(\s*payload: CreateIssuePayload,/);
+  assert.match(mainSource, /"workspace:createIssue"/);
 
   assert.match(preloadSource, /listTeammates: \(workspaceId: string, includeArchived = false\) =>/);
   assert.match(preloadSource, /ipcRenderer\.invoke\("workspace:listTeammates", workspaceId, includeArchived\)/);
   assert.match(preloadSource, /listIssues: \(workspaceId: string\) =>/);
   assert.match(preloadSource, /ipcRenderer\.invoke\("workspace:listIssues", workspaceId\)/);
+  assert.match(preloadSource, /createIssue: \(payload: CreateIssuePayload\) =>/);
+  assert.match(preloadSource, /ipcRenderer\.invoke\("workspace:createIssue", payload\)/);
 
   assert.match(typesSource, /interface TeammateRecordPayload \{/);
   assert.match(typesSource, /interface IssueRecordPayload \{/);
   assert.match(typesSource, /interface IssueListResponsePayload \{/);
+  assert.match(typesSource, /interface CreateIssuePayload \{/);
+  assert.match(typesSource, /interface CreateIssueResponsePayload \{/);
   assert.match(typesSource, /listTeammates: \(\s*workspaceId: string,\s*includeArchived\?: boolean\s*\) => Promise<TeammateListResponsePayload>;/);
   assert.match(typesSource, /listIssues: \(workspaceId: string\) => Promise<IssueListResponsePayload>;/);
+  assert.match(typesSource, /createIssue: \(payload: CreateIssuePayload\) => Promise<CreateIssueResponsePayload>;/);
   assert.match(
     typesSource,
     /interface TaskProposalAcceptResponsePayload \{[\s\S]*issue: IssueRecordPayload;/,

@@ -785,6 +785,22 @@ interface RuntimeNotificationListOptionsPayload {
     count: number;
   }
 
+  interface CreateIssuePayload {
+    workspace_id: string;
+    title: string;
+    description?: string | null;
+    status: IssueStatusPayload;
+    priority?: IssuePriorityPayload | null;
+    assignee_teammate_id?: string | null;
+    blocker_reason?: string | null;
+    attachments?: SessionInputAttachmentPayload[] | null;
+  }
+
+  interface CreateIssueResponsePayload {
+    issue: IssueRecordPayload;
+    session: AgentSessionRecordPayload | null;
+  }
+
   interface MainSessionLegacyExportPayload {
     session_id: string;
     title: string | null;
@@ -2076,6 +2092,7 @@ interface RuntimeNotificationListOptionsPayload {
         includeArchived?: boolean
       ) => Promise<TeammateListResponsePayload>;
       listIssues: (workspaceId: string) => Promise<IssueListResponsePayload>;
+      createIssue: (payload: CreateIssuePayload) => Promise<CreateIssueResponsePayload>;
       listTaskProposals: (workspaceId: string) => Promise<TaskProposalListResponsePayload>;
       listBackgroundTasks: (
         payload: BackgroundTaskListRequestPayload

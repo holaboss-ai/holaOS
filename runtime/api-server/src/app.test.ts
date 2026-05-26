@@ -6225,6 +6225,7 @@ test("teammate and issue routes preserve local payload shape", async () => {
   assert.equal(createdIssue.json().issue.issue_id, "HOL-1");
   assert.equal(createdIssue.json().issue.issue_number, 1);
   assert.equal(createdIssue.json().issue.attachments.length, 1);
+  assert.ok(createdIssue.json().issue.latest_subagent_id);
   assert.equal(createdIssue.json().session.kind, "subagent");
   const issueBinding = store.getBinding({
     workspaceId: workspace.id,
@@ -6232,6 +6233,33 @@ test("teammate and issue routes preserve local payload shape", async () => {
   });
   assert.ok(issueBinding);
   assert.equal(issueBinding?.harness, "pi");
+  const createdIssueRuntimeState = store.getRuntimeState({
+    workspaceId: workspace.id,
+    sessionId: createdIssue.json().session.session_id,
+  });
+  assert.equal(createdIssueRuntimeState?.status, "QUEUED");
+  assert.ok(createdIssueRuntimeState?.currentInputId);
+  const createdIssueInput = store.getInput({
+    workspaceId: workspace.id,
+    inputId: createdIssueRuntimeState?.currentInputId ?? "",
+  });
+  assert.ok(createdIssueInput);
+  assert.match(
+    String(createdIssueInput?.payload.text ?? ""),
+    /Assigned teammate: Coder/,
+  );
+  assert.match(
+    String(createdIssueInput?.payload.text ?? ""),
+    /Teammate instructions:\nOwn implementation tasks\./,
+  );
+  assert.match(
+    String(createdIssueInput?.payload.text ?? ""),
+    /Skill: Frontend\n# Frontend\nBuild UI surfaces\./,
+  );
+  assert.match(
+    String(createdIssueInput?.payload.text ?? ""),
+    /Implement the workspace dashboard surface\./,
+  );
 
   const updatedIssue = await app.inject({
     method: "PATCH",

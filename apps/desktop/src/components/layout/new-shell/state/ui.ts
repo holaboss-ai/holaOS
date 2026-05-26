@@ -52,6 +52,9 @@ export const publishOpenAtom = atom(false);
 /** Is the create-new-workspace panel open? */
 export const createWorkspaceOpenAtom = atom(false);
 
+/** Is the create-new-issue dialog open? */
+export const newIssueOpenAtom = atom(false);
+
 /** Is the Automations overlay open? */
 export const automationsOpenAtom = atom(false);
 
@@ -139,6 +142,7 @@ export const browserViewSuspendedAtom = atom(
     get(searchOpenAtom) ||
     get(publishOpenAtom) ||
     get(createWorkspaceOpenAtom) ||
+    get(newIssueOpenAtom) ||
     get(automationsOpenAtom) ||
     get(settingsOpenAtom) ||
     get(marketplaceOpenAtom) ||

@@ -11069,7 +11069,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return;
     }
     try {
-      const issue = store.createIssue({
+      let issue = store.createIssue({
         issueId: nullableString(request.body.issue_id) ?? undefined,
         workspaceId,
         sessionId: nullableString(request.body.session_id) ?? undefined,
@@ -11082,7 +11082,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         attachments: requiredIssueAttachments(request.body.attachments, workspaceDir),
         createdBy: nullableString(request.body.created_by) ?? "workspace_user",
       });
-      const session = store.getSession({ workspaceId, sessionId: issue.sessionId });
+      let session = store.getSession({ workspaceId, sessionId: issue.sessionId });
       if (session && !store.getBinding({ workspaceId, sessionId: session.sessionId })) {
         store.upsertBinding({
           workspaceId,
@@ -11090,6 +11090,15 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           harness: resolvedWorkspaceHarness(workspace),
           harnessSessionId: session.sessionId,
         });
+      }
+      if (issue.status === "todo" && issue.assigneeTeammateId) {
+        const dispatched = runtimeAgentToolsService.dispatchIssue({
+          workspaceId,
+          issueId: issue.issueId,
+          createdBy: issue.createdBy,
+        });
+        issue = dispatched.issue;
+        session = dispatched.session;
       }
       return {
         issue: issuePayload(issue),
@@ -11114,7 +11123,14 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
     const params = request.params as { issueId: string };
     try {
-      const issue = store.updateIssue({
+      const existingIssue = store.getIssue({
+        workspaceId,
+        issueId: requiredString(params.issueId, "issueId"),
+      });
+      if (!existingIssue) {
+        return sendError(reply, 404, "issue not found");
+      }
+      let issue = store.updateIssue({
         workspaceId,
         issueId: requiredString(params.issueId, "issueId"),
         fields: {
@@ -11150,6 +11166,22 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       });
       if (!issue) {
         return sendError(reply, 404, "issue not found");
+      }
+      const shouldDispatchIssue =
+        issue.status === "todo" &&
+        Boolean(issue.assigneeTeammateId) &&
+        !issue.activeSubagentId &&
+        (
+          existingIssue.status !== "todo" ||
+          existingIssue.assigneeTeammateId !== issue.assigneeTeammateId
+        );
+      if (shouldDispatchIssue) {
+        const dispatched = runtimeAgentToolsService.dispatchIssue({
+          workspaceId,
+          issueId: issue.issueId,
+          createdBy: issue.createdBy,
+        });
+        issue = dispatched.issue;
       }
       return { issue: issuePayload(issue) };
     } catch (error) {

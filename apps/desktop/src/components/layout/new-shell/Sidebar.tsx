@@ -77,6 +77,7 @@ import {
   chatSessionOpenRequestAtom,
   createWorkspaceOpenAtom,
   focusModeAtom,
+  newIssueOpenAtom,
   publishOpenAtom,
   searchOpenAtom,
   SIDEBAR_MAX_WIDTH,
@@ -187,6 +188,7 @@ function SidebarExpanded() {
       className="flex h-full w-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground backdrop-blur-sm"
     >
       <WorkspaceSwitcher />
+      <SidebarNewIssueAction />
       <SidebarSectionNav />
       <div className="relative flex min-h-0 flex-1 flex-col">
         <AnimatePresence initial={false}>
@@ -234,6 +236,28 @@ const SECTION_NAV_SPRING = {
   damping: 32,
   mass: 0.6,
 };
+
+function SidebarNewIssueAction() {
+  const setNewIssueOpen = useSetAtom(newIssueOpenAtom);
+  const { selectedWorkspaceId } = useWorkspaceSelection();
+
+  return (
+    <div className="px-2 pb-1.5">
+      <button
+        type="button"
+        onClick={() => setNewIssueOpen(true)}
+        disabled={!selectedWorkspaceId}
+        className={cn(
+          "flex h-8 w-full items-center gap-2 rounded-md border border-sidebar-border bg-foreground/[0.04] px-2.5 text-left text-sm font-medium text-foreground transition-colors",
+          "hover:bg-foreground/[0.07] disabled:cursor-not-allowed disabled:opacity-45",
+        )}
+      >
+        <Plus className="size-3.5 text-foreground/60" />
+        <span>New issue</span>
+      </button>
+    </div>
+  );
+}
 
 function SidebarSectionNav() {
   const [section, setSection] = useAtom(sidebarSectionAtom);

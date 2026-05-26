@@ -515,6 +515,18 @@ test("delegateTask creates issue-owned runs and routes to a matching custom team
       (delegatedInput?.payload.context as Record<string, unknown> | undefined)?.teammate_id,
       teammate.teammateId,
     );
+    assert.match(
+      String(delegatedInput?.payload.text ?? ""),
+      /Assigned teammate: Frontend/,
+    );
+    assert.match(
+      String(delegatedInput?.payload.text ?? ""),
+      /Teammate instructions:\nOwn dashboard, UI, frontend, and React implementation work\./,
+    );
+    assert.match(
+      String(delegatedInput?.payload.text ?? ""),
+      /Skill: Dashboard UI\n# Dashboard UI\nImplement dashboard cards, charts, and React surfaces\./,
+    );
     const issueSession = store.getSession({
       workspaceId,
       sessionId: String(delegatedTask?.child_session_id ?? ""),

@@ -9770,6 +9770,28 @@ async function listIssues(
   });
 }
 
+async function createIssue(
+  payload: CreateIssuePayload,
+): Promise<CreateIssueResponsePayload> {
+  return requestWorkspaceRuntimeJson<CreateIssueResponsePayload>(
+    payload.workspace_id,
+    {
+      method: "POST",
+      path: "/api/v1/issues",
+      payload: {
+        workspace_id: payload.workspace_id,
+        title: payload.title,
+        description: payload.description ?? null,
+        status: payload.status,
+        priority: payload.priority ?? null,
+        assignee_teammate_id: payload.assignee_teammate_id ?? null,
+        blocker_reason: payload.blocker_reason ?? null,
+        attachments: payload.attachments ?? [],
+      },
+    },
+  );
+}
+
 async function listBackgroundTasks(
   payload: BackgroundTaskListRequestPayload,
 ): Promise<BackgroundTaskListResponsePayload> {
@@ -23841,6 +23863,11 @@ app.whenReady().then(async () => {
     "workspace:listIssues",
     ["main"],
     async (_event, workspaceId: string) => listIssues(workspaceId),
+  );
+  handleTrustedIpc(
+    "workspace:createIssue",
+    ["main"],
+    async (_event, payload: CreateIssuePayload) => createIssue(payload),
   );
   handleTrustedIpc(
     "workspace:listTaskProposals",

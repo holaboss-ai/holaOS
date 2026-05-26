@@ -32,6 +32,7 @@ import {
   chatPanelViewAtom,
   createWorkspaceOpenAtom,
   marketplaceOpenAtom,
+  newIssueOpenAtom,
   newTabOpenAtom,
   searchOpenAtom,
   settingsOpenAtom,
@@ -78,6 +79,7 @@ function SearchContent({ onSelect }: { onSelect: () => void }) {
     useWorkspaceSelection();
   const { browserState: userBrowser } = useWorkspaceBrowser("user");
   const setNewTabOpen = useSetAtom(newTabOpenAtom);
+  const setNewIssueOpen = useSetAtom(newIssueOpenAtom);
   const setSidebarSection = useSetAtom(sidebarSectionAtom);
   const setAutomationsOpen = useSetAtom(automationsOpenAtom);
   const setChatPanelView = useSetAtom(chatPanelViewAtom);
@@ -152,6 +154,11 @@ function SearchContent({ onSelect }: { onSelect: () => void }) {
         ) : null}
 
         <CommandGroup heading="Actions">
+          <ActionItem
+            label="New issue"
+            icon={<Plus />}
+            onSelect={wrap(() => setNewIssueOpen(true))}
+          />
           <ActionItem
             label="New tab"
             shortcut="⌘T"
