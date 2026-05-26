@@ -39,3 +39,13 @@ test("desktop auth callback recovery reuses the dev server and user-data path fo
   );
   assert.match(source, /if \(isDev\) \{\s*void win\.loadURL\(RESOLVED_DEV_SERVER_URL\);\s*\}/);
 });
+
+test("desktop protocol-spawned secondary instances exit before bootstrapping a blank main window", async () => {
+  const source = await readFile(MAIN_PATH, "utf8");
+
+  assert.match(source, /if \(!singleInstanceLock\) \{\s*app\.exit\(0\);\s*\}/);
+  assert.match(
+    source,
+    /app\.whenReady\(\)\.then\(async \(\) => \{\s*if \(!singleInstanceLock\) \{\s*return;\s*\}/,
+  );
+});

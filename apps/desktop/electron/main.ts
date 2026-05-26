@@ -21266,7 +21266,7 @@ function createAuthPopupHtml() {
         <div class="profileRow">
           <div id="avatar" class="avatar">H</div>
           <div class="identityWrap">
-            <div id="identityName" class="identityName">Holaboss account</div>
+            <div id="identityName" class="identityName">holaOS account</div>
             <div id="identity" class="identity">Loading session...</div>
           </div>
           <div id="badge" class="badge idle">Checking</div>
@@ -21447,7 +21447,7 @@ function createAuthPopupHtml() {
         const noticeText = state.authError || state.authMessage;
 
         els.avatar.textContent = sessionInitials(state.user);
-        els.identityName.textContent = isSignedIn ? (sessionDisplayName(state.user) || "Holaboss account") : "Holaboss account";
+        els.identityName.textContent = isSignedIn ? (sessionDisplayName(state.user) || "holaOS account") : "holaOS account";
         els.identity.textContent = isSignedIn ? (sessionEmail(state.user) || sessionUserId(state.user) || "Signed in") : "Not connected";
         els.badge.className = "badge " + badgeTone;
         els.badge.textContent = badgeLabel;
@@ -22769,7 +22769,7 @@ app.setName(
     : APP_DISPLAY_NAME,
 );
 if (!singleInstanceLock) {
-  app.quit();
+  app.exit(0);
 } else {
   if (process.defaultApp && process.argv.length >= 2) {
     app.setAsDefaultProtocolClient(
@@ -22917,6 +22917,10 @@ app.on("child-process-gone", (_event, details) => {
 });
 
 app.whenReady().then(async () => {
+  if (!singleInstanceLock) {
+    return;
+  }
+
   configureMacWebAuthnPlatformAuthenticator();
 
   if (process.platform === "darwin" && app.dock) {

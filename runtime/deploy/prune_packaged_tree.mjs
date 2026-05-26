@@ -153,6 +153,33 @@ function pruneNodePackageBinaryMirrors(rootPath) {
   }
 }
 
+function pruneVendoredWindowsNodePackage(rootPath, targetPlatform) {
+  if (targetPlatform !== "windows") {
+    return;
+  }
+
+  const stagedNodeExe = path.join(rootPath, "bin", "node.exe");
+  const vendoredNodePackageDir = path.join(rootPath, "node_modules", "node");
+  const vendoredNodeExe = path.join(vendoredNodePackageDir, "bin", "node.exe");
+  let stagedNodeExists = false;
+  let vendoredNodeExists = false;
+  try {
+    stagedNodeExists = statSync(stagedNodeExe).isFile();
+  } catch {
+    stagedNodeExists = false;
+  }
+  try {
+    vendoredNodeExists = statSync(vendoredNodeExe).isFile();
+  } catch {
+    vendoredNodeExists = false;
+  }
+  if (!stagedNodeExists || !vendoredNodeExists) {
+    return;
+  }
+
+  rmSync(vendoredNodePackageDir, { recursive: true, force: true });
+}
+
 function pruneDanglingSymlinks(rootPath) {
   for (const entry of readdirSync(rootPath, { withFileTypes: true })) {
     const entryPath = path.join(rootPath, entry.name);
@@ -196,6 +223,7 @@ export function prunePackagedTree(targetRoot, targetPlatform = "") {
   pruneNodePackageBinaryMirrors(resolvedRoot);
   if (targetPlatform) {
     pruneKoffiBinaries(resolvedRoot, targetPlatform);
+    pruneVendoredWindowsNodePackage(resolvedRoot, targetPlatform);
   }
   pruneDanglingSymlinks(resolvedRoot);
   const afterCount = countFiles(resolvedRoot);
