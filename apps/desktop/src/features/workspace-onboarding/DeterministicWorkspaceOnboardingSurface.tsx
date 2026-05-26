@@ -1285,7 +1285,7 @@ function HeroConnectCard({
               return (
                 <DropdownMenuItem
                   key={acct.connection_id}
-                  onSelect={() => {
+                  onClick={() => {
                     if (isSelected) return;
                     onSelectAccount(acct.connection_id);
                   }}
@@ -1302,7 +1302,7 @@ function HeroConnectCard({
               );
             })}
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onAddNewAccount}>
+            <DropdownMenuItem onClick={onAddNewAccount}>
               <Plus className="size-3.5" />
               <span>Add another account…</span>
             </DropdownMenuItem>
