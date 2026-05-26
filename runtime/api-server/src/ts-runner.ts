@@ -553,10 +553,6 @@ async function loadRecalledMemoryContext(params: {
       sessionId: params.sessionId,
       inputId: params.inputId,
       maxResults: 5,
-      executionProfile: {
-        useEmbeddings: false,
-        useLlmRerank: false,
-      },
     });
   } catch (error) {
     params.logger?.warn?.(
