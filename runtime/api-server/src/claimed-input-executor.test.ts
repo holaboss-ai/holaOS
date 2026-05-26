@@ -4492,6 +4492,98 @@ test("claimed onboarding input includes ONBOARD.md verbatim", async () => {
   store.close();
 });
 
+test("claimed issue bootstrap input injects teammate guidance without persisting a visible user message", async () => {
+  const store = makeStore("hb-claimed-input-issue-bootstrap-");
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const teammate = store.createTeammate({
+    workspaceId: workspace.id,
+    name: "Coder",
+    instructions: "Own implementation tasks.",
+    skills: [
+      {
+        name: "Frontend",
+        content: "# Frontend\nBuild UI surfaces.",
+      },
+    ],
+  });
+  const issue = store.createIssue({
+    workspaceId: workspace.id,
+    sessionId: "session-issue-1",
+    title: "Ship dashboard",
+    description: "Implement the workspace dashboard surface.",
+    status: "todo",
+    assigneeTeammateId: teammate.teammateId,
+    createdBy: "workspace_user",
+  });
+  const queued = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: issue.sessionId,
+    payload: {
+      text: "Implement the workspace dashboard surface.",
+      context: {
+        source: "issue_bootstrap",
+        issue_id: issue.issueId,
+        teammate_id: teammate.teammateId,
+      },
+    },
+  });
+
+  let capturedInstruction = "";
+  await processClaimedInput({
+    store,
+    record: queued,
+    executeRunnerRequestFn: async (payload, options = {}) => {
+      capturedInstruction = String(payload.instruction ?? "");
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 1,
+        event_type: "run_started",
+        payload: { instruction_preview: capturedInstruction.slice(0, 120) },
+      });
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 2,
+        event_type: "run_completed",
+        payload: { status: "ok" },
+      });
+      return {
+        events: [],
+        skippedLines: [],
+        stderr: "",
+        returnCode: 0,
+        sawTerminal: true,
+      };
+    },
+  });
+
+  assert.match(capturedInstruction, /Assigned teammate: Coder/);
+  assert.match(
+    capturedInstruction,
+    /Teammate instructions:\nOwn implementation tasks\./,
+  );
+  assert.match(
+    capturedInstruction,
+    /Skill: Frontend\n# Frontend\nBuild UI surfaces\./,
+  );
+  const messages = store.listSessionMessages({
+    workspaceId: workspace.id,
+    sessionId: issue.sessionId,
+    order: "asc",
+    limit: 20,
+    offset: 0,
+  });
+  assert.equal(messages.length, 0);
+
+  store.close();
+});
+
 test("claimed input persists replacement harness session id from terminal runner event", async () => {
   const store = makeStore("hb-claimed-input-harness-session-");
   const workspace = store.createWorkspace({

@@ -9614,6 +9614,48 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       sessionId: resolvedSessionId
     });
     const inferredKind = existingSession?.kind ?? inferredSessionKind(executionWorkspace, resolvedSessionId);
+    const linkedIssue = store.getIssueBySessionId({
+      workspaceId: executionWorkspaceId,
+      sessionId: resolvedSessionId,
+    });
+    if (linkedIssue) {
+      try {
+        const queuedIssueReply = runtimeAgentToolsService.queueIssueReply({
+          workspaceId: executionWorkspaceId,
+          issueId: linkedIssue.issueId,
+          text: trimmedText,
+          attachments,
+          imageUrls,
+          model: nullableString(request.body.model) ?? undefined,
+          selectedThinkingValue:
+            nullableString(request.body.thinking_value) ?? undefined,
+          priority: optionalInteger(request.body.priority, 0),
+        });
+        const runtimeState = store.getRuntimeState({
+          workspaceId: executionWorkspaceId,
+          sessionId: resolvedSessionId,
+        });
+        const queueAwareState = effectiveSessionState(runtimeState, true);
+        return {
+          input_id: queuedIssueReply.input.inputId,
+          session_id: queuedIssueReply.session.sessionId,
+          status: queuedIssueReply.input.status,
+          effective_state: queueAwareState.effective_state,
+          runtime_status: queueAwareState.runtime_status,
+          current_input_id: queueAwareState.current_input_id,
+          has_queued_inputs: true,
+        };
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "issue reply queue failed",
+        );
+      }
+    }
     const generatedSessionTitle = sessionTitleFromFirstUserInput(trimmedText, attachments, imageUrls);
 
     store.ensureSession({

@@ -1448,6 +1448,77 @@ function instructionWithInlineBackgroundUpdates(params: {
     .trim();
 }
 
+function instructionWithIssueAssignmentContext(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  sessionId: string;
+  baseInstruction: string;
+  context: Record<string, unknown> | null | undefined;
+}): string {
+  const issueId = optionalString(params.context?.issue_id);
+  const teammateId = optionalString(params.context?.teammate_id);
+  const issue =
+    (issueId
+      ? params.store.getIssue({
+          workspaceId: params.workspaceId,
+          issueId,
+        })
+      : null) ??
+    params.store.getIssueBySessionId({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+    });
+  if (!issue) {
+    return params.baseInstruction;
+  }
+  const effectiveTeammateId =
+    teammateId || (issue.assigneeTeammateId ?? "").trim();
+  if (!effectiveTeammateId) {
+    return params.baseInstruction;
+  }
+  const teammate = params.store.getTeammate({
+    workspaceId: params.workspaceId,
+    teammateId: effectiveTeammateId,
+    includeArchived: true,
+  });
+  if (!teammate || teammate.status !== "active") {
+    return params.baseInstruction;
+  }
+  const sections: string[] = [];
+  const teammateName = teammate.name.trim();
+  if (teammateName) {
+    sections.push(`Assigned teammate: ${teammateName}`);
+  }
+  const instructions = (teammate.instructions ?? "").trim();
+  if (instructions) {
+    sections.push(`Teammate instructions:\n${instructions}`);
+  }
+  const skillSections = teammate.skills
+    .map((skill) => {
+      const skillName = skill.name.trim() || "Skill";
+      const content = skill.content.trim();
+      if (!content) {
+        return `Skill: ${skillName}`;
+      }
+      return `Skill: ${skillName}\n${content}`;
+    })
+    .filter((section) => section.length > 0);
+  if (skillSections.length > 0) {
+    sections.push(`Teammate skills:\n${skillSections.join("\n\n")}`);
+  }
+  if (sections.length === 0) {
+    return params.baseInstruction;
+  }
+  return [...sections, params.baseInstruction].join("\n\n");
+}
+
+function shouldPersistUserSessionMessage(inputSource: string): boolean {
+  return (
+    inputSource !== "main_session_event_batch" &&
+    inputSource !== "issue_bootstrap"
+  );
+}
+
 function instructionWithRetryContinuationPrompt(params: {
   baseInstruction: string;
   failureMessage?: string | null;
@@ -4376,21 +4447,27 @@ export async function processClaimedInput(params: {
     const inputContext = isRecord(record.payload.context)
       ? record.payload.context
       : null;
-    const inputSource = optionalString(inputContext?.source)?.toLowerCase();
+    const inputSource = (optionalString(inputContext?.source) ?? "").toLowerCase();
 
-    const instruction = instructionWithInlineBackgroundUpdates({
-      baseInstruction: buildOnboardingInstruction({
-        workspaceRoot: store.workspaceRoot,
-        workspaceId: record.workspaceId,
-        sessionId: record.sessionId,
-        text: String(record.payload.text ?? ""),
-        attachments,
-        imageUrls,
-        workspace,
+    const instruction = instructionWithIssueAssignmentContext({
+      store,
+      workspaceId: record.workspaceId,
+      sessionId: record.sessionId,
+      baseInstruction: instructionWithInlineBackgroundUpdates({
+        baseInstruction: buildOnboardingInstruction({
+          workspaceRoot: store.workspaceRoot,
+          workspaceId: record.workspaceId,
+          sessionId: record.sessionId,
+          text: String(record.payload.text ?? ""),
+          attachments,
+          imageUrls,
+          workspace,
+        }),
+        context: inputContext,
       }),
       context: inputContext,
     });
-    if (inputSource !== "main_session_event_batch") {
+    if (shouldPersistUserSessionMessage(inputSource)) {
       store.insertSessionMessage({
         workspaceId: record.workspaceId,
         sessionId: record.sessionId,

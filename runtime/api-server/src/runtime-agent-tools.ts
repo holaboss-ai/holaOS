@@ -1998,51 +1998,14 @@ function subagentInstruction(params: {
   return `${goal}\n\nContext:\n${context}`;
 }
 
-function teammateExecutionInstruction(
-  teammate: TeammateRecord,
-  baseInstruction: string,
+function issueBootstrapInstruction(
+  issue: Pick<IssueRecord, "title" | "description">,
 ): string {
-  const normalizedInstruction = normalizedString(baseInstruction);
-  const sections: string[] = [];
-  const teammateName = normalizedString(teammate.name);
-  if (teammateName) {
-    sections.push(`Assigned teammate: ${teammateName}`);
-  }
-  const instructions = normalizedString(teammate.instructions);
-  if (instructions) {
-    sections.push(`Teammate instructions:\n${instructions}`);
-  }
-  const skillSections = teammate.skills
-    .map((skill) => {
-      const skillName = normalizedString(skill.name) || "Skill";
-      const content = normalizedString(skill.content);
-      if (!content) {
-        return `Skill: ${skillName}`;
-      }
-      return `Skill: ${skillName}\n${content}`;
-    })
-    .filter((section) => section.length > 0);
-  if (skillSections.length > 0) {
-    sections.push(`Teammate skills:\n${skillSections.join("\n\n")}`);
-  }
-  if (sections.length === 0) {
-    return normalizedInstruction;
-  }
-  return [...sections, normalizedInstruction].filter((value) => value.length > 0).join("\n\n");
-}
-
-function issueExecutionInstruction(params: {
-  issue: Pick<IssueRecord, "title" | "description">;
-  teammate: TeammateRecord;
-}): string {
-  const title = normalizedString(params.issue.title);
-  const description = normalizedString(params.issue.description);
+  const title = normalizedString(issue.title);
+  const description = normalizedString(issue.description);
   const goal = description || title;
   const context = description && title ? `Issue title: ${title}` : null;
-  return teammateExecutionInstruction(
-    params.teammate,
-    subagentInstruction({ goal, context }),
-  );
+  return subagentInstruction({ goal, context });
 }
 
 export function normalizeSubagentToolProfile(params: {
@@ -3543,10 +3506,7 @@ export class RuntimeAgentToolsService {
       const forwardedImageUrls = normalizedStringList(parentInput?.payload.image_urls);
       const forwardedQuotedSkillIds = quotedSkillIdsFromInstruction(parentInput?.payload.text);
       const delegatedInstruction = serializeQuotedSkillPrompt(
-        teammateExecutionInstruction(
-          assignee,
-          subagentInstruction({ goal: task.goal, context: task.context || null }),
-        ),
+        subagentInstruction({ goal: task.goal, context: task.context || null }),
         forwardedQuotedSkillIds,
       );
       const issue = this.store.createIssue({
@@ -3615,7 +3575,7 @@ export class RuntimeAgentToolsService {
           model: effectiveModel,
           thinking_value: effectiveProfile.thinkingValue,
           context: {
-            source: "subagent",
+            source: "issue_bootstrap",
             subagent_id: createdRun.subagentId,
             parent_session_id: controllerSession.sessionId,
             parent_input_id: parentInputId,
@@ -3823,10 +3783,7 @@ export class RuntimeAgentToolsService {
           ? Math.trunc(params.priority)
           : undefined,
       payload: {
-        text: issueExecutionInstruction({
-          issue,
-          teammate: assignee,
-        }),
+        text: issueBootstrapInstruction(issue),
         attachments: issue.attachments.map((attachment) => ({
           id: attachment.id,
           kind: attachment.kind,
@@ -3839,7 +3796,7 @@ export class RuntimeAgentToolsService {
         model: effectiveModel,
         thinking_value: effectiveProfile.thinkingValue,
         context: {
-          source: "issue",
+          source: "issue_bootstrap",
           subagent_id: createdRun.subagentId,
           issue_id: issue.issueId,
           teammate_id: assignee.teammateId,
@@ -3892,6 +3849,224 @@ export class RuntimeAgentToolsService {
     this.options.queueWorker?.wake();
     return {
       issue: updatedIssue,
+      session,
+      input,
+      run: syncedRun,
+    };
+  }
+
+  queueIssueReply(params: {
+    workspaceId: string;
+    issueId: string;
+    text: string;
+    attachments?: SessionInputAttachmentPayload[] | null;
+    imageUrls?: string[] | null;
+    createdBy?: string | null;
+    selectedModel?: string | null;
+    selectedThinkingValue?: string | null;
+    model?: string | null;
+    priority?: number | null;
+  }): {
+    issue: IssueRecord;
+    session: AgentSessionRecord;
+    input: SessionInputRecord;
+    run: SyncedSubagentRunState;
+  } {
+    const workspace = this.requireWorkspace(params.workspaceId);
+    const issue = this.store.getIssue({
+      workspaceId: params.workspaceId,
+      issueId: params.issueId,
+    });
+    if (!issue) {
+      throw new RuntimeAgentToolsServiceError(
+        404,
+        "issue_not_found",
+        `issue ${params.issueId} not found`,
+      );
+    }
+    if (issue.status === "backlog") {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "issue_backlog_read_only",
+        "move the issue to Todo before replying in the issue thread",
+      );
+    }
+    const assigneeTeammateId = normalizedString(issue.assigneeTeammateId);
+    if (!assigneeTeammateId) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "issue_unassigned",
+        "issue must be assigned before it can start",
+      );
+    }
+    const assignee = this.store.getTeammate({
+      workspaceId: params.workspaceId,
+      teammateId: assigneeTeammateId,
+      includeArchived: true,
+    });
+    if (!assignee || assignee.status !== "active") {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "issue_assignee_inactive",
+        "issue assignee must be active before the issue can start",
+      );
+    }
+    if (issue.activeSubagentId) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "issue_already_running",
+        "issue is currently running; wait for it to finish before replying",
+      );
+    }
+    const latestRunId = normalizedString(issue.latestSubagentId);
+    if (latestRunId) {
+      const latestRun = this.store.getSubagentRun({
+        workspaceId: params.workspaceId,
+        subagentId: latestRunId,
+      });
+      if (
+        latestRun &&
+        ["queued", "running", "waiting_on_user"].includes(
+          normalizedString(latestRun.status),
+        )
+      ) {
+        throw new RuntimeAgentToolsServiceError(
+          409,
+          "issue_run_already_queued",
+          "issue already has work queued or running",
+        );
+      }
+    }
+
+    const requestedModel = normalizedString(params.model) || null;
+    const effectiveProfile = resolveSubagentExecutionProfile({
+      selectedModel: params.selectedModel ?? requestedModel,
+      selectedThinkingValue: params.selectedThinkingValue ?? null,
+    });
+    const effectiveModel = effectiveProfile.model;
+    const session = this.store.ensureSession(
+      {
+        workspaceId: params.workspaceId,
+        sessionId: issue.sessionId,
+        kind: "subagent",
+        title: issue.title,
+        createdBy:
+          normalizedString(params.createdBy) ||
+          issue.createdBy ||
+          "workspace_user",
+        archivedAt: null,
+      },
+      { touchExisting: false },
+    );
+    if (!this.store.getBinding({ workspaceId: params.workspaceId, sessionId: session.sessionId })) {
+      this.store.upsertBinding({
+        workspaceId: params.workspaceId,
+        sessionId: session.sessionId,
+        harness: resolvedWorkspaceHarness(workspace),
+        harnessSessionId: session.sessionId,
+      });
+    }
+    const subagentId = randomUUID();
+    const toolProfile = {
+      requested_tools: ["terminal", "file", "browser", "web"],
+    };
+    const createdRun = this.store.createSubagentRun({
+      subagentId,
+      workspaceId: params.workspaceId,
+      parentSessionId: issue.sessionId,
+      parentInputId: null,
+      originMainSessionId: issue.sessionId,
+      ownerMainSessionId: issue.sessionId,
+      childSessionId: session.sessionId,
+      title: issue.title,
+      goal: normalizedString(issue.description) || issue.title,
+      context: null,
+      sourceType: "issue",
+      sourceId: issue.issueId,
+      issueId: issue.issueId,
+      teammateId: assignee.teammateId,
+      toolProfile,
+      requestedModel,
+      effectiveModel,
+      status: "queued",
+    });
+    this.store.ensureRuntimeState({
+      workspaceId: params.workspaceId,
+      sessionId: session.sessionId,
+      status: "QUEUED",
+    });
+    const input = this.store.enqueueInput({
+      workspaceId: params.workspaceId,
+      sessionId: session.sessionId,
+      priority:
+        typeof params.priority === "number" && Number.isFinite(params.priority)
+          ? Math.trunc(params.priority)
+          : undefined,
+      payload: {
+        text: normalizedString(params.text),
+        attachments: params.attachments ?? [],
+        image_urls: params.imageUrls ?? [],
+        model: effectiveModel,
+        thinking_value: effectiveProfile.thinkingValue,
+        context: {
+          source: "issue_reply",
+          subagent_id: createdRun.subagentId,
+          issue_id: issue.issueId,
+          teammate_id: assignee.teammateId,
+          parent_session_id: issue.sessionId,
+          parent_input_id: null,
+          origin_main_session_id: issue.sessionId,
+          owner_main_session_id: issue.sessionId,
+          task_title: issue.title,
+          goal: normalizedString(issue.description) || issue.title,
+          requested_model: requestedModel,
+          effective_model: effectiveModel,
+        },
+      },
+    });
+    this.store.updateRuntimeState({
+      workspaceId: params.workspaceId,
+      sessionId: session.sessionId,
+      status: "QUEUED",
+      currentInputId: input.inputId,
+      currentWorkerId: null,
+      leaseUntil: null,
+      heartbeatAt: null,
+      lastError: null,
+    });
+    const updatedRun =
+      this.store.updateSubagentRun({
+        workspaceId: params.workspaceId,
+        subagentId: createdRun.subagentId,
+        fields: {
+          initialChildInputId: input.inputId,
+          currentChildInputId: input.inputId,
+          latestChildInputId: input.inputId,
+          issueId: issue.issueId,
+          teammateId: assignee.teammateId,
+          status: "queued",
+        },
+      }) ?? createdRun;
+    this.store.updateIssue({
+      workspaceId: params.workspaceId,
+      issueId: issue.issueId,
+      fields: {
+        status: "todo",
+        latestSubagentId: updatedRun.subagentId,
+        activeSubagentId: null,
+        blockerReason: null,
+        completedAt: null,
+      },
+    });
+    const syncedRun = this.syncSubagentRunState(updatedRun);
+    const syncedIssue =
+      this.store.getIssue({
+        workspaceId: params.workspaceId,
+        issueId: issue.issueId,
+      }) ?? issue;
+    this.options.queueWorker?.wake();
+    return {
+      issue: syncedIssue,
       session,
       input,
       run: syncedRun,

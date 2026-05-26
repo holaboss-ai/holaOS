@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -515,17 +515,13 @@ test("delegateTask creates issue-owned runs and routes to a matching custom team
       (delegatedInput?.payload.context as Record<string, unknown> | undefined)?.teammate_id,
       teammate.teammateId,
     );
-    assert.match(
-      String(delegatedInput?.payload.text ?? ""),
-      /Assigned teammate: Frontend/,
+    assert.equal(
+      (delegatedInput?.payload.context as Record<string, unknown> | undefined)?.source,
+      "issue_bootstrap",
     );
     assert.match(
       String(delegatedInput?.payload.text ?? ""),
-      /Teammate instructions:\nOwn dashboard, UI, frontend, and React implementation work\./,
-    );
-    assert.match(
-      String(delegatedInput?.payload.text ?? ""),
-      /Skill: Dashboard UI\n# Dashboard UI\nImplement dashboard cards, charts, and React surfaces\./,
+      /Implement the dashboard cards and charts in React\./,
     );
     const issueSession = store.getSession({
       workspaceId,
@@ -533,6 +529,70 @@ test("delegateTask creates issue-owned runs and routes to a matching custom team
     });
     assert.equal(issueSession?.parentSessionId, mainSessionId);
     assert.equal(issueSession?.archivedAt, null);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("queueIssueReply reopens a completed issue on the same persistent issue session", async () => {
+  const root = await mkdtemp(
+    path.join(os.tmpdir(), "hb-runtime-agent-tools-issue-reply-"),
+  );
+  const workspaceRoot = path.join(root, "workspaces");
+  await mkdir(workspaceRoot, { recursive: true });
+  const store = new RuntimeStateStore({ workspaceRoot });
+  const workspaceId = "workspace-1";
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace",
+      harness: "pi",
+      status: "active",
+    });
+    const teammate = store.createTeammate({
+      workspaceId,
+      name: "Coder",
+      instructions: "Own implementation tasks.",
+      skills: [
+        {
+          name: "Frontend",
+          content: "# Frontend\nBuild UI surfaces.",
+        },
+      ],
+    });
+    const issue = store.createIssue({
+      workspaceId,
+      sessionId: "session-issue-1",
+      title: "Ship dashboard",
+      description: "Implement the workspace dashboard surface.",
+      status: "done",
+      assigneeTeammateId: teammate.teammateId,
+      createdBy: "workspace_user",
+    });
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    const result = service.queueIssueReply({
+      workspaceId,
+      issueId: issue.issueId,
+      text: "Please tighten the empty state copy.",
+    });
+
+    assert.equal(result.issue.issueId, issue.issueId);
+    assert.equal(result.issue.sessionId, issue.sessionId);
+    assert.equal(result.issue.status, "todo");
+    assert.equal(result.session.sessionId, issue.sessionId);
+    assert.equal(result.run.run.childSessionId, issue.sessionId);
+    assert.equal(result.input.sessionId, issue.sessionId);
+    assert.equal(result.input.payload.text, "Please tighten the empty state copy.");
+    assert.equal(
+      (result.input.payload.context as Record<string, unknown>)?.source,
+      "issue_reply",
+    );
+    assert.equal(
+      (result.input.payload.context as Record<string, unknown>)?.teammate_id,
+      teammate.teammateId,
+    );
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });

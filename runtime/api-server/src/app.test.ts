@@ -6244,17 +6244,14 @@ test("teammate and issue routes preserve local payload shape", async () => {
     inputId: createdIssueRuntimeState?.currentInputId ?? "",
   });
   assert.ok(createdIssueInput);
-  assert.match(
-    String(createdIssueInput?.payload.text ?? ""),
-    /Assigned teammate: Coder/,
+  assert.equal(
+    (createdIssueInput?.payload.context as Record<string, unknown> | undefined)
+      ?.source,
+    "issue_bootstrap",
   );
   assert.match(
     String(createdIssueInput?.payload.text ?? ""),
-    /Teammate instructions:\nOwn implementation tasks\./,
-  );
-  assert.match(
-    String(createdIssueInput?.payload.text ?? ""),
-    /Skill: Frontend\n# Frontend\nBuild UI surfaces\./,
+    /Implement the workspace dashboard surface\./,
   );
   assert.match(
     String(createdIssueInput?.payload.text ?? ""),
@@ -6300,6 +6297,74 @@ test("teammate and issue routes preserve local payload shape", async () => {
   assert.equal(visibleTeammates.statusCode, 200);
   assert.equal(visibleTeammates.json().count, 1);
   assert.equal(visibleTeammates.json().teammates[0]?.teammate_id, "general");
+
+  await app.close();
+  store.close();
+});
+
+test("queue route reopens done issue sessions on the same persistent thread", async () => {
+  const root = makeTempDir("hb-runtime-api-issue-queue-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const app = buildTestRuntimeApiServer({ store });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace",
+    harness: "pi",
+    status: "active",
+  });
+  const teammate = store.createTeammate({
+    workspaceId: workspace.id,
+    name: "Coder",
+    instructions: "Own implementation tasks.",
+    skills: [],
+  });
+  const issue = store.createIssue({
+    workspaceId: workspace.id,
+    sessionId: "session-issue-1",
+    title: "Ship dashboard",
+    description: "Implement the workspace dashboard surface.",
+    status: "done",
+    assigneeTeammateId: teammate.teammateId,
+    createdBy: "workspace_user",
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/v1/agent-sessions/queue",
+    payload: {
+      workspace_id: workspace.id,
+      session_id: issue.sessionId,
+      text: "Please tighten the empty state copy.",
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().session_id, issue.sessionId);
+  assert.equal(response.json().status, "QUEUED");
+  const queuedInput = store.getInput({
+    workspaceId: workspace.id,
+    inputId: response.json().input_id,
+  });
+  assert.ok(queuedInput);
+  assert.equal(queuedInput?.payload.text, "Please tighten the empty state copy.");
+  assert.equal(
+    (queuedInput?.payload.context as Record<string, unknown> | undefined)?.source,
+    "issue_reply",
+  );
+  const refreshedIssue = store.getIssue({
+    workspaceId: workspace.id,
+    issueId: issue.issueId,
+  });
+  assert.equal(refreshedIssue?.status, "todo");
+  assert.ok(refreshedIssue?.latestSubagentId);
+  const refreshedRuntimeState = store.getRuntimeState({
+    workspaceId: workspace.id,
+    sessionId: issue.sessionId,
+  });
+  assert.equal(refreshedRuntimeState?.status, "QUEUED");
 
   await app.close();
   store.close();
