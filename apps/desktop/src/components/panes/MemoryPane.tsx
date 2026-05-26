@@ -980,7 +980,7 @@ export function MemoryPane({ embedded }: { embedded?: boolean } = {}) {
       <SettingsCard className={embedded ? "" : "overflow-hidden"}>
         <div className="grid h-[540px] grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)]">
           <div className="flex min-h-0 flex-col border-r border-border bg-muted/10">
-            <div className="border-b border-border px-4 py-3 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+            <div className="border-b border-border px-4 py-3 text-xs font-medium text-muted-foreground">
               Explorer
             </div>
             <div className="min-h-0 overflow-auto p-2">

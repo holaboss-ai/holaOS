@@ -28,6 +28,8 @@ test("SignInScreen surfaces error and pending states", async () => {
 
   // Browser-opened hint with retry CTA.
   assert.match(source, /BROWSER_SIGN_IN_HINT/);
+  assert.match(source, /Complete the flow on the holaOS page to continue\./);
+  assert.doesNotMatch(source, /Complete the flow on the Holaboss page to continue\./);
   assert.match(source, /Didn't open\? Open the browser again/);
 });
 

@@ -136,7 +136,6 @@ import { resumePendingIntegrationInputs } from "./integration-proposal-gate.js";
 import { OAuthService } from "./oauth-service.js";
 import { ComposioService } from "./composio-service.js";
 import { ComposioMcpManager } from "./composio-mcp-manager.js";
-import { listAllToolkitCapabilities } from "./composio-tool-registry.js";
 import { listStoreCatalog } from "./integration-store-catalog.js";
 import { WorkspaceIntegrationsService } from "./workspace-integrations.js";
 import {
@@ -4863,10 +4862,6 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
 
   app.get("/api/v1/integrations/catalog", async () => {
     return integrationService.getCatalog();
-  });
-
-  app.get("/api/v1/integrations/composio-capabilities", async () => {
-    return { toolkits: listAllToolkitCapabilities() };
   });
 
   // GET /integrations/store-catalog — the curated subset of Composio

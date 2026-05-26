@@ -166,6 +166,22 @@ export function useIntegrationBinding({
     void refresh();
   }, [refresh]);
 
+  // Bindings can change from outside this hook — agent-driven binds (chat
+  // → runtime → main → state-store) and Settings-driven binds don't go
+  // through `connect()` / `bind()` here, so the sidebar's status dot
+  // would otherwise stay stuck on its mount-time value forever. Poll every
+  // 8s as a low-cost catchall: two IPC reads per AppRow per integration,
+  // negligible at typical scale. The 8s cadence is fast enough that a
+  // user finishing a chat-side connect sees the dot flip "ready" before
+  // they look back at the sidebar.
+  useEffect(() => {
+    if (!selectedWorkspaceId || !trimmedProvider || !trimmedAppId) return;
+    const id = setInterval(() => {
+      void refresh();
+    }, 8000);
+    return () => clearInterval(id);
+  }, [selectedWorkspaceId, trimmedProvider, trimmedAppId, refresh]);
+
   // The running app captured HOLABOSS_APP_GRANT at boot in its bridge
   // transport. Any bind change is invisible until the app process cycles —
   // unconditional restart is cheaper than diffing.

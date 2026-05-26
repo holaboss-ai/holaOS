@@ -90,6 +90,36 @@ test("prunePackagedTree removes packaged-runtime archives, sources, and duplicat
   }
 });
 
+test("prunePackagedTree removes the vendored Windows node package once a staged launcher node.exe exists", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hb-prune-vendored-node-package-"));
+  const stagedNodePath = path.join(root, "bin", "node.exe");
+  const vendoredNodePath = path.join(
+    root,
+    "node_modules",
+    "node",
+    "bin",
+    "node.exe",
+  );
+  const npmCliPath = path.join(root, "node_modules", "npm", "bin", "npm-cli.js");
+
+  try {
+    fs.mkdirSync(path.dirname(stagedNodePath), { recursive: true });
+    fs.mkdirSync(path.dirname(vendoredNodePath), { recursive: true });
+    fs.mkdirSync(path.dirname(npmCliPath), { recursive: true });
+    fs.writeFileSync(stagedNodePath, "staged", "utf8");
+    fs.writeFileSync(vendoredNodePath, "vendored", "utf8");
+    fs.writeFileSync(npmCliPath, "npm", "utf8");
+
+    prunePackagedTree(root, "windows");
+
+    assert.equal(fs.existsSync(stagedNodePath), true);
+    assert.equal(fs.existsSync(path.join(root, "node_modules", "node")), false);
+    assert.equal(fs.existsSync(npmCliPath), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("prunePackagedTree keeps node-bin package mirrors until the staged node executable exists", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hb-prune-node-runtime-guard-"));
   const duplicateNodePath = path.join(
@@ -114,7 +144,7 @@ test("prunePackagedTree keeps node-bin package mirrors until the staged node exe
   }
 });
 
-test("prunePackagedTree removes dangling symlinks left behind by file pruning", () => {
+test("prunePackagedTree removes dangling symlinks left behind by file pruning", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hb-prune-dangling-links-"));
   const realDistDir = path.join(root, "runtime", "state-store", "dist");
   const linkedDistDir = path.join(
@@ -136,8 +166,16 @@ test("prunePackagedTree removes dangling symlinks left behind by file pruning", 
     fs.mkdirSync(linkedDistDir, { recursive: true });
     fs.writeFileSync(liveTargetPath, "export {};\n", "utf8");
     fs.writeFileSync(prunedTargetPath, "export {};\n", "utf8");
-    fs.symlinkSync(liveTargetPath, liveLinkPath);
-    fs.symlinkSync(prunedTargetPath, prunedLinkPath);
+    try {
+      fs.symlinkSync(liveTargetPath, liveLinkPath);
+      fs.symlinkSync(prunedTargetPath, prunedLinkPath);
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "EPERM") {
+        t.skip("local symlink creation is not permitted in this Windows environment");
+        return;
+      }
+      throw error;
+    }
 
     prunePackagedTree(root, "macos");
 

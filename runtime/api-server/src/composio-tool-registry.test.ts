@@ -10,7 +10,6 @@ import yaml from "js-yaml";
 
 import {
   bootstrapComposioMcpForWorkspace,
-  buildToolkitCatalog,
   COMPOSIO_REGISTRY_SERVER_ID,
   removeComposioMcpRegistryEntry,
   writeComposioMcpRegistryEntry,
@@ -246,7 +245,30 @@ test("bootstrapComposioMcpForWorkspace boots the host, writes the registry, and 
       workspaceDir,
       honoBaseUrl: "https://app.holaboss.test",
       authCookie: "hb_session=test",
-      catalog: buildToolkitCatalog("gmail", "ca_4vYjam9qHD46"),
+      catalog: [
+        {
+          name: "gmail_get_profile",
+          description:
+            "Read the authenticated Gmail user's profile (email address, message count, thread count). Read-only.",
+          toolkit_slug: "gmail",
+          tool_slug: "GMAIL_GET_PROFILE",
+          connected_account_id: "ca_4vYjam9qHD46",
+          input_schema: {
+            type: "object",
+            title: "GmailGetProfileRequest",
+            properties: {
+              user_id: {
+                type: "string",
+                default: "me",
+                description:
+                  "User identifier — 'me' for the authenticated user.",
+                examples: ["me", "user@example.com"],
+              },
+            },
+          },
+          annotations: { readOnlyHint: true },
+        },
+      ],
       composioService,
     });
 

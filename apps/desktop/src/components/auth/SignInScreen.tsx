@@ -8,7 +8,7 @@ import { trackUmamiEvent } from "@/lib/analytics/umami";
 import { useDesktopAuthSession } from "@/lib/auth/authClient";
 
 const BROWSER_SIGN_IN_HINT =
-  "Sign-in opened in the browser. Complete the flow on the Holaboss page to continue.";
+  "Sign-in opened in the browser. Complete the flow on the holaOS page to continue.";
 
 export function SignInScreen() {
   const { error, isPending, requestAuth } = useDesktopAuthSession();

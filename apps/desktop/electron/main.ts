@@ -9781,6 +9781,37 @@ async function archiveBackgroundTask(
   );
 }
 
+async function continueBackgroundTask(
+  payload: ContinueBackgroundTaskPayload,
+): Promise<ContinueBackgroundTaskResponsePayload> {
+  if (!payload.workspaceId.trim()) {
+    throw new Error("workspaceId is required");
+  }
+  if (!payload.subagentId.trim()) {
+    throw new Error("subagentId is required");
+  }
+  if (!payload.ownerMainSessionId.trim()) {
+    throw new Error("ownerMainSessionId is required");
+  }
+  const instruction = payload.instruction.trim();
+  if (!instruction) {
+    throw new Error("instruction is required");
+  }
+  return requestWorkspaceRuntimeJson<ContinueBackgroundTaskResponsePayload>(
+    payload.workspaceId,
+    {
+      method: "POST",
+      path: `/api/v1/capabilities/runtime-tools/subagents/${encodeURIComponent(payload.subagentId)}/continue`,
+      payload: {
+        workspace_id: payload.workspaceId,
+        session_id: payload.ownerMainSessionId,
+        instruction,
+        title: payload.title ?? undefined,
+      },
+    },
+  );
+}
+
 async function acceptTaskProposal(
   payload: TaskProposalAcceptPayload,
 ): Promise<TaskProposalAcceptResponsePayload> {
@@ -10371,23 +10402,6 @@ async function listAllWorkspaceIntegrationOverrides(): Promise<{
   }>({
     method: "GET",
     path: "/api/v1/integrations/all-workspace-overrides",
-  });
-}
-
-async function listComposioToolkitCapabilities(): Promise<{
-  toolkits: Record<
-    string,
-    Array<{ name: string; description: string; tool_slug: string; read_only: boolean }>
-  >;
-}> {
-  return requestRuntimeJson<{
-    toolkits: Record<
-      string,
-      Array<{ name: string; description: string; tool_slug: string; read_only: boolean }>
-    >;
-  }>({
-    method: "GET",
-    path: "/api/v1/integrations/composio-capabilities",
   });
 }
 
@@ -21252,7 +21266,7 @@ function createAuthPopupHtml() {
         <div class="profileRow">
           <div id="avatar" class="avatar">H</div>
           <div class="identityWrap">
-            <div id="identityName" class="identityName">Holaboss account</div>
+            <div id="identityName" class="identityName">holaOS account</div>
             <div id="identity" class="identity">Loading session...</div>
           </div>
           <div id="badge" class="badge idle">Checking</div>
@@ -21433,7 +21447,7 @@ function createAuthPopupHtml() {
         const noticeText = state.authError || state.authMessage;
 
         els.avatar.textContent = sessionInitials(state.user);
-        els.identityName.textContent = isSignedIn ? (sessionDisplayName(state.user) || "Holaboss account") : "Holaboss account";
+        els.identityName.textContent = isSignedIn ? (sessionDisplayName(state.user) || "holaOS account") : "holaOS account";
         els.identity.textContent = isSignedIn ? (sessionEmail(state.user) || sessionUserId(state.user) || "Signed in") : "Not connected";
         els.badge.className = "badge " + badgeTone;
         els.badge.textContent = badgeLabel;
@@ -22755,7 +22769,7 @@ app.setName(
     : APP_DISPLAY_NAME,
 );
 if (!singleInstanceLock) {
-  app.quit();
+  app.exit(0);
 } else {
   if (process.defaultApp && process.argv.length >= 2) {
     app.setAsDefaultProtocolClient(
@@ -22903,6 +22917,10 @@ app.on("child-process-gone", (_event, details) => {
 });
 
 app.whenReady().then(async () => {
+  if (!singleInstanceLock) {
+    return;
+  }
+
   configureMacWebAuthnPlatformAuthenticator();
 
   if (process.platform === "darwin" && app.dock) {
@@ -23810,6 +23828,12 @@ app.whenReady().then(async () => {
       archiveBackgroundTask(payload),
   );
   handleTrustedIpc(
+    "workspace:continueBackgroundTask",
+    ["main"],
+    async (_event, payload: ContinueBackgroundTaskPayload) =>
+      continueBackgroundTask(payload),
+  );
+  handleTrustedIpc(
     "workspace:acceptTaskProposal",
     ["main"],
     async (_event, payload: TaskProposalAcceptPayload) =>
@@ -24032,11 +24056,6 @@ app.whenReady().then(async () => {
     "workspace:listConnectionWorkspaceUsage",
     ["main"],
     async () => listConnectionWorkspaceUsage(),
-  );
-  handleTrustedIpc(
-    "workspace:listComposioToolkitCapabilities",
-    ["main"],
-    async () => listComposioToolkitCapabilities(),
   );
   handleTrustedIpc(
     "workspace:listIntegrationStoreCatalog",

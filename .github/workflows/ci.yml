@@ -37,11 +37,6 @@ on:
         options:
           - latest
           - beta
-      release_windows:
-        description: Build and publish the Windows desktop installer
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -550,7 +545,7 @@ jobs:
           if-no-files-found: error
 
   release-windows-desktop:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_windows }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     needs: ensure-release
     runs-on: windows-latest
     env:
@@ -888,7 +883,7 @@ jobs:
         github.event_name == 'workflow_dispatch' &&
         needs.ensure-release.result == 'success' &&
         needs.release-macos-desktop.result == 'success' &&
-        (needs.release-windows-desktop.result == 'success' || needs.release-windows-desktop.result == 'skipped')
+        needs.release-windows-desktop.result == 'success'
       }}
     needs:
       - ensure-release
@@ -915,7 +910,6 @@ jobs:
           path: release-assets/macos-desktop
 
       - name: Download Windows desktop release artifacts
-        if: ${{ inputs.release_windows }}
         uses: actions/download-artifact@v8
         with:
           name: holaboss-desktop-windows-${{ inputs.release_tag }}
@@ -979,44 +973,42 @@ jobs:
             upload_paths+=("${blockmap_path}")
           done < <(find release-assets/macos-desktop -maxdepth 1 -name '*.blockmap' -print | sort)
 
-          if [ "${{ inputs.release_windows }}" = "true" ]; then
-            windows_release_dir="release-assets/windows-desktop"
-            if [ -d "${windows_release_dir}/release" ]; then
-              windows_release_dir="${windows_release_dir}/release"
-            fi
+          windows_release_dir="release-assets/windows-desktop"
+          if [ -d "${windows_release_dir}/release" ]; then
+            windows_release_dir="${windows_release_dir}/release"
+          fi
 
-            windows_installer_asset="${windows_release_dir}/holaOS-windows-x64-setup.exe"
-            windows_blockmap_asset="${windows_installer_asset}.blockmap"
-            if [ ! -f "${windows_installer_asset}" ]; then
-              echo "missing Windows installer release asset" >&2
-              find release-assets/windows-desktop -maxdepth 3 -type f -print >&2 || true
+          windows_installer_asset="${windows_release_dir}/holaOS-windows-x64-setup.exe"
+          windows_blockmap_asset="${windows_installer_asset}.blockmap"
+          if [ ! -f "${windows_installer_asset}" ]; then
+            echo "missing Windows installer release asset" >&2
+            find release-assets/windows-desktop -maxdepth 3 -type f -print >&2 || true
+            exit 1
+          fi
+          if [ ! -f "${windows_blockmap_asset}" ]; then
+            echo "missing Windows installer blockmap release asset" >&2
+            find release-assets/windows-desktop -maxdepth 3 -type f -print >&2 || true
+            exit 1
+          fi
+
+          upload_paths+=("${windows_installer_asset}" "${windows_blockmap_asset}")
+
+          windows_manifest_count=0
+          for windows_manifest_asset in "${windows_release_dir}/latest.yml" "${windows_release_dir}/beta.yml"; do
+            if [ ! -f "${windows_manifest_asset}" ]; then
+              continue
+            fi
+            if ! grep -q 'holaOS-windows-x64-setup\.exe' "${windows_manifest_asset}"; then
+              echo "${windows_manifest_asset} does not reference holaOS-windows-x64-setup.exe" >&2
               exit 1
             fi
-            if [ ! -f "${windows_blockmap_asset}" ]; then
-              echo "missing Windows installer blockmap release asset" >&2
-              find release-assets/windows-desktop -maxdepth 3 -type f -print >&2 || true
-              exit 1
-            fi
-
-            upload_paths+=("${windows_installer_asset}" "${windows_blockmap_asset}")
-
-            windows_manifest_count=0
-            for windows_manifest_asset in "${windows_release_dir}/latest.yml" "${windows_release_dir}/beta.yml"; do
-              if [ ! -f "${windows_manifest_asset}" ]; then
-                continue
-              fi
-              if ! grep -q 'holaOS-windows-x64-setup\.exe' "${windows_manifest_asset}"; then
-                echo "${windows_manifest_asset} does not reference holaOS-windows-x64-setup.exe" >&2
-                exit 1
-              fi
-              upload_paths+=("${windows_manifest_asset}")
-              windows_manifest_count=$((windows_manifest_count + 1))
-            done
-            if [ "${windows_manifest_count}" -eq 0 ]; then
-              echo "missing Windows auto-update manifest release asset" >&2
-              find release-assets/windows-desktop -maxdepth 3 -type f -print >&2 || true
-              exit 1
-            fi
+            upload_paths+=("${windows_manifest_asset}")
+            windows_manifest_count=$((windows_manifest_count + 1))
+          done
+          if [ "${windows_manifest_count}" -eq 0 ]; then
+            echo "missing Windows auto-update manifest release asset" >&2
+            find release-assets/windows-desktop -maxdepth 3 -type f -print >&2 || true
+            exit 1
           fi
 
           prerelease_flag=()

@@ -6,7 +6,10 @@ import test from "node:test";
 
 import { materializeAbsoluteSymlinks } from "./build_runtime_root.mjs";
 
-test("materializeAbsoluteSymlinks replaces absolute package links while preserving relative shims", () => {
+test(
+  "materializeAbsoluteSymlinks replaces absolute package links while preserving relative shims",
+  { skip: process.platform === "win32" ? "Windows file symlinks require elevated privileges or Developer Mode." : false },
+  () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hb-runtime-root-links-"));
   const stateStoreDistDir = path.join(root, "runtime", "state-store", "dist");
   const linkedDistDir = path.join(

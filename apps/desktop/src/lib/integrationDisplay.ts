@@ -6,8 +6,9 @@ import { useIntegrationAccountMetadata } from "./integrationAccountStore";
  * latter can be stale or admin-supplied — but each tier falls back to the
  * persisted column so a missed whoami fetch (offline, Composio hiccup, or
  * a connection minted before whoami enrichment shipped) still surfaces a
- * recognisable identity instead of a generic "Account N". Auto-generated
- * `<provider> (Managed)` labels and raw `ca_…` Composio IDs fall through.
+ * recognisable identity instead of a generic "Account N". Legacy auto-
+ * generated `<provider> (Managed)` labels have their suffix stripped so
+ * the internal classifier never leaks to the user.
  */
 export function accountDisplayLabel(
   conn: IntegrationConnectionPayload,
@@ -22,12 +23,14 @@ export function accountDisplayLabel(
   if (email) return email;
   const displayName = meta?.displayName?.trim();
   if (displayName) return displayName;
-  // Auto-generated `<provider> (Managed)` and raw `ca_…` Composio IDs
-  // are noisy — but they still tell the user "this is the foo provider"
-  // better than a generic index. Keep them as a last-resort label;
-  // they only lose to real identity above, not to the index fallback.
   const label = (conn.account_label ?? "").trim();
-  if (label) return label;
+  if (label) {
+    // Strip the legacy "(Managed)" suffix that older connections still
+    // carry in their account_label column — new connect call sites no
+    // longer write it, but old data is still in the store.
+    const cleaned = label.replace(/\s*\(Managed\)\s*$/i, "").trim();
+    return cleaned || label;
+  }
   return `Account ${index + 1}`;
 }
 

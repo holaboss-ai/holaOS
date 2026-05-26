@@ -46,6 +46,14 @@ export function resolveIntegrationError(opts: ResolveOptions): IntegrationErrorC
         detail: `Reconnect to keep using ${provider}.`,
         action: "reconnect",
       };
+    case "forbidden":
+    case "permission_denied":
+    case "insufficient_scope":
+      return {
+        headline: `${provider} access is incomplete`,
+        detail: `Reconnect and make sure to grant all permissions on the consent screen.`,
+        action: "reconnect",
+      };
     case "rate_limited":
       return {
         headline: `${provider} is busy`,
@@ -152,5 +160,16 @@ function inferCode(message: string, error: unknown): string {
   // Pull the marker emitted by composio-mcp-host (composio-mcp-host.ts).
   const marker = /\[composio_error:([a-z_]+)/i.exec(message);
   if (marker?.[1]) return marker[1].toLowerCase();
+  // Fallback: raw "forbidden" / 403 messages from upstream that didn't
+  // make it through the marker. Treat as scope/permission issue so the
+  // UI offers Reconnect instead of a generic "try again".
+  if (
+    /\bforbidden\b/.test(lower) ||
+    /\b403\b/.test(lower) ||
+    lower.includes("insufficient scope") ||
+    lower.includes("permission denied")
+  ) {
+    return "forbidden";
+  }
   return "unknown";
 }

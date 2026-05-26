@@ -22,9 +22,14 @@ const runtimeRoot = path.resolve(scriptDir, "..");
 const repoRoot = path.resolve(runtimeRoot, "..");
 const DEFAULT_RUNTIME_NODE_VERSION = "24.14.1";
 
+function isNodeScriptPath(targetPath) {
+  const extension = path.extname(targetPath).toLowerCase();
+  return extension === ".js" || extension === ".cjs" || extension === ".mjs";
+}
+
 function resolveWindowsNpmCliPath() {
   const envExecPath = process.env.npm_execpath?.trim();
-  if (envExecPath && existsSync(envExecPath)) {
+  if (envExecPath && existsSync(envExecPath) && isNodeScriptPath(envExecPath)) {
     return envExecPath;
   }
 
@@ -261,8 +266,8 @@ export async function packageWindowsRuntime(
     mkdirSync(binDir, { recursive: true });
     if (!skipNodeDeps) {
       cpSync(buildNodeRuntimeDir, nodeRuntimeDir, { recursive: true, dereference: true });
-      prunePackagedTree(nodeRuntimeDir, "windows");
       stageWindowsNodeCommandLaunchers(outputRoot);
+      prunePackagedTree(nodeRuntimeDir, "windows");
     }
 
     const pythonStageResult = await stagePythonRuntime(outputRoot, "windows");

@@ -15,6 +15,7 @@ import { type AuthSession, useDesktopAuthSession } from "@/lib/auth/authClient";
 import { loadWorkspaceOnboardingPreference } from "@/features/workspace-onboarding/preferences";
 import { hydrateInstalledWorkspaceApps, type WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
+import { toolkitDisplayName } from "@/lib/toolkitDisplay";
 
 /**
  * Each app self-declares its integration provider in `app.runtime.yaml`,
@@ -94,6 +95,49 @@ export const COMPOSIO_POLL_INTERVAL_MS = 3000;
 export const COMPOSIO_POLL_MAX_TICKS = 100;
 export const COMPOSIO_POLL_TIMEOUT_MS =
   COMPOSIO_POLL_INTERVAL_MS * COMPOSIO_POLL_MAX_TICKS;
+
+// Progressive poll cadence — OAuth typically completes 5-30s after
+// open, so the first few polls hit at high density to catch fast
+// completions, then back off to the steady 3s baseline. Total tick
+// count still respects COMPOSIO_POLL_MAX_TICKS.
+const COMPOSIO_POLL_INTERVAL_PROGRESSION_MS = [800, 1200, 1800, 2400] as const;
+function composioPollIntervalForTick(tick: number): number {
+  return (
+    COMPOSIO_POLL_INTERVAL_PROGRESSION_MS[tick] ?? COMPOSIO_POLL_INTERVAL_MS
+  );
+}
+
+/** Sleep for `ms` OR until the desktop window regains focus — whichever
+ *  comes first. Used by the OAuth poll loop so the moment the user
+ *  switches back from the browser after authorizing, we poll immediately
+ *  instead of waiting up to one full interval for the next tick. */
+function sleepUntilFocusOrTimeout(
+  ms: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const onAbort = () => finish();
+    const onFocus = () => finish();
+    const timer = setTimeout(() => finish(), ms);
+    function finish() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      window.removeEventListener("focus", onFocus);
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }
+    window.addEventListener("focus", onFocus, { once: true });
+    if (signal) {
+      if (signal.aborted) {
+        finish();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+  });
+}
 
 const ONBOARDING_ACTIVE_STATUSES = new Set(["pending", "awaiting_confirmation", "in_progress"]);
 const LOCAL_OSS_TEMPLATE_USER_ID = "local-oss";
@@ -1216,23 +1260,21 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
 
     const MAX_CONSECUTIVE_ERRORS = 20;
 
-    const runtimeConfig = await window.electronAPI.runtime.getConfig();
+    // Parallelize the two independent pre-OAuth round-trips. Before this
+    // was serial — getConfig → snapshot → composioConnect — adding ~300-800ms
+    // of latency before the browser even opens. The snapshot only needs
+    // to complete before we start polling, not before composioConnect.
+    const toolkitSlug = composioToolkitSlugForProvider(provider);
+    const [runtimeConfig, beforeSnapshot] = await Promise.all([
+      window.electronAPI.runtime.getConfig(),
+      window.electronAPI.workspace
+        .composioListConnections()
+        .catch(() => ({ connections: [] as Array<{ id: string }> })),
+    ]);
     const userId = runtimeConfig.userId ?? (resolvedUserId || "local");
-
-    // Snapshot existing connection ids before initiating — see
-    // IntegrationsPane comment: poll the list and look for a new id,
-    // since the id from /link isn't reliably queryable.
-    let beforeIds = new Set<string>();
-    try {
-      const before =
-        await window.electronAPI.workspace.composioListConnections();
-      beforeIds = new Set(before.connections.map((c) => c.id));
-    } catch {
-      // tolerate snapshot failure
-    }
+    const beforeIds = new Set(beforeSnapshot.connections.map((c) => c.id));
 
     throwIfAborted();
-    const toolkitSlug = composioToolkitSlugForProvider(provider);
     const link = await window.electronAPI.workspace.composioConnect({
       provider: toolkitSlug,
       owner_user_id: userId,
@@ -1243,28 +1285,41 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
 
     await window.electronAPI.ui.openExternalUrl(link.redirect_url);
 
+    // Once we've found the new connection id, skip the full list call on
+    // subsequent ticks — we only need to poll its status. Halves per-tick
+    // round-trip cost during the INITIATED → ACTIVE window where Composio
+    // can take a few seconds to flip after the user clicks Allow.
+    let knownNewConnectionId: string | null = null;
     let consecutiveErrors = 0;
     for (let tick = 0; tick < COMPOSIO_POLL_MAX_TICKS; tick++) {
-      await new Promise((r) => setTimeout(r, COMPOSIO_POLL_INTERVAL_MS));
-      throwIfAborted();
-      let current;
-      try {
-        current =
-          await window.electronAPI.workspace.composioListConnections();
-        consecutiveErrors = 0;
-      } catch (pollError) {
-        consecutiveErrors += 1;
-        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-          throw pollError;
-        }
-        continue;
-      }
-      const newConnection = current.connections.find(
-        (c) =>
-          !beforeIds.has(c.id) &&
-          composioToolkitMatchesProvider(c.toolkitSlug, provider),
+      await sleepUntilFocusOrTimeout(
+        composioPollIntervalForTick(tick),
+        signal,
       );
-      if (newConnection) {
+      throwIfAborted();
+      if (knownNewConnectionId === null) {
+        let current;
+        try {
+          current =
+            await window.electronAPI.workspace.composioListConnections();
+          consecutiveErrors = 0;
+        } catch (pollError) {
+          consecutiveErrors += 1;
+          if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+            throw pollError;
+          }
+          continue;
+        }
+        const found = current.connections.find(
+          (c) =>
+            !beforeIds.has(c.id) &&
+            composioToolkitMatchesProvider(c.toolkitSlug, provider),
+        );
+        if (found) {
+          knownNewConnectionId = found.id;
+        }
+      }
+      if (knownNewConnectionId) {
         // Composio creates the row at /connect time in INITIATED state —
         // its mere presence in the list is NOT proof that OAuth completed.
         // Read the account's real status before finalizing.
@@ -1272,7 +1327,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
         try {
           accountStatus =
             await window.electronAPI.workspace.composioAccountStatus(
-              newConnection.id,
+              knownNewConnectionId,
               provider,
             );
         } catch {
@@ -1288,10 +1343,10 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
           // to "integration connection ca_xxx not found" 404s the moment
           // anyone tried to bind the result.
           const finalized = await window.electronAPI.workspace.composioFinalize({
-            connected_account_id: newConnection.id,
+            connected_account_id: knownNewConnectionId,
             provider,
             owner_user_id: userId,
-            account_label: accountLabel ?? `${provider} (Managed)`,
+            account_label: accountLabel ?? toolkitDisplayName(provider),
           });
           throwIfAborted();
           return { connectionId: finalized.connection_id };

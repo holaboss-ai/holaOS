@@ -21,6 +21,11 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const runtimeRoot = path.resolve(scriptDir, "..");
 const repoRoot = path.resolve(runtimeRoot, "..");
 
+function isNodeScriptPath(targetPath) {
+  const extension = path.extname(targetPath).toLowerCase();
+  return extension === ".js" || extension === ".cjs" || extension === ".mjs";
+}
+
 function resolveWindowsNpmCliPath() {
   const explicitCliPath = process.env.HOLABOSS_RUNTIME_BUILD_NPM_CLI?.trim();
   if (explicitCliPath && existsSync(explicitCliPath)) {
@@ -28,7 +33,7 @@ function resolveWindowsNpmCliPath() {
   }
 
   const envExecPath = process.env.npm_execpath?.trim();
-  if (envExecPath && existsSync(envExecPath)) {
+  if (envExecPath && existsSync(envExecPath) && isNodeScriptPath(envExecPath)) {
     return envExecPath;
   }
 
@@ -88,6 +93,15 @@ function runNpmCommand(args, options = {}) {
 
 function runBunCommand(args, options = {}) {
   runCommand("bun", args, options);
+}
+
+function runPackageManagerCommand(args, options = {}) {
+  if (process.platform === "win32") {
+    runNpmCommand(args, options);
+    return;
+  }
+
+  runBunCommand(args, options);
 }
 
 function materializeAbsoluteSymlinks(rootPath) {
@@ -234,13 +248,16 @@ function stageNodePackage(outputRoot, packageDir, outputName) {
 
   // Full install (devDeps included) to get the build toolchain (tsup, tsx,
   // typescript) available for the build step.
-  runBunCommand(["install"], { cwd: targetDir });
-  runBunCommand(["run", "build"], { cwd: targetDir });
+  runPackageManagerCommand(["install"], { cwd: targetDir });
+  runPackageManagerCommand(["run", "build"], { cwd: targetDir });
   // Production prune: blow away node_modules and re-install with --production
   // so devDeps stop shipping. Cheaper than `npm prune --omit=dev` because
   // bun's resolver doesn't have to figure out what's transitive-dev.
   rmSync(path.join(targetDir, "node_modules"), { recursive: true, force: true });
-  runBunCommand(["install", "--production"], { cwd: targetDir });
+  runPackageManagerCommand(
+    process.platform === "win32" ? ["install", "--omit=dev"] : ["install", "--production"],
+    { cwd: targetDir },
+  );
   // Bun materializes file: sibling deps as absolute symlinks; those break
   // macOS bundle verification once the runtime is embedded inside a .app.
   materializeAbsoluteSymlinks(targetDir);
@@ -270,7 +287,10 @@ function stageSourcePackage(outputRoot, packageDir, outputName) {
     typeof packageJson.dependencies === "object" &&
     Object.keys(packageJson.dependencies).length > 0;
   if (hasDependencies) {
-    runBunCommand(["install", "--production"], { cwd: targetDir });
+    runPackageManagerCommand(
+      process.platform === "win32" ? ["install", "--omit=dev"] : ["install", "--production"],
+      { cwd: targetDir },
+    );
     materializeAbsoluteSymlinks(targetDir);
   }
 }

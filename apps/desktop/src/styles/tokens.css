@@ -63,23 +63,30 @@
   --color-foreground: var(--foreground);
   --color-background: var(--background);
   /* Radius scale — integer px steps off base 8px. */
-  --radius-sm: calc(var(--radius) * 0.5); /* 4px */
-  --radius-md: calc(var(--radius) * 0.75); /* 6px — button/menu-item */
-  --radius-lg: var(--radius); /* 8px — card/input */
-  --radius-xl: calc(var(--radius) * 1.25); /* 10px — popover/dropdown */
-  --radius-2xl: calc(var(--radius) * 1.5); /* 12px — panel inner */
-  --radius-3xl: calc(var(--radius) * 2); /* 16px */
-  --radius-4xl: calc(var(--radius) * 2.5); /* 20px */
+  --radius-sm: calc(var(--radius) * 0.5);
+  /* 4px */
+  --radius-md: calc(var(--radius) * 0.75);
+  /* 6px — button/menu-item */
+  --radius-lg: var(--radius);
+  /* 8px — card/input */
+  --radius-xl: calc(var(--radius) * 1.25);
+  /* 10px — popover/dropdown */
+  --radius-2xl: calc(var(--radius) * 1.5);
+  /* 12px — panel inner */
+  --radius-3xl: calc(var(--radius) * 2);
+  /* 16px */
+  --radius-4xl: calc(var(--radius) * 2.5);
+  /* 20px */
 
   /* Font weights — each step ~50 lighter than Tailwind default. */
   --font-weight-thin: 300;
   --font-weight-extralight: 325;
   --font-weight-light: 350;
   --font-weight-normal: 350;
-  --font-weight-medium: 400;
-  --font-weight-semibold: 450;
-  --font-weight-bold: 500;
-  --font-weight-extrabold: 550;
+  --font-weight-medium: 450;
+  --font-weight-semibold: 500;
+  --font-weight-bold: 550;
+  --font-weight-extrabold: 600;
   --font-weight-black: 600;
 
   /* Tight type scale — ~10-20% denser than Tailwind default. */
@@ -191,10 +198,12 @@
     opacity: 0;
     transform: scale(0.96) translateY(10px);
   }
+
   70% {
     opacity: 1;
     transform: scale(1.01) translateY(-2px);
   }
+
   100% {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -206,6 +215,7 @@
     opacity: 0;
     transform: translateY(5px);
   }
+
   100% {
     opacity: 1;
     transform: translateY(0);
@@ -213,11 +223,13 @@
 }
 
 @keyframes holaboss-splash-halo {
+
   0%,
   100% {
     opacity: 0.35;
     transform: scale(1);
   }
+
   50% {
     opacity: 0.7;
     transform: scale(1.08);
@@ -225,11 +237,13 @@
 }
 
 @keyframes holaboss-splash-dot {
+
   0%,
   100% {
     opacity: 0.2;
     transform: translateY(0);
   }
+
   50% {
     opacity: 1;
     transform: translateY(-1.5px);
@@ -243,31 +257,37 @@
   inherits: true;
   initial-value: oklch(0.985 0.002 60);
 }
+
 @property --foreground {
   syntax: "<color>";
   inherits: true;
   initial-value: oklch(0.18 0.015 55);
 }
+
 @property --primary {
   syntax: "<color>";
   inherits: true;
   initial-value: oklch(0.68 0.21 37);
 }
+
 @property --info {
   syntax: "<color>";
   inherits: true;
   initial-value: oklch(0.62 0.17 240);
 }
+
 @property --success {
   syntax: "<color>";
   inherits: true;
   initial-value: oklch(0.58 0.16 148);
 }
+
 @property --destructive {
   syntax: "<color>";
   inherits: true;
   initial-value: oklch(0.55 0.24 18);
 }
+
 /* Surface palette — registered so theme switches interpolate the
    whole canvas instead of hard-cutting on most surfaces. Initial
    values mirror the holaos-light defaults. */
@@ -276,41 +296,49 @@
   inherits: true;
   initial-value: oklch(0.985 0.002 250);
 }
+
 @property --popover {
   syntax: "<color>";
   inherits: true;
   initial-value: oklch(1 0 0);
 }
+
 @property --muted {
   syntax: "<color>";
   inherits: true;
   initial-value: oklch(0.97 0.002 250);
 }
+
 @property --muted-foreground {
   syntax: "<color>";
   inherits: true;
   initial-value: oklch(0.56 0.005 250);
 }
+
 @property --accent {
   syntax: "<color>";
   inherits: true;
   initial-value: oklch(0.95 0.002 250);
 }
+
 @property --secondary {
   syntax: "<color>";
   inherits: true;
   initial-value: oklch(0.97 0.002 250);
 }
+
 @property --border {
   syntax: "<color>";
   inherits: true;
   initial-value: oklch(0.92 0.003 250);
 }
+
 @property --ring {
   syntax: "<color>";
   inherits: true;
   initial-value: oklch(0.624 0.229 32);
 }
+
 @property --sidebar {
   syntax: "<color>";
   inherits: true;
@@ -381,11 +409,9 @@
   --shadow-alpha: 0.07;
 
   /* Elevated bg for unfocused panels. */
-  --background-elevated: color-mix(
-    in srgb,
-    var(--foreground) 2%,
-    var(--background)
-  );
+  --background-elevated: color-mix(in srgb,
+      var(--foreground) 2%,
+      var(--background));
 
   /* Foreground-on-background opaque blends. Use --fg-N for tinted
      surfaces; Tailwind's bg-foreground/N for transparent overlays. */
@@ -404,11 +430,9 @@
 
   /* Status text — tinted toward foreground for labels on neutral bg. */
   --success-text: color-mix(in oklab, var(--success) 45%, var(--foreground));
-  --destructive-text: color-mix(
-    in oklab,
-    var(--destructive) 45%,
-    var(--foreground)
-  );
+  --destructive-text: color-mix(in oklab,
+      var(--destructive) 45%,
+      var(--foreground));
   --info-text: color-mix(in oklab, var(--info) 45%, var(--foreground));
 
   /* Workspace identity tint — neutral gray composed with --background /
@@ -416,16 +440,12 @@
      a separate theme override. */
   --workspace-color-gray: oklch(0.55 0.005 270);
 
-  --workspace-color-gray-bg: color-mix(
-    in srgb,
-    var(--workspace-color-gray) 14%,
-    var(--background)
-  );
-  --workspace-color-gray-fg: color-mix(
-    in oklab,
-    var(--workspace-color-gray) 65%,
-    var(--foreground)
-  );
+  --workspace-color-gray-bg: color-mix(in srgb,
+      var(--workspace-color-gray) 14%,
+      var(--background));
+  --workspace-color-gray-fg: color-mix(in oklab,
+      var(--workspace-color-gray) 65%,
+      var(--foreground));
 }
 
 .dark {

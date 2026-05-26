@@ -207,6 +207,7 @@ function SidebarExpanded() {
           </motion.div>
         </AnimatePresence>
       </div>
+      <SidebarGlobalFooter />
     </aside>
   );
 }
@@ -315,10 +316,7 @@ function SidebarSectionNav() {
 
 function SidebarHomeSection() {
   const { selectedWorkspaceId } = useWorkspaceSelection();
-  const setSettingsOpen = useSetAtom(settingsOpenAtom);
   const setSearchOpen = useSetAtom(searchOpenAtom);
-  const setSettingsSection = useSetAtom(settingsSectionAtom);
-  const settingsOpen = useAtomValue(settingsOpenAtom);
 
   const skills = useWorkspaceSkills(selectedWorkspaceId || null);
   const cronjobs = useWorkspaceCronjobs(selectedWorkspaceId || null);
@@ -399,21 +397,32 @@ function SidebarHomeSection() {
           ) : null}
         </SidebarGroup>
       ) : null}
+    </div>
+  );
+}
 
-      <div className="mt-auto" />
-
-      <SidebarGroup>
-        <NavItem
-          icon={<Settings />}
-          active={settingsOpen}
-          onClick={() => {
-            setSettingsSection("settings");
-            setSettingsOpen(true);
-          }}
-        >
-          Settings
-        </NavItem>
-      </SidebarGroup>
+// Settings is an app-global entry point, not a Home-tab item. Rendered as
+// a persistent sidebar footer (outside the per-section content block)
+// so it stays reachable from any tab — matches Linear / Notion / Slack's
+// sidebar pattern. Previously it lived inside SidebarHomeSection, which
+// (1) made Settings vanish whenever the user switched away from Home,
+// and (2) read like Settings somehow belonged to "Home" semantically.
+function SidebarGlobalFooter() {
+  const setSettingsOpen = useSetAtom(settingsOpenAtom);
+  const setSettingsSection = useSetAtom(settingsSectionAtom);
+  const settingsOpen = useAtomValue(settingsOpenAtom);
+  return (
+    <div className="shrink-0 border-t border-sidebar-border px-2 py-1.5">
+      <NavItem
+        icon={<Settings />}
+        active={settingsOpen}
+        onClick={() => {
+          setSettingsSection("settings");
+          setSettingsOpen(true);
+        }}
+      >
+        Settings
+      </NavItem>
     </div>
   );
 }

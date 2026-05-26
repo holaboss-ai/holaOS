@@ -6,6 +6,7 @@ import {
   Clock3,
   Loader2,
   Pause,
+  RotateCw,
   Trash2,
   X,
 } from "lucide-react";
@@ -173,6 +174,7 @@ export function BackgroundTasksPane({
   const [errorMessage, setErrorMessage] = useState("");
   const [inlineExpanded, setInlineExpanded] = useState(false);
   const [removingTaskId, setRemovingTaskId] = useState<string | null>(null);
+  const [continuingTaskId, setContinuingTaskId] = useState<string | null>(null);
 
   const refreshTasks = useCallback(
     async (options?: { showLoading?: boolean }) => {
@@ -275,11 +277,67 @@ export function BackgroundTasksPane({
     [activeWorkspaceId, removingTaskId],
   );
 
+  const handleContinueTask = useCallback(
+    async (task: BackgroundTaskRecordPayload) => {
+      if (!activeWorkspaceId || continuingTaskId === task.subagent_id) {
+        return;
+      }
+      const ownerSessionId = (
+        task.owner_main_session_id ??
+        activeOwnerMainSessionId ??
+        ""
+      ).trim();
+      if (!ownerSessionId) {
+        setErrorMessage(
+          "Cannot continue this task — main session is unknown.",
+        );
+        return;
+      }
+      const instruction =
+        task.goal.trim() || "Please continue this task from where it stopped.";
+      setContinuingTaskId(task.subagent_id);
+      try {
+        await window.electronAPI.workspace.continueBackgroundTask({
+          workspaceId: activeWorkspaceId,
+          subagentId: task.subagent_id,
+          ownerMainSessionId: ownerSessionId,
+          instruction,
+        });
+        setTasks((current) =>
+          current.map((item) =>
+            item.subagent_id === task.subagent_id
+              ? { ...item, status: "queued" }
+              : item,
+          ),
+        );
+        setErrorMessage("");
+        void refreshTasks({ showLoading: false });
+      } catch (error) {
+        setErrorMessage(normalizeErrorMessage(error));
+      } finally {
+        setContinuingTaskId((current) =>
+          current === task.subagent_id ? null : current,
+        );
+      }
+    },
+    [
+      activeOwnerMainSessionId,
+      activeWorkspaceId,
+      continuingTaskId,
+      refreshTasks,
+    ],
+  );
+
   const sortedTasks = sortBackgroundTasks(tasks);
 
   function canRemoveTask(task: BackgroundTaskRecordPayload) {
     const status = task.status.trim().toLowerCase();
     return status !== "queued" && status !== "running";
+  }
+
+  function canContinueTask(task: BackgroundTaskRecordPayload) {
+    const status = task.status.trim().toLowerCase();
+    return status === "failed" || status === "cancelled";
   }
 
   if (variant === "inline") {
@@ -340,6 +398,7 @@ export function BackgroundTasksPane({
                     typeof onOpenTaskSession === "function" &&
                     Boolean(task.child_session_id.trim());
                   const showRemoveAction = canRemoveTask(task);
+                  const showContinueAction = canContinueTask(task);
                   const taskBody = (
                     <div className="flex min-w-0 items-center gap-2">
                       <span
@@ -368,6 +427,23 @@ export function BackgroundTasksPane({
                       ) : (
                         <div className="min-w-0 flex-1">{taskBody}</div>
                       )}
+                      {showContinueAction ? (
+                        <button
+                          type="button"
+                          aria-label={`Retry background task ${task.title.trim() || task.subagent_id}`}
+                          disabled={continuingTaskId === task.subagent_id}
+                          onClick={() => {
+                            void handleContinueTask(task);
+                          }}
+                          className="shrink-0 rounded-full p-1 text-muted-foreground transition hover:bg-muted-foreground/10 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {continuingTaskId === task.subagent_id ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <RotateCw size={12} />
+                          )}
+                        </button>
+                      ) : null}
                       {showRemoveAction ? (
                         <button
                           type="button"
@@ -440,6 +516,7 @@ export function BackgroundTasksPane({
                 typeof onOpenTaskSession === "function" &&
                 Boolean(task.child_session_id.trim());
               const showRemoveAction = canRemoveTask(task);
+              const showContinueAction = canContinueTask(task);
               const taskBody = (
                 <div className="flex min-w-0 items-center gap-2">
                   <span
@@ -468,6 +545,23 @@ export function BackgroundTasksPane({
                   ) : (
                     <div className="min-w-0 flex-1">{taskBody}</div>
                   )}
+                  {showContinueAction ? (
+                    <button
+                      type="button"
+                      aria-label={`Retry background task ${task.title.trim() || task.subagent_id}`}
+                      disabled={continuingTaskId === task.subagent_id}
+                      onClick={() => {
+                        void handleContinueTask(task);
+                      }}
+                      className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-fg-8 hover:text-foreground focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {continuingTaskId === task.subagent_id ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <RotateCw size={12} />
+                      )}
+                    </button>
+                  ) : null}
                   {showRemoveAction ? (
                     <button
                       type="button"

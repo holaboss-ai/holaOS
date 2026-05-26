@@ -63,7 +63,7 @@ interface AuthPanelProps {
 }
 
 const AUTH_BROWSER_SIGN_IN_MESSAGE =
-  "Sign-in opened in the browser. Complete the flow on the Holaboss sign-in page.";
+  "Sign-in opened in the browser. Complete the flow on the holaOS sign-in page.";
 
 const KNOWN_PROVIDER_ORDER = [
   "holaboss",
@@ -204,7 +204,7 @@ const WEB_SEARCH_PROVIDER_TEMPLATES: Record<
   holaboss_search: {
     id: "holaboss_search",
     label: "Holaboss Search",
-    description: "Managed search through your Holaboss account.",
+    description: "Managed search through your holaOS account.",
     kind: "holaboss_search",
     defaultBaseUrl: "https://api.holaboss.ai/api/v1/search/web",
     apiKeyPlaceholder: "",
@@ -225,7 +225,7 @@ const KNOWN_PROVIDER_TEMPLATES: Record<KnownProviderId, KnownProviderTemplate> =
       id: "holaboss",
       label: "Holaboss Proxy",
       description:
-        "Managed by your Holaboss account session and runtime binding.",
+        "Managed by your holaOS account session and runtime binding.",
       kind: "holaboss_proxy",
       defaultBaseUrl: "",
       defaultModels: [],

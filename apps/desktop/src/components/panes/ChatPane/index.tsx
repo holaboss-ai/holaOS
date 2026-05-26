@@ -7949,7 +7949,7 @@ export function ChatPane({
         <div className="space-y-5 px-5 py-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              <div className="text-[10px] font-medium text-muted-foreground">
                 {`Question ${safeOnboardingQuestionSlideIndex + 1}/${alignmentQuestionCount} (${unansweredAlignmentQuestionCount} unanswered)`}
               </div>
               {activeAlignmentQuestion.title || alignmentQuestion?.title ? (
@@ -7989,7 +7989,7 @@ export function ChatPane({
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {option.recommended ? (
-                      <div className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-primary">
+                      <div className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
                         Recommended
                       </div>
                     ) : null}
@@ -8008,7 +8008,7 @@ export function ChatPane({
           </div>
           {activeAlignmentQuestion.allowFreeform ? (
             <div className="space-y-2">
-              <div className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              <div className="text-xs font-medium text-muted-foreground">
                 Natural language response
               </div>
               <textarea
@@ -8099,14 +8099,14 @@ export function ChatPane({
         <div className="space-y-4 px-5 py-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              <div className="text-[10px] font-medium text-muted-foreground">
                 Alignment report
               </div>
               <div className="mt-1 text-sm font-medium text-foreground">
                 Review before implementation starts
               </div>
             </div>
-            <div className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-primary">
+            <div className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary">
               Awaiting review
             </div>
           </div>
@@ -8127,7 +8127,7 @@ export function ChatPane({
                 <div className="space-y-3">
                   {alignmentReportDetails.map((entry) => (
                     <div key={entry.key}>
-                      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                      <div className="text-[11px] font-medium text-muted-foreground">
                         {entry.label}
                       </div>
                       <div className="mt-1 space-y-1 text-sm leading-6 text-muted-foreground">
@@ -8195,14 +8195,14 @@ export function ChatPane({
         <div className="space-y-4 px-5 py-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              <div className="text-[10px] font-medium text-muted-foreground">
                 Verification report
               </div>
               <div className="mt-1 text-sm font-medium text-foreground">
                 Review before final merge
               </div>
             </div>
-            <div className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-primary">
+            <div className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary">
               Awaiting acceptance
             </div>
           </div>
@@ -8223,7 +8223,7 @@ export function ChatPane({
                 <div className="space-y-3">
                   {verificationReportDetails.map((entry) => (
                     <div key={entry.key}>
-                      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                      <div className="text-[11px] font-medium text-muted-foreground">
                         {entry.label}
                       </div>
                       <div className="mt-1 space-y-1 text-sm leading-6 text-muted-foreground">

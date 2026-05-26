@@ -60,11 +60,13 @@ test("package_windows_runtime.mjs writes launchers that use the bundled node run
 
   assert.match(source, /import \{ stagePythonRuntime \} from "\.\/stage_python_runtime\.mjs";/);
   assert.match(source, /const DEFAULT_RUNTIME_NODE_VERSION = "24\.14\.1";/);
+  assert.match(source, /function isNodeScriptPath/);
+  assert.match(source, /if \(envExecPath && existsSync\(envExecPath\) && isNodeScriptPath\(envExecPath\)\)/);
   assert.match(source, /const buildNodeRuntimeDir = path\.join\(stagingRoot, "build-node-runtime"\);/);
   assert.match(source, /HOLABOSS_RUNTIME_BUILD_NPM_CLI: buildNpmCli/);
   assert.match(source, /runNpm\(\["install", "--prefix", buildNodeRuntimeDir, `node@\$\{nodeVersion\}`, `npm@\$\{npmVersion\}`\]/);
   assert.match(source, /cpSync\(buildNodeRuntimeDir, nodeRuntimeDir, \{ recursive: true, dereference: true \}\)/);
-  assert.match(source, /prunePackagedTree\(nodeRuntimeDir, "windows"\)/);
+  assert.match(source, /stageWindowsNodeCommandLaunchers\(outputRoot\);\s*prunePackagedTree\(nodeRuntimeDir, "windows"\)/);
   assert.match(source, /const pythonStageResult = await stagePythonRuntime\(outputRoot, "windows"\);/);
   assert.match(source, /bundled_npm_bin: Boolean\(bundledNpmBin\)/);
   assert.match(source, /bundled_npm_version: skipNodeDeps \? null : npmVersion/);
@@ -79,11 +81,18 @@ test("package_windows_runtime.mjs writes launchers that use the bundled node run
   assert.match(cmdLauncherSource, /sandbox-runtime\.mjs/);
 });
 
-test("build_runtime_root stages package-local scripts before npm ci", async () => {
+test("build_runtime_root stages package-local scripts before dependency installs", async () => {
   const source = await readFile(buildRuntimeRootPath, "utf8");
 
   assert.match(
     source,
     /copyIfPresent\(path\.join\(packageDir, "scripts"\), path\.join\(targetDir, "scripts"\)\);/,
+  );
+  assert.match(source, /function runPackageManagerCommand/);
+  assert.match(source, /if \(process\.platform === "win32"\) \{\s*runNpmCommand\(args, options\);/);
+  assert.match(source, /runPackageManagerCommand\(\["install"\], \{ cwd: targetDir \}\);/);
+  assert.match(
+    source,
+    /process\.platform === "win32" \? \["install", "--omit=dev"\] : \["install", "--production"\]/,
   );
 });

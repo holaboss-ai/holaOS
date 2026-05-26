@@ -6,7 +6,7 @@ const DESKTOP_PACKAGE_PATH = new URL("../package.json", import.meta.url);
 const BUILDER_CONFIG_PATH = new URL("../electron-builder.config.cjs", import.meta.url);
 const RUN_ELECTRON_BUILDER_PATH = new URL("../scripts/run-electron-builder.mjs", import.meta.url);
 const NPM_RUNNER_PATH = new URL("../scripts/npm-runner.mjs", import.meta.url);
-const CI_WORKFLOW_PATH = new URL("../../.github/workflows/ci.yml", import.meta.url);
+const CI_WORKFLOW_PATH = new URL("../../../.github/workflows/ci.yml", import.meta.url);
 
 test("windows packaging scripts prepare the packaged config before building installers", async () => {
   const packageJson = JSON.parse(await readFile(DESKTOP_PACKAGE_PATH, "utf8"));
@@ -21,7 +21,7 @@ test("desktop packaging does not publish standalone Windows runtime tar artifact
     readFile(new URL("../scripts/write-packaged-config.mjs", import.meta.url), "utf8"),
   ]);
 
-  assert.match(workflowSource, /No staged Windows runtime bundle was produced under desktop\/out\/runtime-windows\./);
+  assert.match(workflowSource, /No staged Windows runtime bundle was produced under apps\/desktop\/out\/runtime-windows\./);
   assert.doesNotMatch(workflowSource, /RUNTIME_ASSET_NAME: holaboss-runtime-windows\.tar\.gz/);
   assert.doesNotMatch(workflowSource, /runtime_asset_path=/);
   assert.doesNotMatch(workflowSource, /desktop\/out\/\$\{\{ env\.RUNTIME_ASSET_NAME \}\}/);
@@ -67,7 +67,7 @@ test("windows packaging config and CI workflow support optional signing and NSIS
   assert.match(workflowSource, /Invoke-TrustedSigning/);
   assert.match(workflowSource, /Azure Trusted Signing authorization probe failed with 403 Forbidden/);
   assert.match(workflowSource, /Get-AuthenticodeSignature -FilePath \$probePath/);
-  assert.match(workflowSource, /- name: Prepare desktop \(build SDK \+ install desktop deps\)\n\s+env:\n\s+ELECTRON_SKIP_BINARY_DOWNLOAD: "1"\n\s+run: npm run desktop:prepare/);
+  assert.match(workflowSource, /- name: Install workspace dependencies \(covers desktop\)\r?\n\s+env:\r?\n\s+ELECTRON_SKIP_BINARY_DOWNLOAD: "1"\r?\n\s+run: bun install --frozen-lockfile/);
   assert.match(workflowSource, /WINDOWS_SIGNING_ENDPOINT: \$\{\{ vars\.WINDOWS_SIGNING_ENDPOINT \}\}/);
   assert.match(workflowSource, /WINDOWS_SIGNING_ACCOUNT_NAME: \$\{\{ vars\.WINDOWS_SIGNING_ACCOUNT_NAME \}\}/);
   assert.match(workflowSource, /WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME: \$\{\{ vars\.WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME \}\}/);
@@ -92,7 +92,7 @@ test("windows packaging config and CI workflow support optional signing and NSIS
   assert.match(workflowSource, /npm run dist:win:local/);
   assert.match(workflowSource, /if \(\$LASTEXITCODE -ne 0\) \{/);
   assert.match(workflowSource, /npm run dist:win:local failed with exit code \$LASTEXITCODE/);
-  assert.match(workflowSource, /Contents of desktop\/out\/release:/);
+  assert.match(workflowSource, /Contents of apps\/desktop\/out\/release:/);
   assert.match(workflowSource, /generated_installer_path=/);
   assert.match(workflowSource, /\$manifestName = if \(\$primaryChannel -eq "beta"\) \{ "beta\.yml" \} else \{ "latest\.yml" \}/);
   assert.match(workflowSource, /\$manifestName was not generated/);
@@ -121,8 +121,12 @@ test("desktop helper scripts invoke npm through the Windows-safe runner", async 
 
   assert.match(npmRunnerSource, /process\.platform === "win32"/);
   assert.match(npmRunnerSource, /process\.env\.npm_execpath/);
+  assert.match(npmRunnerSource, /function isNodeScript/);
+  assert.match(npmRunnerSource, /function resolveWindowsNpmCliPath/);
   assert.match(npmRunnerSource, /command: process\.execPath/);
-  assert.match(npmRunnerSource, /command: "npm\.cmd"/);
+  assert.match(npmRunnerSource, /process\.env\.ComSpec \|\| "cmd\.exe"/);
+  assert.match(npmRunnerSource, /argsPrefix: \["\/d", "\/s", "\/c", "npm\.cmd"\]/);
+  assert.doesNotMatch(npmRunnerSource, /command: "npm\.cmd"/);
   assert.match(npmRunnerSource, /failed to spawn \$\{command\}/);
 
   for (const source of [

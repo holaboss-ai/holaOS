@@ -1,6 +1,6 @@
 import { Plug } from "lucide-react";
 import { useState } from "react";
-import { getIntegrationLogo } from "@/lib/integrationLogo";
+import { brandLogoOverride, getIntegrationLogo } from "@/lib/integrationLogo";
 import { cn } from "@/lib/utils";
 
 /**
@@ -30,9 +30,13 @@ export function IntegrationLogo({
   overrideUrl?: string | null;
 }) {
   const [failed, setFailed] = useState(false);
+  const brandOverride = brandLogoOverride(slug);
   const fromCatalog = overrideUrl?.trim() || null;
   const fromCdn = getIntegrationLogo(slug).url;
-  const url = fromCatalog || fromCdn;
+  // Brand override wins over caller-provided URL because the Composio
+  // toolkit.logo for these slugs (github, linear) is itself broken — see
+  // bd82591c. Otherwise the caller's URL wins over the CDN guess.
+  const url = brandOverride ?? fromCatalog ?? fromCdn;
   const sizeClass =
     size === "sm" ? "size-6" : size === "lg" ? "size-8" : "size-7";
 
