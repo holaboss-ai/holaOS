@@ -3397,6 +3397,9 @@ export function ChatPane({
     useState<PendingOptimisticUserMessage[]>([]);
   const [desktopMainSession, setDesktopMainSession] =
     useState<AgentSessionRecordPayload | null>(null);
+  const [workspaceIssues, setWorkspaceIssues] = useState<IssueRecordPayload[]>(
+    [],
+  );
   const [sessionRecordOverrides, setSessionRecordOverrides] = useState<
     Record<string, AgentSessionRecordPayload>
   >({});
@@ -5302,6 +5305,37 @@ export function ChatPane({
     if (activeStreamId) {
       void closeStreamWithReason(activeStreamId, "selected_workspace_changed");
     }
+  }, [selectedWorkspaceId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedWorkspaceId) {
+      setWorkspaceIssues([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+    const loadIssues = async () => {
+      try {
+        const response =
+          await window.electronAPI.workspace.listIssues(selectedWorkspaceId);
+        if (!cancelled) {
+          setWorkspaceIssues(response.issues);
+        }
+      } catch {
+        if (!cancelled) {
+          setWorkspaceIssues([]);
+        }
+      }
+    };
+    void loadIssues();
+    const timer = window.setInterval(() => {
+      void loadIssues();
+    }, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [selectedWorkspaceId]);
 
   useEffect(() => {
@@ -7322,6 +7356,17 @@ export function ChatPane({
   const activeSessionKind = (activeSessionRecord?.kind || "")
     .trim()
     .toLowerCase();
+  const activeIssue = useMemo(() => {
+    const normalizedActiveSessionId = activeSessionId.trim();
+    if (!normalizedActiveSessionId) {
+      return null;
+    }
+    return (
+      workspaceIssues.find(
+        (issue) => issue.session_id.trim() === normalizedActiveSessionId,
+      ) ?? null
+    );
+  }, [activeSessionId, workspaceIssues]);
   const isViewingBoundMainSession =
     !activeSessionId ||
     activeSessionId === (desktopMainSession?.session_id || "").trim();
@@ -7665,8 +7710,18 @@ export function ChatPane({
       ? "Inspection sessions are read-only. Return to the onboarding session to continue the conversation."
       : "Inspection sessions are read-only. Return to the main session to continue the conversation."
     : "";
+  const issueComposerDisabledReason = !activeIssue
+    ? ""
+    : activeIssue.status === "backlog"
+      ? "Move this issue to Todo before replying in the issue thread."
+      : !activeIssue.assignee_teammate_id
+        ? "Assign a teammate before replying in the issue thread."
+        : isResponding
+          ? "This issue is actively running. Wait for the current run to finish before replying."
+          : "";
   const composerBaseDisabledReason =
     readOnlyInspectionDisabledReason ||
+    issueComposerDisabledReason ||
     baseComposerDisabledReason ||
     onboardingReviewDisabledReason ||
     onboardingImplementingDisabledReason ||
