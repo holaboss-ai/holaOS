@@ -1220,12 +1220,7 @@ export function createBrowserPaneTabState(
     closeBrowserTabRecord(tab);
     deps.browserTabSpaceTouch(tabSpace);
     if (tabSpace.tabs.size === 0) {
-      const replacementTabId = createBrowserTab(workspace.workspaceId, {
-        url: deps.homeUrl,
-        browserSpace,
-        sessionId: resolvedSessionId,
-      });
-      tabSpace.activeTabId = replacementTabId ?? "";
+      tabSpace.activeTabId = "";
     } else if (tabSpace.activeTabId === tabId) {
       const remainingIds = Array.from(tabSpace.tabs.keys());
       tabSpace.activeTabId =
