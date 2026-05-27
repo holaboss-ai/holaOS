@@ -195,6 +195,73 @@ function makeStoreFixture(root: string): RuntimeStateStore {
     [`interaction:${interactionEntity.entityId}:${interactionNode.nodeId}`, interactionNode],
     [`integration:${integrationTree.treeId}:${integrationNode.nodeId}`, integrationNode],
   ]);
+  const semanticSearchDocs = [
+    {
+      workspaceId,
+      category: "interaction" as const,
+      treeId: interactionEntity.entityId,
+      nodeId: interactionNode.nodeId,
+      nodeClass: interactionNode.nodeClass,
+      nodeKind: interactionNode.nodeKind,
+      path: interactionNode.path,
+      childCount: interactionNode.childCount,
+      title: interactionNode.title,
+      summary: interactionNode.summary,
+      bodyText: "Deploy approver Maya owns release approvals.",
+      excerpt: "Deploy approver Maya owns release approvals.",
+      observedAt: interactionNode.observedAt,
+      status: interactionNode.status,
+      updatedAt: interactionNode.updatedAt,
+    },
+    {
+      workspaceId: null,
+      category: "integration" as const,
+      treeId: integrationTree.treeId,
+      nodeId: integrationNode.nodeId,
+      nodeClass: integrationNode.nodeClass,
+      nodeKind: integrationNode.nodeKind,
+      path: integrationNode.path,
+      childCount: integrationNode.childCount,
+      title: integrationNode.title,
+      summary: integrationNode.summary,
+      bodyText: "Customer escalation waiting on reply before Friday.",
+      excerpt: "Customer escalation waiting on reply before Friday.",
+      observedAt: integrationNode.observedAt,
+      status: integrationNode.status,
+      updatedAt: integrationNode.updatedAt,
+    },
+  ];
+  const searchDocsFor = (params: {
+    category: "interaction" | "integration";
+    workspaceId?: string | null;
+    treeId?: string | null;
+    treeIds?: string[] | null;
+    nodeIds?: string[] | null;
+    nodeClass?: string | null;
+    status?: string | null;
+    matchQuery?: string | null;
+  }) => {
+    const normalizedTreeIds = params.treeIds
+      ? new Set(params.treeIds.filter(Boolean))
+      : null;
+    const normalizedNodeIds = params.nodeIds
+      ? new Set(params.nodeIds.filter(Boolean))
+      : null;
+    const query = (params.matchQuery ?? "").toLowerCase();
+    return semanticSearchDocs
+      .filter((doc) => doc.category === params.category)
+      .filter((doc) => params.workspaceId === undefined || doc.workspaceId === params.workspaceId)
+      .filter((doc) => params.treeId === undefined || doc.treeId === params.treeId)
+      .filter((doc) => !normalizedTreeIds || normalizedTreeIds.has(doc.treeId))
+      .filter((doc) => !normalizedNodeIds || normalizedNodeIds.has(doc.nodeId))
+      .filter((doc) => params.nodeClass == null || doc.nodeClass === params.nodeClass)
+      .filter((doc) => params.status == null || doc.status === params.status)
+      .filter((doc) => !query
+        || doc.title.toLowerCase().includes(query)
+        || doc.summary.toLowerCase().includes(query)
+        || doc.bodyText.toLowerCase().includes(query)
+        || doc.excerpt?.toLowerCase().includes(query));
+  };
 
   return {
     workspaceRoot,
@@ -209,22 +276,51 @@ function makeStoreFixture(root: string): RuntimeStateStore {
         ? interactionEntity
         : null;
     },
-    listInteractionNodeEmbeddings(params: { workspaceId: string; embeddingModel?: string | null }) {
+    listInteractionNodeEmbeddings(params: { workspaceId: string; embeddingModel?: string | null; nodeIds?: string[] | null }) {
+      const normalizedNodeIds = params.nodeIds ? new Set(params.nodeIds.filter(Boolean)) : null;
       return interactionEmbeddings.filter((record) =>
         record.workspaceId === params.workspaceId
         && (params.embeddingModel == null || record.embeddingModel === params.embeddingModel)
+        && (!normalizedNodeIds || normalizedNodeIds.has(record.nodeId))
       );
     },
-    listIntegrationNodeEmbeddings(params: { embeddingModel?: string | null }) {
+    listIntegrationNodeEmbeddings(params: { embeddingModel?: string | null; nodeIds?: string[] | null }) {
+      const normalizedNodeIds = params.nodeIds ? new Set(params.nodeIds.filter(Boolean)) : null;
       return integrationEmbeddings.filter((record) =>
         params.embeddingModel == null || record.embeddingModel === params.embeddingModel
-      );
+      ).filter((record) => !normalizedNodeIds || normalizedNodeIds.has(record.nodeId));
     },
     getSemanticMemoryNode(params: { category: "interaction" | "integration"; treeId: string; nodeId: string; workspaceId?: string | null }) {
       return semanticNodes.get(`${params.category}:${params.treeId}:${params.nodeId}`) ?? null;
     },
     listSemanticMemoryNodes(params: { category: "interaction" | "integration"; treeId: string }) {
       return [...semanticNodes.values()].filter((node) => node.category === params.category && node.treeId === params.treeId);
+    },
+    listSemanticMemorySearchDocs(params: {
+      category: "interaction" | "integration";
+      workspaceId?: string | null;
+      treeId?: string | null;
+      treeIds?: string[] | null;
+      nodeIds?: string[] | null;
+      nodeClass?: string | null;
+      status?: string | null;
+    }) {
+      return searchDocsFor(params);
+    },
+    searchSemanticMemorySearchDocs(params: {
+      category: "interaction" | "integration";
+      workspaceId?: string | null;
+      treeId?: string | null;
+      treeIds?: string[] | null;
+      nodeClass?: string | null;
+      status?: string | null;
+      matchQuery: string;
+    }) {
+      return searchDocsFor(params)
+        .map((doc, index) => ({
+          ...doc,
+          bm25Score: index + 1,
+        }));
     },
     listIntegrationConnections() {
       return [integrationConnection];

@@ -2808,9 +2808,11 @@ test("runTsRunnerCli uses the default recall embedding model even when backgroun
   );
 
   assert.equal(exitCode, 0);
-  assert.equal(recallRequests.length, 1);
-  assert.equal(recallRequests[0]?.model, "text-embedding-3-small");
-  assert.match(String(recallRequests[0]?.input), /how do i deploy/i);
+  const embeddingRequests = recallRequests.filter((request) =>
+    request.model === "text-embedding-3-small",
+  );
+  assert.equal(embeddingRequests.length, 1);
+  assert.match(String(embeddingRequests[0]?.input), /how do i deploy/i);
 });
 
 test("runTsRunnerCli loads pending user memory proposals into prompt context for the same input", async () => {
