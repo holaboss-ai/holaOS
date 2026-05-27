@@ -1219,6 +1219,13 @@ export function createBrowserPaneTabState(
     tabSpace.tabs.delete(tabId);
     closeBrowserTabRecord(tab);
     deps.browserTabSpaceTouch(tabSpace);
+    // Keep persistedTabs in sync. Without this, the persistence payload's
+    // empty-tabs fallback to `[...persistedTabs]` would re-hydrate the
+    // closed tab on the next workspace load and surface as a "tab came
+    // back on its own" bug.
+    tabSpace.persistedTabs = tabSpace.persistedTabs.filter(
+      (persisted) => persisted.id !== tabId,
+    );
     if (tabSpace.tabs.size === 0) {
       tabSpace.activeTabId = "";
     } else if (tabSpace.activeTabId === tabId) {
