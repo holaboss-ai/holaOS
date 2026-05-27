@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSetAtom } from "jotai";
-import { FileX2, Loader2 } from "lucide-react";
+import { Code2, Eye, FileX2, Loader2 } from "lucide-react";
 import { MarkdownEditor as TiptapMarkdownEditor } from "@holaboss/editor";
+import { HtmlPreviewFrame } from "@/components/panes/HtmlPreviewFrame";
 import { PresentationPreview } from "@/components/panes/PresentationPreview";
 import { SpreadsheetEditor } from "@/components/panes/SpreadsheetEditor";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { fileNameFromPath } from "./state/internalTabs";
 import { removeRecentFileByPathAtom } from "./state/recentFiles";
+import { useOpenWorkspaceOutput } from "./useOpenWorkspaceOutput";
 
 interface FilePreviewPaneProps {
   filePath: string;
@@ -16,6 +18,7 @@ interface FilePreviewPaneProps {
 }
 
 const MARKDOWN_EXTS = new Set([".md", ".mdx", ".markdown"]);
+const HTML_EXTS = new Set([".html", ".htm"]);
 
 function isNotFoundError(message: string): boolean {
   return /ENOENT|no such file or directory|not found/i.test(message);
@@ -142,9 +145,19 @@ export function FilePreviewPane({ filePath, onClose }: FilePreviewPaneProps) {
   }
 
   if (preview.kind === "text") {
-    if (MARKDOWN_EXTS.has(preview.extension.toLowerCase())) {
+    const ext = preview.extension.toLowerCase();
+    if (MARKDOWN_EXTS.has(ext)) {
       return (
         <MarkdownEditor
+          preview={preview}
+          workspaceId={selectedWorkspaceId ?? null}
+          onUpdated={setPreview}
+        />
+      );
+    }
+    if (HTML_EXTS.has(ext)) {
+      return (
+        <HtmlPreview
           preview={preview}
           workspaceId={selectedWorkspaceId ?? null}
           onUpdated={setPreview}
@@ -260,6 +273,101 @@ function MarkdownEditor({ preview, workspaceId, onUpdated }: EditorSurfaceProps)
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+type HtmlViewMode = "preview" | "source";
+
+function HtmlPreview({ preview, workspaceId, onUpdated }: EditorSurfaceProps) {
+  const { draft, setDraft, dirty, saving, save } = useFileDraft(
+    preview,
+    workspaceId,
+    onUpdated,
+  );
+  const [mode, setMode] = useState<HtmlViewMode>("preview");
+  const { openUrlInBrowserTab, openFileInInternalTab } = useOpenWorkspaceOutput();
+  const editable = preview.isEditable;
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
+        <div className="flex items-center gap-0.5 rounded-md border border-border bg-muted/40 p-0.5">
+          <button
+            type="button"
+            onClick={() => setMode("preview")}
+            className={cn(
+              "inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-colors",
+              mode === "preview"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Eye className="size-3" strokeWidth={1.75} />
+            Preview
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("source")}
+            className={cn(
+              "inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-colors",
+              mode === "source"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Code2 className="size-3" strokeWidth={1.75} />
+            Source
+          </button>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          {dirty ? (
+            <span className="text-[11px] text-muted-foreground">Unsaved</span>
+          ) : null}
+          {editable && dirty ? (
+            <Button
+              size="xs"
+              variant="default"
+              disabled={saving}
+              onClick={() => void save()}
+            >
+              {saving ? <Loader2 className="size-3 animate-spin" /> : null}
+              Save
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      {mode === "preview" ? (
+        draft.trim() ? (
+          <div className="min-h-0 flex-1 overflow-hidden bg-muted p-4">
+            <HtmlPreviewFrame
+              title={preview.name}
+              html={draft}
+              onOpenLinkInBrowser={(url) => void openUrlInBrowserTab(url)}
+              onOpenLocalLink={openFileInInternalTab}
+              className="h-full w-full rounded-lg border border-border bg-white"
+            />
+          </div>
+        ) : (
+          <div className="grid min-h-0 flex-1 place-items-center px-6 text-center">
+            <div className="text-xs text-muted-foreground">
+              Empty file — switch to Source to add markup.
+            </div>
+          </div>
+        )
+      ) : (
+        <textarea
+          aria-label={`Edit ${preview.name}`}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          readOnly={!editable}
+          spellCheck={false}
+          className={cn(
+            "min-h-0 flex-1 resize-none border-0 bg-muted px-6 py-5 font-mono text-[13px] leading-6 text-foreground outline-none",
+            !editable && "cursor-default opacity-80",
+          )}
+        />
+      )}
     </div>
   );
 }
