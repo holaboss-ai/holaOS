@@ -2177,20 +2177,20 @@ export async function rebuildInteractionEntityTree(params: {
       ),
     ),
   );
-  params.store.replaceSemanticMemoryTree({
+  params.store.syncSemanticMemoryTree({
     category: "interaction",
     workspaceId: params.workspaceId,
     treeId: params.entityId,
     nodes: semantic.nodes,
     edges: semantic.edges,
   });
-  params.store.replaceSemanticMemoryRelations({
+  params.store.syncSemanticMemoryRelations({
     category: "interaction",
     workspaceId: params.workspaceId,
     treeId: params.entityId,
     relations: [],
   });
-  params.store.replaceSemanticMemorySearchDocs({
+  params.store.syncSemanticMemorySearchDocs({
     category: "interaction",
     workspaceId: params.workspaceId,
     treeId: params.entityId,

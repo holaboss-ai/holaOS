@@ -4007,7 +4007,7 @@ export async function rebuildIntegrationTree(params: {
         ),
       ),
     );
-    params.store.replaceSemanticMemoryTree({
+    params.store.syncSemanticMemoryTree({
       category: "integration",
       treeId: params.treeId,
       nodes: semantic.nodes.map((node) => ({
@@ -4026,7 +4026,7 @@ export async function rebuildIntegrationTree(params: {
       })),
       edges: semantic.edges,
     });
-    params.store.replaceSemanticMemoryRelations({
+    params.store.syncSemanticMemoryRelations({
       category: "integration",
       treeId: params.treeId,
       relations: semantic.relations.map((relation) => ({
@@ -4036,7 +4036,7 @@ export async function rebuildIntegrationTree(params: {
         metadata: relation.metadata,
       })),
     });
-    params.store.replaceSemanticMemorySearchDocs({
+    params.store.syncSemanticMemorySearchDocs({
       category: "integration",
       treeId: params.treeId,
       docs: semanticSearchDocsForIntegrationTree({
