@@ -8,6 +8,7 @@ import { PublishScreen } from "@/components/publish/PublishScreen";
 import { WorkspaceOnboardingSurface } from "@/features/workspace-onboarding/WorkspaceOnboardingSurface";
 import { DesktopBillingProvider } from "@/lib/billing/useDesktopBilling";
 import { useControlCenterCardSignals } from "@/lib/controlCenterLifecycle";
+import { useDesktopPlatform } from "@/lib/desktopPlatform";
 import { cn } from "@/lib/utils";
 import {
   useWorkspaceDesktop,
@@ -36,6 +37,7 @@ import {
 } from "./state/ui";
 import { TopChrome } from "./TopChrome";
 import { useChatLayout } from "./useChatLayout";
+import { WindowControls } from "./WindowControls";
 
 export function NewAppShell() {
   return (
@@ -212,18 +214,34 @@ function ControlCenterTakeover(props: {
     visibleWorkspaceIdsRef.current,
     true,
   );
+  const platform = useDesktopPlatform();
+  const isWin = platform === "win32";
 
   return (
-    <div className="relative flex min-w-0 flex-1 flex-col bg-background">
-      <button
-        type="button"
-        aria-label="Close all workspaces"
-        title="Close (Esc / ⌘0)"
-        onClick={props.onClose}
-        className="window-no-drag absolute top-3 left-3 z-10 grid size-7 place-items-center rounded-md text-foreground/55 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+    <div className="flex min-w-0 flex-1 flex-col bg-background">
+      {/* Mini top bar: drag region (so the frameless window remains
+          movable now that TopChrome is hidden) + close at top-right.
+          We pin close to the right because macOS traffic lights own the
+          top-left corner. On Windows the platform caption controls sit
+          flush right, with the CC close button just to their left. */}
+      <div
+        className={cn(
+          "window-drag flex h-10 shrink-0 items-center",
+          isWin ? "pr-0" : "pr-2",
+        )}
       >
-        <X className="size-3.5" />
-      </button>
+        <div className="flex-1" aria-hidden />
+        <button
+          type="button"
+          aria-label="Close all workspaces"
+          title="Close (Esc / ⌘0)"
+          onClick={props.onClose}
+          className="window-no-drag grid size-7 place-items-center rounded-md text-foreground/55 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+        >
+          <X className="size-3.5" />
+        </button>
+        {isWin ? <WindowControls /> : null}
+      </div>
       <WorkspaceControlCenter
         workspaces={props.workspaces}
         selectedWorkspaceId={props.selectedWorkspaceId}
