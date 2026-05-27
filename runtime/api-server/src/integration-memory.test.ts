@@ -13,9 +13,17 @@ import {
 } from "./integration-memory.js";
 import { globalMemoryDirForWorkspaceRoot } from "./workspace-bundle-paths.js";
 
+const ORIGINAL_FETCH = globalThis.fetch;
+const ORIGINAL_RUNTIME_CONFIG_PATH = process.env.HOLABOSS_RUNTIME_CONFIG_PATH;
 const tempDirs: string[] = [];
 
 afterEach(() => {
+  globalThis.fetch = ORIGINAL_FETCH;
+  if (ORIGINAL_RUNTIME_CONFIG_PATH === undefined) {
+    delete process.env.HOLABOSS_RUNTIME_CONFIG_PATH;
+  } else {
+    process.env.HOLABOSS_RUNTIME_CONFIG_PATH = ORIGINAL_RUNTIME_CONFIG_PATH;
+  }
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -25,6 +33,44 @@ function makeTempDir(prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
+}
+
+function writeRecallEmbeddingRuntimeConfig(root: string): string {
+  const configPath = path.join(root, "runtime-config.json");
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify(
+      {
+        runtime: {
+          sandbox_id: "sandbox-test",
+        },
+        providers: {
+          openai_direct: {
+            kind: "openai_compatible",
+            base_url: "https://api.openai.com/v1",
+            api_key: "sk-test-openai",
+          },
+        },
+        integrations: {
+          holaboss: {
+            auth_token: "hbmk.test-token",
+            sandbox_id: "sandbox-test",
+            user_id: "user-1",
+          },
+        },
+        holaboss: {
+          auth_token: "hbmk.test-token",
+          sandbox_id: "sandbox-test",
+          user_id: "user-1",
+        },
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  process.env.HOLABOSS_RUNTIME_CONFIG_PATH = configPath;
+  return configPath;
 }
 
 test("rebuildIntegrationTree writes deterministic semantic summaries for integration roots", async () => {
@@ -243,6 +289,115 @@ test("retrieveIntegrationMemory recalls deep-body integration leaf terms through
       maxResults: 5,
     });
     assert.ok(result.hits.some((hit) => hit.title === "Release checksum gate"));
+  } finally {
+    store.close();
+  }
+});
+
+test("retrieveIntegrationMemory adds vector-only semantic candidates that fall outside the recent doc window", async () => {
+  const root = makeTempDir("hb-integration-memory-vector-topk-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  try {
+    assert.equal(store.supportsVectorIndex(), true);
+    writeRecallEmbeddingRuntimeConfig(root);
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertIntegrationConnection({
+      connectionId: "github-vector",
+      providerId: "github",
+      ownerUserId: "user-1",
+      accountLabel: "Vector GitHub",
+      accountHandle: "vector-github",
+      authMode: "composio",
+      grantedScopes: [],
+      status: "active",
+    });
+    store.upsertIntegrationTree({
+      treeId: "integration:github:vector-topk",
+      provider: "github",
+      ownerUserId: "user-1",
+      accountKey: "vector-github",
+      accountLabel: "Vector GitHub",
+      slug: "github-vector-topk",
+      summary: "Vector GitHub memory.",
+      status: "active",
+    });
+
+    const relevantNodeId = "semantic:integration:integration:github:vector-topk:repo:archive-ledger";
+    const relevantVector = new Array<number>(1536).fill(0);
+    relevantVector[0] = 1;
+    globalThis.fetch = (async (input) => {
+      const url = typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+      assert.match(url, /\/embeddings$/);
+      return new Response(
+        JSON.stringify({
+          data: [{ embedding: relevantVector }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }) as typeof fetch;
+
+    store.replaceSemanticMemorySearchDocs({
+      category: "integration",
+      treeId: "integration:github:vector-topk",
+      docs: [
+        ...Array.from({ length: 170 }, (_, index) => ({
+          nodeId: index === 169
+            ? relevantNodeId
+            : `semantic:integration:integration:github:vector-topk:filler-${index + 1}`,
+          nodeClass: "semantic" as const,
+          nodeKind: index === 169 ? "repo" : "overview",
+          path: index === 169
+            ? "semantic/integration/trees/github-vector-topk/repo-archive-ledger/content.md"
+            : `semantic/integration/trees/github-vector-topk/filler-${index + 1}/content.md`,
+          childCount: 0,
+          title: index === 169 ? "Archive ledger" : `Filler summary ${index + 1}`,
+          summary: index === 169
+            ? "Legacy rollout approvals are organized in the archive ledger."
+            : `Filler semantic summary ${index + 1}.`,
+          bodyText: index === 169
+            ? "Legacy rollout approvals are organized in the archive ledger."
+            : `Filler semantic summary ${index + 1}.`,
+          excerpt: index === 169 ? "Legacy rollout approvals are organized in the archive ledger." : null,
+          observedAt: `2026-05-20T00:${String(index % 60).padStart(2, "0")}:00.000Z`,
+          status: "active" as const,
+          updatedAt: index === 169 ? "2026-01-01T00:00:00.000Z" : "2026-05-31T00:00:00.000Z",
+        })),
+      ],
+    });
+    store.upsertIntegrationNodeEmbedding({
+      nodeKind: "summary",
+      nodeId: relevantNodeId,
+      treeId: "integration:github:vector-topk",
+      embeddingModel: "text-embedding-3-small",
+      contentFingerprint: "v".repeat(64),
+      dimensions: 1536,
+      vector: relevantVector,
+    });
+
+    const result = await retrieveIntegrationMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "silentorbitvector42",
+      mode: "summaries",
+      maxResults: 5,
+    });
+    assert.ok(result.hits.some((hit) => hit.node_id === relevantNodeId && hit.title === "Archive ledger"));
   } finally {
     store.close();
   }

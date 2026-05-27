@@ -23,6 +23,7 @@ const EMBEDDING_EXCERPT_CHARS = 480;
 const RETRIEVAL_CANDIDATE_POOL_LIMIT = 320;
 const RETRIEVAL_FTS_CANDIDATE_LIMIT = 240;
 const RETRIEVAL_RECENT_CANDIDATE_LIMIT = 160;
+const RETRIEVAL_VECTOR_CANDIDATE_LIMIT = 120;
 const RETRIEVAL_QUERY_STOPWORDS = new Set([
   "a",
   "an",
@@ -131,6 +132,7 @@ export interface IntegrationMemoryRetrieveResult {
 
 interface NodeCandidate {
   kind: IntegrationRetrieveNodeKind;
+  embeddingKind: InteractionTreeChildKind;
   id: string;
   tree: IntegrationTreeRecord;
   title: string;
@@ -4236,6 +4238,54 @@ function retrievalNodeClassForMode(mode: "mixed" | "summaries" | "leaves"): "lea
   return undefined;
 }
 
+function retrievalVectorNodeKindsForMode(mode: "mixed" | "summaries" | "leaves"): InteractionTreeChildKind[] {
+  if (mode === "leaves") {
+    return ["leaf"];
+  }
+  if (mode === "summaries") {
+    return ["summary"];
+  }
+  return ["leaf", "summary"];
+}
+
+function listIntegrationVectorCandidateSearchDocs(params: {
+  store: RuntimeStateStore;
+  mode: "mixed" | "summaries" | "leaves";
+  treeIds: string[];
+  embeddingModelId: string;
+  queryVector: number[];
+  maxResults: number;
+}): SemanticSearchDoc[] {
+  const dedupedTreeIds = [...new Set(params.treeIds.map((value) => value.trim()).filter(Boolean))];
+  if (dedupedTreeIds.length === 0) {
+    return [];
+  }
+  const vectorHits = params.store.searchIntegrationNodeEmbeddingsByVector({
+    embedding: new Float32Array(params.queryVector),
+    embeddingModel: params.embeddingModelId,
+    limit: Math.max(RETRIEVAL_VECTOR_CANDIDATE_LIMIT, params.maxResults * 16),
+    treeIds: dedupedTreeIds,
+    nodeKinds: retrievalVectorNodeKindsForMode(params.mode),
+  });
+  if (vectorHits.length === 0) {
+    return [];
+  }
+  const docsByNodeId = new Map(
+    params.store.listSemanticMemorySearchDocs({
+      category: "integration",
+      treeIds: dedupedTreeIds,
+      nodeIds: vectorHits.map((hit) => hit.nodeId),
+      nodeClass: retrievalNodeClassForMode(params.mode),
+      status: "active",
+      limit: vectorHits.length,
+      offset: 0,
+    }).map((doc) => [doc.nodeId, doc]),
+  );
+  return vectorHits
+    .map((hit) => docsByNodeId.get(hit.nodeId) ?? null)
+    .filter((doc): doc is SemanticSearchDoc => Boolean(doc));
+}
+
 function semanticLexicalRanksByNodeId(params: {
   store: RuntimeStateStore;
   query: string;
@@ -4276,6 +4326,7 @@ function listIntegrationCandidateSearchDocs(params: {
   mode: "mixed" | "summaries" | "leaves";
   treeIds: string[];
   maxResults: number;
+  vectorDocs?: SemanticSearchDoc[];
 }): SemanticSearchDoc[] {
   const dedupedTreeIds = [...new Set(params.treeIds.map((value) => value.trim()).filter(Boolean))];
   if (dedupedTreeIds.length === 0) {
@@ -4308,6 +4359,7 @@ function listIntegrationCandidateSearchDocs(params: {
       offset: 0,
     }));
   }
+  addDocs(params.vectorDocs ?? []);
   addDocs(params.store.listSemanticMemorySearchDocs({
     category: "integration",
     treeIds: dedupedTreeIds,
@@ -4343,6 +4395,7 @@ function buildLeafCandidate(params: {
   const body = readFileIfExists(filePath);
   return {
     kind: "leaf",
+    embeddingKind: "leaf",
     id: params.leaf.leafId,
     tree: params.tree,
     title: params.leaf.title,
@@ -4403,6 +4456,7 @@ function buildSemanticCandidateFromSearchDoc(params: {
 }): NodeCandidate {
   return {
     kind: semanticCandidateKindForParts(params.doc.nodeClass, params.doc.nodeKind),
+    embeddingKind: params.doc.nodeClass === "leaf" ? "leaf" : "summary",
     id: params.doc.nodeId,
     tree: params.tree,
     title: params.doc.title,
@@ -4451,6 +4505,7 @@ function buildSemanticCandidate(params: {
   })();
   return {
     kind: semanticCandidateKind(params.node),
+    embeddingKind: params.node.nodeClass === "leaf" ? "leaf" : "summary",
     id: params.node.nodeId,
     tree: params.tree,
     title: params.node.title,
@@ -4498,7 +4553,7 @@ function nodeScore(params: {
     reasons.push("fts_bm25");
   }
   if (params.embeddingModelId && params.queryVector) {
-    const embeddingKey = `${params.candidate.kind}:${params.candidate.id}:${params.embeddingModelId}`;
+    const embeddingKey = `${params.candidate.embeddingKind}:${params.candidate.id}:${params.embeddingModelId}`;
     const candidateVector = params.embeddingByKey.get(embeddingKey);
     if (candidateVector) {
       const similarity = cosineSimilarity(candidateVector, params.queryVector);
@@ -4733,12 +4788,23 @@ export async function retrieveIntegrationMemory(params: {
   }
 
   const treeById = new Map(trees.map((tree) => [tree.treeId, tree]));
+  const vectorCandidateDocs = embeddingQuery
+    ? listIntegrationVectorCandidateSearchDocs({
+        store: params.store,
+        mode,
+        treeIds: trees.map((tree) => tree.treeId),
+        embeddingModelId: embeddingQuery.modelId,
+        queryVector: embeddingQuery.vector,
+        maxResults,
+      })
+    : [];
   const candidateDocs = listIntegrationCandidateSearchDocs({
     store: params.store,
     query: params.query,
     mode,
     treeIds: trees.map((tree) => tree.treeId),
     maxResults,
+    vectorDocs: vectorCandidateDocs,
   });
   let candidates = candidateDocs
     .map((doc) => {

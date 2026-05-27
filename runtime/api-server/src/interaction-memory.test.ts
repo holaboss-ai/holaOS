@@ -10,9 +10,17 @@ import { RuntimeStateStore } from "@holaboss/runtime-state-store";
 import { persistInteractionCandidate, rebuildInteractionEntityTree, retrieveInteractionMemory } from "./interaction-memory.js";
 import { workspaceMemoryDir } from "./workspace-bundle-paths.js";
 
+const ORIGINAL_FETCH = globalThis.fetch;
+const ORIGINAL_RUNTIME_CONFIG_PATH = process.env.HOLABOSS_RUNTIME_CONFIG_PATH;
 const tempDirs: string[] = [];
 
 afterEach(() => {
+  globalThis.fetch = ORIGINAL_FETCH;
+  if (ORIGINAL_RUNTIME_CONFIG_PATH === undefined) {
+    delete process.env.HOLABOSS_RUNTIME_CONFIG_PATH;
+  } else {
+    process.env.HOLABOSS_RUNTIME_CONFIG_PATH = ORIGINAL_RUNTIME_CONFIG_PATH;
+  }
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -22,6 +30,44 @@ function makeTempDir(prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
+}
+
+function writeRecallEmbeddingRuntimeConfig(root: string): string {
+  const configPath = path.join(root, "runtime-config.json");
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify(
+      {
+        runtime: {
+          sandbox_id: "sandbox-test",
+        },
+        providers: {
+          openai_direct: {
+            kind: "openai_compatible",
+            base_url: "https://api.openai.com/v1",
+            api_key: "sk-test-openai",
+          },
+        },
+        integrations: {
+          holaboss: {
+            auth_token: "hbmk.test-token",
+            sandbox_id: "sandbox-test",
+            user_id: "user-1",
+          },
+        },
+        holaboss: {
+          auth_token: "hbmk.test-token",
+          sandbox_id: "sandbox-test",
+          user_id: "user-1",
+        },
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  process.env.HOLABOSS_RUNTIME_CONFIG_PATH = configPath;
+  return configPath;
 }
 
 async function withJsonResponseServer(params: {
@@ -485,6 +531,108 @@ test("retrieveInteractionMemory recalls deep-body leaf terms through the semanti
       maxResults: 5,
     });
     assert.ok(result.hits.some((hit) => hit.title === "Escalation timer detail"));
+  } finally {
+    store.close();
+  }
+});
+
+test("retrieveInteractionMemory adds vector-only candidates that fall outside the recent semantic doc window", async () => {
+  const root = makeTempDir("hb-interaction-memory-vector-topk-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  try {
+    assert.equal(store.supportsVectorIndex(), true);
+    writeRecallEmbeddingRuntimeConfig(root);
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertInteractionEntity({
+      workspaceId: "workspace-1",
+      entityId: "interaction:workflow:vector-playbook",
+      entityType: "workflow",
+      canonicalName: "Vector playbook",
+      slug: "workflow-vector-playbook",
+      summary: "Vector retrieval memory.",
+      aliases: [],
+      isSystem: false,
+      status: "active",
+    });
+
+    const relevantNodeId = "semantic:interaction:interaction:workflow:vector-playbook:archival-ledger";
+    const relevantVector = new Array<number>(1536).fill(0);
+    relevantVector[0] = 1;
+    globalThis.fetch = (async (input) => {
+      const url = typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+      assert.match(url, /\/embeddings$/);
+      return new Response(
+        JSON.stringify({
+          data: [{ embedding: relevantVector }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }) as typeof fetch;
+
+    store.replaceSemanticMemorySearchDocs({
+      category: "interaction",
+      workspaceId: "workspace-1",
+      treeId: "interaction:workflow:vector-playbook",
+      docs: [
+        ...Array.from({ length: 170 }, (_, index) => ({
+          nodeId: index === 169
+            ? relevantNodeId
+            : `semantic:interaction:interaction:workflow:vector-playbook:filler-${index + 1}`,
+          nodeClass: "semantic" as const,
+          nodeKind: "overview",
+          path: index === 169
+            ? "semantic/interaction/trees/workflow-vector-playbook/archive-ledger/content.md"
+            : `semantic/interaction/trees/workflow-vector-playbook/filler-${index + 1}/content.md`,
+          childCount: 0,
+          title: index === 169 ? "Archival ledger" : `Filler summary ${index + 1}`,
+          summary: index === 169
+            ? "Legacy shipment approvals are tracked in the archival ledger."
+            : `Filler summary body ${index + 1}.`,
+          bodyText: index === 169
+            ? "Legacy shipment approvals are tracked in the archival ledger."
+            : `Filler summary body ${index + 1}.`,
+          excerpt: index === 169 ? "Legacy shipment approvals are tracked in the archival ledger." : null,
+          observedAt: `2026-05-20T00:${String(index % 60).padStart(2, "0")}:00.000Z`,
+          status: "active" as const,
+          updatedAt: index === 169 ? "2026-01-01T00:00:00.000Z" : "2026-05-31T00:00:00.000Z",
+        })),
+      ],
+    });
+    store.upsertInteractionNodeEmbedding({
+      workspaceId: "workspace-1",
+      nodeKind: "summary",
+      nodeId: relevantNodeId,
+      entityId: "interaction:workflow:vector-playbook",
+      embeddingModel: "text-embedding-3-small",
+      contentFingerprint: "v".repeat(64),
+      dimensions: 1536,
+      vector: relevantVector,
+    });
+
+    const result = await retrieveInteractionMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "silentorbitvector42",
+      mode: "summaries",
+      maxResults: 5,
+    });
+    assert.ok(result.hits.some((hit) => hit.node_id === relevantNodeId && hit.title === "Archival ledger"));
   } finally {
     store.close();
   }

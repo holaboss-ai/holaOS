@@ -3064,6 +3064,124 @@ test("memory embedding index supports vector replacement, search, and delete", (
   store.close();
 });
 
+test("node embedding vector indexes support interaction and integration top-k search", () => {
+  const root = makeTempDir("hb-state-store-node-vec-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  });
+
+  assert.equal(store.supportsVectorIndex(), true);
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+
+  const primaryVector = new Float32Array(1536).fill(0);
+  primaryVector[0] = 1;
+  const secondaryVector = new Float32Array(1536).fill(0);
+  secondaryVector[1] = 1;
+
+  store.upsertInteractionNodeEmbedding({
+    workspaceId: "workspace-1",
+    nodeKind: "summary",
+    nodeId: "semantic:interaction:vector-primary",
+    entityId: "interaction:workflow:vector-primary",
+    embeddingModel: "text-embedding-3-small",
+    contentFingerprint: "c".repeat(64),
+    dimensions: 1536,
+    vector: Array.from(primaryVector),
+  });
+  store.upsertInteractionNodeEmbedding({
+    workspaceId: "workspace-1",
+    nodeKind: "summary",
+    nodeId: "semantic:interaction:vector-secondary",
+    entityId: "interaction:workflow:vector-primary",
+    embeddingModel: "text-embedding-3-small",
+    contentFingerprint: "d".repeat(64),
+    dimensions: 1536,
+    vector: Array.from(secondaryVector),
+  });
+
+  const interactionResults = store.searchInteractionNodeEmbeddingsByVector({
+    workspaceId: "workspace-1",
+    embedding: primaryVector,
+    embeddingModel: "text-embedding-3-small",
+    limit: 2,
+    entityIds: ["interaction:workflow:vector-primary"],
+    nodeKinds: ["summary"],
+  });
+  assert.equal(interactionResults[0]?.nodeId, "semantic:interaction:vector-primary");
+
+  const treeId = "integration:github:vector-primary";
+  store.upsertIntegrationTree({
+    treeId,
+    provider: "github",
+    ownerUserId: "user-1",
+    accountKey: "vector-github",
+    accountLabel: "Vector GitHub",
+    slug: "github-vector-primary",
+    summary: "Vector GitHub memory.",
+    status: "active",
+  });
+  store.upsertIntegrationNodeEmbedding({
+    nodeKind: "summary",
+    nodeId: "semantic:integration:vector-primary",
+    treeId,
+    embeddingModel: "text-embedding-3-small",
+    contentFingerprint: "e".repeat(64),
+    dimensions: 1536,
+    vector: Array.from(primaryVector),
+  });
+  store.upsertIntegrationNodeEmbedding({
+    nodeKind: "summary",
+    nodeId: "semantic:integration:vector-secondary",
+    treeId,
+    embeddingModel: "text-embedding-3-small",
+    contentFingerprint: "f".repeat(64),
+    dimensions: 1536,
+    vector: Array.from(secondaryVector),
+  });
+
+  const integrationResults = store.searchIntegrationNodeEmbeddingsByVector({
+    embedding: primaryVector,
+    embeddingModel: "text-embedding-3-small",
+    limit: 2,
+    treeIds: [treeId],
+    nodeKinds: ["summary"],
+  });
+  assert.equal(integrationResults[0]?.nodeId, "semantic:integration:vector-primary");
+
+  const vecRowid = integrationResults[0]?.vecRowid ?? null;
+  store.deleteIntegrationTreeMemory({ treeId });
+  assert.equal(
+    store.searchIntegrationNodeEmbeddingsByVector({
+      embedding: primaryVector,
+      embeddingModel: "text-embedding-3-small",
+      limit: 2,
+      treeIds: [treeId],
+      nodeKinds: ["summary"],
+    }).length,
+    0,
+  );
+  if (vecRowid !== null) {
+    const db = new Database(store.controlPlaneDbPath, { readonly: true });
+    sqliteVec.load(db as unknown as { loadExtension(file: string, entrypoint?: string | undefined): void });
+    const remaining = Number(
+      (
+        db.prepare<[number], { count: number }>("SELECT COUNT(*) AS count FROM integration_node_embedding_vec WHERE vec_rowid = ?")
+          .get(vecRowid) as { count: number }
+      ).count,
+    );
+    db.close();
+    assert.equal(remaining, 0);
+  }
+
+  store.close();
+});
+
 test("app build status round trip supports upsert, lookup, and delete", () => {
   const root = makeTempDir("hb-state-store-");
   const store = new RuntimeStateStore({

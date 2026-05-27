@@ -571,6 +571,16 @@ export interface InteractionNodeEmbeddingRecord {
   updatedAt: string;
 }
 
+export interface InteractionNodeEmbeddingVectorSearchResult {
+  vecRowid: number;
+  distance: number;
+  workspaceId: string;
+  nodeKind: InteractionTreeChildKind;
+  nodeId: string;
+  entityId: string;
+  embeddingModel: string;
+}
+
 export interface IntegrationTreeRecord {
   treeId: string;
   provider: string;
@@ -622,6 +632,15 @@ export interface IntegrationNodeEmbeddingRecord {
   vector: number[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface IntegrationNodeEmbeddingVectorSearchResult {
+  vecRowid: number;
+  distance: number;
+  nodeKind: InteractionTreeChildKind;
+  nodeId: string;
+  treeId: string;
+  embeddingModel: string;
 }
 
 export interface SemanticMemoryNodeRecord {
@@ -6218,6 +6237,13 @@ export class RuntimeStateStore {
     if (!record) {
       throw new Error("interaction embedding row not found after upsert");
     }
+    this.replaceInteractionNodeEmbeddingVector({
+      workspaceId: params.workspaceId,
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+      embedding: new Float32Array(params.vector),
+    });
     return record;
   }
 
@@ -6241,6 +6267,159 @@ export class RuntimeStateStore {
       )
       .get(params.workspaceId, params.nodeKind, params.nodeId, params.embeddingModel);
     return row ? this.rowToInteractionNodeEmbedding(row) : null;
+  }
+
+  private interactionNodeEmbeddingRowid(params: {
+    workspaceId: string;
+    nodeKind: InteractionTreeChildKind;
+    nodeId: string;
+    embeddingModel: string;
+  }): number | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<
+        [string, string, string, string],
+        { vec_rowid?: number | bigint | null }
+      >(
+        `
+          SELECT rowid AS vec_rowid
+          FROM interaction_node_embeddings
+          WHERE workspace_id = ?
+            AND node_kind = ?
+            AND node_id = ?
+            AND embedding_model = ?
+          LIMIT 1
+        `,
+      )
+      .get(params.workspaceId, params.nodeKind, params.nodeId, params.embeddingModel);
+    if (!row?.vec_rowid) {
+      return null;
+    }
+    return Number(row.vec_rowid);
+  }
+
+  replaceInteractionNodeEmbeddingVector(params: {
+    workspaceId: string;
+    nodeKind: InteractionTreeChildKind;
+    nodeId: string;
+    embeddingModel: string;
+    embedding: Float32Array;
+  }): void {
+    if (!this.#vectorIndexSupported || params.embedding.length !== 1536) {
+      return;
+    }
+    const record = this.getInteractionNodeEmbedding({
+      workspaceId: params.workspaceId,
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+    });
+    if (!record) {
+      return;
+    }
+    const vecRowid = this.interactionNodeEmbeddingRowid({
+      workspaceId: params.workspaceId,
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+    });
+    if (!Number.isFinite(vecRowid)) {
+      return;
+    }
+    const db = this.workspaceRuntimeDb(params.workspaceId);
+    db.prepare("DELETE FROM interaction_node_embedding_vec WHERE vec_rowid = ?").run(vecRowid);
+    db
+      .prepare(`
+        INSERT INTO interaction_node_embedding_vec (vec_rowid, embedding, entity_id, node_kind, embedding_model)
+        VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
+      `)
+      .run(
+        vecRowid,
+        params.embedding,
+        record.entityId,
+        record.nodeKind,
+        record.embeddingModel,
+      );
+  }
+
+  private backfillInteractionNodeEmbeddingVectors(params: {
+    workspaceId: string;
+    embeddingModel: string;
+    entityIds?: string[] | null;
+    nodeKinds?: InteractionTreeChildKind[] | null;
+  }): void {
+    if (!this.#vectorIndexSupported) {
+      return;
+    }
+    const normalizedEntityIds = params.entityIds
+      ? [...new Set(params.entityIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    const normalizedNodeKinds = params.nodeKinds
+      ? [...new Set(params.nodeKinds.map((value) => value.trim()).filter(Boolean) as InteractionTreeChildKind[])]
+      : null;
+    const db = this.workspaceRuntimeDb(params.workspaceId);
+    let query = `
+      SELECT rowid AS vec_rowid, vector_json, entity_id, node_kind, embedding_model
+      FROM interaction_node_embeddings
+      WHERE workspace_id = ?
+        AND embedding_model = ?
+        AND dimensions = 1536
+    `;
+    const values: Array<string | number> = [params.workspaceId, params.embeddingModel];
+    if (normalizedEntityIds && normalizedEntityIds.length > 0) {
+      query += ` AND entity_id IN (${normalizedEntityIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedEntityIds);
+    }
+    if (normalizedNodeKinds && normalizedNodeKinds.length > 0) {
+      query += ` AND node_kind IN (${normalizedNodeKinds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeKinds);
+    }
+    const sourceRows = db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+    if (sourceRows.length === 0) {
+      return;
+    }
+    const rowIds = sourceRows
+      .map((row) => Number(row.vec_rowid))
+      .filter((value) => Number.isFinite(value));
+    if (rowIds.length === 0) {
+      return;
+    }
+    const existingRowIds = new Set<number>(
+      (
+        db.prepare(`
+          SELECT vec_rowid
+          FROM interaction_node_embedding_vec
+          WHERE vec_rowid IN (${rowIds.map(() => "?").join(", ")})
+        `).all(...rowIds) as Array<{ vec_rowid: number | bigint }>
+      )
+        .map((row) => Number(row.vec_rowid))
+        .filter((value) => Number.isFinite(value)),
+    );
+    const insert = db.prepare(`
+      INSERT INTO interaction_node_embedding_vec (vec_rowid, embedding, entity_id, node_kind, embedding_model)
+      VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
+    `);
+    const insertMany = db.transaction((items: Array<Record<string, unknown>>) => {
+      for (const row of items) {
+        const vecRowid = Number(row.vec_rowid);
+        if (!Number.isFinite(vecRowid) || existingRowIds.has(vecRowid)) {
+          continue;
+        }
+        const vector = this.parseJsonList(row.vector_json)
+          .map((value) => (typeof value === "number" ? value : Number(value)))
+          .filter((value) => Number.isFinite(value));
+        if (vector.length !== 1536) {
+          continue;
+        }
+        insert.run(
+          vecRowid,
+          new Float32Array(vector),
+          String(row.entity_id),
+          String(row.node_kind),
+          String(row.embedding_model),
+        );
+      }
+    });
+    insertMany(sourceRows);
   }
 
   listInteractionNodeEmbeddings(params: {
@@ -6284,6 +6463,99 @@ export class RuntimeStateStore {
     query += " ORDER BY updated_at DESC, created_at DESC, node_id ASC";
     const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToInteractionNodeEmbedding(row));
+  }
+
+  searchInteractionNodeEmbeddingsByVector(params: {
+    workspaceId: string;
+    embedding: Float32Array;
+    embeddingModel: string;
+    limit: number;
+    entityIds?: string[] | null;
+    nodeKinds?: InteractionTreeChildKind[] | null;
+  }): InteractionNodeEmbeddingVectorSearchResult[] {
+    if (!this.#vectorIndexSupported || params.embedding.length !== 1536) {
+      return [];
+    }
+    const normalizedLimit = Math.max(1, Math.trunc(params.limit));
+    const normalizedEntityIds = params.entityIds
+      ? [...new Set(params.entityIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    const normalizedNodeKinds = params.nodeKinds
+      ? [...new Set(params.nodeKinds.map((value) => value.trim()).filter(Boolean) as InteractionTreeChildKind[])]
+      : null;
+    this.backfillInteractionNodeEmbeddingVectors({
+      workspaceId: params.workspaceId,
+      embeddingModel: params.embeddingModel,
+      entityIds: normalizedEntityIds,
+      nodeKinds: normalizedNodeKinds,
+    });
+    let query = `
+      SELECT vec_rowid, distance
+      FROM interaction_node_embedding_vec
+      WHERE embedding MATCH ?
+        AND k = ?
+        AND embedding_model = ?
+    `;
+    const values: Array<string | number | Float32Array> = [params.embedding, normalizedLimit, params.embeddingModel];
+    if (normalizedEntityIds && normalizedEntityIds.length > 0) {
+      query += ` AND entity_id IN (${normalizedEntityIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedEntityIds);
+    }
+    if (normalizedNodeKinds && normalizedNodeKinds.length > 0) {
+      query += ` AND node_kind IN (${normalizedNodeKinds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeKinds);
+    }
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(query)
+      .all(...values) as Array<{ vec_rowid: number; distance: number }>;
+    return this.interactionEmbeddingVectorResultsForRows(params.workspaceId, rows);
+  }
+
+  private interactionEmbeddingVectorResultsForRows(
+    workspaceId: string,
+    rows: Array<{ vec_rowid: number; distance: number }>
+  ): InteractionNodeEmbeddingVectorSearchResult[] {
+    if (rows.length === 0) {
+      return [];
+    }
+    const rowIds = rows.map((row) => Number(row.vec_rowid)).filter((value) => Number.isFinite(value));
+    if (rowIds.length === 0) {
+      return [];
+    }
+    const db = this.workspaceRuntimeDb(workspaceId);
+    const mappingRows = db
+      .prepare(`
+        SELECT rowid AS vec_rowid, *
+        FROM interaction_node_embeddings
+        WHERE workspace_id = ?
+          AND rowid IN (${rowIds.map(() => "?").join(", ")})
+      `)
+      .all(workspaceId, ...rowIds) as Array<Record<string, unknown>>;
+    const byRowId = new Map<number, InteractionNodeEmbeddingRecord>();
+    for (const row of mappingRows) {
+      const vecRowid = Number(row.vec_rowid);
+      if (!Number.isFinite(vecRowid)) {
+        continue;
+      }
+      byRowId.set(vecRowid, this.rowToInteractionNodeEmbedding(row));
+    }
+    const results: InteractionNodeEmbeddingVectorSearchResult[] = [];
+    for (const row of rows) {
+      const mapping = byRowId.get(Number(row.vec_rowid));
+      if (!mapping) {
+        continue;
+      }
+      results.push({
+        vecRowid: Number(row.vec_rowid),
+        distance: Number(row.distance),
+        workspaceId: mapping.workspaceId,
+        nodeKind: mapping.nodeKind,
+        nodeId: mapping.nodeId,
+        entityId: mapping.entityId,
+        embeddingModel: mapping.embeddingModel,
+      });
+    }
+    return results;
   }
 
   upsertIntegrationTree(params: {
@@ -7114,6 +7386,7 @@ export class RuntimeStateStore {
     treeId?: string | null;
     treeIds?: string[] | null;
     nodeId?: string | null;
+    nodeIds?: string[] | null;
     nodeClass?: SemanticMemoryNodeClass | null;
     nodeKind?: string | null;
     status?: MemoryNodeStatus | null;
@@ -7123,7 +7396,13 @@ export class RuntimeStateStore {
     const normalizedTreeIds = params.treeIds
       ? [...new Set(params.treeIds.map((value) => value.trim()).filter(Boolean))]
       : null;
+    const normalizedNodeIds = params.nodeIds
+      ? [...new Set(params.nodeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
     if (params.treeIds && normalizedTreeIds && normalizedTreeIds.length === 0) {
+      return [];
+    }
+    if (params.nodeIds && normalizedNodeIds && normalizedNodeIds.length === 0) {
       return [];
     }
     const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
@@ -7155,6 +7434,9 @@ export class RuntimeStateStore {
         query += " AND node_id = ?";
         values.push(params.nodeId);
       }
+    } else if (normalizedNodeIds) {
+      query += ` AND node_id IN (${normalizedNodeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeIds);
     }
     if (params.nodeClass !== undefined) {
       if (params.nodeClass === null) {
@@ -7638,11 +7920,30 @@ export class RuntimeStateStore {
           )
           .get(params.treeId) as { count?: number } | undefined)?.count ?? 0,
       );
+      const embeddingRowIds = (
+        db
+          .prepare<[string], { vec_rowid: number | bigint }>(
+            `
+              SELECT rowid AS vec_rowid
+              FROM integration_node_embeddings
+              WHERE tree_id = ?
+            `,
+          )
+          .all(params.treeId) as Array<{ vec_rowid: number | bigint }>
+      )
+        .map((row) => Number(row.vec_rowid))
+        .filter((value) => Number.isFinite(value));
 
       db.prepare(`
         DELETE FROM integration_node_embeddings
         WHERE tree_id = ?
       `).run(params.treeId);
+      if (this.#vectorIndexSupported && embeddingRowIds.length > 0) {
+        db.prepare(`
+          DELETE FROM integration_node_embedding_vec
+          WHERE vec_rowid IN (${embeddingRowIds.map(() => "?").join(", ")})
+        `).run(...embeddingRowIds);
+      }
       db.prepare(`
         DELETE FROM semantic_memory_search_fts
         WHERE category = 'integration' AND tree_id = ?
@@ -7748,6 +8049,12 @@ export class RuntimeStateStore {
     if (!record) {
       throw new Error("integration embedding row not found after upsert");
     }
+    this.replaceIntegrationNodeEmbeddingVector({
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+      embedding: new Float32Array(params.vector),
+    });
     return record;
   }
 
@@ -7769,6 +8076,152 @@ export class RuntimeStateStore {
       )
       .get(params.nodeKind, params.nodeId, params.embeddingModel);
     return row ? this.rowToIntegrationNodeEmbedding(row) : null;
+  }
+
+  private integrationNodeEmbeddingRowid(params: {
+    nodeKind: InteractionTreeChildKind;
+    nodeId: string;
+    embeddingModel: string;
+  }): number | null {
+    const row = this.controlPlaneDb()
+      .prepare<
+        [string, string, string],
+        { vec_rowid?: number | bigint | null }
+      >(
+        `
+          SELECT rowid AS vec_rowid
+          FROM integration_node_embeddings
+          WHERE node_kind = ?
+            AND node_id = ?
+            AND embedding_model = ?
+          LIMIT 1
+        `,
+      )
+      .get(params.nodeKind, params.nodeId, params.embeddingModel);
+    if (!row?.vec_rowid) {
+      return null;
+    }
+    return Number(row.vec_rowid);
+  }
+
+  replaceIntegrationNodeEmbeddingVector(params: {
+    nodeKind: InteractionTreeChildKind;
+    nodeId: string;
+    embeddingModel: string;
+    embedding: Float32Array;
+  }): void {
+    if (!this.#vectorIndexSupported || params.embedding.length !== 1536) {
+      return;
+    }
+    const record = this.getIntegrationNodeEmbedding({
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+    });
+    if (!record) {
+      return;
+    }
+    const vecRowid = this.integrationNodeEmbeddingRowid({
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+    });
+    if (!Number.isFinite(vecRowid)) {
+      return;
+    }
+    const db = this.controlPlaneDb();
+    db.prepare("DELETE FROM integration_node_embedding_vec WHERE vec_rowid = ?").run(vecRowid);
+    db
+      .prepare(`
+        INSERT INTO integration_node_embedding_vec (vec_rowid, embedding, tree_id, node_kind, embedding_model)
+        VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
+      `)
+      .run(
+        vecRowid,
+        params.embedding,
+        record.treeId,
+        record.nodeKind,
+        record.embeddingModel,
+      );
+  }
+
+  private backfillIntegrationNodeEmbeddingVectors(params: {
+    embeddingModel: string;
+    treeIds?: string[] | null;
+    nodeKinds?: InteractionTreeChildKind[] | null;
+  }): void {
+    if (!this.#vectorIndexSupported) {
+      return;
+    }
+    const normalizedTreeIds = params.treeIds
+      ? [...new Set(params.treeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    const normalizedNodeKinds = params.nodeKinds
+      ? [...new Set(params.nodeKinds.map((value) => value.trim()).filter(Boolean) as InteractionTreeChildKind[])]
+      : null;
+    const db = this.controlPlaneDb();
+    let query = `
+      SELECT rowid AS vec_rowid, vector_json, tree_id, node_kind, embedding_model
+      FROM integration_node_embeddings
+      WHERE embedding_model = ?
+        AND dimensions = 1536
+    `;
+    const values: Array<string | number> = [params.embeddingModel];
+    if (normalizedTreeIds && normalizedTreeIds.length > 0) {
+      query += ` AND tree_id IN (${normalizedTreeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedTreeIds);
+    }
+    if (normalizedNodeKinds && normalizedNodeKinds.length > 0) {
+      query += ` AND node_kind IN (${normalizedNodeKinds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeKinds);
+    }
+    const sourceRows = db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+    if (sourceRows.length === 0) {
+      return;
+    }
+    const rowIds = sourceRows
+      .map((row) => Number(row.vec_rowid))
+      .filter((value) => Number.isFinite(value));
+    if (rowIds.length === 0) {
+      return;
+    }
+    const existingRowIds = new Set<number>(
+      (
+        db.prepare(`
+          SELECT vec_rowid
+          FROM integration_node_embedding_vec
+          WHERE vec_rowid IN (${rowIds.map(() => "?").join(", ")})
+        `).all(...rowIds) as Array<{ vec_rowid: number | bigint }>
+      )
+        .map((row) => Number(row.vec_rowid))
+        .filter((value) => Number.isFinite(value)),
+    );
+    const insert = db.prepare(`
+      INSERT INTO integration_node_embedding_vec (vec_rowid, embedding, tree_id, node_kind, embedding_model)
+      VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
+    `);
+    const insertMany = db.transaction((items: Array<Record<string, unknown>>) => {
+      for (const row of items) {
+        const vecRowid = Number(row.vec_rowid);
+        if (!Number.isFinite(vecRowid) || existingRowIds.has(vecRowid)) {
+          continue;
+        }
+        const vector = this.parseJsonList(row.vector_json)
+          .map((value) => (typeof value === "number" ? value : Number(value)))
+          .filter((value) => Number.isFinite(value));
+        if (vector.length !== 1536) {
+          continue;
+        }
+        insert.run(
+          vecRowid,
+          new Float32Array(vector),
+          String(row.tree_id),
+          String(row.node_kind),
+          String(row.embedding_model),
+        );
+      }
+    });
+    insertMany(sourceRows);
   }
 
   listIntegrationNodeEmbeddings(params: {
@@ -7811,6 +8264,94 @@ export class RuntimeStateStore {
     query += " ORDER BY updated_at DESC, created_at DESC, node_id ASC";
     const rows = this.controlPlaneDb().prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToIntegrationNodeEmbedding(row));
+  }
+
+  searchIntegrationNodeEmbeddingsByVector(params: {
+    embedding: Float32Array;
+    embeddingModel: string;
+    limit: number;
+    treeIds?: string[] | null;
+    nodeKinds?: InteractionTreeChildKind[] | null;
+  }): IntegrationNodeEmbeddingVectorSearchResult[] {
+    if (!this.#vectorIndexSupported || params.embedding.length !== 1536) {
+      return [];
+    }
+    const normalizedLimit = Math.max(1, Math.trunc(params.limit));
+    const normalizedTreeIds = params.treeIds
+      ? [...new Set(params.treeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    const normalizedNodeKinds = params.nodeKinds
+      ? [...new Set(params.nodeKinds.map((value) => value.trim()).filter(Boolean) as InteractionTreeChildKind[])]
+      : null;
+    this.backfillIntegrationNodeEmbeddingVectors({
+      embeddingModel: params.embeddingModel,
+      treeIds: normalizedTreeIds,
+      nodeKinds: normalizedNodeKinds,
+    });
+    let query = `
+      SELECT vec_rowid, distance
+      FROM integration_node_embedding_vec
+      WHERE embedding MATCH ?
+        AND k = ?
+        AND embedding_model = ?
+    `;
+    const values: Array<string | number | Float32Array> = [params.embedding, normalizedLimit, params.embeddingModel];
+    if (normalizedTreeIds && normalizedTreeIds.length > 0) {
+      query += ` AND tree_id IN (${normalizedTreeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedTreeIds);
+    }
+    if (normalizedNodeKinds && normalizedNodeKinds.length > 0) {
+      query += ` AND node_kind IN (${normalizedNodeKinds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeKinds);
+    }
+    const rows = this.controlPlaneDb()
+      .prepare(query)
+      .all(...values) as Array<{ vec_rowid: number; distance: number }>;
+    return this.integrationEmbeddingVectorResultsForRows(rows);
+  }
+
+  private integrationEmbeddingVectorResultsForRows(
+    rows: Array<{ vec_rowid: number; distance: number }>
+  ): IntegrationNodeEmbeddingVectorSearchResult[] {
+    if (rows.length === 0) {
+      return [];
+    }
+    const rowIds = rows.map((row) => Number(row.vec_rowid)).filter((value) => Number.isFinite(value));
+    if (rowIds.length === 0) {
+      return [];
+    }
+    const db = this.controlPlaneDb();
+    const mappingRows = db
+      .prepare(`
+        SELECT rowid AS vec_rowid, *
+        FROM integration_node_embeddings
+        WHERE rowid IN (${rowIds.map(() => "?").join(", ")})
+      `)
+      .all(...rowIds) as Array<Record<string, unknown>>;
+    const byRowId = new Map<number, IntegrationNodeEmbeddingRecord>();
+    for (const row of mappingRows) {
+      const vecRowid = Number(row.vec_rowid);
+      if (!Number.isFinite(vecRowid)) {
+        continue;
+      }
+      byRowId.set(vecRowid, this.rowToIntegrationNodeEmbedding(row));
+    }
+    const results: IntegrationNodeEmbeddingVectorSearchResult[] = [];
+    for (const row of rows) {
+      const mapping = byRowId.get(Number(row.vec_rowid));
+      if (!mapping) {
+        continue;
+      }
+      results.push({
+        vecRowid: Number(row.vec_rowid),
+        distance: Number(row.distance),
+        nodeKind: mapping.nodeKind,
+        nodeId: mapping.nodeId,
+        treeId: mapping.treeId,
+        embeddingModel: mapping.embeddingModel,
+      });
+    }
+    return results;
   }
 
   getMemoryEmbeddingIndexByMemoryId(params: {
@@ -10496,6 +11037,17 @@ export class RuntimeStateStore {
     this.ensureIntegrationLeavesTableSchema(db);
     this.ensureSemanticMemoryTableSchema({ db, workspaceScoped: false });
     this.ensureSemanticMemorySearchTableSchema({ db, workspaceScoped: false });
+    if (this.#vectorIndexSupported) {
+      db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS integration_node_embedding_vec USING vec0(
+            vec_rowid INTEGER PRIMARY KEY,
+            embedding float[1536],
+            tree_id TEXT,
+            node_kind TEXT,
+            embedding_model TEXT
+        );
+      `);
+    }
     this.migrateIntegrationConnectionIdentityColumns(db);
     this.migrateAppCatalogProviderColumns(db);
   }
@@ -11193,6 +11745,17 @@ export class RuntimeStateStore {
     this.ensureConversationBindingsTableSchema(db);
     this.ensureSemanticMemoryTableSchema({ db, workspaceScoped: true });
     this.ensureSemanticMemorySearchTableSchema({ db, workspaceScoped: true });
+    if (this.#vectorIndexSupported) {
+      db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS interaction_node_embedding_vec USING vec0(
+            vec_rowid INTEGER PRIMARY KEY,
+            embedding float[1536],
+            entity_id TEXT,
+            node_kind TEXT,
+            embedding_model TEXT
+        );
+      `);
+    }
     this.migrateLegacyMainSessionLabels(db);
     this.ensureSubagentRunsTableSchema(db);
     this.ensureSessionRuntimeStateTableSchema(db);
