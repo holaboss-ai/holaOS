@@ -282,7 +282,7 @@ function defaultSessionTitle(
   if (normalizedKind === "cronjob") {
     return "Cronjob run";
   }
-  if (normalizedKind === "subagent" || normalizedKind === "task_proposal") {
+  if (normalizedKind === "subagent") {
     return "Subagent run";
   }
   return `Session ${sessionId.slice(0, 8)}`;

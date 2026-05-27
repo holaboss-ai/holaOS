@@ -32,6 +32,7 @@ const WORKSPACE_IDENTITY_LOCK_STALE_MS = 30_000;
 const WORKSPACE_RUNTIME_LEGACY_BACKFILL_MARKER_KEY =
   "legacy_workspace_backfill_v1_complete";
 const MAIN_SESSION_KIND = "main_session";
+const SUBAGENT_SESSION_KIND = "subagent";
 const MAIN_SESSION_BINDING_ROLE = "main_session";
 const MAIN_SESSION_CONVERSATION_KEY = "main_session";
 const GENERAL_TEAMMATE_ID = "general";
@@ -11565,7 +11566,7 @@ export class RuntimeStateStore {
     this.ensureSessionMessagesTableSchema(db);
     this.ensureConversationBindingsTableSchema(db);
     this.ensureSemanticMemoryTableSchema({ db, workspaceScoped: true });
-    this.migrateLegacyMainSessionLabels(db);
+    this.migrateLegacySessionKinds(db);
     this.ensureSubagentRunsTableSchema(db);
     this.ensureSessionRuntimeStateTableSchema(db);
     this.ensureTurnArtifactsSchema(db);
@@ -11762,7 +11763,7 @@ export class RuntimeStateStore {
     `);
   }
 
-  private migrateLegacyMainSessionLabels(db: Database.Database): void {
+  private migrateLegacySessionKinds(db: Database.Database): void {
     const tableNames = new Set<string>(
       (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
         (row) => row.name,
@@ -11774,11 +11775,15 @@ export class RuntimeStateStore {
         db.prepare(
           `
             UPDATE agent_sessions
-            SET kind = ?,
+            SET kind = CASE
+                    WHEN lower(kind) IN ('workspace_session', 'main') THEN ?
+                    WHEN lower(kind) = 'task_proposal' THEN ?
+                    ELSE kind
+                END,
                 updated_at = ?
-            WHERE lower(kind) IN ('workspace_session', 'main')
+            WHERE lower(kind) IN ('workspace_session', 'main', 'task_proposal')
           `,
-        ).run(MAIN_SESSION_KIND, now);
+        ).run(MAIN_SESSION_KIND, SUBAGENT_SESSION_KIND, now);
       }
       if (tableNames.has("conversation_bindings")) {
         db.prepare(
@@ -13757,7 +13762,7 @@ export class RuntimeStateStore {
     return {
       workspaceId: String(row.workspace_id),
       sessionId: String(row.session_id),
-      kind: String(row.kind),
+      kind: this.normalizedSessionKind(String(row.kind)),
       title: row.title == null ? null : String(row.title),
       parentSessionId: row.parent_session_id == null ? null : String(row.parent_session_id),
       sourceProposalId: row.source_proposal_id == null ? null : String(row.source_proposal_id),
@@ -14325,6 +14330,9 @@ export class RuntimeStateStore {
     const normalized = this.normalizedNullableText(value)?.toLowerCase();
     if (!normalized || normalized === "workspace_session" || normalized === "main") {
       return MAIN_SESSION_KIND;
+    }
+    if (normalized === "task_proposal") {
+      return SUBAGENT_SESSION_KIND;
     }
     return normalized;
   }

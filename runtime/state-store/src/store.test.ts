@@ -3774,9 +3774,10 @@ test("task proposals round trip supports create, list, unreviewed, get, and stat
 
 test("task proposal acceptance fields and child session metadata round trip", () => {
   const root = makeTempDir("hb-state-store-");
+  const workspaceRoot = path.join(root, "workspace");
   const store = new RuntimeStateStore({
     dbPath: path.join(root, "runtime.db"),
-    workspaceRoot: path.join(root, "workspace")
+    workspaceRoot
   });
 
   const session = store.ensureSession({
@@ -3810,8 +3811,9 @@ test("task proposal acceptance fields and child session metadata round trip", ()
     }
   });
 
+  assert.equal(session.kind, "subagent");
   assert.equal(sessions.length, 1);
-  assert.equal(sessions[0]?.kind, "task_proposal");
+  assert.equal(sessions[0]?.kind, "subagent");
   assert.equal(sessions[0]?.parentSessionId, "session-main");
   assert.equal(sessions[0]?.sourceProposalId, "proposal-1");
   assert.ok(updated);
@@ -3819,6 +3821,30 @@ test("task proposal acceptance fields and child session metadata round trip", ()
   assert.equal(updated.acceptedInputId, "input-1");
   assert.equal(updated.acceptedAt, "2026-01-01T01:00:00+00:00");
   store.close();
+
+  const legacyDb = new Database(workspaceRuntimeDbFile(workspaceRoot, "workspace-1"));
+  legacyDb
+    .prepare("UPDATE agent_sessions SET kind = ? WHERE workspace_id = ? AND session_id = ?")
+    .run("task_proposal", "workspace-1", "proposal-session-1");
+  legacyDb.close();
+
+  const reopened = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  const migratedSession = reopened.getSession({
+    workspaceId: "workspace-1",
+    sessionId: "proposal-session-1"
+  });
+  const migratedDb = new Database(workspaceRuntimeDbFile(workspaceRoot, "workspace-1"), { readonly: true });
+  const storedKind = migratedDb
+    .prepare("SELECT kind FROM agent_sessions WHERE workspace_id = ? AND session_id = ? LIMIT 1")
+    .get("workspace-1", "proposal-session-1") as { kind: string };
+
+  assert.equal(migratedSession?.kind, "subagent");
+  assert.equal(storedKind.kind, "subagent");
+  migratedDb.close();
+  reopened.close();
 });
 
 test("issues round trip creates persistent sessions and stable HOL numbering", () => {

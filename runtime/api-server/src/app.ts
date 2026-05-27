@@ -1236,7 +1236,6 @@ function agentSessionPayload(
   record: AgentSessionRecord,
   runtimeStore?: Pick<RuntimeStateStore, "getSubagentRunByChildSession"> | null,
 ): Record<string, unknown> {
-  const canonicalKind = record.kind === "task_proposal" ? "subagent" : record.kind;
   const linkedSubagentRun = runtimeStore?.getSubagentRunByChildSession({
     workspaceId: record.workspaceId,
     childSessionId: record.sessionId,
@@ -1247,7 +1246,7 @@ function agentSessionPayload(
   return {
     workspace_id: record.workspaceId,
     session_id: record.sessionId,
-    kind: canonicalKind,
+    kind: record.kind,
     title: record.title,
     parent_session_id: record.parentSessionId,
     source_proposal_id: record.sourceProposalId,

@@ -5731,8 +5731,7 @@ export class RuntimeAgentToolsService {
       throw new RuntimeAgentToolsServiceError(404, "session_not_found", "session not found");
     }
     const kind = normalizedString(session.kind);
-    const canonicalKind = kind === "task_proposal" ? "subagent" : kind;
-    if (canonicalKind === "subagent" || canonicalKind === "cronjob") {
+    if (kind === "subagent" || kind === "cronjob") {
       throw new RuntimeAgentToolsServiceError(
         403,
         "subagent_control_forbidden",

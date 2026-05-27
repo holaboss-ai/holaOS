@@ -1398,7 +1398,6 @@ function inspectableSessionCategory(
   }
   if (
     kind === "subagent" ||
-    kind === "task_proposal" ||
     sourceType === "subagent" ||
     sourceType === "task_proposal" ||
     Boolean((session?.proposal_id ?? "").trim()) ||
