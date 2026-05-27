@@ -691,6 +691,71 @@ test("retrieveInteractionMemory recalls deep-body leaf terms through the semanti
   }
 });
 
+test("retrieveInteractionMemory falls back to leaf summaries without reading markdown files", async () => {
+  const root = makeTempDir("hb-interaction-memory-leaf-fallback-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  try {
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertInteractionEntity({
+      workspaceId: "workspace-1",
+      entityId: "interaction:uncategorized",
+      entityType: "misc",
+      canonicalName: "Uncategorized",
+      slug: "uncategorized",
+      summary: "Fallback interaction tree.",
+      aliases: [],
+      isSystem: true,
+      status: "active",
+    });
+    store.upsertInteractionLeaf({
+      workspaceId: "workspace-1",
+      leafId: "leaf-summary-fallback",
+      entityId: "interaction:uncategorized",
+      subjectKey: "verification:summary-fallback",
+      path: "workspace/workspace-1/interaction/entities/uncategorized/leaves/leaf-summary-fallback.md",
+      title: "Verification command",
+      summary: "Use nebula verify to validate release bundles before shipping.",
+      fingerprint: "fingerprint-leaf-summary-fallback",
+      bodySha256: "sha-leaf-summary-fallback",
+      tags: ["verification"],
+      secondaryEntityIds: [],
+      sourceType: "manual",
+      sourceEventId: null,
+      sourceMessageId: null,
+      sourceTurnInputId: "input-seed",
+      admissionConfidence: 0.9,
+      entityConfidence: 0.9,
+      observedAt: "2026-05-22T10:00:00.000Z",
+      supersedesLeafId: null,
+      status: "active",
+    });
+
+    const result = await retrieveInteractionMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "nebula verify",
+      mode: "leaves",
+      treeId: "interaction:uncategorized",
+      maxResults: 5,
+    });
+
+    assert.equal(result.hits.length, 1);
+    assert.equal(result.hits[0]?.title, "Verification command");
+    assert.match(result.hits[0]?.excerpt ?? "", /nebula verify/i);
+  } finally {
+    store.close();
+  }
+});
+
 test("retrieveInteractionMemory adds vector-only candidates that fall outside the recent semantic doc window", async () => {
   const root = makeTempDir("hb-interaction-memory-vector-topk-");
   const workspaceRoot = path.join(root, "workspace");

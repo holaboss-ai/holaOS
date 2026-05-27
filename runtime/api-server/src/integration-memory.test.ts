@@ -294,6 +294,82 @@ test("retrieveIntegrationMemory recalls deep-body integration leaf terms through
   }
 });
 
+test("retrieveIntegrationMemory falls back to leaf summaries without reading markdown files", async () => {
+  const root = makeTempDir("hb-integration-memory-leaf-fallback-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  try {
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertIntegrationConnection({
+      connectionId: "github-1",
+      providerId: "github",
+      ownerUserId: "user-1",
+      accountLabel: "Release GitHub",
+      accountHandle: "release-github",
+      authMode: "composio",
+      grantedScopes: [],
+      status: "active",
+    });
+    store.upsertIntegrationTree({
+      treeId: "integration:github:acct-fallback",
+      provider: "github",
+      ownerUserId: "user-1",
+      accountKey: "release-github",
+      accountLabel: "Release GitHub",
+      slug: "github-release-fallback",
+      summary: "Release GitHub memory.",
+      status: "active",
+    });
+    store.upsertIntegrationLeaf({
+      leafId: "leaf-summary-fallback",
+      treeId: "integration:github:acct-fallback",
+      subjectKey: "repo:holaboss-ai/release:issue:summary-fallback",
+      entityKey: "repo:holaboss-ai/release",
+      entityLabel: "holaboss-ai/release",
+      branchKey: "issues",
+      branchLabel: "Issues",
+      path: "integration/accounts/github-release-fallback/leaves/leaf-summary-fallback.md",
+      title: "Release metrics backfill",
+      summary: "Backfill heliograph metrics after the rollout stabilizes.",
+      fingerprint: "fingerprint-leaf-summary-fallback",
+      bodySha256: "sha-leaf-summary-fallback",
+      tags: ["github", "release"],
+      sourceType: "github.issue",
+      sourceEventId: "evt-fallback",
+      sourceMessageId: null,
+      externalObjectId: "202",
+      externalObjectType: "issue",
+      admissionConfidence: 0.9,
+      observedAt: "2026-05-22T10:00:00.000Z",
+      supersedesLeafId: null,
+      status: "active",
+    });
+
+    const result = await retrieveIntegrationMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "heliograph metrics",
+      mode: "leaves",
+      treeId: "integration:github:acct-fallback",
+      maxResults: 5,
+    });
+
+    assert.equal(result.hits.length, 1);
+    assert.equal(result.hits[0]?.title, "Release metrics backfill");
+    assert.match(result.hits[0]?.excerpt ?? "", /heliograph metrics/i);
+  } finally {
+    store.close();
+  }
+});
+
 test("retrieveIntegrationMemory adds vector-only semantic candidates that fall outside the recent doc window", async () => {
   const root = makeTempDir("hb-integration-memory-vector-topk-");
   const workspaceRoot = path.join(root, "workspace");

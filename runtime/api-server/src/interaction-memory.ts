@@ -2450,23 +2450,16 @@ function listInteractionCandidateSearchDocs(params: {
 }
 
 function buildLeafCandidate(params: {
-  store: RuntimeStateStore;
-  workspaceId: string;
   entity: InteractionEntityRecord;
   leaf: InteractionLeafRecord;
 }): NodeCandidate {
-  const filePath = absolutePathForRelative(
-    params.store.workspaceDir(params.workspaceId),
-    params.leaf.path,
-  );
-  const body = readFileIfExists(filePath);
   return {
     kind: "leaf",
     id: params.leaf.leafId,
     entity: params.entity,
     title: params.leaf.title,
     summary: params.leaf.summary,
-    excerpt: body ? markdownExcerpt(body, 320) : null,
+    excerpt: params.leaf.summary ? clipText(params.leaf.summary, 320) : null,
     path: params.leaf.path,
     level: null,
     childCount: null,
@@ -2520,20 +2513,11 @@ function semanticInteractionNodeLevelForDoc(
 }
 
 function buildSemanticCandidate(params: {
-  store: RuntimeStateStore;
-  workspaceId: string;
   entity: InteractionEntityRecord;
   node: ReturnType<RuntimeStateStore["listSemanticMemoryNodes"]>[number];
   searchDoc?: ReturnType<RuntimeStateStore["getSemanticMemorySearchDoc"]> | null;
 }): NodeCandidate {
-  const excerpt = params.searchDoc?.excerpt ?? (() => {
-    const filePath = absolutePathForRelative(
-      params.store.workspaceDir(params.workspaceId),
-      params.node.path,
-    );
-    const body = readFileIfExists(filePath);
-    return body ? markdownExcerpt(body, 320) : null;
-  })();
+  const excerpt = params.searchDoc?.excerpt ?? (params.node.summary ? clipText(params.node.summary, 320) : null);
   return {
     kind: semanticInteractionCandidateKind(params.node),
     id: params.node.nodeId,
@@ -2727,8 +2711,6 @@ async function childHitsForNode(params: {
       .filter((node): node is NonNullable<typeof node> => Boolean(node))
       .map((node) =>
         buildSemanticCandidate({
-          store: params.store,
-          workspaceId: params.workspaceId,
           entity: semanticEntity,
           node,
           searchDoc: searchDocsByNodeId.get(node.nodeId) ?? null,
@@ -2875,8 +2857,6 @@ export async function retrieveInteractionMemory(params: {
           return null;
         }
         return buildLeafCandidate({
-          store: params.store,
-          workspaceId: params.workspaceId,
           entity,
           leaf,
         });

@@ -4419,15 +4419,9 @@ function accessibleIntegrationTreesForWorkspace(params: {
 }
 
 function buildLeafCandidate(params: {
-  store: RuntimeStateStore;
   tree: IntegrationTreeRecord;
   leaf: IntegrationLeafRecord;
 }): NodeCandidate {
-  const filePath = absolutePathForRelative(
-    params.store.workspaceRoot,
-    params.leaf.path,
-  );
-  const body = readFileIfExists(filePath);
   return {
     kind: "leaf",
     embeddingKind: "leaf",
@@ -4435,7 +4429,7 @@ function buildLeafCandidate(params: {
     tree: params.tree,
     title: params.leaf.title,
     summary: params.leaf.summary,
-    excerpt: body ? markdownExcerpt(body, 320) : null,
+    excerpt: params.leaf.summary ? clipText(params.leaf.summary, 320) : null,
     path: params.leaf.path,
     level: null,
     childCount: null,
@@ -4525,19 +4519,11 @@ function loadIntegrationEmbeddingsByCandidateKey(params: {
 }
 
 function buildSemanticCandidate(params: {
-  store: RuntimeStateStore;
   tree: IntegrationTreeRecord;
   node: ReturnType<RuntimeStateStore["listSemanticMemoryNodes"]>[number];
   searchDoc?: ReturnType<RuntimeStateStore["getSemanticMemorySearchDoc"]> | null;
 }): NodeCandidate {
-  const excerpt = params.searchDoc?.excerpt ?? (() => {
-    const filePath = absolutePathForRelative(
-      params.store.workspaceRoot,
-      params.node.path,
-    );
-    const body = readFileIfExists(filePath);
-    return body ? markdownExcerpt(body, 320) : null;
-  })();
+  const excerpt = params.searchDoc?.excerpt ?? (params.node.summary ? clipText(params.node.summary, 320) : null);
   return {
     kind: semanticCandidateKind(params.node),
     embeddingKind: params.node.nodeClass === "leaf" ? "leaf" : "summary",
@@ -4733,7 +4719,6 @@ async function childHitsForNode(params: {
         }))
       .filter((node): node is NonNullable<typeof node> => Boolean(node))
       .map((node) => buildSemanticCandidate({
-        store: params.store,
         tree: semanticTree,
         node,
         searchDoc: searchDocsByNodeId.get(node.nodeId) ?? null,
@@ -4753,7 +4738,6 @@ async function childHitsForNode(params: {
         }))
       .filter((node): node is NonNullable<typeof node> => Boolean(node))
       .map((node) => buildSemanticCandidate({
-        store: params.store,
         tree: semanticTree,
         node,
         searchDoc: searchDocsByNodeId.get(node.nodeId) ?? null,
@@ -4877,7 +4861,6 @@ export async function retrieveIntegrationMemory(params: {
           return null;
         }
         return buildLeafCandidate({
-          store: params.store,
           tree,
           leaf,
         });

@@ -14,13 +14,15 @@ import {
 } from "./workspace-bundle-paths.js";
 import {
   refreshMemoryIndexes,
+  waitForPendingInteractionEntityRebuilds,
   writeTurnDurableMemory,
   type TurnMemoryWritebackModelContext,
 } from "./turn-memory-writeback.js";
 
 const tempDirs: string[] = [];
 
-afterEach(() => {
+afterEach(async () => {
+  await waitForPendingInteractionEntityRebuilds();
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -147,6 +149,7 @@ function listActiveInteractionEntities(store: RuntimeStateStore, workspaceId: st
 async function withModelExtractionResponse(params: {
   memories: Array<Record<string, unknown>>;
   onRequest?: (body: string) => void;
+  waitForRebuilds?: boolean;
   run: (modelContext: TurnMemoryWritebackModelContext) => Promise<void>;
 }): Promise<void> {
   await withModelExtractionResponses({
@@ -167,6 +170,7 @@ async function withModelExtractionResponse(params: {
       },
     ],
     onRequest: params.onRequest,
+    waitForRebuilds: params.waitForRebuilds,
     run: params.run,
   });
 }
@@ -178,6 +182,7 @@ async function withModelExtractionResponses(params: {
     delayMs?: number;
   }>;
   onRequest?: (body: string, index: number) => void;
+  waitForRebuilds?: boolean;
   run: (modelContext: TurnMemoryWritebackModelContext) => Promise<void>;
 }): Promise<void> {
   const server = http.createServer((request, response) => {
@@ -227,6 +232,9 @@ async function withModelExtractionResponses(params: {
       instruction: "extract durable memory candidates",
     };
     await params.run(modelContext);
+    if (params.waitForRebuilds !== false) {
+      await waitForPendingInteractionEntityRebuilds({ workspaceId: "workspace-1" });
+    }
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
@@ -462,6 +470,82 @@ test("writeTurnDurableMemory waits for a full three-turn batch and does not repl
   assert.match(files[blockerLeaf.path], /Recurring deploy policy blocker/);
   assert.match(files[blockerLeaf.path], /blocked by workspace policy/i);
   assert.equal(interactionBatchCursor(store), "3");
+
+  store.close();
+});
+
+test("writeTurnDurableMemory schedules semantic rebuilds in the background after persisting leaves", async () => {
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-background-rebuild-");
+  seedWorkspace(store);
+  const [, , turnResult] = seedCompletedTurns({
+    store,
+    turns: [
+      {
+        userText: "Remember the release verification command.",
+        assistantText: "I will remember the release verification command.",
+      },
+      {
+        userText: "It should stay durable for future runs.",
+        assistantText: "Understood.",
+      },
+      {
+        userText: "For release verification, use `npm run test:ci`.",
+        assistantText: "Captured the release verification command.",
+      },
+    ],
+  });
+
+  await withModelExtractionResponse({
+    waitForRebuilds: false,
+    memories: [
+      {
+        scope: "workspace",
+        memory_type: "fact",
+        subject_key: "release-verification-command",
+        title: "Release verification command",
+        summary: "Use `npm run test:ci` to verify release changes in this workspace.",
+        tags: ["verification", "command"],
+        evidence: "The current turn explicitly instructs the agent to use `npm run test:ci` as durable release verification guidance.",
+        confidence: 0.97,
+      },
+    ],
+    run: async (modelContext) => {
+      await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult,
+        modelContext,
+      });
+    },
+  });
+
+  const immediateLeaves = listActiveInteractionLeaves(store, "workspace-1");
+  const immediateSummaries = listSummaryLikeSemanticInteractionNodes(store, "workspace-1");
+  const immediateFiles = snapshotMemoryFiles(workspaceRoot, "workspace-1");
+
+  assert.equal(interactionBatchCursor(store), "3");
+  assert.equal(immediateLeaves.length, 1);
+  assert.deepEqual(immediateSummaries, []);
+  assert.equal(
+    Object.keys(immediateFiles).some((filePath) => filePath.includes("/semantic/interaction/trees/")),
+    false,
+  );
+
+  await waitForPendingInteractionEntityRebuilds({ workspaceId: "workspace-1" });
+
+  const rebuiltSemanticNodes = store.listSemanticMemoryNodes({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:uncategorized",
+    nodeClass: "semantic",
+    status: "active",
+    limit: 10_000,
+    offset: 0,
+  });
+  const rebuiltFiles = snapshotMemoryFiles(workspaceRoot, "workspace-1");
+
+  assert.equal(rebuiltSemanticNodes.length, 1);
+  assert.ok(rebuiltFiles["workspace/workspace-1/semantic/interaction/trees/uncategorized/content.md"]);
 
   store.close();
 });
