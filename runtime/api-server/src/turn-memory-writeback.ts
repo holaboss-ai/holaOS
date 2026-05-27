@@ -827,20 +827,42 @@ export async function refreshMemoryIndexes(params: {
   store: RuntimeStateStore;
   memoryService: MemoryServiceLike;
   workspaceId: string;
+  entityIds?: string[] | null;
 }): Promise<string[]> {
   void params.memoryService;
-  await rebuildAllInteractionTrees({
-    store: params.store,
-    workspaceId: params.workspaceId,
-  });
-  const semanticPaths = params.store
-    .listInteractionEntities({
+  const requestedEntityIds = params.entityIds
+    ? [...new Set(params.entityIds.map((value) => value.trim()).filter(Boolean))]
+    : [];
+  const targetEntities = requestedEntityIds.length > 0
+    ? requestedEntityIds
+      .map((entityId) =>
+        params.store.getInteractionEntity({
+          workspaceId: params.workspaceId,
+          entityId,
+        }))
+      .filter((entity): entity is NonNullable<typeof entity> => Boolean(entity))
+    : params.store.listInteractionEntities({
       workspaceId: params.workspaceId,
       status: "active",
       includeSystem: true,
       limit: 10_000,
       offset: 0,
-    })
+    });
+  if (requestedEntityIds.length > 0) {
+    for (const entity of targetEntities) {
+      await rebuildInteractionEntityTree({
+        store: params.store,
+        workspaceId: params.workspaceId,
+        entityId: entity.entityId,
+      });
+    }
+  } else {
+    await rebuildAllInteractionTrees({
+      store: params.store,
+      workspaceId: params.workspaceId,
+    });
+  }
+  const semanticPaths = targetEntities
     .flatMap((entity) =>
       params.store.listSemanticMemoryNodes({
         category: "interaction",
@@ -850,8 +872,7 @@ export async function refreshMemoryIndexes(params: {
         status: "active",
         limit: 10_000,
         offset: 0,
-      }),
-    )
+      }))
     .filter((node) => isSummaryLikeSemanticInteractionNode(node))
     .map((node) => node.path);
   return semanticPaths;

@@ -248,6 +248,129 @@ test("retrieveIntegrationMemory recalls deep-body integration leaf terms through
   }
 });
 
+test("retrieveIntegrationMemory recalls matches across multiple visible integration trees", async () => {
+  const root = makeTempDir("hb-integration-memory-multi-tree-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  try {
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    for (const account of [
+      { connectionId: "github-1", treeId: "integration:github:acct-a", slug: "github-acct-a", label: "Account A" },
+      { connectionId: "github-2", treeId: "integration:github:acct-b", slug: "github-acct-b", label: "Account B" },
+    ]) {
+      store.upsertIntegrationConnection({
+        connectionId: account.connectionId,
+        providerId: "github",
+        ownerUserId: "user-1",
+        accountLabel: account.label,
+        accountHandle: account.slug,
+        authMode: "composio",
+        grantedScopes: [],
+        status: "active",
+      });
+      store.upsertIntegrationTree({
+        treeId: account.treeId,
+        provider: "github",
+        ownerUserId: "user-1",
+        accountKey: account.slug,
+        accountLabel: account.label,
+        slug: account.slug,
+        summary: `${account.label} memory.`,
+        status: "active",
+      });
+    }
+
+    const buriedToken = "multitreeorbit77";
+    const seedLeaf = (params: {
+      treeId: string;
+      slug: string;
+      leafId: string;
+      title: string;
+      body: string;
+    }) => {
+      store.upsertIntegrationLeaf({
+        leafId: params.leafId,
+        treeId: params.treeId,
+        subjectKey: `repo:${params.slug}:${params.leafId}`,
+        entityKey: `repo:${params.slug}`,
+        entityLabel: params.slug,
+        branchKey: "pull_requests",
+        branchLabel: "Pull requests",
+        path: `integration/accounts/${params.slug}/leaves/${params.leafId}.md`,
+        title: params.title,
+        summary: `${params.title} summary.`,
+        fingerprint: `fingerprint-${params.leafId}`,
+        bodySha256: `sha-${params.leafId}`,
+        tags: ["github"],
+        sourceType: "github.pull_request",
+        sourceEventId: `evt-${params.leafId}`,
+        sourceMessageId: null,
+        externalObjectId: params.leafId,
+        externalObjectType: "pull_request",
+        admissionConfidence: 0.9,
+        observedAt: "2026-05-22T09:00:00.000Z",
+        supersedesLeafId: null,
+        status: "active",
+      });
+      const absolutePath = path.join(
+        globalMemoryDirForWorkspaceRoot(workspaceRoot),
+        "integration",
+        "accounts",
+        params.slug,
+        "leaves",
+        `${params.leafId}.md`,
+      );
+      fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+      fs.writeFileSync(absolutePath, params.body, "utf8");
+    };
+
+    seedLeaf({
+      treeId: "integration:github:acct-a",
+      slug: "github-acct-a",
+      leafId: "leaf-a",
+      title: "General release note",
+      body: "# General release note\n\nNormal release work.\n",
+    });
+    seedLeaf({
+      treeId: "integration:github:acct-b",
+      slug: "github-acct-b",
+      leafId: "leaf-b",
+      title: "Checksum gate",
+      body: `# Checksum gate\n\n${"filler ".repeat(90)}${buriedToken} must pass before merge.\n`,
+    });
+
+    await rebuildIntegrationTree({
+      store,
+      treeId: "integration:github:acct-a",
+      embeddingClient: null,
+    });
+    await rebuildIntegrationTree({
+      store,
+      treeId: "integration:github:acct-b",
+      embeddingClient: null,
+    });
+
+    const result = await retrieveIntegrationMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: buriedToken,
+      mode: "leaves",
+      maxResults: 5,
+    });
+    assert.ok(result.hits.some((hit) => hit.tree_id === "integration:github:acct-b" && hit.title === "Checksum gate"));
+  } finally {
+    store.close();
+  }
+});
+
 test("retrieveIntegrationMemory follows workspace override visibility without requiring integration bindings", async () => {
   const root = makeTempDir("hb-integration-memory-visibility-");
   const workspaceRoot = path.join(root, "workspace");

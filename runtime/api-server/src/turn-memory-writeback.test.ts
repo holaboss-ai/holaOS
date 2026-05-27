@@ -1372,6 +1372,139 @@ test("refreshMemoryIndexes rebuilds large interaction trees without truncation",
   store.close();
 });
 
+test("refreshMemoryIndexes can target specific interaction entities", async () => {
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-targeted-index-refresh-");
+  seedWorkspace(store);
+
+  store.upsertInteractionEntity({
+    workspaceId: "workspace-1",
+    entityId: "interaction:customer:redwood-care",
+    entityType: "customer",
+    canonicalName: "Redwood Care",
+    slug: "customer-redwood-care",
+    summary: "Customer memory.",
+    aliases: [],
+    isSystem: false,
+    status: "active",
+  });
+  store.upsertInteractionEntity({
+    workspaceId: "workspace-1",
+    entityId: "interaction:workflow:deploy-procedure",
+    entityType: "workflow",
+    canonicalName: "Deploy procedure",
+    slug: "workflow-deploy-procedure",
+    summary: "Workflow memory.",
+    aliases: [],
+    isSystem: false,
+    status: "active",
+  });
+
+  const seedLeaf = async (params: {
+    entityId: string;
+    slug: string;
+    leafId: string;
+    title: string;
+    summary: string;
+  }) => {
+    const leafPath = `workspace/workspace-1/interaction/entities/${params.slug}/leaves/${params.leafId}.md`;
+    store.upsertInteractionLeaf({
+      workspaceId: "workspace-1",
+      leafId: params.leafId,
+      entityId: params.entityId,
+      subjectKey: `seed:${params.leafId}`,
+      path: leafPath,
+      title: params.title,
+      summary: params.summary,
+      fingerprint: `fingerprint-${params.leafId}`,
+      bodySha256: `sha-${params.leafId}`,
+      tags: ["seed"],
+      secondaryEntityIds: [],
+      sourceType: "manual",
+      sourceEventId: null,
+      sourceMessageId: null,
+      sourceTurnInputId: "input-seed",
+      admissionConfidence: 0.9,
+      entityConfidence: 0.9,
+      observedAt: "2026-04-09T10:00:00.000Z",
+      supersedesLeafId: null,
+      status: "active",
+    });
+    await memoryService.upsert({
+      workspace_id: "workspace-1",
+      path: leafPath,
+      content: `# ${params.title}\n\n${params.summary}\n`,
+      append: false,
+    });
+  };
+
+  await seedLeaf({
+    entityId: "interaction:customer:redwood-care",
+    slug: "customer-redwood-care",
+    leafId: "leaf-customer",
+    title: "Redwood escalation owner",
+    summary: "Route severe billing issues to Alicia Park.",
+  });
+  await seedLeaf({
+    entityId: "interaction:customer:redwood-care",
+    slug: "customer-redwood-care",
+    leafId: "leaf-customer-2",
+    title: "Redwood billing backup",
+    summary: "Escalate backup billing issues to Jordan Lee.",
+  });
+  await seedLeaf({
+    entityId: "interaction:workflow:deploy-procedure",
+    slug: "workflow-deploy-procedure",
+    leafId: "leaf-workflow",
+    title: "Deploy verification",
+    summary: "Run smoke tests before release.",
+  });
+
+  await refreshMemoryIndexes({
+    store,
+    memoryService,
+    workspaceId: "workspace-1",
+  });
+
+  const workspaceDir = workspaceMemoryDir(path.join(workspaceRoot, "workspace-1"));
+  const customerSummaryPath = path.join(
+    workspaceDir,
+    "semantic",
+    "interaction",
+    "trees",
+    "customer-redwood-care",
+    "content.md",
+  );
+  const workflowSummaryPath = path.join(
+    workspaceDir,
+    "semantic",
+    "interaction",
+    "trees",
+    "workflow-deploy-procedure",
+    "content.md",
+  );
+  assert.equal(fs.existsSync(customerSummaryPath), true);
+  assert.equal(fs.existsSync(workflowSummaryPath), true);
+
+  fs.rmSync(path.dirname(customerSummaryPath), { recursive: true, force: true });
+  fs.rmSync(path.dirname(workflowSummaryPath), { recursive: true, force: true });
+  assert.equal(fs.existsSync(customerSummaryPath), false);
+  assert.equal(fs.existsSync(workflowSummaryPath), false);
+
+  const restoredPaths = await refreshMemoryIndexes({
+    store,
+    memoryService,
+    workspaceId: "workspace-1",
+    entityIds: ["interaction:customer:redwood-care"],
+  });
+
+  assert.ok(restoredPaths.length > 0);
+  assert.ok(restoredPaths.every((entry) => entry.includes("customer-redwood-care")));
+  assert.equal(fs.existsSync(customerSummaryPath), true);
+  assert.equal(fs.existsSync(workflowSummaryPath), false);
+
+  store.close();
+});
+
 test("writeTurnDurableMemory rebuilds interaction summaries after new leaves are added", async () => {
   const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-incremental-indexes-");
   seedWorkspace(store);

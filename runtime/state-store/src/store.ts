@@ -6247,7 +6247,14 @@ export class RuntimeStateStore {
     workspaceId: string;
     entityId?: string | null;
     embeddingModel?: string | null;
+    nodeIds?: string[] | null;
   }): InteractionNodeEmbeddingRecord[] {
+    const normalizedNodeIds = params.nodeIds
+      ? [...new Set(params.nodeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    if (params.nodeIds && normalizedNodeIds && normalizedNodeIds.length === 0) {
+      return [];
+    }
     let query = `
       SELECT *
       FROM interaction_node_embeddings
@@ -6269,6 +6276,10 @@ export class RuntimeStateStore {
         query += " AND embedding_model = ?";
         values.push(params.embeddingModel);
       }
+    }
+    if (normalizedNodeIds) {
+      query += ` AND node_id IN (${normalizedNodeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeIds);
     }
     query += " ORDER BY updated_at DESC, created_at DESC, node_id ASC";
     const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
@@ -7101,6 +7112,7 @@ export class RuntimeStateStore {
     category: SemanticMemoryCategory;
     workspaceId?: string | null;
     treeId?: string | null;
+    treeIds?: string[] | null;
     nodeId?: string | null;
     nodeClass?: SemanticMemoryNodeClass | null;
     nodeKind?: string | null;
@@ -7108,6 +7120,12 @@ export class RuntimeStateStore {
     limit?: number;
     offset?: number;
   }): SemanticMemorySearchDocRecord[] {
+    const normalizedTreeIds = params.treeIds
+      ? [...new Set(params.treeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    if (params.treeIds && normalizedTreeIds && normalizedTreeIds.length === 0) {
+      return [];
+    }
     const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
     let query = `
       SELECT *
@@ -7119,7 +7137,10 @@ export class RuntimeStateStore {
       query += " AND workspace_id = ?";
       values.push(scope.workspaceId);
     }
-    if (params.treeId !== undefined) {
+    if (normalizedTreeIds) {
+      query += ` AND tree_id IN (${normalizedTreeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedTreeIds);
+    } else if (params.treeId !== undefined) {
       if (params.treeId === null) {
         query += " AND tree_id IS NULL";
       } else {
@@ -7173,6 +7194,7 @@ export class RuntimeStateStore {
     workspaceId?: string | null;
     matchQuery: string;
     treeId?: string | null;
+    treeIds?: string[] | null;
     nodeClass?: SemanticMemoryNodeClass | null;
     nodeKind?: string | null;
     status?: MemoryNodeStatus | null;
@@ -7181,6 +7203,12 @@ export class RuntimeStateStore {
   }): SemanticMemorySearchHitRecord[] {
     const matchQuery = params.matchQuery.trim();
     if (!matchQuery) {
+      return [];
+    }
+    const normalizedTreeIds = params.treeIds
+      ? [...new Set(params.treeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    if (params.treeIds && normalizedTreeIds && normalizedTreeIds.length === 0) {
       return [];
     }
     const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
@@ -7197,7 +7225,10 @@ export class RuntimeStateStore {
     }
     query += " AND category = ?";
     values.push(params.category);
-    if (params.treeId !== undefined) {
+    if (normalizedTreeIds) {
+      query += ` AND tree_id IN (${normalizedTreeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedTreeIds);
+    } else if (params.treeId !== undefined) {
       if (params.treeId === null) {
         query += " AND tree_id IS NULL";
       } else {
@@ -7743,7 +7774,14 @@ export class RuntimeStateStore {
   listIntegrationNodeEmbeddings(params: {
     treeId?: string | null;
     embeddingModel?: string | null;
+    nodeIds?: string[] | null;
   } = {}): IntegrationNodeEmbeddingRecord[] {
+    const normalizedNodeIds = params.nodeIds
+      ? [...new Set(params.nodeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    if (params.nodeIds && normalizedNodeIds && normalizedNodeIds.length === 0) {
+      return [];
+    }
     let query = `
       SELECT *
       FROM integration_node_embeddings
@@ -7765,6 +7803,10 @@ export class RuntimeStateStore {
         query += " AND embedding_model = ?";
         values.push(params.embeddingModel);
       }
+    }
+    if (normalizedNodeIds) {
+      query += ` AND node_id IN (${normalizedNodeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeIds);
     }
     query += " ORDER BY updated_at DESC, created_at DESC, node_id ASC";
     const rows = this.controlPlaneDb().prepare(query).all(...values) as Array<Record<string, unknown>>;
