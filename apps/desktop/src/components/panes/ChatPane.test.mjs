@@ -1928,7 +1928,7 @@ test("chat pane renders inline background tasks near the top of the pane", async
 
   assert.match(
     source,
-    /!isReadOnlyInspectionSession \? \(\s*<div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-4">[\s\S]*<BackgroundTasksPane[\s\S]*workspaceId=\{controllerBackgroundTasksWorkspaceId\}[\s\S]*ownerMainSessionId=\{[\s\S]*controllerBackgroundTasksOwnerMainSessionId[\s\S]*\}[\s\S]*variant="inline"[\s\S]*\) : null/,
+    /isViewingBoundMainSession \? \(\s*<div className="flex shrink-0 justify-center px-4 pt-2 empty:hidden">[\s\S]*<BackgroundTasksPane[\s\S]*workspaceId=\{selectedWorkspaceId\}[\s\S]*variant="inline"[\s\S]*\) : null/,
   );
   assert.doesNotMatch(
     source,

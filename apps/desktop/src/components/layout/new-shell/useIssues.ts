@@ -5,7 +5,7 @@ export interface SidebarIssueListItem {
   assignee: TeammateRecordPayload | null;
 }
 
-export function useIssues(workspaceId: string | null) {
+export function useIssueWorkspaceData(workspaceId: string | null) {
   const [issues, setIssues] = useState<IssueRecordPayload[]>([]);
   const [teammatesById, setTeammatesById] = useState<
     Record<string, TeammateRecordPayload>
@@ -13,7 +13,7 @@ export function useIssues(workspaceId: string | null) {
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
 
-  const load = useCallback(
+  const refresh = useCallback(
     async (signal: { cancelled: boolean }) => {
       if (!workspaceId) {
         if (!signal.cancelled) {
@@ -68,17 +68,30 @@ export function useIssues(workspaceId: string | null) {
     }
 
     setIsLoading(true);
-    void load(signal);
+    void refresh(signal);
     const timer = window.setInterval(() => {
       setIsLoading(true);
-      void load(signal);
+      void refresh(signal);
     }, 5000);
 
     return () => {
       signal.cancelled = true;
       window.clearInterval(timer);
     };
-  }, [workspaceId, load]);
+  }, [workspaceId, refresh]);
+
+  return {
+    issues,
+    teammatesById,
+    isLoading,
+    statusMessage,
+    refresh: () => refresh({ cancelled: false }),
+  };
+}
+
+export function useIssues(workspaceId: string | null) {
+  const { issues, teammatesById, isLoading, statusMessage, refresh } =
+    useIssueWorkspaceData(workspaceId);
 
   const items = useMemo<SidebarIssueListItem[]>(
     () =>
@@ -93,7 +106,10 @@ export function useIssues(workspaceId: string | null) {
 
   return {
     issues: items,
+    rawIssues: issues,
+    teammatesById,
     isLoading,
     statusMessage,
+    refresh,
   };
 }

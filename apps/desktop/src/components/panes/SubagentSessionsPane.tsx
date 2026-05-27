@@ -7,14 +7,12 @@ import {
   Loader2,
   MessageCircle,
   Search,
-  WandSparkles,
 } from "lucide-react";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { Button } from "@/components/ui/button";
-import { StatusDot } from "@/components/ui/status-dot";
 
 const SUBAGENT_SESSIONS_POLL_INTERVAL_MS = 2000;
-type InspectableSessionFilter = "all" | "subagent" | "cronjob" | "task_proposal";
+type InspectableSessionFilter = "all" | "subagent" | "cronjob";
 
 interface SubagentSessionsPaneProps {
   workspaceId?: string | null;
@@ -50,9 +48,6 @@ function summarizeInspectableRunSessions(items: AgentSessionRecordPayload[]) {
 
 function inspectableRunSessionLabel(session: AgentSessionRecordPayload) {
   const category = inspectableRunSessionCategory(session);
-  if (category === "task_proposal") {
-    return "Task proposal run";
-  }
   if (category === "cronjob") {
     return "Cronjob run";
   }
@@ -63,17 +58,8 @@ function inspectableRunSessionCategory(
   session: AgentSessionRecordPayload,
 ): Exclude<InspectableSessionFilter, "all"> {
   const sourceType = (session.source_type ?? "").trim().toLowerCase();
-  const kind = session.kind.trim().toLowerCase();
   if (sourceType === "cronjob" || Boolean((session.cronjob_id ?? "").trim())) {
     return "cronjob";
-  }
-  if (
-    kind === "task_proposal" ||
-    sourceType === "task_proposal" ||
-    Boolean((session.proposal_id ?? "").trim()) ||
-    Boolean((session.source_proposal_id ?? "").trim())
-  ) {
-    return "task_proposal";
   }
   return "subagent";
 }
@@ -322,9 +308,7 @@ export function SubagentSessionsPane({
                       className="flex w-full min-w-0 items-start gap-2 rounded-xl border border-border bg-muted px-3 py-2.5 text-left transition hover:border-primary/40 hover:text-primary"
                     >
                       <span className="mt-0.5 grid size-4 shrink-0 place-items-center text-muted-foreground">
-                        {session.kind.trim().toLowerCase() === "task_proposal" ? (
-                          <WandSparkles size={13} />
-                        ) : archived ? (
+                        {archived ? (
                           <Archive size={13} />
                         ) : (
                           <Bot size={13} />
@@ -443,7 +427,6 @@ function FullSessionsView({
               ["all", "All"],
               ["subagent", "Subagents"],
               ["cronjob", "Cronjobs"],
-              ["task_proposal", "Task proposals"],
             ] as const
           ).map(([filterId, label]) => {
             const isActive = activeFilter === filterId;
@@ -514,18 +497,13 @@ function SessionRow({
   const title = session.title?.trim() || inspectableRunSessionLabel(session);
   const archived = Boolean((session.archived_at || "").trim());
   const category = inspectableRunSessionCategory(session);
-  const isTaskProposal = category === "task_proposal" && !archived;
   const ms = sessionTimestampMs(session);
   const time = formatSessionTimeOnly(ms);
   const subtitle = archived
     ? "Archived"
-    : isTaskProposal
-      ? "Task proposal"
-      : inspectableRunSessionLabel(session);
+    : inspectableRunSessionLabel(session);
   const Icon =
-    category === "task_proposal"
-      ? WandSparkles
-      : category === "cronjob"
+    category === "cronjob"
         ? Clock3
         : archived
           ? Archive
@@ -547,9 +525,6 @@ function SessionRow({
       <span className="min-w-0 flex-1 truncate text-sm text-foreground">
         {title}
       </span>
-      {isTaskProposal ? (
-        <StatusDot variant="warning" size="sm" />
-      ) : null}
       <span className="shrink-0 truncate text-xs text-muted-foreground">
         {subtitle}
       </span>

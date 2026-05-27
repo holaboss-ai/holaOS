@@ -211,6 +211,7 @@ import {
   formatAttachmentSize,
 } from "./AttachmentList";
 import { ImageAttachmentPreviewModal } from "./ImageAttachmentPreviewModal";
+import { IssueThreadControls } from "./IssueThreadControls";
 import {
   ArtifactBrowserModal,
   OutputArtifactIcon,
@@ -3400,6 +3401,12 @@ export function ChatPane({
   const [workspaceIssues, setWorkspaceIssues] = useState<IssueRecordPayload[]>(
     [],
   );
+  const [workspaceTeammates, setWorkspaceTeammates] = useState<
+    TeammateRecordPayload[]
+  >([]);
+  const [issueMutationErrorMessage, setIssueMutationErrorMessage] =
+    useState("");
+  const [isIssueMutationPending, setIsIssueMutationPending] = useState(false);
   const [sessionRecordOverrides, setSessionRecordOverrides] = useState<
     Record<string, AgentSessionRecordPayload>
   >({});
@@ -5307,36 +5314,74 @@ export function ChatPane({
     }
   }, [selectedWorkspaceId]);
 
-  useEffect(() => {
-    let cancelled = false;
-    if (!selectedWorkspaceId) {
-      setWorkspaceIssues([]);
-      return () => {
-        cancelled = true;
-      };
-    }
-    const loadIssues = async () => {
+  const refreshWorkspaceIssues = useCallback(
+    async (workspaceId: string, signal?: { cancelled: boolean }) => {
       try {
-        const response =
-          await window.electronAPI.workspace.listIssues(selectedWorkspaceId);
-        if (!cancelled) {
+        const response = await window.electronAPI.workspace.listIssues(workspaceId);
+        if (!signal?.cancelled) {
           setWorkspaceIssues(response.issues);
         }
       } catch {
-        if (!cancelled) {
+        if (!signal?.cancelled) {
           setWorkspaceIssues([]);
         }
       }
-    };
-    void loadIssues();
+    },
+    [],
+  );
+
+  const refreshWorkspaceTeammates = useCallback(
+    async (workspaceId: string, signal?: { cancelled: boolean }) => {
+      try {
+        const response =
+          await window.electronAPI.workspace.listTeammates(workspaceId);
+        if (!signal?.cancelled) {
+          setWorkspaceTeammates(response.teammates);
+        }
+      } catch {
+        if (!signal?.cancelled) {
+          setWorkspaceTeammates([]);
+        }
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!selectedWorkspaceId) {
+      setWorkspaceIssues([]);
+      return () => {
+        // no-op cleanup for symmetry with the subscribed branch below
+      };
+    }
+    const signal = { cancelled: false };
+    void refreshWorkspaceIssues(selectedWorkspaceId, signal);
     const timer = window.setInterval(() => {
-      void loadIssues();
+      void refreshWorkspaceIssues(selectedWorkspaceId, signal);
     }, 5000);
     return () => {
-      cancelled = true;
+      signal.cancelled = true;
       window.clearInterval(timer);
     };
-  }, [selectedWorkspaceId]);
+  }, [refreshWorkspaceIssues, selectedWorkspaceId]);
+
+  useEffect(() => {
+    if (!selectedWorkspaceId) {
+      setWorkspaceTeammates([]);
+      return () => {
+        // no-op cleanup for symmetry with the subscribed branch below
+      };
+    }
+    const signal = { cancelled: false };
+    void refreshWorkspaceTeammates(selectedWorkspaceId, signal);
+    const timer = window.setInterval(() => {
+      void refreshWorkspaceTeammates(selectedWorkspaceId, signal);
+    }, 5000);
+    return () => {
+      signal.cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [refreshWorkspaceTeammates, selectedWorkspaceId]);
 
   useEffect(() => {
     const unsubscribe = window.electronAPI.workspace.onSessionStreamEvent(
@@ -7367,20 +7412,37 @@ export function ChatPane({
       ) ?? null
     );
   }, [activeSessionId, workspaceIssues]);
+  const activeIssueAssignee = useMemo(() => {
+    if (!activeIssue?.assignee_teammate_id) {
+      return null;
+    }
+    return (
+      workspaceTeammates.find(
+        (teammate) =>
+          teammate.teammate_id === activeIssue.assignee_teammate_id,
+      ) ?? null
+    );
+  }, [activeIssue, workspaceTeammates]);
   const isViewingBoundMainSession =
     !activeSessionId ||
     activeSessionId === (desktopMainSession?.session_id || "").trim();
   const isReadOnlyInspectionSession =
-    !isViewingBoundMainSession && !isOnboardingVariant;
+    !isViewingBoundMainSession && !isOnboardingVariant && !activeIssue;
   const activeSessionTitle = isViewingBoundMainSession
     ? (desktopMainSession?.title?.trim() ||
         selectedWorkspace?.name?.trim() ||
         "Main session")
     : (activeSessionRecord?.title?.trim() ||
         defaultWorkspaceSessionTitle(activeSessionRecord?.kind, activeSessionId));
-  const assistantLabel = isViewingBoundMainSession ? "Hola" : activeSessionTitle;
+  const assistantLabel = activeIssue
+    ? activeIssueAssignee?.name?.trim() || "Unassigned"
+    : isViewingBoundMainSession
+      ? "Hola"
+      : activeSessionTitle;
   const activeSessionDetail = isViewingBoundMainSession
     ? "Main session"
+    : activeIssue
+      ? `${activeIssue.status.replace(/_/g, " ")} issue thread`
     : isReadOnlyInspectionSession
       ? `${inspectableSessionLabel(activeSessionRecord)} · Read-only inspection`
       : "Session view";
@@ -7731,6 +7793,163 @@ export function ChatPane({
     (!isOnboardingVariant && !resolvedChatModel
       ? modelSelectionUnavailableReason
       : "");
+  const runIssueMutation = useCallback(
+    async (action: () => Promise<unknown>, fallbackMessage: string) => {
+      if (!selectedWorkspaceId || !activeIssue) {
+        return false;
+      }
+      setIsIssueMutationPending(true);
+      setIssueMutationErrorMessage("");
+      try {
+        await action();
+        await refreshWorkspaceIssues(selectedWorkspaceId);
+        scheduleConversationRefresh(activeIssue.session_id, selectedWorkspaceId);
+        return true;
+      } catch (error) {
+        setIssueMutationErrorMessage(
+          error instanceof Error ? error.message : fallbackMessage,
+        );
+        return false;
+      } finally {
+        setIsIssueMutationPending(false);
+      }
+    },
+    [activeIssue, refreshWorkspaceIssues, selectedWorkspaceId],
+  );
+  const handleIssueStatusChange = useCallback(
+    async (nextStatus: IssueStatusPayload) => {
+      if (!selectedWorkspaceId || !activeIssue) {
+        return;
+      }
+      if (nextStatus === activeIssue.status) {
+        return;
+      }
+      let blockerReason: string | null | undefined = undefined;
+      if (nextStatus === "blocked") {
+        const response = window.prompt(
+          "Why is this issue blocked?",
+          activeIssue.blocker_reason ?? "",
+        );
+        if (response == null) {
+          return;
+        }
+        const trimmed = response.trim();
+        if (!trimmed) {
+          setIssueMutationErrorMessage("Blocked issues need a blocker reason.");
+          return;
+        }
+        blockerReason = trimmed;
+      } else if (activeIssue.blocker_reason) {
+        blockerReason = null;
+      }
+      await runIssueMutation(
+        () =>
+          window.electronAPI.workspace.updateIssue(
+            selectedWorkspaceId,
+            activeIssue.issue_id,
+            {
+              workspace_id: selectedWorkspaceId,
+              status: nextStatus,
+              blocker_reason: blockerReason,
+            },
+          ),
+        "Failed to update issue status",
+      );
+    },
+    [activeIssue, runIssueMutation, selectedWorkspaceId],
+  );
+  const handleIssueAssigneeChange = useCallback(
+    async (teammateId: string | null) => {
+      if (!selectedWorkspaceId || !activeIssue) {
+        return;
+      }
+      if ((activeIssue.assignee_teammate_id ?? null) === teammateId) {
+        return;
+      }
+      await runIssueMutation(
+        () =>
+          window.electronAPI.workspace.updateIssue(
+            selectedWorkspaceId,
+            activeIssue.issue_id,
+            {
+              workspace_id: selectedWorkspaceId,
+              assignee_teammate_id: teammateId,
+            },
+          ),
+        "Failed to update issue assignee",
+      );
+    },
+    [activeIssue, runIssueMutation, selectedWorkspaceId],
+  );
+  const handleIssuePriorityChange = useCallback(
+    async (priority: IssuePriorityPayload | null) => {
+      if (!selectedWorkspaceId || !activeIssue) {
+        return;
+      }
+      if ((activeIssue.priority ?? null) === priority) {
+        return;
+      }
+      await runIssueMutation(
+        () =>
+          window.electronAPI.workspace.updateIssue(
+            selectedWorkspaceId,
+            activeIssue.issue_id,
+            {
+              workspace_id: selectedWorkspaceId,
+              priority,
+            },
+          ),
+        "Failed to update issue priority",
+      );
+    },
+    [activeIssue, runIssueMutation, selectedWorkspaceId],
+  );
+  const handleIssueDetailsSave = useCallback(
+    async (fields: {
+      title: string;
+      description: string | null;
+      blockerReason: string | null;
+    }) => {
+      if (!selectedWorkspaceId || !activeIssue) {
+        return false;
+      }
+      return runIssueMutation(
+        () =>
+          window.electronAPI.workspace.updateIssue(
+            selectedWorkspaceId,
+            activeIssue.issue_id,
+            {
+              workspace_id: selectedWorkspaceId,
+              title: fields.title,
+              description: fields.description,
+              blocker_reason: fields.blockerReason,
+            },
+          ),
+        "Failed to update issue details",
+      );
+    },
+    [activeIssue, runIssueMutation, selectedWorkspaceId],
+  );
+  const handleStopActiveIssueRun = useCallback(async () => {
+    if (!selectedWorkspaceId || !activeIssue?.active_subagent_id) {
+      return;
+    }
+    if (!window.confirm(`Stop ${activeIssue.issue_id}?`)) {
+      return;
+    }
+    await runIssueMutation(
+      () =>
+        window.electronAPI.workspace.stopIssueRun(
+          selectedWorkspaceId,
+          activeIssue.issue_id,
+        ),
+      "Failed to stop issue run",
+    );
+  }, [activeIssue, runIssueMutation, selectedWorkspaceId]);
+  useEffect(() => {
+    setIssueMutationErrorMessage("");
+    setIsIssueMutationPending(false);
+  }, [activeIssue?.issue_id]);
   const composerDisabledReason =
     composerBaseDisabledReason ||
     (isSubmittingMessage ? "Submitting message..." : "");
@@ -8677,6 +8896,22 @@ export function ChatPane({
           </div>
         ) : null}
 
+        {!isOnboardingVariant && activeIssue ? (
+          <div className="shrink-0 px-4 pt-2 sm:px-5">
+            <IssueThreadControls
+              issue={activeIssue}
+              teammates={workspaceTeammates}
+              isPending={isIssueMutationPending}
+              errorMessage={issueMutationErrorMessage}
+              onChangeStatus={handleIssueStatusChange}
+              onChangeAssignee={handleIssueAssigneeChange}
+              onChangePriority={handleIssuePriorityChange}
+              onSaveDetails={handleIssueDetailsSave}
+              onStopIssueRun={handleStopActiveIssueRun}
+            />
+          </div>
+        ) : null}
+
         {!isOnboardingVariant && isReadOnlyInspectionSession ? (
           <div className="shrink-0 px-4 pt-2 sm:px-5">
             <div className="flex items-center justify-between gap-2 rounded-md bg-fg-4 px-3 py-1.5 text-xs">
@@ -8832,7 +9067,7 @@ export function ChatPane({
         ) : null}
 
         <div className="relative flex min-h-0 flex-1 flex-col">
-          {!isOnboardingVariant && !isReadOnlyInspectionSession ? (
+          {!isOnboardingVariant && isViewingBoundMainSession ? (
             <div className="flex shrink-0 justify-center px-4 pt-2 empty:hidden">
               <BackgroundTasksPane
                 workspaceId={selectedWorkspaceId}

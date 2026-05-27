@@ -9717,24 +9717,6 @@ async function downloadAppArchive(url: string, appId: string): Promise<string> {
   }
 }
 
-async function listTaskProposals(
-  workspaceId: string,
-): Promise<TaskProposalListResponsePayload> {
-  if (!workspaceId.trim()) {
-    return { proposals: [], count: 0 };
-  }
-  return requestWorkspaceRuntimeJson<TaskProposalListResponsePayload>(
-    workspaceId,
-    {
-      method: "GET",
-      path: "/api/v1/task-proposals/unreviewed",
-      params: {
-        workspace_id: workspaceId,
-      },
-    },
-  );
-}
-
 async function listTeammates(
   workspaceId: string,
   includeArchived = false,
@@ -9750,6 +9732,55 @@ async function listTeammates(
       params: {
         workspace_id: workspaceId,
         include_archived: includeArchived,
+      },
+    },
+  );
+}
+
+async function createTeammate(
+  payload: CreateTeammatePayload,
+): Promise<CreateTeammateResponsePayload> {
+  if (!payload.workspace_id.trim()) {
+    throw new Error("workspace_id is required");
+  }
+  return requestWorkspaceRuntimeJson<CreateTeammateResponsePayload>(
+    payload.workspace_id,
+    {
+      method: "POST",
+      path: "/api/v1/teammates",
+      payload: {
+        workspace_id: payload.workspace_id,
+        teammate_id: payload.teammate_id ?? null,
+        name: payload.name,
+        instructions: payload.instructions ?? null,
+        skills: payload.skills ?? [],
+      },
+    },
+  );
+}
+
+async function updateTeammate(
+  workspaceId: string,
+  teammateId: string,
+  payload: UpdateTeammatePayload,
+): Promise<UpdateTeammateResponsePayload> {
+  if (!workspaceId.trim()) {
+    throw new Error("workspace_id is required");
+  }
+  if (!teammateId.trim()) {
+    throw new Error("teammateId is required");
+  }
+  return requestWorkspaceRuntimeJson<UpdateTeammateResponsePayload>(
+    workspaceId,
+    {
+      method: "PATCH",
+      path: `/api/v1/teammates/${encodeURIComponent(teammateId)}`,
+      payload: {
+        workspace_id: workspaceId,
+        name: payload.name ?? undefined,
+        instructions: payload.instructions ?? undefined,
+        skills: payload.skills ?? undefined,
+        status: payload.status ?? undefined,
       },
     },
   );
@@ -9790,6 +9821,52 @@ async function createIssue(
       },
     },
   );
+}
+
+async function updateIssue(
+  workspaceId: string,
+  issueId: string,
+  payload: UpdateIssuePayload,
+): Promise<UpdateIssueResponsePayload> {
+  if (!workspaceId.trim()) {
+    throw new Error("workspace_id is required");
+  }
+  if (!issueId.trim()) {
+    throw new Error("issueId is required");
+  }
+  return requestWorkspaceRuntimeJson<UpdateIssueResponsePayload>(workspaceId, {
+    method: "PATCH",
+    path: `/api/v1/issues/${encodeURIComponent(issueId)}`,
+      payload: {
+        workspace_id: workspaceId,
+        title: payload.title ?? undefined,
+        description: payload.description ?? undefined,
+        status: payload.status ?? undefined,
+        priority: payload.priority ?? undefined,
+        assignee_teammate_id: payload.assignee_teammate_id ?? undefined,
+        blocker_reason: payload.blocker_reason ?? undefined,
+        attachments: payload.attachments ?? undefined,
+      },
+    });
+}
+
+async function stopIssueRun(
+  workspaceId: string,
+  issueId: string,
+): Promise<StopIssueRunResponsePayload> {
+  if (!workspaceId.trim()) {
+    throw new Error("workspace_id is required");
+  }
+  if (!issueId.trim()) {
+    throw new Error("issueId is required");
+  }
+  return requestWorkspaceRuntimeJson<StopIssueRunResponsePayload>(workspaceId, {
+    method: "POST",
+    path: `/api/v1/issues/${encodeURIComponent(issueId)}/stop`,
+    payload: {
+      workspace_id: workspaceId,
+    },
+  });
 }
 
 async function listBackgroundTasks(
@@ -9833,28 +9910,6 @@ async function archiveBackgroundTask(
       payload: {
         workspace_id: payload.workspaceId,
         owner_main_session_id: payload.ownerMainSessionId ?? undefined,
-      },
-    },
-  );
-}
-
-async function acceptTaskProposal(
-  payload: TaskProposalAcceptPayload,
-): Promise<TaskProposalAcceptResponsePayload> {
-  return requestWorkspaceRuntimeJson<TaskProposalAcceptResponsePayload>(
-    payload.workspace_id,
-    {
-      method: "POST",
-      path: `/api/v1/task-proposals/${encodeURIComponent(payload.proposal_id)}/accept`,
-      payload: {
-        workspace_id: payload.workspace_id,
-        task_name: payload.task_name,
-        task_prompt: payload.task_prompt,
-        session_id: payload.session_id,
-        parent_session_id: payload.parent_session_id,
-        created_by: payload.created_by,
-        priority: payload.priority ?? 0,
-        model: payload.model ?? null,
       },
     },
   );
@@ -11811,24 +11866,6 @@ async function resolveTemplateIntegrations(
     missing_providers: missingProviders,
     provider_logos: providerLogos,
   };
-}
-
-async function updateTaskProposalState(
-  workspaceId: string,
-  proposalId: string,
-  state: string,
-): Promise<TaskProposalStateUpdatePayload> {
-  return requestWorkspaceRuntimeJson<TaskProposalStateUpdatePayload>(
-    workspaceId,
-    {
-      method: "PATCH",
-      path: `/api/v1/task-proposals/${encodeURIComponent(proposalId)}`,
-      payload: {
-        workspace_id: workspaceId,
-        state,
-      },
-    },
-  );
 }
 
 const LOCAL_TEMPLATE_IGNORE_NAMES = new Set([
@@ -15452,9 +15489,42 @@ async function deleteLocalWorkspace(
     safeWorkspaceId,
     keepFiles !== undefined ? { keepFiles } : undefined,
   );
+  await cleanupDeletedWorkspaceBrowserStorage(safeWorkspaceId);
   forgetWorkspaceDir(safeWorkspaceId);
   forgetWorkspaceRuntimeSession(safeWorkspaceId);
   return withWorkspaceResponseLocation(response);
+}
+
+async function cleanupDeletedWorkspaceBrowserStorage(
+  workspaceId: string,
+): Promise<void> {
+  const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
+  if (activeBrowserWorkspaceId === safeWorkspaceId) {
+    await setActiveBrowserWorkspace("");
+  }
+  destroyBrowserWorkspace(safeWorkspaceId);
+
+  try {
+    const browserSession = session.fromPartition(
+      browserWorkspacePartition(safeWorkspaceId),
+    );
+    await browserSession.clearData();
+  } catch (error) {
+    void appendRuntimeLog(
+      `[browser-workspace-cleanup] failed to clear session data for ${safeWorkspaceId}: ${normalizeErrorMessage(error)}\n`,
+    );
+  }
+
+  try {
+    await fs.rm(browserWorkspaceStorageDir(safeWorkspaceId), {
+      recursive: true,
+      force: true,
+    });
+  } catch (error) {
+    void appendRuntimeLog(
+      `[browser-workspace-cleanup] failed to remove persisted state for ${safeWorkspaceId}: ${normalizeErrorMessage(error)}\n`,
+    );
+  }
 }
 
 async function relocateWorkspace(
@@ -23860,6 +23930,21 @@ app.whenReady().then(async () => {
       listTeammates(workspaceId, includeArchived),
   );
   handleTrustedIpc(
+    "workspace:createTeammate",
+    ["main"],
+    async (_event, payload: CreateTeammatePayload) => createTeammate(payload),
+  );
+  handleTrustedIpc(
+    "workspace:updateTeammate",
+    ["main"],
+    async (
+      _event,
+      workspaceId: string,
+      teammateId: string,
+      payload: UpdateTeammatePayload,
+    ) => updateTeammate(workspaceId, teammateId, payload),
+  );
+  handleTrustedIpc(
     "workspace:listIssues",
     ["main"],
     async (_event, workspaceId: string) => listIssues(workspaceId),
@@ -23870,9 +23955,20 @@ app.whenReady().then(async () => {
     async (_event, payload: CreateIssuePayload) => createIssue(payload),
   );
   handleTrustedIpc(
-    "workspace:listTaskProposals",
+    "workspace:updateIssue",
     ["main"],
-    async (_event, workspaceId: string) => listTaskProposals(workspaceId),
+    async (
+      _event,
+      workspaceId: string,
+      issueId: string,
+      payload: UpdateIssuePayload,
+    ) => updateIssue(workspaceId, issueId, payload),
+  );
+  handleTrustedIpc(
+    "workspace:stopIssueRun",
+    ["main"],
+    async (_event, workspaceId: string, issueId: string) =>
+      stopIssueRun(workspaceId, issueId),
   );
   handleTrustedIpc(
     "workspace:listBackgroundTasks",
@@ -23885,18 +23981,6 @@ app.whenReady().then(async () => {
     ["main"],
     async (_event, payload: ArchiveBackgroundTaskPayload) =>
       archiveBackgroundTask(payload),
-  );
-  handleTrustedIpc(
-    "workspace:acceptTaskProposal",
-    ["main"],
-    async (_event, payload: TaskProposalAcceptPayload) =>
-      acceptTaskProposal(payload),
-  );
-  handleTrustedIpc(
-    "workspace:updateTaskProposalState",
-    ["main"],
-    async (_event, workspaceId: string, proposalId: string, state: string) =>
-      updateTaskProposalState(workspaceId, proposalId, state),
   );
   handleTrustedIpc(
     "workspace:listRuntimeStates",

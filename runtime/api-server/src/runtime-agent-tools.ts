@@ -4081,8 +4081,65 @@ export class RuntimeAgentToolsService {
       subagentId: params.subagentId,
       ownerMainSessionId: controllerSession.sessionId,
     });
+    return subagentRunPayload(
+      await this.cancelSyncedSubagentRunState(state, {
+        workspaceId: params.workspaceId,
+        ownerMainSessionId: controllerSession.sessionId,
+      }),
+    );
+  }
+
+  async cancelIssueRun(params: {
+    workspaceId: string;
+    issueId: string;
+  }): Promise<JsonObject> {
+    this.requireWorkspace(params.workspaceId);
+    const issue = this.store.getIssue({
+      workspaceId: params.workspaceId,
+      issueId: params.issueId,
+    });
+    if (!issue) {
+      throw new RuntimeAgentToolsServiceError(404, "issue_not_found", "issue not found");
+    }
+    const subagentId = normalizedString(issue.activeSubagentId);
+    if (!subagentId) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "issue_not_running",
+        "issue is not currently running",
+      );
+    }
+    const run = this.requireSubagentRun({
+      workspaceId: params.workspaceId,
+      subagentId,
+    });
+    const ownerMainSessionId =
+      normalizedString(run.ownerMainSessionId) ||
+      normalizedString(run.originMainSessionId) ||
+      issue.sessionId;
+    const state = this.syncSubagentRunForOwner({
+      workspaceId: params.workspaceId,
+      subagentId,
+      ownerMainSessionId,
+    });
+    return subagentRunPayload(
+      await this.cancelSyncedSubagentRunState(state, {
+        workspaceId: params.workspaceId,
+        ownerMainSessionId,
+      }),
+    );
+  }
+
+  private async cancelSyncedSubagentRunState(
+    initialState: SyncedSubagentRunState,
+    params: {
+      workspaceId: string;
+      ownerMainSessionId: string;
+    },
+  ): Promise<SyncedSubagentRunState> {
+    let state = initialState;
     if (state.run.status === "cancelled") {
-      return subagentRunPayload(state);
+      return state;
     }
     const now = utcNowIso();
     if (state.currentInput?.status === "QUEUED") {
@@ -4119,11 +4176,11 @@ export class RuntimeAgentToolsService {
       }
       state = await this.waitForSubagentCancellationSettlement({
         workspaceId: params.workspaceId,
-        subagentId: params.subagentId,
-        ownerMainSessionId: controllerSession.sessionId,
+        subagentId: state.run.subagentId,
+        ownerMainSessionId: params.ownerMainSessionId,
       });
     } else if (!["waiting_on_user", "queued", "running"].includes(state.run.status)) {
-      return subagentRunPayload(state);
+      return state;
     } else {
       this.store.updateRuntimeState({
         workspaceId: params.workspaceId,
@@ -4137,8 +4194,8 @@ export class RuntimeAgentToolsService {
       });
       state = this.syncSubagentRunForOwner({
         workspaceId: params.workspaceId,
-        subagentId: params.subagentId,
-        ownerMainSessionId: controllerSession.sessionId,
+        subagentId: state.run.subagentId,
+        ownerMainSessionId: params.ownerMainSessionId,
       });
     }
     const completedAt =
@@ -4172,7 +4229,7 @@ export class RuntimeAgentToolsService {
         },
       });
     }
-    return subagentRunPayload(syncedState);
+    return syncedState;
   }
 
   resumeSubagent(params: RuntimeAgentToolsResumeSubagentParams): JsonObject {

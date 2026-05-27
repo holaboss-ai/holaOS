@@ -11155,7 +11155,8 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!isRecord(request.body)) {
       return sendError(reply, 400, "request body must be an object");
     }
-    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
+    const body = request.body;
+    const workspaceId = requiredString(body.workspace_id, "workspace_id");
     if (!store.getWorkspace(workspaceId)) {
       return sendError(reply, 404, "workspace not found");
     }
@@ -11172,37 +11173,53 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       if (!existingIssue) {
         return sendError(reply, 404, "issue not found");
       }
+      const mutatesExecutionState = [
+        "title",
+        "description",
+        "status",
+        "priority",
+        "assignee_teammate_id",
+        "blocker_reason",
+        "attachments",
+      ].some((key) => hasOwn(body, key));
+      if (existingIssue.activeSubagentId && mutatesExecutionState) {
+        return sendError(
+          reply,
+          409,
+          "issue is currently running; stop the run before editing it",
+        );
+      }
       let issue = store.updateIssue({
         workspaceId,
         issueId: requiredString(params.issueId, "issueId"),
         fields: {
-          title: hasOwn(request.body, "title") ? requiredString(request.body.title, "title") : undefined,
-          description: hasOwn(request.body, "description")
-            ? (nullableString(request.body.description) ?? null)
+          title: hasOwn(body, "title") ? requiredString(body.title, "title") : undefined,
+          description: hasOwn(body, "description")
+            ? (nullableString(body.description) ?? null)
             : undefined,
-          status: hasOwn(request.body, "status")
-            ? (requiredString(request.body.status, "status") as IssueRecord["status"])
+          status: hasOwn(body, "status")
+            ? (requiredString(body.status, "status") as IssueRecord["status"])
             : undefined,
-          priority: hasOwn(request.body, "priority")
-            ? (nullableString(request.body.priority) as IssueRecord["priority"])
+          priority: hasOwn(body, "priority")
+            ? (nullableString(body.priority) as IssueRecord["priority"])
             : undefined,
-          assigneeTeammateId: hasOwn(request.body, "assignee_teammate_id")
-            ? (nullableString(request.body.assignee_teammate_id) ?? null)
+          assigneeTeammateId: hasOwn(body, "assignee_teammate_id")
+            ? (nullableString(body.assignee_teammate_id) ?? null)
             : undefined,
-          blockerReason: hasOwn(request.body, "blocker_reason")
-            ? (nullableString(request.body.blocker_reason) ?? null)
+          blockerReason: hasOwn(body, "blocker_reason")
+            ? (nullableString(body.blocker_reason) ?? null)
             : undefined,
-          attachments: hasOwn(request.body, "attachments")
-            ? requiredIssueAttachments(request.body.attachments ?? [], workspaceDir)
+          attachments: hasOwn(body, "attachments")
+            ? requiredIssueAttachments(body.attachments ?? [], workspaceDir)
             : undefined,
-          activeSubagentId: hasOwn(request.body, "active_subagent_id")
-            ? (nullableString(request.body.active_subagent_id) ?? null)
+          activeSubagentId: hasOwn(body, "active_subagent_id")
+            ? (nullableString(body.active_subagent_id) ?? null)
             : undefined,
-          latestSubagentId: hasOwn(request.body, "latest_subagent_id")
-            ? (nullableString(request.body.latest_subagent_id) ?? null)
+          latestSubagentId: hasOwn(body, "latest_subagent_id")
+            ? (nullableString(body.latest_subagent_id) ?? null)
             : undefined,
-          completedAt: hasOwn(request.body, "completed_at")
-            ? (nullableString(request.body.completed_at) ?? null)
+          completedAt: hasOwn(body, "completed_at")
+            ? (nullableString(body.completed_at) ?? null)
             : undefined,
         },
       });
@@ -11228,6 +11245,45 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return { issue: issuePayload(issue) };
     } catch (error) {
       return sendError(reply, 400, error instanceof Error ? error.message : "issue update failed");
+    }
+  });
+
+  app.post("/api/v1/issues/:issueId/stop", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
+    const params = request.params as { issueId: string };
+    try {
+      const issue = store.getIssue({
+        workspaceId,
+        issueId: requiredString(params.issueId, "issueId"),
+      });
+      if (!issue) {
+        return sendError(reply, 404, "issue not found");
+      }
+      if (!nullableString(issue.activeSubagentId)) {
+        return sendError(reply, 409, "issue is not currently running");
+      }
+      await runtimeAgentToolsService.cancelIssueRun({
+        workspaceId,
+        issueId: issue.issueId,
+      });
+      const updatedIssue = store.getIssue({
+        workspaceId,
+        issueId: issue.issueId,
+      });
+      if (!updatedIssue) {
+        return sendError(reply, 404, "issue not found");
+      }
+      return {
+        issue: issuePayload(updatedIssue),
+      };
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "issue stop failed");
     }
   });
 

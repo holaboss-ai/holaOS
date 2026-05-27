@@ -2896,127 +2896,31 @@ function AppShellContent() {
   }, [selectedWorkspaceId]);
 
   async function refreshTaskProposals() {
-    if (!selectedWorkspaceId || !selectedWorkspace) {
-      applyTaskProposals(selectedWorkspaceId, selectedWorkspace?.name, [], {
-        notify: false,
-      });
-      setTaskProposalStatusMessage("");
-      return;
-    }
-
+    applyTaskProposals(selectedWorkspaceId, selectedWorkspace?.name, [], {
+      notify: false,
+    });
     setTaskProposalStatusMessage("");
-    setIsLoadingTaskProposals(true);
-    try {
-      const response = await window.electronAPI.workspace.listTaskProposals(
-        selectedWorkspace.id,
-      );
-      applyTaskProposals(
-        selectedWorkspace.id,
-        selectedWorkspace.name,
-        response.proposals,
-      );
-    } catch (error) {
-      setTaskProposalStatusMessage(normalizeErrorMessage(error));
-    } finally {
-      setIsLoadingTaskProposals(false);
-    }
+    setIsLoadingTaskProposals(false);
   }
 
   async function acceptTaskProposal(proposal: TaskProposalRecordPayload) {
-    if (!selectedWorkspaceId || !selectedWorkspace) {
-      return;
-    }
-
-    setProposalAction({ proposalId: proposal.proposal_id, action: "accept" });
-    setTaskProposalStatusMessage("");
-    try {
-      const accepted = await window.electronAPI.workspace.acceptTaskProposal({
-        proposal_id: proposal.proposal_id,
-        workspace_id: proposal.workspace_id,
-        task_name: proposal.task_name,
-        task_prompt: proposal.task_prompt,
-        parent_session_id: activeChatSessionId?.trim() || null,
-        priority: 0,
-        model: currentComposerSelectedModel(runtimeConfig),
-      });
-      const detail =
-        accepted.input.status === "QUEUED"
-          ? `Started background task "${proposal.task_name}".`
-          : `Accepted "${proposal.task_name}" as background work.`;
-      setTaskProposalStatusMessage(detail);
-      await refreshTaskProposals();
-    } catch (error) {
-      setTaskProposalStatusMessage(normalizeErrorMessage(error));
-    } finally {
-      setProposalAction(null);
-    }
+    void proposal;
+    setTaskProposalStatusMessage("Inbox is empty for now.");
+    setProposalAction(null);
   }
 
   async function dismissTaskProposal(proposal: TaskProposalRecordPayload) {
-    setProposalAction({ proposalId: proposal.proposal_id, action: "dismiss" });
-    setTaskProposalStatusMessage("");
-    try {
-      await window.electronAPI.workspace.updateTaskProposalState(
-        proposal.workspace_id,
-        proposal.proposal_id,
-        "dismissed",
-      );
-      const detail = `Dismissed "${proposal.task_name}" and persisted the update back to the backend.`;
-      setTaskProposalStatusMessage(detail);
-      await refreshTaskProposals();
-    } catch (error) {
-      setTaskProposalStatusMessage(normalizeErrorMessage(error));
-    } finally {
-      setProposalAction(null);
-    }
+    void proposal;
+    setTaskProposalStatusMessage("Inbox is empty for now.");
+    setProposalAction(null);
   }
 
   useEffect(() => {
-    if (!selectedWorkspaceId || !selectedWorkspace) {
-      applyTaskProposals(selectedWorkspaceId, selectedWorkspace?.name, [], {
-        notify: false,
-      });
-      setTaskProposalStatusMessage("");
-      setIsLoadingTaskProposals(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    const load = async () => {
-      try {
-        const response = await window.electronAPI.workspace.listTaskProposals(
-          selectedWorkspace.id,
-        );
-        if (!cancelled) {
-          applyTaskProposals(
-            selectedWorkspace.id,
-            selectedWorkspace.name,
-            response.proposals,
-          );
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setTaskProposalStatusMessage(normalizeErrorMessage(error));
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingTaskProposals(false);
-        }
-      }
-    };
-
-    setIsLoadingTaskProposals(true);
-    void load();
-    const timer = window.setInterval(() => {
-      setIsLoadingTaskProposals(true);
-      void load();
-    }, 5000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
+    applyTaskProposals(selectedWorkspaceId, selectedWorkspace?.name, [], {
+      notify: false,
+    });
+    setTaskProposalStatusMessage("");
+    setIsLoadingTaskProposals(false);
   }, [applyTaskProposals, selectedWorkspace, selectedWorkspaceId]);
 
   useEffect(() => {
@@ -3308,8 +3212,13 @@ function AppShellContent() {
   );
 
   const handleOpenInboxPane = useCallback(() => {
-    openTaskProposalInbox(selectedWorkspaceId);
-  }, [openTaskProposalInbox, selectedWorkspaceId]);
+    setActiveShellView("space");
+    setSpaceVisibility((previous) => ({
+      ...previous,
+      agent: true,
+    }));
+    setAgentView({ type: "inbox" });
+  }, []);
 
   const handleOpenSessionsPane = useCallback(() => {
     setActiveShellView("space");
@@ -4585,13 +4494,6 @@ function AppShellContent() {
             className={`mx-auto w-full ${CHAT_LAYOUT.contentMaxWidth} min-h-0 flex-1 overflow-hidden`}
           >
             <OperationsInboxPane
-              proposals={taskProposals}
-              isLoadingProposals={isLoadingTaskProposals}
-              proposalStatusMessage={taskProposalStatusMessage}
-              proposalAction={proposalAction}
-              onAcceptProposal={acceptTaskProposal}
-              onDismissProposal={dismissTaskProposal}
-              onProposalDetailsOpenChange={setTaskProposalDetailsDialogOpen}
               hasWorkspace={hasSelectedWorkspace}
             />
           </div>
@@ -4717,7 +4619,7 @@ function AppShellContent() {
           meetingModeBusy={isStartingMeetingMode}
           meetingModeError={meetingModeError}
           onOpenInbox={handleOpenInboxPane}
-          inboxUnreadCount={unreadTaskProposalCount}
+          inboxUnreadCount={0}
           onOpenAutomations={handleOpenAutomationsPane}
           onOpenArtifacts={handleOpenArtifactsPane}
           composerDraftText={

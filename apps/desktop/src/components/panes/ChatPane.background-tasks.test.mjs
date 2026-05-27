@@ -21,7 +21,7 @@ test("chat pane renders background tasks inline and removes the separate quick a
   assert.doesNotMatch(source, /onClick=\{\(\) => onOpenBackgroundTasks\(\)\}/);
   assert.match(
     source,
-    /!isReadOnlyInspectionSession \? \(\s*<div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-4">[\s\S]*<BackgroundTasksPane[\s\S]*workspaceId=\{controllerBackgroundTasksWorkspaceId\}[\s\S]*ownerMainSessionId=\{[\s\S]*controllerBackgroundTasksOwnerMainSessionId[\s\S]*\}[\s\S]*variant="inline"/,
+    /isViewingBoundMainSession \? \(\s*<div className="flex shrink-0 justify-center px-4 pt-2 empty:hidden">[\s\S]*<BackgroundTasksPane[\s\S]*workspaceId=\{selectedWorkspaceId\}[\s\S]*variant="inline"/,
   );
   assert.match(
     source,
@@ -36,7 +36,6 @@ test("chat pane renders background tasks inline and removes the separate quick a
     backgroundTasksSource,
     /listBackgroundTasks\(\{[\s\S]*workspaceId: activeWorkspaceId,[\s\S]*ownerMainSessionId: activeOwnerMainSessionId,/,
   );
-  assert.match(source, /<div className="pointer-events-auto">/);
   assert.doesNotMatch(source, /<SubagentSessionsPane[\s\S]*variant="inline"/);
   assert.match(source, /readOnly: true,/);
   assert.match(source, /onOpenSessions\?: \(\) => void;/);

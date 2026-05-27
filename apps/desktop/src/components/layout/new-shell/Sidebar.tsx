@@ -34,6 +34,7 @@ import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import {
+  Bot,
   CircleDot,
   ChevronDown,
   ChevronRight,
@@ -41,6 +42,7 @@ import {
   Copy,
   Globe,
   Home,
+  LayoutDashboard,
   Inbox,
   Link2,
   Loader2,
@@ -61,8 +63,12 @@ import { SectionLabel } from "./shared";
 import {
   activeInternalTabIdAtom,
   fileNameFromPath,
+  type InternalTab,
   internalTabsAtom,
   makeInternalTabId,
+  type WorkspaceSurfaceTabKind,
+  upsertInternalTab,
+  workspaceSurfaceTab,
 } from "./state/internalTabs";
 import {
   type RecentFile,
@@ -73,11 +79,8 @@ import {
   appsExpandedAtom,
   automationsOpenAtom,
   chatComposerPrefillAtom,
-  chatPanelViewAtom,
-  chatSessionOpenRequestAtom,
   createWorkspaceOpenAtom,
   focusModeAtom,
-  newIssueOpenAtom,
   publishOpenAtom,
   searchOpenAtom,
   SIDEBAR_MAX_WIDTH,
@@ -90,6 +93,7 @@ import {
   sidebarCollapsedAtom,
 } from "./state/ui";
 import { useIssues } from "./useIssues";
+import { useOpenIssueDetailTab } from "./useOpenIssueDetailTab";
 import {
   useRecentBrowserHistory,
   useWorkspaceArtifacts,
@@ -188,7 +192,6 @@ function SidebarExpanded() {
       className="flex h-full w-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground backdrop-blur-sm"
     >
       <WorkspaceSwitcher />
-      <SidebarNewIssueAction />
       <SidebarSectionNav />
       <div className="relative flex min-h-0 flex-1 flex-col">
         <AnimatePresence initial={false}>
@@ -221,11 +224,26 @@ const SECTION_NAV_ITEMS: Array<{
   icon: React.ReactNode;
 }> = [
   { key: "home", label: "Home", icon: <Home /> },
-  { key: "issues", label: "Issues", icon: <CircleDot /> },
+  { key: "issues", label: "Agent Team", icon: <Bot /> },
   { key: "inbox", label: "Inbox", icon: <Inbox /> },
   { key: "artifacts", label: "Artifacts", icon: <Package /> },
   { key: "automations", label: "Automations", icon: <Zap /> },
 ];
+
+function openWorkspaceSurfaceTab(params: {
+  kind: WorkspaceSurfaceTabKind;
+  workspaceId: string | null;
+  setInternalTabs: (updater: (tabs: InternalTab[]) => InternalTab[]) => void;
+  setActiveInternalTabId: (tabId: string | null) => void;
+}) {
+  const workspaceId = params.workspaceId?.trim() || "";
+  if (!workspaceId) {
+    return;
+  }
+  const tab = workspaceSurfaceTab(params.kind, workspaceId);
+  params.setInternalTabs((prev) => upsertInternalTab(prev, tab));
+  params.setActiveInternalTabId(tab.id);
+}
 
 // One shared spring for the pill slide and the button width morph.
 // stiffness 380 + damping 32 lands without overshoot but keeps the
@@ -236,28 +254,6 @@ const SECTION_NAV_SPRING = {
   damping: 32,
   mass: 0.6,
 };
-
-function SidebarNewIssueAction() {
-  const setNewIssueOpen = useSetAtom(newIssueOpenAtom);
-  const { selectedWorkspaceId } = useWorkspaceSelection();
-
-  return (
-    <div className="px-2 pb-1.5">
-      <button
-        type="button"
-        onClick={() => setNewIssueOpen(true)}
-        disabled={!selectedWorkspaceId}
-        className={cn(
-          "flex h-8 w-full items-center gap-2 rounded-md border border-sidebar-border bg-foreground/[0.04] px-2.5 text-left text-sm font-medium text-foreground transition-colors",
-          "hover:bg-foreground/[0.07] disabled:cursor-not-allowed disabled:opacity-45",
-        )}
-      >
-        <Plus className="size-3.5 text-foreground/60" />
-        <span>New issue</span>
-      </button>
-    </div>
-  );
-}
 
 function SidebarSectionNav() {
   const [section, setSection] = useAtom(sidebarSectionAtom);
@@ -439,31 +435,87 @@ function SidebarIssuesSection() {
   const { issues, isLoading, statusMessage } = useIssues(
     selectedWorkspaceId || null,
   );
-  const setChatPanelView = useSetAtom(chatPanelViewAtom);
-  const setSessionOpenRequest = useSetAtom(chatSessionOpenRequestAtom);
-  const requestKeyRef = useRef(0);
+  const openIssueDetailTab = useOpenIssueDetailTab();
+  const setInternalTabs = useSetAtom(internalTabsAtom);
+  const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
 
   const handleOpenIssue = useCallback(
     (issue: IssueRecordPayload) => {
-      requestKeyRef.current += 1;
-      setChatPanelView("chat");
-      setSessionOpenRequest({
-        sessionId: issue.session_id,
-        requestKey: requestKeyRef.current,
-        mode: "session",
+      void openIssueDetailTab({
+        workspaceId: issue.workspace_id,
+        issueId: issue.issue_id,
+        title: issue.title,
       });
     },
-    [setChatPanelView, setSessionOpenRequest],
+    [openIssueDetailTab],
   );
+
+  const handleOpenDashboard = useCallback(() => {
+    openWorkspaceSurfaceTab({
+      kind: "workspace_dashboard",
+      workspaceId: selectedWorkspaceId || null,
+      setInternalTabs,
+      setActiveInternalTabId,
+    });
+  }, [selectedWorkspaceId, setActiveInternalTabId, setInternalTabs]);
+
+  const handleOpenBoard = useCallback(() => {
+    openWorkspaceSurfaceTab({
+      kind: "issues_board",
+      workspaceId: selectedWorkspaceId || null,
+      setInternalTabs,
+      setActiveInternalTabId,
+    });
+  }, [selectedWorkspaceId, setActiveInternalTabId, setInternalTabs]);
+
+  const handleOpenTeammates = useCallback(() => {
+    openWorkspaceSurfaceTab({
+      kind: "teammates",
+      workspaceId: selectedWorkspaceId || null,
+      setInternalTabs,
+      setActiveInternalTabId,
+    });
+  }, [selectedWorkspaceId, setActiveInternalTabId, setInternalTabs]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-3">
       <SectionLabel>
-        Issues
+        Agent Team
         {issues.length > 0 ? (
           <span className="ml-auto text-foreground/30">{issues.length}</span>
         ) : null}
       </SectionLabel>
+      <div className="mb-2 grid gap-2 px-0.5">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={handleOpenDashboard}
+            disabled={!selectedWorkspaceId}
+            className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <LayoutDashboard className="size-3.5 text-foreground/55" />
+            <span>Open dashboard</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenBoard}
+            disabled={!selectedWorkspaceId}
+            className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <CircleDot className="size-3.5 text-foreground/55" />
+            <span>Open board</span>
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={handleOpenTeammates}
+          disabled={!selectedWorkspaceId}
+          className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          <Bot className="size-3.5 text-foreground/55" />
+          <span>Open teammates</span>
+        </button>
+      </div>
       {statusMessage ? (
         <AnimatePresence initial={false}>
           <motion.div
@@ -479,6 +531,7 @@ function SidebarIssuesSection() {
         </AnimatePresence>
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto">
+        <SectionLabel className="px-0.5">Issues</SectionLabel>
         {isLoading && issues.length === 0 ? (
           <div className="grid place-items-center py-8">
             <Loader2 className="size-4 animate-spin text-foreground/40" />

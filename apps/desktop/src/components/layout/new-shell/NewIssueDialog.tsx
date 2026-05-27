@@ -1,5 +1,5 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom } from "jotai";
 import { Loader2, Paperclip, Plus, Trash2, X } from "lucide-react";
 import {
   type ChangeEvent,
@@ -20,11 +20,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
-import {
-  chatPanelViewAtom,
-  chatSessionOpenRequestAtom,
-  newIssueOpenAtom,
-} from "./state/ui";
+import { newIssueOpenAtom } from "./state/ui";
+import { useOpenIssueDetailTab } from "./useOpenIssueDetailTab";
 
 const ISSUE_STATUS_OPTIONS: ReadonlyArray<{
   value: IssueStatusPayload;
@@ -84,9 +81,7 @@ function dedupeFiles(current: File[], incoming: File[]): File[] {
 export function NewIssueDialog() {
   const [open, setOpen] = useAtom(newIssueOpenAtom);
   const { selectedWorkspaceId } = useWorkspaceSelection();
-  const setChatPanelView = useSetAtom(chatPanelViewAtom);
-  const setSessionOpenRequest = useSetAtom(chatSessionOpenRequestAtom);
-  const requestKeyRef = useRef(0);
+  const openIssueDetailTab = useOpenIssueDetailTab();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [teammates, setTeammates] = useState<TeammateRecordPayload[]>([]);
@@ -208,13 +203,10 @@ export function NewIssueDialog() {
             status === "blocked" ? blockerReason.trim() || null : null,
           attachments: stagedAttachments.attachments,
         });
-        requestKeyRef.current += 1;
-        setChatPanelView("chat");
-        setSessionOpenRequest({
-          sessionId:
-            created.session?.session_id || created.issue.session_id,
-          requestKey: requestKeyRef.current,
-          mode: "session",
+        void openIssueDetailTab({
+          workspaceId: selectedWorkspaceId,
+          issueId: created.issue.issue_id,
+          title: created.issue.title,
         });
         handleOpenChange(false);
       } catch (error) {
@@ -233,10 +225,9 @@ export function NewIssueDialog() {
       handleOpenChange,
       priority,
       selectedWorkspaceId,
-      setChatPanelView,
-      setSessionOpenRequest,
       status,
       title,
+      openIssueDetailTab,
     ],
   );
 

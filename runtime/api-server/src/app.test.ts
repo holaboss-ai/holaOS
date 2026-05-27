@@ -6370,6 +6370,111 @@ test("queue route reopens done issue sessions on the same persistent thread", as
   store.close();
 });
 
+test("issue update route blocks execution-changing edits while an issue is actively running", async () => {
+  const root = makeTempDir("hb-runtime-api-issue-active-guard-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const app = buildTestRuntimeApiServer({ store });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace",
+    harness: "pi",
+    status: "active",
+  });
+  const issue = store.createIssue({
+    workspaceId: workspace.id,
+    sessionId: "session-issue-1",
+    title: "Ship dashboard",
+    description: "Implement the workspace dashboard surface.",
+    status: "in_progress",
+    createdBy: "workspace_user",
+  });
+  store.updateIssue({
+    workspaceId: workspace.id,
+    issueId: issue.issueId,
+    fields: {
+      activeSubagentId: "subagent-1",
+    },
+  });
+
+  const response = await app.inject({
+    method: "PATCH",
+    url: `/api/v1/issues/${issue.issueId}`,
+    payload: {
+      workspace_id: workspace.id,
+      status: "done",
+    }
+  });
+
+  assert.equal(response.statusCode, 409);
+  assert.match(
+    String(response.json().detail ?? ""),
+    /issue is currently running; stop the run before editing it/i,
+  );
+
+  await app.close();
+  store.close();
+});
+
+test("issue stop route cancels the active run and blocks the issue", async () => {
+  const root = makeTempDir("hb-runtime-api-issue-stop-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const app = buildTestRuntimeApiServer({ store });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace",
+    harness: "pi",
+    status: "active",
+  });
+  const generalTeammate = store.listTeammates({
+    workspaceId: workspace.id,
+  })[0];
+  const issue = store.createIssue({
+    workspaceId: workspace.id,
+    sessionId: "session-issue-stop-1",
+    title: "Ship dashboard",
+    description: "Implement the workspace dashboard surface.",
+    status: "in_progress",
+    assigneeTeammateId: generalTeammate?.teammateId ?? null,
+    activeSubagentId: "subagent-1",
+    latestSubagentId: "subagent-1",
+    createdBy: "workspace_user",
+  });
+  store.createSubagentRun({
+    subagentId: "subagent-1",
+    workspaceId: workspace.id,
+    originMainSessionId: issue.sessionId,
+    ownerMainSessionId: issue.sessionId,
+    childSessionId: issue.sessionId,
+    title: issue.title,
+    goal: issue.description ?? issue.title,
+    issueId: issue.issueId,
+    teammateId: generalTeammate?.teammateId ?? null,
+    status: "running",
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/v1/issues/${issue.issueId}/stop`,
+    payload: {
+      workspace_id: workspace.id,
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().issue.status, "blocked");
+  assert.equal(response.json().issue.blocker_reason, "Run cancelled by user.");
+  assert.equal(response.json().issue.active_subagent_id, null);
+
+  await app.close();
+  store.close();
+});
+
 test("raw cronjob routes keep draft lab jobs disabled by default", async () => {
   const root = makeTempDir("hb-runtime-api-lab-cron-routes-");
   const store = new RuntimeStateStore({

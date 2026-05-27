@@ -9,11 +9,15 @@ test("chat pane disables the composer for issue-thread states that should not ac
 
   assert.match(
     source,
-    /window\.electronAPI\.workspace\.listIssues\(selectedWorkspaceId\)/,
+    /window\.electronAPI\.workspace\.listIssues\(workspaceId\)/,
   );
   assert.match(
     source,
     /const activeIssue = useMemo\(\(\) => \{/,
+  );
+  assert.match(
+    source,
+    /const isReadOnlyInspectionSession =\s*!isViewingBoundMainSession && !isOnboardingVariant && !activeIssue;/,
   );
   assert.match(
     source,

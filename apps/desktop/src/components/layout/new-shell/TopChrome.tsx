@@ -1,8 +1,12 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
+  Bot,
+  CircleDot,
   ChevronDown,
+  FolderKanban,
   Globe,
   Image as ImageIcon,
+  LayoutDashboard,
   Loader2,
   Package,
   PanelLeftClose,
@@ -24,6 +28,7 @@ import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { cn } from "@/lib/utils";
 import {
   activeInternalTabIdAtom,
+  type InternalTab,
   internalTabsAtom,
 } from "./state/internalTabs";
 import { removeRecentFileByPathAtom } from "./state/recentFiles";
@@ -213,6 +218,7 @@ export function TopChrome() {
         <InternalTabChip
           key={tab.id}
           id={tab.id}
+          kind={tab.kind}
           label={tab.label}
           filePath={tab.kind === "file" ? tab.filePath : null}
           active={tab.id === activeInternalTabId}
@@ -237,6 +243,7 @@ export function TopChrome() {
 
 function InternalTabChip({
   id,
+  kind,
   label,
   filePath,
   active,
@@ -245,6 +252,7 @@ function InternalTabChip({
   onContextMenu,
 }: {
   id: string;
+  kind: InternalTab["kind"];
   label: string;
   filePath: string | null;
   active?: boolean;
@@ -275,6 +283,14 @@ function InternalTabChip({
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         {filePath ? (
           <FileTypeIcon filePath={filePath} size={14} className="shrink-0" />
+        ) : kind === "issue_detail" ? (
+          <CircleDot className="size-3.5 shrink-0 text-foreground/60" />
+        ) : kind === "issues_board" ? (
+          <FolderKanban className="size-3.5 shrink-0 text-foreground/60" />
+        ) : kind === "teammates" ? (
+          <Bot className="size-3.5 shrink-0 text-foreground/60" />
+        ) : kind === "workspace_dashboard" ? (
+          <LayoutDashboard className="size-3.5 shrink-0 text-foreground/60" />
         ) : (
           <ImageIcon className="size-3.5 shrink-0 text-foreground/60" />
         )}

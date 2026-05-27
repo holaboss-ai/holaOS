@@ -741,6 +741,38 @@ interface RuntimeNotificationListOptionsPayload {
     count: number;
   }
 
+  interface TeammateSkillInputPayload {
+    skill_id?: string | null;
+    name: string;
+    content: string;
+    created_at?: string | null;
+    updated_at?: string | null;
+  }
+
+  interface CreateTeammatePayload {
+    workspace_id: string;
+    teammate_id?: string | null;
+    name: string;
+    instructions?: string | null;
+    skills?: TeammateSkillInputPayload[] | null;
+  }
+
+  interface CreateTeammateResponsePayload {
+    teammate: TeammateRecordPayload;
+  }
+
+  interface UpdateTeammatePayload {
+    workspace_id: string;
+    name?: string | null;
+    instructions?: string | null;
+    skills?: TeammateSkillInputPayload[] | null;
+    status?: TeammateStatusPayload;
+  }
+
+  interface UpdateTeammateResponsePayload {
+    teammate: TeammateRecordPayload;
+  }
+
   type IssueStatusPayload =
     | "backlog"
     | "todo"
@@ -799,6 +831,25 @@ interface RuntimeNotificationListOptionsPayload {
   interface CreateIssueResponsePayload {
     issue: IssueRecordPayload;
     session: AgentSessionRecordPayload | null;
+  }
+
+  interface UpdateIssuePayload {
+    workspace_id: string;
+    title?: string | null;
+    description?: string | null;
+    status?: IssueStatusPayload;
+    priority?: IssuePriorityPayload | null;
+    assignee_teammate_id?: string | null;
+    blocker_reason?: string | null;
+    attachments?: SessionInputAttachmentPayload[] | null;
+  }
+
+  interface UpdateIssueResponsePayload {
+    issue: IssueRecordPayload;
+  }
+
+  interface StopIssueRunResponsePayload {
+    issue: IssueRecordPayload;
   }
 
   interface MainSessionLegacyExportPayload {
@@ -2091,21 +2142,31 @@ interface RuntimeNotificationListOptionsPayload {
         workspaceId: string,
         includeArchived?: boolean
       ) => Promise<TeammateListResponsePayload>;
+      createTeammate: (
+        payload: CreateTeammatePayload
+      ) => Promise<CreateTeammateResponsePayload>;
+      updateTeammate: (
+        workspaceId: string,
+        teammateId: string,
+        payload: UpdateTeammatePayload
+      ) => Promise<UpdateTeammateResponsePayload>;
       listIssues: (workspaceId: string) => Promise<IssueListResponsePayload>;
       createIssue: (payload: CreateIssuePayload) => Promise<CreateIssueResponsePayload>;
-      listTaskProposals: (workspaceId: string) => Promise<TaskProposalListResponsePayload>;
+      updateIssue: (
+        workspaceId: string,
+        issueId: string,
+        payload: UpdateIssuePayload
+      ) => Promise<UpdateIssueResponsePayload>;
+      stopIssueRun: (
+        workspaceId: string,
+        issueId: string
+      ) => Promise<StopIssueRunResponsePayload>;
       listBackgroundTasks: (
         payload: BackgroundTaskListRequestPayload
       ) => Promise<BackgroundTaskListResponsePayload>;
       archiveBackgroundTask: (
         payload: ArchiveBackgroundTaskPayload
       ) => Promise<ArchiveBackgroundTaskResponsePayload>;
-      acceptTaskProposal: (payload: TaskProposalAcceptPayload) => Promise<TaskProposalAcceptResponsePayload>;
-      updateTaskProposalState: (
-        workspaceId: string,
-        proposalId: string,
-        state: string
-      ) => Promise<TaskProposalStateUpdatePayload>;
       ensureMainSession: (workspaceId: string) => Promise<EnsureWorkspaceMainSessionResponsePayload>;
       listAgentSessions: (
         payload: string | ListAgentSessionsRequestPayload

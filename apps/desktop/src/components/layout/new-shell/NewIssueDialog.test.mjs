@@ -4,20 +4,23 @@ import test from "node:test";
 
 const NEW_APP_SHELL_PATH = new URL("./NewAppShell.tsx", import.meta.url);
 const NEW_ISSUE_DIALOG_PATH = new URL("./NewIssueDialog.tsx", import.meta.url);
+const BOARD_PANE_PATH = new URL("./IssuesBoardPane.tsx", import.meta.url);
 const SEARCH_DIALOG_PATH = new URL("./SearchDialog.tsx", import.meta.url);
 const SIDEBAR_PATH = new URL("./Sidebar.tsx", import.meta.url);
 const UI_STATE_PATH = new URL("./state/ui.ts", import.meta.url);
 
-test("new shell issue creation dialog stages attachments, creates issues, and opens the issue session", async () => {
+test("new shell issue creation dialog stages attachments, creates issues, and opens the issue detail tab", async () => {
   const [
     newAppShellSource,
     newIssueDialogSource,
+    boardPaneSource,
     searchDialogSource,
     sidebarSource,
     uiStateSource,
   ] = await Promise.all([
     readFile(NEW_APP_SHELL_PATH, "utf8"),
     readFile(NEW_ISSUE_DIALOG_PATH, "utf8"),
+    readFile(BOARD_PANE_PATH, "utf8"),
     readFile(SEARCH_DIALOG_PATH, "utf8"),
     readFile(SIDEBAR_PATH, "utf8"),
     readFile(UI_STATE_PATH, "utf8"),
@@ -41,7 +44,11 @@ test("new shell issue creation dialog stages attachments, creates issues, and op
   );
   assert.match(
     newIssueDialogSource,
-    /setSessionOpenRequest\(\{\s*sessionId:\s*created\.session\?\.session_id \|\| created\.issue\.session_id,/,
+    /const openIssueDetailTab = useOpenIssueDetailTab\(\);/,
+  );
+  assert.match(
+    newIssueDialogSource,
+    /void openIssueDetailTab\(\{\s*workspaceId: selectedWorkspaceId,\s*issueId: created\.issue\.issue_id,/,
   );
   assert.match(newIssueDialogSource, /status === "blocked" && !blockerReason\.trim\(\)/);
   assert.match(newIssueDialogSource, /priority: priority \|\| null,/);
@@ -50,8 +57,8 @@ test("new shell issue creation dialog stages attachments, creates issues, and op
     /assignee_teammate_id: assigneeTeammateId \|\| null,/,
   );
 
-  assert.match(searchDialogSource, /label="New issue"/);
-  assert.match(searchDialogSource, /setNewIssueOpen\(true\)/);
-  assert.match(sidebarSource, /function SidebarNewIssueAction\(\) \{/);
-  assert.match(sidebarSource, /setNewIssueOpen\(true\)/);
+  assert.match(boardPaneSource, /Kanban Board/);
+  assert.match(boardPaneSource, /onClick=\{\(\) => setNewIssueOpen\(true\)\}/);
+  assert.doesNotMatch(searchDialogSource, /label="New issue"/);
+  assert.doesNotMatch(sidebarSource, /function SidebarNewIssueAction\(\) \{/);
 });
