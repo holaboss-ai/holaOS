@@ -12,6 +12,7 @@ test("private Linux runtime workflow publishes backend-compatible release assets
 
   assert.match(source, /^name: Publish Private Linux Runtime$/m);
   assert.match(source, /workflow_call:\n\s+inputs:\n\s+ref:/);
+  assert.match(source, /artifact_only:\n\s+required: false\n\s+type: boolean/);
   assert.match(source, /workflow_dispatch:\n\s+inputs:\n\s+ref:/);
   assert.match(source, /release_tag:\n\s+description: GitHub release tag to create or update/);
   assert.match(source, /release_channel:\n\s+description: Runtime release channel consumed by sandbox-runtime/);
@@ -36,8 +37,10 @@ test("private Linux runtime workflow publishes backend-compatible release assets
   assert.match(source, /tar -tzf "out\/\$\{RUNTIME_ASSET_NAME\}" > "\$\{archive_listing_path\}"/);
   assert.match(source, /grep -Eq '\^\(\\\.\/\)\?bin\/sandbox-runtime\$' "\$\{archive_listing_path\}"/);
   assert.match(source, /Upload Linux runtime build artifacts/);
-  assert.match(source, /if: \$\{\{ github\.event_name == 'workflow_call' \}\}/);
+  assert.match(source, /if: \$\{\{ inputs\.artifact_only \}\}/);
   assert.match(source, /name: holaboss-runtime-linux-\$\{\{ inputs\.release_tag \}\}/);
+  assert.match(source, /if: \$\{\{ !inputs\.artifact_only \}\}/);
+  assert.match(source, /cat > "\$\{notes_path\}" <<'EOF'/);
   assert.match(source, /gh release create "\$\{\{ steps\.release_meta\.outputs\.release_tag \}\}"/);
   assert.match(source, /--repo "\$\{RUNTIME_RELEASE_REPO\}"/);
   assert.match(source, /gh release upload "\$\{\{ steps\.release_meta\.outputs\.release_tag \}\}"/);
@@ -57,6 +60,7 @@ test("manual CI release dispatch invokes the Linux runtime publish workflow", as
   assert.match(source, /release-linux-runtime\.result == 'success'/);
   assert.match(source, /release_tag: \$\{\{ needs\.ensure-release\.outputs\.release_tag \}\}/);
   assert.match(source, /release_channel: \$\{\{ needs\.ensure-release\.outputs\.release_channel \}\}/);
+  assert.match(source, /artifact_only: true/);
   assert.match(source, /Download Linux runtime release artifacts/);
   assert.match(source, /name: holaboss-runtime-linux-\$\{\{ inputs\.release_tag \}\}/);
   assert.match(source, /linux_runtime_asset="\$\{linux_runtime_dir\}\/holaboss-runtime-linux-x64\.tar\.gz"/);

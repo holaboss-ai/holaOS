@@ -250,6 +250,7 @@ jobs:
       release_title: ${{ needs.ensure-release.outputs.release_title }}
       prerelease: ${{ inputs.prerelease }}
       release_channel: ${{ needs.ensure-release.outputs.release_channel }}
+      artifact_only: true
     secrets: inherit
 
   release-macos-desktop:

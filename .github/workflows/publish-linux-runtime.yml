@@ -18,6 +18,9 @@ on:
       release_channel:
         required: true
         type: string
+      artifact_only:
+        required: false
+        type: boolean
   workflow_dispatch:
     inputs:
       ref:
@@ -166,7 +169,7 @@ jobs:
           test -f "out/${RUNTIME_CHECKSUM_ASSET_NAME}"
 
       - name: Upload Linux runtime build artifacts
-        if: ${{ github.event_name == 'workflow_call' }}
+        if: ${{ inputs.artifact_only }}
         uses: actions/upload-artifact@v7
         with:
           name: holaboss-runtime-linux-${{ inputs.release_tag }}
@@ -177,13 +180,13 @@ jobs:
           if-no-files-found: error
 
       - name: Prepare release notes
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: ${{ !inputs.artifact_only }}
         id: release_notes
         shell: bash
         run: |
           set -euo pipefail
           notes_path="${RUNNER_TEMP}/linux-runtime-release-notes.md"
-          cat > "${notes_path}" <<EOF
+          cat > "${notes_path}" <<'EOF'
           Linux x64 runtime bundle for `${{ steps.release_meta.outputs.release_tag }}`.
 
           - channel: `${{ steps.release_meta.outputs.release_channel }}`
@@ -193,7 +196,7 @@ jobs:
           echo "notes_path=${notes_path}" >> "${GITHUB_OUTPUT}"
 
       - name: Ensure GitHub release exists
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: ${{ !inputs.artifact_only }}
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -216,7 +219,7 @@ jobs:
             "${prerelease_flag[@]}"
 
       - name: Upload Linux runtime assets
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: ${{ !inputs.artifact_only }}
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
