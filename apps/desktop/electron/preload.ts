@@ -1490,6 +1490,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
       payload: UpdateTeammatePayload,
     ) =>
       ipcRenderer.invoke("workspace:updateTeammate", workspaceId, teammateId, payload) as Promise<UpdateTeammateResponsePayload>,
+    createTeammateSkill: (
+      workspaceId: string,
+      teammateId: string,
+      payload: CreateTeammateSkillPayload,
+    ) =>
+      ipcRenderer.invoke("workspace:createTeammateSkill", workspaceId, teammateId, payload) as Promise<CreateTeammateSkillResponsePayload>,
+    deleteTeammateSkill: (
+      workspaceId: string,
+      teammateId: string,
+      skillId: string,
+    ) =>
+      ipcRenderer.invoke("workspace:deleteTeammateSkill", workspaceId, teammateId, skillId) as Promise<DeleteTeammateSkillResponsePayload>,
     listIssues: (workspaceId: string) =>
       ipcRenderer.invoke("workspace:listIssues", workspaceId) as Promise<IssueListResponsePayload>,
     createIssue: (payload: CreateIssuePayload) =>

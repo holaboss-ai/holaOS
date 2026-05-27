@@ -214,6 +214,9 @@ function normalizedSessionKindValue(value: string | null | undefined): string {
   if (!normalized || normalized === "workspace_session" || normalized === "main") {
     return "main_session";
   }
+  if (normalized === "task_proposal") {
+    return "subagent";
+  }
   return normalized;
 }
 

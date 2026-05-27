@@ -13,9 +13,11 @@ import {
   type AppBuildRecord,
   type IssueAttachmentRecord,
   type IssueRecord,
+  type IssueStatus,
   type SessionInputRecord,
   type SessionRuntimeStateRecord,
   type SubagentRunRecord,
+  type TeammateCapabilityProfileRecord,
   type TeammateRecord,
   type TurnResultRecord,
   utcNowIso,
@@ -81,6 +83,13 @@ import {
 } from "./workspace-app-ui-lint.js";
 import { selectDelegatedTaskTeammateByCapability } from "./teammate-routing.js";
 import { preferredCoordinatorSessionId } from "./coordinator-session-routing.js";
+import {
+  createTeammateIdForFilesystem,
+  resolvedTeammateSkillsForRecord,
+  type ResolvedTeammateSkillRecord,
+  type TeammateSkillInput,
+  upsertTeammateSkill,
+} from "./teammate-skill-files.js";
 const SESSION_REFRESH_NOTE =
   "New MCP servers became available in this turn. Their tools will be visible to you starting from the next user message — please end this turn (do not call the new tools yet) and let the user trigger the next one.";
 
@@ -349,6 +358,20 @@ export interface RuntimeAgentToolsCreateCronjobParams {
   holabossUserId?: string | null;
 }
 
+export interface RuntimeAgentToolsCreateTeammateParams {
+  workspaceId: string;
+  teammateId?: string | null;
+  name: string;
+  instructions?: string | null;
+  capabilityProfile?: Partial<TeammateCapabilityProfileRecord> | null;
+}
+
+export interface RuntimeAgentToolsCreateTeammateSkillParams {
+  workspaceId: string;
+  teammateId: string;
+  skill: TeammateSkillInput;
+}
+
 export interface RuntimeAgentToolsUpdateCronjobParams {
   jobId: string;
   workspaceId?: string | null;
@@ -384,6 +407,36 @@ export interface RuntimeAgentToolsDelegateTaskParams {
   selectedModel?: string | null;
   tasks: RuntimeAgentToolsDelegateTaskItem[];
   createdBy?: string | null;
+}
+
+export interface RuntimeAgentToolsGetTaskParams {
+  workspaceId: string;
+  sessionId?: string | null;
+  inputId?: string | null;
+  taskId: string;
+}
+
+export interface RuntimeAgentToolsListTasksParams {
+  workspaceId: string;
+  sessionId?: string | null;
+  inputId?: string | null;
+  statuses?: string[] | null;
+  limit?: number | null;
+}
+
+export interface RuntimeAgentToolsCancelTaskParams {
+  workspaceId: string;
+  taskId: string;
+}
+
+export interface RuntimeAgentToolsRerunTaskParams {
+  workspaceId: string;
+  sessionId?: string | null;
+  inputId?: string | null;
+  taskId: string;
+  selectedModel?: string | null;
+  model?: string | null;
+  priority?: number | null;
 }
 
 export interface RuntimeAgentToolsCancelSubagentParams {
@@ -1165,6 +1218,18 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS: RuntimeAgentToolDefinition[] = [
     description: runtimeToolBaseDefinition("cronjobs_create").description
   },
   {
+    id: runtimeToolBaseDefinition("teammates_create").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/teammates",
+    description: runtimeToolBaseDefinition("teammates_create").description
+  },
+  {
+    id: runtimeToolBaseDefinition("teammate_skills_create").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/teammates/:teammateId/skills",
+    description: runtimeToolBaseDefinition("teammate_skills_create").description
+  },
+  {
     id: runtimeToolBaseDefinition("cronjobs_get").id,
     method: "GET",
     path: "/api/v1/capabilities/runtime-tools/cronjobs/:jobId",
@@ -1189,34 +1254,28 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS: RuntimeAgentToolDefinition[] = [
     description: runtimeToolBaseDefinition("delegate_task").description
   },
   {
-    id: runtimeToolBaseDefinition("get_subagent").id,
+    id: runtimeToolBaseDefinition("get_task").id,
     method: "GET",
-    path: "/api/v1/capabilities/runtime-tools/subagents/:subagentId",
-    description: runtimeToolBaseDefinition("get_subagent").description
+    path: "/api/v1/capabilities/runtime-tools/tasks/:taskId",
+    description: runtimeToolBaseDefinition("get_task").description
   },
   {
-    id: runtimeToolBaseDefinition("list_background_tasks").id,
+    id: runtimeToolBaseDefinition("list_tasks").id,
     method: "GET",
-    path: "/api/v1/capabilities/runtime-tools/background-tasks",
-    description: runtimeToolBaseDefinition("list_background_tasks").description
+    path: "/api/v1/capabilities/runtime-tools/tasks",
+    description: runtimeToolBaseDefinition("list_tasks").description
   },
   {
-    id: runtimeToolBaseDefinition("cancel_subagent").id,
+    id: runtimeToolBaseDefinition("cancel_task").id,
     method: "POST",
-    path: "/api/v1/capabilities/runtime-tools/subagents/:subagentId/cancel",
-    description: runtimeToolBaseDefinition("cancel_subagent").description
+    path: "/api/v1/capabilities/runtime-tools/tasks/:taskId/cancel",
+    description: runtimeToolBaseDefinition("cancel_task").description
   },
   {
-    id: runtimeToolBaseDefinition("resume_subagent").id,
+    id: runtimeToolBaseDefinition("rerun_task").id,
     method: "POST",
-    path: "/api/v1/capabilities/runtime-tools/subagents/:subagentId/resume",
-    description: runtimeToolBaseDefinition("resume_subagent").description
-  },
-  {
-    id: runtimeToolBaseDefinition("continue_subagent").id,
-    method: "POST",
-    path: "/api/v1/capabilities/runtime-tools/subagents/:subagentId/continue",
-    description: runtimeToolBaseDefinition("continue_subagent").description
+    path: "/api/v1/capabilities/runtime-tools/tasks/:taskId/rerun",
+    description: runtimeToolBaseDefinition("rerun_task").description
   },
   {
     id: runtimeToolBaseDefinition("image_generate").id,
@@ -2641,6 +2700,59 @@ export function cronjobPayload(record: CronjobRecord): JsonObject {
   };
 }
 
+function teammateCapabilityProfilePayload(
+  record: TeammateCapabilityProfileRecord,
+): JsonObject {
+  return {
+    summary: record.summary,
+    capabilities: [...record.capabilities],
+    preferred_tools: [...record.preferredTools],
+  };
+}
+
+function teammateSkillPayload(record: ResolvedTeammateSkillRecord): JsonObject {
+  return {
+    skill_id: record.skillId,
+    name: record.name,
+    content: record.content,
+    skill_markdown: record.skillMarkdown,
+    granted_tools: [...record.grantedTools],
+    granted_commands: [...record.grantedCommands],
+    sidecar_files: record.sidecarFiles.map((file) => ({
+      path: file.relativePath,
+      content: file.content,
+      size_bytes: file.sizeBytes,
+    })),
+    sidecar_directories: [...record.sidecarDirectories],
+    created_at: record.createdAt,
+    updated_at: record.updatedAt,
+    storage_origin: record.storageOrigin,
+    source_dir: record.sourceDir,
+    file_path: record.filePath,
+    has_sidecar_assets: record.hasSidecarAssets,
+  };
+}
+
+function teammatePayload(record: TeammateRecord, workspaceDir: string): JsonObject {
+  const resolvedSkills = resolvedTeammateSkillsForRecord({
+    workspaceDir,
+    teammate: record,
+  });
+  return {
+    teammate_id: record.teammateId,
+    workspace_id: record.workspaceId,
+    name: record.name,
+    kind: record.kind,
+    status: record.status,
+    instructions: record.instructions,
+    skills: resolvedSkills.map((skill) => teammateSkillPayload(skill)),
+    capability_profile: teammateCapabilityProfilePayload(record.capabilityProfile),
+    created_at: record.createdAt,
+    updated_at: record.updatedAt,
+    archived_at: record.archivedAt,
+  };
+}
+
 function subagentLiveStatePayload(state: SyncedSubagentRunState): JsonObject {
   return {
     runtime_status: state.runtimeState?.status ?? null,
@@ -2650,6 +2762,18 @@ function subagentLiveStatePayload(state: SyncedSubagentRunState): JsonObject {
     latest_input_status: state.latestInput?.status ?? null,
     latest_turn_status: state.latestTurnResult?.status ?? null,
     latest_turn_stop_reason: state.latestTurnResult?.stopReason ?? null,
+  };
+}
+
+function issueAttachmentPayload(record: IssueAttachmentRecord): JsonObject {
+  return {
+    id: record.id,
+    kind: record.kind,
+    name: record.name,
+    mime_type: record.mimeType,
+    size_bytes: record.sizeBytes,
+    workspace_path: record.workspacePath,
+    created_at: record.createdAt,
   };
 }
 
@@ -2693,6 +2817,48 @@ function subagentRunPayload(state: SyncedSubagentRunState): JsonObject {
     updated_at: state.run.updatedAt,
     live_state: subagentLiveStatePayload(state),
   };
+}
+
+function taskPayload(params: {
+  issue: IssueRecord;
+  activeState?: SyncedSubagentRunState | null;
+  latestState?: SyncedSubagentRunState | null;
+}): JsonObject {
+  return {
+    task_id: params.issue.issueId,
+    workspace_id: params.issue.workspaceId,
+    task_number: params.issue.issueNumber,
+    session_id: params.issue.sessionId,
+    title: params.issue.title,
+    description: params.issue.description,
+    status: params.issue.status,
+    priority: params.issue.priority,
+    assignee_teammate_id: params.issue.assigneeTeammateId,
+    blocker_reason: params.issue.blockerReason,
+    attachments: params.issue.attachments.map((attachment) => issueAttachmentPayload(attachment)),
+    active_subagent_id: params.issue.activeSubagentId,
+    latest_subagent_id: params.issue.latestSubagentId,
+    created_by: params.issue.createdBy,
+    created_at: params.issue.createdAt,
+    updated_at: params.issue.updatedAt,
+    completed_at: params.issue.completedAt,
+    active_run: params.activeState ? subagentRunPayload(params.activeState) : null,
+    latest_run: params.latestState ? subagentRunPayload(params.latestState) : null,
+  };
+}
+
+function dedupeSyncedSubagentStates(states: SyncedSubagentRunState[]): SyncedSubagentRunState[] {
+  const seen = new Set<string>();
+  const deduped: SyncedSubagentRunState[] = [];
+  for (const state of states) {
+    const subagentId = normalizedString(state.run.subagentId);
+    if (!subagentId || seen.has(subagentId)) {
+      continue;
+    }
+    seen.add(subagentId);
+    deduped.push(state);
+  }
+  return deduped;
 }
 
 function terminalSessionPayload(record: TerminalSessionRecord): JsonObject {
@@ -3348,6 +3514,67 @@ export class RuntimeAgentToolsService {
     return cronjobPayload(created);
   }
 
+  createTeammate(params: RuntimeAgentToolsCreateTeammateParams): JsonObject {
+    this.requireWorkspace(params.workspaceId);
+    const name = normalizedString(params.name);
+    if (!name) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "teammate_name_required",
+        "name is required",
+      );
+    }
+    const workspaceDir = this.store.workspaceDir(params.workspaceId);
+    const teammateId =
+      normalizedString(params.teammateId) || createTeammateIdForFilesystem();
+    const teammate = this.store.createTeammate({
+      teammateId,
+      workspaceId: params.workspaceId,
+      name,
+      instructions: normalizedString(params.instructions) || null,
+      capabilityProfile: params.capabilityProfile ?? null,
+    });
+    return {
+      ...teammatePayload(teammate, workspaceDir),
+      tool_id: "teammates_create",
+    };
+  }
+
+  createTeammateSkill(params: RuntimeAgentToolsCreateTeammateSkillParams): JsonObject {
+    this.requireWorkspace(params.workspaceId);
+    const teammateId = normalizedString(params.teammateId);
+    if (!teammateId) {
+      throw new RuntimeAgentToolsServiceError(
+        400,
+        "teammate_id_required",
+        "teammate_id is required",
+      );
+    }
+    const teammate = this.store.getTeammate({
+      workspaceId: params.workspaceId,
+      teammateId,
+      includeArchived: false,
+    });
+    if (!teammate) {
+      throw new RuntimeAgentToolsServiceError(
+        404,
+        "teammate_not_found",
+        "teammate not found",
+      );
+    }
+    const skill = upsertTeammateSkill({
+      workspaceDir: this.store.workspaceDir(params.workspaceId),
+      teammateId,
+      skill: params.skill,
+    });
+    return {
+      teammate_id: teammate.teammateId,
+      workspace_id: teammate.workspaceId,
+      skill: teammateSkillPayload(skill),
+      tool_id: "teammate_skills_create",
+    };
+  }
+
   updateCronjob(params: RuntimeAgentToolsUpdateCronjobParams): JsonObject {
     const workspaceId = this.requireWorkspaceId(params.workspaceId);
     const workspace = this.requireWorkspace(workspaceId);
@@ -3826,6 +4053,7 @@ export class RuntimeAgentToolsService {
         workspaceId: params.workspaceId,
         issueId: issue.issueId,
         fields: {
+          status: "todo",
           latestSubagentId: updatedRun.subagentId,
           activeSubagentId: null,
           blockerReason: null,
@@ -4057,6 +4285,107 @@ export class RuntimeAgentToolsService {
     };
   }
 
+  getTask(params: RuntimeAgentToolsGetTaskParams): JsonObject {
+    this.requireWorkspace(params.workspaceId);
+    const requestedSessionId = normalizedString(params.sessionId);
+    if (requestedSessionId) {
+      this.requireSubagentControllerSession(params.workspaceId, requestedSessionId);
+    }
+    const issue = this.requireTaskRecord({
+      workspaceId: params.workspaceId,
+      taskId: params.taskId,
+    });
+    const states = this.taskRunStatesForIssue(issue);
+    this.assertSameTurnDelegationPollingAllowed({
+      workspaceId: params.workspaceId,
+      sessionId: requestedSessionId || null,
+      inputId: normalizedString(params.inputId) || null,
+      states: states.allStates,
+      toolId: "get_task",
+    });
+    return taskPayload({
+      issue,
+      activeState: states.activeState,
+      latestState: states.latestState,
+    });
+  }
+
+  listTasks(params: RuntimeAgentToolsListTasksParams): JsonObject {
+    this.requireWorkspace(params.workspaceId);
+    const requestedSessionId = normalizedString(params.sessionId);
+    if (requestedSessionId) {
+      this.requireSubagentControllerSession(params.workspaceId, requestedSessionId);
+    }
+    const statuses = this.normalizedTaskStatuses(params.statuses);
+    const issues = this.store.listIssues({
+      workspaceId: params.workspaceId,
+      statuses,
+      limit: normalizedInteger(params.limit, 200, 1, 1000),
+    });
+    const payloads: JsonObject[] = [];
+    const pollingStates: SyncedSubagentRunState[] = [];
+    for (const issue of issues) {
+      const states = this.taskRunStatesForIssue(issue);
+      payloads.push(
+        taskPayload({
+          issue,
+          activeState: states.activeState,
+          latestState: states.latestState,
+        }),
+      );
+      pollingStates.push(...states.allStates);
+    }
+    this.assertSameTurnDelegationPollingAllowed({
+      workspaceId: params.workspaceId,
+      sessionId: requestedSessionId || null,
+      inputId: normalizedString(params.inputId) || null,
+      states: dedupeSyncedSubagentStates(pollingStates),
+      toolId: "list_tasks",
+    });
+    return {
+      tasks: payloads,
+      count: payloads.length,
+    };
+  }
+
+  async cancelTask(params: RuntimeAgentToolsCancelTaskParams): Promise<JsonObject> {
+    await this.cancelIssueRun({
+      workspaceId: params.workspaceId,
+      issueId: params.taskId,
+    });
+    return this.getTask({
+      workspaceId: params.workspaceId,
+      taskId: params.taskId,
+    });
+  }
+
+  rerunTask(params: RuntimeAgentToolsRerunTaskParams): JsonObject {
+    this.requireWorkspace(params.workspaceId);
+    const requestedSessionId = normalizedString(params.sessionId);
+    const controllerSession = requestedSessionId
+      ? this.requireSubagentControllerSession(params.workspaceId, requestedSessionId)
+      : null;
+    const rerun = this.dispatchIssue({
+      workspaceId: params.workspaceId,
+      issueId: params.taskId,
+      parentSessionId: controllerSession?.sessionId ?? null,
+      parentInputId: controllerSession ? (normalizedString(params.inputId) || null) : null,
+      originMainSessionId: controllerSession?.sessionId ?? null,
+      ownerMainSessionId: controllerSession?.sessionId ?? null,
+      selectedModel: params.selectedModel ?? null,
+      model: params.model ?? null,
+      priority:
+        typeof params.priority === "number" && Number.isFinite(params.priority)
+          ? Math.trunc(params.priority)
+          : null,
+    });
+    return taskPayload({
+      issue: rerun.issue,
+      activeState: rerun.issue.activeSubagentId === rerun.run.run.subagentId ? rerun.run : null,
+      latestState: rerun.run,
+    });
+  }
+
   async cancelSubagent(params: RuntimeAgentToolsCancelSubagentParams): Promise<JsonObject> {
     this.requireWorkspace(params.workspaceId);
     const controllerSession = this.requireSubagentControllerSession(params.workspaceId, params.sessionId);
@@ -4085,12 +4414,14 @@ export class RuntimeAgentToolsService {
     if (!issue) {
       throw new RuntimeAgentToolsServiceError(404, "issue_not_found", "issue not found");
     }
-    const subagentId = normalizedString(issue.activeSubagentId);
+    const subagentId =
+      normalizedString(issue.activeSubagentId) ||
+      normalizedString(issue.latestSubagentId);
     if (!subagentId) {
       throw new RuntimeAgentToolsServiceError(
         409,
         "issue_not_running",
-        "issue is not currently running",
+        "issue does not have queued or running work to cancel",
       );
     }
     const run = this.requireSubagentRun({
@@ -4111,6 +4442,13 @@ export class RuntimeAgentToolsService {
       subagentId,
       ownerMainSessionId,
     });
+    if (!["queued", "running", "waiting_on_user"].includes(state.run.status)) {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        "issue_not_running",
+        "issue does not have queued or running work to cancel",
+      );
+    }
     return subagentRunPayload(
       await this.cancelSyncedSubagentRunState(state, {
         workspaceId: params.workspaceId,
@@ -4492,7 +4830,7 @@ export class RuntimeAgentToolsService {
       sessionId: requestedSessionId || null,
       inputId: normalizedString(params.inputId) || null,
       states: synced,
-      toolId: "list_background_tasks",
+      toolId: "background task list endpoint",
     });
     return {
       tasks: synced.map((state) => subagentRunPayload(state)),
@@ -4516,7 +4854,7 @@ export class RuntimeAgentToolsService {
       sessionId: requestedSessionId || null,
       inputId: normalizedString(params.inputId) || null,
       states: [state],
-      toolId: "get_subagent",
+      toolId: "background task detail endpoint",
     });
     if (!this.isVisibleBackgroundTask(state.run)) {
       throw new RuntimeAgentToolsServiceError(404, "subagent_not_found", "subagent not found");
@@ -5300,6 +5638,89 @@ export class RuntimeAgentToolsService {
     return terminalSessionPayload(session);
   }
 
+  private normalizedTaskStatuses(statuses: string[] | null | undefined): IssueStatus[] {
+    const normalized = Array.from(
+      new Set(normalizedStringList(statuses).map((status) => status.toLowerCase())),
+    );
+    for (const status of normalized) {
+      if (
+        status !== "backlog" &&
+        status !== "todo" &&
+        status !== "in_progress" &&
+        status !== "in_review" &&
+        status !== "done" &&
+        status !== "blocked"
+      ) {
+        throw new RuntimeAgentToolsServiceError(
+          400,
+          "task_status_invalid",
+          `unsupported task status filter: ${status}`,
+        );
+      }
+    }
+    return normalized as IssueStatus[];
+  }
+
+  private requireTaskRecord(params: { workspaceId: string; taskId: string }): IssueRecord {
+    const issue = this.store.getIssue({
+      workspaceId: params.workspaceId,
+      issueId: params.taskId,
+    });
+    if (!issue) {
+      throw new RuntimeAgentToolsServiceError(
+        404,
+        "task_not_found",
+        `task ${params.taskId} not found`,
+      );
+    }
+    return issue;
+  }
+
+  private taskRunStatesForIssue(issue: IssueRecord): {
+    activeState: SyncedSubagentRunState | null;
+    latestState: SyncedSubagentRunState | null;
+    allStates: SyncedSubagentRunState[];
+  } {
+    const activeState = normalizedString(issue.activeSubagentId)
+      ? this.syncTaskRunState({
+          workspaceId: issue.workspaceId,
+          subagentId: issue.activeSubagentId,
+        })
+      : null;
+    const latestState =
+      normalizedString(issue.latestSubagentId) &&
+      normalizedString(issue.latestSubagentId) !== normalizedString(issue.activeSubagentId)
+        ? this.syncTaskRunState({
+            workspaceId: issue.workspaceId,
+            subagentId: issue.latestSubagentId,
+          })
+        : activeState;
+    return {
+      activeState,
+      latestState,
+      allStates: dedupeSyncedSubagentStates(
+        [activeState, latestState].filter(
+          (state): state is SyncedSubagentRunState => state !== null,
+        ),
+      ),
+    };
+  }
+
+  private syncTaskRunState(params: {
+    workspaceId: string;
+    subagentId: string | null;
+  }): SyncedSubagentRunState | null {
+    const subagentId = normalizedString(params.subagentId);
+    if (!subagentId) {
+      return null;
+    }
+    const run = this.store.getSubagentRun({
+      workspaceId: params.workspaceId,
+      subagentId,
+    });
+    return run ? this.syncSubagentRunState(run) : null;
+  }
+
   private requireSubagentControllerSession(workspaceId: string, sessionId: string): AgentSessionRecord {
     const normalizedSessionId = normalizedString(sessionId);
     if (!normalizedSessionId) {
@@ -5310,7 +5731,8 @@ export class RuntimeAgentToolsService {
       throw new RuntimeAgentToolsServiceError(404, "session_not_found", "session not found");
     }
     const kind = normalizedString(session.kind);
-    if (kind === "subagent" || kind === "task_proposal" || kind === "cronjob") {
+    const canonicalKind = kind === "task_proposal" ? "subagent" : kind;
+    if (canonicalKind === "subagent" || canonicalKind === "cronjob") {
       throw new RuntimeAgentToolsServiceError(
         403,
         "subagent_control_forbidden",
@@ -5687,7 +6109,7 @@ export class RuntimeAgentToolsService {
     sessionId?: string | null;
     inputId?: string | null;
     states: SyncedSubagentRunState[];
-    toolId: "get_subagent" | "list_background_tasks";
+    toolId: string;
   }): void {
     const sessionId = normalizedString(params.sessionId);
     const inputId = normalizedString(params.inputId);
@@ -6805,6 +7227,12 @@ export class RuntimeAgentToolsService {
     originMainSessionId: string;
     ownerMainSessionId: string;
   } {
+    const explicitOwnerMainSessionId =
+      normalizedString(params.explicitOwnerMainSessionId) || null;
+    const explicitOriginMainSessionId =
+      normalizedString(params.explicitOriginMainSessionId) || null;
+    const explicitParentSessionId =
+      normalizedString(params.explicitParentSessionId) || null;
     const issueSession = this.store.getSession({
       workspaceId: params.workspace.id,
       sessionId: params.issue.sessionId,
@@ -6829,7 +7257,7 @@ export class RuntimeAgentToolsService {
         store: this.store,
         workspace: params.workspace,
         preferredSessionIds: [
-          params.explicitOwnerMainSessionId,
+          explicitOwnerMainSessionId,
           ...sharedCoordinatorCandidates,
         ],
       }) ??
@@ -6837,21 +7265,21 @@ export class RuntimeAgentToolsService {
         store: this.store,
         workspace: params.workspace,
         preferredSessionIds: [
-          params.explicitOriginMainSessionId,
-          params.explicitParentSessionId,
+          explicitOriginMainSessionId,
+          explicitParentSessionId,
           ...sharedCoordinatorCandidates,
         ],
       }) ??
-      normalizedString(params.explicitOwnerMainSessionId) ??
-      normalizedString(params.explicitOriginMainSessionId) ??
-      normalizedString(params.explicitParentSessionId) ??
+      explicitOwnerMainSessionId ??
+      explicitOriginMainSessionId ??
+      explicitParentSessionId ??
       params.issue.sessionId;
     const originMainSessionId =
       preferredCoordinatorSessionId({
         store: this.store,
         workspace: params.workspace,
         preferredSessionIds: [
-          params.explicitOriginMainSessionId,
+          explicitOriginMainSessionId,
           ownerMainSessionId,
           ...sharedCoordinatorCandidates,
         ],
@@ -6861,7 +7289,7 @@ export class RuntimeAgentToolsService {
         store: this.store,
         workspace: params.workspace,
         preferredSessionIds: [
-          params.explicitParentSessionId,
+          explicitParentSessionId,
           ownerMainSessionId,
           ...sharedCoordinatorCandidates,
         ],

@@ -203,6 +203,52 @@ test("main-session event worker materializes waiting-user events into one queued
   store.close();
 });
 
+test("main-session event worker carries task references into synthetic background follow-ups", async () => {
+  const store = makeStore("hb-main-session-event-worker-task-ref-");
+  const workspace = seedMainSession(store);
+  const event = store.enqueueMainSessionEvent({
+    workspaceId: workspace.id,
+    ownerMainSessionId: "session-main",
+    originMainSessionId: "session-main",
+    subagentId: "subagent-1",
+    eventType: "completed",
+    deliveryBucket: "background_update",
+    payload: {
+      source_type: "delegate_task",
+      source_id: "HOL-7",
+      issue_id: "HOL-7",
+      summary: "Dashboard polish finished.",
+    },
+  });
+
+  const worker = new RuntimeMainSessionEventWorker({ store });
+  const processed = await worker.processAvailableEventsOnce();
+  const updatedEvent = store.getMainSessionEvent({
+    workspaceId: workspace.id,
+    eventId: event.eventId,
+  });
+  const batchInput = updatedEvent?.materializedInputId
+    ? store.getInput({
+        workspaceId: workspace.id,
+        inputId: updatedEvent.materializedInputId,
+      })
+    : null;
+  const context = (batchInput?.payload.context ?? {}) as Record<string, unknown>;
+  const queuedEventPayload = ((context.queued_events as Array<Record<string, unknown>>)[0]
+    ?.payload ?? {}) as Record<string, unknown>;
+
+  assert.equal(processed, 1);
+  assert.equal(queuedEventPayload.source_type, "delegate_task");
+  assert.equal(queuedEventPayload.source_id, "HOL-7");
+  assert.equal(queuedEventPayload.issue_id, "HOL-7");
+  assert.match(
+    String(batchInput?.payload.text),
+    /mention that reference naturally so the user can inspect the underlying task/i,
+  );
+
+  store.close();
+});
+
 test("main-session event worker does not materialize when the main session is busy", async () => {
   const store = makeStore("hb-main-session-event-worker-busy-");
   const workspace = seedMainSession(store);

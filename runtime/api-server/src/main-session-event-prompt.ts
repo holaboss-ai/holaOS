@@ -104,6 +104,8 @@ function sanitizeBackgroundEventPayloadForPrompt(
   const sanitized: Record<string, unknown> = {};
   for (const key of [
     "source_type",
+    "source_id",
+    "issue_id",
     "status",
     "summary",
     "partial_summary",

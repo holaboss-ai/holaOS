@@ -429,6 +429,212 @@ test("continueSubagent falls back to the controller session's latest model inste
   }
 });
 
+test("listTasks filters by task status and includes linked run state", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-list-tasks-"));
+  writeRuntimeConfig(root, {
+    runtime: {
+      default_model: "openai/gpt-5.4",
+    },
+  });
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const mainSessionId = "main-1";
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.ensureSession({
+      workspaceId,
+      sessionId: mainSessionId,
+      kind: "main_session",
+      createdBy: "workspace_user",
+    });
+    const assignee = store.ensureGeneralTeammate(workspaceId);
+    store.createIssue({
+      workspaceId,
+      issueId: "HOL-1",
+      sessionId: "subagent-1",
+      title: "Todo task",
+      description: "Finish the todo task.",
+      status: "todo",
+      assigneeTeammateId: assignee.teammateId,
+      latestSubagentId: "run-1",
+    });
+    store.createIssue({
+      workspaceId,
+      issueId: "HOL-2",
+      sessionId: "subagent-2",
+      title: "Blocked task",
+      description: "Finish the blocked task.",
+      status: "blocked",
+      assigneeTeammateId: assignee.teammateId,
+      blockerReason: "Need review.",
+    });
+    store.createSubagentRun({
+      subagentId: "run-1",
+      workspaceId,
+      parentSessionId: mainSessionId,
+      parentInputId: "input-1",
+      originMainSessionId: mainSessionId,
+      ownerMainSessionId: mainSessionId,
+      childSessionId: "subagent-1",
+      title: "Todo task",
+      goal: "Finish the todo task.",
+      issueId: "HOL-1",
+      teammateId: assignee.teammateId,
+      effectiveModel: "openai/gpt-5.4",
+      status: "completed",
+      summary: "Finished once already.",
+      completedAt: utcNowIso(),
+    });
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    const result = service.listTasks({
+      workspaceId,
+      sessionId: mainSessionId,
+      statuses: ["todo"],
+      limit: 10,
+    }) as { count: number; tasks: Array<Record<string, unknown>> };
+
+    assert.equal(result.count, 1);
+    assert.equal(result.tasks[0]?.task_id, "HOL-1");
+    assert.equal(result.tasks[0]?.status, "todo");
+    assert.equal(
+      ((result.tasks[0]?.latest_run as Record<string, unknown> | null) ?? {})?.subagent_id,
+      "run-1",
+    );
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("rerunTask restarts an existing delegated task by task id", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-rerun-task-"));
+  writeRuntimeConfig(root, {
+    runtime: {
+      default_model: "openai/gpt-5.4",
+    },
+  });
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const mainSessionId = "main-1";
+  const childSessionId = "subagent-child-1";
+  const subagentId = "subagent-run-1";
+  const completedAt = utcNowIso();
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.ensureSession({
+      workspaceId,
+      sessionId: mainSessionId,
+      kind: "main_session",
+      createdBy: "workspace_user",
+    });
+    const assignee = store.ensureGeneralTeammate(workspaceId);
+    store.createIssue({
+      workspaceId,
+      issueId: "HOL-1",
+      sessionId: childSessionId,
+      title: "Crypto research",
+      description: "Research crypto news.",
+      status: "done",
+      assigneeTeammateId: assignee.teammateId,
+      latestSubagentId: subagentId,
+      completedAt,
+    });
+    store.ensureSession({
+      workspaceId,
+      sessionId: childSessionId,
+      kind: "subagent",
+      parentSessionId: mainSessionId,
+      createdBy: "workspace_agent",
+      archivedAt: completedAt,
+    });
+    const firstInput = store.enqueueInput({
+      workspaceId,
+      sessionId: childSessionId,
+      payload: { text: "Research crypto news." },
+    });
+    store.updateInput({ workspaceId, inputId: firstInput.inputId, fields: { status: "DONE" } });
+    store.createSubagentRun({
+      subagentId,
+      workspaceId,
+      parentSessionId: mainSessionId,
+      parentInputId: "parent-input-1",
+      originMainSessionId: mainSessionId,
+      ownerMainSessionId: mainSessionId,
+      childSessionId,
+      initialChildInputId: firstInput.inputId,
+      currentChildInputId: null,
+      latestChildInputId: firstInput.inputId,
+      title: "Crypto research",
+      goal: "Research crypto news.",
+      sourceType: "issue",
+      sourceId: "HOL-1",
+      issueId: "HOL-1",
+      teammateId: assignee.teammateId,
+      effectiveModel: "openai/gpt-5.4",
+      status: "completed",
+      summary: "Initial result.",
+      resultPayload: { assistant_text: "Initial result." },
+      completedAt,
+    });
+
+    let wakeCalls = 0;
+    const service = new RuntimeAgentToolsService(store, {
+      workspaceRoot,
+      queueWorker: {
+        start: async () => {},
+        wake: () => {
+          wakeCalls += 1;
+        },
+        close: async () => {},
+      },
+    });
+
+    const result = service.rerunTask({
+      workspaceId,
+      sessionId: mainSessionId,
+      taskId: "HOL-1",
+    }) as Record<string, unknown>;
+
+    assert.equal(wakeCalls, 1);
+    assert.equal(result.task_id, "HOL-1");
+    assert.equal(result.status, "todo");
+    assert.equal(
+      ((result.latest_run as Record<string, unknown> | null) ?? {})?.status,
+      "queued",
+    );
+    assert.equal(
+      ((result.latest_run as Record<string, unknown> | null) ?? {})?.subagent_id,
+      subagentId,
+    );
+    const rerunIssue = store.getIssue({ workspaceId, issueId: "HOL-1" });
+    assert.equal(rerunIssue?.latestSubagentId, subagentId);
+    assert.equal(rerunIssue?.completedAt, null);
+    const rerunRun = store.getSubagentRun({ workspaceId, subagentId });
+    assert.equal(rerunRun?.status, "queued");
+    assert.equal(rerunRun?.currentChildInputId, rerunRun?.latestChildInputId);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("delegateTask creates issue-owned runs and routes to a matching custom teammate", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-delegate-issue-"));
   const workspaceRoot = path.join(root, "workspace");
@@ -606,7 +812,10 @@ test("queueIssueReply reopens a completed issue on the same persistent issue ses
   );
   const workspaceRoot = path.join(root, "workspaces");
   await mkdir(workspaceRoot, { recursive: true });
-  const store = new RuntimeStateStore({ workspaceRoot });
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
   const workspaceId = "workspace-1";
   try {
     store.createWorkspace({
@@ -1822,6 +2031,138 @@ test("invokeSkill resolves teammate-local skills for an assigned issue session",
       result.skill_file_path,
       fs.realpathSync(path.join(skillDir, "SKILL.md")),
     );
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("createTeammate persists teammate metadata without bundling filesystem skills", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-create-teammate-"));
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    const workspace = store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    const result = service.createTeammate({
+      workspaceId: workspace.id,
+      name: "Researcher",
+      instructions: "Own research work.",
+      capabilityProfile: {
+        summary: "Best for research and synthesis.",
+        capabilities: ["research", "synthesis"],
+        preferredTools: ["web_search", "browser"],
+      },
+    }) as {
+      name: string;
+      teammate_id: string;
+      capability_profile: {
+        summary: string | null;
+        capabilities: string[];
+        preferred_tools: string[];
+      };
+      skills: Array<unknown>;
+    };
+
+    assert.equal(result.name, "Researcher");
+    assert.equal(result.skills.length, 0);
+    assert.equal(
+      result.capability_profile.summary,
+      "Best for research and synthesis.",
+    );
+    assert.deepEqual(result.capability_profile.capabilities, [
+      "research",
+      "synthesis",
+    ]);
+    assert.deepEqual(result.capability_profile.preferred_tools, [
+      "web_search",
+      "browser",
+    ]);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("createTeammateSkill persists one teammate-local filesystem skill bundle", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-create-teammate-skill-"));
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    const workspace = store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    const teammate = store.createTeammate({
+      workspaceId: workspace.id,
+      name: "Researcher",
+      instructions: "Own research work.",
+    });
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    const result = service.createTeammateSkill({
+      workspaceId: workspace.id,
+      teammateId: teammate.teammateId,
+      skill: {
+        skillId: "research-playbook",
+        skillMarkdown: [
+          "---",
+          "name: research-playbook",
+          "description: Research Playbook",
+          "holaboss:",
+          "  granted_tools: [web_search, browser]",
+          "  granted_commands: [open-sources]",
+          "---",
+          "",
+          "# Research Playbook",
+          "",
+          "Always cite sources.",
+        ].join("\n"),
+        sidecarFiles: [
+          {
+            path: "scripts/fetch.sh",
+            content: "#!/bin/sh\ncurl \"$1\"\n",
+          },
+        ],
+        directories: ["assets/templates"],
+      },
+    }) as {
+      teammate_id: string;
+      workspace_id: string;
+      tool_id: string;
+      skill: {
+        skill_id: string;
+        storage_origin: string;
+        file_path: string | null;
+        granted_tools: string[];
+        granted_commands: string[];
+        sidecar_files: Array<{ path: string }>;
+        sidecar_directories: string[];
+      };
+    };
+
+    assert.equal(result.tool_id, "teammate_skills_create");
+    assert.equal(result.teammate_id, teammate.teammateId);
+    assert.equal(result.skill.skill_id, "research-playbook");
+    assert.equal(result.skill.storage_origin, "filesystem");
+    assert.deepEqual(result.skill.granted_tools, ["web_search", "browser"]);
+    assert.deepEqual(result.skill.granted_commands, ["open-sources"]);
+    assert.equal(result.skill.sidecar_files[0]?.path, "scripts/fetch.sh");
+    assert.equal(
+      result.skill.sidecar_directories.includes("assets/templates"),
+      true,
+    );
+    assert.equal(fs.existsSync(String(result.skill.file_path ?? "")), true);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });

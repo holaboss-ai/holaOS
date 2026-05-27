@@ -394,7 +394,18 @@ const RUNTIME_TOOL_DEFINITIONS = new Map<string, ToolCapabilityDefinition>(
 );
 
 function browserToolSessionKinds(): string[] {
-  return ["subagent", "task_proposal"];
+  return ["subagent"];
+}
+
+function canonicalSessionKind(value: string | null | undefined): string | null {
+  const normalized = normalizeOptionalToken(value);
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === "task_proposal") {
+    return "subagent";
+  }
+  return normalized;
 }
 
 const BROWSER_TOOL_DEFINITIONS = new Map<string, ToolCapabilityDefinition>(
@@ -551,7 +562,7 @@ function definitionAllowedInContext(
     };
   }
 
-  const normalizedSessionKind = normalizeOptionalToken(context.session_kind);
+  const normalizedSessionKind = canonicalSessionKind(context.session_kind);
   if (
     availability.sessionKinds &&
     normalizedSessionKind &&
@@ -915,7 +926,7 @@ function buildPolicyContext(
   const workspaceSkills = uniqueSorted(params.workspaceSkillIds.map((skillId) => skillId.trim()));
   const context: AgentCapabilityPolicyContext = {
     harness_id: (params.harnessId ?? "").trim() || null,
-    session_kind: (params.sessionKind ?? "").trim() || null,
+    session_kind: canonicalSessionKind(params.sessionKind),
     browser_tools_available:
       typeof params.browserToolsAvailable === "boolean" ? params.browserToolsAvailable : null,
     browser_tool_ids: browserToolIds,
@@ -1440,12 +1451,7 @@ export function renderCapabilityToolRoutingPromptSection(
     lines.push("Do not lead with a capability apology, manual workaround, or \"I can't do that here\" answer when delegation is available.");
     lines.push("If an earlier turn said a tool was unavailable or unsupported, but the current surfaced capability set now includes it, trust the current run and retry the tool when it is the right path.");
     lines.push("Only surface a hard capability limitation to the user when neither the current run nor delegated subagents can actually carry out the request.");
-    lines.push("Do not simulate waiting on a delegated task by repeatedly calling `get_subagent` or `list_background_tasks` in the same turn after you just spawned it.");
-  }
-  if (manifest.runtime_tools.some((capability) => capability.id === "continue_subagent")) {
-    ensureHeading();
-    lines.push("Continuation routing: when the user asks to continue, transform, save, summarize, compare, or report on a previous delegated result, use `continue_subagent` on the relevant completed child session instead of creating a brand-new delegated task.");
-    lines.push("If more than one prior child result could match a continuation request, ask which one the user means before continuing.");
+    lines.push("Do not simulate waiting on a delegated task by repeatedly calling `get_task` or `list_tasks` in the same turn after you just spawned it.");
   }
   if (manifest.runtime_tools.some((capability) => capability.id === "terminal_session_start")) {
     ensureHeading();
@@ -1473,10 +1479,7 @@ export function renderCapabilityToolRoutingPromptSection(
     lines.push(
       "Use file, config, browser, or web inspection around an MCP/app route only after a surfaced tool call is blocked, fails, or the user explicitly asked for UI verification or environment inspection.",
     );
-    if (
-      normalizedSessionKind === "subagent" ||
-      normalizedSessionKind === "task_proposal"
-    ) {
+    if (normalizedSessionKind === "subagent") {
       lines.push(
         "In executor sessions, prefer proving capability by actually invoking the relevant surfaced MCP/app tool or the narrowest direct health check, not by only summarizing workspace configuration.",
       );

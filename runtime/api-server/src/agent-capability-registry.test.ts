@@ -275,9 +275,9 @@ test("renderCapabilityToolRoutingPromptSection keeps main sessions coordinator-f
     sessionKind: "main_session",
     browserToolsAvailable: false,
     browserToolIds: [],
-    runtimeToolIds: ["delegate_task", "continue_subagent"],
+    runtimeToolIds: ["delegate_task", "rerun_task"],
     defaultTools: ["read", "edit"],
-    extraTools: ["delegate_task", "continue_subagent"],
+    extraTools: ["delegate_task", "rerun_task"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
   });
@@ -295,9 +295,7 @@ test("renderCapabilityToolRoutingPromptSection keeps main sessions coordinator-f
   assert.match(section, /Do not lead with a capability apology, manual workaround, or "I can't do that here" answer when delegation is available/i);
   assert.match(section, /trust the current run and retry the tool when it is the right path/i);
   assert.match(section, /Only surface a hard capability limitation to the user when neither the current run nor delegated subagents can actually carry out the request/i);
-  assert.match(section, /Continuation routing:/);
-  assert.match(section, /use `continue_subagent` on the relevant completed child session instead of creating a brand-new delegated task/i);
-  assert.match(section, /ask which one the user means before continuing/i);
+  assert.doesNotMatch(section, /Continuation routing:/);
 });
 
 test("renderCapabilityToolRoutingPromptSection prefers surfaced MCP tools before diagnostic fallbacks in executor sessions", () => {

@@ -1370,16 +1370,12 @@ function defaultWorkspaceSessionTitle(
   if (normalizedKind === "subagent") {
     return "Subagent run";
   }
-  if (normalizedKind === "task_proposal") {
-    return "Task proposal run";
-  }
   return `Session ${sessionId.slice(0, 8)}`;
 }
 
 type InspectableSessionCategory =
   | "subagent"
   | "cronjob"
-  | "task_proposal"
   | "session";
 
 function inspectableSessionCategory(
@@ -1401,14 +1397,13 @@ function inspectableSessionCategory(
     return "cronjob";
   }
   if (
+    kind === "subagent" ||
     kind === "task_proposal" ||
+    sourceType === "subagent" ||
     sourceType === "task_proposal" ||
     Boolean((session?.proposal_id ?? "").trim()) ||
     Boolean((session?.source_proposal_id ?? "").trim())
   ) {
-    return "task_proposal";
-  }
-  if (kind === "subagent") {
     return "subagent";
   }
   return "session";
@@ -1430,9 +1425,6 @@ function inspectableSessionLabel(
   const category = inspectableSessionCategory(session);
   if (category === "cronjob") {
     return "Cronjob run";
-  }
-  if (category === "task_proposal") {
-    return "Task proposal run";
   }
   if (category === "subagent") {
     return "Subagent run";
@@ -2722,9 +2714,6 @@ const PENDING_INTEGRATION_TOOL_NAMES = new Set([
   "workspace_apps_restart",
   "workspace_apps_restart_and_wait_ready",
   "delegate_task",
-  "resume_subagent",
-  "continue_subagent",
-  "get_subagent",
 ]);
 
 function parseProposedIntegration(value: unknown): ChatProposedIntegration | null {

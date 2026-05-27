@@ -834,6 +834,16 @@ test("runtime tools capability routes expose local onboarding and cronjob action
     assert.ok(
       capabilityStatus
         .json()
+        .tools.some((tool: { id: string }) => tool.id === "teammates_create")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "teammate_skills_create")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
         .tools.some((tool: { id: string }) => tool.id === "memory_retrieve")
     );
     assert.ok(
@@ -875,6 +885,26 @@ test("runtime tools capability routes expose local onboarding and cronjob action
       capabilityStatus
         .json()
         .tools.some((tool: { id: string }) => tool.id === "workspace_data_query")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "get_task")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "list_tasks")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "cancel_task")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "rerun_task")
     );
 
     const onboardingStatus = await app.inject({
@@ -1702,7 +1732,7 @@ env_contract:
   }
 });
 
-test("runtime subagent capability routes create and cancel hidden background tasks", async () => {
+test("runtime task capability routes create, inspect, rerun, and cancel delegated tasks", async () => {
   const root = makeTempDir("hb-runtime-api-subagents-");
   const workspaceRoot = path.join(root, "workspace");
   const store = new RuntimeStateStore({
@@ -1810,7 +1840,7 @@ test("runtime subagent capability routes create and cancel hidden background tas
   assert.deepEqual(childInput?.payload.attachments, parentInput.payload.attachments);
   assert.deepEqual(childInput?.payload.image_urls, parentInput.payload.image_urls);
   const childContext = (childInput?.payload.context ?? {}) as Record<string, unknown>;
-  assert.equal(childContext.source, "subagent");
+  assert.equal(childContext.source, "issue_bootstrap");
   assert.equal(childContext.subagent_id, task.subagent_id);
   assert.equal(childContext.forwarded_attachment_count, 1);
   assert.deepEqual(childContext.forwarded_quoted_skill_ids, [
@@ -1826,70 +1856,73 @@ test("runtime subagent capability routes create and cancel hidden background tas
   assert.equal(listed.json().count, 1);
   assert.equal(listed.json().tasks[0].subagent_id, task.subagent_id);
 
-  const listedViaCapability = await app.inject({
+  const listedTasksViaCapability = await app.inject({
     method: "GET",
-    url: "/api/v1/capabilities/runtime-tools/background-tasks?limit=10",
+    url: "/api/v1/capabilities/runtime-tools/tasks?limit=10",
     headers: {
       "x-holaboss-workspace-id": workspace.id,
       "x-holaboss-session-id": "session-main",
     },
   });
-  assert.equal(listedViaCapability.statusCode, 200);
-  assert.equal(listedViaCapability.json().count, 1);
-  assert.equal(listedViaCapability.json().tasks[0].subagent_id, task.subagent_id);
+  assert.equal(listedTasksViaCapability.statusCode, 200);
+  assert.equal(listedTasksViaCapability.json().count, 1);
+  assert.equal(listedTasksViaCapability.json().tasks[0].task_id, task.issue_id);
 
-  const fetchedViaCapability = await app.inject({
+  const fetchedTaskViaCapability = await app.inject({
     method: "GET",
-    url: `/api/v1/capabilities/runtime-tools/subagents/${encodeURIComponent(task.subagent_id)}`,
+    url: `/api/v1/capabilities/runtime-tools/tasks/${encodeURIComponent(task.issue_id)}`,
     headers: {
       "x-holaboss-workspace-id": workspace.id,
       "x-holaboss-session-id": "session-main",
     },
   });
-  assert.equal(fetchedViaCapability.statusCode, 200);
-  assert.equal(fetchedViaCapability.json().subagent_id, task.subagent_id);
+  assert.equal(fetchedTaskViaCapability.statusCode, 200);
+  assert.equal(fetchedTaskViaCapability.json().task_id, task.issue_id);
+  assert.equal(fetchedTaskViaCapability.json().latest_run.subagent_id, task.subagent_id);
 
-  const blockedSameTurnFetch = await app.inject({
+  const blockedSameTurnTaskFetch = await app.inject({
     method: "GET",
-    url: `/api/v1/capabilities/runtime-tools/subagents/${encodeURIComponent(task.subagent_id)}`,
-    headers: {
-      "x-holaboss-workspace-id": workspace.id,
-      "x-holaboss-session-id": "session-main",
-      "x-holaboss-input-id": parentInput.inputId,
-    },
-  });
-  assert.equal(blockedSameTurnFetch.statusCode, 409);
-  assert.match(
-    blockedSameTurnFetch.body,
-    /do not use get_subagent to poll a freshly delegated task in the same turn/i,
-  );
-
-  const blockedSameTurnList = await app.inject({
-    method: "GET",
-    url: "/api/v1/capabilities/runtime-tools/background-tasks?limit=10",
+    url: `/api/v1/capabilities/runtime-tools/tasks/${encodeURIComponent(task.issue_id)}`,
     headers: {
       "x-holaboss-workspace-id": workspace.id,
       "x-holaboss-session-id": "session-main",
       "x-holaboss-input-id": parentInput.inputId,
     },
   });
-  assert.equal(blockedSameTurnList.statusCode, 409);
+  assert.equal(blockedSameTurnTaskFetch.statusCode, 409);
   assert.match(
-    blockedSameTurnList.body,
-    /do not use list_background_tasks to poll a freshly delegated task in the same turn/i,
+    blockedSameTurnTaskFetch.body,
+    /do not use get_task to poll a freshly delegated task in the same turn/i,
   );
 
-  const cancelled = await app.inject({
+  const blockedSameTurnTaskList = await app.inject({
+    method: "GET",
+    url: "/api/v1/capabilities/runtime-tools/tasks?limit=10",
+    headers: {
+      "x-holaboss-workspace-id": workspace.id,
+      "x-holaboss-session-id": "session-main",
+      "x-holaboss-input-id": parentInput.inputId,
+    },
+  });
+  assert.equal(blockedSameTurnTaskList.statusCode, 409);
+  assert.match(
+    blockedSameTurnTaskList.body,
+    /do not use list_tasks to poll a freshly delegated task in the same turn/i,
+  );
+
+  const cancelledTask = await app.inject({
     method: "POST",
-    url: `/api/v1/capabilities/runtime-tools/subagents/${encodeURIComponent(task.subagent_id)}/cancel`,
+    url: `/api/v1/capabilities/runtime-tools/tasks/${encodeURIComponent(task.issue_id)}/cancel`,
     headers: {
       "x-holaboss-workspace-id": workspace.id,
       "x-holaboss-session-id": "session-main",
     },
     payload: {},
   });
-  assert.equal(cancelled.statusCode, 200);
-  assert.equal(cancelled.json().status, "cancelled");
+  assert.equal(cancelledTask.statusCode, 200);
+  assert.equal(cancelledTask.json().task_id, task.issue_id);
+  assert.equal(cancelledTask.json().status, "blocked");
+  assert.equal(cancelledTask.json().latest_run.status, "cancelled");
 
   const cancelledRun = store.getSubagentRun({ workspaceId: workspace.id, subagentId: task.subagent_id });
   assert.equal(cancelledRun?.status, "cancelled");
@@ -1897,6 +1930,34 @@ test("runtime subagent capability routes create and cancel hidden background tas
     ? store.getInput({ workspaceId: workspace.id, inputId: run.currentChildInputId })
     : null;
   assert.equal(cancelledInput?.status, "DONE");
+
+  const rerunTask = await app.inject({
+    method: "POST",
+    url: `/api/v1/capabilities/runtime-tools/tasks/${encodeURIComponent(task.issue_id)}/rerun`,
+    headers: {
+      "x-holaboss-workspace-id": workspace.id,
+      "x-holaboss-session-id": "session-main",
+      "x-holaboss-input-id": parentInput.inputId,
+    },
+    payload: {},
+  });
+  assert.equal(rerunTask.statusCode, 200);
+  assert.equal(rerunTask.json().task_id, task.issue_id);
+  assert.equal(rerunTask.json().status, "todo");
+  assert.equal(rerunTask.json().latest_run.status, "queued");
+
+  const cancelledRerunTask = await app.inject({
+    method: "POST",
+    url: `/api/v1/capabilities/runtime-tools/tasks/${encodeURIComponent(task.issue_id)}/cancel`,
+    headers: {
+      "x-holaboss-workspace-id": workspace.id,
+      "x-holaboss-session-id": "session-main",
+    },
+    payload: {},
+  });
+  assert.equal(cancelledRerunTask.statusCode, 200);
+  assert.equal(cancelledRerunTask.json().status, "blocked");
+  assert.equal(cancelledRerunTask.json().latest_run.status, "cancelled");
 
   const archived = await app.inject({
     method: "POST",
@@ -2182,6 +2243,139 @@ test("runtime skill tool resolves teammate-local skills through the assigned iss
     assert.match(response.json().text, /Use the dashboard patterns\./);
     assert.equal(response.json().skill_id, "frontend-playbook");
     assert.equal(response.json().tool_id, "skill");
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
+test("runtime teammates_create tool creates a teammate without bundling skills into the create step", async () => {
+  const root = makeTempDir("hb-runtime-api-teammates-create-tool-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/teammates",
+      headers: {
+        "x-holaboss-workspace-id": workspace.id,
+      },
+      payload: {
+        name: "Researcher",
+        instructions: "Own research, synthesis, and briefing work.",
+        capability_profile: {
+          summary: "Best for research and synthesis tasks.",
+          capabilities: ["research", "synthesis"],
+          preferred_tools: ["web_search", "browser"],
+        },
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().tool_id, "teammates_create");
+    assert.equal(response.json().name, "Researcher");
+    assert.equal(response.json().skills.length, 0);
+    assert.deepEqual(
+      response.json().capability_profile,
+      {
+        summary: "Best for research and synthesis tasks.",
+        capabilities: ["research", "synthesis"],
+        preferred_tools: ["web_search", "browser"],
+      },
+    );
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
+test("runtime teammate_skills_create tool creates a teammate-local skill bundle", async () => {
+  const root = makeTempDir("hb-runtime-api-teammate-skills-create-tool-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const teammate = store.createTeammate({
+    workspaceId: workspace.id,
+    name: "Researcher",
+    instructions: "Own research work.",
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/capabilities/runtime-tools/teammates/${teammate.teammateId}/skills`,
+      headers: {
+        "x-holaboss-workspace-id": workspace.id,
+      },
+      payload: {
+        skill_id: "research-playbook",
+        skill_markdown: [
+          "---",
+          "name: research-playbook",
+          "description: Research Playbook",
+          "holaboss:",
+          "  granted_tools: [web_search, browser]",
+          "  granted_commands: [open-sources]",
+          "---",
+          "",
+          "# Research Playbook",
+          "",
+          "Always cite sources.",
+        ].join("\n"),
+        sidecar_files: [
+          {
+            path: "scripts/fetch.sh",
+            content: "#!/bin/sh\ncurl \"$1\"\n",
+          },
+        ],
+        directories: ["assets/templates"],
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().tool_id, "teammate_skills_create");
+    assert.equal(response.json().teammate_id, teammate.teammateId);
+    assert.equal(response.json().skill.skill_id, "research-playbook");
+    assert.equal(response.json().skill.storage_origin, "filesystem");
+    assert.deepEqual(response.json().skill.granted_tools, [
+      "web_search",
+      "browser",
+    ]);
+    assert.deepEqual(response.json().skill.granted_commands, [
+      "open-sources",
+    ]);
+    assert.equal(
+      response.json().skill.sidecar_files[0]?.path,
+      "scripts/fetch.sh",
+    );
+    assert.equal(
+      response.json().skill.sidecar_directories.includes("assets/templates"),
+      true,
+    );
+    assert.match(
+      String(response.json().skill.file_path ?? ""),
+      /teammates\/.*\/skills\/research-playbook\/SKILL\.md$/,
+    );
   } finally {
     await app.close();
     store.close();
@@ -6220,30 +6414,36 @@ test("teammate and issue routes preserve local payload shape", async () => {
         summary: "Best for implementation, refactors, and shipping code changes.",
         capabilities: ["implementation", "frontend", "react"],
         preferred_tools: ["edit", "bash"],
-      },
-      skills: [
-        {
-          skill_id: "skill-1",
-          name: "Frontend",
-          content: "# Frontend\nBuild UI surfaces."
-        }
-      ]
+      }
     }
   });
   assert.equal(createdTeammate.statusCode, 200);
   assert.equal(createdTeammate.json().teammate.name, "Coder");
-  assert.equal(createdTeammate.json().teammate.skills.length, 1);
+  assert.equal(createdTeammate.json().teammate.skills.length, 0);
+  const createdSkill = await app.inject({
+    method: "POST",
+    url: `/api/v1/teammates/${createdTeammate.json().teammate.teammate_id}/skills`,
+    payload: {
+      workspace_id: workspace.id,
+      skill: {
+        skill_id: "skill-1",
+        name: "Frontend",
+        content: "# Frontend\nBuild UI surfaces.",
+      },
+    },
+  });
+  assert.equal(createdSkill.statusCode, 200);
   assert.equal(
-    createdTeammate.json().teammate.skills[0]?.storage_origin,
+    createdSkill.json().skill.storage_origin,
     "filesystem",
   );
   assert.match(
-    String(createdTeammate.json().teammate.skills[0]?.file_path ?? ""),
+    String(createdSkill.json().skill.file_path ?? ""),
     /teammates\/.*\/skills\/skill-1\/SKILL\.md$/,
   );
   assert.equal(
     fs.existsSync(
-      String(createdTeammate.json().teammate.skills[0]?.file_path ?? ""),
+      String(createdSkill.json().skill.file_path ?? ""),
     ),
     true,
   );
@@ -6263,6 +6463,7 @@ test("teammate and issue routes preserve local payload shape", async () => {
   assert.equal(listedTeammates.statusCode, 200);
   assert.equal(listedTeammates.json().count, 2);
   assert.equal(listedTeammates.json().teammates[0]?.teammate_id, "general");
+  assert.equal(listedTeammates.json().teammates[1]?.skills.length, 1);
   assert.match(
     listedTeammates.json().teammates[0]?.capability_profile.summary ?? "",
     /Fallback executor/i,

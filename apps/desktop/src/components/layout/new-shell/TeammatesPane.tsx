@@ -109,6 +109,7 @@ function normalizedSkillInputs(
   skills: SkillDraft[],
 ): TeammateSkillInputPayload[] | null {
   const normalized: TeammateSkillInputPayload[] = [];
+  const seenSkillIds = new Set<string>();
   for (const skill of skills) {
     const name = skill.name.trim();
     const content = skill.content.trim();
@@ -118,6 +119,21 @@ function normalizedSkillInputs(
     if (!name || !content) {
       throw new Error("Every skill needs both a name and SKILL.md content.");
     }
+    const canonicalSkillId =
+      skill.skillId?.trim().toLowerCase() ||
+      name
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/-{2,}/g, "-")
+        .replace(/^[-_]+|[-_]+$/g, "");
+    if (!canonicalSkillId) {
+      throw new Error("Every skill needs a name that can be turned into a skill id.");
+    }
+    if (seenSkillIds.has(canonicalSkillId)) {
+      throw new Error(`Duplicate skill id: ${canonicalSkillId}`);
+    }
+    seenSkillIds.add(canonicalSkillId);
     normalized.push({
       skill_id: skill.skillId?.trim() || null,
       name,
@@ -509,17 +525,43 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
     setIsSaving(true);
     setStatusMessage("");
     try {
+      const persistSkills = async (
+        teammateId: string,
+        previousSkills: TeammateSkillPayload[],
+      ): Promise<void> => {
+        const desiredSkillIds = new Set<string>();
+        for (const skill of skills ?? []) {
+          const created = await window.electronAPI.workspace.createTeammateSkill(
+            workspaceId,
+            teammateId,
+            {
+              workspace_id: workspaceId,
+              skill,
+            },
+          );
+          desiredSkillIds.add(created.skill.skill_id);
+        }
+        for (const existingSkill of previousSkills) {
+          if (desiredSkillIds.has(existingSkill.skill_id)) {
+            continue;
+          }
+          await window.electronAPI.workspace.deleteTeammateSkill(
+            workspaceId,
+            teammateId,
+            existingSkill.skill_id,
+          );
+        }
+      };
       if (isCreating) {
         const created = await window.electronAPI.workspace.createTeammate({
           workspace_id: workspaceId,
           name,
           instructions: draft.instructions.trim() || null,
-          skills,
           capability_profile: capabilityProfile,
         });
+        await persistSkills(created.teammate.teammate_id, []);
         await refresh();
         setSelectedTeammateId(created.teammate.teammate_id);
-        setDraft(draftFromTeammate(created.teammate));
         setDetailTab("activity");
         setStatusMessage("Teammate created.");
       } else if (selectedTeammate) {
@@ -530,13 +572,12 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
             workspace_id: workspaceId,
             name,
             instructions: draft.instructions.trim() || null,
-            skills,
             capability_profile: capabilityProfile,
           },
         );
+        await persistSkills(updated.teammate.teammate_id, selectedTeammate.skills);
         await refresh();
         setSelectedTeammateId(updated.teammate.teammate_id);
-        setDraft(draftFromTeammate(updated.teammate));
         setStatusMessage("Teammate updated.");
       }
     } catch (error) {

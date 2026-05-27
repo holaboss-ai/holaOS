@@ -20,6 +20,10 @@ test("desktop issues and teammates bridge exposes typed IPC on main and preload"
   assert.match(mainSource, /"workspace:createTeammate"/);
   assert.match(mainSource, /async function updateTeammate\(\s*workspaceId: string,\s*teammateId: string,\s*payload: UpdateTeammatePayload,/);
   assert.match(mainSource, /"workspace:updateTeammate"/);
+  assert.match(mainSource, /async function createTeammateSkill\(\s*workspaceId: string,\s*teammateId: string,\s*payload: CreateTeammateSkillPayload,/);
+  assert.match(mainSource, /"workspace:createTeammateSkill"/);
+  assert.match(mainSource, /async function deleteTeammateSkill\(\s*workspaceId: string,\s*teammateId: string,\s*skillId: string,/);
+  assert.match(mainSource, /"workspace:deleteTeammateSkill"/);
   assert.match(mainSource, /async function listIssues\(\s*workspaceId: string,/);
   assert.match(mainSource, /path: "\/api\/v1\/issues"/);
   assert.match(mainSource, /"workspace:listIssues"/);
@@ -37,6 +41,10 @@ test("desktop issues and teammates bridge exposes typed IPC on main and preload"
   assert.match(preloadSource, /ipcRenderer\.invoke\("workspace:createTeammate", payload\)/);
   assert.match(preloadSource, /updateTeammate: \(\s*workspaceId: string,\s*teammateId: string,\s*payload: UpdateTeammatePayload,\s*\) =>/);
   assert.match(preloadSource, /ipcRenderer\.invoke\("workspace:updateTeammate", workspaceId, teammateId, payload\)/);
+  assert.match(preloadSource, /createTeammateSkill: \(\s*workspaceId: string,\s*teammateId: string,\s*payload: CreateTeammateSkillPayload,\s*\) =>/);
+  assert.match(preloadSource, /ipcRenderer\.invoke\("workspace:createTeammateSkill", workspaceId, teammateId, payload\)/);
+  assert.match(preloadSource, /deleteTeammateSkill: \(\s*workspaceId: string,\s*teammateId: string,\s*skillId: string,\s*\) =>/);
+  assert.match(preloadSource, /ipcRenderer\.invoke\("workspace:deleteTeammateSkill", workspaceId, teammateId, skillId\)/);
   assert.match(preloadSource, /listIssues: \(workspaceId: string\) =>/);
   assert.match(preloadSource, /ipcRenderer\.invoke\("workspace:listIssues", workspaceId\)/);
   assert.match(preloadSource, /createIssue: \(payload: CreateIssuePayload\) =>/);
@@ -51,6 +59,9 @@ test("desktop issues and teammates bridge exposes typed IPC on main and preload"
   assert.match(typesSource, /interface CreateTeammateResponsePayload \{/);
   assert.match(typesSource, /interface UpdateTeammatePayload \{/);
   assert.match(typesSource, /interface UpdateTeammateResponsePayload \{/);
+  assert.match(typesSource, /interface CreateTeammateSkillPayload \{/);
+  assert.match(typesSource, /interface CreateTeammateSkillResponsePayload \{/);
+  assert.match(typesSource, /interface DeleteTeammateSkillResponsePayload \{/);
   assert.match(typesSource, /interface IssueRecordPayload \{/);
   assert.match(typesSource, /interface IssueListResponsePayload \{/);
   assert.match(typesSource, /interface CreateIssuePayload \{/);
@@ -62,6 +73,8 @@ test("desktop issues and teammates bridge exposes typed IPC on main and preload"
   assert.match(typesSource, /listTeammates: \(\s*workspaceId: string,\s*includeArchived\?: boolean\s*\) => Promise<TeammateListResponsePayload>;/);
   assert.match(typesSource, /createTeammate: \(\s*payload: CreateTeammatePayload\s*\) => Promise<CreateTeammateResponsePayload>;/);
   assert.match(typesSource, /updateTeammate: \(\s*workspaceId: string,\s*teammateId: string,\s*payload: UpdateTeammatePayload\s*\) => Promise<UpdateTeammateResponsePayload>;/);
+  assert.match(typesSource, /createTeammateSkill: \(\s*workspaceId: string,\s*teammateId: string,\s*payload: CreateTeammateSkillPayload\s*\) => Promise<CreateTeammateSkillResponsePayload>;/);
+  assert.match(typesSource, /deleteTeammateSkill: \(\s*workspaceId: string,\s*teammateId: string,\s*skillId: string\s*\) => Promise<DeleteTeammateSkillResponsePayload>;/);
   assert.match(typesSource, /listIssues: \(workspaceId: string\) => Promise<IssueListResponsePayload>;/);
   assert.match(typesSource, /createIssue: \(payload: CreateIssuePayload\) => Promise<CreateIssueResponsePayload>;/);
   assert.match(typesSource, /updateIssue: \(\s*workspaceId: string,\s*issueId: string,\s*payload: UpdateIssuePayload\s*\) => Promise<UpdateIssueResponsePayload>;/);

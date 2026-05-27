@@ -128,22 +128,20 @@ const SUBAGENT_DEFAULT_TOOLS = [
 ];
 const SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS = new Set([
   "delegate_task",
-  "get_subagent",
-  "list_background_tasks",
-  "cancel_subagent",
-  "resume_subagent",
-  "continue_subagent",
+  "get_task",
+  "list_tasks",
+  "cancel_task",
+  "rerun_task",
 ]);
 const MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS = new Set([
   "update_workspace_instructions",
 ]);
 const MAIN_SESSION_RUNTIME_TOOL_IDS = new Set([
   "delegate_task",
-  "get_subagent",
-  "list_background_tasks",
-  "cancel_subagent",
-  "resume_subagent",
-  "continue_subagent",
+  "get_task",
+  "list_tasks",
+  "cancel_task",
+  "rerun_task",
   "update_workspace_instructions",
   "cronjobs_list",
   "cronjobs_create",
@@ -1120,6 +1118,9 @@ function normalizedSessionKindValue(value: string | null | undefined): string {
   if (!normalized || normalized === "workspace_session" || normalized === "main") {
     return "main_session";
   }
+  if (normalized === "task_proposal") {
+    return "subagent";
+  }
   return normalized;
 }
 
@@ -1146,7 +1147,7 @@ function projectBrowserToolIdsForSession(params: {
   browserToolIds: string[];
 }): string[] {
   const normalized = normalizedSessionKindValue(params.sessionKind);
-  if (normalized === "subagent" || normalized === "task_proposal") {
+  if (normalized === "subagent") {
     return [...params.browserToolIds];
   }
   return [];

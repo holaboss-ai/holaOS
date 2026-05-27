@@ -416,15 +416,15 @@ test("Pi runtime subagent tools normalize delegated task bodies and control rout
   });
 
   const delegateTool = tools.find((tool) => tool.name === "delegate_task");
-  const getTool = tools.find((tool) => tool.name === "get_subagent");
-  const listTool = tools.find((tool) => tool.name === "list_background_tasks");
-  const cancelTool = tools.find((tool) => tool.name === "cancel_subagent");
-  const continueTool = tools.find((tool) => tool.name === "continue_subagent");
+  const getTaskTool = tools.find((tool) => tool.name === "get_task");
+  const listTasksTool = tools.find((tool) => tool.name === "list_tasks");
+  const cancelTaskTool = tools.find((tool) => tool.name === "cancel_task");
+  const rerunTaskTool = tools.find((tool) => tool.name === "rerun_task");
   assert.ok(delegateTool);
-  assert.ok(getTool);
-  assert.ok(listTool);
-  assert.ok(cancelTool);
-  assert.ok(continueTool);
+  assert.ok(getTaskTool);
+  assert.ok(listTasksTool);
+  assert.ok(cancelTaskTool);
+  assert.ok(rerunTaskTool);
 
   await delegateTool.execute(
     "call-1",
@@ -437,47 +437,45 @@ test("Pi runtime subagent tools normalize delegated task bodies and control rout
     undefined,
     {} as never,
   );
-  await getTool.execute(
-    "call-2",
+  await getTaskTool.execute(
+    "call-2b",
     {
-      subagent_id: "subagent-1",
+      task_id: "HOL-1",
     },
     undefined,
     undefined,
     {} as never,
   );
-  await listTool.execute(
-    "call-3",
+  await listTasksTool.execute(
+    "call-2c",
     {
-      statuses: ["running", "waiting_on_user"],
-      owner_main_session_id: "session-main",
-      limit: 25,
+      statuses: ["todo", "blocked"],
+      limit: 10,
     },
     undefined,
     undefined,
     {} as never,
   );
-  await cancelTool.execute(
-    "call-4",
+  await cancelTaskTool.execute(
+    "call-3b",
     {
-      subagent_id: "subagent-1",
+      task_id: "HOL-1",
     },
     undefined,
     undefined,
     {} as never,
   );
-  await continueTool.execute(
-    "call-5",
+  await rerunTaskTool.execute(
+    "call-4b",
     {
-      subagent_id: "subagent-1",
-      instruction: "Turn those results into a short report.",
-      title: "Report from topic A",
+      task_id: "HOL-1",
+      model: "openai/gpt-5.5",
+      priority: 7,
     },
     undefined,
     undefined,
     {} as never,
   );
-
   assert.deepEqual(requests, [
     {
       method: "POST",
@@ -496,33 +494,33 @@ test("Pi runtime subagent tools normalize delegated task bodies and control rout
     },
     {
       method: "GET",
-      url: "http://127.0.0.1:5060/api/v1/capabilities/runtime-tools/subagents/subagent-1",
+      url: "http://127.0.0.1:5060/api/v1/capabilities/runtime-tools/tasks/HOL-1",
       workspaceId: "workspace-1",
       sessionId: "session-main",
       body: "",
     },
     {
       method: "GET",
-      url: "http://127.0.0.1:5060/api/v1/capabilities/runtime-tools/background-tasks?status=running&status=waiting_on_user&owner_main_session_id=session-main&limit=25",
+      url: "http://127.0.0.1:5060/api/v1/capabilities/runtime-tools/tasks?statuses=todo&statuses=blocked&limit=10",
       workspaceId: "workspace-1",
       sessionId: "session-main",
       body: "",
     },
     {
       method: "POST",
-      url: "http://127.0.0.1:5060/api/v1/capabilities/runtime-tools/subagents/subagent-1/cancel",
+      url: "http://127.0.0.1:5060/api/v1/capabilities/runtime-tools/tasks/HOL-1/cancel",
       workspaceId: "workspace-1",
       sessionId: "session-main",
       body: JSON.stringify({}),
     },
     {
       method: "POST",
-      url: "http://127.0.0.1:5060/api/v1/capabilities/runtime-tools/subagents/subagent-1/continue",
+      url: "http://127.0.0.1:5060/api/v1/capabilities/runtime-tools/tasks/HOL-1/rerun",
       workspaceId: "workspace-1",
       sessionId: "session-main",
       body: JSON.stringify({
-        instruction: "Turn those results into a short report.",
-        title: "Report from topic A",
+        model: "openai/gpt-5.5",
+        priority: 7,
       }),
     },
   ]);

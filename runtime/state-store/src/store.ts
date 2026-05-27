@@ -2648,22 +2648,27 @@ export class RuntimeStateStore {
 
   listIssues(params: {
     workspaceId: string;
+    statuses?: IssueStatus[] | null;
     limit?: number;
     offset?: number;
   }): IssueRecord[] {
+    const statuses = Array.from(new Set((params.statuses ?? []).filter((status): status is IssueStatus => !!status)));
+    const whereClauses = ["workspace_id = ?"];
+    const values: unknown[] = [params.workspaceId];
+    if (statuses.length > 0) {
+      whereClauses.push(`status IN (${statuses.map(() => "?").join(", ")})`);
+      values.push(...statuses);
+    }
+    values.push(params.limit ?? 200, params.offset ?? 0);
     const rows = this.workspaceRuntimeDb(params.workspaceId)
-      .prepare<[string, number, number], Record<string, unknown>>(`
+      .prepare<unknown[], Record<string, unknown>>(`
         SELECT *
         FROM issues
-        WHERE workspace_id = ?
+        WHERE ${whereClauses.join(" AND ")}
         ORDER BY datetime(updated_at) DESC, issue_number DESC, issue_id DESC
         LIMIT ? OFFSET ?
       `)
-      .all(
-        params.workspaceId,
-        params.limit ?? 200,
-        params.offset ?? 0,
-      );
+      .all(...values);
     return rows.map((row) => this.rowToIssue(row));
   }
 

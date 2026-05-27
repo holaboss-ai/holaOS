@@ -226,8 +226,8 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
     harnessId: "pi",
     sessionKind: "main_session",
     defaultTools: ["read"],
-    extraTools: ["delegate_task", "get_subagent", "list_background_tasks"],
-    runtimeToolIds: ["delegate_task", "get_subagent", "list_background_tasks"],
+    extraTools: ["delegate_task", "get_task", "list_tasks"],
+    runtimeToolIds: ["delegate_task", "get_task", "list_tasks"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
     toolServerIdMap: {},
@@ -263,7 +263,7 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
 
   const prompt = composeAgentPrompt("You are concise.", {
     defaultTools: ["read"],
-    extraTools: ["delegate_task", "get_subagent", "list_background_tasks"],
+    extraTools: ["delegate_task", "get_task", "list_tasks"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
     sessionKind: "main_session",
@@ -329,10 +329,10 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /If a request resembles earlier work but the user did not clearly ask to continue or reuse that earlier result, treat it as a fresh task\./);
   assert.match(prompt.systemPrompt, /Do not satisfy a fresh task by resurfacing a previous artifact, previous child output, or remembered result unless the user explicitly asked to reuse, continue, transform, summarize, compare, or save that exact prior result\./);
   assert.match(prompt.systemPrompt, /Before claiming the work is already done or that an existing artifact satisfies the current request, verify it through direct inspection, direct tool results, or a grounded child result\./);
-  assert.match(prompt.systemPrompt, /continue, transform, save, summarize, compare, or report on a previous child result, continue the relevant child session instead of spawning a brand-new child task\./);
-  assert.match(prompt.systemPrompt, /If multiple child sessions could match a continuation request, ask which one the user means before continuing\./);
+  assert.match(prompt.systemPrompt, /continue, transform, save, summarize, compare, or report on a previous task result, continue the relevant task instead of spawning a brand-new task\./);
+  assert.match(prompt.systemPrompt, /If multiple prior tasks could match a continuation request, ask which one the user means before continuing\./);
   assert.match(prompt.systemPrompt, /Subagents are backstage executors\. Do not ask the user to interact with them directly and do not present them as separate conversational agents\./);
-  assert.match(prompt.systemPrompt, /When the user answers a background-work blocker such as logging in, authorizing, confirming, or providing missing context, resume the waiting child session instead of starting a new task\./);
+  assert.match(prompt.systemPrompt, /When the user answers a background-work blocker such as logging in, authorizing, confirming, or providing missing context, resume the waiting task instead of starting a new task\./);
   assert.match(prompt.systemPrompt, /Treat chat like the user is messaging their assistant in an IM, not like the final deliverable surface\./);
   assert.match(prompt.systemPrompt, /Keep accepted, in-progress, waiting, and completed work clearly separate in how you speak\./);
   assert.match(prompt.systemPrompt, /Treat the main session as a coordination surface by default\./);
@@ -1241,6 +1241,9 @@ test("composeBaseAgentPrompt includes teammate routing context when provided", (
   assert.doesNotMatch(prompt.systemPrompt, /Teammate routing roster:/);
   assert.match(prompt.contextMessages.join("\n\n"), /Teammate routing roster:/);
   assert.match(prompt.contextMessages.join("\n\n"), /Fall back to `General` when no custom teammate is a clear fit\./);
+  assert.match(prompt.contextMessages.join("\n\n"), /load the `create-teammate` skill via the `skill` tool before creating anyone/i);
+  assert.match(prompt.contextMessages.join("\n\n"), /Do not create a teammate until the stable remit is understood/i);
+  assert.match(prompt.contextMessages.join("\n\n"), /ask for the concrete missing remit details before calling teammate-creation tools/i);
   assert.match(prompt.contextMessages.join("\n\n"), /`Frontend` \[custom\/active\]: Best for React dashboard implementation and UI refactors\./);
   assert.match(prompt.contextMessages.join("\n\n"), /Capability tags: `frontend`, `react`, `dashboard`, `ui`\./);
   assert.match(prompt.contextMessages.join("\n\n"), /Preferred tools: `edit`, `bash`\./);

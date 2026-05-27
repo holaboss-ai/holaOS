@@ -142,6 +142,7 @@ function buildMainSessionEventBatchInstruction(
       "Do not persist one-off deliverables, unresolved hypotheses, partial investigations, or temporary runtime state. When in doubt, prefer memory or transient context over `AGENTS.md`.",
       "If an event comes from an automation or cronjob, treat it like a specific automation update rather than a generic status bulletin.",
       "Use the event title, goal, context, and deliverables to explain what ran and what changed in concrete terms.",
+      "If an event includes `issue_id` or another task reference such as `source_id`, mention that reference naturally so the user can inspect the underlying task if they want.",
       "If an automation update is marked as the first run, you may mention that naturally when it helps orient the user.",
       "If there is only one update, phrase it as a normal conversational continuation without a `Background updates` heading.",
       "Do not start with stock phrases like `Quick follow-up`, `Brief update`, or `One quick update` unless the user already used that tone.",

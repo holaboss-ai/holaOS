@@ -79,8 +79,9 @@ import {
   createTeammateIdForFilesystem,
   type ResolvedTeammateSkillRecord,
   type TeammateSkillInput,
+  deleteTeammateSkill,
   resolvedTeammateSkillsForRecord,
-  writeTeammateSkills,
+  upsertTeammateSkill,
 } from "./teammate-skill-files.js";
 import {
   type RecallEmbeddingBackfillWorkerLike,
@@ -911,16 +912,69 @@ function requiredTeammateSkillInputs(
     if (!isRecord(entry)) {
       throw new Error(`${fieldName}[${index}] must be an object`);
     }
-    const name = requiredString(entry.name, `${fieldName}[${index}].name`);
-    const content = requiredString(entry.content, `${fieldName}[${index}].content`);
+    const sidecarFiles = hasOwn(entry, "sidecar_files")
+      ? (() => {
+          const raw = entry.sidecar_files;
+          if (!Array.isArray(raw)) {
+            throw new Error(`${fieldName}[${index}].sidecar_files must be an array`);
+          }
+          return raw.map((file, fileIndex) => {
+            if (!isRecord(file)) {
+              throw new Error(`${fieldName}[${index}].sidecar_files[${fileIndex}] must be an object`);
+            }
+            return {
+              path: requiredString(
+                file.path,
+                `${fieldName}[${index}].sidecar_files[${fileIndex}].path`,
+              ),
+              content: requiredString(
+                file.content,
+                `${fieldName}[${index}].sidecar_files[${fileIndex}].content`,
+              ),
+            };
+          });
+        })()
+      : undefined;
     return {
       skillId: nullableString(entry.skill_id) ?? undefined,
-      name,
-      content,
+      name: nullableString(entry.name) ?? undefined,
+      content: nullableString(entry.content) ?? undefined,
+      skillMarkdown: nullableString(entry.skill_markdown) ?? undefined,
+      grantedTools: hasOwn(entry, "granted_tools")
+        ? optionalTrimmedStringArray(
+            entry.granted_tools,
+            `${fieldName}[${index}].granted_tools`,
+          )
+        : undefined,
+      grantedCommands: hasOwn(entry, "granted_commands")
+        ? optionalTrimmedStringArray(
+            entry.granted_commands,
+            `${fieldName}[${index}].granted_commands`,
+          )
+        : undefined,
+      sidecarFiles,
+      directories: hasOwn(entry, "directories")
+        ? optionalTrimmedStringArray(
+            entry.directories,
+            `${fieldName}[${index}].directories`,
+          )
+        : undefined,
       createdAt: nullableString(entry.created_at) ?? undefined,
       updatedAt: nullableString(entry.updated_at) ?? undefined,
     };
   });
+}
+
+function requiredTeammateSkillInput(
+  value: unknown,
+  fieldName: string,
+): TeammateSkillInput {
+  const parsed = requiredTeammateSkillInputs([value], fieldName);
+  const first = parsed[0];
+  if (!first) {
+    throw new Error(`${fieldName} is required`);
+  }
+  return first;
 }
 
 function optionalTrimmedStringArray(
@@ -1182,17 +1236,18 @@ function agentSessionPayload(
   record: AgentSessionRecord,
   runtimeStore?: Pick<RuntimeStateStore, "getSubagentRunByChildSession"> | null,
 ): Record<string, unknown> {
+  const canonicalKind = record.kind === "task_proposal" ? "subagent" : record.kind;
   const linkedSubagentRun = runtimeStore?.getSubagentRunByChildSession({
     workspaceId: record.workspaceId,
     childSessionId: record.sessionId,
   });
   const sourceType =
     linkedSubagentRun?.sourceType ??
-    (record.kind === "task_proposal" || record.sourceProposalId ? "task_proposal" : null);
+    (record.sourceProposalId ? "subagent" : null);
   return {
     workspace_id: record.workspaceId,
     session_id: record.sessionId,
-    kind: record.kind,
+    kind: canonicalKind,
     title: record.title,
     parent_session_id: record.parentSessionId,
     source_proposal_id: record.sourceProposalId,
@@ -1434,6 +1489,15 @@ function teammateSkillPayload(
     skill_id: record.skillId,
     name: record.name,
     content: record.content,
+    skill_markdown: record.skillMarkdown,
+    granted_tools: [...record.grantedTools],
+    granted_commands: [...record.grantedCommands],
+    sidecar_files: record.sidecarFiles.map((file) => ({
+      path: file.relativePath,
+      content: file.content,
+      size_bytes: file.sizeBytes,
+    })),
+    sidecar_directories: [...record.sidecarDirectories],
     created_at: record.createdAt,
     updated_at: record.updatedAt,
     storage_origin: record.storageOrigin,
@@ -1537,9 +1601,13 @@ function inferredSessionKind(workspace: WorkspaceRecord, sessionId: string): str
 
 function normalizedPrimaryChatSessionKind(kind: string | null | undefined): string {
   const normalized = (kind ?? "").trim().toLowerCase() || "main_session";
-  return normalized === "workspace_session" || normalized === "main"
-    ? "main_session"
-    : normalized;
+  if (normalized === "workspace_session" || normalized === "main") {
+    return "main_session";
+  }
+  if (normalized === "task_proposal") {
+    return "subagent";
+  }
+  return normalized;
 }
 
 function isPrimaryChatSessionKind(kind: string | null | undefined): boolean {
@@ -6023,7 +6091,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
   });
 
-  app.get("/api/v1/capabilities/runtime-tools/background-tasks", async (request, reply) => {
+  app.get("/api/v1/capabilities/runtime-tools/tasks", async (request, reply) => {
     const query = isRecord(request.query) ? request.query : {};
     try {
       const workspaceId = requiredCapabilityWorkspaceId({
@@ -6034,27 +6102,31 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         headers: request.headers as Record<string, unknown>,
         body: query,
       });
-      return runtimeAgentToolsService.listBackgroundTasks({
+      const statuses = Array.isArray(query.statuses)
+        ? optionalStringList(query.statuses)
+        : typeof query.statuses === "string" && query.statuses.trim()
+          ? [query.statuses.trim()]
+          : [];
+      return runtimeAgentToolsService.listTasks({
         workspaceId,
         sessionId: sessionId ?? undefined,
         inputId: capabilityInputId({
           headers: request.headers as Record<string, unknown>,
           body: query,
         }) || undefined,
-        ownerMainSessionId: nullableString(query.owner_main_session_id) ?? undefined,
-        statuses: optionalStringList(query.statuses),
+        statuses,
         limit: hasOwn(query, "limit") ? optionalInteger(query.limit, 200) : undefined,
       });
     } catch (error) {
       if (error instanceof RuntimeAgentToolsServiceError) {
         return sendError(reply, error.statusCode, error.message);
       }
-      return sendError(reply, 400, error instanceof Error ? error.message : "runtime list background tasks failed");
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime list tasks failed");
     }
   });
 
-  app.get("/api/v1/capabilities/runtime-tools/subagents/:subagentId", async (request, reply) => {
-    const params = request.params as { subagentId: string };
+  app.get("/api/v1/capabilities/runtime-tools/tasks/:taskId", async (request, reply) => {
+    const params = request.params as { taskId: string };
     const query = isRecord(request.query) ? request.query : {};
     try {
       const workspaceId = requiredCapabilityWorkspaceId({
@@ -6065,129 +6137,81 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         headers: request.headers as Record<string, unknown>,
         body: query,
       });
-      return runtimeAgentToolsService.getBackgroundTask({
+      return runtimeAgentToolsService.getTask({
         workspaceId,
         sessionId: sessionId ?? undefined,
         inputId: capabilityInputId({
           headers: request.headers as Record<string, unknown>,
           body: query,
         }) || undefined,
-        subagentId: requiredString(params.subagentId, "subagentId"),
-        ownerMainSessionId: nullableString(query.owner_main_session_id) ?? undefined,
+        taskId: requiredString(params.taskId, "taskId"),
       });
     } catch (error) {
       if (error instanceof RuntimeAgentToolsServiceError) {
         return sendError(reply, error.statusCode, error.message);
       }
-      return sendError(reply, 400, error instanceof Error ? error.message : "runtime get subagent failed");
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime get task failed");
     }
   });
 
-  app.post("/api/v1/capabilities/runtime-tools/subagents/:subagentId/cancel", async (request, reply) => {
-    const params = request.params as { subagentId: string };
-    try {
-      const workspaceId = requiredCapabilityWorkspaceId({
-        headers: request.headers as Record<string, unknown>,
-        body: isRecord(request.body) ? request.body : null,
-      });
-      const sessionId = capabilitySessionId({
-        headers: request.headers as Record<string, unknown>,
-        body: isRecord(request.body) ? request.body : null,
-      });
-      if (!sessionId) {
-        return sendError(reply, 400, "session_id is required");
-      }
-      return await runtimeAgentToolsService.cancelSubagent({
-        workspaceId,
-        sessionId,
-        subagentId: requiredString(params.subagentId, "subagentId"),
-      });
-    } catch (error) {
-      if (error instanceof RuntimeAgentToolsServiceError) {
-        return sendError(reply, error.statusCode, error.message);
-      }
-      return sendError(reply, 400, error instanceof Error ? error.message : "runtime cancel subagent failed");
-    }
-  });
-
-  app.post("/api/v1/capabilities/runtime-tools/subagents/:subagentId/resume", async (request, reply) => {
-    if (!isRecord(request.body)) {
+  app.post("/api/v1/capabilities/runtime-tools/tasks/:taskId/cancel", async (request, reply) => {
+    if (request.body != null && !isRecord(request.body)) {
       return sendError(reply, 400, "request body must be an object");
     }
-    const params = request.params as { subagentId: string };
+    const params = request.params as { taskId: string };
+    const body = isRecord(request.body) ? request.body : {};
     try {
       const workspaceId = requiredCapabilityWorkspaceId({
         headers: request.headers as Record<string, unknown>,
-        body: request.body,
+        body,
       });
-      const sessionId = capabilitySessionId({
-        headers: request.headers as Record<string, unknown>,
-        body: request.body,
-      });
-      if (!sessionId) {
-        return sendError(reply, 400, "session_id is required");
-      }
-      return runtimeAgentToolsService.resumeSubagent({
+      return await runtimeAgentToolsService.cancelTask({
         workspaceId,
-        sessionId,
-        inputId: capabilityInputId({
-          headers: request.headers as Record<string, unknown>,
-          body: request.body,
-        }),
-        subagentId: requiredString(params.subagentId, "subagentId"),
-        answer: requiredString(request.body.answer, "answer"),
-        selectedModel: capabilitySelectedModel({
-          headers: request.headers as Record<string, unknown>,
-          body: request.body,
-        }),
-        model: nullableString(request.body.model) ?? undefined,
+        taskId: requiredString(params.taskId, "taskId"),
       });
     } catch (error) {
       if (error instanceof RuntimeAgentToolsServiceError) {
         return sendError(reply, error.statusCode, error.message);
       }
-      return sendError(reply, 400, error instanceof Error ? error.message : "runtime resume subagent failed");
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime cancel task failed");
     }
   });
 
-  app.post("/api/v1/capabilities/runtime-tools/subagents/:subagentId/continue", async (request, reply) => {
-    if (!isRecord(request.body)) {
+  app.post("/api/v1/capabilities/runtime-tools/tasks/:taskId/rerun", async (request, reply) => {
+    if (request.body != null && !isRecord(request.body)) {
       return sendError(reply, 400, "request body must be an object");
     }
-    const params = request.params as { subagentId: string };
+    const params = request.params as { taskId: string };
+    const body = isRecord(request.body) ? request.body : {};
     try {
       const workspaceId = requiredCapabilityWorkspaceId({
         headers: request.headers as Record<string, unknown>,
-        body: request.body,
+        body,
       });
       const sessionId = capabilitySessionId({
         headers: request.headers as Record<string, unknown>,
-        body: request.body,
+        body,
       });
-      if (!sessionId) {
-        return sendError(reply, 400, "session_id is required");
-      }
-      return runtimeAgentToolsService.continueSubagent({
+      return runtimeAgentToolsService.rerunTask({
         workspaceId,
-        sessionId,
+        sessionId: sessionId ?? undefined,
         inputId: capabilityInputId({
           headers: request.headers as Record<string, unknown>,
-          body: request.body,
-        }),
-        subagentId: requiredString(params.subagentId, "subagentId"),
-        instruction: requiredString(request.body.instruction, "instruction"),
-        title: nullableString(request.body.title) ?? undefined,
+          body,
+        }) || undefined,
+        taskId: requiredString(params.taskId, "taskId"),
         selectedModel: capabilitySelectedModel({
           headers: request.headers as Record<string, unknown>,
-          body: request.body,
+          body,
         }),
-        model: nullableString(request.body.model) ?? undefined,
+        model: nullableString(body.model) ?? undefined,
+        priority: hasOwn(body, "priority") ? optionalInteger(body.priority, 0) : undefined,
       });
     } catch (error) {
       if (error instanceof RuntimeAgentToolsServiceError) {
         return sendError(reply, error.statusCode, error.message);
       }
-      return sendError(reply, 400, error instanceof Error ? error.message : "runtime continue subagent failed");
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime rerun task failed");
     }
   });
 
@@ -6424,6 +6448,87 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 400, error instanceof Error ? error.message : "runtime skill invocation failed");
     }
   });
+
+  app.post("/api/v1/capabilities/runtime-tools/teammates", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      const sessionId = capabilitySessionId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      const result = runtimeAgentToolsService.createTeammate({
+        workspaceId,
+        teammateId: nullableString(request.body.teammate_id) ?? null,
+        name: requiredString(request.body.name, "name"),
+        instructions: nullableString(request.body.instructions) ?? null,
+        capabilityProfile: requiredTeammateCapabilityProfileInput(
+          request.body.capability_profile,
+          "capability_profile",
+        ),
+      });
+      return await maybeShapeCapabilityToolResult({
+        headers: request.headers as Record<string, unknown>,
+        toolId: "teammates_create",
+        payload: result,
+        workspaceId,
+        sessionId,
+      });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime teammate creation failed");
+    }
+  });
+
+  app.post(
+    "/api/v1/capabilities/runtime-tools/teammates/:teammateId/skills",
+    async (request, reply) => {
+      if (!isRecord(request.body)) {
+        return sendError(reply, 400, "request body must be an object");
+      }
+      try {
+        const workspaceId = requiredCapabilityWorkspaceId({
+          headers: request.headers as Record<string, unknown>,
+          body: request.body,
+        });
+        const sessionId = capabilitySessionId({
+          headers: request.headers as Record<string, unknown>,
+          body: request.body,
+        });
+        const params = request.params as { teammateId: string };
+        const result = runtimeAgentToolsService.createTeammateSkill({
+          workspaceId,
+          teammateId: requiredString(params.teammateId, "teammateId"),
+          skill: requiredTeammateSkillInput(request.body, "skill"),
+        });
+        return await maybeShapeCapabilityToolResult({
+          headers: request.headers as Record<string, unknown>,
+          toolId: "teammate_skills_create",
+          payload: result,
+          workspaceId,
+          sessionId,
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error
+            ? error.message
+            : "runtime teammate skill creation failed",
+        );
+      }
+    },
+  );
 
   app.get("/api/v1/capabilities/runtime-tools/todo", async (request, reply) => {
     try {
@@ -9592,7 +9697,9 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const session = store.ensureSession({
       workspaceId,
       sessionId,
-      kind: optionalString(request.body.kind) ?? inferredSessionKind(workspace, sessionId),
+      kind:
+        canonicalAgentSessionKind(optionalString(request.body.kind)) ??
+        inferredSessionKind(workspace, sessionId),
       title: nullableString(request.body.title) ?? null,
       parentSessionId: nullableString(request.body.parent_session_id) ?? null,
       createdBy: nullableString(request.body.created_by) ?? "workspace_user",
@@ -11072,16 +11179,8 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return;
     }
     try {
-      const requestedSkills = requiredTeammateSkillInputs(request.body.skills, "skills");
       const teammateId =
         nullableString(request.body.teammate_id) ?? createTeammateIdForFilesystem();
-      if (requestedSkills.length > 0) {
-        writeTeammateSkills({
-          workspaceDir,
-          teammateId,
-          skills: requestedSkills,
-        });
-      }
       const teammate = store.createTeammate({
         teammateId,
         workspaceId,
@@ -11125,16 +11224,6 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
 
     try {
       const requestedStatus = nullableString(request.body.status);
-      const requestedSkills = hasOwn(request.body, "skills")
-        ? requiredTeammateSkillInputs(request.body.skills, "skills")
-        : null;
-      if (requestedSkills) {
-        writeTeammateSkills({
-          workspaceDir,
-          teammateId: existing.teammateId,
-          skills: requestedSkills,
-        });
-      }
       const teammate =
         requestedStatus === "archived"
           ? store.archiveTeammate({ workspaceId, teammateId: existing.teammateId })
@@ -11162,6 +11251,85 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return { teammate: teammatePayload(teammate, workspaceDir) };
     } catch (error) {
       return sendError(reply, 400, error instanceof Error ? error.message : "teammate update failed");
+    }
+  });
+
+  app.post("/api/v1/teammates/:teammateId/skills", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
+    if (!store.getWorkspace(workspaceId)) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    const workspaceDir = requireHealthyWorkspaceFolder(store, workspaceId, reply);
+    if (!workspaceDir) {
+      return;
+    }
+    const params = request.params as { teammateId: string };
+    const teammate = store.getTeammate({
+      workspaceId,
+      teammateId: requiredString(params.teammateId, "teammateId"),
+      includeArchived: true,
+    });
+    if (!teammate) {
+      return sendError(reply, 404, "teammate not found");
+    }
+    try {
+      const skill = upsertTeammateSkill({
+        workspaceDir,
+        teammateId: teammate.teammateId,
+        skill: requiredTeammateSkillInput(request.body, "skill"),
+      });
+      return { skill: teammateSkillPayload(skill) };
+    } catch (error) {
+      return sendError(
+        reply,
+        400,
+        error instanceof Error ? error.message : "teammate skill write failed",
+      );
+    }
+  });
+
+  app.delete("/api/v1/teammates/:teammateId/skills/:skillId", async (request, reply) => {
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = requiredString(query.workspace_id, "workspace_id");
+    if (!store.getWorkspace(workspaceId)) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    const workspaceDir = requireHealthyWorkspaceFolder(store, workspaceId, reply);
+    if (!workspaceDir) {
+      return;
+    }
+    const params = request.params as { teammateId: string; skillId: string };
+    const teammate = store.getTeammate({
+      workspaceId,
+      teammateId: requiredString(params.teammateId, "teammateId"),
+      includeArchived: true,
+    });
+    if (!teammate) {
+      return sendError(reply, 404, "teammate not found");
+    }
+    try {
+      const deleted = deleteTeammateSkill({
+        workspaceDir,
+        teammateId: teammate.teammateId,
+        skillId: requiredString(params.skillId, "skillId"),
+      });
+      if (!deleted) {
+        return sendError(reply, 404, "teammate skill not found");
+      }
+      return {
+        teammate_id: teammate.teammateId,
+        skill_id: requiredString(params.skillId, "skillId"),
+        deleted: true,
+      };
+    } catch (error) {
+      return sendError(
+        reply,
+        400,
+        error instanceof Error ? error.message : "teammate skill delete failed",
+      );
     }
   });
 
@@ -11635,4 +11803,11 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   });
 
   return app;
+}
+function canonicalAgentSessionKind(kind: string | null | undefined): string | null {
+  const normalized = (kind ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  return normalizedPrimaryChatSessionKind(normalized);
 }

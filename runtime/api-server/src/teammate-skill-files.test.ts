@@ -7,10 +7,12 @@ import { afterEach, test } from "node:test";
 import type { TeammateRecord } from "@holaboss/runtime-state-store";
 
 import {
+  deleteTeammateSkill,
   loadTeammateFilesystemSkills,
   resolvedTeammateSkillsForRecord,
   teammateSkillRelativeFilePath,
   teammateSkillRelativeSourceDir,
+  upsertTeammateSkill,
   writeTeammateSkills,
 } from "./teammate-skill-files.js";
 
@@ -87,6 +89,75 @@ test("writeTeammateSkills materializes teammate-local skill folders and reads th
   assert.match(raw, /Use the dashboard patterns\./);
 });
 
+test("writeTeammateSkills supports full skill bundles with explicit SKILL.md and sidecar trees", () => {
+  const workspaceDir = makeTempDir("hb-teammate-skills-bundle-");
+
+  const resolved = writeTeammateSkills({
+    workspaceDir,
+    teammateId: "general",
+    skills: [
+      {
+        skillMarkdown: [
+          "---",
+          "name: research-playbook",
+          "description: Research Playbook",
+          "holaboss:",
+          "  granted_tools: [web_search, browser]",
+          "  granted_commands: [open-sources]",
+          "---",
+          "",
+          "# Research Playbook",
+          "",
+          "Always cite sources.",
+        ].join("\n"),
+        sidecarFiles: [
+          {
+            path: "scripts/fetch.sh",
+            content: "#!/bin/sh\ncurl \"$1\"\n",
+          },
+          {
+            path: "references/sources.md",
+            content: "# Sources\n\nUse primary sources first.\n",
+          },
+        ],
+        directories: ["assets/templates"],
+      },
+    ],
+  });
+
+  assert.equal(resolved.length, 1);
+  assert.equal(resolved[0]?.skillId, "research-playbook");
+  assert.deepEqual(resolved[0]?.grantedTools, ["web_search", "browser"]);
+  assert.deepEqual(resolved[0]?.grantedCommands, ["open-sources"]);
+  assert.equal(resolved[0]?.hasSidecarAssets, true);
+  assert.equal(resolved[0]?.sidecarFiles.length, 2);
+  assert.equal(
+    resolved[0]?.sidecarFiles.some((file) => file.relativePath === "scripts/fetch.sh"),
+    true,
+  );
+  assert.equal(
+    resolved[0]?.sidecarDirectories.includes("assets/templates"),
+    true,
+  );
+  assert.equal(
+    fs.existsSync(
+      path.join(
+        workspaceDir,
+        "teammates",
+        "general",
+        "skills",
+        "research-playbook",
+        "scripts",
+        "fetch.sh",
+      ),
+    ),
+    true,
+  );
+  assert.match(resolved[0]?.skillMarkdown ?? "", /granted_tools:/);
+  assert.match(resolved[0]?.skillMarkdown ?? "", /- web_search/);
+  assert.match(resolved[0]?.skillMarkdown ?? "", /- browser/);
+});
+
 test("writeTeammateSkills preserves sidecar files for retained skills and deletes removed skill folders", () => {
   const workspaceDir = makeTempDir("hb-teammate-skills-sidecars-");
   const initial = writeTeammateSkills({
@@ -129,6 +200,7 @@ test("writeTeammateSkills preserves sidecar files for retained skills and delete
     fs.existsSync(path.join(resolved[0]?.sourceDir ?? "", "helpers.sh")),
     true,
   );
+  assert.match(resolved[0]?.skillMarkdown ?? "", /description: Frontend Playbook/);
   assert.equal(
     fs.existsSync(
       path.join(
@@ -139,6 +211,118 @@ test("writeTeammateSkills preserves sidecar files for retained skills and delete
         "research-notes",
       ),
     ),
+    false,
+  );
+});
+
+test("upsertTeammateSkill updates one skill without deleting sibling skill folders", () => {
+  const workspaceDir = makeTempDir("hb-teammate-skill-upsert-");
+  writeTeammateSkills({
+    workspaceDir,
+    teammateId: "general",
+    skills: [
+      {
+        skillId: "frontend-playbook",
+        name: "Frontend Playbook",
+        content: "# Frontend Playbook\nUse the dashboard patterns.",
+      },
+      {
+        skillId: "research-notes",
+        name: "Research Notes",
+        content: "# Research Notes\nGather sources.",
+      },
+    ],
+  });
+
+  const updated = upsertTeammateSkill({
+    workspaceDir,
+    teammateId: "general",
+    skill: {
+      skillId: "frontend-playbook",
+      name: "Frontend Playbook",
+      content: "# Frontend Playbook\nKeep the patterns sharp.",
+    },
+  });
+
+  assert.equal(updated.skillId, "frontend-playbook");
+  assert.equal(
+    fs.existsSync(
+      path.join(
+        workspaceDir,
+        "teammates",
+        "general",
+        "skills",
+        "research-notes",
+        "SKILL.md",
+      ),
+    ),
+    true,
+  );
+  const loaded = loadTeammateFilesystemSkills({
+    workspaceDir,
+    teammateId: "general",
+  });
+  assert.equal(loaded.length, 2);
+});
+
+test("deleteTeammateSkill removes only the targeted teammate-local skill folder", () => {
+  const workspaceDir = makeTempDir("hb-teammate-skill-delete-");
+  writeTeammateSkills({
+    workspaceDir,
+    teammateId: "general",
+    skills: [
+      {
+        skillId: "frontend-playbook",
+        name: "Frontend Playbook",
+        content: "# Frontend Playbook\nUse the dashboard patterns.",
+      },
+      {
+        skillId: "research-notes",
+        name: "Research Notes",
+        content: "# Research Notes\nGather sources.",
+      },
+    ],
+  });
+
+  assert.equal(
+    deleteTeammateSkill({
+      workspaceDir,
+      teammateId: "general",
+      skillId: "research-notes",
+    }),
+    true,
+  );
+  assert.equal(
+    fs.existsSync(
+      path.join(
+        workspaceDir,
+        "teammates",
+        "general",
+        "skills",
+        "research-notes",
+      ),
+    ),
+    false,
+  );
+  assert.equal(
+    fs.existsSync(
+      path.join(
+        workspaceDir,
+        "teammates",
+        "general",
+        "skills",
+        "frontend-playbook",
+        "SKILL.md",
+      ),
+    ),
+    true,
+  );
+  assert.equal(
+    deleteTeammateSkill({
+      workspaceDir,
+      teammateId: "general",
+      skillId: "missing-skill",
+    }),
     false,
   );
 });

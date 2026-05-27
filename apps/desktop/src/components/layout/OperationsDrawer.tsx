@@ -278,10 +278,11 @@ function defaultSessionTitle(
   kind: string | null | undefined,
   sessionId: string,
 ): string {
-  if (kind === "cronjob") {
+  const normalizedKind = (kind ?? "").trim().toLowerCase();
+  if (normalizedKind === "cronjob") {
     return "Cronjob run";
   }
-  if (kind === "task_proposal") {
+  if (normalizedKind === "subagent" || normalizedKind === "task_proposal") {
     return "Subagent run";
   }
   return `Session ${sessionId.slice(0, 8)}`;

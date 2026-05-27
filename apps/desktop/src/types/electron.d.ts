@@ -719,6 +719,15 @@ interface RuntimeNotificationListOptionsPayload {
     skill_id: string;
     name: string;
     content: string;
+    skill_markdown?: string;
+    granted_tools?: string[];
+    granted_commands?: string[];
+    sidecar_files?: Array<{
+      path: string;
+      content: string;
+      size_bytes?: number;
+    }>;
+    sidecar_directories?: string[];
     created_at: string;
     updated_at: string;
     storage_origin?: "filesystem";
@@ -754,8 +763,16 @@ interface RuntimeNotificationListOptionsPayload {
 
   interface TeammateSkillInputPayload {
     skill_id?: string | null;
-    name: string;
-    content: string;
+    name?: string | null;
+    content?: string | null;
+    skill_markdown?: string | null;
+    granted_tools?: string[] | null;
+    granted_commands?: string[] | null;
+    sidecar_files?: Array<{
+      path: string;
+      content: string;
+    }> | null;
+    directories?: string[] | null;
     created_at?: string | null;
     updated_at?: string | null;
   }
@@ -765,7 +782,6 @@ interface RuntimeNotificationListOptionsPayload {
     teammate_id?: string | null;
     name: string;
     instructions?: string | null;
-    skills?: TeammateSkillInputPayload[] | null;
     capability_profile?: Partial<TeammateCapabilityProfilePayload> | null;
   }
 
@@ -777,13 +793,27 @@ interface RuntimeNotificationListOptionsPayload {
     workspace_id: string;
     name?: string | null;
     instructions?: string | null;
-    skills?: TeammateSkillInputPayload[] | null;
     capability_profile?: Partial<TeammateCapabilityProfilePayload> | null;
     status?: TeammateStatusPayload;
   }
 
   interface UpdateTeammateResponsePayload {
     teammate: TeammateRecordPayload;
+  }
+
+  interface CreateTeammateSkillPayload {
+    workspace_id: string;
+    skill: TeammateSkillInputPayload;
+  }
+
+  interface CreateTeammateSkillResponsePayload {
+    skill: TeammateSkillPayload;
+  }
+
+  interface DeleteTeammateSkillResponsePayload {
+    teammate_id: string;
+    skill_id: string;
+    deleted: boolean;
   }
 
   type IssueStatusPayload =
@@ -2163,6 +2193,16 @@ interface RuntimeNotificationListOptionsPayload {
         teammateId: string,
         payload: UpdateTeammatePayload
       ) => Promise<UpdateTeammateResponsePayload>;
+      createTeammateSkill: (
+        workspaceId: string,
+        teammateId: string,
+        payload: CreateTeammateSkillPayload
+      ) => Promise<CreateTeammateSkillResponsePayload>;
+      deleteTeammateSkill: (
+        workspaceId: string,
+        teammateId: string,
+        skillId: string
+      ) => Promise<DeleteTeammateSkillResponsePayload>;
       listIssues: (workspaceId: string) => Promise<IssueListResponsePayload>;
       createIssue: (payload: CreateIssuePayload) => Promise<CreateIssueResponsePayload>;
       updateIssue: (

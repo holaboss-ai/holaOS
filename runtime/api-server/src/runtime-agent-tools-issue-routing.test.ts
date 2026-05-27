@@ -14,7 +14,10 @@ test("queueIssueReply routes a reopened issue back to the preferred main session
   );
   const workspaceRoot = path.join(root, "workspaces");
   await mkdir(workspaceRoot, { recursive: true });
-  const store = new RuntimeStateStore({ workspaceRoot });
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
   const workspaceId = "workspace-1";
 
   try {
@@ -118,7 +121,10 @@ test("dispatchIssue routes a manual issue run back to the preferred main session
   );
   const workspaceRoot = path.join(root, "workspaces");
   await mkdir(workspaceRoot, { recursive: true });
-  const store = new RuntimeStateStore({ workspaceRoot });
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
   const workspaceId = "workspace-1";
 
   try {

@@ -1725,7 +1725,9 @@ function inferSessionKind(params: {
   const persistedKind =
     typeof params.persistedKind === "string" ? params.persistedKind.trim() : "";
   if (persistedKind) {
-    return persistedKind;
+    return persistedKind.toLowerCase() === "task_proposal"
+      ? "subagent"
+      : persistedKind;
   }
   const sessionId = params.sessionId.trim();
   const onboardingSessionId = (
@@ -3703,6 +3705,15 @@ function subagentLifecyclePayload(params: {
     turn_status: params.turnResult.status,
     stop_reason: params.turnResult.stopReason,
   };
+  if (params.run.sourceType) {
+    payload.source_type = params.run.sourceType;
+  }
+  if (params.run.sourceId) {
+    payload.source_id = params.run.sourceId;
+  }
+  if (params.run.issueId) {
+    payload.issue_id = params.run.issueId;
+  }
   if (params.run.context) {
     payload.context = params.run.context;
   }

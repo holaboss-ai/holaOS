@@ -45,14 +45,6 @@ import type {
 import { CHAT_LAYOUT } from "@/lib/chatLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -1385,7 +1377,7 @@ export function IssueDetailPane({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(245,118,66,0.06),transparent_26%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_32%)]">
+    <div className="flex h-full min-h-0 flex-col bg-background">
       <WorkspaceSurfaceHeader
         icon={<CircleDot className="size-5 text-foreground/65" />}
         eyebrow={
@@ -1485,122 +1477,124 @@ export function IssueDetailPane({
             </>
           )
         }
+        className="bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/88"
       />
-      <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="grid gap-5">
-            {isEditingDetails || issueAttachmentItems.length > 0 ? (
-              <Card className="bg-card/85">
-                <CardHeader>
-                  <CardTitle>
-                    {isEditingDetails ? "Issue details" : "Attachments"}
-                  </CardTitle>
-                  <CardDescription>
-                    {isEditingDetails
-                      ? "Update the issue title, description, blocker context, and attached files while the issue is idle."
-                      : "Files attached to this issue stay with the thread and can be reopened at any time."}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {isEditingDetails ? (
-                    <div className="grid gap-3">
-                      <Input
-                        value={draftTitle}
-                        onChange={(event) => setDraftTitle(event.target.value)}
-                        placeholder="Issue title"
-                        className="h-11 max-w-3xl bg-background/75"
-                      />
-                      <Textarea
-                        value={draftDescription}
-                        onChange={(event) => setDraftDescription(event.target.value)}
-                        placeholder="Add description..."
-                        className="min-h-[140px] max-w-3xl resize-y bg-background/75"
-                      />
-                      {issue.status === "blocked" ? (
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="mx-auto w-full max-w-[1680px] px-6 py-8 xl:px-8">
+          <div className="grid gap-10 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <article className="min-w-0 space-y-10">
+              {isEditingDetails || issueAttachmentItems.length > 0 ? (
+                <section className="border-b border-border/70 pb-10">
+                  <div className="space-y-2">
+                    <h2 className="text-[20px] font-semibold tracking-tight text-foreground">
+                      {isEditingDetails ? "Issue details" : "Attachments"}
+                    </h2>
+                    <p className="max-w-3xl text-sm text-foreground/56">
+                      {isEditingDetails
+                        ? "Update the issue title, description, blocker context, and attached files while the issue is idle."
+                        : "Files attached to this issue stay with the thread and can be reopened at any time."}
+                    </p>
+                  </div>
+                  <div className="mt-5 space-y-4">
+                    {isEditingDetails ? (
+                      <div className="grid gap-3">
+                        <Input
+                          value={draftTitle}
+                          onChange={(event) => setDraftTitle(event.target.value)}
+                          placeholder="Issue title"
+                          className="h-11 max-w-3xl bg-background/70"
+                        />
                         <Textarea
-                          value={draftBlockerReason}
-                          onChange={(event) =>
-                            setDraftBlockerReason(event.target.value)
-                          }
-                          placeholder="Why is this issue blocked?"
-                          className="min-h-[96px] max-w-3xl resize-y bg-background/75"
+                          value={draftDescription}
+                          onChange={(event) => setDraftDescription(event.target.value)}
+                          placeholder="Add description..."
+                          className="min-h-[140px] max-w-3xl resize-y bg-background/70"
                         />
-                      ) : null}
-                      <div className="max-w-3xl">
-                        <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                          Attachments
-                        </div>
-                        {issueAttachmentItems.length > 0 ? (
-                          <AttachmentList
-                            attachments={issueAttachmentItems}
-                            onPreview={handlePreviewAttachment}
-                            onRemove={(attachmentId) => {
-                              setDraftIssueAttachments((current) =>
-                                current.filter(
-                                  (attachment) => attachment.id !== attachmentId,
-                                ),
-                              );
-                            }}
+                        {issue.status === "blocked" ? (
+                          <Textarea
+                            value={draftBlockerReason}
+                            onChange={(event) =>
+                              setDraftBlockerReason(event.target.value)
+                            }
+                            placeholder="Why is this issue blocked?"
+                            className="min-h-[96px] max-w-3xl resize-y bg-background/70"
                           />
-                        ) : (
-                          <div className="rounded-xl border border-dashed border-border bg-background/45 px-4 py-6 text-sm text-foreground/48">
-                            No attachments
+                        ) : null}
+                        <div className="max-w-3xl">
+                          <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
+                            Attachments
                           </div>
-                        )}
-                        <input
-                          ref={issueFileInputRef}
-                          type="file"
-                          multiple
-                          className="hidden"
-                          onChange={handleIssueAttachmentChange}
-                        />
-                        <div className="mt-3">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => issueFileInputRef.current?.click()}
-                          >
-                            <Paperclip className="size-4" />
-                            Add attachments
-                          </Button>
+                          {issueAttachmentItems.length > 0 ? (
+                            <AttachmentList
+                              attachments={issueAttachmentItems}
+                              onPreview={handlePreviewAttachment}
+                              onRemove={(attachmentId) => {
+                                setDraftIssueAttachments((current) =>
+                                  current.filter(
+                                    (attachment) => attachment.id !== attachmentId,
+                                  ),
+                                );
+                              }}
+                            />
+                          ) : (
+                            <div className="rounded-xl border border-dashed border-border bg-background/45 px-4 py-6 text-sm text-foreground/48">
+                              No attachments
+                            </div>
+                          )}
+                          <input
+                            ref={issueFileInputRef}
+                            type="file"
+                            multiple
+                            className="hidden"
+                            onChange={handleIssueAttachmentChange}
+                          />
+                          <div className="mt-3">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => issueFileInputRef.current?.click()}
+                            >
+                              <Paperclip className="size-4" />
+                              Add attachments
+                            </Button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="flex max-w-3xl flex-wrap gap-2">
-                      {issueAttachmentItems.map((attachment) => (
-                        <button
-                          key={attachment.id}
-                          type="button"
-                          onClick={() =>
-                            attachment.workspace_path
-                              ? openFileInInternalTab(attachment.workspace_path)
-                              : undefined
-                          }
-                          className="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-background/70 px-3 py-1.5 text-sm text-foreground/72 transition-colors hover:bg-background"
-                        >
-                          <Paperclip className="size-3.5 shrink-0 text-foreground/45" />
-                          <span className="truncate">{attachment.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ) : null}
+                    ) : (
+                      <div className="flex max-w-3xl flex-wrap gap-2">
+                        {issueAttachmentItems.map((attachment) => (
+                          <button
+                            key={attachment.id}
+                            type="button"
+                            onClick={() =>
+                              attachment.workspace_path
+                                ? openFileInInternalTab(attachment.workspace_path)
+                                : undefined
+                            }
+                            className="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-background/70 px-3 py-1.5 text-sm text-foreground/72 transition-colors hover:bg-background"
+                          >
+                            <Paperclip className="size-3.5 shrink-0 text-foreground/45" />
+                            <span className="truncate">{attachment.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              ) : null}
 
-            <Card className="bg-card/85">
-              <CardHeader>
-                <CardTitle className="text-[24px] font-semibold tracking-tight text-foreground">
-                  Activity
-                </CardTitle>
-                <CardDescription>
-                  The full issue thread stays in this page and continues across reruns.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
+              <section className="space-y-6">
+                <div className="space-y-2">
+                  <h2 className="text-[24px] font-semibold tracking-tight text-foreground">
+                    Activity
+                  </h2>
+                  <p className="text-sm text-foreground/56">
+                    The full issue thread stays in this page and continues across reruns.
+                  </p>
+                </div>
+
                 <div
-                  className={`mx-auto flex min-w-0 w-full ${CHAT_LAYOUT.contentMaxWidth} flex-col gap-3`}
+                  className={`mx-auto flex min-w-0 w-full ${CHAT_LAYOUT.contentMaxWidth} flex-col gap-4`}
                 >
                   <div className="flex items-center gap-2 px-1 text-xs text-foreground/45">
                     <CircleDot className="size-3.5 shrink-0" />
@@ -1661,327 +1655,327 @@ export function IssueDetailPane({
                     </div>
                   )}
                 </div>
-              </CardContent>
-              <CardFooter className="block space-y-3 bg-background/30">
-                <form onSubmit={handleSubmitReply} className="space-y-3">
-                  <div>
-                    <div className="text-sm font-medium text-foreground">Reply</div>
-                    <div className="mt-1 text-sm text-foreground/55">
-                      Replies here continue the same issue thread.
+
+                <div className={`mx-auto w-full ${CHAT_LAYOUT.contentMaxWidth} border-t border-border/70 pt-6`}>
+                  <form onSubmit={handleSubmitReply} className="space-y-3">
+                    <div>
+                      <div className="text-sm font-medium text-foreground">Reply</div>
+                      <div className="mt-1 text-sm text-foreground/55">
+                        Replies here continue the same issue thread.
+                      </div>
                     </div>
+                    {replyAttachmentItems.length > 0 ? (
+                      <AttachmentList
+                        attachments={replyAttachmentItems}
+                        onPreview={handlePreviewAttachment}
+                        onRemove={(attachmentId) => {
+                          setReplyAttachments((current) =>
+                            current.filter(
+                              (file) =>
+                                `${file.name}:${file.size}:${file.lastModified}` !==
+                                attachmentId,
+                            ),
+                          );
+                        }}
+                      />
+                    ) : null}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={handleReplyAttachmentChange}
+                    />
+                    <div className="rounded-[24px] border border-border bg-background/60 px-4 py-3 shadow-[0_1px_0_rgba(255,255,255,0.02)]">
+                      <Textarea
+                        value={replyInput}
+                        onChange={(event) => setReplyInput(event.target.value)}
+                        placeholder={replyDisabledReason || "Leave a comment..."}
+                        disabled={Boolean(replyDisabledReason) || isReplySubmitting}
+                        className="min-h-[112px] resize-none border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0"
+                      />
+                      <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
+                        <div className="flex min-w-0 items-center gap-2 text-xs text-foreground/45">
+                          <span className="inline-flex items-center gap-1.5">
+                            <MessageSquareText className="size-3.5" />
+                            Replies here continue the same issue thread.
+                          </span>
+                          {replyDisabledReason ? (
+                            <span className="truncate text-destructive">
+                              {replyDisabledReason}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon-sm"
+                            aria-label="Attach files"
+                            disabled={Boolean(replyDisabledReason) || isReplySubmitting}
+                            onClick={() => fileInputRef.current?.click()}
+                          >
+                            <Paperclip className="size-4" />
+                          </Button>
+                          <Button
+                            type="submit"
+                            size="icon-sm"
+                            aria-label="Send reply"
+                            disabled={
+                              Boolean(replyDisabledReason) ||
+                              isReplySubmitting ||
+                              (!replyInput.trim() && replyAttachments.length === 0)
+                            }
+                          >
+                            {isReplySubmitting ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              <Send className="size-4" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                    {replyError ? (
+                      <div className="text-sm text-destructive">{replyError}</div>
+                    ) : null}
+                  </form>
+                </div>
+              </section>
+            </article>
+
+            <aside className="grid content-start gap-6 xl:sticky xl:top-0 xl:self-start xl:border-l xl:border-border/70 xl:pl-8">
+              <SidebarSection
+                title="Properties"
+                description="Status, assignee, and priority can be changed while the issue is idle."
+              >
+                <div className="space-y-5">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="outline" className="bg-background/70">
+                      <StatusDot
+                        variant={issueStatusVariant(issue.status)}
+                        pulse={Boolean(issue.active_subagent_id)}
+                      />
+                      {issueStatusLabel(issue.status)}
+                    </Badge>
+                    <Badge variant="outline" className="bg-background/70">
+                      <UserRound className="size-3.5" />
+                      {assignee?.name || "Unassigned"}
+                    </Badge>
+                    {issue.priority ? (
+                      <Badge variant="outline" className="bg-background/70">
+                        {issue.priority.slice(0, 1).toUpperCase() +
+                          issue.priority.slice(1)}
+                      </Badge>
+                    ) : null}
+                    {issue.attachments.length > 0 ? (
+                      <Badge variant="outline" className="bg-background/70">
+                        <Paperclip className="size-3.5" />
+                        {issue.attachments.length} attachment
+                        {issue.attachments.length === 1 ? "" : "s"}
+                      </Badge>
+                    ) : null}
                   </div>
-                  {replyAttachmentItems.length > 0 ? (
-                    <AttachmentList
-                      attachments={replyAttachmentItems}
-                      onPreview={handlePreviewAttachment}
-                      onRemove={(attachmentId) => {
-                        setReplyAttachments((current) =>
-                          current.filter(
-                            (file) =>
-                              `${file.name}:${file.size}:${file.lastModified}` !==
-                              attachmentId,
-                          ),
+
+                  <PropertyRow
+                    label="Status"
+                    description="Todo auto-dispatches when the issue has an assignee."
+                  >
+                    <Select
+                      value={issue.status}
+                      onValueChange={(value) => {
+                        if (!value) return;
+                        void handleStatusChange(value as IssueStatusPayload);
+                      }}
+                      disabled={Boolean(issue.active_subagent_id) || isMutationPending}
+                    >
+                      <SelectTrigger className="h-10 w-full bg-background text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="start">
+                        {ISSUE_STATUS_OPTIONS.map((option) => (
+                          <SelectItem
+                            key={option.value}
+                            value={option.value}
+                            disabled={option.disabled}
+                          >
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </PropertyRow>
+
+                  <PropertyRow
+                    label="Assignee"
+                    description="Unassigned Todo issues stay idle until someone takes them."
+                  >
+                    <Select
+                      value={issue.assignee_teammate_id ?? "__unassigned__"}
+                      onValueChange={(value) => {
+                        if (!value) return;
+                        void handleAssigneeChange(
+                          value === "__unassigned__" ? null : value,
                         );
                       }}
-                    />
-                  ) : null}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    className="hidden"
-                    onChange={handleReplyAttachmentChange}
-                  />
-                  <div className="rounded-xl border border-border bg-background/65 px-4 py-3">
-                    <Textarea
-                      value={replyInput}
-                      onChange={(event) => setReplyInput(event.target.value)}
-                      placeholder={replyDisabledReason || "Leave a comment..."}
-                      disabled={Boolean(replyDisabledReason) || isReplySubmitting}
-                      className="min-h-[112px] resize-none border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0"
-                    />
-                    <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
-                      <div className="flex min-w-0 items-center gap-2 text-xs text-foreground/45">
-                        <span className="inline-flex items-center gap-1.5">
-                          <MessageSquareText className="size-3.5" />
-                          Replies here continue the same issue thread.
-                        </span>
-                        {replyDisabledReason ? (
-                          <span className="truncate text-destructive">
-                            {replyDisabledReason}
-                          </span>
-                        ) : null}
+                      disabled={Boolean(issue.active_subagent_id) || isMutationPending}
+                    >
+                      <SelectTrigger className="h-10 w-full bg-background text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="start">
+                        <SelectItem value="__unassigned__">Unassigned</SelectItem>
+                        {teammates.map((teammate) => (
+                          <SelectItem
+                            key={teammate.teammate_id}
+                            value={teammate.teammate_id}
+                          >
+                            {teammate.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </PropertyRow>
+
+                  <PropertyRow
+                    label="Priority"
+                    description="Optional routing hint for humans reviewing the board."
+                  >
+                    <Select
+                      value={issue.priority ?? "__none__"}
+                      onValueChange={(value) => {
+                        if (!value) return;
+                        void handlePriorityChange(
+                          value === "__none__"
+                            ? null
+                            : (value as IssuePriorityPayload),
+                        );
+                      }}
+                      disabled={Boolean(issue.active_subagent_id) || isMutationPending}
+                    >
+                      <SelectTrigger className="h-10 w-full bg-background text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="start">
+                        <SelectItem value="__none__">No priority</SelectItem>
+                        {ISSUE_PRIORITY_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </PropertyRow>
+                </div>
+              </SidebarSection>
+
+              <SidebarSection
+                title="Execution log"
+                description="Current run state for the assigned teammate."
+              >
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-border bg-background/50 px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                          <StatusDot
+                            variant={issueStatusVariant(issue.status)}
+                            pulse={Boolean(issue.active_subagent_id)}
+                          />
+                          <span className="truncate">{issueActivityLabel(issue)}</span>
+                        </div>
+                        <div className="mt-1 text-xs text-foreground/45">
+                          {issue.active_subagent_id
+                            ? `${assignee?.name || "Assigned teammate"} is working`
+                            : issue.completed_at
+                              ? `Last completed ${formatRelativeTime(issue.completed_at)}`
+                              : `Updated ${formatRelativeTime(issue.updated_at)}`}
+                        </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
+                      {issue.active_subagent_id ? (
                         <Button
                           type="button"
                           variant="outline"
-                          size="icon-sm"
-                          aria-label="Attach files"
-                          disabled={Boolean(replyDisabledReason) || isReplySubmitting}
-                          onClick={() => fileInputRef.current?.click()}
+                          size="sm"
+                          onClick={() => void handleStopIssueRun()}
+                          disabled={isMutationPending}
                         >
-                          <Paperclip className="size-4" />
+                          <Square className="size-3.5" />
+                          Stop
                         </Button>
-                        <Button
-                          type="submit"
-                          size="icon-sm"
-                          aria-label="Send reply"
-                          disabled={
-                            Boolean(replyDisabledReason) ||
-                            isReplySubmitting ||
-                            (!replyInput.trim() && replyAttachments.length === 0)
-                          }
-                        >
-                          {isReplySubmitting ? (
-                            <Loader2 className="size-4 animate-spin" />
-                          ) : (
-                            <Send className="size-4" />
-                          )}
-                        </Button>
-                      </div>
+                      ) : null}
                     </div>
-                  </div>
-                  {replyError ? (
-                    <div className="text-sm text-destructive">{replyError}</div>
-                  ) : null}
-                </form>
-              </CardFooter>
-            </Card>
-          </div>
-
-          <aside className="grid content-start gap-4 xl:sticky xl:top-0">
-            <Card className="bg-card/85" size="sm">
-              <CardHeader>
-                <CardTitle>Overview</CardTitle>
-                <CardDescription>
-                  Current issue state and routing context.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline" className="bg-background/70">
-                    <StatusDot
-                      variant={issueStatusVariant(issue.status)}
-                      pulse={Boolean(issue.active_subagent_id)}
-                    />
-                    {issueStatusLabel(issue.status)}
-                  </Badge>
-                  <Badge variant="outline" className="bg-background/70">
-                    <UserRound className="size-3.5" />
-                    {assignee?.name || "Unassigned"}
-                  </Badge>
-                  {issue.priority ? (
-                    <Badge variant="outline" className="bg-background/70">
-                      {issue.priority.slice(0, 1).toUpperCase() +
-                        issue.priority.slice(1)}
-                    </Badge>
-                  ) : null}
-                  {issue.attachments.length > 0 ? (
-                    <Badge variant="outline" className="bg-background/70">
-                      <Paperclip className="size-3.5" />
-                      {issue.attachments.length} attachment
-                      {issue.attachments.length === 1 ? "" : "s"}
-                    </Badge>
-                  ) : null}
-                </div>
-                <div className="rounded-xl border border-border bg-background/65 px-3 py-3">
-                  <div className="text-sm font-medium text-foreground">
-                    {issueActivityLabel(issue)}
-                  </div>
-                  <div className="mt-1 text-xs text-foreground/48">
-                    {issue.active_subagent_id
-                      ? `${assignee?.name || "Assigned teammate"} is working now`
-                      : issue.completed_at
-                        ? `Completed ${formatRelativeTime(issue.completed_at)}`
-                        : `Updated ${formatRelativeTime(issue.updated_at)}`}
-                  </div>
-                  {issue.blocker_reason ? (
-                    <div className="mt-3 rounded-lg border border-amber-500/18 bg-amber-500/[0.08] px-3 py-2 text-xs leading-5 text-amber-900 dark:text-amber-100/88">
-                      {issue.blocker_reason}
-                    </div>
-                  ) : null}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-card/85">
-              <CardHeader>
-                <CardTitle>Properties</CardTitle>
-                <CardDescription>
-                  Status, assignee, and priority can be changed while the issue is idle.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-5">
-                <PropertyRow
-                  label="Status"
-                  description="Todo auto-dispatches when the issue has an assignee."
-                >
-                  <Select
-                    value={issue.status}
-                    onValueChange={(value) => {
-                      if (!value) return;
-                      void handleStatusChange(value as IssueStatusPayload);
-                    }}
-                    disabled={Boolean(issue.active_subagent_id) || isMutationPending}
-                  >
-                    <SelectTrigger className="h-10 w-full bg-background text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent align="start">
-                      {ISSUE_STATUS_OPTIONS.map((option) => (
-                        <SelectItem
-                          key={option.value}
-                          value={option.value}
-                          disabled={option.disabled}
-                        >
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </PropertyRow>
-
-                <PropertyRow
-                  label="Assignee"
-                  description="Unassigned Todo issues stay idle until someone takes them."
-                >
-                  <Select
-                    value={issue.assignee_teammate_id ?? "__unassigned__"}
-                    onValueChange={(value) => {
-                      if (!value) return;
-                      void handleAssigneeChange(
-                        value === "__unassigned__" ? null : value,
-                      );
-                    }}
-                    disabled={Boolean(issue.active_subagent_id) || isMutationPending}
-                  >
-                    <SelectTrigger className="h-10 w-full bg-background text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent align="start">
-                      <SelectItem value="__unassigned__">Unassigned</SelectItem>
-                      {teammates.map((teammate) => (
-                        <SelectItem
-                          key={teammate.teammate_id}
-                          value={teammate.teammate_id}
-                        >
-                          {teammate.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </PropertyRow>
-
-                <PropertyRow
-                  label="Priority"
-                  description="Optional routing hint for humans reviewing the board."
-                >
-                  <Select
-                    value={issue.priority ?? "__none__"}
-                    onValueChange={(value) => {
-                      if (!value) return;
-                      void handlePriorityChange(
-                        value === "__none__"
-                          ? null
-                          : (value as IssuePriorityPayload),
-                      );
-                    }}
-                    disabled={Boolean(issue.active_subagent_id) || isMutationPending}
-                  >
-                    <SelectTrigger className="h-10 w-full bg-background text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent align="start">
-                      <SelectItem value="__none__">No priority</SelectItem>
-                      {ISSUE_PRIORITY_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </PropertyRow>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-card/85" size="sm">
-              <CardHeader>
-                <CardTitle>Execution</CardTitle>
-                <CardDescription>
-                  Current run state for the assigned teammate.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded-xl border border-border bg-background/70 px-4 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                        <StatusDot
-                          variant={issueStatusVariant(issue.status)}
-                          pulse={Boolean(issue.active_subagent_id)}
-                        />
-                        <span className="truncate">{issueActivityLabel(issue)}</span>
+                    {issue.blocker_reason ? (
+                      <div className="mt-3 rounded-xl border border-amber-500/18 bg-amber-500/[0.08] px-3 py-2 text-xs leading-5 text-amber-900 dark:text-amber-100/88">
+                        {issue.blocker_reason}
                       </div>
-                      <div className="mt-1 text-xs text-foreground/45">
-                        {issue.active_subagent_id
-                          ? `${assignee?.name || "Assigned teammate"} is working`
-                          : issue.completed_at
-                            ? `Last completed ${formatRelativeTime(issue.completed_at)}`
-                            : `Updated ${formatRelativeTime(issue.updated_at)}`}
-                      </div>
-                    </div>
-                    {issue.active_subagent_id ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void handleStopIssueRun()}
-                        disabled={isMutationPending}
-                      >
-                        Stop
-                      </Button>
                     ) : null}
                   </div>
+                  <div className="text-sm text-foreground/56">
+                    {issue.latest_subagent_id
+                      ? "This issue keeps its execution history on the same persistent run thread."
+                      : "No runs have been recorded for this issue yet."}
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
+              </SidebarSection>
 
-            <Card className="bg-card/85" size="sm">
-              <CardHeader>
-                <CardTitle>Details</CardTitle>
-                <CardDescription>
-                  Immutable issue metadata and the backing session reference.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-foreground/62">
-                <DetailLine
-                  label="Created by"
-                  value={(issue.created_by || "Workspace user").trim() || "Workspace user"}
-                />
-                <DetailLine
-                  label="Created"
-                  value={formatCalendarLabel(issue.created_at)}
-                />
-                <DetailLine
-                  label="Updated"
-                  value={formatCalendarLabel(issue.updated_at)}
-                />
-                <DetailLine
-                  label="Completed"
-                  value={formatCalendarLabel(issue.completed_at)}
-                />
-                <DetailLine label="Session" value={shortSessionLabel(issue.session_id)} />
-                <DetailLine
-                  label="Current owner"
-                  value={assignee?.name || "Unassigned"}
-                />
-              </CardContent>
-            </Card>
-          </aside>
+              <SidebarSection
+                title="Details"
+                description="Immutable issue metadata and the backing session reference."
+              >
+                <div className="space-y-3 text-sm text-foreground/62">
+                  <DetailLine
+                    label="Created by"
+                    value={(issue.created_by || "Workspace user").trim() || "Workspace user"}
+                  />
+                  <DetailLine
+                    label="Created"
+                    value={formatCalendarLabel(issue.created_at)}
+                  />
+                  <DetailLine
+                    label="Updated"
+                    value={formatCalendarLabel(issue.updated_at)}
+                  />
+                  <DetailLine
+                    label="Completed"
+                    value={formatCalendarLabel(issue.completed_at)}
+                  />
+                  <DetailLine label="Session" value={shortSessionLabel(issue.session_id)} />
+                  <DetailLine
+                    label="Current owner"
+                    value={assignee?.name || "Unassigned"}
+                  />
+                </div>
+              </SidebarSection>
+            </aside>
+          </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function SidebarSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="border-b border-border/70 pb-6 last:border-b-0 last:pb-0">
+      <div className="space-y-1">
+        <h2 className="text-[15px] font-semibold tracking-tight text-foreground">
+          {title}
+        </h2>
+        {description ? (
+          <p className="text-sm leading-6 text-foreground/56">{description}</p>
+        ) : null}
+      </div>
+      <div className="mt-4">{children}</div>
+    </section>
   );
 }
 

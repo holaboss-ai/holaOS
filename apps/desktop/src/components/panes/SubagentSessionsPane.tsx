@@ -24,7 +24,7 @@ function normalizeErrorMessage(error: unknown) {
 
 function isInspectableRunSession(session: AgentSessionRecordPayload) {
   const kind = session.kind.trim().toLowerCase();
-  return kind === "subagent" || kind === "task_proposal";
+  return kind === "subagent";
 }
 
 function sortInspectableRunSessions(items: AgentSessionRecordPayload[]) {

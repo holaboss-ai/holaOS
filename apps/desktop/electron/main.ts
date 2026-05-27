@@ -9753,7 +9753,6 @@ async function createTeammate(
         teammate_id: payload.teammate_id ?? null,
         name: payload.name,
         instructions: payload.instructions ?? null,
-        skills: payload.skills ?? [],
         capability_profile: payload.capability_profile ?? null,
       },
     },
@@ -9780,9 +9779,58 @@ async function updateTeammate(
         workspace_id: workspaceId,
         name: payload.name ?? undefined,
         instructions: payload.instructions ?? undefined,
-        skills: payload.skills ?? undefined,
         capability_profile: payload.capability_profile ?? undefined,
         status: payload.status ?? undefined,
+      },
+    },
+  );
+}
+
+async function createTeammateSkill(
+  workspaceId: string,
+  teammateId: string,
+  payload: CreateTeammateSkillPayload,
+): Promise<CreateTeammateSkillResponsePayload> {
+  if (!workspaceId.trim()) {
+    throw new Error("workspace_id is required");
+  }
+  if (!teammateId.trim()) {
+    throw new Error("teammateId is required");
+  }
+  return requestWorkspaceRuntimeJson<CreateTeammateSkillResponsePayload>(
+    workspaceId,
+    {
+      method: "POST",
+      path: `/api/v1/teammates/${encodeURIComponent(teammateId)}/skills`,
+      payload: {
+        workspace_id: payload.workspace_id,
+        skill: payload.skill,
+      },
+    },
+  );
+}
+
+async function deleteTeammateSkill(
+  workspaceId: string,
+  teammateId: string,
+  skillId: string,
+): Promise<DeleteTeammateSkillResponsePayload> {
+  if (!workspaceId.trim()) {
+    throw new Error("workspace_id is required");
+  }
+  if (!teammateId.trim()) {
+    throw new Error("teammateId is required");
+  }
+  if (!skillId.trim()) {
+    throw new Error("skillId is required");
+  }
+  return requestWorkspaceRuntimeJson<DeleteTeammateSkillResponsePayload>(
+    workspaceId,
+    {
+      method: "DELETE",
+      path: `/api/v1/teammates/${encodeURIComponent(teammateId)}/skills/${encodeURIComponent(skillId)}`,
+      params: {
+        workspace_id: workspaceId,
       },
     },
   );
@@ -23945,6 +23993,26 @@ app.whenReady().then(async () => {
       teammateId: string,
       payload: UpdateTeammatePayload,
     ) => updateTeammate(workspaceId, teammateId, payload),
+  );
+  handleTrustedIpc(
+    "workspace:createTeammateSkill",
+    ["main"],
+    async (
+      _event,
+      workspaceId: string,
+      teammateId: string,
+      payload: CreateTeammateSkillPayload,
+    ) => createTeammateSkill(workspaceId, teammateId, payload),
+  );
+  handleTrustedIpc(
+    "workspace:deleteTeammateSkill",
+    ["main"],
+    async (
+      _event,
+      workspaceId: string,
+      teammateId: string,
+      skillId: string,
+    ) => deleteTeammateSkill(workspaceId, teammateId, skillId),
   );
   handleTrustedIpc(
     "workspace:listIssues",

@@ -97,3 +97,28 @@ test("queued main-session event prompt entry forwards plain-text child outputs",
     },
   ]);
 });
+
+test("queued main-session event prompt entry preserves task references for follow-up inspection", () => {
+  const entry = queuedMainSessionEventPromptEntry({
+    event_id: "event-3",
+    event_type: "completed",
+    delivery_bucket: "background_update",
+    status: "pending",
+    subagent_id: "subagent-3",
+    created_at: "2026-04-29T00:00:00.000Z",
+    payload: {
+      source_type: "delegate_task",
+      source_id: "HOL-7",
+      issue_id: "HOL-7",
+      status: "completed",
+      summary: "Dashboard polish finished.",
+    },
+  });
+
+  const payload = entry.payload as Record<string, unknown>;
+
+  assert.equal(payload.source_type, "delegate_task");
+  assert.equal(payload.source_id, "HOL-7");
+  assert.equal(payload.issue_id, "HOL-7");
+  assert.equal(payload.summary, "Dashboard polish finished.");
+});

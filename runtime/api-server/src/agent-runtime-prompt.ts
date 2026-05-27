@@ -180,6 +180,9 @@ function normalizeSessionKind(value: string | null | undefined): string {
   if (!normalized || normalized === "workspace_session" || normalized === "main") {
     return "main_session";
   }
+  if (normalized === "task_proposal") {
+    return "subagent";
+  }
   return normalized;
 }
 
@@ -263,11 +266,6 @@ function sessionPolicyPromptSection(request: ComposeBaseAgentPromptRequest): str
         "This is a meeting-mode lab controller session. Act as a user-facing critique facilitator and builder with executor-grade tools.",
         "The user has already used the workspace and is rapidly critiquing what did not work well. Capture concrete issues first, build a prioritized backlog, then apply confirmed improvements in the lab workspace.",
         "Present concise change reports after implementation and keep iterating until the user explicitly accepts the result."
-      );
-      break;
-    case "task_proposal":
-      lines.push(
-        "This is a task proposal session. Stay tightly scoped to the delegated task, do not assume browser tooling is available, and avoid unrelated workspace mutations unless the task clearly requires them."
       );
       break;
     case "subagent":
@@ -499,6 +497,9 @@ function teammateRoutingContextPromptSection(
     "Teammate routing roster:",
     "Use this roster to choose who should receive delegated work. These are routing profiles for teammate selection, not direct authority grants for the current front session.",
     "Prefer the teammate whose declared capabilities and preferred tools best match the task. Fall back to `General` when no custom teammate is a clear fit.",
+    "If the user wants to add or reshape teammates, load the `create-teammate` skill via the `skill` tool before creating anyone when that skill is available.",
+    "Do not create a teammate until the stable remit is understood: responsibilities, boundaries, default work, and how the role differs from the current roster.",
+    "If the role is still vague, overlapping, or one-off, inspect the current roster and ask for the concrete missing remit details before calling teammate-creation tools.",
   ];
 
   for (const teammate of teammates) {
@@ -688,7 +689,7 @@ function evolveCandidateContextPromptSection(context: AgentEvolveCandidateContex
   }
   const lines = [
     "Accepted evolve candidate:",
-    "This task proposal originated from the background evolve phase.",
+    "This proposed task originated from the background evolve phase.",
     `Candidate id: \`${candidateId}\`.`,
     `Candidate kind: \`${kind}\`.`,
     `Title: ${title}.`,
@@ -1202,11 +1203,11 @@ export function buildMainSessionPromptSections(
       "Do not satisfy a fresh task by resurfacing a previous artifact, previous child output, or remembered result unless the user explicitly asked to reuse, continue, transform, summarize, compare, or save that exact prior result.",
       "Before claiming the work is already done or that an existing artifact satisfies the current request, verify it through direct inspection, direct tool results, or a grounded child result.",
       "After delegating fresh background work, do not poll the child repeatedly in the same turn with status-read tools just to see if it finished; return control unless the delegated task is already terminal or immediately waiting on user input.",
-      "When the user asks to continue, transform, save, summarize, compare, or report on a previous child result, continue the relevant child session instead of spawning a brand-new child task.",
-      "If multiple child sessions could match a continuation request, ask which one the user means before continuing.",
+      "When the user asks to continue, transform, save, summarize, compare, or report on a previous task result, continue the relevant task instead of spawning a brand-new task.",
+      "If multiple prior tasks could match a continuation request, ask which one the user means before continuing.",
       "Subagents are backstage executors. Do not ask the user to interact with them directly and do not present them as separate conversational agents.",
       "When background work needs user input, ask for it yourself in natural conversation.",
-      "When the user answers a background-work blocker such as logging in, authorizing, confirming, or providing missing context, resume the waiting child session instead of starting a new task.",
+      "When the user answers a background-work blocker such as logging in, authorizing, confirming, or providing missing context, resume the waiting task instead of starting a new task.",
     );
   }
   if (request.workspaceSkillIds.length > 0) {
