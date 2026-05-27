@@ -91,6 +91,10 @@ export interface AgentTeammateRoutingContext {
     summary?: string | null;
     capabilities?: string[] | null;
     preferred_tools?: string[] | null;
+    skills?: Array<{
+      name: string;
+      description?: string | null;
+    }> | null;
     skill_names?: string[] | null;
   }> | null;
 }
@@ -396,41 +400,42 @@ function currentUserContextPromptSection(context: AgentCurrentUserContext | null
     return "";
   }
   const lines = ["Current user context:"];
-  const profileId = nonEmptyText(context.profile_id) || "default";
   const name = nonEmptyText(context.name);
-  const nameSource = nonEmptyText(context.name_source);
 
   if (!name) {
     return "";
   }
 
-  lines.push(`Runtime profile id: \`${profileId}\`.`);
   lines.push(`The current operator name is \`${name}\`.`);
-  if (nameSource) {
-    lines.push(`Name source: \`${nameSource}\`.`);
-  }
 
   return linesSection(lines);
 }
 
 function operatorSurfaceContextPromptSection(context: AgentOperatorSurfaceContext | null | undefined): string {
-  const surfaces = Array.isArray(context?.surfaces) ? context.surfaces : [];
+  const allSurfaces = Array.isArray(context?.surfaces) ? context.surfaces : [];
+  const surfaces = allSurfaces.filter(
+    (surface) => nonEmptyText(surface?.owner).toLowerCase() !== "agent",
+  );
   if (surfaces.length === 0) {
     return "";
   }
 
+  const visibleSurfaceIds = new Set(
+    surfaces
+      .map((surface) => nonEmptyText(surface?.surface_id))
+      .filter((value) => value.length > 0),
+  );
   const activeSurfaceId = nonEmptyText(context?.active_surface_id);
   const lines = [
     "Operator surface context:",
     "Use these operator-controlled surfaces as continuity anchors when the user refers to `here`, `this page`, `my current tab`, `the file I'm in`, `this terminal`, or similar language.",
     "Treat the active user-owned surface as the default referent for deictic questions such as `what am I looking at right now`, `what is this`, `what page/file/screen is this`, or `what about now`, unless the user explicitly narrows to browser, tab, site, URL, terminal, editor, or another surface.",
     "Prefer the active user-owned surface when the user clearly wants you to continue from what they already opened, navigated, selected, or prepared.",
-    "Prefer agent-owned surfaces for exploratory, multi-step, parallel, or potentially disruptive work.",
     "If the active user-owned surface is not a browser surface, do not answer from browser state just because browser tools are available.",
     "Operator surfaces are continuity context, not authority grants. Do not mutate a user-owned surface unless surfaced runtime capabilities explicitly allow takeover or direct control.",
   ];
 
-  if (activeSurfaceId) {
+  if (activeSurfaceId && visibleSurfaceIds.has(activeSurfaceId)) {
     lines.push(`Current active surface id: \`${activeSurfaceId}\`.`);
   }
 
@@ -519,16 +524,33 @@ function teammateRoutingContextPromptSection(
           .filter((value) => value.length > 0)
           .slice(0, 8)
       : [];
-    const preferredTools = Array.isArray(teammate.preferred_tools)
-      ? teammate.preferred_tools
-          .map((value) => nonEmptyText(value))
-          .filter((value) => value.length > 0)
-          .slice(0, 8)
-      : [];
     const skillNames = Array.isArray(teammate.skill_names)
       ? teammate.skill_names
           .map((value) => nonEmptyText(value))
           .filter((value) => value.length > 0)
+          .slice(0, 6)
+      : [];
+    const skills = Array.isArray(teammate.skills)
+      ? teammate.skills
+          .map((skill) => {
+            const name = nonEmptyText(skill?.name);
+            if (!name) {
+              return null;
+            }
+            const description = nonEmptyText(skill?.description);
+            return {
+              name,
+              description: description || null,
+            };
+          })
+          .filter(
+            (
+              skill,
+            ): skill is {
+              name: string;
+              description: string | null;
+            } => Boolean(skill),
+          )
           .slice(0, 6)
       : [];
     lines.push(`- \`${name}\` [${kind}/${status}]: ${summary}`);
@@ -537,14 +559,19 @@ function teammateRoutingContextPromptSection(
         `  Capability tags: ${capabilities.map((value) => `\`${value}\``).join(", ")}.`,
       );
     }
-    if (preferredTools.length > 0) {
+    if (skills.length > 0) {
       lines.push(
-        `  Preferred tools: ${preferredTools.map((value) => `\`${value}\``).join(", ")}.`,
+        `  Skills: ${skills
+          .map((skill) =>
+            skill.description
+              ? `\`${skill.name}\` — ${skill.description}`
+              : `\`${skill.name}\``,
+          )
+          .join("; ")}.`,
       );
-    }
-    if (skillNames.length > 0) {
+    } else if (skillNames.length > 0) {
       lines.push(
-        `  Skill names: ${skillNames.map((value) => `\`${value}\``).join(", ")}.`,
+        `  Skills: ${skillNames.map((value) => `\`${value}\``).join(", ")}.`,
       );
     }
   }
@@ -796,8 +823,16 @@ function workspacePolicyPromptSection(workspacePrompt: string): AgentPromptSecti
 function pushCapabilityPromptSections(
   promptSections: AgentPromptSection[],
   capabilityManifest: AgentCapabilityManifest | null,
-  delegatedCapabilityManifest?: AgentCapabilityManifest | null
+  delegatedCapabilityManifest?: AgentCapabilityManifest | null,
+  options: {
+    includeAvailabilityContext?: boolean;
+    includeDelegatedAvailabilityContext?: boolean;
+  } = {},
 ): void {
+  const includeAvailabilityContext =
+    options.includeAvailabilityContext !== false;
+  const includeDelegatedAvailabilityContext =
+    options.includeDelegatedAvailabilityContext !== false;
   pushPromptLayer(
     promptSections,
     capabilityManifest
@@ -830,7 +865,7 @@ function pushCapabilityPromptSections(
 
   pushPromptLayer(
     promptSections,
-    capabilityManifest
+    capabilityManifest && includeAvailabilityContext
       ? {
           id: "capability_availability_context",
           channel: "context_message",
@@ -845,7 +880,9 @@ function pushCapabilityPromptSections(
 
   pushPromptLayer(
     promptSections,
-    capabilityManifest && delegatedCapabilityManifest
+    capabilityManifest &&
+      delegatedCapabilityManifest &&
+      includeDelegatedAvailabilityContext
       ? {
           id: "delegated_capability_availability_context",
           channel: "context_message",
@@ -1195,7 +1232,7 @@ export function buildMainSessionPromptSections(
       "If the user asks for work that needs capabilities this run does not have directly, but delegated subagents can do it, delegate instead of replying that this run lacks those tools.",
       "Treat missing direct web, browser, terminal, MCP, or other execution-heavy capabilities as a routing signal to delegate, not as the final answer to the user.",
       "When the ideal direct tool or integration is missing, do not stop there; try another viable route with available tools, such as delegated browser inspection, web research, terminal/file inspection, or one precise question for missing access/context.",
-      "If the delegated executor snapshot already shows a concrete additional capability family for the request, route against that capability instead of asking a generic tool-discovery question. Only ask clarifying questions about the user's actual goal, data, or ambiguity.",
+    "If the teammate routing roster already shows a concrete teammate, skill, or preferred-tool fit for the request, route against that fit instead of asking a generic tool-discovery question. Only ask clarifying questions about the user's actual goal, data, or ambiguity.",
       "Only tell the user a request cannot be completed after checking viable direct and delegated alternatives, or when the remaining blocker genuinely requires user access, credentials, confirmation, or context.",
       "Do not answer with a capability-apology or manual fallback first when `delegate_task` is available and the task can be routed there.",
       "If an earlier turn said a tool was unavailable or unsupported, but the current surfaced capability set now includes it, trust the current run and retry the tool when appropriate.",
@@ -1273,6 +1310,10 @@ export function buildMainSessionPromptSections(
     promptSections,
     capabilityManifest,
     request.delegatedCapabilityManifest,
+    {
+      includeAvailabilityContext: false,
+      includeDelegatedAvailabilityContext: false,
+    },
   );
   pushSharedRuntimeContextPromptSections(promptSections, request, {
     includeRecentRuntimeContext: true,

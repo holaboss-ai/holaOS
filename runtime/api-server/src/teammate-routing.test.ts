@@ -46,7 +46,7 @@ afterEach(() => {
   }
 });
 
-test("buildTeammateRoutingRosterEntry reflects teammate-local filesystem skill names", () => {
+test("buildTeammateRoutingRosterEntry reflects teammate-local filesystem skill metadata", () => {
   const workspaceDir = makeTempDir("hb-teammate-routing-roster-");
   writeTeammateSkills({
     workspaceDir,
@@ -54,8 +54,16 @@ test("buildTeammateRoutingRosterEntry reflects teammate-local filesystem skill n
     skills: [
       {
         skillId: "frontend-playbook",
-        name: "Frontend Playbook",
-        content: "# Frontend Playbook\nUse the dashboard patterns.",
+        skillMarkdown: [
+          "---",
+          "name: frontend-playbook",
+          "description: Patterns for polished dashboard UI.",
+          "---",
+          "",
+          "# Frontend Playbook",
+          "Use the dashboard patterns.",
+          "",
+        ].join("\n"),
       },
     ],
   });
@@ -68,8 +76,14 @@ test("buildTeammateRoutingRosterEntry reflects teammate-local filesystem skill n
     { workspaceDir },
   );
 
-  assert.deepEqual(entry.skill_names, ["Frontend Playbook"]);
-  assert.ok(entry.capabilities.includes("Frontend Playbook"));
+  assert.deepEqual(entry.skill_names, ["frontend-playbook"]);
+  assert.deepEqual(entry.skills, [
+    {
+      name: "frontend-playbook",
+      description: "Patterns for polished dashboard UI.",
+    },
+  ]);
+  assert.equal(entry.capabilities.includes("Frontend Playbook"), false);
 });
 
 test("selectDelegatedTaskTeammateByCapability scores teammate-local filesystem skills for routing", () => {

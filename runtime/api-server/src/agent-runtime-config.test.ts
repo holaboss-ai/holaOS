@@ -453,11 +453,9 @@ test("projectAgentRuntimeConfig includes current user context as a context messa
       "context_message",
     );
     assert.deepEqual(result.prompt_cache_profile?.context_message_ids, [
-      "capability_availability_context",
       "current_user_context",
     ]);
     assert.deepEqual(result.prompt_cache_profile?.compatibility_context_ids, [
-      "capability_availability_context",
       "current_user_context",
     ]);
     assert.deepEqual(
@@ -506,6 +504,7 @@ test("projectAgentRuntimeConfig includes teammate routing context as a context m
               "Fallback executor for general implementation and research work.",
             capabilities: ["generalist", "implementation", "research"],
             preferred_tools: [],
+            skills: [],
             skill_names: [],
           },
           {
@@ -517,6 +516,13 @@ test("projectAgentRuntimeConfig includes teammate routing context as a context m
               "Best for React dashboard implementation and UI refactors.",
             capabilities: ["frontend", "react", "dashboard"],
             preferred_tools: ["edit", "bash"],
+            skills: [
+              {
+                name: "Dashboard UI",
+                description:
+                  "Patterns for production dashboard UI implementation and refactors",
+              },
+            ],
             skill_names: ["Dashboard UI"],
           },
         ],
@@ -560,7 +566,15 @@ test("projectAgentRuntimeConfig includes teammate routing context as a context m
     );
     assert.match(
       result.context_messages?.join("\n\n") ?? "",
-      /Preferred tools: `edit`, `bash`\./,
+      /Skills: `Dashboard UI` — Patterns for production dashboard UI implementation and refactors\./,
+    );
+    assert.doesNotMatch(
+      result.context_messages?.join("\n\n") ?? "",
+      /Skill names:/,
+    );
+    assert.doesNotMatch(
+      result.context_messages?.join("\n\n") ?? "",
+      /Preferred tools:/,
     );
   } finally {
     delete process.env.HOLABOSS_MODEL_PROXY_BASE_URL;
@@ -824,6 +838,14 @@ test("projectAgentRuntimeConfig includes operator surface context as a context m
       result.context_messages?.join("\n\n") ?? "",
       /mutability=`inspect_only`/,
     );
+    assert.doesNotMatch(
+      result.context_messages?.join("\n\n") ?? "",
+      /Prefer agent-owned surfaces/i,
+    );
+    assert.doesNotMatch(
+      result.context_messages?.join("\n\n") ?? "",
+      /\[agent\/browser\] `browser:agent`/,
+    );
     assert.deepEqual(result.capability_manifest?.context, {
       harness_id: "pi",
       session_kind: "main_session",
@@ -903,11 +925,9 @@ test("projectAgentRuntimeConfig includes pending user memory context as a contex
       "context_message",
     );
     assert.deepEqual(result.prompt_cache_profile?.context_message_ids, [
-      "capability_availability_context",
       "pending_user_memory",
     ]);
     assert.deepEqual(result.prompt_cache_profile?.compatibility_context_ids, [
-      "capability_availability_context",
       "pending_user_memory",
     ]);
     assert.match(
@@ -973,11 +993,7 @@ test("projectAgentRuntimeConfig omits workspace and recent-runtime layers when n
       ),
       false,
     );
-    assert.equal(result.context_messages?.length, 1);
-    assert.match(
-      result.context_messages?.join("\n\n") ?? "",
-      /Capability availability snapshot:/,
-    );
+    assert.equal(result.context_messages?.length ?? 0, 0);
     assert.match(
       result.system_prompt,
       /front-of-house coordinator with only a partial direct capability surface/i,
@@ -1047,59 +1063,25 @@ test("projectAgentRuntimeConfig includes delegated executor capability context f
       },
     });
 
-    assert.ok(
+    assert.equal(
+      result.prompt_sections?.some(
+        (section) => section.id === "capability_availability_context",
+      ),
+      false,
+    );
+    assert.equal(
       result.prompt_sections?.some(
         (section) => section.id === "delegated_capability_availability_context",
       ),
+      false,
     );
-    assert.deepEqual(result.prompt_cache_profile?.context_message_ids, [
-      "capability_availability_context",
-      "delegated_capability_availability_context",
-    ]);
-    assert.deepEqual(result.prompt_cache_profile?.compatibility_context_ids, [
-      "capability_availability_context",
-      "delegated_capability_availability_context",
-    ]);
+    assert.deepEqual(result.prompt_cache_profile?.context_message_ids, []);
+    assert.deepEqual(result.prompt_cache_profile?.compatibility_context_ids, []);
     assert.match(
       result.system_prompt,
-      /route against that capability instead of asking a generic tool-discovery question/i,
+      /route against that fit instead of asking a generic tool-discovery question/i,
     );
-    assert.match(
-      result.context_messages?.join("\n\n") ?? "",
-      /Delegated executor capability snapshot:/,
-    );
-    assert.match(
-      result.context_messages?.join("\n\n") ?? "",
-      /Delegated browser execution is available even though this front session has no direct browser tools\./,
-    );
-    assert.match(
-      result.context_messages?.join("\n\n") ?? "",
-      /Workspace Apps Get Status \(`workspace_apps_get_status`\)/,
-    );
-    assert.match(
-      result.context_messages?.join("\n\n") ?? "",
-      /Workspace Data List Tables \(`workspace_data_list_tables`\)/,
-    );
-    assert.doesNotMatch(
-      result.context_messages?.join("\n\n") ?? "",
-      /Stale Runtime Tool Alpha \(`stale_runtime_tool_alpha`\)/,
-    );
-    assert.doesNotMatch(
-      result.context_messages?.join("\n\n") ?? "",
-      /Stale Runtime Tool Beta \(`stale_runtime_tool_beta`\)/,
-    );
-    assert.match(
-      result.context_messages?.join("\n\n") ?? "",
-      /Delegated app integrations available via: `twitter`\./,
-    );
-    assert.doesNotMatch(
-      result.context_messages?.join("\n\n") ?? "",
-      /Delegated MCP callable tool aliases for routing only:/,
-    );
-    assert.doesNotMatch(
-      result.context_messages?.join("\n\n") ?? "",
-      /`twitter\.twitter_create_post` -> call `mcp__twitter__twitter_create_post`/,
-    );
+    assert.equal(result.context_messages?.length ?? 0, 0);
   } finally {
     delete process.env.HOLABOSS_MODEL_PROXY_BASE_URL;
   }
@@ -1163,11 +1145,9 @@ test("projectAgentRuntimeConfig includes recalled durable memory in context mess
       false,
     );
     assert.deepEqual(result.prompt_cache_profile?.context_message_ids, [
-      "capability_availability_context",
       "memory_recall",
     ]);
     assert.deepEqual(result.prompt_cache_profile?.compatibility_context_ids, [
-      "capability_availability_context",
       "memory_recall",
     ]);
     assert.deepEqual(

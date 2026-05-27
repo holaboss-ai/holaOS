@@ -331,7 +331,10 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /Ask clarifying questions only when ambiguity affects user intent, safety, consent, credentials, account selection, or other user-owned context; do not ask merely because a preferred tool is missing from this run\./i);
   assert.match(prompt.systemPrompt, /When a clarifying question is truly needed, make it grounded in the user's words, current session context, workspace state, or tool\/subagent evidence; ask only for the concrete missing fact that blocks routing or execution\./);
   assert.match(prompt.systemPrompt, /Clarifying questions must be grounded in the current workspace\/session context or a concrete tool\/subagent result\. Do not ask abstract option-list questions or introduce unsupported alternatives from general product knowledge; inspect, execute, or delegate first when the current context is insufficient\./);
-  assert.match(prompt.systemPrompt, /If the delegated executor snapshot already shows a concrete additional capability family for the request, route against that capability instead of asking a generic tool-discovery question\./);
+  assert.match(
+    prompt.systemPrompt,
+    /If the teammate routing roster already shows a concrete teammate, skill, or preferred-tool fit for the request, route against that fit instead of asking a generic tool-discovery question\./,
+  );
   assert.match(prompt.systemPrompt, /When the user asks for fresh execution, fresh investigation, or a new deliverable, do not answer from prior chat memory alone; inspect, execute, or delegate first\./);
   assert.match(prompt.systemPrompt, /Default delegated browser work to the agent browser\./);
   assert.match(prompt.systemPrompt, /set `use_user_browser_surface: true` on `delegate_task`/i);
@@ -381,62 +384,26 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /After edits, shell commands, browser actions, MCP mutations, or runtime mutations, run a follow-up inspection or verification step before claiming success\./);
   assert.match(prompt.systemPrompt, /Use coordination capabilities to track progress, consult available skills, route execution through delegated subagents when appropriate, or ask for clarification instead of keeping hidden state\./);
   assert.ok(
-    prompt.contextMessages.some((message) =>
+    !prompt.contextMessages.some((message) =>
       /This front session is intentionally capability-incomplete\. Treat the surfaced tools above as your full direct capability set for this run; if the request needs more and `delegate_task` is available, delegate it\./.test(message),
     ),
   );
   assert.doesNotMatch(prompt.systemPrompt, /default full-capability agent for this workspace/i);
   assert.doesNotMatch(prompt.systemPrompt, /may execute directly when that is the clearest path/i);
   assert.doesNotMatch(prompt.systemPrompt, /Delegate executable reasoning and task execution to hidden subagents\./);
-  assert.ok(
+  assert.equal(
+    prompt.promptSections.some(
+      (section) => section.id === "capability_availability_context",
+    ),
+    false,
+  );
+  assert.equal(
     prompt.promptSections.some(
       (section) => section.id === "delegated_capability_availability_context",
     ),
+    false,
   );
-  assert.ok(
-    prompt.contextMessages.some((message) =>
-      /Delegated executor capability snapshot:/.test(message),
-    ),
-  );
-  assert.ok(
-    prompt.contextMessages.some((message) =>
-      /Workspace Apps Get Status \(`workspace_apps_get_status`\)/.test(message),
-    ),
-  );
-  assert.ok(
-    prompt.contextMessages.some((message) =>
-      /Workspace Data List Tables \(`workspace_data_list_tables`\)/.test(message),
-    ),
-  );
-  assert.ok(
-    prompt.contextMessages.every((message) =>
-      !/Stale Runtime Tool Alpha \(`stale_runtime_tool_alpha`\)/.test(message),
-    ),
-  );
-  assert.ok(
-    prompt.contextMessages.every((message) =>
-      !/Stale Runtime Tool Beta \(`stale_runtime_tool_beta`\)/.test(message),
-    ),
-  );
-  assert.ok(
-    prompt.contextMessages.some((message) =>
-      /Delegated app integrations available via: `twitter`\./.test(message),
-    ),
-  );
-  assert.ok(
-    prompt.contextMessages.every(
-      (message) =>
-        !/Delegated MCP callable tool aliases for routing only:/.test(message),
-    ),
-  );
-  assert.ok(
-    prompt.contextMessages.every(
-      (message) =>
-        !/`twitter\.twitter_create_post` -> call `mcp__twitter__twitter_create_post`/.test(
-          message,
-        ),
-    ),
-  );
+  assert.equal(prompt.contextMessages.length, 0);
   assert.doesNotMatch(prompt.systemPrompt, /small direct edits inline/);
   assert.doesNotMatch(prompt.systemPrompt, /Execution doctrine:/);
   assert.doesNotMatch(prompt.systemPrompt, /Todo continuity policy:/);
@@ -1222,7 +1189,8 @@ test("composeBaseAgentPrompt includes current user context when provided", () =>
   assert.doesNotMatch(prompt.systemPrompt, /Current user context:/);
   assert.match(prompt.contextMessages.join("\n\n"), /Current user context:/);
   assert.match(prompt.contextMessages.join("\n\n"), /The current operator name is `Jeffrey`\./);
-  assert.match(prompt.contextMessages.join("\n\n"), /Name source: `manual`\./);
+  assert.doesNotMatch(prompt.contextMessages.join("\n\n"), /Runtime profile id:/);
+  assert.doesNotMatch(prompt.contextMessages.join("\n\n"), /Name source:/);
 });
 
 test("composeBaseAgentPrompt includes teammate routing context when provided", () => {
@@ -1243,6 +1211,7 @@ test("composeBaseAgentPrompt includes teammate routing context when provided", (
           summary: "Fallback executor for general implementation and research work.",
           capabilities: ["generalist", "implementation", "research"],
           preferred_tools: [],
+          skills: [],
           skill_names: [],
         },
         {
@@ -1253,6 +1222,12 @@ test("composeBaseAgentPrompt includes teammate routing context when provided", (
           summary: "Best for React dashboard implementation and UI refactors.",
           capabilities: ["frontend", "react", "dashboard", "ui"],
           preferred_tools: ["edit", "bash"],
+          skills: [
+            {
+              name: "Dashboard UI",
+              description: "Patterns for production dashboard UI implementation and refactors",
+            },
+          ],
           skill_names: ["Dashboard UI"],
         },
       ],
@@ -1277,7 +1252,12 @@ test("composeBaseAgentPrompt includes teammate routing context when provided", (
   assert.match(prompt.contextMessages.join("\n\n"), /ask for the concrete missing remit details before calling teammate-creation tools/i);
   assert.match(prompt.contextMessages.join("\n\n"), /`Frontend` \[custom\/active\]: Best for React dashboard implementation and UI refactors\./);
   assert.match(prompt.contextMessages.join("\n\n"), /Capability tags: `frontend`, `react`, `dashboard`, `ui`\./);
-  assert.match(prompt.contextMessages.join("\n\n"), /Preferred tools: `edit`, `bash`\./);
+  assert.match(
+    prompt.contextMessages.join("\n\n"),
+    /Skills: `Dashboard UI` — Patterns for production dashboard UI implementation and refactors\./,
+  );
+  assert.doesNotMatch(prompt.contextMessages.join("\n\n"), /Skill names:/);
+  assert.doesNotMatch(prompt.contextMessages.join("\n\n"), /Preferred tools:/);
 });
 
 test("composeBaseAgentPrompt includes operator surface context when provided", () => {
@@ -1330,7 +1310,8 @@ test("composeBaseAgentPrompt includes operator surface context when provided", (
   assert.match(prompt.contextMessages.join("\n\n"), /Do not mutate a user-owned surface unless surfaced runtime capabilities explicitly allow takeover or direct control\./);
   assert.match(prompt.contextMessages.join("\n\n"), /Current active surface id: `browser:user`\./);
   assert.match(prompt.contextMessages.join("\n\n"), /\[user\/browser\] `browser:user` \(active, mutability=`inspect_only`\):/);
-  assert.match(prompt.contextMessages.join("\n\n"), /\[agent\/browser\] `browser:agent` \(mutability=`agent_owned`\):/);
+  assert.doesNotMatch(prompt.contextMessages.join("\n\n"), /Prefer agent-owned surfaces/i);
+  assert.doesNotMatch(prompt.contextMessages.join("\n\n"), /\[agent\/browser\] `browser:agent` \(mutability=`agent_owned`\):/);
 });
 
 test("composeBaseAgentPrompt includes pending user memory context when provided", () => {

@@ -1,6 +1,7 @@
 import type { TeammateRecord } from "@holaboss/runtime-state-store";
 
 import { resolvedTeammateSkillsForRecord } from "./teammate-skill-files.js";
+import { resolveWorkspaceSkills } from "./workspace-skills.js";
 
 export interface DelegatedTaskRoutingQuery {
   title: string;
@@ -17,6 +18,10 @@ export interface TeammateRoutingRosterEntry {
   summary: string | null;
   capabilities: string[];
   preferred_tools: string[];
+  skills: Array<{
+    name: string;
+    description: string | null;
+  }>;
   skill_names: string[];
 }
 
@@ -85,14 +90,48 @@ function teammateRoutingSkills(
   });
 }
 
+function teammateRoutingSkillMetadata(
+  teammate: TeammateRecord,
+  workspaceDir?: string | null,
+): Array<{ name: string; description: string | null }> {
+  if (!workspaceDir) {
+    return [];
+  }
+  const teammateId = nonEmptyText(teammate.teammateId);
+  if (!teammateId) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const metadata: Array<{ name: string; description: string | null }> = [];
+  for (const skill of resolveWorkspaceSkills(workspaceDir, { teammateId })) {
+    if (skill.origin !== "teammate" || skill.owner_teammate_id !== teammateId) {
+      continue;
+    }
+    const name = nonEmptyText(skill.skill_name);
+    if (!name) {
+      continue;
+    }
+    const key = name.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    metadata.push({
+      name,
+      description: nonEmptyText(skill.description) || null,
+    });
+  }
+  return metadata;
+}
+
 export function buildTeammateRoutingRosterEntry(
   teammate: TeammateRecord,
   options: { workspaceDir?: string | null } = {},
 ): TeammateRoutingRosterEntry {
   const skills = teammateRoutingSkills(teammate, options.workspaceDir);
+  const skillMetadata = teammateRoutingSkillMetadata(teammate, options.workspaceDir);
   const capabilities = uniqueStringsInOrder([
     ...teammate.capabilityProfile.capabilities,
-    ...skills.map((skill) => skill.name),
   ]);
   return {
     teammate_id: teammate.teammateId,
@@ -102,7 +141,8 @@ export function buildTeammateRoutingRosterEntry(
     summary: fallbackCapabilitySummaryWithSkills({ teammate, skills }),
     capabilities,
     preferred_tools: uniqueStringsInOrder(teammate.capabilityProfile.preferredTools),
-    skill_names: uniqueStringsInOrder(skills.map((skill) => skill.name)),
+    skills: skillMetadata,
+    skill_names: uniqueStringsInOrder(skillMetadata.map((skill) => skill.name)),
   };
 }
 
@@ -117,6 +157,10 @@ function teammateRoutingCorpusTokens(
     ...routingTokens(entry.summary),
     ...entry.capabilities.flatMap((value) => routingTokens(value)),
     ...entry.preferred_tools.flatMap((value) => routingTokens(value)),
+    ...entry.skills.flatMap((skill) => [
+      ...routingTokens(skill.name),
+      ...routingTokens(skill.description),
+    ]),
     ...routingTokens(teammate.instructions),
     ...skills.flatMap((skill) => [
       ...routingTokens(skill.name),
