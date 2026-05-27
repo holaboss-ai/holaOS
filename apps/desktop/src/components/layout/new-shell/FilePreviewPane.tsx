@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { fileNameFromPath } from "./state/internalTabs";
 import { removeRecentFileByPathAtom } from "./state/recentFiles";
+import { useOpenWorkspaceOutput } from "./useOpenWorkspaceOutput";
 
 interface FilePreviewPaneProps {
   filePath: string;
@@ -230,6 +231,7 @@ function MarkdownEditor({ preview, workspaceId, onUpdated }: EditorSurfaceProps)
     workspaceId,
     onUpdated,
   );
+  const { openUrlInBrowserTab, openFileInInternalTab } = useOpenWorkspaceOutput();
   const editable = preview.isEditable;
 
   return (
@@ -257,6 +259,8 @@ function MarkdownEditor({ preview, workspaceId, onUpdated }: EditorSurfaceProps)
             onChange={setDraft}
             readOnly={!editable}
             placeholder="Press / for commands…"
+            onLinkClick={(url) => void openUrlInBrowserTab(url)}
+            onLocalLinkClick={openFileInInternalTab}
           />
         </div>
       </div>
