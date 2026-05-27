@@ -2338,6 +2338,32 @@ function readFileIfExists(filePath: string): string | null {
   }
 }
 
+function removeObsoleteFiles(rootDir: string, keepAbsolutePaths: Set<string>): void {
+  if (!fs.existsSync(rootDir)) {
+    return;
+  }
+  const walk = (currentPath: string): void => {
+    for (const childName of fs.readdirSync(currentPath)) {
+      const childPath = path.join(currentPath, childName);
+      const stats = fs.lstatSync(childPath);
+      if (stats.isDirectory()) {
+        walk(childPath);
+        if (fs.existsSync(childPath) && fs.readdirSync(childPath).length === 0) {
+          fs.rmdirSync(childPath);
+        }
+        continue;
+      }
+      if (!keepAbsolutePaths.has(path.resolve(childPath))) {
+        fs.rmSync(childPath, { force: true });
+      }
+    }
+  };
+  walk(rootDir);
+  if (fs.existsSync(rootDir) && fs.readdirSync(rootDir).length === 0) {
+    fs.rmdirSync(rootDir);
+  }
+}
+
 function markdownExcerpt(text: string, maxChars = EMBEDDING_EXCERPT_CHARS): string {
   const content = text
     .replace(/^\uFEFF/, "")
@@ -3901,10 +3927,6 @@ export async function rebuildIntegrationTree(params: {
     recursive: true,
     force: true,
   });
-  fs.rmSync(semanticIntegrationTreeDir(params.store.workspaceRoot, tree.slug), {
-    recursive: true,
-    force: true,
-  });
 
   const rewrittenLeaves: IntegrationLeafRecord[] = [];
   for (const leaf of activeLeaves) {
@@ -3977,6 +3999,14 @@ export async function rebuildIntegrationTree(params: {
         body,
       );
     }
+    removeObsoleteFiles(
+      semanticIntegrationTreeDir(params.store.workspaceRoot, tree.slug),
+      new Set(
+        [...semantic.bodiesByPath.keys()].map((relativePath) =>
+          path.resolve(absolutePathForRelative(params.store.workspaceRoot, relativePath))
+        ),
+      ),
+    );
     params.store.replaceSemanticMemoryTree({
       category: "integration",
       treeId: params.treeId,
@@ -4012,6 +4042,11 @@ export async function rebuildIntegrationTree(params: {
       docs: semanticSearchDocsForIntegrationTree({
         semantic,
       }),
+    });
+  } else {
+    fs.rmSync(semanticIntegrationTreeDir(params.store.workspaceRoot, tree.slug), {
+      recursive: true,
+      force: true,
     });
   }
   for (const node of semantic?.nodes ?? []) {

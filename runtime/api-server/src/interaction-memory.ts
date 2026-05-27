@@ -32,6 +32,7 @@ const ENTITY_CREATE_CONFIDENCE_THRESHOLD = 0.68;
 const ENTITY_MATCH_CONFIDENCE_THRESHOLD = 0.6;
 const SEMANTIC_DEDUPE_SHORTLIST_LIMIT = 6;
 const SEMANTIC_DEDUPE_SIMILARITY_THRESHOLD = 0.52;
+const INTERACTION_SUMMARY_INPUT_FINGERPRINT_VERSION = 1;
 const PROJECT_SUBJECT_TOKENS = new Set([
   "api",
   "app",
@@ -361,6 +362,11 @@ type SemanticInteractionDraftNode = {
   metadata: Record<string, unknown>;
 };
 
+type ExistingInteractionSummaryNode = {
+  node: ReturnType<RuntimeStateStore["listSemanticMemoryNodes"]>[number];
+  body: string;
+};
+
 interface SemanticDuplicateCandidate {
   leaf: InteractionLeafRecord;
   similarity: number;
@@ -601,6 +607,124 @@ function readFileIfExists(filePath: string): string | null {
   } catch {
     return null;
   }
+}
+
+function removeObsoleteFiles(rootDir: string, keepAbsolutePaths: Set<string>): void {
+  if (!fs.existsSync(rootDir)) {
+    return;
+  }
+  const walk = (currentPath: string): void => {
+    for (const childName of fs.readdirSync(currentPath)) {
+      const childPath = path.join(currentPath, childName);
+      const stats = fs.lstatSync(childPath);
+      if (stats.isDirectory()) {
+        walk(childPath);
+        if (fs.existsSync(childPath) && fs.readdirSync(childPath).length === 0) {
+          fs.rmdirSync(childPath);
+        }
+        continue;
+      }
+      if (!keepAbsolutePaths.has(path.resolve(childPath))) {
+        fs.rmSync(childPath, { force: true });
+      }
+    }
+  };
+  walk(rootDir);
+  if (fs.existsSync(rootDir) && fs.readdirSync(rootDir).length === 0) {
+    fs.rmdirSync(rootDir);
+  }
+}
+
+function metadataString(metadata: Record<string, unknown> | null | undefined, key: string): string | null {
+  const value = metadata?.[key];
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized || null;
+}
+
+function interactionSummaryInputFingerprint(params: {
+  entity: InteractionEntityRecord;
+  nodeKind: "tree" | "partition";
+  title: string;
+  depthFromLeaves: number;
+  ordinal: number;
+  children: Array<{
+    kind: InteractionTreeChildKind;
+    id: string;
+    title: string;
+    summary: string;
+    excerpt: string | null;
+  }>;
+}): string {
+  return sha256(JSON.stringify({
+    version: INTERACTION_SUMMARY_INPUT_FINGERPRINT_VERSION,
+    entityId: params.entity.entityId,
+    entityName: params.entity.canonicalName,
+    entityType: params.entity.entityType,
+    entitySummary: params.entity.summary ?? null,
+    nodeKind: params.nodeKind,
+    title: params.title,
+    depthFromLeaves: params.depthFromLeaves,
+    ordinal: params.ordinal,
+    children: params.children.map((child) => ({
+      kind: child.kind,
+      id: child.id,
+      title: child.title,
+      summary: child.summary,
+      excerpt: child.excerpt ? clipText(child.excerpt, 280) : null,
+    })),
+  }));
+}
+
+function existingInteractionSummaryNode(params: {
+  cache: Map<string, ExistingInteractionSummaryNode>;
+  nodeId: string;
+  inputFingerprint: string;
+}): ExistingInteractionSummaryNode | null {
+  const existing = params.cache.get(params.nodeId);
+  if (!existing) {
+    return null;
+  }
+  return metadataString(existing.node.metadata, "summary_input_fingerprint") === params.inputFingerprint
+    ? existing
+    : null;
+}
+
+function loadExistingInteractionSummaryNodes(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  entity: InteractionEntityRecord;
+}): Map<string, ExistingInteractionSummaryNode> {
+  const docsByNodeId = new Map(
+    params.store.listSemanticMemorySearchDocs({
+      category: "interaction",
+      workspaceId: params.workspaceId,
+      treeId: params.entity.entityId,
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    }).map((doc) => [doc.nodeId, doc]),
+  );
+  const existing = new Map<string, ExistingInteractionSummaryNode>();
+  for (const node of params.store.listSemanticMemoryNodes({
+    category: "interaction",
+    workspaceId: params.workspaceId,
+    treeId: params.entity.entityId,
+    nodeClass: "semantic",
+    status: "active",
+    limit: 10_000,
+    offset: 0,
+  })) {
+    const body = docsByNodeId.get(node.nodeId)?.bodyText
+      ?? readFileIfExists(absolutePathForRelative(params.store.workspaceDir(params.workspaceId), node.path));
+    if (!body) {
+      continue;
+    }
+    existing.set(node.nodeId, { node, body });
+  }
+  return existing;
 }
 
 function markdownExcerpt(text: string, maxChars = EMBEDDING_EXCERPT_CHARS): string {
@@ -1470,12 +1594,35 @@ async function buildSemanticInteractionPartitionNode(params: {
   depthFromLeaves: number;
   ordinal: number;
   modelClient: MemoryModelClientConfig | null;
+  existingSummaryByNodeId: Map<string, ExistingInteractionSummaryNode>;
 }): Promise<{
   node: SemanticInteractionDraftNode;
   body: string;
   child: SemanticInteractionDraftChild;
 }> {
-  const summary = await generateSummaryText({
+  const childIdentity = params.children.map((child) => `${child.kind}:${child.id}`).join("|");
+  const nodeId = `semantic:interaction:${params.entity.entityId}:partition:L${params.depthFromLeaves}:${sha256(childIdentity).slice(0, 16)}`;
+  const title = `Slice ${params.ordinal}`;
+  const inputFingerprint = interactionSummaryInputFingerprint({
+    entity: params.entity,
+    nodeKind: "partition",
+    title,
+    depthFromLeaves: params.depthFromLeaves,
+    ordinal: params.ordinal,
+    children: params.children.map((child) => ({
+      kind: child.kind,
+      id: child.id,
+      title: child.title,
+      summary: child.summary,
+      excerpt: child.excerpt,
+    })),
+  });
+  const reused = existingInteractionSummaryNode({
+    cache: params.existingSummaryByNodeId,
+    nodeId,
+    inputFingerprint,
+  });
+  const summary = reused?.node.summary ?? await generateSummaryText({
     entity: params.entity,
     children: params.children.map((child) => ({
       kind: child.kind,
@@ -1488,14 +1635,11 @@ async function buildSemanticInteractionPartitionNode(params: {
     ordinal: params.ordinal,
     modelClient: params.modelClient,
   });
-  const childIdentity = params.children.map((child) => `${child.kind}:${child.id}`).join("|");
-  const nodeId = `semantic:interaction:${params.entity.entityId}:partition:L${params.depthFromLeaves}:${sha256(childIdentity).slice(0, 16)}`;
-  const title = `Slice ${params.ordinal}`;
   const path = semanticInteractionChildRelativePath(
     params.rootPath,
     `slice-l${params.depthFromLeaves}-${String(params.ordinal).padStart(2, "0")}-${nodeId.slice(-6)}`,
   );
-  const body = semanticInteractionNodeBody({
+  const body = reused?.body ?? semanticInteractionNodeBody({
     entity: params.entity,
     nodeKind: "partition",
     title,
@@ -1526,6 +1670,8 @@ async function buildSemanticInteractionPartitionNode(params: {
       metadata: {
         depth_from_leaves: params.depthFromLeaves,
         ordinal: params.ordinal,
+        source: "interaction_summary",
+        summary_input_fingerprint: inputFingerprint,
       },
     },
     body,
@@ -1546,6 +1692,7 @@ async function buildSemanticInteractionTree(params: {
   leaves: InteractionLeafRecord[];
   leafBodies: Map<string, string>;
   modelClient: MemoryModelClientConfig | null;
+  existingSummaryByNodeId: Map<string, ExistingInteractionSummaryNode>;
 }): Promise<{
   nodes: SemanticInteractionDraftNode[];
   edges: Array<{
@@ -1620,6 +1767,7 @@ async function buildSemanticInteractionTree(params: {
           depthFromLeaves,
           ordinal: index + 1,
           modelClient: params.modelClient,
+          existingSummaryByNodeId: params.existingSummaryByNodeId,
         })),
     );
     for (const [index, partition] of layer.entries()) {
@@ -1649,7 +1797,26 @@ async function buildSemanticInteractionTree(params: {
     depthFromLeaves += 1;
   }
 
-  const rootSummary = currentChildren.length > 0
+  const rootInputFingerprint = interactionSummaryInputFingerprint({
+    entity: params.entity,
+    nodeKind: "tree",
+    title: params.entity.canonicalName,
+    depthFromLeaves,
+    ordinal: 1,
+    children: currentChildren.map((child) => ({
+      kind: child.kind,
+      id: child.id,
+      title: child.title,
+      summary: child.summary,
+      excerpt: child.excerpt,
+    })),
+  });
+  const reusedRoot = existingInteractionSummaryNode({
+    cache: params.existingSummaryByNodeId,
+    nodeId: rootNodeId,
+    inputFingerprint: rootInputFingerprint,
+  });
+  const rootSummary = reusedRoot?.node.summary ?? (currentChildren.length > 0
     ? await generateSummaryText({
         entity: params.entity,
         children: currentChildren.map((child) => ({
@@ -1663,8 +1830,8 @@ async function buildSemanticInteractionTree(params: {
         ordinal: 1,
         modelClient: params.modelClient,
       })
-    : (params.entity.summary?.trim() || `${params.entity.canonicalName} interaction memory.`);
-  const rootBody = semanticInteractionNodeBody({
+    : (params.entity.summary?.trim() || `${params.entity.canonicalName} interaction memory.`));
+  const rootBody = reusedRoot?.body ?? semanticInteractionNodeBody({
     entity: params.entity,
     nodeKind: "tree",
     title: params.entity.canonicalName,
@@ -1693,6 +1860,8 @@ async function buildSemanticInteractionTree(params: {
       entity_id: params.entity.entityId,
       entity_type: params.entity.entityType,
       entity_slug: params.entity.slug,
+      source: "interaction_summary",
+      summary_input_fingerprint: rootInputFingerprint,
     },
   });
   currentChildren.forEach((child, index) => {
@@ -1949,8 +2118,12 @@ export async function rebuildInteractionEntityTree(params: {
   const entityDir = interactionEntityDir(workspaceDir, entity.slug);
   const semanticTreeDir = semanticInteractionTreeDir(workspaceDir, entity.slug);
   const summariesDir = path.join(entityDir, "summaries");
+  const existingSummaryByNodeId = loadExistingInteractionSummaryNodes({
+    store: params.store,
+    workspaceId: params.workspaceId,
+    entity,
+  });
   fs.rmSync(summariesDir, { recursive: true, force: true });
-  fs.rmSync(semanticTreeDir, { recursive: true, force: true });
   fs.rmSync(
     absolutePathForRelative(
       workspaceDir,
@@ -1991,10 +2164,19 @@ export async function rebuildInteractionEntityTree(params: {
     leaves: activeLeaves,
     leafBodies,
     modelClient: params.summaryModelClient ?? null,
+    existingSummaryByNodeId,
   });
   for (const [relativePath, body] of semantic.bodiesByPath) {
     writeFileIfChanged(absolutePathForRelative(workspaceDir, relativePath), body);
   }
+  removeObsoleteFiles(
+    semanticTreeDir,
+    new Set(
+      [...semantic.bodiesByPath.keys()].map((relativePath) =>
+        path.resolve(absolutePathForRelative(workspaceDir, relativePath))
+      ),
+    ),
+  );
   params.store.replaceSemanticMemoryTree({
     category: "interaction",
     workspaceId: params.workspaceId,

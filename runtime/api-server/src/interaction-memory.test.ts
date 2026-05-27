@@ -427,6 +427,161 @@ test("rebuildInteractionEntityTree writes semantic interaction trees and retriev
   }
 });
 
+test("rebuildInteractionEntityTree reuses unchanged semantic partitions and only recomputes affected subtrees", async () => {
+  const root = makeTempDir("hb-interaction-memory-incremental-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertInteractionEntity({
+    workspaceId: "workspace-1",
+    entityId: "interaction:workflow:incremental-playbook",
+    entityType: "workflow",
+    canonicalName: "Incremental playbook",
+    slug: "workflow-incremental-playbook",
+    summary: "Incremental rebuild memory.",
+    aliases: [],
+    isSystem: false,
+    status: "active",
+  });
+
+  const leafIds = Array.from({ length: 10 }, (_, index) => `leaf-${index + 1}`);
+  for (const [index, leafId] of leafIds.entries()) {
+    const relativePath = `workspace/workspace-1/interaction/entities/workflow-incremental-playbook/leaves/${leafId}.md`;
+    store.upsertInteractionLeaf({
+      workspaceId: "workspace-1",
+      leafId,
+      entityId: "interaction:workflow:incremental-playbook",
+      subjectKey: `procedure:incremental:${index + 1}`,
+      path: relativePath,
+      title: `Incremental step ${index + 1}`,
+      summary: `Summary for incremental step ${index + 1}.`,
+      fingerprint: `fingerprint-${leafId}`,
+      bodySha256: `sha-${leafId}`,
+      tags: ["incremental"],
+      secondaryEntityIds: [],
+      sourceType: "manual",
+      sourceEventId: null,
+      sourceMessageId: null,
+      sourceTurnInputId: "input-seed",
+      admissionConfidence: 0.9,
+      entityConfidence: 0.9,
+      observedAt: `2026-05-20T00:${String(index + 1).padStart(2, "0")}:00.000Z`,
+      supersedesLeafId: null,
+      status: "active",
+    });
+    const absolutePath = path.join(
+      workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+      "interaction",
+      "entities",
+      "workflow-incremental-playbook",
+      "leaves",
+      `${leafId}.md`,
+    );
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.writeFileSync(
+      absolutePath,
+      `# Incremental step ${index + 1}\n\nSummary for incremental step ${index + 1}.\n`,
+      "utf8",
+    );
+  }
+
+  try {
+    await withJsonResponseServer({
+      responses: Array.from({ length: 8 }, (_, index) => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                summary: `Incremental summary ${index + 1}.`,
+              }),
+            },
+          },
+        ],
+      })),
+      run: async (baseUrl, requests) => {
+        const summaryModelClient = {
+          baseUrl,
+          apiKey: "test-key",
+          modelId: "openai/gpt-4.1-mini",
+        };
+
+        await rebuildInteractionEntityTree({
+          store,
+          workspaceId: "workspace-1",
+          entityId: "interaction:workflow:incremental-playbook",
+          summaryModelClient,
+          embeddingClient: null,
+        });
+        assert.equal(requests.length, 3);
+
+        await rebuildInteractionEntityTree({
+          store,
+          workspaceId: "workspace-1",
+          entityId: "interaction:workflow:incremental-playbook",
+          summaryModelClient,
+          embeddingClient: null,
+        });
+        assert.equal(requests.length, 3);
+
+        const updatedLeafPath = path.join(
+          workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+          "interaction",
+          "entities",
+          "workflow-incremental-playbook",
+          "leaves",
+          "leaf-1.md",
+        );
+        fs.writeFileSync(
+          updatedLeafPath,
+          "# Incremental step 1\n\nSummary for incremental step 1 with a revised approval gate.\n",
+          "utf8",
+        );
+        store.upsertInteractionLeaf({
+          workspaceId: "workspace-1",
+          leafId: "leaf-1",
+          entityId: "interaction:workflow:incremental-playbook",
+          subjectKey: "procedure:incremental:1",
+          path: "workspace/workspace-1/interaction/entities/workflow-incremental-playbook/leaves/leaf-1.md",
+          title: "Incremental step 1",
+          summary: "Summary for incremental step 1 with a revised approval gate.",
+          fingerprint: "fingerprint-leaf-1-revised",
+          bodySha256: "sha-leaf-1-revised",
+          tags: ["incremental"],
+          secondaryEntityIds: [],
+          sourceType: "manual",
+          sourceEventId: null,
+          sourceMessageId: null,
+          sourceTurnInputId: "input-seed",
+          admissionConfidence: 0.9,
+          entityConfidence: 0.9,
+          observedAt: "2026-05-20T00:01:00.000Z",
+          supersedesLeafId: null,
+          status: "active",
+        });
+
+        await rebuildInteractionEntityTree({
+          store,
+          workspaceId: "workspace-1",
+          entityId: "interaction:workflow:incremental-playbook",
+          summaryModelClient,
+          embeddingClient: null,
+        });
+        assert.equal(requests.length, 5);
+      },
+    });
+  } finally {
+    store.close();
+  }
+});
+
 test("retrieveInteractionMemory recalls deep-body leaf terms through the semantic search index", async () => {
   const root = makeTempDir("hb-interaction-memory-fts-");
   const workspaceRoot = path.join(root, "workspace");
