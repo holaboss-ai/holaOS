@@ -71,6 +71,10 @@ import {
   persistWorkspaceHarnessSessionId,
   readWorkspaceHarnessSessionId,
 } from "./ts-runner-session-state.js";
+import {
+  quotedSkillBlock,
+  resolveWorkspaceSkills,
+} from "./workspace-skills.js";
 
 const ONBOARD_PROMPT_HEADER = "[Holaboss Workspace Onboarding v1]";
 const RETRY_CONTINUATION_PROMPT_HEADER = "[Holaboss Retry Continuation v1]";
@@ -1450,6 +1454,7 @@ function instructionWithInlineBackgroundUpdates(params: {
 
 function instructionWithIssueAssignmentContext(params: {
   store: RuntimeStateStore;
+  workspaceDir: string;
   workspaceId: string;
   sessionId: string;
   baseInstruction: string;
@@ -1493,18 +1498,18 @@ function instructionWithIssueAssignmentContext(params: {
   if (instructions) {
     sections.push(`Teammate instructions:\n${instructions}`);
   }
-  const skillSections = teammate.skills
-    .map((skill) => {
-      const skillName = skill.name.trim() || "Skill";
-      const content = skill.content.trim();
-      if (!content) {
-        return `Skill: ${skillName}`;
-      }
-      return `Skill: ${skillName}\n${content}`;
-    })
-    .filter((section) => section.length > 0);
-  if (skillSections.length > 0) {
-    sections.push(`Teammate skills:\n${skillSections.join("\n\n")}`);
+  const teammateSkillBlocks = resolveWorkspaceSkills(params.workspaceDir, {
+    teammateId: effectiveTeammateId,
+  })
+    .filter(
+      (skill) =>
+        skill.origin === "teammate" &&
+        skill.owner_teammate_id === effectiveTeammateId,
+    )
+    .map((skill) => quotedSkillBlock(skill))
+    .filter((block): block is string => Boolean(block));
+  if (teammateSkillBlocks.length > 0) {
+    sections.push(`Teammate skills:\n${teammateSkillBlocks.join("\n\n")}`);
   }
   if (sections.length === 0) {
     return params.baseInstruction;
@@ -4451,6 +4456,7 @@ export async function processClaimedInput(params: {
 
     const instruction = instructionWithIssueAssignmentContext({
       store,
+      workspaceDir,
       workspaceId: record.workspaceId,
       sessionId: record.sessionId,
       baseInstruction: instructionWithInlineBackgroundUpdates({

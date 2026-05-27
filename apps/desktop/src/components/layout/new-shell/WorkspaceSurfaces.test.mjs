@@ -105,12 +105,19 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   assert.match(issueDetailPaneSource, /ConversationTurns/);
   assert.match(issueDetailPaneSource, /window\.electronAPI\.workspace\.queueSessionInput/);
   assert.match(issueDetailPaneSource, /window\.electronAPI\.workspace\.getSessionHistory/);
+  assert.match(issueDetailPaneSource, /window\.electronAPI\.workspace\.openSessionOutputStream/);
+  assert.match(issueDetailPaneSource, /window\.electronAPI\.workspace\.onSessionStreamEvent/);
   assert.match(issueDetailPaneSource, /window\.electronAPI\.workspace\.stageSessionAttachments/);
   assert.match(issueDetailPaneSource, /workspaceSurfaceTab\("issues_board"/);
   assert.match(issueDetailPaneSource, /Back to board/);
   assert.match(issueDetailPaneSource, /attachments: nextIssueAttachments/);
   assert.match(issueDetailPaneSource, /Properties/);
   assert.match(issueDetailPaneSource, /Activity/);
+  assert.match(issueDetailPaneSource, /showExecutionInternals: true,/);
+  assert.match(issueDetailPaneSource, /<ConversationTurns[\s\S]*showExecutionInternals/);
+  assert.match(issueDetailPaneSource, /liveAssistantTurn=\{/);
+  assert.match(issueDetailPaneSource, /The full run trace will appear here once this issue has execution or replies\./);
+  assert.doesNotMatch(issueDetailPaneSource, /getMessageWrapperClassName=\{/);
   assert.match(issueDetailPaneSource, /WorkspaceSurfaceHeader/);
 
   assert.match(teammatesPaneSource, /export function TeammatesPane/);

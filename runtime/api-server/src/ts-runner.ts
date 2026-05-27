@@ -1244,6 +1244,13 @@ function explicitHolabossUserId(request: TsRunnerRequest): string | undefined {
   );
 }
 
+function teammateSkillContextId(request: TsRunnerRequest): string | undefined {
+  if (normalizedSessionKindValue(request.session_kind) !== "subagent") {
+    return undefined;
+  }
+  return firstNonEmptyString(request.context.teammate_id) ?? undefined;
+}
+
 function bootstrapStartedPayload(params: {
   request: TsRunnerRequest;
   runtimeConfig: AgentRuntimeConfigCliResponse;
@@ -1450,10 +1457,13 @@ function loadTeammateRoutingContext(params: {
     dbPath,
   });
   try {
+    const workspaceDir = store.workspaceDir(params.workspaceId);
     const teammates = store
       .listTeammates({ workspaceId: params.workspaceId })
       .filter((teammate) => teammate.status === "active")
-      .map((teammate) => buildTeammateRoutingRosterEntry(teammate));
+      .map((teammate) =>
+        buildTeammateRoutingRosterEntry(teammate, { workspaceDir }),
+      );
     if (teammates.length === 0) {
       return null;
     }
@@ -2161,7 +2171,10 @@ export async function executeTsRunnerRequest(
     const workspaceSkills = measureBootstrapStage(
       bootstrapStageTimingsMs,
       "resolve_workspace_skills",
-      () => resolveWorkspaceSkills(bootstrap.workspaceDir),
+      () =>
+        resolveWorkspaceSkills(bootstrap.workspaceDir, {
+          teammateId: teammateSkillContextId(request) ?? null,
+        }),
     );
     const preparedInstruction = prepareInstructionWithQuotedWorkspaceSkills({
       instruction: request.instruction,

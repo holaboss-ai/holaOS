@@ -34,6 +34,7 @@ import {
   CHAT_PANEL_DEFAULT_WIDTH,
   CHAT_PANEL_MAX_WIDTH,
   CHAT_PANEL_MIN_WIDTH,
+  automationsOpenAtom,
   chatComposerPrefillAtom,
   chatPanelViewAtom,
   chatSessionOpenRequestAtom,
@@ -43,6 +44,7 @@ import {
   newTabOpenAtom,
 } from "./state/ui";
 import type { ChatLayout } from "./useChatLayout";
+import { useOpenIssueDetailTab } from "./useOpenIssueDetailTab";
 import { useOpenWorkspaceOutput } from "./useOpenWorkspaceOutput";
 
 // Linear-style ease — flat, no overshoot. Reused across canvas/width
@@ -53,8 +55,10 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const [internalTabs, setInternalTabs] = useAtom(internalTabsAtom);
   const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
+  const setAutomationsOpen = useSetAtom(automationsOpenAtom);
   const { openOutput, openUrlInBrowserTab, openFileInInternalTab } =
     useOpenWorkspaceOutput();
+  const openIssueDetailTab = useOpenIssueDetailTab();
 
   const [view, setView] = useAtom(chatPanelViewAtom);
   const [sessionOpenRequest, setSessionOpenRequest] = useAtom(
@@ -129,6 +133,38 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
     [openFileInInternalTab],
   );
 
+  const setFocusMode = useSetAtom(focusModeAtom);
+  const handleOpenBackgroundTask = useCallback(
+    (task: BackgroundTaskRecordPayload) => {
+      const workspaceId = task.workspace_id.trim();
+      const sourceType = (task.source_type ?? "").trim().toLowerCase();
+      const sourceId = (task.source_id ?? "").trim();
+      const cronjobId = (task.cronjob_id ?? "").trim();
+
+      if (
+        workspaceId &&
+        sourceId &&
+        (sourceType === "issue" || sourceType === "delegate_task")
+      ) {
+        setFocusMode(false);
+        openIssueDetailTab({
+          workspaceId,
+          issueId: sourceId,
+          title: task.title,
+        });
+        return true;
+      }
+
+      if (workspaceId && (sourceType === "cronjob" || cronjobId)) {
+        setAutomationsOpen(true);
+        return true;
+      }
+
+      return false;
+    },
+    [openIssueDetailTab, setAutomationsOpen, setFocusMode],
+  );
+
   // Blob URLs we minted for ephemeral-image tabs, keyed by tab id. Revoke
   // them once the tab is closed (and on unmount) so we don't leak.
   const ephemeralImageBlobUrlsRef = useRef<Map<string, string>>(new Map());
@@ -191,7 +227,6 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
 
   const isCanvas = layout !== "split";
   const chatPanelWidth = useAtomValue(chatPanelWidthAtom);
-  const setFocusMode = useSetAtom(focusModeAtom);
   // Only the split layout offers a focus toggle inside ChatHeader; in
   // canvas modes the affordance is the dropdown / restore icon up top.
   const handleEnterFocusMode = useCallback(() => {
@@ -214,6 +249,7 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
         onOpenLinkInBrowser={openUrlInBrowserTab}
         onOpenLocalLink={handleOpenLocalLink}
         onPreviewImageAttachment={handlePreviewImageAttachment}
+        onOpenBackgroundTask={handleOpenBackgroundTask}
         sessionOpenRequest={sessionOpenRequest}
         onSessionOpenRequestConsumed={handleSessionOpenRequestConsumed}
         composerPrefillRequest={composerPrefill}
@@ -566,7 +602,9 @@ function SessionsView({
         <SubagentSessionsPane
           workspaceId={workspaceId}
           variant="full"
-          onOpenSession={(session) => onOpenSession(session.session_id)}
+          onOpenSession={(session) =>
+            onOpenSession(session.parent_session_id?.trim() || session.session_id)
+          }
         />
       </div>
     </div>

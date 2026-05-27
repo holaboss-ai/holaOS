@@ -9,6 +9,10 @@ import {
 
 import type { QueueWorkerLike } from "./queue-worker.js";
 import { queuedMainSessionEventPromptEntry } from "./main-session-event-prompt.js";
+import {
+  isCoordinatorSessionKind,
+  preferredCoordinatorSessionId,
+} from "./coordinator-session-routing.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const MAIN_SESSION_EVENT_INPUT_PRIORITY = -100;
@@ -203,6 +207,36 @@ function eventQueueWorkspaces(store: RuntimeStateStore): WorkspaceRecord[] {
   return [...workspaces.values()];
 }
 
+function resolveEventDeliveryOwnerMainSessionId(params: {
+  store: RuntimeStateStore;
+  workspace: WorkspaceRecord;
+  event: MainSessionEventQueueRecord;
+}): string | null {
+  const ownerSession = params.store.getSession({
+    workspaceId: params.workspace.id,
+    sessionId: params.event.ownerMainSessionId,
+  });
+  if (ownerSession && !ownerSession.archivedAt && isCoordinatorSessionKind(ownerSession.kind)) {
+    return ownerSession.sessionId;
+  }
+  const run = params.event.subagentId
+    ? params.store.getSubagentRun({
+        workspaceId: params.workspace.id,
+        subagentId: params.event.subagentId,
+      })
+    : null;
+  return preferredCoordinatorSessionId({
+    store: params.store,
+    workspace: params.workspace,
+    preferredSessionIds: [
+      params.event.originMainSessionId,
+      run?.ownerMainSessionId,
+      run?.originMainSessionId,
+      run?.parentSessionId,
+    ],
+  });
+}
+
 export class RuntimeMainSessionEventWorker
   implements MainSessionEventWorkerLike
 {
@@ -264,8 +298,66 @@ export class RuntimeMainSessionEventWorker
         continue;
       }
 
-      const byOwner = new Map<string, MainSessionEventQueueRecord[]>();
+      const reroutedSubagents = new Map<string, string>();
+      const deliverableEvents: MainSessionEventQueueRecord[] = [];
       for (const event of dueEvents) {
+        const resolvedOwnerMainSessionId = resolveEventDeliveryOwnerMainSessionId({
+          store: this.#store,
+          workspace,
+          event,
+        });
+        if (!resolvedOwnerMainSessionId) {
+          this.#store.markMainSessionEventsSuperseded({
+            workspaceId: workspace.id,
+            eventIds: [event.eventId],
+          });
+          continue;
+        }
+        if (event.ownerMainSessionId === resolvedOwnerMainSessionId) {
+          deliverableEvents.push(event);
+          continue;
+        }
+        if (event.subagentId) {
+          const previousOwner = reroutedSubagents.get(event.subagentId);
+          if (previousOwner !== resolvedOwnerMainSessionId) {
+            this.#store.transferSubagentOwnership({
+              workspaceId: workspace.id,
+              subagentId: event.subagentId,
+              ownerMainSessionId: resolvedOwnerMainSessionId,
+            });
+            reroutedSubagents.set(
+              event.subagentId,
+              resolvedOwnerMainSessionId,
+            );
+          }
+        } else {
+          this.#store.updateMainSessionEvent({
+            workspaceId: workspace.id,
+            eventId: event.eventId,
+            fields: {
+              ownerMainSessionId: resolvedOwnerMainSessionId,
+            },
+          });
+        }
+        const refreshed = this.#store.getMainSessionEvent({
+          workspaceId: workspace.id,
+          eventId: event.eventId,
+        });
+        if (
+          refreshed &&
+          refreshed.status === "pending" &&
+          !refreshed.deliveredAt &&
+          !refreshed.supersededAt
+        ) {
+          deliverableEvents.push(refreshed);
+        }
+      }
+      if (deliverableEvents.length === 0) {
+        continue;
+      }
+
+      const byOwner = new Map<string, MainSessionEventQueueRecord[]>();
+      for (const event of deliverableEvents) {
         const existing = byOwner.get(event.ownerMainSessionId) ?? [];
         existing.push(event);
         byOwner.set(event.ownerMainSessionId, existing);

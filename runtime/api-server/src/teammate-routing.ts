@@ -1,5 +1,7 @@
 import type { TeammateRecord } from "@holaboss/runtime-state-store";
 
+import { resolvedTeammateSkillsForRecord } from "./teammate-skill-files.js";
+
 export interface DelegatedTaskRoutingQuery {
   title: string;
   goal: string;
@@ -51,52 +53,72 @@ function routingTokens(value: string | null | undefined): string[] {
     .filter((token) => token.length >= 3);
 }
 
-function fallbackCapabilitySummary(teammate: TeammateRecord): string | null {
-  const explicitSummary = nonEmptyText(teammate.capabilityProfile.summary);
+function fallbackCapabilitySummaryWithSkills(params: {
+  teammate: TeammateRecord;
+  skills: Array<{ name: string }>;
+}): string | null {
+  const explicitSummary = nonEmptyText(params.teammate.capabilityProfile.summary);
   if (explicitSummary) {
     return explicitSummary;
   }
-  const instructions = nonEmptyText(teammate.instructions);
+  const instructions = nonEmptyText(params.teammate.instructions);
   if (instructions) {
     return instructions;
   }
-  const skillNames = uniqueStringsInOrder(teammate.skills.map((skill) => skill.name));
+  const skillNames = uniqueStringsInOrder(params.skills.map((skill) => skill.name));
   if (skillNames.length > 0) {
     return `Primary domains: ${skillNames.join(", ")}.`;
   }
   return null;
 }
 
+function teammateRoutingSkills(
+  teammate: TeammateRecord,
+  workspaceDir?: string | null,
+): Array<{ name: string; content: string }> {
+  if (!workspaceDir) {
+    return [];
+  }
+  return resolvedTeammateSkillsForRecord({
+    workspaceDir,
+    teammate,
+  });
+}
+
 export function buildTeammateRoutingRosterEntry(
   teammate: TeammateRecord,
+  options: { workspaceDir?: string | null } = {},
 ): TeammateRoutingRosterEntry {
+  const skills = teammateRoutingSkills(teammate, options.workspaceDir);
   const capabilities = uniqueStringsInOrder([
     ...teammate.capabilityProfile.capabilities,
-    ...teammate.skills.map((skill) => skill.name),
+    ...skills.map((skill) => skill.name),
   ]);
   return {
     teammate_id: teammate.teammateId,
     name: teammate.name,
     kind: teammate.kind,
     status: teammate.status,
-    summary: fallbackCapabilitySummary(teammate),
+    summary: fallbackCapabilitySummaryWithSkills({ teammate, skills }),
     capabilities,
     preferred_tools: uniqueStringsInOrder(teammate.capabilityProfile.preferredTools),
-    skill_names: uniqueStringsInOrder(teammate.skills.map((skill) => skill.name)),
+    skill_names: uniqueStringsInOrder(skills.map((skill) => skill.name)),
   };
 }
 
 function teammateRoutingCorpusTokens(
   teammate: TeammateRecord,
   entry: TeammateRoutingRosterEntry,
+  options: { workspaceDir?: string | null } = {},
 ): Set<string> {
+  const skills = teammateRoutingSkills(teammate, options.workspaceDir);
   return new Set([
     ...routingTokens(teammate.name),
     ...routingTokens(entry.summary),
     ...entry.capabilities.flatMap((value) => routingTokens(value)),
     ...entry.preferred_tools.flatMap((value) => routingTokens(value)),
     ...routingTokens(teammate.instructions),
-    ...teammate.skills.flatMap((skill) => [
+    ...skills.flatMap((skill) => [
       ...routingTokens(skill.name),
       ...routingTokens(skill.content),
     ]),
@@ -107,6 +129,7 @@ export function selectDelegatedTaskTeammateByCapability(params: {
   general: TeammateRecord;
   teammates: TeammateRecord[];
   query: DelegatedTaskRoutingQuery;
+  workspaceDir?: string | null;
 }): TeammateRecord {
   const queryTools = uniqueStringsInOrder(params.query.tools ?? []);
   const queryTokens = new Set([
@@ -137,8 +160,12 @@ export function selectDelegatedTaskTeammateByCapability(params: {
     ) {
       continue;
     }
-    const entry = buildTeammateRoutingRosterEntry(teammate);
-    const corpusTokens = teammateRoutingCorpusTokens(teammate, entry);
+    const entry = buildTeammateRoutingRosterEntry(teammate, {
+      workspaceDir: params.workspaceDir,
+    });
+    const corpusTokens = teammateRoutingCorpusTokens(teammate, entry, {
+      workspaceDir: params.workspaceDir,
+    });
     let score = 0;
 
     const normalizedName = nonEmptyText(teammate.name).toLowerCase();

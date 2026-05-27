@@ -3910,13 +3910,6 @@ test("archiving a custom teammate unassigns issues and cancels linked runs", () 
     workspaceId: "workspace-1",
     name: "Coder",
     instructions: "Own implementation tickets.",
-    skills: [
-      {
-        skillId: "skill-1",
-        name: "Frontend",
-        content: "# Frontend\nBuild UI surfaces.",
-      },
-    ],
   });
   const issue = store.createIssue({
     workspaceId: "workspace-1",

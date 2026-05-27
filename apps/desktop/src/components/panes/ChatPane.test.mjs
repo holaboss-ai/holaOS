@@ -962,6 +962,11 @@ test("main-session assistant turns keep execution internals visible in the main 
     source,
     /const displayMessages = useMemo\([\s\S]*hasRenderableAssistantTurn\(message,\s*\{\s*showExecutionInternals: showSessionExecutionInternals,\s*\}\)/,
   );
+  assert.match(source, /function syntheticAssistantMessageFromSessionTurn\(params: \{/);
+  assert.match(
+    source,
+    /Array\.from\(\s*new Set\(\[\s*\.\.\.outputEventsByInputId\.keys\(\),\s*\.\.\.outputsByInputId\.keys\(\),\s*\]\),\s*\)\s*\.filter\(\(inputId\) => inputId && !historyTurnInputIds\.has\(inputId\)\)/,
+  );
 });
 
 test("chat pane no longer sends native desktop notifications directly for main-session completions", async () => {

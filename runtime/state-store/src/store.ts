@@ -835,7 +835,6 @@ export interface TeammateRecord {
   kind: TeammateKind;
   status: TeammateStatus;
   instructions: string | null;
-  skills: TeammateSkillRecord[];
   capabilityProfile: TeammateCapabilityProfileRecord;
   createdAt: string;
   updatedAt: string;
@@ -1079,7 +1078,6 @@ type TeammateUpdateFields = Partial<{
   name: string;
   status: TeammateStatus;
   instructions: string | null;
-  skills: Array<Partial<TeammateSkillRecord> & { name: string; content: string }>;
   capabilityProfile: Partial<TeammateCapabilityProfileRecord> | null;
   archivedAt: string | null;
 }>;
@@ -2163,12 +2161,11 @@ export class RuntimeStateStore {
             kind,
             status,
             instructions,
-            skills_json,
             capability_profile_json,
             created_at,
             updated_at,
             archived_at
-        ) VALUES (?, ?, ?, 'system', 'active', ?, '[]', ?, ?, ?, NULL)
+        ) VALUES (?, ?, ?, 'system', 'active', ?, ?, ?, ?, NULL)
       `)
       .run(
         GENERAL_TEAMMATE_ID,
@@ -2200,7 +2197,6 @@ export class RuntimeStateStore {
     workspaceId: string;
     name: string;
     instructions?: string | null;
-    skills?: Array<Partial<TeammateSkillRecord> & { name: string; content: string }> | null;
     capabilityProfile?: Partial<TeammateCapabilityProfileRecord> | null;
     kind?: TeammateKind | null;
     status?: TeammateStatus | null;
@@ -2218,7 +2214,6 @@ export class RuntimeStateStore {
       status === "archived"
         ? this.normalizedNullableText(params.archivedAt) ?? now
         : this.normalizedNullableText(params.archivedAt);
-    const skills = this.normalizedTeammateSkills(params.skills, createdAt);
     const capabilityProfile = this.normalizedTeammateCapabilityProfile(
       params.capabilityProfile,
       kind === "system" && teammateId === GENERAL_TEAMMATE_ID
@@ -2235,12 +2230,11 @@ export class RuntimeStateStore {
             kind,
             status,
             instructions,
-            skills_json,
             capability_profile_json,
             created_at,
             updated_at,
             archived_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         teammateId,
@@ -2249,7 +2243,6 @@ export class RuntimeStateStore {
         kind,
         status,
         this.normalizedNullableText(params.instructions),
-        JSON.stringify(skills),
         JSON.stringify(capabilityProfile),
         createdAt,
         now,
@@ -2343,7 +2336,6 @@ export class RuntimeStateStore {
       name: "name",
       status: "status",
       instructions: "instructions",
-      skills: "skills_json",
       capabilityProfile: "capability_profile_json",
       archivedAt: "archived_at",
     };
@@ -2357,10 +2349,6 @@ export class RuntimeStateStore {
         throw new Error(`unsupported teammate update field: ${key}`);
       }
       assignments.push(`${column} = ?`);
-      if (typedKey === "skills") {
-        values.push(JSON.stringify(this.normalizedTeammateSkills(rawValue as TeammateSkillRecord[], existing.createdAt)));
-        continue;
-      }
       if (typedKey === "status") {
         values.push(this.requiredTeammateStatus(rawValue as TeammateStatus));
         continue;
@@ -11119,7 +11107,6 @@ export class RuntimeStateStore {
           kind TEXT NOT NULL DEFAULT 'custom',
           status TEXT NOT NULL DEFAULT 'active',
           instructions TEXT,
-          skills_json TEXT NOT NULL DEFAULT '[]',
           capability_profile_json TEXT NOT NULL DEFAULT '{}',
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
@@ -11585,6 +11572,7 @@ export class RuntimeStateStore {
     this.migrateCronjobInstructions(db);
     this.migrateAppBuildRestartAttempts(db);
     this.migrateTeammateCapabilityProfiles(db);
+    this.migrateTeammateSkillsColumn(db);
   }
 
   private ensureRuntimeDbSchema(db: Database.Database): void {
@@ -12015,6 +12003,19 @@ export class RuntimeStateStore {
       WHERE teammate_id = ?
         AND trim(coalesce(capability_profile_json, '')) IN ('', '{}')
     `).run(JSON.stringify(GENERAL_TEAMMATE_CAPABILITY_PROFILE), GENERAL_TEAMMATE_ID);
+  }
+
+  private migrateTeammateSkillsColumn(db: Database.Database): void {
+    if (!this.tableExists(db, "teammates")) {
+      return;
+    }
+    const columns = new Set<string>(
+      (db.prepare("PRAGMA table_info(teammates)").all() as Array<{ name: string }>).map((row) => row.name)
+    );
+    if (!columns.has("skills_json")) {
+      return;
+    }
+    db.exec("ALTER TABLE teammates DROP COLUMN skills_json;");
   }
 
   // Connections are user-global; per-workspace scoping lives in
@@ -13770,7 +13771,6 @@ export class RuntimeStateStore {
       kind: this.requiredTeammateKind(row.kind == null ? null : String(row.kind)),
       status: this.requiredTeammateStatus(row.status == null ? null : String(row.status)),
       instructions: row.instructions == null ? null : String(row.instructions),
-      skills: this.parseTeammateSkills(row.skills_json),
       capabilityProfile: this.parseTeammateCapabilityProfile(row.capability_profile_json),
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
@@ -14085,50 +14085,6 @@ export class RuntimeStateStore {
     }
   }
 
-  private parseTeammateSkills(raw: unknown): TeammateSkillRecord[] {
-    return this.parseJsonList(raw)
-      .map((entry) => {
-        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-          return null;
-        }
-        const value = entry as Record<string, unknown>;
-        const name = this.normalizedNullableText(typeof value.name === "string" ? value.name : null);
-        const content = typeof value.content === "string" ? value.content : "";
-        const createdAt = this.normalizedNullableText(
-          typeof value.createdAt === "string"
-            ? value.createdAt
-            : typeof value.created_at === "string"
-              ? value.created_at
-              : null,
-        );
-        const updatedAt = this.normalizedNullableText(
-          typeof value.updatedAt === "string"
-            ? value.updatedAt
-            : typeof value.updated_at === "string"
-              ? value.updated_at
-              : null,
-        );
-        if (!name || content.trim().length === 0) {
-          return null;
-        }
-        return {
-          skillId:
-            this.normalizedNullableText(
-              typeof value.skillId === "string"
-                ? value.skillId
-                : typeof value.skill_id === "string"
-                  ? value.skill_id
-                  : null,
-            ) ?? randomUUID(),
-          name,
-          content,
-          createdAt: createdAt ?? updatedAt ?? utcNowIso(),
-          updatedAt: updatedAt ?? createdAt ?? utcNowIso(),
-        };
-      })
-      .filter((entry): entry is TeammateSkillRecord => Boolean(entry));
-  }
-
   private parseTeammateCapabilityProfile(
     raw: unknown,
   ): TeammateCapabilityProfileRecord {
@@ -14212,17 +14168,6 @@ export class RuntimeStateStore {
         };
       })
       .filter((entry): entry is IssueAttachmentRecord => Boolean(entry));
-  }
-
-  private normalizedTeammateSkills(
-    skills: Array<Partial<TeammateSkillRecord> & { name: string; content: string }> | TeammateSkillRecord[] | null | undefined,
-    fallbackTimestamp: string,
-  ): TeammateSkillRecord[] {
-    return this.parseTeammateSkills(skills ?? []).map((skill) => ({
-      ...skill,
-      createdAt: this.normalizedNullableText(skill.createdAt) ?? fallbackTimestamp,
-      updatedAt: this.normalizedNullableText(skill.updatedAt) ?? fallbackTimestamp,
-    }));
   }
 
   private normalizedTeammateCapabilityProfile(

@@ -23,7 +23,6 @@ import {
   type IssueRecord,
   type TeammateCapabilityProfileRecord,
   type TeammateRecord,
-  type TeammateSkillRecord,
   type MemoryUpdateProposalRecord,
   type OutputFolderRecord,
   type OutputRecord,
@@ -76,6 +75,13 @@ import {
   RuntimeRemoteBridgeWorker,
   tsBridgeWorkerEnabled
 } from "./bridge-worker.js";
+import {
+  createTeammateIdForFilesystem,
+  type ResolvedTeammateSkillRecord,
+  type TeammateSkillInput,
+  resolvedTeammateSkillsForRecord,
+  writeTeammateSkills,
+} from "./teammate-skill-files.js";
 import {
   type RecallEmbeddingBackfillWorkerLike,
   RuntimeRecallEmbeddingBackfillWorker,
@@ -894,7 +900,7 @@ function requiredIssueAttachments(value: unknown, workspaceDir: string): IssueAt
 function requiredTeammateSkillInputs(
   value: unknown,
   fieldName: string,
-): Array<Partial<TeammateSkillRecord> & { name: string; content: string }> {
+): TeammateSkillInput[] {
   if (value === undefined || value === null) {
     return [];
   }
@@ -1421,13 +1427,19 @@ function runtimeNotificationPayload(record: RuntimeNotificationRecord): Record<s
   };
 }
 
-function teammateSkillPayload(record: TeammateSkillRecord): Record<string, unknown> {
+function teammateSkillPayload(
+  record: ResolvedTeammateSkillRecord,
+): Record<string, unknown> {
   return {
     skill_id: record.skillId,
     name: record.name,
     content: record.content,
     created_at: record.createdAt,
     updated_at: record.updatedAt,
+    storage_origin: record.storageOrigin,
+    source_dir: record.sourceDir,
+    file_path: record.filePath,
+    has_sidecar_assets: record.hasSidecarAssets,
   };
 }
 
@@ -1441,7 +1453,14 @@ function teammateCapabilityProfilePayload(
   };
 }
 
-function teammatePayload(record: TeammateRecord): Record<string, unknown> {
+function teammatePayload(
+  record: TeammateRecord,
+  workspaceDir: string,
+): Record<string, unknown> {
+  const resolvedSkills = resolvedTeammateSkillsForRecord({
+    workspaceDir,
+    teammate: record,
+  });
   return {
     teammate_id: record.teammateId,
     workspace_id: record.workspaceId,
@@ -1449,7 +1468,7 @@ function teammatePayload(record: TeammateRecord): Record<string, unknown> {
     kind: record.kind,
     status: record.status,
     instructions: record.instructions,
-    skills: record.skills.map((skill) => teammateSkillPayload(skill)),
+    skills: resolvedSkills.map((skill) => teammateSkillPayload(skill)),
     capability_profile: teammateCapabilityProfilePayload(
       record.capabilityProfile,
     ),
@@ -6387,6 +6406,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       });
       const result = runtimeAgentToolsService.invokeSkill({
         workspaceId,
+        sessionId,
         requestedName: requiredString(request.body.name, "name"),
         args: nullableString(request.body.args) ?? undefined,
       });
@@ -11001,7 +11021,8 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!store.getWorkspace(workspaceId)) {
       return sendError(reply, 404, "workspace not found");
     }
-    if (!requireHealthyWorkspaceFolder(store, workspaceId, reply)) {
+    const workspaceDir = requireHealthyWorkspaceFolder(store, workspaceId, reply);
+    if (!workspaceDir) {
       return;
     }
     const teammates = store
@@ -11009,7 +11030,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         workspaceId,
         includeArchived: optionalBoolean(query.include_archived),
       })
-      .map((record) => teammatePayload(record));
+      .map((record) => teammatePayload(record, workspaceDir));
     return { teammates, count: teammates.length };
   });
 
@@ -11022,7 +11043,8 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!store.getWorkspace(workspaceId)) {
       return sendError(reply, 404, "workspace not found");
     }
-    if (!requireHealthyWorkspaceFolder(store, workspaceId, reply)) {
+    const workspaceDir = requireHealthyWorkspaceFolder(store, workspaceId, reply);
+    if (!workspaceDir) {
       return;
     }
     const params = request.params as { teammateId: string };
@@ -11034,7 +11056,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!teammate) {
       return sendError(reply, 404, "teammate not found");
     }
-    return { teammate: teammatePayload(teammate) };
+    return { teammate: teammatePayload(teammate, workspaceDir) };
   });
 
   app.post("/api/v1/teammates", async (request, reply) => {
@@ -11045,22 +11067,32 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!store.getWorkspace(workspaceId)) {
       return sendError(reply, 404, "workspace not found");
     }
-    if (!requireHealthyWorkspaceFolder(store, workspaceId, reply)) {
+    const workspaceDir = requireHealthyWorkspaceFolder(store, workspaceId, reply);
+    if (!workspaceDir) {
       return;
     }
     try {
+      const requestedSkills = requiredTeammateSkillInputs(request.body.skills, "skills");
+      const teammateId =
+        nullableString(request.body.teammate_id) ?? createTeammateIdForFilesystem();
+      if (requestedSkills.length > 0) {
+        writeTeammateSkills({
+          workspaceDir,
+          teammateId,
+          skills: requestedSkills,
+        });
+      }
       const teammate = store.createTeammate({
-        teammateId: nullableString(request.body.teammate_id) ?? undefined,
+        teammateId,
         workspaceId,
         name: requiredString(request.body.name, "name"),
         instructions: nullableString(request.body.instructions) ?? null,
-        skills: requiredTeammateSkillInputs(request.body.skills, "skills"),
         capabilityProfile: requiredTeammateCapabilityProfileInput(
           request.body.capability_profile,
           "capability_profile",
         ),
       });
-      return { teammate: teammatePayload(teammate) };
+      return { teammate: teammatePayload(teammate, workspaceDir) };
     } catch (error) {
       return sendError(reply, 400, error instanceof Error ? error.message : "teammate create failed");
     }
@@ -11074,7 +11106,8 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!store.getWorkspace(workspaceId)) {
       return sendError(reply, 404, "workspace not found");
     }
-    if (!requireHealthyWorkspaceFolder(store, workspaceId, reply)) {
+    const workspaceDir = requireHealthyWorkspaceFolder(store, workspaceId, reply);
+    if (!workspaceDir) {
       return;
     }
     const params = request.params as { teammateId: string };
@@ -11092,6 +11125,16 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
 
     try {
       const requestedStatus = nullableString(request.body.status);
+      const requestedSkills = hasOwn(request.body, "skills")
+        ? requiredTeammateSkillInputs(request.body.skills, "skills")
+        : null;
+      if (requestedSkills) {
+        writeTeammateSkills({
+          workspaceDir,
+          teammateId: existing.teammateId,
+          skills: requestedSkills,
+        });
+      }
       const teammate =
         requestedStatus === "archived"
           ? store.archiveTeammate({ workspaceId, teammateId: existing.teammateId })
@@ -11103,9 +11146,6 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
                 status: requestedStatus === "active" ? "active" : undefined,
                 instructions: hasOwn(request.body, "instructions")
                   ? (nullableString(request.body.instructions) ?? null)
-                  : undefined,
-                skills: hasOwn(request.body, "skills")
-                  ? requiredTeammateSkillInputs(request.body.skills, "skills")
                   : undefined,
                 capabilityProfile: hasOwn(request.body, "capability_profile")
                   ? requiredTeammateCapabilityProfileInput(
@@ -11119,7 +11159,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       if (!teammate) {
         return sendError(reply, 404, "teammate not found");
       }
-      return { teammate: teammatePayload(teammate) };
+      return { teammate: teammatePayload(teammate, workspaceDir) };
     } catch (error) {
       return sendError(reply, 400, error instanceof Error ? error.message : "teammate update failed");
     }

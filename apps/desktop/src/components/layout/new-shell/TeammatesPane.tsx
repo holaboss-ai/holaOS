@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Bot,
   FileCode2,
+  FolderOpen,
   ListTodo,
   Loader2,
   Plus,
@@ -45,6 +46,10 @@ type SkillDraft = {
   skillId: string | null;
   name: string;
   content: string;
+  storageOrigin?: "filesystem";
+  sourceDir?: string | null;
+  filePath?: string | null;
+  hasSidecarAssets?: boolean;
 };
 
 type DraftState = {
@@ -90,6 +95,10 @@ function draftFromTeammate(teammate: TeammateRecordPayload): DraftState {
       skillId: skill.skill_id,
       name: skill.name,
       content: skill.content,
+      storageOrigin: skill.storage_origin,
+      sourceDir: skill.source_dir ?? null,
+      filePath: skill.file_path ?? null,
+      hasSidecarAssets: skill.has_sidecar_assets ?? false,
     })),
     status: teammate.status,
     kind: teammate.kind,
@@ -110,12 +119,24 @@ function normalizedSkillInputs(
       throw new Error("Every skill needs both a name and SKILL.md content.");
     }
     normalized.push({
-      skill_id: skill.skillId,
+      skill_id: skill.skillId?.trim() || null,
       name,
       content,
     });
   }
   return normalized;
+}
+
+function teammateSkillRelativePath(
+  teammateId: string | null,
+  skillId: string | null,
+): string | null {
+  const trimmedTeammateId = teammateId?.trim() ?? "";
+  const trimmedSkillId = skillId?.trim() ?? "";
+  if (!trimmedTeammateId || !trimmedSkillId) {
+    return null;
+  }
+  return `teammates/${trimmedTeammateId}/skills/${trimmedSkillId}/SKILL.md`;
 }
 
 function normalizedCommaSeparatedValues(value: string): string[] {
@@ -430,7 +451,7 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
   }, []);
 
   const handleSkillChange = useCallback(
-    (localId: string, field: "name" | "content", value: string) => {
+    (localId: string, field: "skillId" | "name" | "content", value: string) => {
       setDraft((current) => ({
         ...current,
         skills: current.skills.map((skill) =>
@@ -447,6 +468,27 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
       skills: current.skills.filter((skill) => skill.localId !== localId),
     }));
   }, []);
+
+  const handleRevealSkill = useCallback(
+    async (skill: SkillDraft) => {
+      const targetPath =
+        skill.sourceDir?.trim() ||
+        teammateSkillRelativePath(draft.teammateId, skill.skillId);
+      if (!targetPath) {
+        setStatusMessage("Skill folder path is not available yet.");
+        return;
+      }
+      try {
+        await window.electronAPI.fs.revealInFolder(targetPath, workspaceId);
+        setStatusMessage("");
+      } catch (error) {
+        setStatusMessage(
+          error instanceof Error ? error.message : "Failed to reveal skill folder",
+        );
+      }
+    },
+    [draft.teammateId, workspaceId],
+  );
 
   const handleSave = useCallback(async () => {
     const name = draft.name.trim();
@@ -568,12 +610,12 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
       ? "New teammate"
       : selectedTeammate?.name || "Teammate";
   const headerDescription = !showingDetail
-    ? "Manage the fixed General teammate plus custom teammates with editable routing profiles, instructions, and freeform SKILL.md entries."
+    ? "Manage the fixed General teammate plus custom teammates with editable routing profiles, instructions, and teammate-local filesystem skills."
     : isCreating
-      ? "Create a teammate the Workspace Manager can route work to using a capability profile, instructions, and freeform SKILL.md entries."
+      ? "Create a teammate the Workspace Manager can route work to using a capability profile, instructions, and teammate-local filesystem skills."
       : selectedTeammate?.kind === "system"
         ? "The built-in General teammate stays fixed in v1. You can inspect its routing context here, but not edit it."
-        : "Review current workload, adjust routing cues, and manage freeform SKILL.md entries without leaving the Teammates tab.";
+        : "Review current workload, adjust routing cues, and manage teammate-local filesystem skills without leaving the Teammates tab.";
 
   return (
     <>
@@ -945,14 +987,14 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                     <CardHeader>
                       <CardTitle>Routing note</CardTitle>
                     </CardHeader>
-                    <CardContent>
-                      <p className="text-sm leading-6 text-foreground/58">
-                        The Workspace Manager routes from each teammate&apos;s
-                        capability profile first, then falls back to their
-                        instructions and SKILL.md entries. Archived teammates
+                      <CardContent>
+                        <p className="text-sm leading-6 text-foreground/58">
+                          The Workspace Manager routes from each teammate&apos;s
+                          capability profile first, then falls back to their
+                        instructions and teammate skill folders. Archived teammates
                         drop out of routing and disappear from normal navigation.
                         </p>
-                    </CardContent>
+                      </CardContent>
                   </Card>
                 </aside>
 
@@ -1286,7 +1328,7 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                             <div>
                               <CardTitle>Skills</CardTitle>
                               <CardDescription>
-                                Add multiple freeform SKILL.md entries for this teammate.
+                                Manage teammate-local skills stored under the workspace filesystem.
                               </CardDescription>
                             </div>
                             <CardAction>
@@ -1303,6 +1345,13 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                           </CardHeader>
 
                           <CardContent className="space-y-4">
+                            <div className="rounded-2xl border border-border bg-background/55 px-4 py-3 text-sm text-foreground/55">
+                              Each skill lives at
+                              <span className="mx-1 font-mono text-foreground/72">
+                                teammates/&lt;teammate-id&gt;/skills/&lt;skill-id&gt;/SKILL.md
+                              </span>
+                              . Removing a skill deletes its entire skill folder, including any helper files inside it.
+                            </div>
                             {draft.skills.length === 0 ? (
                               <div className="rounded-2xl border border-dashed border-border bg-background/45 px-4 py-8 text-center text-sm text-foreground/48">
                                 No skills yet
@@ -1316,24 +1365,71 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                                   <div className="flex items-center justify-between gap-3">
                                     <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                                       <FileCode2 className="size-4 text-foreground/45" />
-                                      Skill {index + 1}
+                                      {skill.skillId?.trim() || skill.name.trim() || `Skill ${index + 1}`}
                                     </div>
-                                    {!draftLocked ? (
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon-sm"
-                                        aria-label="Remove skill"
-                                        onClick={() => handleRemoveSkill(skill.localId)}
-                                      >
-                                        <X className="size-4" />
-                                      </Button>
-                                    ) : null}
+                                    <div className="flex items-center gap-2">
+                                      {skill.hasSidecarAssets ? (
+                                        <Badge variant="outline" className="bg-card/80 text-[11px]">
+                                          Helper files
+                                        </Badge>
+                                      ) : null}
+                                      {!isCreating ? (
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => void handleRevealSkill(skill)}
+                                        >
+                                          <FolderOpen className="size-4" />
+                                          Reveal
+                                        </Button>
+                                      ) : null}
+                                      {!draftLocked ? (
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon-sm"
+                                          aria-label="Remove skill"
+                                          onClick={() => handleRemoveSkill(skill.localId)}
+                                        >
+                                          <X className="size-4" />
+                                        </Button>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                  <div className="mt-3 text-xs text-foreground/45">
+                                    {skill.sourceDir?.trim() ||
+                                      teammateSkillRelativePath(
+                                        draft.teammateId,
+                                        skill.skillId,
+                                      ) ||
+                                      "A skill folder will be created after save."}
                                   </div>
                                   <div className="mt-4 grid gap-4">
                                     <div>
                                       <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                                        Skill name
+                                        Skill id
+                                      </div>
+                                      <Input
+                                        value={skill.skillId ?? ""}
+                                        onChange={(event) =>
+                                          handleSkillChange(
+                                            skill.localId,
+                                            "skillId",
+                                            event.target.value,
+                                          )
+                                        }
+                                        placeholder="frontend-playbook"
+                                        disabled={draftLocked}
+                                        className="h-10 bg-card/80 font-mono text-[13px]"
+                                      />
+                                      <div className="mt-2 text-xs text-foreground/45">
+                                        Stable folder and invocation id. Leave blank to derive it from the label.
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
+                                        Skill label
                                       </div>
                                       <Input
                                         value={skill.name}
@@ -1348,10 +1444,13 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                                         disabled={draftLocked}
                                         className="h-10 bg-card/80"
                                       />
+                                      <div className="mt-2 text-xs text-foreground/45">
+                                        Stored as the SKILL.md description and used as the human-facing label.
+                                      </div>
                                     </div>
                                     <div>
                                       <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                                        SKILL.md content
+                                        SKILL.md body
                                       </div>
                                       <Textarea
                                         value={skill.content}
@@ -1366,6 +1465,9 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                                         disabled={draftLocked}
                                         className="min-h-[220px] resize-y bg-card/80 font-mono text-[13px]"
                                       />
+                                      <div className="mt-2 text-xs text-foreground/45">
+                                        The frontmatter is generated from the skill id and label. The textarea stores the markdown body that follows it.
+                                      </div>
                                     </div>
                                   </div>
                                 </div>

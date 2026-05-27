@@ -904,7 +904,7 @@ function isMainSessionEventBatchInstructionPreview(
   return (value || "").trim().startsWith(MAIN_SESSION_EVENT_BATCH_HEADER);
 }
 
-function hasRenderableAssistantTurn(
+export function hasRenderableAssistantTurn(
   message: ChatMessage,
   options?: { showExecutionInternals?: boolean },
 ) {
@@ -928,7 +928,7 @@ function hasRenderableAssistantTurn(
   );
 }
 
-function appendAssistantOutputSegment(
+export function appendAssistantOutputSegment(
   segments: ChatAssistantSegment[],
   text: string,
   tone: ChatMessage["tone"] = "default",
@@ -953,7 +953,7 @@ function appendAssistantOutputSegment(
   return next;
 }
 
-function appendAssistantExecutionSegment(
+export function appendAssistantExecutionSegment(
   segments: ChatAssistantSegment[],
   items: ChatExecutionTimelineItem[],
 ): ChatAssistantSegment[] {
@@ -969,7 +969,7 @@ function appendAssistantExecutionSegment(
   ];
 }
 
-function upsertAssistantExecutionTraceStep(
+export function upsertAssistantExecutionTraceStep(
   segments: ChatAssistantSegment[],
   step: ChatTraceStep,
 ): ChatAssistantSegment[] | null {
@@ -997,7 +997,7 @@ function upsertAssistantExecutionTraceStep(
   );
 }
 
-function finalizeAssistantExecutionSegments(
+export function finalizeAssistantExecutionSegments(
   segments: ChatAssistantSegment[],
   status: Extract<ChatTraceStepStatus, "completed" | "error" | "waiting">,
 ): ChatAssistantSegment[] {
@@ -1011,7 +1011,7 @@ function finalizeAssistantExecutionSegments(
   );
 }
 
-function liveAssistantSegmentsForRender(
+export function liveAssistantSegmentsForRender(
   segments: ChatAssistantSegment[],
   executionItems: ChatExecutionTimelineItem[],
   text: string,
@@ -1026,10 +1026,56 @@ function liveAssistantSegmentsForRender(
   return next;
 }
 
-function assistantSegmentsIncludeOutput(segments: ChatAssistantSegment[]) {
+export function assistantSegmentsIncludeOutput(segments: ChatAssistantSegment[]) {
   return segments.some(
     (segment) => segment.kind === "output" && Boolean(segment.text.trim()),
   );
+}
+
+function syntheticAssistantMessageFromSessionTurn(params: {
+  inputId: string;
+  outputEvents: SessionOutputEventPayload[];
+  outputs: WorkspaceOutputRecordPayload[];
+  fallbackCreatedAt?: string;
+  showBootstrapPhaseTrace?: boolean;
+}): ChatMessage {
+  const restoredAssistantState = assistantHistoryStateFromOutputEvents(
+    params.outputEvents,
+    {
+      showBootstrapPhaseTrace: params.showBootstrapPhaseTrace,
+    },
+  );
+  const turnOutputs = sortOutputs(params.outputs);
+  const orderedEvents = [...params.outputEvents].sort(
+    (left, right) => left.sequence - right.sequence || left.id - right.id,
+  );
+  const firstEventCreatedAt = orderedEvents[0]?.created_at || "";
+  const createdAt =
+    restoredAssistantState.terminalCreatedAt ||
+    firstEventCreatedAt ||
+    turnOutputs[0]?.created_at ||
+    turnOutputs[0]?.updated_at ||
+    params.fallbackCreatedAt;
+  return {
+    id: `assistant-${params.inputId}`,
+    role: "assistant",
+    text:
+      restoredAssistantState.segments || !restoredAssistantState.failureText
+        ? ""
+        : restoredAssistantState.failureText,
+    tone:
+      restoredAssistantState.segments || !restoredAssistantState.failureText
+        ? "default"
+        : "error",
+    createdAt,
+    segments: restoredAssistantState.segments,
+    executionItems: restoredAssistantState.segments
+      ? undefined
+      : restoredAssistantState.executionItems,
+    outputs: turnOutputs.length > 0 ? turnOutputs : undefined,
+    pendingIntegrations: restoredAssistantState.pendingIntegrations,
+    proposedIntegrations: restoredAssistantState.proposedIntegrations,
+  };
 }
 
 export function chatMessagesFromSessionState(params: {
@@ -1071,17 +1117,24 @@ export function chatMessagesFromSessionState(params: {
   }
 
   const assistantHistoryInputIds = new Set(params.knownAssistantInputIds ?? []);
+  const historyTurnInputIds = new Set<string>();
   for (const message of params.historyMessages) {
-    if (message.role !== "assistant") {
-      continue;
+    const assistantInputId =
+      message.role === "assistant"
+        ? inputIdFromMessageId(message.id, "assistant")
+        : "";
+    if (assistantInputId) {
+      assistantHistoryInputIds.add(assistantInputId);
+      historyTurnInputIds.add(assistantInputId);
     }
-    const inputId = inputIdFromMessageId(message.id, "assistant");
-    if (inputId) {
-      assistantHistoryInputIds.add(inputId);
+    const userInputId =
+      message.role === "user" ? inputIdFromMessageId(message.id, "user") : "";
+    if (userInputId) {
+      historyTurnInputIds.add(userInputId);
     }
   }
 
-  return params.historyMessages
+  const renderedMessages = params.historyMessages
     .flatMap((message) => {
       const attachments = attachmentsFromMetadata(message.metadata);
       const nextMessage: ChatMessage = {
@@ -1139,36 +1192,13 @@ export function chatMessagesFromSessionState(params: {
         userInputId &&
         !assistantHistoryInputIds.has(userInputId)
       ) {
-        const restoredAssistantState = assistantHistoryStateFromOutputEvents(
-          outputEventsByInputId.get(userInputId) ?? [],
-          {
-            showBootstrapPhaseTrace: params.showBootstrapPhaseTrace,
-          },
-        );
-        const turnOutputs = sortOutputs(outputsByInputId.get(userInputId) ?? []);
-        const syntheticAssistantMessage: ChatMessage = {
-          id: `assistant-${userInputId}`,
-          role: "assistant",
-          text:
-            restoredAssistantState.segments ||
-            !restoredAssistantState.failureText
-              ? ""
-              : restoredAssistantState.failureText,
-          tone:
-            restoredAssistantState.segments ||
-            !restoredAssistantState.failureText
-              ? "default"
-              : "error",
-          createdAt:
-            restoredAssistantState.terminalCreatedAt || nextMessage.createdAt,
-          segments: restoredAssistantState.segments,
-          executionItems: restoredAssistantState.segments
-            ? undefined
-            : restoredAssistantState.executionItems,
-          outputs: turnOutputs.length > 0 ? turnOutputs : undefined,
-          pendingIntegrations: restoredAssistantState.pendingIntegrations,
-          proposedIntegrations: restoredAssistantState.proposedIntegrations,
-        };
+        const syntheticAssistantMessage = syntheticAssistantMessageFromSessionTurn({
+          inputId: userInputId,
+          outputEvents: outputEventsByInputId.get(userInputId) ?? [],
+          outputs: outputsByInputId.get(userInputId) ?? [],
+          fallbackCreatedAt: nextMessage.createdAt,
+          showBootstrapPhaseTrace: params.showBootstrapPhaseTrace,
+        });
         if (
           hasRenderableAssistantTurn(syntheticAssistantMessage, {
             showExecutionInternals: params.showExecutionInternals,
@@ -1180,6 +1210,23 @@ export function chatMessagesFromSessionState(params: {
 
       return renderedMessages;
     })
+    .concat(
+      Array.from(
+        new Set([
+          ...outputEventsByInputId.keys(),
+          ...outputsByInputId.keys(),
+        ]),
+      )
+        .filter((inputId) => inputId && !historyTurnInputIds.has(inputId))
+        .map((inputId) =>
+          syntheticAssistantMessageFromSessionTurn({
+            inputId,
+            outputEvents: outputEventsByInputId.get(inputId) ?? [],
+            outputs: outputsByInputId.get(inputId) ?? [],
+            showBootstrapPhaseTrace: params.showBootstrapPhaseTrace,
+          }),
+        ),
+    )
     .filter(
       (message) =>
         (message.role === "user" || message.role === "assistant") &&
@@ -1188,7 +1235,24 @@ export function chatMessagesFromSessionState(params: {
               showExecutionInternals: params.showExecutionInternals,
             })
           : hasRenderableMessageContent(message.text, message.attachments ?? [])),
-    );
+    )
+    .map((message, index) => ({ message, index }))
+    .sort((left, right) => {
+      const leftAt = Date.parse(left.message.createdAt || "");
+      const rightAt = Date.parse(right.message.createdAt || "");
+      const leftHasDate = Number.isFinite(leftAt);
+      const rightHasDate = Number.isFinite(rightAt);
+      if (leftHasDate && rightHasDate && leftAt !== rightAt) {
+        return leftAt - rightAt;
+      }
+      if (leftHasDate !== rightHasDate) {
+        return leftHasDate ? -1 : 1;
+      }
+      return left.index - right.index;
+    })
+    .map(({ message }) => message);
+
+  return renderedMessages;
 }
 
 function attachmentUploadPayload(
@@ -1448,7 +1512,7 @@ function runFailedContextLabel(payload: Record<string, unknown>): string {
   return provider || model;
 }
 
-function runFailedDetail(payload: Record<string, unknown>): string {
+export function runFailedDetail(payload: Record<string, unknown>): string {
   const detail =
     typeof payload.error === "string"
       ? payload.error.trim()
@@ -2060,7 +2124,7 @@ function toolTraceStepFromPayload(
   };
 }
 
-function toolTraceStepFromEvent(
+export function toolTraceStepFromEvent(
   eventType: string,
   payload: Record<string, unknown>,
   order: number,
@@ -2123,7 +2187,7 @@ function contextBudgetDetails(
   return details;
 }
 
-function phaseTraceStepFromEvent(
+export function phaseTraceStepFromEvent(
   eventType: string,
   payload: Record<string, unknown>,
   order: number,
@@ -2486,7 +2550,7 @@ function mergeTraceStep(
   };
 }
 
-function appendExecutionTimelineThinkingDelta(
+export function appendExecutionTimelineThinkingDelta(
   previous: ChatExecutionTimelineItem[],
   delta: string,
   order: number,
@@ -2513,7 +2577,7 @@ function appendExecutionTimelineThinkingDelta(
   return [...previous, nextItem];
 }
 
-function upsertExecutionTimelineTraceItem(
+export function upsertExecutionTimelineTraceItem(
   previous: ChatExecutionTimelineItem[],
   step: ChatTraceStep,
 ) {
@@ -2542,7 +2606,7 @@ function upsertExecutionTimelineTraceItem(
   );
 }
 
-function finalizeExecutionTimelineTraceItems(
+export function finalizeExecutionTimelineTraceItems(
   previous: ChatExecutionTimelineItem[],
   status: Extract<ChatTraceStepStatus, "completed" | "error" | "waiting">,
 ) {
@@ -3124,6 +3188,7 @@ interface ChatPaneProps {
     requestKey: number,
   ) => void;
   onJumpToSessionBrowser?: (sessionId: string, requestKey: number) => void;
+  onOpenBackgroundTask?: (task: BackgroundTaskRecordPayload) => boolean;
   onOpenSessions?: () => void;
   onOpenMeetingMode?: () => void;
   meetingModeBusy?: boolean;
@@ -3174,6 +3239,7 @@ export function ChatPane({
   browserJumpRequest = null,
   onBrowserJumpRequestConsumed,
   onJumpToSessionBrowser,
+  onOpenBackgroundTask,
   onOpenSessions,
   onOpenInbox,
   inboxUnreadCount = 0,
@@ -7038,6 +7104,23 @@ export function ChatPane({
   };
 
   const handleOpenBackgroundTaskSession = (task: BackgroundTaskRecordPayload) => {
+    if (onOpenBackgroundTask?.(task) === true) {
+      return;
+    }
+
+    const taskMainSessionId =
+      task.parent_session_id?.trim() ||
+      task.owner_main_session_id.trim() ||
+      "";
+    if (taskMainSessionId) {
+      setLocalSessionOpenRequestState({
+        sessionId: taskMainSessionId,
+        requestKey: Date.now(),
+        readOnly: false,
+      });
+      return;
+    }
+
     const childSessionId = task.child_session_id.trim();
     if (!childSessionId) {
       return;
@@ -7049,6 +7132,9 @@ export function ChatPane({
       title: task.title?.trim() || null,
       parent_session_id: task.parent_session_id?.trim() || null,
       source_proposal_id: task.proposal_id?.trim() || null,
+      source_type: task.source_type?.trim() || null,
+      cronjob_id: task.cronjob_id?.trim() || null,
+      proposal_id: task.proposal_id?.trim() || null,
       created_by: null,
       created_at: task.created_at,
       updated_at: task.updated_at,

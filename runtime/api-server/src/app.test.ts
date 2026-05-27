@@ -11,7 +11,7 @@ import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 
 import Database from "better-sqlite3";
-import { RuntimeStateStore } from "@holaboss/runtime-state-store";
+import { RuntimeStateStore, utcNowIso } from "@holaboss/runtime-state-store";
 import yazl from "yazl";
 import * as tar from "tar";
 
@@ -2102,6 +2102,85 @@ test("runtime skill tool resolves a workspace skill through shared runtime state
     assert.match(response.json().text, /<skill name="deploy-helper" location=".*deploy-helper\/SKILL\.md">/);
     assert.deepEqual(response.json().granted_tools, ["bash"]);
     assert.deepEqual(response.json().granted_commands, ["deploy-docs"]);
+    assert.equal(response.json().tool_id, "skill");
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
+test("runtime skill tool resolves teammate-local skills through the assigned issue session", async () => {
+  const root = makeTempDir("hb-runtime-api-skill-tool-teammate-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const teammate = store.createTeammate({
+    workspaceId: workspace.id,
+    name: "Frontend",
+    instructions: "Own the UI.",
+  });
+  const issue = store.createIssue({
+    workspaceId: workspace.id,
+    sessionId: "session-issue-1",
+    title: "Ship dashboard",
+    description: "Implement the dashboard.",
+    status: "todo",
+    assigneeTeammateId: teammate.teammateId,
+    createdBy: "workspace_user",
+  });
+  const skillDir = path.join(
+    workspaceRoot,
+    "workspace-1",
+    "teammates",
+    teammate.teammateId,
+    "skills",
+    "frontend-playbook",
+  );
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillDir, "SKILL.md"),
+    [
+      "---",
+      "name: frontend-playbook",
+      "description: Frontend playbook",
+      "---",
+      "",
+      "# Frontend Playbook",
+      "",
+      "Use the dashboard patterns.",
+    ].join("\n"),
+    "utf8",
+  );
+  const app = buildTestRuntimeApiServer({ store });
+
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/skill",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+        "x-holaboss-session-id": issue.sessionId,
+      },
+      payload: {
+        name: "frontend-playbook",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.match(
+      response.json().text,
+      /<skill name="frontend-playbook" location=".*frontend-playbook\/SKILL\.md">/,
+    );
+    assert.match(response.json().text, /Use the dashboard patterns\./);
+    assert.equal(response.json().skill_id, "frontend-playbook");
     assert.equal(response.json().tool_id, "skill");
   } finally {
     await app.close();
@@ -6155,6 +6234,20 @@ test("teammate and issue routes preserve local payload shape", async () => {
   assert.equal(createdTeammate.json().teammate.name, "Coder");
   assert.equal(createdTeammate.json().teammate.skills.length, 1);
   assert.equal(
+    createdTeammate.json().teammate.skills[0]?.storage_origin,
+    "filesystem",
+  );
+  assert.match(
+    String(createdTeammate.json().teammate.skills[0]?.file_path ?? ""),
+    /teammates\/.*\/skills\/skill-1\/SKILL\.md$/,
+  );
+  assert.equal(
+    fs.existsSync(
+      String(createdTeammate.json().teammate.skills[0]?.file_path ?? ""),
+    ),
+    true,
+  );
+  assert.equal(
     createdTeammate.json().teammate.capability_profile.summary,
     "Best for implementation, refactors, and shipping code changes.",
   );
@@ -6295,7 +6388,6 @@ test("queue route reopens done issue sessions on the same persistent thread", as
     workspaceId: workspace.id,
     name: "Coder",
     instructions: "Own implementation tasks.",
-    skills: [],
   });
   const issue = store.createIssue({
     workspaceId: workspace.id,
@@ -6305,6 +6397,25 @@ test("queue route reopens done issue sessions on the same persistent thread", as
     status: "done",
     assigneeTeammateId: teammate.teammateId,
     createdBy: "workspace_user",
+  });
+  const staleRun = store.createSubagentRun({
+    workspaceId: workspace.id,
+    parentSessionId: issue.sessionId,
+    originMainSessionId: issue.sessionId,
+    ownerMainSessionId: issue.sessionId,
+    childSessionId: issue.sessionId,
+    goal: issue.description ?? issue.title,
+    issueId: issue.issueId,
+    teammateId: teammate.teammateId,
+    status: "completed",
+    completedAt: utcNowIso(),
+  });
+  store.updateIssue({
+    workspaceId: workspace.id,
+    issueId: issue.issueId,
+    fields: {
+      latestSubagentId: staleRun.subagentId,
+    },
   });
 
   const response = await app.inject({
@@ -6335,7 +6446,11 @@ test("queue route reopens done issue sessions on the same persistent thread", as
     issueId: issue.issueId,
   });
   assert.equal(refreshedIssue?.status, "todo");
-  assert.ok(refreshedIssue?.latestSubagentId);
+  assert.equal(refreshedIssue?.latestSubagentId, staleRun.subagentId);
+  assert.equal(
+    store.listSubagentRunsByWorkspace({ workspaceId: workspace.id }).length,
+    1,
+  );
   const refreshedRuntimeState = store.getRuntimeState({
     workspaceId: workspace.id,
     sessionId: issue.sessionId,

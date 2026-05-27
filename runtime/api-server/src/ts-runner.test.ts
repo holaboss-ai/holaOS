@@ -4341,6 +4341,143 @@ test("runTsRunnerCli resolves workspace skill ids and source directories for the
   );
 });
 
+test("runTsRunnerCli includes teammate-local skills for assigned subagent runs", async () => {
+  const sandboxRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "hb-ts-runner-pi-teammate-skills-"),
+  );
+  process.env.HB_SANDBOX_ROOT = sandboxRoot;
+  const workspaceDir = path.join(sandboxRoot, "workspace", "workspace-1");
+  const teammateSkillDir = path.join(
+    workspaceDir,
+    "teammates",
+    "general",
+    "skills",
+    "frontend-playbook",
+  );
+  fs.mkdirSync(teammateSkillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(teammateSkillDir, "SKILL.md"),
+    [
+      "---",
+      "name: frontend-playbook",
+      "description: Frontend playbook",
+      "---",
+      "",
+      "# Frontend Playbook",
+    ].join("\n"),
+    "utf8",
+  );
+
+  let capturedProjectRequest: Record<string, unknown> | null = null;
+  let capturedHarnessRequest: Record<string, unknown> | null = null;
+
+  const exitCode = await runTsRunnerCli(
+    [
+      "--request-base64",
+      encodeRequest({
+        ...baseRequest(),
+        session_kind: "subagent",
+        context: {
+          teammate_id: "general",
+          _sandbox_runtime_exec_v1: {
+            harness: "pi",
+          },
+        },
+      }),
+    ],
+    {
+      deps: {
+        ...testDeps(),
+        projectAgentRuntimeConfig: (request) => {
+          capturedProjectRequest = request as unknown as Record<
+            string,
+            unknown
+          >;
+          return {
+            provider_id: "openai",
+            model_id: "gpt-5.4",
+            mode: "code",
+            system_prompt: "You are concise.",
+            model_client: {
+              model_proxy_provider: "openai_compatible",
+              api_key: "token",
+              base_url: "http://127.0.0.1:4000/openai/v1",
+              default_headers: { "X-Test": "1" },
+            },
+            tools: { read: true },
+            workspace_tool_ids: [],
+            workspace_skill_ids: ["frontend-playbook"],
+            output_schema_member_id: null,
+            output_format: null,
+            workspace_config_checksum: "checksum-1",
+          };
+        },
+        runHarnessHost: async ({ requestPayload }) => {
+          capturedHarnessRequest = requestPayload;
+          return {
+            exitCode: 0,
+            stderr: "",
+            sawEvent: false,
+            terminalEmitted: false,
+            lastSequence: 0,
+          };
+        },
+      },
+      io: {
+        stdout: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+        stderr: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+      },
+    },
+  );
+
+  assert.equal(exitCode, 0);
+  assert.ok(capturedProjectRequest);
+  assert.deepEqual(
+    (capturedProjectRequest as { workspace_skill_ids: string[] })
+      .workspace_skill_ids,
+    [
+      "app-builder-sdk",
+      "browser-core-efficient",
+      "browser-qa",
+      "build-dashboard",
+      "frontend-design",
+      "interface-design",
+      "mcp-configurator",
+      "skill-creator",
+      "skill-installer",
+      "frontend-playbook",
+    ],
+  );
+  assert.ok(capturedHarnessRequest);
+  assert.deepEqual(
+    (
+      capturedHarnessRequest as {
+        workspace_skill_dirs: string[];
+      }
+    ).workspace_skill_dirs.map((skillDir) => path.basename(skillDir)),
+    [
+      "app-builder-sdk",
+      "browser-core-efficient",
+      "browser-qa",
+      "build-dashboard",
+      "frontend-design",
+      "interface-design",
+      "mcp-configurator",
+      "skill-creator",
+      "skill-installer",
+      "frontend-playbook",
+    ],
+  );
+});
+
 test("runTsRunnerCli skips workspace command staging for harnesses that do not support it", async () => {
   const sandboxRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "hb-ts-runner-pi-commands-"),

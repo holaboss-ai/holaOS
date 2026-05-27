@@ -417,7 +417,7 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
             <Loader2 className="size-5 animate-spin text-foreground/35" />
           </div>
         ) : (
-          <div className="flex min-h-full min-w-max gap-5 pb-3">
+          <div className="flex h-full min-h-full min-w-max items-stretch gap-5 pb-3">
             {BOARD_STATUS_ORDER.map((status) => {
               const tone = BOARD_COLUMN_CHROME[status];
               const columnIssues = issuesByStatus[status];
@@ -425,7 +425,7 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
                 <section
                   key={status}
                   className={cn(
-                    "flex h-full w-[330px] shrink-0 flex-col overflow-hidden rounded-2xl border transition-colors",
+                    "flex h-full min-h-0 w-[330px] shrink-0 self-stretch flex-col overflow-hidden rounded-2xl border transition-colors",
                     tone.shellClass,
                     dropTargetStatus === status &&
                       "ring-2 ring-primary/35 ring-offset-2 ring-offset-background",
@@ -465,11 +465,11 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
                     </div>
                   </div>
 
-                  <div className="flex min-h-[220px] flex-1 flex-col gap-3 overflow-y-auto px-3 py-3">
+                  <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3">
                     {columnIssues.length === 0 ? (
                       <div
                         className={cn(
-                          "grid min-h-[148px] place-items-center rounded-xl border border-dashed text-sm",
+                          "grid min-h-[220px] flex-1 place-items-center rounded-xl border border-dashed text-sm",
                           tone.emptyClass,
                         )}
                       >

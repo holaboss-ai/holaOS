@@ -118,6 +118,23 @@ function setNodeRunnerCommand(lines: string[]): void {
   process.env.SANDBOX_AGENT_RUNNER_COMMAND_TEMPLATE = `printf '%s' '${scriptBase64}' | base64 --decode | {runtime_node} - {request_base64}`;
 }
 
+function writeWorkspaceSkill(
+  root: string,
+  relativeRoot: string,
+  skillId: string,
+  description = `${skillId} skill`,
+  body = `# ${skillId}\n`,
+): string {
+  const skillDir = path.join(root, relativeRoot, skillId);
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillDir, "SKILL.md"),
+    `---\nname: ${skillId}\ndescription: ${description}\n---\n${body}`,
+    "utf8",
+  );
+  return skillDir;
+}
+
 function openPiSessionManager(sessionFile: string) {
   const { SessionManager } = require(PI_SESSION_MANAGER_MODULE_PATH) as {
     SessionManager: {
@@ -4492,7 +4509,7 @@ test("claimed onboarding input includes ONBOARD.md verbatim", async () => {
   store.close();
 });
 
-test("claimed issue bootstrap input injects teammate guidance without persisting a visible user message", async () => {
+test("claimed issue bootstrap input prefers teammate-local skill directories over inline skill blobs", async () => {
   const store = makeStore("hb-claimed-input-issue-bootstrap-");
   const workspace = store.createWorkspace({
     workspaceId: "workspace-1",
@@ -4504,13 +4521,14 @@ test("claimed issue bootstrap input injects teammate guidance without persisting
     workspaceId: workspace.id,
     name: "Coder",
     instructions: "Own implementation tasks.",
-    skills: [
-      {
-        name: "Frontend",
-        content: "# Frontend\nBuild UI surfaces.",
-      },
-    ],
   });
+  const teammateSkillDir = writeWorkspaceSkill(
+    store.workspaceDir(workspace.id),
+    path.join("teammates", teammate.teammateId, "skills"),
+    "frontend-playbook",
+    "Frontend playbook",
+    "# Frontend Playbook\nUse the canonical dashboard patterns.\n",
+  );
   const issue = store.createIssue({
     workspaceId: workspace.id,
     sessionId: "session-issue-1",
@@ -4570,6 +4588,18 @@ test("claimed issue bootstrap input injects teammate guidance without persisting
   );
   assert.match(
     capturedInstruction,
+    /Teammate skills:\n<skill name="frontend-playbook" location=".*frontend-playbook\/SKILL\.md">/,
+  );
+  assert.match(
+    capturedInstruction,
+    /References are relative to .*frontend-playbook/,
+  );
+  assert.match(
+    capturedInstruction,
+    /Use the canonical dashboard patterns\./,
+  );
+  assert.doesNotMatch(
+    capturedInstruction,
     /Skill: Frontend\n# Frontend\nBuild UI surfaces\./,
   );
   const messages = store.listSessionMessages({
@@ -4580,6 +4610,85 @@ test("claimed issue bootstrap input injects teammate guidance without persisting
     offset: 0,
   });
   assert.equal(messages.length, 0);
+  assert.equal(
+    fs.existsSync(path.join(teammateSkillDir, "SKILL.md")),
+    true,
+  );
+
+  store.close();
+});
+
+test("claimed issue bootstrap input ignores inline teammate skill blobs when no teammate-local skills exist", async () => {
+  const store = makeStore("hb-claimed-input-issue-bootstrap-no-inline-fallback-");
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const teammate = store.createTeammate({
+    workspaceId: workspace.id,
+    name: "Coder",
+    instructions: "Own implementation tasks.",
+  });
+  const issue = store.createIssue({
+    workspaceId: workspace.id,
+    sessionId: "session-issue-1",
+    title: "Ship dashboard",
+    description: "Implement the workspace dashboard surface.",
+    status: "todo",
+    assigneeTeammateId: teammate.teammateId,
+    createdBy: "workspace_user",
+  });
+  const queued = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: issue.sessionId,
+    payload: {
+      text: "Implement the workspace dashboard surface.",
+      context: {
+        source: "issue_bootstrap",
+        issue_id: issue.issueId,
+        teammate_id: teammate.teammateId,
+      },
+    },
+  });
+
+  let capturedInstruction = "";
+  await processClaimedInput({
+    store,
+    record: queued,
+    executeRunnerRequestFn: async (payload, options = {}) => {
+      capturedInstruction = String(payload.instruction ?? "");
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 1,
+        event_type: "run_started",
+        payload: { instruction_preview: capturedInstruction.slice(0, 120) },
+      });
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 2,
+        event_type: "run_completed",
+        payload: { status: "ok" },
+      });
+      return {
+        events: [],
+        skippedLines: [],
+        stderr: "",
+        returnCode: 0,
+        sawTerminal: true,
+      };
+    },
+  });
+
+  assert.match(capturedInstruction, /Assigned teammate: Coder/);
+  assert.match(
+    capturedInstruction,
+    /Teammate instructions:\nOwn implementation tasks\./,
+  );
+  assert.doesNotMatch(capturedInstruction, /Teammate skills:/);
 
   store.close();
 });

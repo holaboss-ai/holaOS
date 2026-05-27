@@ -721,6 +721,10 @@ interface RuntimeNotificationListOptionsPayload {
     content: string;
     created_at: string;
     updated_at: string;
+    storage_origin?: "filesystem";
+    source_dir?: string | null;
+    file_path?: string | null;
+    has_sidecar_assets?: boolean;
   }
 
   interface TeammateCapabilityProfilePayload {

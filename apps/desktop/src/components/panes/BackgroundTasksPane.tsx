@@ -25,6 +25,14 @@ function normalizeErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
 }
 
+function backgroundTaskOpenSessionTarget(task: BackgroundTaskRecordPayload) {
+  return (
+    task.parent_session_id?.trim() ||
+    task.owner_main_session_id.trim() ||
+    task.child_session_id.trim()
+  );
+}
+
 function backgroundTaskStatusIndicator(status: string): {
   className: string;
   icon: ReactNode;
@@ -338,7 +346,7 @@ export function BackgroundTasksPane({
                   );
                   const canOpenTaskSession =
                     typeof onOpenTaskSession === "function" &&
-                    Boolean(task.child_session_id.trim());
+                    Boolean(backgroundTaskOpenSessionTarget(task));
                   const showRemoveAction = canRemoveTask(task);
                   const taskBody = (
                     <div className="flex min-w-0 items-center gap-2">
@@ -438,7 +446,7 @@ export function BackgroundTasksPane({
               const indicator = backgroundTaskStatusIndicator(task.status);
               const canOpenTaskSession =
                 typeof onOpenTaskSession === "function" &&
-                Boolean(task.child_session_id.trim());
+                Boolean(backgroundTaskOpenSessionTarget(task));
               const showRemoveAction = canRemoveTask(task);
               const taskBody = (
                 <div className="flex min-w-0 items-center gap-2">

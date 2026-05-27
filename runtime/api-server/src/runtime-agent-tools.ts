@@ -80,6 +80,7 @@ import {
   inspectDashboardUiUsage,
 } from "./workspace-app-ui-lint.js";
 import { selectDelegatedTaskTeammateByCapability } from "./teammate-routing.js";
+import { preferredCoordinatorSessionId } from "./coordinator-session-routing.js";
 const SESSION_REFRESH_NOTE =
   "New MCP servers became available in this turn. Their tools will be visible to you starting from the next user message — please end this turn (do not call the new tools yet) and let the user trigger the next one.";
 
@@ -497,6 +498,7 @@ export interface RuntimeAgentToolsSearchWebParams {
 
 export interface RuntimeAgentToolsInvokeSkillParams {
   workspaceId: string;
+  sessionId?: string | null;
   requestedName: string;
   args?: string | null;
 }
@@ -3709,16 +3711,19 @@ export class RuntimeAgentToolsService {
       selectedThinkingValue: null,
     });
     const effectiveModel = effectiveProfile.model;
-    const originMainSessionId =
-      normalizedString(params.originMainSessionId) || issue.sessionId;
-    const ownerMainSessionId =
-      normalizedString(params.ownerMainSessionId) || originMainSessionId;
+    const routing = this.resolveIssueExecutionRouting({
+      workspace,
+      issue,
+      explicitParentSessionId: params.parentSessionId,
+      explicitOriginMainSessionId: params.originMainSessionId,
+      explicitOwnerMainSessionId: params.ownerMainSessionId,
+    });
     const session = this.store.ensureSession(
       {
         workspaceId: params.workspaceId,
         sessionId: issue.sessionId,
         kind: "subagent",
-        parentSessionId: normalizedString(params.parentSessionId) || undefined,
+        parentSessionId: routing.parentSessionId,
         title: issue.title,
         createdBy:
           normalizedString(params.createdBy) ||
@@ -3736,29 +3741,21 @@ export class RuntimeAgentToolsService {
         harnessSessionId: session.sessionId,
       });
     }
-    const subagentId = randomUUID();
     const toolProfile = {
       requested_tools: ["terminal", "file", "browser", "web"],
     };
-    const createdRun = this.store.createSubagentRun({
-      subagentId,
+    const createdRun = this.upsertIssueExecutionRun({
       workspaceId: params.workspaceId,
-      parentSessionId: normalizedString(params.parentSessionId) || null,
-      parentInputId: normalizedString(params.parentInputId) || null,
-      originMainSessionId,
-      ownerMainSessionId,
-      childSessionId: session.sessionId,
-      title: issue.title,
-      goal: normalizedString(issue.description) || issue.title,
-      context: null,
-      sourceType: normalizedString(params.sourceType) || "issue",
-      sourceId: normalizedString(params.sourceId) || issue.issueId,
-      issueId: issue.issueId,
-      teammateId: assignee.teammateId,
-      toolProfile,
+      issue,
+      session,
+      routing,
+      assignee,
       requestedModel,
       effectiveModel,
-      status: "queued",
+      toolProfile,
+      sourceType: normalizedString(params.sourceType) || "issue",
+      sourceId: normalizedString(params.sourceId) || issue.issueId,
+      parentInputId: normalizedString(params.parentInputId) || null,
     });
     this.store.ensureRuntimeState({
       workspaceId: params.workspaceId,
@@ -3790,10 +3787,10 @@ export class RuntimeAgentToolsService {
           subagent_id: createdRun.subagentId,
           issue_id: issue.issueId,
           teammate_id: assignee.teammateId,
-          parent_session_id: normalizedString(params.parentSessionId) || null,
+          parent_session_id: routing.parentSessionId,
           parent_input_id: normalizedString(params.parentInputId) || null,
-          origin_main_session_id: originMainSessionId,
-          owner_main_session_id: ownerMainSessionId,
+          origin_main_session_id: routing.originMainSessionId,
+          owner_main_session_id: routing.ownerMainSessionId,
           task_title: issue.title,
           goal: normalizedString(issue.description) || issue.title,
           requested_model: requestedModel,
@@ -3934,11 +3931,16 @@ export class RuntimeAgentToolsService {
       selectedThinkingValue: params.selectedThinkingValue ?? null,
     });
     const effectiveModel = effectiveProfile.model;
+    const routing = this.resolveIssueExecutionRouting({
+      workspace,
+      issue,
+    });
     const session = this.store.ensureSession(
       {
         workspaceId: params.workspaceId,
         sessionId: issue.sessionId,
         kind: "subagent",
+        parentSessionId: routing.parentSessionId,
         title: issue.title,
         createdBy:
           normalizedString(params.createdBy) ||
@@ -3956,29 +3958,21 @@ export class RuntimeAgentToolsService {
         harnessSessionId: session.sessionId,
       });
     }
-    const subagentId = randomUUID();
     const toolProfile = {
       requested_tools: ["terminal", "file", "browser", "web"],
     };
-    const createdRun = this.store.createSubagentRun({
-      subagentId,
+    const createdRun = this.upsertIssueExecutionRun({
       workspaceId: params.workspaceId,
-      parentSessionId: issue.sessionId,
-      parentInputId: null,
-      originMainSessionId: issue.sessionId,
-      ownerMainSessionId: issue.sessionId,
-      childSessionId: session.sessionId,
-      title: issue.title,
-      goal: normalizedString(issue.description) || issue.title,
-      context: null,
-      sourceType: "issue",
-      sourceId: issue.issueId,
-      issueId: issue.issueId,
-      teammateId: assignee.teammateId,
-      toolProfile,
+      issue,
+      session,
+      routing,
+      assignee,
       requestedModel,
       effectiveModel,
-      status: "queued",
+      toolProfile,
+      sourceType: "issue",
+      sourceId: issue.issueId,
+      parentInputId: null,
     });
     this.store.ensureRuntimeState({
       workspaceId: params.workspaceId,
@@ -4003,10 +3997,10 @@ export class RuntimeAgentToolsService {
           subagent_id: createdRun.subagentId,
           issue_id: issue.issueId,
           teammate_id: assignee.teammateId,
-          parent_session_id: issue.sessionId,
+          parent_session_id: routing.parentSessionId,
           parent_input_id: null,
-          origin_main_session_id: issue.sessionId,
-          owner_main_session_id: issue.sessionId,
+          origin_main_session_id: routing.originMainSessionId,
+          owner_main_session_id: routing.ownerMainSessionId,
           task_title: issue.title,
           goal: normalizedString(issue.description) || issue.title,
           requested_model: requestedModel,
@@ -4103,10 +4097,15 @@ export class RuntimeAgentToolsService {
       workspaceId: params.workspaceId,
       subagentId,
     });
+    const workspace = this.requireWorkspace(params.workspaceId);
     const ownerMainSessionId =
-      normalizedString(run.ownerMainSessionId) ||
-      normalizedString(run.originMainSessionId) ||
-      issue.sessionId;
+      this.resolveIssueExecutionRouting({
+        workspace,
+        issue,
+        explicitParentSessionId: run.parentSessionId,
+        explicitOriginMainSessionId: run.originMainSessionId,
+        explicitOwnerMainSessionId: run.ownerMainSessionId,
+      }).ownerMainSessionId;
     const state = this.syncSubagentRunForOwner({
       workspaceId: params.workspaceId,
       subagentId,
@@ -4915,10 +4914,28 @@ export class RuntimeAgentToolsService {
     this.requireWorkspace(params.workspaceId);
     try {
       const workspaceDir = this.store.workspaceDir(params.workspaceId);
+      const sessionId = normalizedString(params.sessionId);
+      const issue = sessionId
+        ? this.store.getIssueBySessionId({
+            workspaceId: params.workspaceId,
+            sessionId,
+          })
+        : null;
+      const subagentRun =
+        sessionId && !issue
+          ? this.store.getSubagentRunByChildSession({
+              workspaceId: params.workspaceId,
+              childSessionId: sessionId,
+            })
+          : null;
+      const teammateId =
+        normalizedString(issue?.assigneeTeammateId) ??
+        normalizedString(subagentRun?.teammateId) ??
+        null;
       const result = invokeWorkspaceSkill({
         requestedName: params.requestedName,
         args: params.args,
-        workspaceSkills: resolveWorkspaceSkills(workspaceDir),
+        workspaceSkills: resolveWorkspaceSkills(workspaceDir, { teammateId }),
       });
       return {
         text: result.text,
@@ -5373,9 +5390,11 @@ export class RuntimeAgentToolsService {
     const teammates = this.store.listTeammates({
       workspaceId: params.workspaceId,
     });
+    const workspaceDir = this.store.workspaceDir(params.workspaceId);
     return selectDelegatedTaskTeammateByCapability({
       general,
       teammates,
+      workspaceDir,
       query: {
         title: params.title,
         goal: params.goal,
@@ -5514,23 +5533,32 @@ export class RuntimeAgentToolsService {
 
     const runtimeStatus = normalizedString(runtimeState?.status).toUpperCase();
     const currentInputStatus = normalizedString(currentInput?.status).toUpperCase();
+    const latestTurnStatus = normalizedString(latestTurnResult?.status).toLowerCase();
+    const latestTurnStopReason = normalizedString(latestTurnResult?.stopReason).toLowerCase();
+    const latestTurnIndicatesWaiting =
+      latestTurnStatus === "waiting_user" || latestTurnStopReason === "waiting_on_user";
     const hasWaitingBlocker = subagentRunHasWaitingBlocker(run);
 
     let derivedStatus = run.status;
     if (run.cancelledAt || normalizedString(run.status) === "cancelled") {
       derivedStatus = "cancelled";
+    } else if (latestTurnStatus === "failed" || runtimeStatus === "ERROR") {
+      derivedStatus = "failed";
+    } else if (
+      latestTurnStatus === "completed" &&
+      (latestTurnIndicatesWaiting || runtimeStatus === "WAITING_USER" || hasWaitingBlocker)
+    ) {
+      derivedStatus = "waiting_on_user";
+    } else if (latestTurnStatus === "completed") {
+      derivedStatus = "completed";
+    } else if (latestTurnIndicatesWaiting || runtimeStatus === "WAITING_USER") {
+      derivedStatus = "waiting_on_user";
+    } else if (normalizedString(run.status) === "waiting_on_user" || hasWaitingBlocker) {
+      derivedStatus = "waiting_on_user";
     } else if (currentInputStatus === "CLAIMED" || runtimeStatus === "BUSY") {
       derivedStatus = "running";
     } else if (currentInputStatus === "QUEUED" || runtimeStatus === "QUEUED") {
       derivedStatus = "queued";
-    } else if (latestTurnResult?.status === "waiting_user" || runtimeState?.status === "WAITING_USER") {
-      derivedStatus = "waiting_on_user";
-    } else if (normalizedString(run.status) === "waiting_on_user" || hasWaitingBlocker) {
-      derivedStatus = "waiting_on_user";
-    } else if (latestTurnResult?.status === "failed" || runtimeState?.status === "ERROR") {
-      derivedStatus = "failed";
-    } else if (latestTurnResult?.status === "completed") {
-      derivedStatus = "completed";
     }
 
     const summaryFromTurn = normalizedString(latestTurnResult?.assistantText);
@@ -6764,6 +6792,183 @@ export class RuntimeAgentToolsService {
     } catch {
       return null;
     }
+  }
+
+  private resolveIssueExecutionRouting(params: {
+    workspace: WorkspaceRecord;
+    issue: IssueRecord;
+    explicitParentSessionId?: string | null;
+    explicitOriginMainSessionId?: string | null;
+    explicitOwnerMainSessionId?: string | null;
+  }): {
+    parentSessionId: string;
+    originMainSessionId: string;
+    ownerMainSessionId: string;
+  } {
+    const issueSession = this.store.getSession({
+      workspaceId: params.workspace.id,
+      sessionId: params.issue.sessionId,
+    });
+    const linkedRunId =
+      normalizedString(params.issue.activeSubagentId) ||
+      normalizedString(params.issue.latestSubagentId);
+    const linkedRun = linkedRunId
+      ? this.store.getSubagentRun({
+          workspaceId: params.workspace.id,
+          subagentId: linkedRunId,
+        })
+      : null;
+    const sharedCoordinatorCandidates = [
+      issueSession?.parentSessionId,
+      linkedRun?.ownerMainSessionId,
+      linkedRun?.originMainSessionId,
+      linkedRun?.parentSessionId,
+    ];
+    const ownerMainSessionId =
+      preferredCoordinatorSessionId({
+        store: this.store,
+        workspace: params.workspace,
+        preferredSessionIds: [
+          params.explicitOwnerMainSessionId,
+          ...sharedCoordinatorCandidates,
+        ],
+      }) ??
+      preferredCoordinatorSessionId({
+        store: this.store,
+        workspace: params.workspace,
+        preferredSessionIds: [
+          params.explicitOriginMainSessionId,
+          params.explicitParentSessionId,
+          ...sharedCoordinatorCandidates,
+        ],
+      }) ??
+      normalizedString(params.explicitOwnerMainSessionId) ??
+      normalizedString(params.explicitOriginMainSessionId) ??
+      normalizedString(params.explicitParentSessionId) ??
+      params.issue.sessionId;
+    const originMainSessionId =
+      preferredCoordinatorSessionId({
+        store: this.store,
+        workspace: params.workspace,
+        preferredSessionIds: [
+          params.explicitOriginMainSessionId,
+          ownerMainSessionId,
+          ...sharedCoordinatorCandidates,
+        ],
+      }) ?? ownerMainSessionId;
+    const parentSessionId =
+      preferredCoordinatorSessionId({
+        store: this.store,
+        workspace: params.workspace,
+        preferredSessionIds: [
+          params.explicitParentSessionId,
+          ownerMainSessionId,
+          ...sharedCoordinatorCandidates,
+        ],
+      }) ?? ownerMainSessionId;
+    return {
+      parentSessionId,
+      originMainSessionId,
+      ownerMainSessionId,
+    };
+  }
+
+  private upsertIssueExecutionRun(params: {
+    workspaceId: string;
+    issue: IssueRecord;
+    session: AgentSessionRecord;
+    routing: {
+      parentSessionId: string;
+      originMainSessionId: string;
+      ownerMainSessionId: string;
+    };
+    assignee: TeammateRecord;
+    requestedModel: string | null;
+    effectiveModel: string;
+    toolProfile: Record<string, unknown>;
+    sourceType: string;
+    sourceId: string;
+    parentInputId: string | null;
+  }): SubagentRunRecord {
+    const goal = normalizedString(params.issue.description) || params.issue.title;
+    const existingRunByChildSession = this.store.getSubagentRunByChildSession({
+      workspaceId: params.workspaceId,
+      childSessionId: params.session.sessionId,
+    });
+    const linkedRunId =
+      normalizedString(params.issue.latestSubagentId) ||
+      normalizedString(params.issue.activeSubagentId);
+    const linkedRun = linkedRunId
+      ? this.store.getSubagentRun({
+          workspaceId: params.workspaceId,
+          subagentId: linkedRunId,
+        })
+      : null;
+    const existingRun = existingRunByChildSession ?? linkedRun;
+    if (!existingRun) {
+      return this.store.createSubagentRun({
+        workspaceId: params.workspaceId,
+        parentSessionId: params.routing.parentSessionId,
+        parentInputId: params.parentInputId,
+        originMainSessionId: params.routing.originMainSessionId,
+        ownerMainSessionId: params.routing.ownerMainSessionId,
+        childSessionId: params.session.sessionId,
+        title: params.issue.title,
+        goal,
+        context: null,
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+        issueId: params.issue.issueId,
+        teammateId: params.assignee.teammateId,
+        toolProfile: params.toolProfile,
+        requestedModel: params.requestedModel,
+        effectiveModel: params.effectiveModel,
+        status: "queued",
+      });
+    }
+
+    const runWithResolvedOwner =
+      existingRun.ownerMainSessionId !== params.routing.ownerMainSessionId
+        ? (this.store.transferSubagentOwnership({
+            workspaceId: params.workspaceId,
+            subagentId: existingRun.subagentId,
+            ownerMainSessionId: params.routing.ownerMainSessionId,
+          }) ?? existingRun)
+        : existingRun;
+
+    return (
+      this.store.updateSubagentRun({
+        workspaceId: params.workspaceId,
+        subagentId: runWithResolvedOwner.subagentId,
+        fields: {
+          parentSessionId: params.routing.parentSessionId,
+          parentInputId: params.parentInputId,
+          originMainSessionId: params.routing.originMainSessionId,
+          ownerMainSessionId: params.routing.ownerMainSessionId,
+          childSessionId: params.session.sessionId,
+          title: params.issue.title,
+          goal,
+          context: null,
+          sourceType: params.sourceType,
+          sourceId: params.sourceId,
+          issueId: params.issue.issueId,
+          teammateId: params.assignee.teammateId,
+          toolProfile: params.toolProfile,
+          requestedModel: params.requestedModel,
+          effectiveModel: params.effectiveModel,
+          status: "queued",
+          summary: null,
+          latestProgressPayload: null,
+          blockingPayload: null,
+          resultPayload: null,
+          errorPayload: null,
+          lastEventAt: null,
+          startedAt: null,
+          completedAt: null,
+          cancelledAt: null,
+        },
+      }) ?? runWithResolvedOwner
+    );
   }
 
   async restartWorkspaceApp(

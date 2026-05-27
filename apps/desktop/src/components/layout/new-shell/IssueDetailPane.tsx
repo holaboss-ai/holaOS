@@ -22,12 +22,27 @@ import {
 import { AttachmentList } from "@/components/panes/ChatPane/AttachmentList";
 import { ConversationTurns } from "@/components/panes/ChatPane/ConversationTurns";
 import {
+  appendAssistantExecutionSegment,
+  appendAssistantOutputSegment,
+  appendExecutionTimelineThinkingDelta,
   chatMessagesFromSessionState,
+  finalizeAssistantExecutionSegments,
+  finalizeExecutionTimelineTraceItems,
+  liveAssistantSegmentsForRender,
+  phaseTraceStepFromEvent,
+  runFailedDetail,
+  toolTraceStepFromEvent,
+  upsertAssistantExecutionTraceStep,
+  upsertExecutionTimelineTraceItem,
 } from "@/components/panes/ChatPane/index";
 import type {
   AttachmentListItem,
+  ChatAssistantSegment,
+  ChatExecutionTimelineItem,
   ChatMessage,
+  ChatTraceStepStatus,
 } from "@/components/panes/ChatPane/types";
+import { CHAT_LAYOUT } from "@/lib/chatLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -251,6 +266,21 @@ function shortSessionLabel(sessionId: string): string {
   return normalized.length <= 16 ? normalized : `${normalized.slice(0, 16)}…`;
 }
 
+function runtimeStateStatus(value: string | null | undefined): string {
+  return (value || "").trim().toUpperCase();
+}
+
+function runtimeStateEffectiveStatus(
+  runtimeState:
+    | Pick<SessionRuntimeRecordPayload, "status" | "effective_state">
+    | null
+    | undefined,
+): string {
+  return runtimeStateStatus(
+    runtimeState?.effective_state ?? runtimeState?.status,
+  );
+}
+
 export function IssueDetailPane({
   workspaceId,
   issueId,
@@ -291,6 +321,25 @@ export function IssueDetailPane({
   >({});
   const [runtimeState, setRuntimeState] =
     useState<SessionRuntimeRecordPayload | null>(null);
+  const [isResponding, setIsResponding] = useState(false);
+  const [liveAgentStatus, setLiveAgentStatus] = useState("");
+  const [liveAssistantSegments, setLiveAssistantSegments] = useState<
+    ChatAssistantSegment[]
+  >([]);
+  const [liveAssistantText, setLiveAssistantText] = useState("");
+  const [liveExecutionItems, setLiveExecutionItems] = useState<
+    ChatExecutionTimelineItem[]
+  >([]);
+  const activeStreamIdRef = useRef<string | null>(null);
+  const liveAssistantSegmentsRef = useRef<ChatAssistantSegment[]>([]);
+  const liveAssistantTextRef = useRef("");
+  const liveExecutionItemsRef = useRef<ChatExecutionTimelineItem[]>([]);
+  const liveAssistantFlushFrameRef = useRef<number | null>(null);
+  const activeStreamInputIdRef = useRef<string | null>(null);
+  const issueSessionIdRef = useRef("");
+  const terminalEventTypeByInputIdRef = useRef<
+    Map<string, "run_completed" | "run_failed">
+  >(new Map());
 
   const [isMutationPending, setIsMutationPending] = useState(false);
   const [mutationError, setMutationError] = useState("");
@@ -326,6 +375,202 @@ export function IssueDetailPane({
       })),
     [replyAttachments],
   );
+  const renderedLiveAssistantSegments = useMemo(
+    () =>
+      liveAssistantSegmentsForRender(
+        liveAssistantSegments,
+        liveExecutionItems,
+        liveAssistantText,
+      ),
+    [liveAssistantSegments, liveExecutionItems, liveAssistantText],
+  );
+  const showLiveAssistantTurn =
+    isResponding || renderedLiveAssistantSegments.length > 0;
+
+  function setLiveAssistantSegmentsState(nextSegments: ChatAssistantSegment[]) {
+    liveAssistantSegmentsRef.current = nextSegments;
+    setLiveAssistantSegments(nextSegments);
+  }
+
+  function setLiveExecutionItemsState(nextItems: ChatExecutionTimelineItem[]) {
+    liveExecutionItemsRef.current = nextItems;
+    setLiveExecutionItems(nextItems);
+  }
+
+  function cancelLiveAssistantFlush() {
+    if (liveAssistantFlushFrameRef.current !== null) {
+      window.cancelAnimationFrame(liveAssistantFlushFrameRef.current);
+      liveAssistantFlushFrameRef.current = null;
+    }
+  }
+
+  function resetLiveTurn() {
+    cancelLiveAssistantFlush();
+    liveAssistantSegmentsRef.current = [];
+    liveAssistantTextRef.current = "";
+    liveExecutionItemsRef.current = [];
+    setLiveAssistantSegments([]);
+    setLiveAssistantText("");
+    setLiveExecutionItems([]);
+    setLiveAgentStatus("");
+  }
+
+  function scheduleLiveAssistantFlush() {
+    if (liveAssistantFlushFrameRef.current !== null) {
+      return;
+    }
+    liveAssistantFlushFrameRef.current = window.requestAnimationFrame(() => {
+      liveAssistantFlushFrameRef.current = null;
+      setLiveAssistantText(liveAssistantTextRef.current);
+    });
+  }
+
+  function flushLiveAssistantOutputSegment(
+    tone: ChatMessage["tone"] = "default",
+  ) {
+    if (!liveAssistantTextRef.current) {
+      return;
+    }
+    cancelLiveAssistantFlush();
+    const nextSegments = appendAssistantOutputSegment(
+      liveAssistantSegmentsRef.current,
+      liveAssistantTextRef.current,
+      tone,
+    );
+    setLiveAssistantSegmentsState(nextSegments);
+    liveAssistantTextRef.current = "";
+    setLiveAssistantText("");
+  }
+
+  function flushLiveExecutionSegment() {
+    if (liveExecutionItemsRef.current.length === 0) {
+      return;
+    }
+    const nextSegments = appendAssistantExecutionSegment(
+      liveAssistantSegmentsRef.current,
+      liveExecutionItemsRef.current,
+    );
+    setLiveAssistantSegmentsState(nextSegments);
+    liveExecutionItemsRef.current = [];
+    setLiveExecutionItems([]);
+  }
+
+  function appendLiveAssistantDelta(delta: string) {
+    if (!delta) {
+      return;
+    }
+    flushLiveExecutionSegment();
+    liveAssistantTextRef.current = `${liveAssistantTextRef.current}${delta}`;
+    scheduleLiveAssistantFlush();
+  }
+
+  function appendLiveThinkingDelta(delta: string, order: number) {
+    if (!delta) {
+      return;
+    }
+    flushLiveAssistantOutputSegment();
+    const nextItems = appendExecutionTimelineThinkingDelta(
+      liveExecutionItemsRef.current,
+      delta,
+      order,
+    );
+    setLiveExecutionItemsState(nextItems);
+  }
+
+  function upsertLiveTraceStep(step: ReturnType<typeof phaseTraceStepFromEvent>) {
+    if (!step) {
+      return;
+    }
+    flushLiveAssistantOutputSegment();
+    const nextSegments = upsertAssistantExecutionTraceStep(
+      liveAssistantSegmentsRef.current,
+      step,
+    );
+    if (nextSegments) {
+      setLiveAssistantSegmentsState(nextSegments);
+      return;
+    }
+    const nextItems = upsertExecutionTimelineTraceItem(
+      liveExecutionItemsRef.current,
+      step,
+    );
+    setLiveExecutionItemsState(nextItems);
+  }
+
+  function finalizeLiveTraceSteps(
+    status: Extract<ChatTraceStepStatus, "completed" | "error" | "waiting">,
+  ) {
+    setLiveAssistantSegmentsState(
+      finalizeAssistantExecutionSegments(
+        liveAssistantSegmentsRef.current,
+        status,
+      ),
+    );
+    setLiveExecutionItemsState(
+      finalizeExecutionTimelineTraceItems(
+        liveExecutionItemsRef.current,
+        status,
+      ),
+    );
+  }
+
+  function liveAssistantHasVisibleOutput() {
+    return (
+      Boolean(liveAssistantTextRef.current.trim()) ||
+      liveAssistantSegments.some(
+        (segment) =>
+          segment.kind === "output" && Boolean(segment.text.trim()),
+      )
+    );
+  }
+
+  function persistLiveFailureOutput(detail: string) {
+    if (!detail.trim()) {
+      return;
+    }
+    flushLiveExecutionSegment();
+    if (
+      liveAssistantTextRef.current.trim() ||
+      liveAssistantSegmentsRef.current.some(
+        (segment) =>
+          segment.kind === "output" && Boolean(segment.text.trim()),
+      )
+    ) {
+      return;
+    }
+    setLiveAssistantSegmentsState(
+      appendAssistantOutputSegment(
+        liveAssistantSegmentsRef.current,
+        detail,
+        "error",
+      ),
+    );
+  }
+
+  function rememberTerminalEvent(
+    inputId: string,
+    eventType: "run_completed" | "run_failed",
+  ) {
+    const normalizedInputId = inputId.trim();
+    if (!normalizedInputId) {
+      return null;
+    }
+    const priorEventType =
+      terminalEventTypeByInputIdRef.current.get(normalizedInputId) ?? null;
+    if (priorEventType) {
+      return priorEventType;
+    }
+    terminalEventTypeByInputIdRef.current.set(normalizedInputId, eventType);
+    while (terminalEventTypeByInputIdRef.current.size > 64) {
+      const oldestInputId = terminalEventTypeByInputIdRef.current.keys().next()
+        .value;
+      if (typeof oldestInputId !== "string") {
+        break;
+      }
+      terminalEventTypeByInputIdRef.current.delete(oldestInputId);
+    }
+    return null;
+  }
 
   useEffect(() => {
     if (!issue) {
@@ -344,6 +589,38 @@ export function IssueDetailPane({
     issue?.issue_id,
     issue?.title,
   ]);
+
+  useEffect(() => {
+    issueSessionIdRef.current = issue?.session_id?.trim() || "";
+  }, [issue?.session_id]);
+
+  useEffect(() => {
+    const priorStreamId = activeStreamIdRef.current;
+    activeStreamIdRef.current = null;
+    activeStreamInputIdRef.current = null;
+    terminalEventTypeByInputIdRef.current.clear();
+    setIsResponding(false);
+    resetLiveTurn();
+    if (priorStreamId) {
+      void window.electronAPI.workspace
+        .closeSessionOutputStream(priorStreamId, "issue_detail_session_changed")
+        .catch(() => undefined);
+    }
+  }, [issue?.session_id]);
+
+  useEffect(
+    () => () => {
+      cancelLiveAssistantFlush();
+      const activeStreamId = activeStreamIdRef.current;
+      activeStreamIdRef.current = null;
+      if (activeStreamId) {
+        void window.electronAPI.workspace
+          .closeSessionOutputStream(activeStreamId, "issue_detail_unmounted")
+          .catch(() => undefined);
+      }
+    },
+    [],
+  );
 
   const refreshThread = useCallback(() => {
     setThreadRefreshToken((value) => value + 1);
@@ -371,10 +648,13 @@ export function IssueDetailPane({
       setRuntimeState(null);
       setHistoryError("");
       setIsHistoryLoading(false);
+      setIsResponding(false);
+      resetLiveTurn();
       return;
     }
 
     let cancelled = false;
+    const sessionId = issue.session_id.trim();
 
     const loadThread = async () => {
       setIsHistoryLoading(true);
@@ -402,20 +682,40 @@ export function IssueDetailPane({
         if (cancelled) {
           return;
         }
-        setMessages(
-          chatMessagesFromSessionState({
-            historyMessages: history.messages,
-            outputEvents: outputEvents.items,
-            outputs: outputs.items,
-            showExecutionInternals: false,
-            showBootstrapPhaseTrace: false,
-          }),
-        );
-        setRuntimeState(
+        const nextRuntimeState =
           runtimeStates.items.find(
-            (item) => item.session_id.trim() === issue.session_id.trim(),
-          ) ?? null,
+            (item) => item.session_id.trim() === sessionId,
+          ) ?? null;
+        const currentRuntimeStatus = runtimeStateEffectiveStatus(nextRuntimeState);
+        const currentRuntimeInputId = (
+          nextRuntimeState?.current_input_id || ""
+        ).trim();
+        const liveInputId =
+          activeStreamInputIdRef.current?.trim() || currentRuntimeInputId;
+        const shouldAttachLiveRunStream =
+          Boolean(liveInputId) &&
+          ["BUSY", "QUEUED"].includes(currentRuntimeStatus);
+        const nextMessages = chatMessagesFromSessionState({
+          historyMessages: history.messages,
+          outputEvents: outputEvents.items,
+          outputs: outputs.items,
+          showExecutionInternals: true,
+          showBootstrapPhaseTrace: false,
+        });
+        setMessages(
+          shouldAttachLiveRunStream
+            ? nextMessages.filter(
+                (message) =>
+                  message.role !== "assistant" ||
+                  !message.id.endsWith(liveInputId),
+              )
+            : nextMessages,
         );
+        setRuntimeState(nextRuntimeState);
+        if (!shouldAttachLiveRunStream && activeStreamIdRef.current === null) {
+          setIsResponding(false);
+          resetLiveTurn();
+        }
         setHistoryError("");
       } catch (error) {
         if (!cancelled) {
@@ -442,6 +742,295 @@ export function IssueDetailPane({
       window.clearInterval(timer);
     };
   }, [issue, threadRefreshToken, workspaceId]);
+
+  const scheduleConversationRefresh = useCallback(() => {
+    const normalizedWorkspaceId = workspaceId.trim();
+    const normalizedSessionId = issueSessionIdRef.current;
+    if (!normalizedWorkspaceId || !normalizedSessionId) {
+      return;
+    }
+    const delays = [150, 500, 1_500, 3_000];
+    for (const delayMs of delays) {
+      window.setTimeout(() => {
+        if (
+          issueSessionIdRef.current !== normalizedSessionId ||
+          workspaceId.trim() !== normalizedWorkspaceId
+        ) {
+          return;
+        }
+        void refresh().catch(() => undefined);
+        refreshThread();
+      }, delayMs);
+    }
+  }, [refresh, refreshThread, workspaceId]);
+
+  useEffect(() => {
+    const normalizedSessionId = issue?.session_id?.trim() || "";
+    if (!normalizedSessionId) {
+      return;
+    }
+    const normalizedWorkspaceId = workspaceId.trim();
+    const currentRuntimeStatus = runtimeStateEffectiveStatus(runtimeState);
+    const currentRuntimeInputId = (runtimeState?.current_input_id || "").trim();
+    const shouldAttachLiveRunStream =
+      Boolean(currentRuntimeInputId) &&
+      ["BUSY", "QUEUED"].includes(currentRuntimeStatus);
+    if (!shouldAttachLiveRunStream || activeStreamIdRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+    resetLiveTurn();
+    setIsResponding(true);
+    setLiveAgentStatus(
+      currentRuntimeStatus === "QUEUED" ? "Queued" : "Working",
+    );
+
+    void window.electronAPI.workspace
+      .openSessionOutputStream({
+        sessionId: normalizedSessionId,
+        workspaceId: normalizedWorkspaceId,
+        inputId: currentRuntimeInputId || undefined,
+        includeHistory: Boolean(currentRuntimeInputId),
+        stopOnTerminal: true,
+      })
+      .then((stream) => {
+        if (cancelled) {
+          return window.electronAPI.workspace
+            .closeSessionOutputStream(stream.streamId, "issue_detail_attach_cancelled")
+            .catch(() => undefined);
+        }
+        activeStreamIdRef.current = stream.streamId;
+        activeStreamInputIdRef.current = currentRuntimeInputId || null;
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setHistoryError(
+            error instanceof Error
+              ? error.message
+              : "Failed to attach to the live issue run",
+          );
+          setIsResponding(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [issue?.session_id, runtimeState, workspaceId]);
+
+  useEffect(() => {
+    const unsubscribe = window.electronAPI.workspace.onSessionStreamEvent(
+      (payload) => {
+        const activeStreamId = activeStreamIdRef.current;
+        if (!activeStreamId || payload.streamId !== activeStreamId) {
+          return;
+        }
+
+        const rawEventData =
+          payload.type === "event" ? payload.event?.data : null;
+        const typedEvent =
+          rawEventData &&
+          typeof rawEventData === "object" &&
+          !Array.isArray(rawEventData)
+            ? (rawEventData as {
+                event_type?: string;
+                payload?: Record<string, unknown>;
+                input_id?: string;
+                session_id?: string;
+                sequence?: number;
+              })
+            : null;
+        const eventType = typedEvent?.event_type ?? payload.type;
+        const eventPayload = typedEvent?.payload ?? {};
+        const eventInputId =
+          typeof typedEvent?.input_id === "string" ? typedEvent.input_id : "";
+        const eventSessionId =
+          typeof typedEvent?.session_id === "string"
+            ? typedEvent.session_id
+            : "";
+        const eventSequence =
+          typeof typedEvent?.sequence === "number" &&
+          Number.isFinite(typedEvent.sequence)
+            ? typedEvent.sequence
+            : Number.MAX_SAFE_INTEGER;
+
+        if (
+          eventSessionId &&
+          eventSessionId.trim() !== issueSessionIdRef.current
+        ) {
+          return;
+        }
+
+        if (payload.type === "error") {
+          setHistoryError(payload.error || "The issue run stream failed.");
+          setIsResponding(false);
+          activeStreamIdRef.current = null;
+          activeStreamInputIdRef.current = null;
+          scheduleConversationRefresh();
+          return;
+        }
+
+        if (payload.type === "done") {
+          setIsResponding(false);
+          activeStreamIdRef.current = null;
+          activeStreamInputIdRef.current = null;
+          scheduleConversationRefresh();
+          return;
+        }
+
+        if (eventType === "run_claimed" || eventType === "run_started") {
+          setIsResponding(true);
+          setLiveAgentStatus("Checking workspace context");
+        }
+
+        const phaseStep = phaseTraceStepFromEvent(
+          eventType,
+          eventPayload,
+          eventSequence,
+        );
+        if (phaseStep) {
+          upsertLiveTraceStep(phaseStep);
+        }
+
+        const toolStep = toolTraceStepFromEvent(
+          eventType,
+          eventPayload,
+          eventSequence,
+        );
+        if (toolStep) {
+          upsertLiveTraceStep(toolStep);
+        }
+
+        if (eventType === "output_delta") {
+          const delta =
+            typeof eventPayload.delta === "string" ? eventPayload.delta : "";
+          appendLiveAssistantDelta(delta);
+          return;
+        }
+
+        if (eventType === "thinking_delta") {
+          const delta =
+            typeof eventPayload.delta === "string" ? eventPayload.delta : "";
+          appendLiveThinkingDelta(delta, eventSequence);
+          return;
+        }
+
+        if (eventType === "run_failed") {
+          if (rememberTerminalEvent(eventInputId, "run_failed")) {
+            return;
+          }
+          finalizeLiveTraceSteps("error");
+          if (!liveAssistantHasVisibleOutput()) {
+            persistLiveFailureOutput(runFailedDetail(eventPayload));
+          }
+          setIsResponding(false);
+          setLiveAgentStatus("");
+          activeStreamIdRef.current = null;
+          activeStreamInputIdRef.current = null;
+          scheduleConversationRefresh();
+          return;
+        }
+
+        if (eventType === "run_completed") {
+          if (rememberTerminalEvent(eventInputId, "run_completed")) {
+            return;
+          }
+          const completedStatus =
+            typeof eventPayload.status === "string"
+              ? eventPayload.status.trim().toLowerCase()
+              : "";
+          finalizeLiveTraceSteps(
+            completedStatus === "paused" || completedStatus === "waiting_user"
+              ? "waiting"
+              : "completed",
+          );
+          setIsResponding(false);
+          setLiveAgentStatus("");
+          activeStreamIdRef.current = null;
+          activeStreamInputIdRef.current = null;
+          scheduleConversationRefresh();
+        }
+      },
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [scheduleConversationRefresh]);
+
+  useEffect(() => {
+    if (!isResponding || !issue?.session_id) {
+      return;
+    }
+
+    let cancelled = false;
+    let inFlight = false;
+    const normalizedWorkspaceId = workspaceId.trim();
+    const normalizedSessionId = issue.session_id.trim();
+
+    const poll = async () => {
+      if (cancelled || inFlight) {
+        return;
+      }
+      inFlight = true;
+      try {
+        const response =
+          await window.electronAPI.workspace.listRuntimeStates(
+            normalizedWorkspaceId,
+          );
+        if (cancelled) {
+          return;
+        }
+        const currentState =
+          response.items.find(
+            (item) => item.session_id.trim() === normalizedSessionId,
+          ) ?? null;
+        setRuntimeState(currentState);
+        const status = runtimeStateEffectiveStatus(currentState);
+        if (status === "BUSY" || status === "QUEUED") {
+          return;
+        }
+        const activeStreamId = activeStreamIdRef.current;
+        if (activeStreamId) {
+          await window.electronAPI.workspace
+            .closeSessionOutputStream(activeStreamId, "issue_runtime_terminal")
+            .catch(() => undefined);
+          activeStreamIdRef.current = null;
+        }
+        finalizeLiveTraceSteps(
+          status === "WAITING_USER" || status === "PAUSED"
+            ? "waiting"
+            : status === "ERROR"
+              ? "error"
+              : "completed",
+        );
+        if (
+          status === "ERROR" &&
+          !liveAssistantHasVisibleOutput() &&
+          currentState?.last_error
+        ) {
+          persistLiveFailureOutput(runFailedDetail(currentState.last_error));
+        }
+        setIsResponding(false);
+        setLiveAgentStatus("");
+        activeStreamInputIdRef.current = null;
+        scheduleConversationRefresh();
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void poll();
+    const timer = window.setInterval(() => {
+      void poll();
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isResponding, issue?.session_id, scheduleConversationRefresh, workspaceId]);
 
   const runIssueMutation = useCallback(
     async (action: () => Promise<unknown>, fallbackMessage: string) => {
@@ -691,13 +1280,40 @@ export function IssueDetailPane({
                 ),
               })
             : { attachments: [] };
-        await window.electronAPI.workspace.queueSessionInput({
+        const queued = await window.electronAPI.workspace.queueSessionInput({
           workspace_id: workspaceId,
           session_id: issue.session_id,
           text,
           image_urls: [],
           attachments: stagedAttachments.attachments,
         });
+        setMessages((current) => [
+          ...current,
+          {
+            id: `user-${queued.input_id}`,
+            role: "user",
+            text,
+            createdAt: new Date().toISOString(),
+            attachments: stagedAttachments.attachments,
+          },
+        ]);
+        resetLiveTurn();
+        setIsResponding(true);
+        setLiveAgentStatus(
+          runtimeStateStatus(queued.effective_state ?? queued.runtime_status) ===
+            "QUEUED"
+            ? "Queued"
+            : "Working",
+        );
+        activeStreamInputIdRef.current = queued.input_id;
+        const stream = await window.electronAPI.workspace.openSessionOutputStream({
+          sessionId: issue.session_id,
+          workspaceId,
+          inputId: queued.input_id,
+          includeHistory: true,
+          stopOnTerminal: true,
+        });
+        activeStreamIdRef.current = stream.streamId;
         setReplyInput("");
         setReplyAttachments([]);
         await refresh();
@@ -973,42 +1589,6 @@ export function IssueDetailPane({
               </Card>
             ) : null}
 
-            {issue.active_subagent_id ? (
-              <Card className="bg-card/85">
-                <CardContent className="pt-4">
-                  <div className="flex items-center justify-between gap-3 rounded-xl border border-sky-500/18 bg-sky-500/[0.06] px-4 py-3">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="grid size-8 place-items-center rounded-full bg-sky-500/12 text-sky-600 dark:text-sky-200">
-                        <Loader2 className="size-4 animate-spin" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-foreground">
-                          {(assignee?.name || "Assigned teammate")} is working
-                        </div>
-                        <div className="mt-0.5 text-xs text-foreground/55">
-                          {formatRelativeTime(runtimeState?.updated_at || issue.updated_at)}
-                        </div>
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleStopIssueRun()}
-                      disabled={isMutationPending}
-                    >
-                      {isMutationPending ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <Square className="size-4" />
-                      )}
-                      Stop
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : null}
-
             <Card className="bg-card/85">
               <CardHeader>
                 <CardTitle className="text-[24px] font-semibold tracking-tight text-foreground">
@@ -1019,34 +1599,25 @@ export function IssueDetailPane({
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="relative space-y-4 pl-6 before:absolute before:bottom-0 before:left-[11px] before:top-1 before:w-px before:bg-border">
-                  <div className="relative rounded-xl border border-border bg-background/65 px-4 py-4">
-                    <div className="absolute left-[-18px] top-5 size-3 rounded-full bg-background ring-4 ring-card" />
-                    <div className="flex items-start gap-3">
-                      <div className="grid size-8 place-items-center rounded-full bg-foreground/[0.06] text-foreground/55">
-                        <CircleDot className="size-4" />
-                      </div>
-                      <div>
-                        <div className="text-sm font-medium text-foreground">
-                          {(issue.created_by || "Workspace user").trim() || "Workspace user"} created this issue
-                        </div>
-                        <div className="mt-1 text-xs text-foreground/45">
-                          {formatRelativeTime(issue.created_at)}
-                        </div>
-                      </div>
-                    </div>
+                <div
+                  className={`mx-auto flex min-w-0 w-full ${CHAT_LAYOUT.contentMaxWidth} flex-col gap-3`}
+                >
+                  <div className="flex items-center gap-2 px-1 text-xs text-foreground/45">
+                    <CircleDot className="size-3.5 shrink-0" />
+                    <span className="truncate">
+                      {`${(issue.created_by || "Workspace user").trim() || "Workspace user"} created this issue`}
+                    </span>
+                    <span className="shrink-0">{formatRelativeTime(issue.created_at)}</span>
                   </div>
 
                   {historyError ? (
-                    <div className="relative rounded-xl border border-destructive/30 bg-destructive/[0.05] px-4 py-3 text-sm text-destructive">
-                      <div className="absolute left-[-18px] top-5 size-3 rounded-full bg-background ring-4 ring-card" />
+                    <div className="rounded-xl border border-destructive/30 bg-destructive/[0.05] px-4 py-3 text-sm text-destructive">
                       {historyError}
                     </div>
                   ) : null}
 
                   {isHistoryLoading && messages.length === 0 ? (
-                    <div className="relative grid h-24 place-items-center rounded-xl border border-border bg-background/45">
-                      <div className="absolute left-[-18px] top-5 size-3 rounded-full bg-background ring-4 ring-card" />
+                    <div className="grid h-24 place-items-center rounded-xl border border-border bg-background/45">
                       <Loader2 className="size-5 animate-spin text-foreground/35" />
                     </div>
                   ) : messages.length > 0 ? (
@@ -1054,7 +1625,7 @@ export function IssueDetailPane({
                       messages={messages}
                       assistantLabel={assignee?.name || "Assigned teammate"}
                       assistantMode="issue"
-                      showExecutionInternals={false}
+                      showExecutionInternals
                       workspaceId={workspaceId}
                       onPreviewAttachment={handlePreviewAttachment}
                       onOpenOutput={openOutput}
@@ -1067,18 +1638,25 @@ export function IssueDetailPane({
                       onLocalLinkClick={(href) => {
                         openFileInInternalTab(href);
                       }}
-                      getMessageWrapperClassName={() =>
-                        "relative rounded-xl border border-border/70 bg-background/45 px-4 py-3 before:absolute before:left-[-18px] before:top-5 before:size-3 before:rounded-full before:bg-background before:ring-4 before:ring-card"
+                      liveAssistantTurn={
+                        showLiveAssistantTurn
+                          ? {
+                              text: liveAssistantText,
+                              tone: "default",
+                              segments: renderedLiveAssistantSegments,
+                              executionItems: liveExecutionItems,
+                              status: liveAgentStatus || (isResponding ? "Working" : ""),
+                            }
+                          : null
                       }
                     />
                   ) : (
-                    <div className="relative rounded-xl border border-dashed border-border bg-background/45 px-6 py-8 text-center">
-                      <div className="absolute left-[-18px] top-5 size-3 rounded-full bg-background ring-4 ring-card" />
+                    <div className="rounded-xl border border-dashed border-border bg-background/45 px-6 py-8 text-center">
                       <div className="text-sm font-medium text-foreground">
-                        No replies yet
+                        No activity yet
                       </div>
                       <div className="mt-1 text-sm text-foreground/52">
-                        The issue thread will appear here once the assigned teammate or user responds.
+                        The full run trace will appear here once this issue has execution or replies.
                       </div>
                     </div>
                   )}

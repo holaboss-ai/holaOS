@@ -9,10 +9,8 @@ import {
   Search,
 } from "lucide-react";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
-import { Button } from "@/components/ui/button";
 
 const SUBAGENT_SESSIONS_POLL_INTERVAL_MS = 2000;
-type InspectableSessionFilter = "all" | "subagent" | "cronjob";
 
 interface SubagentSessionsPaneProps {
   workspaceId?: string | null;
@@ -42,8 +40,8 @@ function sortInspectableRunSessions(items: AgentSessionRecordPayload[]) {
 
 function summarizeInspectableRunSessions(items: AgentSessionRecordPayload[]) {
   return items.length === 1
-    ? "1 recent subagent session"
-    : `${items.length} recent subagent sessions`;
+    ? "1 recent run session"
+    : `${items.length} recent run sessions`;
 }
 
 function inspectableRunSessionLabel(session: AgentSessionRecordPayload) {
@@ -56,7 +54,7 @@ function inspectableRunSessionLabel(session: AgentSessionRecordPayload) {
 
 function inspectableRunSessionCategory(
   session: AgentSessionRecordPayload,
-): Exclude<InspectableSessionFilter, "all"> {
+): "subagent" | "cronjob" {
   const sourceType = (session.source_type ?? "").trim().toLowerCase();
   if (sourceType === "cronjob" || Boolean((session.cronjob_id ?? "").trim())) {
     return "cronjob";
@@ -147,8 +145,6 @@ export function SubagentSessionsPane({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [inlineExpanded, setInlineExpanded] = useState(false);
-  const [activeFilter, setActiveFilter] =
-    useState<InspectableSessionFilter>("all");
 
   const refreshSessions = useCallback(
     async (options?: { showLoading?: boolean }) => {
@@ -230,14 +226,13 @@ export function SubagentSessionsPane({
   }, [activeWorkspaceId, refreshSessions]);
 
   const latestSession = useMemo(() => sessions[0] ?? null, [sessions]);
-  const filteredSessions = useMemo(() => {
-    if (activeFilter === "all") {
-      return sessions;
-    }
-    return sessions.filter(
-      (session) => inspectableRunSessionCategory(session) === activeFilter,
-    );
-  }, [activeFilter, sessions]);
+  const cronjobSessions = useMemo(
+    () =>
+      sessions.filter(
+        (session) => inspectableRunSessionCategory(session) === "cronjob",
+      ),
+    [sessions],
+  );
 
   if (variant === "inline") {
     if (!activeWorkspaceId) {
@@ -247,7 +242,7 @@ export function SubagentSessionsPane({
       return null;
     }
 
-    const summaryLabel = summarizeInspectableRunSessions(filteredSessions);
+    const summaryLabel = summarizeInspectableRunSessions(sessions);
     const detailLabel = latestSession
       ? latestSession.title?.trim() || inspectableRunSessionLabel(latestSession)
       : "";
@@ -279,7 +274,7 @@ export function SubagentSessionsPane({
               ) : null}
             </div>
             <div className="shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground">
-              {filteredSessions.length}
+              {sessions.length}
             </div>
             <ChevronDown
               className={`size-3.5 shrink-0 text-muted-foreground transition ${inlineExpanded ? "rotate-0" : "-rotate-90"}`}
@@ -294,7 +289,7 @@ export function SubagentSessionsPane({
                 </div>
               ) : null}
               <div className={`${errorMessage ? "mt-3 " : ""}space-y-2`}>
-                {filteredSessions.map((session) => {
+                {sessions.map((session) => {
                   const title =
                     session.title?.trim() ||
                     inspectableRunSessionLabel(session);
@@ -341,12 +336,9 @@ export function SubagentSessionsPane({
 
   return (
     <FullSessionsView
-      sessions={sessions}
-      filteredSessions={filteredSessions}
+      sessions={cronjobSessions}
       isLoading={isLoading}
       errorMessage={errorMessage}
-      activeFilter={activeFilter}
-      onFilterChange={setActiveFilter}
       onOpenSession={onOpenSession}
     />
   );
@@ -354,32 +346,26 @@ export function SubagentSessionsPane({
 
 function FullSessionsView({
   sessions,
-  filteredSessions,
   isLoading,
   errorMessage,
-  activeFilter,
-  onFilterChange,
   onOpenSession,
 }: {
   sessions: AgentSessionRecordPayload[];
-  filteredSessions: AgentSessionRecordPayload[];
   isLoading: boolean;
   errorMessage: string;
-  activeFilter: InspectableSessionFilter;
-  onFilterChange: (next: InspectableSessionFilter) => void;
   onOpenSession?: (session: AgentSessionRecordPayload) => void;
 }) {
   const [query, setQuery] = useState("");
 
   const searched = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return filteredSessions;
-    return filteredSessions.filter((s) => {
+    if (!q) return sessions;
+    return sessions.filter((s) => {
       const title = (s.title ?? "").toLowerCase();
       const fallback = inspectableRunSessionLabel(s).toLowerCase();
       return title.includes(q) || fallback.includes(q);
     });
-  }, [filteredSessions, query]);
+  }, [query, sessions]);
 
   const grouped = useMemo(() => {
     const buckets = new Map<string, AgentSessionRecordPayload[]>();
@@ -397,12 +383,10 @@ function FullSessionsView({
 
   const emptyForReason =
     sessions.length === 0
-      ? "No agent sessions yet — kick one off from chat."
+      ? "No cronjob runs yet."
       : searched.length === 0 && query.trim()
-        ? `No sessions match "${query.trim()}".`
-        : searched.length === 0
-          ? "No sessions match this filter."
-          : null;
+        ? `No cronjob runs match "${query.trim()}".`
+        : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -416,35 +400,10 @@ function FullSessionsView({
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search sessions…"
-            aria-label="Search sessions"
+            placeholder="Search cronjobs…"
+            aria-label="Search cronjobs"
             className="h-8 w-full rounded-md border border-border bg-transparent pr-2 pl-7 text-xs text-foreground placeholder:text-muted-foreground focus-visible:border-foreground/20 focus-visible:outline-none"
           />
-        </div>
-        <div className="mt-2 flex items-center gap-1 overflow-x-auto">
-          {(
-            [
-              ["all", "All"],
-              ["subagent", "Subagents"],
-              ["cronjob", "Cronjobs"],
-            ] as const
-          ).map(([filterId, label]) => {
-            const isActive = activeFilter === filterId;
-            return (
-              <button
-                key={filterId}
-                type="button"
-                onClick={() => onFilterChange(filterId)}
-                className={
-                  isActive
-                    ? "inline-flex h-6 items-center rounded-full bg-foreground/[0.08] px-2.5 text-[11px] font-medium text-foreground"
-                    : "inline-flex h-6 items-center rounded-full px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
-                }
-              >
-                {label}
-              </button>
-            );
-          })}
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">

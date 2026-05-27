@@ -454,12 +454,6 @@ test("delegateTask creates issue-owned runs and routes to a matching custom team
       workspaceId,
       name: "Frontend",
       instructions: "Own dashboard, UI, frontend, and React implementation work.",
-      skills: [
-        {
-          name: "Dashboard UI",
-          content: "# Dashboard UI\nImplement dashboard cards, charts, and React surfaces.",
-        },
-      ],
     });
     const parentInput = store.enqueueInput({
       workspaceId,
@@ -625,12 +619,6 @@ test("queueIssueReply reopens a completed issue on the same persistent issue ses
       workspaceId,
       name: "Coder",
       instructions: "Own implementation tasks.",
-      skills: [
-        {
-          name: "Frontend",
-          content: "# Frontend\nBuild UI surfaces.",
-        },
-      ],
     });
     const issue = store.createIssue({
       workspaceId,
@@ -640,6 +628,25 @@ test("queueIssueReply reopens a completed issue on the same persistent issue ses
       status: "done",
       assigneeTeammateId: teammate.teammateId,
       createdBy: "workspace_user",
+    });
+    const staleRun = store.createSubagentRun({
+      workspaceId,
+      parentSessionId: issue.sessionId,
+      originMainSessionId: issue.sessionId,
+      ownerMainSessionId: issue.sessionId,
+      childSessionId: issue.sessionId,
+      goal: issue.description ?? issue.title,
+      issueId: issue.issueId,
+      teammateId: teammate.teammateId,
+      status: "completed",
+      completedAt: utcNowIso(),
+    });
+    store.updateIssue({
+      workspaceId,
+      issueId: issue.issueId,
+      fields: {
+        latestSubagentId: staleRun.subagentId,
+      },
     });
 
     const service = new RuntimeAgentToolsService(store, { workspaceRoot });
@@ -653,9 +660,14 @@ test("queueIssueReply reopens a completed issue on the same persistent issue ses
     assert.equal(result.issue.sessionId, issue.sessionId);
     assert.equal(result.issue.status, "todo");
     assert.equal(result.session.sessionId, issue.sessionId);
+    assert.equal(result.run.run.subagentId, staleRun.subagentId);
     assert.equal(result.run.run.childSessionId, issue.sessionId);
     assert.equal(result.input.sessionId, issue.sessionId);
     assert.equal(result.input.payload.text, "Please tighten the empty state copy.");
+    assert.equal(
+      store.listSubagentRunsByWorkspace({ workspaceId }).length,
+      1,
+    );
     assert.equal(
       (result.input.payload.context as Record<string, unknown>)?.source,
       "issue_reply",
@@ -1365,6 +1377,128 @@ test("resumeSubagent falls back to the controller session's latest model instead
   }
 });
 
+test("listBackgroundTasks keeps a completed delegated run completed even if the child runtime still looks busy", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-completed-busy-"));
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const mainSessionId = "main-1";
+  const childSessionId = "subagent-child-1";
+  const subagentId = "subagent-run-1";
+  const completedAt = utcNowIso();
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.ensureSession({
+      workspaceId,
+      sessionId: mainSessionId,
+      kind: "main_session",
+      createdBy: "workspace_user",
+    });
+    const assignee = store.ensureGeneralTeammate(workspaceId);
+    store.createIssue({
+      workspaceId,
+      issueId: "HOL-1",
+      sessionId: childSessionId,
+      title: "Summarize the workspace state",
+      description: "Finish the delegated summary.",
+      status: "in_progress",
+      assigneeTeammateId: assignee.teammateId,
+      activeSubagentId: subagentId,
+      latestSubagentId: subagentId,
+    });
+    store.ensureSession({
+      workspaceId,
+      sessionId: childSessionId,
+      kind: "subagent",
+      parentSessionId: mainSessionId,
+      createdBy: "workspace_agent",
+    });
+    const input = store.enqueueInput({
+      workspaceId,
+      sessionId: childSessionId,
+      payload: { text: "Summarize the workspace state." },
+    });
+    store.updateInput({
+      workspaceId,
+      inputId: input.inputId,
+      fields: {
+        status: "CLAIMED",
+        claimedBy: "worker-1",
+        claimedUntil: new Date(Date.now() + 60_000).toISOString(),
+      },
+    });
+    store.updateRuntimeState({
+      workspaceId,
+      sessionId: childSessionId,
+      status: "BUSY",
+      currentInputId: input.inputId,
+      currentWorkerId: "worker-1",
+      leaseUntil: new Date(Date.now() + 60_000).toISOString(),
+      heartbeatAt: completedAt,
+      lastError: null,
+    });
+    store.upsertTurnResult({
+      workspaceId,
+      sessionId: childSessionId,
+      inputId: input.inputId,
+      startedAt: completedAt,
+      completedAt,
+      status: "completed",
+      stopReason: "success",
+      assistantText: "Workspace summary complete.",
+    });
+    store.createSubagentRun({
+      subagentId,
+      workspaceId,
+      parentSessionId: mainSessionId,
+      parentInputId: "parent-input-1",
+      originMainSessionId: mainSessionId,
+      ownerMainSessionId: mainSessionId,
+      childSessionId,
+      initialChildInputId: input.inputId,
+      currentChildInputId: input.inputId,
+      latestChildInputId: input.inputId,
+      title: "Workspace summary",
+      goal: "Summarize the workspace state.",
+      sourceType: "delegate_task",
+      issueId: "HOL-1",
+      teammateId: assignee.teammateId,
+      status: "running",
+      startedAt: completedAt,
+    });
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    const result = service.listBackgroundTasks({
+      workspaceId,
+      sessionId: mainSessionId,
+      ownerMainSessionId: mainSessionId,
+      statuses: ["completed"],
+    }) as Record<string, unknown>;
+    const tasks = result.tasks as Array<Record<string, unknown>>;
+    const updatedRun = store.getSubagentRun({ workspaceId, subagentId });
+    const issue = store.getIssue({ workspaceId, issueId: "HOL-1" });
+
+    assert.equal(result.count, 1);
+    assert.equal(tasks[0]?.status, "completed");
+    assert.equal(updatedRun?.status, "completed");
+    assert.equal(updatedRun?.summary, "Workspace summary complete.");
+    assert.equal(updatedRun?.resultPayload?.assistant_text, "Workspace summary complete.");
+    assert.equal(issue?.status, "done");
+    assert.equal(issue?.activeSubagentId, null);
+    assert.notEqual(issue?.completedAt, null);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("cancelSubagent waits for a claimed child runtime to settle before returning", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-"));
   const workspaceRoot = path.join(root, "workspace");
@@ -1619,6 +1753,78 @@ test("invokeSkill resolves workspace-local skills from a registered custom works
     store.close();
     await rm(root, { recursive: true, force: true });
     await rm(customRoot, { recursive: true, force: true });
+  }
+});
+
+test("invokeSkill resolves teammate-local skills for an assigned issue session", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-skill-teammate-"));
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    const workspace = store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    const teammate = store.createTeammate({
+      workspaceId: workspace.id,
+      name: "Frontend",
+      instructions: "Own the UI.",
+    });
+    const issue = store.createIssue({
+      workspaceId: workspace.id,
+      sessionId: "session-issue-1",
+      title: "Ship dashboard",
+      description: "Implement the dashboard.",
+      status: "todo",
+      assigneeTeammateId: teammate.teammateId,
+      createdBy: "workspace_user",
+    });
+    const skillDir = path.join(
+      store.workspaceDir(workspace.id),
+      "teammates",
+      teammate.teammateId,
+      "skills",
+      "frontend-playbook",
+    );
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      [
+        "---",
+        "name: frontend-playbook",
+        "description: Frontend playbook",
+        "---",
+        "",
+        "# Frontend Playbook",
+        "",
+        "Use the dashboard patterns.",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    const result = service.invokeSkill({
+      workspaceId: workspace.id,
+      sessionId: issue.sessionId,
+      requestedName: "frontend-playbook",
+    }) as {
+      text: string;
+      skill_id: string;
+      skill_file_path: string;
+    };
+
+    assert.equal(result.skill_id, "frontend-playbook");
+    assert.match(result.text, /Use the dashboard patterns\./);
+    assert.equal(
+      result.skill_file_path,
+      fs.realpathSync(path.join(skillDir, "SKILL.md")),
+    );
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
   }
 });
 

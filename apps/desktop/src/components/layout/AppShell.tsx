@@ -3247,6 +3247,25 @@ function AppShellContent() {
     setAgentView({ type: "artifacts" });
   }, []);
 
+  const handleOpenBackgroundTask = useCallback(
+    (task: BackgroundTaskRecordPayload) => {
+      const sourceType = (task.source_type ?? "").trim().toLowerCase();
+      const cronjobId = (task.cronjob_id ?? "").trim();
+      if (sourceType !== "cronjob" && !cronjobId) {
+        return false;
+      }
+
+      setActiveShellView("space");
+      setSpaceVisibility((previous) => ({
+        ...previous,
+        agent: true,
+      }));
+      setAgentView({ type: "automations" });
+      return true;
+    },
+    [],
+  );
+
   const handleReturnToChatPane = useCallback(() => {
     setAgentView({ type: "chat" });
     setChatFocusRequestKey((current) => current + 1);
@@ -4527,7 +4546,9 @@ function AppShellContent() {
               workspaceId={selectedWorkspaceId}
               variant="full"
               onOpenSession={(session) =>
-                handleOpenRunningSession(session.session_id)
+                handleOpenRunningSession(
+                  session.parent_session_id?.trim() || session.session_id,
+                )
               }
             />
           </div>
@@ -4614,6 +4635,7 @@ function AppShellContent() {
           browserJumpRequest={activeChatBrowserJumpRequest}
           onBrowserJumpRequestConsumed={consumeChatBrowserJumpRequest}
           onJumpToSessionBrowser={handleJumpToSessionBrowser}
+          onOpenBackgroundTask={handleOpenBackgroundTask}
           onOpenSessions={handleOpenSessionsPane}
           onOpenMeetingMode={handleOpenMeetingMode}
           meetingModeBusy={isStartingMeetingMode}
