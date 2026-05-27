@@ -4355,6 +4355,20 @@ export async function processClaimedInput(params: {
       lastClaimRenewalAtMs = nowMs;
       return !claimOwnershipLost;
     };
+    // Reserve the session for this claimed input before the runner starts so
+    // the UI can attach to it while a post-run checkpoint is still draining.
+    // Keep the raw runtime status non-BUSY here so the checkpoint worker can
+    // still merge against the prior session state.
+    store.updateRuntimeState({
+      workspaceId: record.workspaceId,
+      sessionId: record.sessionId,
+      status: "QUEUED",
+      currentInputId: record.inputId,
+      currentWorkerId: claimedBy,
+      leaseUntil: activeLeaseUntil,
+      heartbeatAt: undefined,
+      lastError: null,
+    });
     await (
       params.waitForSessionCheckpointCompletionFn ??
       waitForSessionCheckpointCompletion

@@ -1032,20 +1032,53 @@ test("projectAgentRuntimeConfig includes recalled durable memory in context mess
       runtime_exec_sandbox_id: "sandbox-1",
       runtime_exec_run_id: "run-1",
       recalled_memory_context: {
-        entries: [
+        intent: "fact_lookup",
+        retrieval_pack: {
+          known_facts: [
+            {
+              evidence_id: "interaction:style",
+              category: "interaction",
+              kind: "leaf",
+              title: "User response style",
+              summary: "User prefers concise responses.",
+              freshness_state: "stable",
+              score: 4.2,
+              reason: "recalled_fact",
+            },
+          ],
+          recent_high_signal_items: [],
+          constraints: [],
+          blockers: [],
+          open_questions: [],
+          recommended_next_source: "memory",
+          recommended_next_step: {
+            type: "answer_from_memory",
+            source: "memory",
+            reason: "Recalled memory is coherent enough to answer before broadening to another source.",
+          },
+        },
+        evidence: [
           {
-            scope: "user",
-            memory_type: "preference",
+            id: "interaction:style",
+            category: "interaction",
+            kind: "leaf",
+            tree_id: "interaction:preferences:style",
             title: "User response style",
             summary: "User prefers concise responses.",
-            path: "preference/response-style.md",
-            verification_policy: "none",
-            staleness_policy: "stable",
+            summary_for_prompt: "User response style: User prefers concise responses.",
             freshness_state: "stable",
             freshness_note:
               "This memory is treated as stable unless explicitly changed.",
+            score: 4.2,
+            reasons: ["embedding_similarity", "vector_first_pass", "llm_rerank"],
           },
         ],
+        coverage: {
+          used_lexical: false,
+          used_vector: true,
+          used_neighbors: false,
+          confidence: "high",
+        },
       },
       selected_model: null,
       default_provider_id: "openai",
@@ -1092,7 +1125,7 @@ test("projectAgentRuntimeConfig includes recalled durable memory in context mess
     );
     assert.match(
       result.context_messages?.join("\n\n") ?? "",
-      /Freshness: `stable` \(`stable`\)/,
+      /Coverage: confidence=`high`, vector=yes, lexical=no, neighbors=no\./,
     );
   } finally {
     delete process.env.HOLABOSS_MODEL_PROXY_BASE_URL;

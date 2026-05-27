@@ -12,7 +12,7 @@ import type {
 import yaml from "js-yaml";
 import { resolveMemoryFilePath } from "./workspace-bundle-paths.js";
 
-import type { AgentRecalledMemoryContext } from "./agent-runtime-prompt.js";
+import type { AgentRecalledMemoryContext } from "./memory-retrieval-pack.js";
 import { governanceRuleForMemoryType, assessMemoryFreshness } from "./memory-governance.js";
 import type { MemoryModelClientConfig } from "./memory-model-client.js";
 import {

@@ -1840,10 +1840,10 @@ test("buildPiProviderConfig uses OpenAI Responses API for managed Holaboss GPT-5
   assert.equal(providerConfig.models[0]?.maxTokens, 128_000);
 });
 
-test("pi compaction reserves 70 percent of the model context window", () => {
-  assert.equal(piCompactionReserveTokens(1_050_000), 735_000);
-  assert.equal(piCompactionReserveTokens(65_536), 45_876);
-  assert.equal(piCompactionReserveTokens(65_535), 45_875);
+test("pi compaction reserves 30 percent of the model context window", () => {
+  assert.equal(piCompactionReserveTokens(1_050_000), 315_000);
+  assert.equal(piCompactionReserveTokens(65_536), 19_661);
+  assert.equal(piCompactionReserveTokens(65_535), 19_661);
   assert.equal(piCompactionReserveTokens(0), 0);
 });
 

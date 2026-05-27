@@ -71,36 +71,36 @@ function appendFakeMessage(
   return id;
 }
 
-test("session checkpoint queues only after PI context crosses the 70 percent reserve", () => {
+test("session checkpoint queues only after PI context crosses 70 percent usage", () => {
   assert.equal(
     shouldQueueSessionCheckpoint({
-      tokens: 315_000,
+      tokens: 735_000,
       contextWindow: 1_050_000,
-      percent: 30,
+      percent: 70,
     }),
     false,
   );
   assert.equal(
     shouldQueueSessionCheckpoint({
-      tokens: 315_001,
+      tokens: 735_001,
       contextWindow: 1_050_000,
-      percent: 30.1,
+      percent: 70.1,
     }),
     true,
   );
   assert.equal(
     shouldQueueSessionCheckpoint({
-      tokens: 19_660,
+      tokens: 45_875,
       contextWindow: 65_536,
-      percent: 30,
+      percent: 70,
     }),
     false,
   );
   assert.equal(
     shouldQueueSessionCheckpoint({
-      tokens: 19_661,
+      tokens: 45_876,
       contextWindow: 65_536,
-      percent: 30.1,
+      percent: 70.1,
     }),
     true,
   );
@@ -114,7 +114,7 @@ test("session checkpoint can queue from effective session tokens when provider c
         contextWindow: 1_050_000,
         percent: 6.0,
       },
-      470_721,
+      735_001,
     ),
     true,
   );

@@ -189,7 +189,7 @@ const PI_REQUEST_TOOL_NAME_ALIASES: Record<string, string> = {
 const PI_MCP_DISCOVERY_RETRY_INTERVAL_MS = 250;
 const PI_FALLBACK_CONTEXT_WINDOW = 65_536;
 const PI_FALLBACK_MAX_TOKENS = 8_192;
-const PI_COMPACTION_CONTEXT_RESERVE_RATIO = 0.7;
+const PI_COMPACTION_USAGE_THRESHOLD_RATIO = 0.7;
 const PI_WORKSPACE_SKILLS_RELATIVE_PATH = "skills";
 
 const PI_MODEL_CATALOG = MODELS as Record<string, Record<string, HarnessCatalogModelEntry>>;
@@ -1717,7 +1717,11 @@ export function piCompactionReserveTokens(contextWindow: number): number {
   if (!Number.isFinite(contextWindow) || contextWindow <= 0) {
     return 0;
   }
-  return Math.ceil(contextWindow * PI_COMPACTION_CONTEXT_RESERVE_RATIO);
+  return Math.max(
+    0,
+    contextWindow -
+      Math.floor(contextWindow * PI_COMPACTION_USAGE_THRESHOLD_RATIO),
+  );
 }
 
 export function buildPiProviderConfig(request: HarnessHostPiRequest) {

@@ -1038,6 +1038,7 @@ export function chatMessagesFromSessionState(params: {
   knownAssistantInputIds?: Set<string>;
   showExecutionInternals: boolean;
   showBootstrapPhaseTrace?: boolean;
+  showContextBudgetDiagnostics?: boolean;
 }): ChatMessage[] {
   const outputEventsByInputId = new Map<
     string,
@@ -1099,6 +1100,8 @@ export function chatMessagesFromSessionState(params: {
             outputEventsByInputId.get(inputId) ?? [],
             {
               showBootstrapPhaseTrace: params.showBootstrapPhaseTrace,
+              showContextBudgetDiagnostics:
+                params.showContextBudgetDiagnostics,
             },
           );
           const turnOutputs = sortOutputs(outputsByInputId.get(inputId) ?? []);
@@ -1142,6 +1145,8 @@ export function chatMessagesFromSessionState(params: {
           outputEventsByInputId.get(userInputId) ?? [],
           {
             showBootstrapPhaseTrace: params.showBootstrapPhaseTrace,
+            showContextBudgetDiagnostics:
+              params.showContextBudgetDiagnostics,
           },
         );
         const turnOutputs = sortOutputs(outputsByInputId.get(userInputId) ?? []);
@@ -2126,6 +2131,9 @@ function phaseTraceStepFromEvent(
   eventType: string,
   payload: Record<string, unknown>,
   order: number,
+  options?: {
+    showContextBudgetDiagnostics?: boolean;
+  },
 ): ChatTraceStep | null {
   const phase = typeof payload.phase === "string" ? payload.phase.trim() : "";
   const instructionPreview =
@@ -2133,6 +2141,10 @@ function phaseTraceStepFromEvent(
       ? payload.instruction_preview.trim()
       : "";
   const details: string[] = [];
+  const budgetDetails =
+    options?.showContextBudgetDiagnostics === true
+      ? contextBudgetDetails(payload)
+      : [];
 
   if (eventType === "run_claimed") {
     return {
@@ -2342,7 +2354,7 @@ function phaseTraceStepFromEvent(
       status: "waiting",
       details: [
         "The agent needs a follow-up answer before it can continue.",
-        ...contextBudgetDetails(payload),
+        ...budgetDetails,
       ],
       order,
     };
@@ -2353,7 +2365,6 @@ function phaseTraceStepFromEvent(
       typeof payload.status === "string"
         ? payload.status.trim().toLowerCase()
         : "";
-    const budgetDetails = contextBudgetDetails(payload);
     if (status === "waiting_user") {
       return {
         id: "phase:awaiting-user",
@@ -2393,7 +2404,7 @@ function phaseTraceStepFromEvent(
   }
 
   if (eventType === "run_failed") {
-    details.push(...contextBudgetDetails(payload));
+    details.push(...budgetDetails);
     const errorText = runFailedDetail(payload);
     if (errorText) {
       details.push(`Error: ${summarizeUnknown(errorText, 120)}`);
@@ -2794,6 +2805,7 @@ function assistantHistoryStateFromOutputEvents(
   outputEvents: SessionOutputEventPayload[],
   options?: {
     showBootstrapPhaseTrace?: boolean;
+    showContextBudgetDiagnostics?: boolean;
   },
 ) {
   const orderedEvents = [...outputEvents].sort(
@@ -2853,6 +2865,10 @@ function assistantHistoryStateFromOutputEvents(
       event.event_type,
       eventPayload,
       event.sequence,
+      {
+        showContextBudgetDiagnostics:
+          options?.showContextBudgetDiagnostics,
+      },
     );
     if (phaseStep) {
       if (
@@ -3902,6 +3918,7 @@ export function ChatPane({
         shouldShowExecutionInternalsForSession(sessionId),
       showBootstrapPhaseTrace:
         shouldShowBootstrapPhaseTraceForSession(sessionId),
+      showContextBudgetDiagnostics: verboseTelemetryEnabled,
     });
   }
 
@@ -5521,6 +5538,9 @@ export function ChatPane({
           eventType,
           eventPayload,
           eventSequence,
+          {
+            showContextBudgetDiagnostics: verboseTelemetryEnabled,
+          },
         );
         if (phaseStep) {
           if (
@@ -5784,6 +5804,7 @@ export function ChatPane({
     onSyncFileDisplayFromAgentOperation,
     refreshWorkspaceData,
     selectedWorkspaceId,
+    verboseTelemetryEnabled,
   ]);
 
   useEffect(() => {

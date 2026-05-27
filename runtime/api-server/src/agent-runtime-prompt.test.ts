@@ -124,7 +124,7 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
     prompt.systemPrompt,
     /Use MCP tools directly, and prefer surfaced MCP\/app tools over browser work, web search, bash, or file inspection when they match the target system, including its URLs\./
   );
-  assert.match(
+  assert.doesNotMatch(
     prompt.systemPrompt,
     /Do not route an MCP-backed task through the browser just because browser tools are available; use browser tools for that system only when the user explicitly asks for browser use, the task explicitly requires UI interaction, independent visual verification is required, or the MCP route is blocked\./
   );
@@ -187,7 +187,7 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
   assert.doesNotMatch(prompt.systemPrompt, /Connected MCP tools available now:/);
   assert.doesNotMatch(prompt.systemPrompt, /Skills available now:/);
   assert.doesNotMatch(prompt.systemPrompt, /Connected MCP access: available\./);
-  assert.ok(prompt.systemPrompt.length < 5200);
+  assert.ok(prompt.systemPrompt.length < 7300);
   assert.equal(prompt.contextMessages.length, 1);
   assert.match(prompt.contextMessages.join("\n\n"), /Capability availability snapshot:/);
   assert.match(prompt.contextMessages.join("\n\n"), /Inspect tools: available \(\d+ enabled\)\./);
@@ -319,6 +319,7 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /The main session is the default full-capability agent for this workspace, not a capability-thin coordinator\./);
   assert.match(prompt.systemPrompt, /use direct file, shell, browser, MCP\/app, and runtime tools when they are surfaced and they are the clearest path\./);
   assert.match(prompt.systemPrompt, /Use this session to understand the request, execute directly when appropriate, choose when to delegate, brief delegated work clearly, and translate results back to the user\./);
+  assert.match(prompt.systemPrompt, /For non-trivial requests, work in this order: inventory knowns and unknowns, confirm the unknowns that materially affect the next step, ask the user for confirmation if the remaining decision is high-stakes or judgment-based, then execute\./);
   assert.match(prompt.systemPrompt, /Use surfaced capabilities to inspect before mutating when possible, and verify results before claiming success\./);
   assert.match(prompt.systemPrompt, /Treat explicit user requirements, verification targets, and deliverable shape as completion criteria for direct and delegated work, not optional detail\./);
   assert.match(prompt.systemPrompt, /Do not report work as done, verified, or already satisfied unless direct inspection, direct tool results, or grounded child results confirm it\./);
@@ -667,6 +668,14 @@ test("composeAgentPrompt instructs main sessions to record durable workspace kno
   );
   assert.match(
     prompt.systemPrompt,
+    /For non-trivial requests, work in this order: inventory knowns and unknowns, confirm the unknowns that materially affect the next step, ask the user for confirmation if the remaining decision is high-stakes or judgment-based, then execute\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Build a temporary working model from current-turn context, recalled memory, and direct tool results before choosing retrieval or execution steps\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
     /Before choosing a retrieval path, first infer the most likely source of truth for the answer and prefer the most local authoritative source\./i,
   );
   assert.match(
@@ -679,11 +688,27 @@ test("composeAgentPrompt instructs main sessions to record durable workspace kno
   );
   assert.match(
     prompt.systemPrompt,
+    /Hard retrieval order for non-UI questions: current-turn context or direct tool result in this run, then `memory_retrieve`, then the narrowest authoritative local or connected source, and only then browser or web\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /If you are about to inspect an open browser surface first for a non-UI question while `memory_retrieve` is available, stop and call `memory_retrieve` instead\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Do not skip `memory_retrieve` just because a connected tool surface looks partial, because a relevant browser tab is already open, or because the browser shares auth state with that system\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
     /Do not open a browser tab or other live external surface first for an unknown fact lookup when memory could plausibly already contain the answer\./i,
   );
   assert.match(
     prompt.systemPrompt,
-    /Use browser, web, or other live external sources before memory only when the user is explicitly asking for current live state, current UI state, or other freshness-sensitive information that memory is unlikely to settle on its own\./i,
+    /Use browser as the top retrieval route only when the user is explicitly asking about the current page, current tab, or current browser UI state\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /For other freshness-sensitive questions, do not jump to browser first; prefer current-turn context, then `memory_retrieve`, then the most direct connected integration or MCP\/app route for that system before broader browser or web retrieval\./i,
   );
   assert.match(
     prompt.systemPrompt,
@@ -742,6 +767,18 @@ test("composeBaseAgentPrompt instructs direct sessions to record durable workspa
   );
   assert.match(
     prompt.systemPrompt,
+    /For non-trivial tasks, slow down: separate knowns, assumptions, and unknowns, then confirm the unknowns that materially affect the next action using the cheapest authoritative path available\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /If a remaining uncertainty affects a high-stakes, destructive, externally visible, costly, or hard-to-reverse action, do not guess; resolve it directly or ask the user for confirmation when the uncertainty is about intent, consent, account choice, judgment, or acceptable risk\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Build a temporary working model from current-turn context, recalled memory, and direct tool results before choosing tools\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
     /Before choosing a retrieval path, first infer the most likely source of truth for the answer and prefer the most local authoritative source\./i,
   );
   assert.match(
@@ -754,11 +791,27 @@ test("composeBaseAgentPrompt instructs direct sessions to record durable workspa
   );
   assert.match(
     prompt.systemPrompt,
+    /Hard retrieval order for non-UI questions: current-turn context or direct tool result in this run, then `memory_retrieve`, then the narrowest authoritative local or connected source, and only then browser or web\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /If you are about to inspect an open browser surface first for a non-UI question while `memory_retrieve` is available, stop and call `memory_retrieve` instead\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /Do not skip `memory_retrieve` just because a connected tool surface looks partial, because a relevant browser tab is already open, or because the browser shares auth state with that system\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
     /Do not open a browser tab or other live external surface first for an unknown fact lookup when memory could plausibly already contain the answer\./i,
   );
   assert.match(
     prompt.systemPrompt,
-    /Use browser, web, or other live external sources before memory only when the user is explicitly asking for current live state, current UI state, or other freshness-sensitive information that memory is unlikely to settle on its own\./i,
+    /Use browser as the top retrieval route only when the user is explicitly asking about the current page, current tab, or current browser UI state\./i,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /For other freshness-sensitive questions, do not jump to browser first; prefer current-turn context, then `memory_retrieve`, then the most direct connected integration or MCP\/app route for that system before broader browser or web retrieval\./i,
   );
   assert.match(
     prompt.systemPrompt,
@@ -1261,6 +1314,8 @@ test("composeBaseAgentPrompt includes operator surface context when provided", (
   assert.match(prompt.contextMessages.join("\n\n"), /Operator surface context:/);
   assert.match(prompt.contextMessages.join("\n\n"), /default referent for deictic questions such as `what am I looking at right now`/i);
   assert.match(prompt.contextMessages.join("\n\n"), /continue from what they already opened, navigated, selected, or prepared/i);
+  assert.match(prompt.contextMessages.join("\n\n"), /An active browser surface or already-open site is not by itself a routing signal for non-UI questions\./i);
+  assert.match(prompt.contextMessages.join("\n\n"), /For recall, triage, recent activity, or factual lookup requests, prefer current-turn context and other non-browser authoritative sources before inspecting browser state unless the user is asking about that surface\./i);
   assert.match(prompt.contextMessages.join("\n\n"), /do not answer from browser state just because browser tools are available/i);
   assert.match(prompt.contextMessages.join("\n\n"), /Operator surfaces are continuity context, not authority grants\./);
   assert.match(prompt.contextMessages.join("\n\n"), /Do not mutate a user-owned surface unless surfaced runtime capabilities explicitly allow takeover or direct control\./);
@@ -1356,41 +1411,110 @@ test("composeBaseAgentPrompt includes recalled durable memory as context message
     sessionKind: "main_session",
     sessionMode: "code",
     recalledMemoryContext: {
-      entries: [
+      intent: "briefing",
+      retrieval_pack: {
+        known_facts: [
+          {
+            evidence_id: "interaction:style",
+            category: "interaction",
+            kind: "leaf",
+            title: "User response style",
+            summary: "User prefers concise responses.",
+            freshness_state: "stable",
+            score: 4.8,
+            reason: "recalled_fact",
+          },
+        ],
+        recent_high_signal_items: [
+          {
+            evidence_id: "integration:funded",
+            category: "integration",
+            kind: "leaf",
+            title: "Your OpenAI API account has been funded",
+            summary: "Email from OpenAI about your API account being funded.",
+            freshness_state: "fresh",
+            score: 5.2,
+            reason: "high_signal",
+          },
+        ],
+        constraints: [],
+        blockers: [
+          {
+            evidence_id: "interaction:deploy",
+            category: "interaction",
+            kind: "leaf",
+            title: "Deploy permission blocker",
+            summary: "Deploy calls may be denied by workspace policy.",
+            freshness_state: "fresh",
+            score: 4.9,
+            reason: "blocker_or_risk",
+          },
+        ],
+        open_questions: [
+          {
+            question: "Does \"Your OpenAI API account has been funded\" still require attention right now?",
+            best_source: "gmail",
+          },
+        ],
+        recommended_next_source: "gmail",
+        recommended_next_step: {
+          type: "verify_live_state",
+          source: "gmail",
+          reason: "Top recalled items still have live-state uncertainty that should be narrowed through a direct source.",
+        },
+      },
+      evidence: [
         {
-          scope: "user",
-          memory_type: "preference",
+          id: "interaction:style",
+          category: "interaction",
+          kind: "leaf",
+          tree_id: "interaction:preferences:style",
           title: "User response style",
           summary: "User prefers concise responses.",
-          path: "preference/response-style.md",
-          verification_policy: "none",
-          staleness_policy: "stable",
+          summary_for_prompt: "User response style: User prefers concise responses.",
           freshness_state: "stable",
-          freshness_note: "This memory is treated as stable unless explicitly changed.",
+          freshness_note: "leaf memory from user preferences.",
+          score: 4.8,
+          reasons: ["embedding_similarity", "vector_first_pass", "llm_rerank"],
+          entity_name: "User preferences",
         },
         {
-          scope: "workspace",
-          memory_type: "blocker",
+          id: "interaction:deploy",
+          category: "interaction",
+          kind: "leaf",
+          tree_id: "interaction:workflow:deploy",
           title: "Deploy permission blocker",
           summary: "Deploy calls may be denied by workspace policy.",
-          path: "workspace/workspace-1/knowledge/blockers/deploy.md",
-          verification_policy: "check_before_use",
-          staleness_policy: "workspace_sensitive",
+          summary_for_prompt: "Deploy permission blocker: Deploy calls may be denied by workspace policy.",
           freshness_state: "fresh",
-          freshness_note: "Verify this memory against the current workspace state before acting on it.",
+          freshness_note: "leaf memory from deploy workflow.",
+          score: 4.9,
+          reasons: ["embedding_similarity", "vector_first_pass", "llm_rerank"],
+          entity_name: "Deploy workflow",
         },
         {
-          scope: "integration",
-          memory_type: "leaf",
+          id: "integration:funded",
+          category: "integration",
+          kind: "leaf",
+          tree_id: "integration:gmail:acct-1",
           title: "Your OpenAI API account has been funded",
           summary: "Email from OpenAI about your API account being funded.",
-          path: "integration/accounts/gmail-jeffreyli-imerch.ai-89418944a655/leaves/leaf-65461043924305269f729543.md",
-          verification_policy: "none",
-          staleness_policy: "workspace_sensitive",
+          summary_for_prompt: "Your OpenAI API account has been funded: Email from OpenAI about your API account being funded.",
           freshness_state: "fresh",
-          freshness_note: "Leaf memory from gmail account jeffreyli@imerch.ai.",
+          freshness_note: "leaf memory from gmail account jeffreyli@imerch.ai.",
+          score: 5.2,
+          reasons: ["embedding_similarity", "vector_first_pass", "llm_rerank", "llm_requires_live_verification"],
+          provider: "gmail",
+          account_label: "jeffreyli@imerch.ai",
+          source_label: "jeffreyli@imerch.ai",
         },
       ],
+      coverage: {
+        used_lexical: true,
+        used_vector: true,
+        used_neighbors: false,
+        confidence: "high",
+      },
     },
   });
 
@@ -1406,12 +1530,13 @@ test("composeBaseAgentPrompt includes recalled durable memory as context message
   assert.equal(prompt.promptLayers.some((layer) => layer.id === "memory_recall"), false);
   assert.doesNotMatch(prompt.systemPrompt, /Recalled durable memory:/);
   assert.match(prompt.contextMessages.join("\n\n"), /Recalled durable memory:/);
+  assert.match(prompt.contextMessages.join("\n\n"), /Known facts:/);
   assert.match(prompt.contextMessages.join("\n\n"), /User response style/);
   assert.match(prompt.contextMessages.join("\n\n"), /Deploy permission blocker/);
+  assert.match(prompt.contextMessages.join("\n\n"), /Recommended next source: `gmail`\./);
+  assert.match(prompt.contextMessages.join("\n\n"), /Coverage: confidence=`high`, vector=yes, lexical=yes, neighbors=no\./);
+  assert.match(prompt.contextMessages.join("\n\n"), /Reasons: embedding_similarity, vector_first_pass, llm_rerank/);
   assert.doesNotMatch(prompt.contextMessages.join("\n\n"), /integration\/accounts\/gmail-jeffreyli-imerch.ai-89418944a655\/leaves\/leaf-65461043924305269f729543\.md/);
-  assert.match(prompt.contextMessages.join("\n\n"), /check_before_use/);
-  assert.match(prompt.contextMessages.join("\n\n"), /Freshness: `stable` \(`stable`\)/);
-  assert.match(prompt.contextMessages.join("\n\n"), /Freshness: `fresh` \(`workspace_sensitive`\)/);
 });
 
 test("composeBaseAgentPrompt includes cronjob delivery routing guidance when cronjob tools are available", () => {
@@ -1514,11 +1639,15 @@ test("composeBaseAgentPrompt requires proactive fallback when partial retrieval 
   );
   assert.match(
     prompt.systemPrompt,
-    /Use them only when the user explicitly asks for browser use, the task inherently requires UI interaction, visual confirmation matters, or non-browser routes are blocked\./
+    /Browser is the top option only for questions about the current page, current tab, or current browser UI state\./
   );
   assert.match(
     prompt.systemPrompt,
-    /When you do use them, prefer DOM-grounded actions and extraction\./
+    /Otherwise use it only when the user explicitly asks for browser use, the task inherently requires UI interaction, visual confirmation matters, or non-browser routes are blocked\./
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /When you do use it, prefer DOM-grounded actions and extraction\./
   );
   assert.match(
     prompt.systemPrompt,
@@ -1558,6 +1687,10 @@ test("composeBaseAgentPrompt keeps connected MCP server routes ahead of browser 
   assert.match(
     prompt.systemPrompt,
     /If connected MCP access exists without tool names listed here, do not assume MCP is unavailable; use surfaced MCP tools when relevant\./,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /For connected systems, recent-activity questions should broaden from current-turn context and memory to the connected MCP\/app route before browser exploration\./,
   );
   assert.match(
     prompt.systemPrompt,

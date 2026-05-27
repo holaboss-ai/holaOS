@@ -1524,7 +1524,7 @@ test("chat pane no longer requests or renders memory proposal review UI", async 
   assert.doesNotMatch(source, /Edit memory proposal/);
 });
 
-test("chat pane surfaces context-budget diagnostics from terminal event payloads", async () => {
+test("chat pane gates context-budget diagnostics behind verbose telemetry", async () => {
   const source = await readFile(sourcePath, "utf8");
 
   assert.match(source, /function contextBudgetDetails\(/);
@@ -1534,7 +1534,15 @@ test("chat pane surfaces context-budget diagnostics from terminal event payloads
   assert.match(source, /Checkpoint compaction queued/);
   assert.match(
     source,
-    /if \(budgetDetails\.length > 0\) \{\s*return \{\s*id: "phase:context-budget",[\s\S]*title: "Context budget"/,
+    /const budgetDetails =\s*options\?\.showContextBudgetDiagnostics === true\s*\?\s*contextBudgetDetails\(payload\)\s*:\s*\[\];/,
+  );
+  assert.match(
+    source,
+    /showContextBudgetDiagnostics:\s*params\.showContextBudgetDiagnostics/,
+  );
+  assert.match(
+    source,
+    /showContextBudgetDiagnostics:\s*verboseTelemetryEnabled/,
   );
 });
 

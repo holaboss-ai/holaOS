@@ -5,6 +5,7 @@ import {
   buildAgentCapabilityManifest,
   buildEnabledToolMapFromManifest,
   evaluateAgentCapabilities,
+  renderCapabilityAvailabilityContextPromptSection,
   renderDelegatedCapabilityAvailabilityContextPromptSection,
   renderCapabilityToolRoutingPromptSection,
   renderCapabilityPolicyPromptSection,
@@ -313,8 +314,11 @@ test("renderCapabilityToolRoutingPromptSection prefers surfaced MCP tools before
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
     sessionKind: "subagent",
+    browserToolsAvailable: true,
+    browserToolIds: ["browser_get_state"],
+    runtimeToolIds: ["memory_retrieve"],
     defaultTools: ["read", "bash"],
-    extraTools: [],
+    extraTools: ["browser_get_state", "memory_retrieve"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [
       {
@@ -326,11 +330,44 @@ test("renderCapabilityToolRoutingPromptSection prefers surfaced MCP tools before
   });
 
   const section = renderCapabilityToolRoutingPromptSection(manifest);
+  assert.match(section, /Memory-first routing:/);
+  assert.match(section, /when `memory_retrieve` is surfaced, treat it as the first retrieval step for non-UI recall, triage, recent-activity, or `what should I know` questions/i);
+  assert.match(section, /Do not skip `memory_retrieve` just because a browser surface is active, a relevant tab is already open, or a connected MCP\/app surface looks partial\./i);
+  assert.match(section, /browser remains a fallback UI surface for that order/i);
   assert.match(section, /MCP-first routing:/);
   assert.match(section, /when surfaced MCP\/app tools match the target system or supplied URL, use them before opening the web app, web search, bash, or file inspection/i);
+  assert.match(section, /Do not treat browser as the default path for non-UI freshness checks in a connected system\. For recent or important activity in that system, prefer the connected MCP\/app route before browser when it can provide the live state directly\./i);
+  assert.match(section, /If `memory_retrieve` is also surfaced, check it before the connected MCP\/app route for non-UI recall or recent-activity questions unless current-turn context or a direct tool result already answers the question\./i);
+  assert.match(section, /If the surfaced MCP\/app coverage for that system is partial, do not compensate by jumping to browser first; check memory first, then use the direct connected tool or surface the remaining limitation\./i);
   assert.match(section, /Do not open that system in the browser, run web search, or rediscover it from files or config when surfaced MCP\/app tools already cover it/i);
   assert.match(section, /Use file, config, browser, or web inspection around an MCP\/app route only after a surfaced tool call is blocked, fails/i);
   assert.match(section, /In executor sessions, prefer proving capability by actually invoking the relevant surfaced MCP\/app tool/i);
+});
+
+test("renderCapabilityAvailabilityContextPromptSection surfaces memory-first retrieval order ahead of browser and partial MCP coverage", () => {
+  const manifest = buildAgentCapabilityManifest({
+    harnessId: "pi",
+    sessionKind: "main_session",
+    browserToolsAvailable: true,
+    browserToolIds: ["browser_get_state"],
+    runtimeToolIds: ["memory_retrieve", "delegate_task"],
+    defaultTools: ["read"],
+    extraTools: ["browser_get_state", "memory_retrieve", "delegate_task"],
+    workspaceSkillIds: [],
+    resolvedMcpToolRefs: [
+      {
+        tool_id: "gmail.gmail_get_profile",
+        server_id: "gmail",
+        tool_name: "gmail_get_profile",
+      },
+    ],
+  });
+
+  const section = renderCapabilityAvailabilityContextPromptSection(manifest);
+  assert.match(section, /Workspace memory retrieval: available via `memory_retrieve`\./);
+  assert.match(section, /Default non-UI retrieval order for this run: current-turn context\/direct tool result, then `memory_retrieve`, then the most direct connected MCP\/app or other narrow authoritative source, and only then browser or web\./i);
+  assert.match(section, /Browser availability does not override that order\. Use browser first only for current page, current tab, or current browser UI state questions\./i);
+  assert.match(section, /If the connected tool surface for a system is partial, do not jump to browser first\. Check `memory_retrieve` before the direct connected route, then surface any remaining capability gap\./i);
 });
 
 test("renderDelegatedCapabilityAvailabilityContextPromptSection exposes backstage tools without expanding direct authority", () => {
@@ -473,8 +510,10 @@ test("buildAgentCapabilityManifest marks connected MCP servers as available with
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
     sessionKind: "main_session",
+    browserToolsAvailable: true,
+    browserToolIds: ["browser_get_state"],
     defaultTools: ["read"],
-    extraTools: [],
+    extraTools: ["browser_get_state"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
     resolvedMcpServerIds: ["context7"],
@@ -483,8 +522,8 @@ test("buildAgentCapabilityManifest marks connected MCP servers as available with
   assert.deepEqual(manifest.context, {
     harness_id: "pi",
     session_kind: "main_session",
-    browser_tools_available: false,
-    browser_tool_ids: [],
+    browser_tools_available: true,
+    browser_tool_ids: ["browser_get_state"],
     runtime_tool_ids: [],
     workspace_command_ids: [],
     mcp_server_ids: ["context7"],
@@ -497,6 +536,9 @@ test("buildAgentCapabilityManifest marks connected MCP servers as available with
   const section = renderCapabilityPolicyPromptSection(manifest);
   assert.match(section, /Connected MCP access: available\./);
   assert.match(section, /Use surfaced MCP tools when relevant; tool names may be resolved dynamically by the runtime\./i);
+  assert.match(section, /MCP-first routing:/);
+  assert.match(section, /If only connected MCP server ids are listed, treat that as a signal that callable tools may be resolved dynamically by the runtime, not as a reason to fall back to browser or web\./i);
+  assert.match(section, /Do not treat browser as the default path for non-UI freshness checks in a connected system\. For recent or important activity in that system, prefer the connected MCP\/app route before browser when it can provide the live state directly\./i);
   assert.doesNotMatch(section, /MCP callable tool aliases for this run:/);
 });
 
@@ -790,6 +832,8 @@ test("renderCapabilityPolicyPromptSection surfaces full-capability front-session
   });
 
   const section = renderCapabilityPolicyPromptSection(manifest);
+  assert.match(section, /For non-trivial tasks, slow down: inventory knowns, unknowns, and assumptions first, then confirm the unknowns that materially affect the next action before acting\./i);
+  assert.match(section, /If the remaining uncertainty affects a high-stakes, destructive, externally visible, costly, or hard-to-reverse action, resolve it with a direct check or ask the user for confirmation instead of guessing\./i);
   assert.match(section, /Browser tools: none\./);
   assert.match(section, /This front session can execute directly with the surfaced tools above\./);
   assert.match(section, /Use `delegate_task` mainly for research or app-building work, or when background continuation is explicitly needed/i);

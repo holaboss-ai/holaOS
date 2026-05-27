@@ -92,6 +92,16 @@ const CONTEXT_FETCH_SUPPORTED_PROVIDERS = new Set([
   "github",
   "notion",
   "slack",
+  "outlook",
+  "googlecalendar",
+  "googledrive",
+  "twitter",
+  "googlesheets",
+  "googledocs",
+  "hubspot",
+  "linear",
+  "jira",
+  "linkedin",
 ]);
 const CONTEXT_FETCH_TERMINAL_STATUSES = new Set([
   "completed",

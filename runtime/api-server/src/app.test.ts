@@ -2183,17 +2183,24 @@ test("runtime memory_retrieve tool returns interaction leaf hits from the tree b
       },
       payload: {
         query: "how do I deploy?",
-        mode: "leaves",
+        retrieval_policy: {
+          max_evidence: 4,
+        },
       },
     });
 
     assert.equal(response.statusCode, 200);
     assert.equal(response.json().tool_id, "memory_retrieve");
+    assert.equal(response.json().intent, "procedure_lookup");
     assert.equal(response.json().categories[0], "interaction");
-    assert.equal(response.json().hits.length, 1);
-    assert.equal(response.json().hits[0].title, "Deploy procedure");
-    assert.equal(response.json().hits[0].summary, "Steps for deployment.");
-    assert.equal("path" in response.json().hits[0], false);
+    assert.ok(response.json().evidence.length >= 1);
+    const deployEvidence = response
+      .json()
+      .evidence.find((item: { title?: string }) => item.title === "Deploy procedure");
+    assert.ok(deployEvidence);
+    assert.match(deployEvidence.summary, /deploy/i);
+    assert.equal("path" in deployEvidence, false);
+    assert.equal(response.json().retrieval_pack.known_facts[0].title, "Deploy procedure");
   } finally {
     await app.close();
     store.close();
@@ -2295,19 +2302,28 @@ test("runtime memory_retrieve tool returns integration leaf hits from the tree b
       },
       payload: {
         query: "who owns release pr 123?",
-        categories: ["integration"],
-        mode: "leaves",
+        scope: {
+          categories: ["integration"],
+        },
+        retrieval_policy: {
+          max_evidence: 4,
+        },
       },
     });
 
     assert.equal(response.statusCode, 200);
     assert.equal(response.json().tool_id, "memory_retrieve");
     assert.deepEqual(response.json().categories, ["integration"]);
-    assert.equal(response.json().hits.length, 1);
-    assert.equal(response.json().hits[0].title, "Release PR #123 owner");
-    assert.equal(response.json().hits[0].provider, "github");
-    assert.equal(response.json().hits[0].summary, "The release PR owner is Maya Chen.");
-    assert.equal("path" in response.json().hits[0], false);
+    assert.equal(response.json().intent, "fact_lookup");
+    assert.ok(response.json().evidence.length >= 1);
+    const releaseEvidence = response
+      .json()
+      .evidence.find((item: { title?: string }) => item.title === "Release PR #123 owner");
+    assert.ok(releaseEvidence);
+    assert.equal(releaseEvidence.provider, "github");
+    assert.equal(releaseEvidence.summary, "The release PR owner is Maya Chen.");
+    assert.equal(response.json().retrieval_pack.recommended_next_source, "github");
+    assert.equal("path" in releaseEvidence, false);
   } finally {
     await app.close();
     store.close();
@@ -2460,16 +2476,20 @@ test("runtime memory_retrieve searches both interaction and integration trees wh
       },
       payload: {
         query: "atlas api",
-        mode: "leaves",
+        intent: "briefing",
+        retrieval_policy: {
+          max_evidence: 6,
+        },
       },
     });
 
     assert.equal(response.statusCode, 200);
     assert.equal(response.json().tool_id, "memory_retrieve");
     assert.deepEqual(response.json().categories, ["interaction", "integration"]);
-    const titles = response.json().hits.map((hit: { title: string }) => hit.title);
+    const titles = response.json().evidence.map((hit: { title: string }) => hit.title);
     assert.ok(titles.includes("Atlas API incident bridge"));
     assert.ok(titles.includes("Atlas API release PR owner"));
+    assert.ok(Array.isArray(response.json().retrieval_pack.recent_high_signal_items));
   } finally {
     await app.close();
     store.close();
@@ -8644,6 +8664,82 @@ test("queue route preserves the active claimed input while adding later queued w
   assert.equal(states.json().items[0].runtime_status, "BUSY");
   assert.equal(states.json().items[0].has_queued_inputs, true);
   assert.equal(states.json().items[0].current_input_id, active.inputId);
+
+  await app.close();
+  store.close();
+});
+
+test("runtime state reports a claimed checkpoint-gated input as effectively busy", async () => {
+  const root = makeTempDir("hb-runtime-api-checkpoint-gated-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.ensureSession({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    kind: "main_session",
+  });
+  store.upsertBinding({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    harness: "pi",
+    harnessSessionId: "session-main",
+  });
+  const claimed = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: { text: "checkpoint-gated turn" },
+  });
+  store.updateInput({
+    workspaceId: workspace.id,
+    inputId: claimed.inputId,
+    fields: {
+      status: "CLAIMED",
+      claimedBy: "worker-1",
+      claimedUntil: "2026-04-17T12:00:00.000Z",
+    },
+  });
+  store.updateRuntimeState({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    status: "QUEUED",
+    currentInputId: claimed.inputId,
+    currentWorkerId: "worker-1",
+    leaseUntil: "2026-04-17T12:00:00.000Z",
+    heartbeatAt: "2026-04-17T11:55:00.000Z",
+    lastError: null,
+  });
+
+  const stateResponse = await app.inject({
+    method: "GET",
+    url: `/api/v1/agent-sessions/session-main/state?workspace_id=${workspace.id}`
+  });
+
+  assert.equal(stateResponse.statusCode, 200);
+  assert.equal(stateResponse.json().runtime_status, "QUEUED");
+  assert.equal(stateResponse.json().effective_state, "BUSY");
+  assert.equal(stateResponse.json().current_input_id, claimed.inputId);
+
+  const statesResponse = await app.inject({
+    method: "GET",
+    url: `/api/v1/agent-sessions/by-workspace/${workspace.id}/runtime-states`
+  });
+
+  assert.equal(statesResponse.statusCode, 200);
+  assert.equal(statesResponse.json().items[0].status, "QUEUED");
+  assert.equal(statesResponse.json().items[0].runtime_status, "QUEUED");
+  assert.equal(statesResponse.json().items[0].effective_state, "BUSY");
+  assert.equal(statesResponse.json().items[0].has_queued_inputs, false);
+  assert.equal(statesResponse.json().items[0].current_input_id, claimed.inputId);
 
   await app.close();
   store.close();

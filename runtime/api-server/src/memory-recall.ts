@@ -1,6 +1,6 @@
 import type { MemoryEntryRecord } from "@holaboss/runtime-state-store";
 
-import type { AgentRecalledMemoryContext } from "./agent-runtime-prompt.js";
+import type { AgentRecalledMemoryContext } from "./memory-retrieval-pack.js";
 import {
   defaultMemoryRecallIndex,
   type MemoryRecallIndex,

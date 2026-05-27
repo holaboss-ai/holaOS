@@ -38,10 +38,10 @@ import type {
   AgentOperatorSurfaceType,
   AgentPendingUserMemoryContext,
   AgentRecentRuntimeContext,
-  AgentRecalledMemoryContext,
   AgentSessionAttachmentContext,
   AgentScratchpadContext,
 } from "./agent-runtime-prompt.js";
+import type { AgentRecalledMemoryContext } from "./memory-retrieval-pack.js";
 import {
   decodeTsRunnerRequestPayload,
   fallbackEventIdentity,
@@ -96,6 +96,7 @@ const RUNTIME_EXEC_CONTEXT_KEY = "_sandbox_runtime_exec_v1";
 const DEFAULT_SESSION_MODE = "code";
 const DEFAULT_PROVIDER_ID = "openai";
 const WORKSPACE_MCP_READY_TIMEOUT_S = 10;
+const RECALLED_MEMORY_PREFETCH_WAIT_MS = 150;
 const MAIN_SESSION_DEFAULT_TOOLS = [
   "read",
   "edit",
@@ -592,7 +593,7 @@ function startRecalledMemoryContextPrefetch(params: {
 
 async function consumeRecalledMemoryContextPrefetch(
   prefetch: RecalledMemoryPrefetchHandle,
-  maxWaitMs = 25,
+  maxWaitMs = RECALLED_MEMORY_PREFETCH_WAIT_MS,
 ): Promise<AgentRecalledMemoryContext | null> {
   if (prefetch.settledAt !== null) {
     return await prefetch.promise;
