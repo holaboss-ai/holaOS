@@ -31,6 +31,7 @@ import {
   requestedPiThinkingLevel,
   refreshPiSkillCatalog,
   resolvePiSkillDirs,
+  runtimeToolSelectedModelForPiRequest,
   workspaceBoundaryOverrideRequested,
   workspaceBoundaryViolationForToolCall,
   runPi
@@ -213,6 +214,25 @@ test("filterPiToolDefinitionsForRequest enforces the projected tool map and alia
   assert.deepEqual(
     filtered.map((tool) => tool.name),
     ["read", "find", "ls", "skill"]
+  );
+});
+
+test("runtimeToolSelectedModelForPiRequest preserves the original selected model token", () => {
+  assert.equal(
+    runtimeToolSelectedModelForPiRequest({
+      selected_model: "holaboss_model_proxy/gpt-5.4",
+      provider_id: "openai",
+      model_id: "gpt-5.4",
+    }),
+    "holaboss_model_proxy/gpt-5.4",
+  );
+  assert.equal(
+    runtimeToolSelectedModelForPiRequest({
+      selected_model: "   ",
+      provider_id: "openai",
+      model_id: "gpt-5.4",
+    }),
+    "openai/gpt-5.4",
   );
 });
 

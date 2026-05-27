@@ -126,6 +126,16 @@ export interface PiSessionHandle {
   dispose: () => Promise<void>;
 }
 
+export function runtimeToolSelectedModelForPiRequest(
+  request: Pick<HarnessHostPiRequest, "selected_model" | "provider_id" | "model_id">,
+): string {
+  const selectedModel =
+    typeof request.selected_model === "string" ? request.selected_model.trim() : "";
+  return selectedModel.length > 0
+    ? selectedModel
+    : `${request.provider_id}/${request.model_id}`;
+}
+
 export interface PiDeps {
   createSession: (request: HarnessHostPiRequest) => Promise<PiSessionHandle>;
 }
@@ -1843,7 +1853,7 @@ async function defaultCreateSession(request: HarnessHostPiRequest): Promise<PiSe
       workspaceId: request.workspace_id,
       sessionId: request.session_id,
       inputId: request.input_id,
-      selectedModel: `${request.provider_id}/${request.model_id}`,
+      selectedModel: runtimeToolSelectedModelForPiRequest(request),
     })
   );
   const webSearchTools = toolEnabledForPiRequest(request, "web_search")

@@ -50,6 +50,7 @@ test("pi harness enables browser tools only for executor sessions", () => {
     browserSpace: "user",
     request: {
       ...baseParams.request,
+      model: "holaboss_model_proxy/gpt-5.4",
       session_kind: "subagent",
     },
   });
@@ -75,6 +76,9 @@ test("pi harness enables browser tools only for executor sessions", () => {
   assert.equal(workspaceRequest.browser_space, "user");
   assert.equal(onboardingRequest.browser_tools_enabled, false);
   assert.equal(onboardingRequest.browser_space, null);
+  assert.equal(subagentRequest.selected_model, "holaboss_model_proxy/gpt-5.4");
+  assert.equal(workspaceRequest.selected_model, null);
+  assert.equal(onboardingRequest.selected_model, null);
   assert.deepEqual(subagentRequest.context_messages, []);
   assert.deepEqual(workspaceRequest.context_messages, []);
   assert.deepEqual(onboardingRequest.context_messages, []);

@@ -28,6 +28,7 @@ export interface HarnessRunnerRequestLike {
   instruction: string;
   attachments?: HarnessInputAttachmentPayload[];
   image_urls?: string[];
+  model?: string | null;
   thinking_value?: string | null;
   debug?: boolean;
 }
