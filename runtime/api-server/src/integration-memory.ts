@@ -24,6 +24,7 @@ const RETRIEVAL_CANDIDATE_POOL_LIMIT = 320;
 const RETRIEVAL_FTS_CANDIDATE_LIMIT = 240;
 const RETRIEVAL_RECENT_CANDIDATE_LIMIT = 160;
 const RETRIEVAL_VECTOR_CANDIDATE_LIMIT = 120;
+const INTEGRATION_REBUILD_DEBOUNCE_MS = 75;
 const RETRIEVAL_QUERY_STOPWORDS = new Set([
   "a",
   "an",
@@ -69,6 +70,98 @@ export function countSummaryLikeSemanticIntegrationNodes(params: {
     limit: 10_000,
     offset: 0,
   }).filter((node) => node.nodeKind !== "connection").length;
+}
+
+export function queueIntegrationTreeRebuild(params: {
+  store: RuntimeStateStore;
+  treeId: string;
+  embeddingClient?: MemoryModelClientConfig | null;
+  debounceMs?: number;
+}): Promise<void> {
+  const key = params.treeId.trim();
+  let pending = pendingIntegrationTreeRebuilds.get(key) ?? null;
+  if (!pending) {
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const settled = new Promise<void>((innerResolve, innerReject) => {
+      resolve = innerResolve;
+      reject = innerReject;
+    });
+    pending = {
+      key,
+      store: params.store,
+      treeId: params.treeId,
+      embeddingClient: params.embeddingClient ?? null,
+      debounceMs: Math.max(0, params.debounceMs ?? INTEGRATION_REBUILD_DEBOUNCE_MS),
+      timer: null,
+      running: false,
+      dirty: true,
+      settled,
+      resolve,
+      reject,
+    };
+    void settled.catch(() => undefined);
+    pendingIntegrationTreeRebuilds.set(key, pending);
+  } else {
+    pending.store = params.store;
+    pending.embeddingClient = params.embeddingClient ?? pending.embeddingClient ?? null;
+    pending.debounceMs = Math.max(0, params.debounceMs ?? pending.debounceMs);
+    pending.dirty = true;
+  }
+  if (!pending.running) {
+    if (pending.timer) {
+      clearTimeout(pending.timer);
+    }
+    pending.timer = setTimeout(() => {
+      pending!.timer = null;
+      void runQueuedIntegrationTreeRebuild(pending!);
+    }, pending.debounceMs);
+  }
+  return pending.settled;
+}
+
+async function runQueuedIntegrationTreeRebuild(pending: PendingIntegrationTreeRebuild): Promise<void> {
+  if (pending.running) {
+    return;
+  }
+  pending.running = true;
+  try {
+    while (pending.dirty) {
+      pending.dirty = false;
+      await rebuildIntegrationTree({
+        store: pending.store,
+        treeId: pending.treeId,
+        embeddingClient: pending.embeddingClient,
+      });
+    }
+    pending.resolve();
+  } catch (error) {
+    pending.reject(error);
+  } finally {
+    if (pending.timer) {
+      clearTimeout(pending.timer);
+      pending.timer = null;
+    }
+    pending.running = false;
+    pendingIntegrationTreeRebuilds.delete(pending.key);
+  }
+}
+
+export async function waitForPendingIntegrationTreeRebuilds(params?: {
+  treeIds?: string[] | null;
+}): Promise<void> {
+  const normalizedTreeIds = params?.treeIds
+    ? new Set(params.treeIds.map((value) => value.trim()).filter(Boolean))
+    : null;
+  while (true) {
+    const pending = [...pendingIntegrationTreeRebuilds.values()].filter((candidate) =>
+      !normalizedTreeIds || normalizedTreeIds.has(candidate.treeId)
+    );
+    if (pending.length === 0) {
+      return;
+    }
+    await Promise.all(pending.map((candidate) => candidate.settled));
+  }
 }
 
 export interface IntegrationLeafCandidate {
@@ -173,6 +266,22 @@ type IntegrationRelationInput = {
   relationType: string;
   metadata: Record<string, unknown>;
 };
+
+interface PendingIntegrationTreeRebuild {
+  key: string;
+  store: RuntimeStateStore;
+  treeId: string;
+  embeddingClient: MemoryModelClientConfig | null;
+  debounceMs: number;
+  timer: ReturnType<typeof setTimeout> | null;
+  running: boolean;
+  dirty: boolean;
+  settled: Promise<void>;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+}
+
+const pendingIntegrationTreeRebuilds = new Map<string, PendingIntegrationTreeRebuild>();
 
 function compactWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();

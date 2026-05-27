@@ -8,7 +8,7 @@ import {
 import {
   countSummaryLikeSemanticIntegrationNodes,
   persistIntegrationCandidate,
-  rebuildIntegrationTree,
+  queueIntegrationTreeRebuild,
   type IntegrationLeafCandidate,
   type PersistedIntegrationLeafResult,
 } from "./integration-memory.js";
@@ -2576,6 +2576,50 @@ function retireIntegrationEntityLeaves(params: {
   return retired;
 }
 
+function integrationTreeHasSemanticState(params: {
+  store: RuntimeStateStore;
+  treeId: string;
+}): boolean {
+  return params.store.listSemanticMemoryNodes({
+    category: "integration",
+    treeId: params.treeId,
+    status: "active",
+    limit: 1,
+    offset: 0,
+  }).length > 0;
+}
+
+async function finalizeIntegrationContextSummary(params: {
+  store: RuntimeStateStore;
+  treeId: string | null;
+  providerLabel: string;
+  treeChanged: boolean;
+  syncProgress: (patch?: Partial<IntegrationContextFetchProgressSnapshot>) => void;
+}): Promise<number> {
+  if (!params.treeId) {
+    return 0;
+  }
+  const shouldRebuild = params.treeChanged || !integrationTreeHasSemanticState({
+    store: params.store,
+    treeId: params.treeId,
+  });
+  params.syncProgress({
+    current_chunk_label: `${shouldRebuild ? "Rebuilding" : "Reusing"} ${params.providerLabel} context summary`,
+  });
+  if (shouldRebuild) {
+    await queueIntegrationTreeRebuild({
+      store: params.store,
+      treeId: params.treeId,
+      embeddingClient: null,
+      debounceMs: 0,
+    });
+  }
+  return countSummaryLikeSemanticIntegrationNodes({
+    store: params.store,
+    treeId: params.treeId,
+  });
+}
+
 function resolveComposioClient(client?: ComposioExecuteClient | null): ComposioExecuteClient {
   if (client) {
     return client;
@@ -2808,17 +2852,14 @@ async function fetchGmailIntegrationContext(params: {
     });
   }
 
-  await rebuildIntegrationTree({
+  summaryNodes = await finalizeIntegrationContextSummary({
     store: params.store,
     treeId,
-    embeddingClient: null,
+    providerLabel: "Gmail",
+    treeChanged: persistStats.created > 0 || persistStats.superseding > 0,
+    syncProgress,
   });
   chunksCompleted += 1;
-
-  summaryNodes = countSummaryLikeSemanticIntegrationNodes({
-    store: params.store,
-    treeId,
-  });
   syncProgress({ current_chunk_label: "Gmail context fetch complete" });
 
   return {
@@ -3225,18 +3266,14 @@ async function fetchGitHubIntegrationContext(params: {
     actions.push(`GITHUB_RETIRED_REPO_LEAVES:${retiredRepoLeaves}`);
   }
   chunksCompleted += 1;
-  syncProgress({ current_chunk_label: "Rebuilding GitHub context summary" });
-  await rebuildIntegrationTree({
+  summaryNodes = await finalizeIntegrationContextSummary({
     store: params.store,
     treeId,
-    embeddingClient: null,
+    providerLabel: "GitHub",
+    treeChanged: persistStats.created > 0 || persistStats.superseding > 0 || retiredRepoLeaves > 0,
+    syncProgress,
   });
   chunksCompleted += 1;
-
-  summaryNodes = countSummaryLikeSemanticIntegrationNodes({
-    store: params.store,
-    treeId,
-  });
   syncProgress({ current_chunk_label: "GitHub context fetch complete" });
 
   return {
@@ -3551,18 +3588,17 @@ async function fetchNotionIntegrationContext(params: {
   }
   chunksCompleted += 1;
 
-  syncProgress({ current_chunk_label: "Rebuilding Notion context summary" });
-  await rebuildIntegrationTree({
+  summaryNodes = await finalizeIntegrationContextSummary({
     store: params.store,
     treeId,
-    embeddingClient: null,
+    providerLabel: "Notion",
+    treeChanged: persistStats.created > 0
+      || persistStats.superseding > 0
+      || retiredPages > 0
+      || retiredDatabases > 0,
+    syncProgress,
   });
   chunksCompleted += 1;
-
-  summaryNodes = countSummaryLikeSemanticIntegrationNodes({
-    store: params.store,
-    treeId,
-  });
   syncProgress({ current_chunk_label: "Notion context fetch complete" });
 
   return {
@@ -3735,18 +3771,14 @@ async function fetchGoogleDriveIntegrationContext(params: {
   }
   chunksCompleted += 1;
 
-  syncProgress({ current_chunk_label: "Rebuilding Google Drive context summary" });
-  await rebuildIntegrationTree({
+  summaryNodes = await finalizeIntegrationContextSummary({
     store: params.store,
     treeId,
-    embeddingClient: null,
+    providerLabel: "Google Drive",
+    treeChanged: persistStats.created > 0 || persistStats.superseding > 0 || retiredFiles > 0,
+    syncProgress,
   });
   chunksCompleted += 1;
-
-  summaryNodes = countSummaryLikeSemanticIntegrationNodes({
-    store: params.store,
-    treeId,
-  });
   syncProgress({ current_chunk_label: "Google Drive context fetch complete" });
 
   return {
@@ -3944,18 +3976,14 @@ async function fetchTwitterIntegrationContext(params: {
   }
   chunksCompleted += 1;
 
-  syncProgress({ current_chunk_label: "Rebuilding Twitter context summary" });
-  await rebuildIntegrationTree({
+  summaryNodes = await finalizeIntegrationContextSummary({
     store: params.store,
     treeId,
-    embeddingClient: null,
+    providerLabel: "Twitter",
+    treeChanged: persistStats.created > 0 || persistStats.superseding > 0 || retiredPosts > 0,
+    syncProgress,
   });
   chunksCompleted += 1;
-
-  summaryNodes = countSummaryLikeSemanticIntegrationNodes({
-    store: params.store,
-    treeId,
-  });
   syncProgress({ current_chunk_label: "Twitter context fetch complete" });
 
   return {
@@ -4183,18 +4211,14 @@ async function fetchGoogleCalendarIntegrationContext(params: {
   }
   chunksCompleted += 1;
 
-  syncProgress({ current_chunk_label: "Rebuilding Google Calendar context summary" });
-  await rebuildIntegrationTree({
+  summaryNodes = await finalizeIntegrationContextSummary({
     store: params.store,
     treeId,
-    embeddingClient: null,
+    providerLabel: "Google Calendar",
+    treeChanged: persistStats.created > 0 || persistStats.superseding > 0 || retiredCalendars > 0,
+    syncProgress,
   });
   chunksCompleted += 1;
-
-  summaryNodes = countSummaryLikeSemanticIntegrationNodes({
-    store: params.store,
-    treeId,
-  });
   syncProgress({ current_chunk_label: "Google Calendar context fetch complete" });
 
   return {
@@ -4304,21 +4328,14 @@ async function fetchLinkedInIntegrationContext(params: {
   updatePersistStats(profilePersist, persistStats);
   treeId = profilePersist.tree.treeId;
   chunksCompleted += 1;
-  syncProgress({
-    current_chunk_label: "Rebuilding LinkedIn context summary",
-  });
-
-  await rebuildIntegrationTree({
+  summaryNodes = await finalizeIntegrationContextSummary({
     store: params.store,
     treeId,
-    embeddingClient: null,
+    providerLabel: "LinkedIn",
+    treeChanged: persistStats.created > 0 || persistStats.superseding > 0,
+    syncProgress,
   });
   chunksCompleted += 1;
-
-  summaryNodes = countSummaryLikeSemanticIntegrationNodes({
-    store: params.store,
-    treeId,
-  });
   syncProgress({ current_chunk_label: "LinkedIn context fetch complete" });
 
   return {
@@ -4541,18 +4558,14 @@ async function fetchSlackIntegrationContext(params: {
     }
   }
 
-  syncProgress({ current_chunk_label: "Rebuilding Slack context summary" });
-  await rebuildIntegrationTree({
+  summaryNodes = await finalizeIntegrationContextSummary({
     store: params.store,
     treeId,
-    embeddingClient: null,
+    providerLabel: "Slack",
+    treeChanged: persistStats.created > 0 || persistStats.superseding > 0,
+    syncProgress,
   });
   chunksCompleted += 1;
-
-  summaryNodes = countSummaryLikeSemanticIntegrationNodes({
-    store: params.store,
-    treeId,
-  });
   syncProgress({ current_chunk_label: "Slack context fetch complete" });
 
   return {

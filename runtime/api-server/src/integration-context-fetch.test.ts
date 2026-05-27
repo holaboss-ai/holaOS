@@ -1172,10 +1172,16 @@ test("fetchIntegrationContextForConnection does not duplicate unchanged GitHub l
     connectionId: "conn-github-1",
     composioClient,
   });
+  const secondProgressLabels: string[] = [];
   const second = await fetchIntegrationContextForConnection({
     store,
     connectionId: "conn-github-1",
     composioClient,
+    onProgress(snapshot) {
+      if (snapshot.current_chunk_label) {
+        secondProgressLabels.push(snapshot.current_chunk_label);
+      }
+    },
   });
 
   assert.equal(first.leaves_created, 6);
@@ -1183,6 +1189,8 @@ test("fetchIntegrationContextForConnection does not duplicate unchanged GitHub l
   assert.equal(second.leaves_created, 0);
   assert.equal(second.leaves_superseding, 0);
   assert.equal(second.leaves_unchanged, 6);
+  const summaryLabels = secondProgressLabels.filter((label) => label.includes("GitHub context summary"));
+  assert.equal(summaryLabels.at(-1), "Reusing GitHub context summary");
 
   const trees = store.listIntegrationTrees({
     status: "active",
