@@ -27,7 +27,6 @@ const ISSUE_STATUS_OPTIONS: ReadonlyArray<{
   value: IssueStatusPayload;
   label: string;
 }> = [
-  { value: "backlog", label: "Backlog" },
   { value: "todo", label: "Todo" },
   { value: "in_review", label: "In Review" },
   { value: "done", label: "Done" },

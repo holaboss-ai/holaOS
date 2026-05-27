@@ -19,7 +19,6 @@ const STATUS_ORDER: IssueStatusPayload[] = [
   "in_review",
   "blocked",
   "done",
-  "backlog",
 ];
 
 function issueRelativeTime(value: string): string {
@@ -90,6 +89,10 @@ export function WorkspaceDashboardPane({
     () => Object.values(teammatesById).sort((left, right) => left.name.localeCompare(right.name)),
     [teammatesById],
   );
+  const visibleIssues = useMemo(
+    () => issues.filter((issue) => issue.status !== "backlog"),
+    [issues],
+  );
 
   const summary = useMemo(() => {
     const statusCounts = Object.fromEntries(
@@ -103,7 +106,7 @@ export function WorkspaceDashboardPane({
     let completedThisWeek = 0;
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
-    for (const issue of issues) {
+    for (const issue of visibleIssues) {
       statusCounts[issue.status] += 1;
       if (issue.priority) {
         priorityCounts[issue.priority] += 1;
@@ -124,7 +127,7 @@ export function WorkspaceDashboardPane({
     }
 
     return {
-      totalIssues: issues.length,
+      totalIssues: visibleIssues.length,
       activeTeammates: teammates.length,
       inProgressCount: statusCounts.in_progress,
       blockedCount: statusCounts.blocked,
@@ -135,14 +138,14 @@ export function WorkspaceDashboardPane({
       statusCounts,
       priorityCounts,
     };
-  }, [issues, teammates.length]);
+  }, [teammates.length, visibleIssues]);
 
   const recentIssues = useMemo(
     () =>
-      [...issues]
+      [...visibleIssues]
         .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
         .slice(0, 8),
-    [issues],
+    [visibleIssues],
   );
 
   return (
@@ -242,7 +245,7 @@ export function WorkspaceDashboardPane({
               >
                 {teammates.length > 0 ? (
                   teammates.map((teammate) => {
-                    const activeCount = issues.filter(
+                    const activeCount = visibleIssues.filter(
                       (issue) => issue.assignee_teammate_id === teammate.teammate_id,
                     ).length;
                     return (

@@ -48,6 +48,11 @@ test("chat pane treats issue sessions as interactive and renders issue thread co
     issueThreadControlsSource,
     /export function IssueThreadControls/,
   );
+  assert.doesNotMatch(
+    issueThreadControlsSource,
+    /\{ value: "backlog", label: "Backlog" \},/,
+  );
+  assert.match(issueThreadControlsSource, /Backlog \(hidden\)/);
   assert.match(
     issueThreadControlsSource,
     /Issue fields are locked while this run is active\./,

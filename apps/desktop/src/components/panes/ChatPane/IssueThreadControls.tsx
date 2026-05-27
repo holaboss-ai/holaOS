@@ -19,7 +19,6 @@ const ISSUE_STATUS_OPTIONS: Array<{
   label: string;
   disabled?: boolean;
 }> = [
-  { value: "backlog", label: "Backlog" },
   { value: "todo", label: "Todo" },
   { value: "in_progress", label: "In progress", disabled: true },
   { value: "in_review", label: "In review" },
@@ -132,6 +131,13 @@ export function IssueThreadControls({
     issue.attachments.length === 1
       ? "1 attachment"
       : `${issue.attachments.length} attachments`;
+  const statusOptions =
+    issue.status === "backlog"
+      ? [
+          { value: "backlog", label: "Backlog (hidden)", disabled: true },
+          ...ISSUE_STATUS_OPTIONS,
+        ]
+      : ISSUE_STATUS_OPTIONS;
 
   const handleSaveDetails = async () => {
     const normalizedTitle = draftTitle.trim();
@@ -252,7 +258,7 @@ export function IssueThreadControls({
             <SelectValue />
           </SelectTrigger>
           <SelectContent align="start">
-            {ISSUE_STATUS_OPTIONS.map((option) => (
+            {statusOptions.map((option) => (
               <SelectItem
                 key={option.value}
                 value={option.value}

@@ -1,11 +1,6 @@
 import { useSetAtom } from "jotai";
 import { Loader2, Plus, RotateCw, Square, UserRound } from "lucide-react";
-import {
-  type DragEvent as ReactDragEvent,
-  useCallback,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -15,8 +10,15 @@ import { newIssueOpenAtom } from "./state/ui";
 import { useOpenIssueDetailTab } from "./useOpenIssueDetailTab";
 import { useIssueWorkspaceData } from "./useIssues";
 
-const BOARD_STATUS_ORDER: IssueStatusPayload[] = [
-  "backlog",
+type VisibleBoardStatus = Exclude<IssueStatusPayload, "backlog">;
+
+function isVisibleBoardStatus(
+  status: IssueStatusPayload,
+): status is VisibleBoardStatus {
+  return status !== "backlog";
+}
+
+const BOARD_STATUS_ORDER: VisibleBoardStatus[] = [
   "todo",
   "in_progress",
   "in_review",
@@ -25,18 +27,13 @@ const BOARD_STATUS_ORDER: IssueStatusPayload[] = [
 ];
 
 const BOARD_COLUMN_CHROME: Record<
-  IssueStatusPayload,
+  VisibleBoardStatus,
   {
     shellClass: string;
     headerClass: string;
     emptyClass: string;
   }
 > = {
-  backlog: {
-    shellClass: "border-border bg-card/88 shadow-sm backdrop-blur-sm",
-    headerClass: "border-border bg-background/60",
-    emptyClass: "border-border/80 bg-background/40 text-foreground/48",
-  },
   todo: {
     shellClass: "border-sky-500/16 bg-sky-500/[0.04] shadow-sm backdrop-blur-sm",
     headerClass: "border-sky-500/14 bg-sky-500/[0.06]",
@@ -158,9 +155,6 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
   const openIssueDetailTab = useOpenIssueDetailTab();
   const setNewIssueOpen = useSetAtom(newIssueOpenAtom);
   const [pendingIssueId, setPendingIssueId] = useState("");
-  const [draggedIssueId, setDraggedIssueId] = useState("");
-  const [dropTargetStatus, setDropTargetStatus] =
-    useState<IssueStatusPayload | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
 
   const workingCount = useMemo(
@@ -171,12 +165,19 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
     [issues],
   );
 
+  const visibleIssues = useMemo(
+    () => issues.filter((issue) => issue.status !== "backlog"),
+    [issues],
+  );
+
   const issuesByStatus = useMemo(() => {
     const groups = Object.fromEntries(
       BOARD_STATUS_ORDER.map((status) => [status, [] as IssueRecordPayload[]]),
-    ) as Record<IssueStatusPayload, IssueRecordPayload[]>;
-    for (const issue of issues) {
-      groups[issue.status].push(issue);
+    ) as Record<VisibleBoardStatus, IssueRecordPayload[]>;
+    for (const issue of visibleIssues) {
+      if (isVisibleBoardStatus(issue.status)) {
+        groups[issue.status].push(issue);
+      }
     }
     for (const status of BOARD_STATUS_ORDER) {
       groups[status].sort((left, right) => {
@@ -189,12 +190,7 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
       });
     }
     return groups;
-  }, [issues]);
-
-  const issuesById = useMemo(
-    () => Object.fromEntries(issues.map((issue) => [issue.issue_id, issue])),
-    [issues],
-  );
+  }, [visibleIssues]);
 
   const openIssueDetail = useCallback(
     (issue: IssueRecordPayload) => {
@@ -228,42 +224,6 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
     [refresh],
   );
 
-  const handleStatusChange = useCallback(
-    async (issue: IssueRecordPayload, nextStatus: string) => {
-      if (!nextStatus || nextStatus === issue.status) return;
-      if (issue.active_subagent_id) return;
-      let blockerReason: string | null | undefined = undefined;
-      if (nextStatus === "blocked") {
-        const response = window.prompt(
-          "Why is this issue blocked?",
-          issue.blocker_reason ?? "",
-        );
-        if (response == null) {
-          return;
-        }
-        const trimmed = response.trim();
-        if (!trimmed) {
-          setErrorMessage("Blocked issues need a blocker reason.");
-          return;
-        }
-        blockerReason = trimmed;
-      } else if (issue.blocker_reason) {
-        blockerReason = null;
-      }
-      await mutateIssue(
-        issue.issue_id,
-        () =>
-          window.electronAPI.workspace.updateIssue(workspaceId, issue.issue_id, {
-            workspace_id: workspaceId,
-            status: nextStatus as IssueStatusPayload,
-            blocker_reason: blockerReason,
-          }),
-        "Failed to update issue status",
-      );
-    },
-    [mutateIssue, workspaceId],
-  );
-
   const handleStopIssue = useCallback(
     async (issue: IssueRecordPayload) => {
       if (!issue.active_subagent_id) return;
@@ -277,67 +237,6 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
       );
     },
     [mutateIssue, workspaceId],
-  );
-
-  const canDropIssueToStatus = useCallback(
-    (issue: IssueRecordPayload | null, nextStatus: IssueStatusPayload) => {
-      if (!issue) return false;
-      if (issue.active_subagent_id) return false;
-      if (pendingIssueId === issue.issue_id) return false;
-      if (nextStatus === "in_progress") return false;
-      return nextStatus !== issue.status;
-    },
-    [pendingIssueId],
-  );
-
-  const handleCardDragStart = useCallback(
-    (event: ReactDragEvent<HTMLDivElement>, issue: IssueRecordPayload) => {
-      if (issue.active_subagent_id || pendingIssueId === issue.issue_id) {
-        event.preventDefault();
-        return;
-      }
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", issue.issue_id);
-      setDraggedIssueId(issue.issue_id);
-      setDropTargetStatus(null);
-    },
-    [pendingIssueId],
-  );
-
-  const handleCardDragEnd = useCallback(() => {
-    setDraggedIssueId("");
-    setDropTargetStatus(null);
-  }, []);
-
-  const handleColumnDragOver = useCallback(
-    (event: ReactDragEvent<HTMLElement>, status: IssueStatusPayload) => {
-      const issueId = draggedIssueId || event.dataTransfer.getData("text/plain");
-      const issue = issueId ? issuesById[issueId] ?? null : null;
-      if (!canDropIssueToStatus(issue, status)) {
-        return;
-      }
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "move";
-      if (dropTargetStatus !== status) {
-        setDropTargetStatus(status);
-      }
-    },
-    [canDropIssueToStatus, draggedIssueId, dropTargetStatus, issuesById],
-  );
-
-  const handleColumnDrop = useCallback(
-    async (event: ReactDragEvent<HTMLElement>, status: IssueStatusPayload) => {
-      const issueId = draggedIssueId || event.dataTransfer.getData("text/plain");
-      const issue = issueId ? issuesById[issueId] ?? null : null;
-      setDropTargetStatus(null);
-      setDraggedIssueId("");
-      if (!canDropIssueToStatus(issue, status) || !issue) {
-        return;
-      }
-      event.preventDefault();
-      await handleStatusChange(issue, status);
-    },
-    [canDropIssueToStatus, draggedIssueId, handleStatusChange, issuesById],
   );
 
   return (
@@ -378,7 +277,7 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
               {workingCount} working
             </Badge>
             <Badge variant="outline" className="h-9 rounded-xl bg-background px-3 text-foreground/65">
-              {issues.length} issues
+              {visibleIssues.length} issues
             </Badge>
             <Button
               type="button"
@@ -412,7 +311,7 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-6 py-4">
-        {isLoading && issues.length === 0 ? (
+        {isLoading && visibleIssues.length === 0 ? (
           <div className="grid h-full place-items-center">
             <Loader2 className="size-5 animate-spin text-foreground/35" />
           </div>
@@ -427,21 +326,7 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
                   className={cn(
                     "flex h-full min-h-0 w-[330px] shrink-0 self-stretch flex-col overflow-hidden rounded-2xl border transition-colors",
                     tone.shellClass,
-                    dropTargetStatus === status &&
-                      "ring-2 ring-primary/35 ring-offset-2 ring-offset-background",
                   )}
-                  onDragOver={(event) => handleColumnDragOver(event, status)}
-                  onDrop={(event) => void handleColumnDrop(event, status)}
-                  onDragLeave={(event) => {
-                    if (
-                      dropTargetStatus === status &&
-                      !event.currentTarget.contains(
-                        event.relatedTarget as Node | null,
-                      )
-                    ) {
-                      setDropTargetStatus(null);
-                    }
-                  }}
                 >
                   <div
                     className={cn(
@@ -487,77 +372,59 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
                         return (
                           <div
                             key={issue.issue_id}
-                            draggable={!running && !pending}
-                            onDragStart={(event) => handleCardDragStart(event, issue)}
-                            onDragEnd={handleCardDragEnd}
                             className={cn(
-                              "group rounded-xl border border-border bg-background/88 p-4 shadow-sm transition duration-snappy hover:border-foreground/12 hover:bg-background",
+                              "group rounded-xl border border-border/80 bg-background/92 px-3.5 py-3 shadow-sm transition duration-snappy hover:border-foreground/10 hover:bg-background",
                               running && "ring-1 ring-primary/30",
-                              !running &&
-                                !pending &&
-                                "cursor-grab active:cursor-grabbing",
-                              draggedIssueId === issue.issue_id && "opacity-55",
                             )}
                           >
-                            <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-start justify-between gap-2.5">
                               <button
                                 type="button"
                                 onClick={() => openIssueDetail(issue)}
                                 className="min-w-0 flex-1 text-left"
                               >
-                                <div className="flex flex-wrap items-center gap-2 text-[11px] text-foreground/42">
-                                  <span className="font-medium uppercase tracking-[0.16em]">
+                                <div className="flex flex-wrap items-center gap-2 text-[11px] text-foreground/40">
+                                  <span className="font-medium uppercase tracking-[0.14em]">
                                     {issue.issue_id}
                                   </span>
-                                  <span
-                                    className={cn(
-                                      "rounded-full border px-2 py-0.5 text-[10px] font-medium",
-                                      issuePriorityBadgeClass(issue.priority),
-                                    )}
-                                  >
-                                    {issuePriorityLabel(issue.priority)}
-                                  </span>
+                                  {issue.priority ? (
+                                    <span
+                                      className={cn(
+                                        "rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                                        issuePriorityBadgeClass(issue.priority),
+                                      )}
+                                    >
+                                      {issuePriorityLabel(issue.priority)}
+                                    </span>
+                                  ) : null}
                                   {running ? (
-                                    <span className="rounded-full border border-primary/20 bg-primary/12 px-2 py-0.5 text-[10px] font-medium text-primary">
+                                    <span className="rounded-full border border-primary/16 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                                       Working
                                     </span>
                                   ) : null}
                                 </div>
-                                <div className="mt-2 line-clamp-2 text-[16px] font-semibold leading-5 text-foreground">
+                                <div className="mt-2 line-clamp-1 text-[15px] font-semibold leading-5 text-foreground">
                                   {issue.title || "Untitled issue"}
                                 </div>
                                 {issue.description ? (
-                                  <div className="mt-3 line-clamp-3 text-sm leading-5 text-foreground/58">
+                                  <div className="mt-1.5 line-clamp-1 text-[13px] leading-5 text-foreground/52">
                                     {issue.description}
                                   </div>
                                 ) : null}
-                                {issue.blocker_reason ? (
-                                  <div className="mt-3 rounded-xl border border-orange-500/18 bg-orange-500/[0.1] px-3 py-2 text-xs leading-5 text-orange-800 dark:text-orange-100/85">
-                                    {issue.blocker_reason}
-                                  </div>
-                                ) : null}
-
-                            <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-foreground/45">
-                              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/70 px-2.5 py-1">
-                                <UserRound className="size-3" />
-                                {assigneeName}
-                              </span>
-                              <span className="rounded-full border border-border bg-background/70 px-2.5 py-1">
-                                Updated {issueRelativeTime(issue.updated_at)}
-                              </span>
-                              {!running ? (
-                                <span className="rounded-full border border-dashed border-border bg-background/70 px-2.5 py-1 text-foreground/40">
-                                  Drag to move
-                                </span>
-                              ) : null}
-                            </div>
+                                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-foreground/45">
+                                  <span className="inline-flex min-w-0 items-center gap-1.5">
+                                    <UserRound className="size-3" />
+                                    <span className="truncate">{assigneeName}</span>
+                                  </span>
+                                  <span>Updated {issueRelativeTime(issue.updated_at)}</span>
+                                </div>
                               </button>
                               {running ? (
                                 <Button
                                   type="button"
                                   variant="outline"
                                   size="sm"
-                                  className="h-8 rounded-full border-border bg-background/70 px-3 hover:bg-background"
+                                  className="h-7 rounded-full border-border bg-background/70 px-2.5 text-[11px] hover:bg-background"
                                   onClick={() => void handleStopIssue(issue)}
                                   disabled={pending}
                                 >

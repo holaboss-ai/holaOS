@@ -72,7 +72,6 @@ const ISSUE_STATUS_OPTIONS: Array<{
   label: string;
   disabled?: boolean;
 }> = [
-  { value: "backlog", label: "Backlog" },
   { value: "todo", label: "Todo" },
   { value: "in_progress", label: "In progress", disabled: true },
   { value: "in_review", label: "In review" },
@@ -303,6 +302,16 @@ export function IssueDetailPane({
   const assignee = issue?.assignee_teammate_id
     ? teammatesById[issue.assignee_teammate_id] ?? null
     : null;
+  const statusOptions = useMemo(
+    () =>
+      issue?.status === "backlog"
+        ? [
+            { value: "backlog", label: "Backlog (hidden)", disabled: true },
+            ...ISSUE_STATUS_OPTIONS,
+          ]
+        : ISSUE_STATUS_OPTIONS,
+    [issue?.status],
+  );
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [historyError, setHistoryError] = useState("");
@@ -1793,11 +1802,11 @@ export function IssueDetailPane({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent align="start">
-                        {ISSUE_STATUS_OPTIONS.map((option) => (
-                          <SelectItem
-                            key={option.value}
-                            value={option.value}
-                            disabled={option.disabled}
+                    {statusOptions.map((option) => (
+                      <SelectItem
+                        key={option.value}
+                        value={option.value}
+                        disabled={option.disabled}
                           >
                             {option.label}
                           </SelectItem>

@@ -51,6 +51,10 @@ test("new shell issue creation dialog stages attachments, creates issues, and op
     /void openIssueDetailTab\(\{\s*workspaceId: selectedWorkspaceId,\s*issueId: created\.issue\.issue_id,/,
   );
   assert.match(newIssueDialogSource, /status === "blocked" && !blockerReason\.trim\(\)/);
+  assert.doesNotMatch(
+    newIssueDialogSource,
+    /\{ value: "backlog", label: "Backlog" \},/,
+  );
   assert.match(newIssueDialogSource, /priority: priority \|\| null,/);
   assert.match(
     newIssueDialogSource,
