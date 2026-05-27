@@ -1,6 +1,7 @@
 import { useSetAtom } from "jotai";
-import { Loader2, Plus, RotateCw, Square, UserRound } from "lucide-react";
+import { LayoutGrid, Loader2, Plus, RotateCw, Square, UserRound } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -15,6 +16,7 @@ import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { newIssueOpenAtom } from "./state/ui";
 import { useOpenIssueDetailTab } from "./useOpenIssueDetailTab";
 import { useIssueWorkspaceData } from "./useIssues";
+import { WorkspaceSurfaceHeader } from "./WorkspaceSurfaceHeader";
 
 const BOARD_STATUS_ORDER: IssueStatusPayload[] = [
   "backlog",
@@ -316,29 +318,26 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.05),transparent_20%),linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0)_32%)]">
-      <div className="border-b border-border/80 px-6 py-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-foreground/35">
-              <span>Agent Team</span>
-              <span className="text-foreground/20">/</span>
-              <span>Issues</span>
-            </div>
-            <h1 className="mt-2 text-[28px] font-semibold tracking-tight text-foreground">
-              Kanban Board
-            </h1>
-            <p className="mt-1 max-w-2xl text-sm text-foreground/52">
-              Track status at a glance, open issue pages from any card, and manage
-              assignees without leaving the board.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="inline-flex h-9 items-center rounded-full border border-border bg-card/80 px-3 text-xs font-medium text-foreground/65">
+      <WorkspaceSurfaceHeader
+        icon={<LayoutGrid className="size-5 text-foreground/70" />}
+        eyebrow={
+          <>
+            <span>Agent Team</span>
+            <span className="mx-2 text-foreground/20">/</span>
+            <span>Issues</span>
+          </>
+        }
+        title="Kanban Board"
+        description="Track status at a glance, open issue pages from any card, and manage assignees without leaving the board."
+        statusMessage={errorMessage || statusMessage}
+        actions={
+          <>
+            <Badge variant="outline" className="h-9 rounded-full bg-card/80 px-3 text-foreground/65">
               {workingCount} working
-            </div>
-            <div className="inline-flex h-9 items-center rounded-full border border-border bg-card/80 px-3 text-xs font-medium text-foreground/65">
+            </Badge>
+            <Badge variant="outline" className="h-9 rounded-full bg-card/80 px-3 text-foreground/65">
               {issues.length} issues
-            </div>
+            </Badge>
             <Button
               type="button"
               variant="outline"
@@ -361,14 +360,9 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
               <Plus className="size-4" />
               New issue
             </Button>
-          </div>
-        </div>
-        {statusMessage || errorMessage ? (
-          <div className="mt-3 rounded-2xl border border-border bg-card/80 px-3 py-2 text-xs text-foreground/65">
-            {errorMessage || statusMessage}
-          </div>
-        ) : null}
-      </div>
+          </>
+        }
+      />
 
       <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-6 py-5">
         {isLoading && issues.length === 0 ? (

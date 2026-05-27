@@ -4,6 +4,7 @@ import { StatusDot } from "@/components/ui/status-dot";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { cn } from "@/lib/utils";
 import { useIssueWorkspaceData } from "./useIssues";
+import { WorkspaceSurfaceHeader } from "./WorkspaceSurfaceHeader";
 
 const PRIORITY_ORDER: IssuePriorityPayload[] = [
   "critical",
@@ -146,31 +147,23 @@ export function WorkspaceDashboardPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(245,118,66,0.08),transparent_30%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.03),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_32%)]">
-      <div className="border-b border-border px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="grid size-10 place-items-center rounded-2xl border border-border bg-card/80 shadow-sm">
-            <LayoutDashboard className="size-5 text-foreground/70" />
-          </div>
-          <div>
-            <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-foreground/40">
-              Dashboard
-            </div>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
-              {selectedWorkspace?.id === workspaceId
-                ? selectedWorkspace.name
-                : "Workspace overview"}
-            </h1>
-            <p className="mt-1 text-sm text-foreground/55">
-              Track teammate coverage, active work, and issue flow at a glance.
-            </p>
-          </div>
-        </div>
-        {statusMessage ? (
-          <div className="mt-3 rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground/65">
-            {statusMessage}
-          </div>
-        ) : null}
-      </div>
+      <WorkspaceSurfaceHeader
+        icon={<LayoutDashboard className="size-5 text-foreground/70" />}
+        eyebrow={
+          <>
+            <span>Agent Team</span>
+            <span className="mx-2 text-foreground/20">/</span>
+            <span>Dashboard</span>
+          </>
+        }
+        title={
+          selectedWorkspace?.id === workspaceId
+            ? selectedWorkspace.name
+            : "Workspace overview"
+        }
+        description="Track teammate coverage, active work, and issue flow at a glance."
+        statusMessage={statusMessage}
+      />
 
       <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
         {isLoading && issues.length === 0 ? (

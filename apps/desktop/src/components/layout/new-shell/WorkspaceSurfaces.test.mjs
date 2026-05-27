@@ -10,6 +10,7 @@ const BOARD_PANE_PATH = new URL("./IssuesBoardPane.tsx", import.meta.url);
 const DASHBOARD_PANE_PATH = new URL("./WorkspaceDashboardPane.tsx", import.meta.url);
 const ISSUE_DETAIL_PANE_PATH = new URL("./IssueDetailPane.tsx", import.meta.url);
 const TEAMMATES_PANE_PATH = new URL("./TeammatesPane.tsx", import.meta.url);
+const SURFACE_HEADER_PATH = new URL("./WorkspaceSurfaceHeader.tsx", import.meta.url);
 
 test("workspace surfaces wire board and dashboard tabs through the shell", async () => {
   const [
@@ -21,6 +22,7 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
     dashboardPaneSource,
     issueDetailPaneSource,
     teammatesPaneSource,
+    surfaceHeaderSource,
   ] = await Promise.all([
     readFile(CENTER_PATH, "utf8"),
     readFile(SIDEBAR_PATH, "utf8"),
@@ -30,6 +32,7 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
     readFile(DASHBOARD_PANE_PATH, "utf8"),
     readFile(ISSUE_DETAIL_PANE_PATH, "utf8"),
     readFile(TEAMMATES_PANE_PATH, "utf8"),
+    readFile(SURFACE_HEADER_PATH, "utf8"),
   ]);
 
   assert.match(centerSource, /import \{ TeammatesPane \} from "\.\/TeammatesPane";/);
@@ -82,12 +85,14 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   assert.match(boardPaneSource, /value: "in_progress", label: "In progress", disabled: true/);
   assert.match(boardPaneSource, /window\.electronAPI\.workspace\.stopIssueRun/);
   assert.match(boardPaneSource, /window\.prompt\(\s*"Why is this issue blocked\?"/);
+  assert.match(boardPaneSource, /WorkspaceSurfaceHeader/);
 
   assert.match(dashboardPaneSource, /export function WorkspaceDashboardPane/);
   assert.match(dashboardPaneSource, /Track teammate coverage, active work, and issue flow at a glance\./);
   assert.match(dashboardPaneSource, /Issues by priority/);
   assert.match(dashboardPaneSource, /Issues by status/);
   assert.match(dashboardPaneSource, /Recently updated/);
+  assert.match(dashboardPaneSource, /WorkspaceSurfaceHeader/);
 
   assert.match(issueDetailPaneSource, /export function IssueDetailPane/);
   assert.match(issueDetailPaneSource, /chatMessagesFromSessionState/);
@@ -98,6 +103,7 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   assert.match(issueDetailPaneSource, /attachments: nextIssueAttachments/);
   assert.match(issueDetailPaneSource, /Properties/);
   assert.match(issueDetailPaneSource, /Activity/);
+  assert.match(issueDetailPaneSource, /WorkspaceSurfaceHeader/);
 
   assert.match(teammatesPaneSource, /export function TeammatesPane/);
   assert.match(teammatesPaneSource, /window\.electronAPI\.workspace\.listTeammates/);
@@ -105,4 +111,9 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   assert.match(teammatesPaneSource, /window\.electronAPI\.workspace\.updateTeammate/);
   assert.match(teammatesPaneSource, /ConfirmDialog/);
   assert.match(teammatesPaneSource, /SKILL\.md/);
+  assert.match(teammatesPaneSource, /WorkspaceSurfaceHeader/);
+
+  assert.match(surfaceHeaderSource, /export function WorkspaceSurfaceHeader/);
+  assert.match(surfaceHeaderSource, /statusMessage/);
+  assert.match(surfaceHeaderSource, /meta/);
 });

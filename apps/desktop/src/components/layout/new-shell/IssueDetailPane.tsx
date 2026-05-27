@@ -30,9 +30,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -49,6 +49,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useIssueWorkspaceData } from "./useIssues";
 import { useOpenWorkspaceOutput } from "./useOpenWorkspaceOutput";
+import { WorkspaceSurfaceHeader } from "./WorkspaceSurfaceHeader";
 
 const ISSUE_STATUS_OPTIONS: Array<{
   value: IssueStatusPayload;
@@ -733,191 +734,193 @@ export function IssueDetailPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(245,118,66,0.06),transparent_26%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_32%)]">
+      <WorkspaceSurfaceHeader
+        icon={<CircleDot className="size-5 text-foreground/65" />}
+        eyebrow={
+          <>
+            <span>{selectedWorkspace?.name || "Workspace"}</span>
+            <span className="mx-2 text-foreground/20">/</span>
+            <span>{issue.issue_id}</span>
+          </>
+        }
+        title={(isEditingDetails ? draftTitle : issue.title) || issue.issue_id}
+        description={
+          !isEditingDetails ? issue.description : undefined
+        }
+        meta={
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className="bg-background/70">
+              {issue.issue_id}
+            </Badge>
+            <Badge variant="outline" className="bg-background/70">
+              <StatusDot
+                variant={issueStatusVariant(issue.status)}
+                pulse={Boolean(issue.active_subagent_id)}
+              />
+              {issueStatusLabel(issue.status)}
+            </Badge>
+            <Badge variant="outline" className="bg-background/70">
+              <UserRound className="size-3.5" />
+              {assignee?.name || "Unassigned"}
+            </Badge>
+            {issue.priority ? (
+              <Badge variant="outline" className="bg-background/70">
+                {issue.priority.slice(0, 1).toUpperCase() +
+                  issue.priority.slice(1)}
+              </Badge>
+            ) : null}
+          </div>
+        }
+        statusMessage={mutationError || statusMessage}
+        actions={
+          !isEditingDetails ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setMutationError("");
+                setIsEditingDetails(true);
+              }}
+              disabled={Boolean(issue.active_subagent_id) || isMutationPending}
+            >
+              <PencilLine className="size-4" />
+              Edit details
+            </Button>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setDraftTitle(issue.title);
+                  setDraftDescription(issue.description ?? "");
+                  setDraftBlockerReason(issue.blocker_reason ?? "");
+                  setDraftIssueAttachments(
+                    issueAttachmentsToListItems(issue.attachments ?? []),
+                  );
+                  setMutationError("");
+                  setIsEditingDetails(false);
+                }}
+                disabled={isMutationPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleSaveDetails()}
+                disabled={isMutationPending}
+              >
+                {isMutationPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : null}
+                Save
+              </Button>
+            </>
+          )
+        }
+      />
       <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
           <div className="grid gap-5">
-            <Card className="bg-card/85">
-              <CardHeader className="border-b">
-                <div className="flex items-start gap-3">
-                  <div className="grid size-10 place-items-center rounded-2xl border border-border bg-background/75 shadow-sm">
-                    <CircleDot className="size-5 text-foreground/65" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-foreground/35">
-                      {selectedWorkspace?.name || "Workspace"} / {issue.issue_id}
-                    </div>
-                    <CardTitle className="mt-2 text-[30px] font-semibold tracking-tight text-foreground">
-                      {issue.title || issue.issue_id}
-                    </CardTitle>
-                    {!isEditingDetails && issue.description ? (
-                      <CardDescription className="mt-2 max-w-3xl whitespace-pre-wrap text-base leading-7 text-foreground/68">
-                        {issue.description}
-                      </CardDescription>
-                    ) : null}
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <Badge variant="outline" className="bg-background/70">
-                        {issue.issue_id}
-                      </Badge>
-                      <Badge variant="outline" className="bg-background/70">
-                        <StatusDot
-                          variant={issueStatusVariant(issue.status)}
-                          pulse={Boolean(issue.active_subagent_id)}
-                        />
-                        {issueStatusLabel(issue.status)}
-                      </Badge>
-                      <Badge variant="outline" className="bg-background/70">
-                        <UserRound className="size-3.5" />
-                        {assignee?.name || "Unassigned"}
-                      </Badge>
-                      {issue.priority ? (
-                        <Badge variant="outline" className="bg-background/70">
-                          {issue.priority.slice(0, 1).toUpperCase() +
-                            issue.priority.slice(1)}
-                        </Badge>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-                <CardAction>
-                  <div className="flex items-center gap-2">
-                    {!isEditingDetails ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          setMutationError("");
-                          setIsEditingDetails(true);
-                        }}
-                        disabled={Boolean(issue.active_subagent_id) || isMutationPending}
-                      >
-                        <PencilLine className="size-4" />
-                        Edit details
-                      </Button>
-                    ) : (
-                      <>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={() => {
-                            setDraftTitle(issue.title);
-                            setDraftDescription(issue.description ?? "");
-                            setDraftBlockerReason(issue.blocker_reason ?? "");
-                            setDraftIssueAttachments(
-                              issueAttachmentsToListItems(issue.attachments ?? []),
-                            );
-                            setMutationError("");
-                            setIsEditingDetails(false);
-                          }}
-                          disabled={isMutationPending}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          type="button"
-                          onClick={() => void handleSaveDetails()}
-                          disabled={isMutationPending}
-                        >
-                          {isMutationPending ? (
-                            <Loader2 className="size-4 animate-spin" />
-                          ) : null}
-                          Save
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </CardAction>
-              </CardHeader>
-              <CardContent className="space-y-4 pt-4">
-                {isEditingDetails ? (
-                  <div className="grid gap-3">
-                    <Input
-                      value={draftTitle}
-                      onChange={(event) => setDraftTitle(event.target.value)}
-                      placeholder="Issue title"
-                      className="h-11 max-w-3xl bg-background/75"
-                    />
-                    <Textarea
-                      value={draftDescription}
-                      onChange={(event) => setDraftDescription(event.target.value)}
-                      placeholder="Add description..."
-                      className="min-h-[140px] max-w-3xl resize-y bg-background/75"
-                    />
-                    {issue.status === "blocked" ? (
+            {isEditingDetails || issueAttachmentItems.length > 0 ? (
+              <Card className="bg-card/85">
+                <CardHeader>
+                  <CardTitle>
+                    {isEditingDetails ? "Issue details" : "Attachments"}
+                  </CardTitle>
+                  <CardDescription>
+                    {isEditingDetails
+                      ? "Update the issue title, description, blocker context, and attached files while the issue is idle."
+                      : "Files attached to this issue stay with the thread and can be reopened at any time."}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {isEditingDetails ? (
+                    <div className="grid gap-3">
+                      <Input
+                        value={draftTitle}
+                        onChange={(event) => setDraftTitle(event.target.value)}
+                        placeholder="Issue title"
+                        className="h-11 max-w-3xl bg-background/75"
+                      />
                       <Textarea
-                        value={draftBlockerReason}
-                        onChange={(event) =>
-                          setDraftBlockerReason(event.target.value)
-                        }
-                        placeholder="Why is this issue blocked?"
-                        className="min-h-[96px] max-w-3xl resize-y bg-background/75"
+                        value={draftDescription}
+                        onChange={(event) => setDraftDescription(event.target.value)}
+                        placeholder="Add description..."
+                        className="min-h-[140px] max-w-3xl resize-y bg-background/75"
                       />
-                    ) : null}
-                    <div className="max-w-3xl">
-                      <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                        Attachments
-                      </div>
-                      {issueAttachmentItems.length > 0 ? (
-                        <AttachmentList
-                          attachments={issueAttachmentItems}
-                          onPreview={handlePreviewAttachment}
-                          onRemove={(attachmentId) => {
-                            setDraftIssueAttachments((current) =>
-                              current.filter(
-                                (attachment) => attachment.id !== attachmentId,
-                              ),
-                            );
-                          }}
+                      {issue.status === "blocked" ? (
+                        <Textarea
+                          value={draftBlockerReason}
+                          onChange={(event) =>
+                            setDraftBlockerReason(event.target.value)
+                          }
+                          placeholder="Why is this issue blocked?"
+                          className="min-h-[96px] max-w-3xl resize-y bg-background/75"
                         />
-                      ) : (
-                        <div className="rounded-xl border border-dashed border-border bg-background/45 px-4 py-6 text-sm text-foreground/48">
-                          No attachments
+                      ) : null}
+                      <div className="max-w-3xl">
+                        <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
+                          Attachments
                         </div>
-                      )}
-                      <input
-                        ref={issueFileInputRef}
-                        type="file"
-                        multiple
-                        className="hidden"
-                        onChange={handleIssueAttachmentChange}
-                      />
-                      <div className="mt-3">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => issueFileInputRef.current?.click()}
-                        >
-                          <Paperclip className="size-4" />
-                          Add attachments
-                        </Button>
+                        {issueAttachmentItems.length > 0 ? (
+                          <AttachmentList
+                            attachments={issueAttachmentItems}
+                            onPreview={handlePreviewAttachment}
+                            onRemove={(attachmentId) => {
+                              setDraftIssueAttachments((current) =>
+                                current.filter(
+                                  (attachment) => attachment.id !== attachmentId,
+                                ),
+                              );
+                            }}
+                          />
+                        ) : (
+                          <div className="rounded-xl border border-dashed border-border bg-background/45 px-4 py-6 text-sm text-foreground/48">
+                            No attachments
+                          </div>
+                        )}
+                        <input
+                          ref={issueFileInputRef}
+                          type="file"
+                          multiple
+                          className="hidden"
+                          onChange={handleIssueAttachmentChange}
+                        />
+                        <div className="mt-3">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => issueFileInputRef.current?.click()}
+                          >
+                            <Paperclip className="size-4" />
+                            Add attachments
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ) : issueAttachmentItems.length > 0 ? (
-                  <div className="flex max-w-3xl flex-wrap gap-2">
-                    {issueAttachmentItems.map((attachment) => (
-                      <button
-                        key={attachment.id}
-                        type="button"
-                        onClick={() =>
-                          attachment.workspace_path
-                            ? openFileInInternalTab(attachment.workspace_path)
-                            : undefined
-                        }
-                        className="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-background/70 px-3 py-1.5 text-sm text-foreground/72 transition-colors hover:bg-background"
-                      >
-                        <Paperclip className="size-3.5 shrink-0 text-foreground/45" />
-                        <span className="truncate">{attachment.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                {statusMessage || mutationError ? (
-                  <div className="rounded-xl border border-border bg-background/65 px-3 py-2 text-xs text-foreground/62">
-                    {mutationError || statusMessage}
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
+                  ) : (
+                    <div className="flex max-w-3xl flex-wrap gap-2">
+                      {issueAttachmentItems.map((attachment) => (
+                        <button
+                          key={attachment.id}
+                          type="button"
+                          onClick={() =>
+                            attachment.workspace_path
+                              ? openFileInInternalTab(attachment.workspace_path)
+                              : undefined
+                          }
+                          className="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-background/70 px-3 py-1.5 text-sm text-foreground/72 transition-colors hover:bg-background"
+                        >
+                          <Paperclip className="size-3.5 shrink-0 text-foreground/45" />
+                          <span className="truncate">{attachment.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ) : null}
 
             {issue.active_subagent_id ? (
               <Card className="bg-card/85">
@@ -965,73 +968,79 @@ export function IssueDetailPane({
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="rounded-xl border border-border bg-background/65 px-4 py-4">
-                  <div className="flex items-start gap-3">
-                    <div className="grid size-8 place-items-center rounded-full bg-foreground/[0.06] text-foreground/55">
-                      <CircleDot className="size-4" />
+                <div className="relative space-y-4 pl-6 before:absolute before:bottom-0 before:left-[11px] before:top-1 before:w-px before:bg-border">
+                  <div className="relative rounded-xl border border-border bg-background/65 px-4 py-4">
+                    <div className="absolute left-[-18px] top-5 size-3 rounded-full bg-background ring-4 ring-card" />
+                    <div className="flex items-start gap-3">
+                      <div className="grid size-8 place-items-center rounded-full bg-foreground/[0.06] text-foreground/55">
+                        <CircleDot className="size-4" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-foreground">
+                          {(issue.created_by || "Workspace user").trim() || "Workspace user"} created this issue
+                        </div>
+                        <div className="mt-1 text-xs text-foreground/45">
+                          {formatRelativeTime(issue.created_at)}
+                        </div>
+                      </div>
                     </div>
-                    <div>
+                  </div>
+
+                  {historyError ? (
+                    <div className="relative rounded-xl border border-destructive/30 bg-destructive/[0.05] px-4 py-3 text-sm text-destructive">
+                      <div className="absolute left-[-18px] top-5 size-3 rounded-full bg-background ring-4 ring-card" />
+                      {historyError}
+                    </div>
+                  ) : null}
+
+                  {isHistoryLoading && messages.length === 0 ? (
+                    <div className="relative grid h-24 place-items-center rounded-xl border border-border bg-background/45">
+                      <div className="absolute left-[-18px] top-5 size-3 rounded-full bg-background ring-4 ring-card" />
+                      <Loader2 className="size-5 animate-spin text-foreground/35" />
+                    </div>
+                  ) : messages.length > 0 ? (
+                    <ConversationTurns
+                      messages={messages}
+                      assistantLabel={assignee?.name || "Assigned teammate"}
+                      assistantMode="issue"
+                      showExecutionInternals={false}
+                      workspaceId={workspaceId}
+                      onPreviewAttachment={handlePreviewAttachment}
+                      onOpenOutput={openOutput}
+                      onOpenAllArtifacts={handleOpenAllArtifacts}
+                      collapsedTraceByStepId={collapsedTraceByStepId}
+                      onToggleTraceStep={handleToggleTraceStep}
+                      onLinkClick={(url) => {
+                        void openUrlInBrowserTab(url, { dedupBy: "exact" });
+                      }}
+                      onLocalLinkClick={(href) => {
+                        openFileInInternalTab(href);
+                      }}
+                      getMessageWrapperClassName={() =>
+                        "relative rounded-xl border border-border/70 bg-background/45 px-4 py-3 before:absolute before:left-[-18px] before:top-5 before:size-3 before:rounded-full before:bg-background before:ring-4 before:ring-card"
+                      }
+                    />
+                  ) : (
+                    <div className="relative rounded-xl border border-dashed border-border bg-background/45 px-6 py-8 text-center">
+                      <div className="absolute left-[-18px] top-5 size-3 rounded-full bg-background ring-4 ring-card" />
                       <div className="text-sm font-medium text-foreground">
-                        {(issue.created_by || "Workspace user").trim() || "Workspace user"} created this issue
+                        No replies yet
                       </div>
-                      <div className="mt-1 text-xs text-foreground/45">
-                        {formatRelativeTime(issue.created_at)}
+                      <div className="mt-1 text-sm text-foreground/52">
+                        The issue thread will appear here once the assigned teammate or user responds.
                       </div>
                     </div>
-                  </div>
+                  )}
                 </div>
-
-                {historyError ? (
-                  <div className="rounded-xl border border-destructive/30 bg-destructive/[0.05] px-4 py-3 text-sm text-destructive">
-                    {historyError}
-                  </div>
-                ) : null}
-
-                {isHistoryLoading && messages.length === 0 ? (
-                  <div className="grid h-24 place-items-center">
-                    <Loader2 className="size-5 animate-spin text-foreground/35" />
-                  </div>
-                ) : messages.length > 0 ? (
-                  <ConversationTurns
-                    messages={messages}
-                    assistantLabel={assignee?.name || "Assigned teammate"}
-                    assistantMode="issue"
-                    showExecutionInternals={false}
-                    workspaceId={workspaceId}
-                    onPreviewAttachment={handlePreviewAttachment}
-                    onOpenOutput={openOutput}
-                    onOpenAllArtifacts={handleOpenAllArtifacts}
-                    collapsedTraceByStepId={collapsedTraceByStepId}
-                    onToggleTraceStep={handleToggleTraceStep}
-                    onLinkClick={(url) => {
-                      void openUrlInBrowserTab(url, { dedupBy: "exact" });
-                    }}
-                    onLocalLinkClick={(href) => {
-                      openFileInInternalTab(href);
-                    }}
-                  />
-                ) : (
-                  <div className="rounded-xl border border-dashed border-border bg-background/45 px-6 py-8 text-center">
-                    <div className="text-sm font-medium text-foreground">
-                      No replies yet
-                    </div>
-                    <div className="mt-1 text-sm text-foreground/52">
-                      The issue thread will appear here once the assigned teammate or user responds.
-                    </div>
-                  </div>
-                )}
               </CardContent>
-            </Card>
-
-            <Card className="bg-card/85">
-              <CardHeader>
-                <CardTitle className="text-base text-foreground">Reply</CardTitle>
-                <CardDescription>
-                  Replies here continue the same issue thread.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="pt-0">
+              <CardFooter className="block space-y-3 bg-background/30">
                 <form onSubmit={handleSubmitReply} className="space-y-3">
+                  <div>
+                    <div className="text-sm font-medium text-foreground">Reply</div>
+                    <div className="mt-1 text-sm text-foreground/55">
+                      Replies here continue the same issue thread.
+                    </div>
+                  </div>
                   {replyAttachmentItems.length > 0 ? (
                     <AttachmentList
                       attachments={replyAttachmentItems}
@@ -1108,7 +1117,7 @@ export function IssueDetailPane({
                     <div className="text-sm text-destructive">{replyError}</div>
                   ) : null}
                 </form>
-              </CardContent>
+              </CardFooter>
             </Card>
           </div>
 

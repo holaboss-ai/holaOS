@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import { WorkspaceSurfaceHeader } from "./WorkspaceSurfaceHeader";
 
 const NEW_TEAMMATE_ID = "__new_teammate__";
 
@@ -381,23 +382,20 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
   return (
     <>
       <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(245,118,66,0.06),transparent_26%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_32%)]">
-        <div className="border-b border-border px-6 py-4">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-foreground/35">
-                <span>Agent Team</span>
-                <span className="text-foreground/20">/</span>
-                <span>Teammates</span>
-              </div>
-              <h1 className="mt-2 text-[28px] font-semibold tracking-tight text-foreground">
-                Teammates
-              </h1>
-              <p className="mt-1 max-w-3xl text-sm text-foreground/55">
-                Manage the fixed General teammate plus custom teammates with
-                editable instructions and freeform SKILL.md entries.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
+        <WorkspaceSurfaceHeader
+          icon={<Bot className="size-5 text-foreground/70" />}
+          eyebrow={
+            <>
+              <span>Agent Team</span>
+              <span className="mx-2 text-foreground/20">/</span>
+              <span>Teammates</span>
+            </>
+          }
+          title="Teammates"
+          description="Manage the fixed General teammate plus custom teammates with editable instructions and freeform SKILL.md entries."
+          statusMessage={statusMessage}
+          actions={
+            <>
               <Badge variant="outline" className="h-9 rounded-full bg-card/80 px-3 text-foreground/65">
                 {customActiveCount} custom active
               </Badge>
@@ -442,14 +440,9 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                 <Plus className="size-4" />
                 New teammate
               </Button>
-            </div>
-          </div>
-          {statusMessage ? (
-            <div className="mt-3 rounded-2xl border border-border bg-card/80 px-3 py-2 text-xs text-foreground/65">
-              {statusMessage}
-            </div>
-          ) : null}
-        </div>
+            </>
+          }
+        />
 
         <div className="grid min-h-0 flex-1 grid-cols-[320px_minmax(0,1fr)]">
           <aside className="min-h-0 overflow-y-auto border-r border-border bg-card/25 px-4 py-5">
