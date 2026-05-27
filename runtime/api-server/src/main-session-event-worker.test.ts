@@ -384,7 +384,7 @@ test("main-session event worker inherits the owner main session model and thinki
       cronjob_first_run: true,
       summary: "Done.",
       assistant_text:
-        "<html><body><h1>Full report body</h1><p>This should stay out of the main-session prompt.</p></body></html>",
+        "Full report body: this is the long-form research writeup that should stay out of the main-session prompt when a deliverable artifact is already attached.",
       forwardable_deliverables: [
         {
           output_id: "output-1",
@@ -462,7 +462,129 @@ test("main-session event worker inherits the owner main session model and thinki
   assert.match(String(batchInput?.payload.text), /Fetch latest US news/i);
   assert.match(String(batchInput?.payload.text), /first run/i);
   assert.match(String(batchInput?.payload.text), /done-report\.md/i);
-  assert.doesNotMatch(String(batchInput?.payload.text), /<html>/i);
+  assert.doesNotMatch(String(batchInput?.payload.text), /Full report body:/i);
+
+  store.close();
+});
+
+test("main-session event worker auto-heals session-reset follow-ups by rotating to a fresh coordinator session", async () => {
+  const store = makeStore("hb-main-session-event-worker-session-reset-");
+  const workspace = seedMainSession(store);
+  store.upsertConversationBinding({
+    workspaceId: workspace.id,
+    channel: "desktop",
+    conversationKey: "main_session",
+    role: "main_session",
+    sessionId: "session-main",
+    isActive: true,
+    metadata: {},
+    lastActiveAt: new Date().toISOString(),
+  });
+  const latestUserInput = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: {
+      text: "hello",
+      model: "holaboss_model_proxy/xiaomi/mimo-v2-pro",
+      thinking_value: "medium",
+      context: {},
+    },
+  });
+  store.updateInput({
+    workspaceId: workspace.id,
+    inputId: latestUserInput.inputId,
+    fields: {
+      status: "DONE",
+      claimedBy: null,
+      claimedUntil: null,
+    },
+  });
+  store.createSubagentRun({
+    workspaceId: workspace.id,
+    subagentId: "subagent-1",
+    parentSessionId: "session-main",
+    originMainSessionId: "session-main",
+    ownerMainSessionId: "session-main",
+    childSessionId: "child-session-1",
+    goal: "Fetch latest China news",
+    status: "completed",
+    summary: "Done.",
+  });
+  const event = store.enqueueMainSessionEvent({
+    workspaceId: workspace.id,
+    ownerMainSessionId: "session-main",
+    originMainSessionId: "session-main",
+    subagentId: "subagent-1",
+    eventType: "completed",
+    deliveryBucket: "background_update",
+    payload: {
+      summary: "Done.",
+      delivery_retry: {
+        attempt_count: 1,
+        retry_delay_ms: 0,
+        next_retry_at: new Date().toISOString(),
+        last_attempt_at: new Date().toISOString(),
+        last_stop_reason: "session_reset_required",
+      },
+    },
+  });
+
+  const worker = new RuntimeMainSessionEventWorker({ store });
+  const processed = await worker.processAvailableEventsOnce();
+  const updatedEvent = store.getMainSessionEvent({
+    workspaceId: workspace.id,
+    eventId: event.eventId,
+  });
+  const recoverySessionId = updatedEvent?.ownerMainSessionId ?? null;
+  const recoverySession =
+    recoverySessionId
+      ? store.getSession({
+          workspaceId: workspace.id,
+          sessionId: recoverySessionId,
+        })
+      : null;
+  const conversationBinding = store.getConversationBindingByConversation({
+    workspaceId: workspace.id,
+    channel: "desktop",
+    conversationKey: "main_session",
+    role: "main_session",
+  });
+  const transferredRun = store.getSubagentRun({
+    workspaceId: workspace.id,
+    subagentId: "subagent-1",
+  });
+  const batchInput =
+    updatedEvent?.materializedInputId
+      ? store.getInput({
+          workspaceId: workspace.id,
+          inputId: updatedEvent.materializedInputId,
+        })
+      : null;
+
+  assert.equal(processed, 1);
+  assert.ok(recoverySessionId);
+  assert.notEqual(recoverySessionId, "session-main");
+  assert.equal(recoverySession?.kind, "main_session");
+  assert.equal(recoverySession?.parentSessionId, "session-main");
+  assert.equal(conversationBinding?.sessionId, recoverySessionId);
+  assert.equal(transferredRun?.ownerMainSessionId, recoverySessionId);
+  assert.equal(updatedEvent?.status, "materialized");
+  assert.equal(batchInput?.sessionId, recoverySessionId);
+  assert.equal(
+    batchInput?.payload.model,
+    "holaboss_model_proxy/xiaomi/mimo-v2-pro",
+  );
+  assert.equal(batchInput?.payload.thinking_value, "medium");
+  assert.equal(
+    (updatedEvent?.payload as Record<string, unknown>)?.delivery_retry &&
+      typeof (updatedEvent?.payload as Record<string, unknown>).delivery_retry === "object"
+      ? Number(
+          ((updatedEvent?.payload as Record<string, unknown>).delivery_retry as Record<string, unknown>)
+            .session_reset_recovery_count,
+        )
+      : null,
+    1,
+  );
 
   store.close();
 });

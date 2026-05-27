@@ -37,6 +37,14 @@ const MAIN_SESSION_BINDING_ROLE = "main_session";
 const MAIN_SESSION_CONVERSATION_KEY = "main_session";
 const GENERAL_TEAMMATE_ID = "general";
 const GENERAL_TEAMMATE_NAME = "General";
+const LEGACY_GENERAL_TEAMMATE_INSTRUCTIONS =
+  "General-purpose execution teammate backed by the current subagent runtime.";
+const GENERAL_TEAMMATE_INSTRUCTIONS = [
+  LEGACY_GENERAL_TEAMMATE_INSTRUCTIONS,
+  "For multi-source research, latest-news scans, investigations, comparisons, and other evidence-heavy work, produce a report artifact instead of packing the full findings into the final session message.",
+  "Use `write_report` when available; otherwise save a self-contained HTML report under `outputs/reports/`.",
+  "Keep the final session message to a concise handoff with the key takeaways and the artifact reference.",
+].join("\n\n");
 const GENERAL_TEAMMATE_CAPABILITY_PROFILE: TeammateCapabilityProfileRecord = {
   summary:
     "Fallback executor for general implementation, research, triage, and catch-all delegated work.",
@@ -2149,6 +2157,40 @@ export class RuntimeStateStore {
       )
       .get(workspaceId, GENERAL_TEAMMATE_ID);
     if (existing) {
+      const existingInstructions =
+        typeof existing.instructions === "string" ? existing.instructions.trim() : "";
+      if (
+        !existingInstructions ||
+        existingInstructions === LEGACY_GENERAL_TEAMMATE_INSTRUCTIONS
+      ) {
+        const now = utcNowIso();
+        workspaceDb
+          .prepare(`
+            UPDATE teammates
+            SET instructions = ?, updated_at = ?
+            WHERE workspace_id = ?
+              AND teammate_id = ?
+          `)
+          .run(
+            GENERAL_TEAMMATE_INSTRUCTIONS,
+            now,
+            workspaceId,
+            GENERAL_TEAMMATE_ID,
+          );
+        const refreshed = workspaceDb
+          .prepare<[string, string], Record<string, unknown>>(
+            `
+              SELECT *
+              FROM teammates
+              WHERE workspace_id = ? AND teammate_id = ?
+              LIMIT 1
+            `,
+          )
+          .get(workspaceId, GENERAL_TEAMMATE_ID);
+        if (refreshed) {
+          return this.rowToTeammate(refreshed);
+        }
+      }
       return this.rowToTeammate(existing);
     }
 
@@ -2172,7 +2214,7 @@ export class RuntimeStateStore {
         GENERAL_TEAMMATE_ID,
         workspaceId,
         GENERAL_TEAMMATE_NAME,
-        "General-purpose execution teammate backed by the current subagent runtime.",
+        GENERAL_TEAMMATE_INSTRUCTIONS,
         JSON.stringify(GENERAL_TEAMMATE_CAPABILITY_PROFILE),
         now,
         now,
@@ -2524,6 +2566,10 @@ export class RuntimeStateStore {
       }
     }
 
+    const workspace = this.getWorkspace(params.workspaceId);
+    if (!workspace) {
+      throw new Error(`workspace ${params.workspaceId} not found`);
+    }
     const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
     const nextIssueNumber =
       (
@@ -2535,7 +2581,7 @@ export class RuntimeStateStore {
       ) + 1;
     const issueId =
       this.normalizedNullableText(params.issueId) ??
-      `HOL-${nextIssueNumber}`;
+      `${this.issueIdPrefixForWorkspaceName(workspace.name)}-${nextIssueNumber}`;
     const sessionId =
       this.normalizedNullableText(params.sessionId) ??
       `issue-${randomUUID()}`;
@@ -12013,6 +12059,16 @@ export class RuntimeStateStore {
       WHERE teammate_id = ?
         AND trim(coalesce(capability_profile_json, '')) IN ('', '{}')
     `).run(JSON.stringify(GENERAL_TEAMMATE_CAPABILITY_PROFILE), GENERAL_TEAMMATE_ID);
+    db.prepare(`
+      UPDATE teammates
+      SET instructions = ?
+      WHERE teammate_id = ?
+        AND trim(coalesce(instructions, '')) IN ('', ?)
+    `).run(
+      GENERAL_TEAMMATE_INSTRUCTIONS,
+      GENERAL_TEAMMATE_ID,
+      LEGACY_GENERAL_TEAMMATE_INSTRUCTIONS,
+    );
   }
 
   private migrateTeammateSkillsColumn(db: Database.Database): void {
@@ -14335,6 +14391,14 @@ export class RuntimeStateStore {
       return SUBAGENT_SESSION_KIND;
     }
     return normalized;
+  }
+
+  private issueIdPrefixForWorkspaceName(workspaceName: string | null | undefined): string {
+    const compact = Array.from(this.normalizedNullableText(workspaceName) ?? "")
+      .filter((char) => /[\p{L}\p{N}]/u.test(char))
+      .slice(0, 3)
+      .join("");
+    return (compact || "WRK").toUpperCase();
   }
 
   private normalizedNotificationLevel(value: string | null | undefined): RuntimeNotificationLevel {

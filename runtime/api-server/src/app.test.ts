@@ -6492,11 +6492,12 @@ test("teammate and issue routes preserve local payload shape", async () => {
     }
   });
   assert.equal(createdIssue.statusCode, 200);
-  assert.equal(createdIssue.json().issue.issue_id, "HOL-1");
+  assert.equal(createdIssue.json().issue.issue_id, "WOR-1");
   assert.equal(createdIssue.json().issue.issue_number, 1);
   assert.equal(createdIssue.json().issue.attachments.length, 1);
   assert.ok(createdIssue.json().issue.latest_subagent_id);
   assert.equal(createdIssue.json().session.kind, "subagent");
+  const createdIssueId = createdIssue.json().issue.issue_id as string;
   const issueBinding = store.getBinding({
     workspaceId: workspace.id,
     sessionId: createdIssue.json().session.session_id,
@@ -6530,7 +6531,7 @@ test("teammate and issue routes preserve local payload shape", async () => {
 
   const updatedIssue = await app.inject({
     method: "PATCH",
-    url: "/api/v1/issues/HOL-1",
+    url: `/api/v1/issues/${createdIssueId}`,
     payload: {
       workspace_id: workspace.id,
       status: "blocked",
@@ -6554,7 +6555,7 @@ test("teammate and issue routes preserve local payload shape", async () => {
 
   const fetchedIssue = await app.inject({
     method: "GET",
-    url: `/api/v1/issues/HOL-1?workspace_id=${workspace.id}`
+    url: `/api/v1/issues/${createdIssueId}?workspace_id=${workspace.id}`
   });
   assert.equal(fetchedIssue.statusCode, 200);
   assert.equal(fetchedIssue.json().issue.status, "todo");

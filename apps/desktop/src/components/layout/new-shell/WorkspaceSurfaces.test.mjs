@@ -111,11 +111,12 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
     dashboardPaneSource,
     /const visibleIssues = useMemo\(\s*\(\) => issues\.filter\(\(issue\) => issue\.status !== "backlog"\),/,
   );
-  assert.match(dashboardPaneSource, /Track teammate coverage, active work, and issue flow at a glance\./);
+  assert.match(dashboardPaneSource, /<span>Agent Team<\/span>/);
+  assert.match(dashboardPaneSource, />\s*Dashboard\s*</);
   assert.match(dashboardPaneSource, /Issues by priority/);
   assert.match(dashboardPaneSource, /Issues by status/);
   assert.match(dashboardPaneSource, /Recently updated/);
-  assert.match(dashboardPaneSource, /WorkspaceSurfaceHeader/);
+  assert.doesNotMatch(dashboardPaneSource, /WorkspaceSurfaceHeader/);
 
   assert.match(issueDetailPaneSource, /export function IssueDetailPane/);
   assert.match(issueDetailPaneSource, /chatMessagesFromSessionState/);
@@ -138,6 +139,7 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   assert.match(issueDetailPaneSource, /showExecutionInternals: true,/);
   assert.match(issueDetailPaneSource, /<ConversationTurns[\s\S]*showExecutionInternals/);
   assert.match(issueDetailPaneSource, /liveAssistantTurn=\{/);
+  assert.match(issueDetailPaneSource, /messages\.length > 0 \|\| showLiveAssistantTurn/);
   assert.match(issueDetailPaneSource, /The full run trace will appear here once this issue has execution or replies\./);
   assert.doesNotMatch(issueDetailPaneSource, /getMessageWrapperClassName=\{/);
   assert.match(issueDetailPaneSource, /WorkspaceSurfaceHeader/);
@@ -157,7 +159,7 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   assert.doesNotMatch(teammatesPaneSource, /Creating a new teammate/);
   assert.match(teammatesPaneSource, /ConfirmDialog/);
   assert.match(teammatesPaneSource, /SKILL\.md/);
-  assert.match(teammatesPaneSource, /WorkspaceSurfaceHeader/);
+  assert.doesNotMatch(teammatesPaneSource, /WorkspaceSurfaceHeader/);
 
   assert.match(surfaceHeaderSource, /export function WorkspaceSurfaceHeader/);
   assert.match(surfaceHeaderSource, /statusMessage/);

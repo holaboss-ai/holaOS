@@ -1,10 +1,8 @@
-import { LayoutDashboard, Loader2, MoveRight, TriangleAlert } from "lucide-react";
+import { Loader2, MoveRight, TriangleAlert } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 import { StatusDot } from "@/components/ui/status-dot";
-import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { cn } from "@/lib/utils";
 import { useIssueWorkspaceData } from "./useIssues";
-import { WorkspaceSurfaceHeader } from "./WorkspaceSurfaceHeader";
 
 const PRIORITY_ORDER: IssuePriorityPayload[] = [
   "critical",
@@ -81,7 +79,6 @@ export function WorkspaceDashboardPane({
 }: {
   workspaceId: string;
 }) {
-  const { selectedWorkspace } = useWorkspaceDesktop();
   const { issues, teammatesById, isLoading, statusMessage } =
     useIssueWorkspaceData(workspaceId);
 
@@ -150,23 +147,21 @@ export function WorkspaceDashboardPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(245,118,66,0.08),transparent_30%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.03),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_32%)]">
-      <WorkspaceSurfaceHeader
-        icon={<LayoutDashboard className="size-5 text-foreground/70" />}
-        eyebrow={
-          <>
-            <span>Agent Team</span>
-            <span className="mx-2 text-foreground/20">/</span>
-            <span>Dashboard</span>
-          </>
-        }
-        title={
-          selectedWorkspace?.id === workspaceId
-            ? selectedWorkspace.name
-            : "Workspace overview"
-        }
-        description="Track teammate coverage, active work, and issue flow at a glance."
-        statusMessage={statusMessage}
-      />
+      <div className="border-b border-border px-6 py-3">
+        <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-foreground/35">
+          <span>Agent Team</span>
+          <span className="text-foreground/20">/</span>
+          <span>Dashboard</span>
+        </div>
+      </div>
+
+      {statusMessage ? (
+        <div className="border-b border-border px-6 py-3">
+          <div className="rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground/65">
+            {statusMessage}
+          </div>
+        </div>
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
         {isLoading && issues.length === 0 ? (

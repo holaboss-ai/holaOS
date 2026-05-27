@@ -33,9 +33,7 @@ import { StatusDot } from "@/components/ui/status-dot";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useOpenIssueDetailTab } from "./useOpenIssueDetailTab";
-import { WorkspaceSurfaceHeader } from "./WorkspaceSurfaceHeader";
 
 const NEW_TEAMMATE_ID = "__new_teammate__";
 
@@ -282,7 +280,6 @@ function teammateSummary(teammate: TeammateRecordPayload): string {
 }
 
 export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
-  const { selectedWorkspace } = useWorkspaceDesktop();
   const openIssueDetailTab = useOpenIssueDetailTab();
   const [teammates, setTeammates] = useState<TeammateRecordPayload[]>([]);
   const [issues, setIssues] = useState<IssueRecordPayload[]>([]);
@@ -650,160 +647,129 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
     : isCreating
       ? "New teammate"
       : selectedTeammate?.name || "Teammate";
-  const headerDescription = !showingDetail
-    ? "Manage the fixed General teammate plus custom teammates with editable routing profiles, instructions, and teammate-local filesystem skills."
-    : isCreating
-      ? "Create a teammate the Workspace Manager can route work to using a capability profile, instructions, and teammate-local filesystem skills."
-      : selectedTeammate?.kind === "system"
-        ? "The built-in General teammate stays fixed in v1. You can inspect its routing context here, but not edit it."
-        : "Review current workload, adjust routing cues, and manage teammate-local filesystem skills without leaving the Teammates tab.";
 
   return (
     <>
       <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(245,118,66,0.06),transparent_26%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_32%)]">
-        <WorkspaceSurfaceHeader
-          icon={<Bot className="size-5 text-foreground/70" />}
-          eyebrow={
-            <>
-              <span>Agent Team</span>
-              <span className="mx-2 text-foreground/20">/</span>
-              <span>Teammates</span>
-              {showingDetail ? (
-                <>
-                  <span className="mx-2 text-foreground/20">/</span>
-                  <span>{headerTitle}</span>
-                </>
-              ) : null}
-            </>
-          }
-          title={headerTitle}
-          description={headerDescription}
-          meta={
-            showingDetail && !isCreating && selectedTeammate ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="bg-card/80">
-                  <StatusDot
-                    variant={teammateStatusVariant(selectedTeammate.status)}
-                    className="mr-2"
-                  />
-                  {teammateStatusLabel(selectedTeammate.status)}
-                </Badge>
-                <Badge variant="outline" className="bg-card/80">
-                  {selectedTeammate.kind === "system" ? "System" : "Custom"}
-                </Badge>
-                <Badge variant="outline" className="bg-card/80">
-                  {selectedTeammate.skills.length} skills
-                </Badge>
-                <Badge variant="outline" className="bg-card/80">
-                  {selectedIssueCount} issues
-                </Badge>
-              </div>
-            ) : null
-          }
-          statusMessage={statusMessage}
-          actions={
-            !showingDetail ? (
+        <div className="border-b border-border px-6 py-3">
+          <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-foreground/35">
+            <span>Agent Team</span>
+            <span className="text-foreground/20">/</span>
+            <span>Agents</span>
+            {showingDetail ? (
               <>
-                <Badge
-                  variant="outline"
-                  className="h-9 rounded-full bg-card/80 px-3 text-foreground/65"
-                >
-                  {customActiveCount} custom active
-                </Badge>
-                {showArchived ? (
-                  <Badge
-                    variant="outline"
-                    className="h-9 rounded-full bg-card/80 px-3 text-foreground/65"
-                  >
-                    {archivedCount} archived
-                  </Badge>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-9 rounded-full border-border bg-card/80 px-3 text-foreground/80 hover:bg-card"
-                  onClick={() => void refresh()}
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="size-4" />
-                  )}
-                  Refresh
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={cn(
-                    "h-9 rounded-full border-border px-3",
-                    showArchived ? "bg-foreground/[0.08]" : "bg-card/80",
-                  )}
-                  onClick={() => setShowArchived((current) => !current)}
-                >
-                  {showArchived ? "Hide archived" : "Show archived"}
-                </Button>
-                <Button
-                  type="button"
-                  className="h-9 rounded-full px-4"
-                  onClick={handleStartCreate}
-                >
-                  <Plus className="size-4" />
-                  New teammate
-                </Button>
+                <span className="text-foreground/20">/</span>
+                <span>{headerTitle}</span>
               </>
-            ) : (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-9 rounded-full border-border bg-card/80 px-3 text-foreground/80 hover:bg-card"
-                  onClick={() => void refresh()}
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="size-4" />
-                  )}
-                  Refresh
-                </Button>
-                {selectedTeammate?.status === "archived" ? (
+            ) : null}
+          </div>
+        </div>
+
+        {showingDetail ? (
+          <div className="border-b border-border px-6 py-3">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <>
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => void handleRestore()}
-                    disabled={isSaving || selectedTeammate.kind === "system"}
-                  >
-                    <RotateCcw className="size-4" />
-                    Restore
-                  </Button>
-                ) : null}
-                {!isCreating && selectedTeammate?.kind === "custom" ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setArchiveConfirmOpen(true)}
+                    className="h-9 rounded-xl px-3"
+                    onClick={handleBackToList}
                     disabled={isSaving}
                   >
-                    <Trash2 className="size-4" />
-                    Archive
+                    <ArrowLeft className="size-4" />
+                    Back to teammates
                   </Button>
-                ) : null}
-                {canSave ? (
+                  <div className="inline-flex h-9 items-center rounded-xl border border-border bg-card px-4 text-sm font-medium text-foreground shadow-sm">
+                    {headerTitle}
+                  </div>
+                </>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <>
+                  {selectedTeammate ? (
+                    <>
+                      <Badge variant="outline" className="h-9 rounded-xl bg-background px-3 text-foreground/65">
+                        <StatusDot
+                          variant={teammateStatusVariant(selectedTeammate.status)}
+                          className="mr-2"
+                        />
+                        {teammateStatusLabel(selectedTeammate.status)}
+                      </Badge>
+                      <Badge variant="outline" className="h-9 rounded-xl bg-background px-3 text-foreground/65">
+                        {selectedTeammate.skills.length} skills
+                      </Badge>
+                      <Badge variant="outline" className="h-9 rounded-xl bg-background px-3 text-foreground/65">
+                        {selectedIssueCount} issues
+                      </Badge>
+                    </>
+                  ) : null}
                   <Button
                     type="button"
-                    onClick={() => void handleSave()}
-                    disabled={draftLocked || isSaving}
+                    variant="outline"
+                    className="h-9 rounded-xl px-3"
+                    onClick={() => void refresh()}
+                    disabled={isLoading}
                   >
-                    {isSaving ? <Loader2 className="size-4 animate-spin" /> : null}
-                    {isCreating ? "Create teammate" : "Save changes"}
+                    {isLoading ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="size-4" />
+                    )}
+                    Refresh
                   </Button>
-                ) : null}
-              </>
-            )
-          }
-        />
+                  {selectedTeammate?.status === "archived" ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 rounded-xl px-3"
+                      onClick={() => void handleRestore()}
+                      disabled={isSaving || selectedTeammate.kind === "system"}
+                    >
+                      <RotateCcw className="size-4" />
+                      Restore
+                    </Button>
+                  ) : null}
+                  {!isCreating && selectedTeammate?.kind === "custom" ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 rounded-xl px-3"
+                      onClick={() => setArchiveConfirmOpen(true)}
+                      disabled={isSaving}
+                    >
+                      <Trash2 className="size-4" />
+                      Archive
+                    </Button>
+                  ) : null}
+                  {canSave ? (
+                    <Button
+                      type="button"
+                      className="h-9 rounded-xl px-4"
+                      onClick={() => void handleSave()}
+                      disabled={draftLocked || isSaving}
+                    >
+                      {isSaving ? <Loader2 className="size-4 animate-spin" /> : null}
+                      {isCreating ? "Create teammate" : "Save changes"}
+                    </Button>
+                  ) : null}
+                </>
+              </div>
+            </div>
+            {statusMessage ? (
+              <div className="mt-3 rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground/65">
+                {statusMessage}
+              </div>
+            ) : null}
+          </div>
+        ) : statusMessage ? (
+          <div className="border-b border-border px-6 py-3">
+            <div className="rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground/65">
+              {statusMessage}
+            </div>
+          </div>
+        ) : null}
 
         {!showingDetail ? (
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
@@ -833,10 +799,55 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                         }
                       </Badge>
                     </div>
-                    <div className="text-sm text-foreground/55">
-                      {filteredTeammates.length} of {visibleTeammates.length}
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <div className="text-sm text-foreground/55">
+                        {filteredTeammates.length} of {visibleTeammates.length}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 rounded-xl px-3"
+                        onClick={() => void refresh()}
+                        disabled={isLoading}
+                      >
+                        {isLoading ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="size-4" />
+                        )}
+                        Refresh
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={cn(
+                          "h-9 rounded-xl px-3",
+                          showArchived ? "bg-card" : "",
+                        )}
+                        onClick={() => setShowArchived((current) => !current)}
+                      >
+                        {showArchived ? "Hide archived" : "Show archived"}
+                      </Button>
+                      <Button
+                        type="button"
+                        className="h-9 rounded-xl px-4"
+                        onClick={handleStartCreate}
+                      >
+                        <Plus className="size-4" />
+                        New teammate
+                      </Button>
                     </div>
                   </div>
+                  {showArchived ? (
+                    <div className="border-b border-border px-5 py-3">
+                      <Badge
+                        variant="outline"
+                        className="h-8 rounded-xl bg-background px-3 text-foreground/65"
+                      >
+                        {archivedCount} archived
+                      </Badge>
+                    </div>
+                  ) : null}
 
                   <div className="grid grid-cols-[minmax(0,1.6fr)_160px_170px_140px_120px] gap-4 border-b border-border px-5 py-3 text-[11px] font-medium uppercase tracking-[0.18em] text-foreground/38">
                     <div>Agent</div>
@@ -921,16 +932,6 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <div className="mx-auto max-w-7xl">
-              <Button
-                type="button"
-                variant="ghost"
-                className="mb-4 h-9 rounded-full px-3 text-foreground/68"
-                onClick={handleBackToList}
-              >
-                <ArrowLeft className="size-4" />
-                Back to teammates
-              </Button>
-
               <div className="grid items-start gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
                 <aside className="space-y-4">
                   <Card className="overflow-hidden bg-card/85">
@@ -1113,7 +1114,7 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                                     >
                                       <div className="min-w-0">
                                         <div className="truncate text-sm font-medium text-foreground">
-                                          HOL-{issue.issue_number} · {issue.title}
+                                          {issue.issue_id} · {issue.title}
                                         </div>
                                         <div className="mt-1 text-sm text-foreground/48">
                                           Updated {relativeTimeLabel(issue.updated_at)}
@@ -1163,7 +1164,7 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                                     >
                                       <div className="min-w-0">
                                         <div className="truncate text-sm font-medium text-foreground">
-                                          HOL-{issue.issue_number} · {issue.title}
+                                          {issue.issue_id} · {issue.title}
                                         </div>
                                         <div className="mt-1 text-sm text-foreground/48">
                                           {issueStatusLabel(issue.status)} · Updated{" "}
@@ -1217,7 +1218,7 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                                   >
                                     <div className="min-w-0">
                                       <div className="truncate text-sm font-medium text-foreground">
-                                        HOL-{issue.issue_number} · {issue.title}
+                                        {issue.issue_id} · {issue.title}
                                       </div>
                                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-foreground/48">
                                         <span>{issueStatusLabel(issue.status)}</span>

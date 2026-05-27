@@ -1619,11 +1619,11 @@ export function IssueDetailPane({
                     </div>
                   ) : null}
 
-                  {isHistoryLoading && messages.length === 0 ? (
+                  {isHistoryLoading && messages.length === 0 && !showLiveAssistantTurn ? (
                     <div className="grid h-24 place-items-center rounded-xl border border-border bg-background/45">
                       <Loader2 className="size-5 animate-spin text-foreground/35" />
                     </div>
-                  ) : messages.length > 0 ? (
+                  ) : messages.length > 0 || showLiveAssistantTurn ? (
                     <ConversationTurns
                       messages={messages}
                       assistantLabel={assignee?.name || "Assigned teammate"}

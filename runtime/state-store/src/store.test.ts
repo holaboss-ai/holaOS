@@ -3847,7 +3847,7 @@ test("task proposal acceptance fields and child session metadata round trip", ()
   reopened.close();
 });
 
-test("issues round trip creates persistent sessions and stable HOL numbering", () => {
+test("issues round trip creates persistent sessions with a workspace-derived prefix", () => {
   const root = makeTempDir("hb-state-store-issues-");
   const store = new RuntimeStateStore({
     dbPath: path.join(root, "runtime.db"),
@@ -3903,12 +3903,12 @@ test("issues round trip creates persistent sessions and stable HOL numbering", (
     sessionId: first.sessionId,
   });
 
-  assert.equal(first.issueId, "HOL-1");
+  assert.equal(first.issueId, "ISS-1");
   assert.equal(first.issueNumber, 1);
   assert.equal(first.status, "todo");
   assert.equal(first.priority, "high");
   assert.equal(first.attachments.length, 1);
-  assert.equal(second.issueId, "HOL-2");
+  assert.equal(second.issueId, "ISS-2");
   assert.equal(second.issueNumber, 2);
   assert.equal(listed.length, 2);
   assert.equal(fetchedBySession?.issueId, first.issueId);
@@ -4018,6 +4018,10 @@ test("teammate capability profiles persist and update cleanly", () => {
   });
 
   assert.match(general.capabilityProfile.summary ?? "", /Fallback executor/i);
+  assert.match(
+    general.instructions ?? "",
+    /produce a report artifact instead of packing the full findings into the final session message/i,
+  );
   assert.deepEqual(general.capabilityProfile.capabilities, [
     "generalist",
     "implementation",
