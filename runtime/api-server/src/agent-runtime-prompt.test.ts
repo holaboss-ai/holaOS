@@ -971,8 +971,7 @@ test("composeAgentPrompt gives workspace onboarding its own design-lab prompt", 
   assert.match(prompt.systemPrompt, /workspace onboarding design lab controller/);
   assert.match(prompt.systemPrompt, /user-facing architect and builder/);
   assert.match(prompt.systemPrompt, /cronjobs or recurring work/);
-  assert.match(prompt.systemPrompt, /apps to install/);
-  assert.match(prompt.systemPrompt, /custom apps to create/);
+  assert.match(prompt.systemPrompt, /small app builds or slices to implement/);
   assert.match(prompt.systemPrompt, /workspace file and folder organization/);
   assert.match(prompt.systemPrompt, /skills or repeatable workflows/);
   assert.match(prompt.systemPrompt, /AI manager personality and behavior/);
@@ -985,7 +984,9 @@ test("composeAgentPrompt gives workspace onboarding its own design-lab prompt", 
   assert.match(prompt.systemPrompt, /holaboss_create_alignment_question/);
   assert.match(prompt.systemPrompt, /closed choices/);
   assert.match(prompt.systemPrompt, /inline answer card/);
-  assert.match(prompt.systemPrompt, /Include a human-readable `markdown` body in the report for the review card/);
+  assert.match(prompt.systemPrompt, /non-empty `summary` and `markdown` fields/);
+  assert.match(prompt.systemPrompt, /`workspace_structure`, `app_builds`, `skills`, `cronjobs`, `ai_manager_behavior`, `open_questions`, and `implementation_notes`/);
+  assert.match(prompt.systemPrompt, /thin first pass instead of a full product spec/);
   assert.match(prompt.systemPrompt, /waiting for implementation results before moving to verification/);
   assert.match(prompt.systemPrompt, /verification report/);
   assert.match(prompt.systemPrompt, /including a concise human-readable `markdown` body/);

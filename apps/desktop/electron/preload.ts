@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { OnboardingAlignmentReport } from "../../../shared/onboarding-contract.js";
 import {
   BFF_FETCH_CHANNEL,
   type BffFetchRequest,
@@ -421,7 +422,7 @@ interface WorkspaceRecordPayload {
   onboarding_state?: string | null;
   onboarding_session_id: string | null;
   alignment_question?: Record<string, unknown> | null;
-  alignment_report?: Record<string, unknown> | null;
+  alignment_report?: OnboardingAlignmentReport | null;
   verification_report?: Record<string, unknown> | null;
   onboarding_completed_at: string | null;
   onboarding_completion_summary: string | null;
@@ -459,7 +460,7 @@ interface WorkspaceOnboardingStatusPayload {
   onboarding_status: string;
   onboarding_state: string | null;
   alignment_question: Record<string, unknown> | null;
-  alignment_report: Record<string, unknown> | null;
+  alignment_report: OnboardingAlignmentReport | null;
   verification_report: Record<string, unknown> | null;
   onboarding_completed_at: string | null;
   onboarding_completion_summary: string | null;

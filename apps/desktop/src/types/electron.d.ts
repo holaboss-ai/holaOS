@@ -533,7 +533,7 @@ interface RuntimeNotificationListOptionsPayload {
     onboarding_state?: string | null;
     onboarding_session_id: string | null;
     alignment_question?: Record<string, unknown> | null;
-    alignment_report?: Record<string, unknown> | null;
+    alignment_report?: import("../../../../shared/onboarding-contract").OnboardingAlignmentReport | null;
     verification_report?: Record<string, unknown> | null;
     onboarding_completed_at: string | null;
     onboarding_completion_summary: string | null;
@@ -575,7 +575,7 @@ interface RuntimeNotificationListOptionsPayload {
     onboarding_status: string;
     onboarding_state: string | null;
     alignment_question: Record<string, unknown> | null;
-    alignment_report: Record<string, unknown> | null;
+    alignment_report: import("../../../../shared/onboarding-contract").OnboardingAlignmentReport | null;
     verification_report: Record<string, unknown> | null;
     onboarding_completed_at: string | null;
     onboarding_completion_summary: string | null;

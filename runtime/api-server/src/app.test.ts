@@ -1113,12 +1113,10 @@ test.skip("workspace onboarding runtime tools persist alignment and verification
             "# Alignment report",
             "",
             "- Set up a lightweight CRM workspace",
-            "- Install Notion",
-            "- Create a deal tracker app",
+            "- Build a thin deal tracker first",
           ].join("\n"),
           summary: "Set up a lightweight CRM workspace",
-          apps_to_install: ["notion"],
-          apps_to_create: ["deal-tracker"],
+          app_builds: ["deal-tracker"],
         },
       },
     });
@@ -1132,14 +1130,32 @@ test.skip("workspace onboarding runtime tools persist alignment and verification
       "Set up a lightweight CRM workspace",
     );
     assert.equal(
+      alignment.json().alignment_report.report_type,
+      "onboarding_alignment_report",
+    );
+    assert.equal(
+      alignment.json().alignment_report.schema_version,
+      1,
+    );
+    assert.equal(
       alignment.json().alignment_report.markdown,
       [
         "# Alignment report",
         "",
         "- Set up a lightweight CRM workspace",
-        "- Install Notion",
-        "- Create a deal tracker app",
+        "- Build a thin deal tracker first",
       ].join("\n"),
+    );
+    assert.deepEqual(
+      alignment.json().alignment_report.app_builds,
+      [
+        {
+          app_id: "deal-tracker",
+          summary: null,
+          starter_scope: [],
+          notes: [],
+        },
+      ],
     );
 
     const implementing = await app.inject({

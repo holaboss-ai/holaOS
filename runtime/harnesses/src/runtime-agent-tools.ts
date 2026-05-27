@@ -7,7 +7,7 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
   {
     id: "holaboss_create_alignment_report",
     description:
-      "Persist the current onboarding alignment report for the current workspace and move the controller into alignment review.",
+      "Persist the current onboarding alignment report for the current workspace and move the controller into alignment review. The report must include non-empty `summary` and `markdown` fields plus structured onboarding planning fields.",
     policy: "mutate"
   },
   {

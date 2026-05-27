@@ -17,5 +17,5 @@
     },
     "types": ["vite/client", "node"]
   },
-  "include": ["src", "electron", "shared", "vite.config.ts", "tailwind.config.ts"]
+  "include": ["src", "electron", "shared", "../../shared/**/*.ts", "vite.config.ts", "tailwind.config.ts"]
 }

@@ -327,8 +327,7 @@ function normalizeErrorMessage(error: unknown) {
 }
 
 const ONBOARDING_REPORT_FIELD_LABELS: Record<string, string> = {
-  apps_to_install: "Apps to install",
-  apps_to_create: "Apps to create",
+  app_builds: "App builds",
   cronjobs: "Cronjobs",
   workspace_structure: "Workspace structure",
   skills: "Skills",

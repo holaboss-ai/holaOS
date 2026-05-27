@@ -44,6 +44,17 @@ import {
   makeWorkspacesMethods,
   type WorkspacesMethods,
 } from "./methods/workspaces";
+export type {
+  CreateWorkspaceBody,
+  DeleteWorkspaceOptions,
+  ListWorkspacesParams,
+  UpdateWorkspaceBody,
+  WorkspaceListResponse,
+  WorkspaceRecord,
+  WorkspaceResponse,
+  WorkspacesMethods,
+} from "./methods/workspaces";
+export type { OnboardingAlignmentReport } from "../../../shared/onboarding-contract.js";
 
 export type {
   RequestFn,

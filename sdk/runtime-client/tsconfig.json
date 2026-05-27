@@ -12,12 +12,11 @@
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "dist",
-    "rootDir": "src",
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node"]
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "../../shared/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }
