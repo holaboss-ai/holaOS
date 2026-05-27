@@ -202,14 +202,16 @@ Notes:
 Desktop validation and desktop release packaging now share the single `.github/workflows/ci.yml` workflow, whose display name is `CI`.
 
 On pull requests and pushes to `main`, `CI` runs the normal validation jobs only. On manual dispatch, that same workflow:
+- calls `.github/workflows/publish-linux-runtime.yml` to build the backend-consumed Linux runtime bundle and stage it for the final release publish
 - checks out the requested `ref`
 - creates the requested GitHub release in `holaboss-ai/holaOS-releases`
+- attaches the Linux runtime bundle, manifest, and checksum to that same `holaboss-ai/holaOS-releases` tag
 - builds the signed and notarized macOS app, then uploads the DMG, ZIP, blockmaps, and `latest-mac.yml`
 - builds the signed Windows NSIS installer, then uploads the installer, blockmap, and channel manifest
 
 Release channel policy:
-- there are no standalone runtime-only GitHub releases anymore
-- desktop releases do not publish standalone runtime tarballs
+- the Linux runtime bundle is published separately for Sprite-backed sandbox consumers
+- desktop releases still do not attach standalone runtime tarballs to `holaboss-ai/holaOS-releases`
 - desktop-shippable releases publish to `holaboss-ai/holaOS-releases`
 - the in-app desktop updater is still intended to track desktop releases, not arbitrary runtime assets
 
