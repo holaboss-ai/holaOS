@@ -57,7 +57,9 @@ test("new shell issue creation dialog stages attachments, creates issues, and op
     /assignee_teammate_id: assigneeTeammateId \|\| null,/,
   );
 
-  assert.match(boardPaneSource, /Kanban Board/);
+  assert.match(boardPaneSource, />\s*All\s*</);
+  assert.match(boardPaneSource, />\s*Members\s*</);
+  assert.match(boardPaneSource, />\s*Agents\s*</);
   assert.match(boardPaneSource, /onClick=\{\(\) => setNewIssueOpen\(true\)\}/);
   assert.doesNotMatch(searchDialogSource, /label="New issue"/);
   assert.doesNotMatch(sidebarSource, /function SidebarNewIssueAction\(\) \{/);

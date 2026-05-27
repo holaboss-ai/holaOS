@@ -5972,7 +5972,7 @@ test("outputs, folders, and artifacts routes preserve local payload shape", asyn
   store.close();
 });
 
-test("cronjobs, task proposals, and session state routes preserve local payload shape", async () => {
+test("cronjobs and session state routes preserve local payload shape", async () => {
   const root = makeTempDir("hb-runtime-api-");
   const store = new RuntimeStateStore({
     dbPath: path.join(root, "runtime.db"),
@@ -6108,47 +6108,6 @@ test("cronjobs, task proposals, and session state routes preserve local payload 
   assert.equal(updatedNotification.json().state, "read");
   assert.ok(updatedNotification.json().read_at);
 
-  const createdProposal = await app.inject({
-    method: "POST",
-    url: "/api/v1/task-proposals",
-    payload: {
-      proposal_id: "proposal-1",
-      workspace_id: workspace.id,
-      task_name: "Follow up",
-      task_prompt: "Write a follow-up message",
-      task_generation_rationale: "User has not replied",
-      source_event_ids: ["evt-1"],
-      created_at: new Date().toISOString()
-    }
-  });
-  assert.equal(createdProposal.statusCode, 200);
-  assert.equal(createdProposal.json().proposal.proposal_source, "proactive");
-
-  const listedProposals = await app.inject({
-    method: "GET",
-    url: `/api/v1/task-proposals?workspace_id=${workspace.id}`
-  });
-  const unreviewed = await app.inject({
-    method: "GET",
-    url: `/api/v1/task-proposals/unreviewed?workspace_id=${workspace.id}`
-  });
-  const updatedProposal = await app.inject({
-    method: "PATCH",
-    url: "/api/v1/task-proposals/proposal-1",
-    payload: {
-      workspace_id: workspace.id,
-      state: "accepted"
-    }
-  });
-
-  assert.equal(listedProposals.statusCode, 200);
-  assert.equal(listedProposals.json().count, 1);
-  assert.equal(unreviewed.statusCode, 200);
-  assert.equal(unreviewed.json().count, 1);
-  assert.equal(updatedProposal.statusCode, 200);
-  assert.equal(updatedProposal.json().proposal.state, "accepted");
-  assert.equal(updatedProposal.json().proposal.proposal_source, "proactive");
-
   await app.close();
   store.close();
 });
@@ -6178,6 +6137,11 @@ test("teammate and issue routes preserve local payload shape", async () => {
       workspace_id: workspace.id,
       name: "Coder",
       instructions: "Own implementation tasks.",
+      capability_profile: {
+        summary: "Best for implementation, refactors, and shipping code changes.",
+        capabilities: ["implementation", "frontend", "react"],
+        preferred_tools: ["edit", "bash"],
+      },
       skills: [
         {
           skill_id: "skill-1",
@@ -6190,6 +6154,14 @@ test("teammate and issue routes preserve local payload shape", async () => {
   assert.equal(createdTeammate.statusCode, 200);
   assert.equal(createdTeammate.json().teammate.name, "Coder");
   assert.equal(createdTeammate.json().teammate.skills.length, 1);
+  assert.equal(
+    createdTeammate.json().teammate.capability_profile.summary,
+    "Best for implementation, refactors, and shipping code changes.",
+  );
+  assert.deepEqual(
+    createdTeammate.json().teammate.capability_profile.preferred_tools,
+    ["edit", "bash"],
+  );
 
   const listedTeammates = await app.inject({
     method: "GET",
@@ -6198,6 +6170,10 @@ test("teammate and issue routes preserve local payload shape", async () => {
   assert.equal(listedTeammates.statusCode, 200);
   assert.equal(listedTeammates.json().count, 2);
   assert.equal(listedTeammates.json().teammates[0]?.teammate_id, "general");
+  assert.match(
+    listedTeammates.json().teammates[0]?.capability_profile.summary ?? "",
+    /Fallback executor/i,
+  );
 
   const createdIssue = await app.inject({
     method: "POST",
@@ -9397,347 +9373,6 @@ test("runtime api server starts and closes the main-session event worker", async
   await app.close();
 
   assert.equal(closed, 1);
-  store.close();
-});
-
-test("accept task proposal creates a hidden subagent run with queued work", async () => {
-  const root = makeTempDir("hb-runtime-api-task-proposal-");
-  writeRuntimeConfig(root, {
-    runtime: {
-      default_model: "openai/gpt-5.4",
-    },
-  });
-  const store = new RuntimeStateStore({
-    dbPath: path.join(root, "runtime.db"),
-    workspaceRoot: path.join(root, "workspace")
-  });
-  let wakeCount = 0;
-  const app = buildRuntimeApiServer({
-    store,
-    queueWorker: {
-      async start() {},
-      async close() {},
-      wake() {
-        wakeCount += 1;
-      }
-    },
-    cronWorker: null,
-    bridgeWorker: null
-  });
-
-  const workspace = store.createWorkspace({
-    workspaceId: "workspace-1",
-    name: "Workspace 1",
-    harness: "pi",
-    status: "active",
-  });
-  store.upsertBinding({
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    harness: "pi",
-    harnessSessionId: "session-main"
-  });
-  store.createTaskProposal({
-    proposalId: "proposal-1",
-    workspaceId: workspace.id,
-    taskName: "Follow up",
-    taskPrompt: "Write a follow-up message",
-    taskGenerationRationale: "User has not replied",
-    sourceEventIds: ["evt-1"],
-    createdAt: "2026-01-01T00:00:00+00:00"
-  });
-
-  const response = await app.inject({
-    method: "POST",
-    url: "/api/v1/task-proposals/proposal-1/accept",
-    payload: {
-      workspace_id: workspace.id,
-      parent_session_id: "session-main",
-      task_name: "Follow up",
-      task_prompt: "Write the follow-up and send a reminder",
-      model: "openai/gpt-5.2",
-      priority: 2,
-      created_by: "workspace_user"
-    }
-  });
-
-  assert.equal(response.statusCode, 200);
-  const body = response.json();
-  assert.equal(body.proposal.state, "accepted");
-  assert.equal(body.proposal.proposal_source, "proactive");
-  assert.equal(body.proposal.accepted_input_id, body.input.input_id);
-  assert.equal(body.proposal.accepted_session_id, body.session.session_id);
-  assert.equal(body.issue.issue_id, "HOL-1");
-  assert.equal(body.issue.session_id, body.session.session_id);
-  assert.equal(body.issue.status, "todo");
-  assert.equal(body.issue.assignee_teammate_id, "general");
-  assert.equal(body.issue.description, "Write the follow-up and send a reminder");
-  assert.equal(body.session.kind, "subagent");
-  assert.equal(body.session.parent_session_id, "session-main");
-  assert.equal(body.session.source_proposal_id, "proposal-1");
-  assert.equal(body.session.title, "Follow up");
-  assert.equal(body.input.session_id, body.session.session_id);
-  assert.equal(body.input.status, "QUEUED");
-  assert.equal(wakeCount, 1);
-
-  const childBinding = store.getBinding({ workspaceId: workspace.id, sessionId: body.session.session_id });
-  assert.ok(childBinding);
-  assert.equal(childBinding.harness, "pi");
-  assert.equal(childBinding.harnessSessionId, body.session.session_id);
-
-  const childRuntimeState = store.getRuntimeState({
-    workspaceId: workspace.id,
-    sessionId: body.session.session_id
-  });
-  assert.ok(childRuntimeState);
-  assert.equal(childRuntimeState.status, "QUEUED");
-  assert.equal(childRuntimeState.currentInputId, body.input.input_id);
-
-  const childInput = store.getInput({ workspaceId: workspace.id, inputId: body.input.input_id });
-  assert.ok(childInput);
-  assert.equal(childInput.sessionId, body.session.session_id);
-  assert.equal(childInput.priority, 2);
-  assert.equal(childInput.payload.text, "Write the follow-up and send a reminder");
-  assert.equal(childInput.payload.model, "openai/gpt-5.2");
-  const childContext = childInput.payload.context as Record<string, unknown>;
-  assert.deepEqual(childContext, {
-    source: "task_proposal",
-    source_type: "task_proposal",
-    proposal_id: "proposal-1",
-    proposal_source: "proactive",
-    subagent_id: childContext.subagent_id,
-    issue_id: "HOL-1",
-    teammate_id: "general",
-    parent_session_id: "session-main",
-    origin_main_session_id: "session-main",
-    owner_main_session_id: "session-main",
-    task_title: "Follow up",
-    goal: "Write the follow-up and send a reminder",
-    evolve_candidate: null,
-  });
-  const subagentRun = store.getSubagentRun({
-    workspaceId: workspace.id,
-    subagentId: String(childContext.subagent_id),
-  });
-  assert.ok(subagentRun);
-  assert.equal(subagentRun?.childSessionId, body.session.session_id);
-  assert.equal(subagentRun?.issueId, "HOL-1");
-  assert.equal(subagentRun?.teammateId, "general");
-  assert.equal(subagentRun?.proposalId, "proposal-1");
-  assert.equal(subagentRun?.sourceType, "task_proposal");
-  assert.equal(subagentRun?.status, "queued");
-  assert.equal(subagentRun?.requestedModel, "openai/gpt-5.2");
-  assert.equal(subagentRun?.effectiveModel, "openai/gpt-5.2");
-
-  const childHistory = store.listSessionMessages({
-    workspaceId: workspace.id,
-    sessionId: body.session.session_id
-  });
-  assert.equal(childHistory.length, 0);
-
-  const secondAccept = await app.inject({
-    method: "POST",
-    url: "/api/v1/task-proposals/proposal-1/accept",
-    payload: {
-      workspace_id: workspace.id
-    }
-  });
-  assert.equal(secondAccept.statusCode, 409);
-
-  await app.close();
-  store.close();
-});
-
-test("accepting and dismissing evolve task proposals updates linked skill candidates", async () => {
-  const root = makeTempDir("hb-runtime-api-evolve-task-proposal-");
-  const store = new RuntimeStateStore({
-    dbPath: path.join(root, "runtime.db"),
-    workspaceRoot: path.join(root, "workspace")
-  });
-  const memoryService = new FilesystemMemoryService({ workspaceRoot: store.workspaceRoot });
-  const workspace = store.createWorkspace({
-    workspaceId: "workspace-1",
-    name: "Workspace 1",
-    harness: "pi",
-    status: "active",
-  });
-  store.ensureSession({
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    kind: "main_session",
-    title: "Main"
-  });
-  store.upsertBinding({
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    harness: "pi",
-    harnessSessionId: "session-main"
-  });
-  store.createEvolveSkillCandidate({
-    candidateId: "evolve-skill-input-10",
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    inputId: "input-10",
-    kind: "skill_create",
-    status: "proposed",
-    taskProposalId: "evolve-proposal-1",
-    title: "Release verification skill",
-    summary: "Reusable release verification workflow.",
-    slug: "release-verification",
-    skillPath: `workspace/${workspace.id}/evolve/skills/evolve-skill-input-10/SKILL.md`,
-    contentFingerprint: "fp-1",
-    sourceTurnInputIds: ["input-10"],
-    proposedAt: "2026-04-10T00:00:00.000Z",
-  });
-  await memoryService.upsert({
-    workspace_id: workspace.id,
-    path: `workspace/${workspace.id}/evolve/skills/evolve-skill-input-10/SKILL.md`,
-    content: [
-      "---",
-      "name: release-verification",
-      "description: Reusable release verification workflow.",
-      "---",
-      "# Release verification skill",
-      "",
-      "## Workflow",
-      "1. Run verification checks.",
-    ].join("\n"),
-  });
-  store.createTaskProposal({
-    proposalId: "evolve-proposal-1",
-    workspaceId: workspace.id,
-    taskName: "Review new reusable skill: Release verification skill",
-    taskPrompt: "Review and promote the candidate skill.",
-    taskGenerationRationale: "Evolve detected a reusable workflow.",
-    proposalSource: "evolve",
-    sourceEventIds: ["input-10"],
-    createdAt: "2026-04-10T00:00:00.000Z"
-  });
-  store.createTaskProposal({
-    proposalId: "evolve-proposal-2",
-    workspaceId: workspace.id,
-    taskName: "Dismiss me",
-    taskPrompt: "Dismiss evolve candidate.",
-    taskGenerationRationale: "Evolve needs a user decision.",
-    proposalSource: "evolve",
-    sourceEventIds: ["input-11"],
-    createdAt: "2026-04-10T00:01:00.000Z"
-  });
-  store.createEvolveSkillCandidate({
-    candidateId: "evolve-skill-input-11",
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    inputId: "input-11",
-    kind: "skill_create",
-    status: "proposed",
-    taskProposalId: "evolve-proposal-2",
-    title: "Deploy status check skill",
-    summary: "Reusable deploy status verification workflow.",
-    slug: "deploy-status-check",
-    skillPath: `workspace/${workspace.id}/evolve/skills/evolve-skill-input-11/SKILL.md`,
-    contentFingerprint: "fp-2",
-    sourceTurnInputIds: ["input-11"],
-    proposedAt: "2026-04-10T00:01:00.000Z",
-  });
-
-  let wakeCount = 0;
-  const app = buildTestRuntimeApiServer({
-    store,
-    memoryService,
-    queueWorker: {
-      async start() {},
-      wake() {
-        wakeCount += 1;
-      },
-      async close() {},
-    }
-  });
-
-  const accepted = await app.inject({
-    method: "POST",
-    url: "/api/v1/task-proposals/evolve-proposal-1/accept",
-    payload: {
-      workspace_id: workspace.id,
-      parent_session_id: "session-main",
-      created_by: "workspace_user"
-    }
-  });
-  assert.equal(accepted.statusCode, 200);
-  const acceptedBody = accepted.json();
-  assert.equal(acceptedBody.proposal.proposal_source, "evolve");
-  assert.equal(acceptedBody.issue.assignee_teammate_id, "general");
-  assert.equal(acceptedBody.session.kind, "subagent");
-  const acceptedInput = store.getInput({ workspaceId: workspace.id, inputId: acceptedBody.input.input_id });
-  assert.ok(acceptedInput);
-  const acceptedContext = acceptedInput.payload.context as Record<string, unknown>;
-  assert.deepEqual(acceptedContext, {
-    source: "task_proposal",
-    source_type: "task_proposal",
-    proposal_id: "evolve-proposal-1",
-    proposal_source: "evolve",
-    subagent_id: acceptedContext.subagent_id,
-    issue_id: acceptedBody.issue.issue_id,
-    teammate_id: "general",
-    parent_session_id: "session-main",
-    origin_main_session_id: "session-main",
-    owner_main_session_id: "session-main",
-    task_title: "Review new reusable skill: Release verification skill",
-    goal: "Review and promote the candidate skill.",
-    evolve_candidate: {
-      candidate_id: "evolve-skill-input-10",
-      kind: "skill_create",
-      title: "Release verification skill",
-      summary: "Reusable release verification workflow.",
-      slug: "release-verification",
-      skill_path: `workspace/${workspace.id}/evolve/skills/evolve-skill-input-10/SKILL.md`,
-      target_skill_path: "skills/release-verification/SKILL.md",
-      skill_markdown: [
-        "---",
-        "name: release-verification",
-        "description: Reusable release verification workflow.",
-        "---",
-        "# Release verification skill",
-        "",
-        "## Workflow",
-        "1. Run verification checks.",
-      ].join("\n"),
-      task_proposal_id: "evolve-proposal-1",
-    },
-  });
-  assert.equal(
-    store.getEvolveSkillCandidate({
-      workspaceId: "workspace-1",
-      candidateId: "evolve-skill-input-10"
-    })?.status,
-    "accepted"
-  );
-  assert.equal(wakeCount, 1);
-
-  const dismissed = await app.inject({
-    method: "PATCH",
-    url: "/api/v1/task-proposals/evolve-proposal-2",
-    payload: {
-      workspace_id: workspace.id,
-      state: "dismissed"
-    }
-  });
-  assert.equal(dismissed.statusCode, 200);
-  assert.equal(dismissed.json().proposal.proposal_source, "evolve");
-  assert.equal(
-    store.getEvolveSkillCandidate({
-      workspaceId: "workspace-1",
-      candidateId: "evolve-skill-input-11"
-    })?.status,
-    "dismissed"
-  );
-  assert.ok(
-    store.getEvolveSkillCandidate({
-      workspaceId: "workspace-1",
-      candidateId: "evolve-skill-input-11"
-    })?.dismissedAt
-  );
-
-  await app.close();
   store.close();
 });
 

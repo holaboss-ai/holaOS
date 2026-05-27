@@ -79,6 +79,7 @@ import {
   formatDashboardUiLintError,
   inspectDashboardUiUsage,
 } from "./workspace-app-ui-lint.js";
+import { selectDelegatedTaskTeammateByCapability } from "./teammate-routing.js";
 const SESSION_REFRESH_NOTE =
   "New MCP servers became available in this turn. Their tools will be visible to you starting from the next user message — please end this turn (do not call the new tools yet) and let the user trigger the next one.";
 
@@ -1870,17 +1871,6 @@ function delegatedIssueDescription(task: RuntimeAgentToolsDelegateTaskItem): str
     return goal;
   }
   return `${goal}\n\nContext:\n${context}`;
-}
-
-function issueRoutingTokens(value: string | null | undefined): string[] {
-  if (typeof value !== "string") {
-    return [];
-  }
-  return value
-    .toLowerCase()
-    .split(/[^a-z0-9]+/g)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 3);
 }
 
 function quotedSkillIdsFromInstruction(value: unknown): string[] {
@@ -5380,51 +5370,19 @@ export class RuntimeAgentToolsService {
     tools?: string[] | null;
   }): TeammateRecord {
     const general = this.store.ensureGeneralTeammate(params.workspaceId);
-    const teammates = this.store
-      .listTeammates({ workspaceId: params.workspaceId })
-      .filter((teammate) => teammate.status === "active");
-    const queryTokens = new Set(
-      [
-        ...issueRoutingTokens(params.title),
-        ...issueRoutingTokens(params.goal),
-        ...issueRoutingTokens(params.context ?? null),
-        ...normalizedStringList(params.tools).flatMap((tool) => issueRoutingTokens(tool)),
-      ],
-    );
-    if (queryTokens.size === 0) {
-      return general;
-    }
-    const queryText = `${params.title}\n${params.goal}\n${params.context ?? ""}`.toLowerCase();
-    let bestTeammate = general;
-    let bestScore = 0;
-    for (const teammate of teammates) {
-      if (teammate.teammateId === general.teammateId) {
-        continue;
-      }
-      let score = 0;
-      const name = normalizedString(teammate.name).toLowerCase();
-      if (name && queryText.includes(name)) {
-        score += 8;
-      }
-      const corpusTokens = new Set([
-        ...issueRoutingTokens(teammate.name),
-        ...issueRoutingTokens(teammate.instructions),
-        ...teammate.skills.flatMap((skill) => [
-          ...issueRoutingTokens(skill.name),
-          ...issueRoutingTokens(skill.content),
-        ]),
-      ]);
-      for (const token of queryTokens) {
-        if (corpusTokens.has(token)) {
-          score += 1;
-        }
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        bestTeammate = teammate;
-      }
-    }
-    return bestTeammate;
+    const teammates = this.store.listTeammates({
+      workspaceId: params.workspaceId,
+    });
+    return selectDelegatedTaskTeammateByCapability({
+      general,
+      teammates,
+      query: {
+        title: params.title,
+        goal: params.goal,
+        context: params.context ?? null,
+        tools: normalizedStringList(params.tools),
+      },
+    });
   }
 
   private issueBlockerReasonFromState(state: SyncedSubagentRunState): string | null {

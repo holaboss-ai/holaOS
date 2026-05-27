@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Activity,
+  ArrowLeft,
   Bot,
   FileCode2,
+  ListTodo,
   Loader2,
   Plus,
   RefreshCw,
   RotateCcw,
+  ScrollText,
+  Search,
   ShieldCheck,
   Trash2,
   UserRound,
@@ -23,12 +28,17 @@ import {
 } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
+import { StatusDot } from "@/components/ui/status-dot";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import { useOpenIssueDetailTab } from "./useOpenIssueDetailTab";
 import { WorkspaceSurfaceHeader } from "./WorkspaceSurfaceHeader";
 
 const NEW_TEAMMATE_ID = "__new_teammate__";
+
+type DetailTab = "activity" | "issues" | "instructions" | "skills";
 
 type SkillDraft = {
   localId: string;
@@ -41,6 +51,9 @@ type DraftState = {
   teammateId: string | null;
   name: string;
   instructions: string;
+  capabilitySummary: string;
+  capabilityTags: string;
+  preferredTools: string;
   skills: SkillDraft[];
   status: TeammateStatusPayload;
   kind: TeammateKindPayload;
@@ -55,6 +68,9 @@ function emptyDraft(): DraftState {
     teammateId: null,
     name: "",
     instructions: "",
+    capabilitySummary: "",
+    capabilityTags: "",
+    preferredTools: "",
     skills: [],
     status: "active",
     kind: "custom",
@@ -66,6 +82,9 @@ function draftFromTeammate(teammate: TeammateRecordPayload): DraftState {
     teammateId: teammate.teammate_id,
     name: teammate.name,
     instructions: teammate.instructions ?? "",
+    capabilitySummary: teammate.capability_profile.summary ?? "",
+    capabilityTags: teammate.capability_profile.capabilities.join(", "),
+    preferredTools: teammate.capability_profile.preferred_tools.join(", "),
     skills: teammate.skills.map((skill) => ({
       localId: skill.skill_id || makeDraftSkillId(),
       skillId: skill.skill_id,
@@ -99,6 +118,40 @@ function normalizedSkillInputs(
   return normalized;
 }
 
+function normalizedCommaSeparatedValues(value: string): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const entry of value.split(",")) {
+    const trimmed = entry.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
+function normalizedCapabilityProfileInput(
+  draft: DraftState,
+): Partial<TeammateCapabilityProfilePayload> | null {
+  const summary = draft.capabilitySummary.trim();
+  const capabilities = normalizedCommaSeparatedValues(draft.capabilityTags);
+  const preferredTools = normalizedCommaSeparatedValues(draft.preferredTools);
+  if (!summary && capabilities.length === 0 && preferredTools.length === 0) {
+    return null;
+  }
+  return {
+    summary: summary || null,
+    capabilities,
+    preferred_tools: preferredTools,
+  };
+}
+
 function sortTeammates(teammates: TeammateRecordPayload[]): TeammateRecordPayload[] {
   return [...teammates].sort((left, right) => {
     if (left.kind !== right.kind) {
@@ -124,8 +177,76 @@ function relativeTimeLabel(value: string | null): string {
   return `${days}d ago`;
 }
 
+function teammateStatusLabel(status: TeammateStatusPayload): string {
+  return status === "archived" ? "Archived" : "Active";
+}
+
+function teammateStatusVariant(
+  status: TeammateStatusPayload,
+): "success" | "warning" {
+  return status === "archived" ? "warning" : "success";
+}
+
+function issueStatusLabel(status: IssueStatusPayload): string {
+  switch (status) {
+    case "in_progress":
+      return "In Progress";
+    case "in_review":
+      return "In Review";
+    default:
+      return status
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+}
+
+function issuePriorityLabel(priority: IssuePriorityPayload | null): string {
+  if (!priority) return "No priority";
+  return priority.slice(0, 1).toUpperCase() + priority.slice(1);
+}
+
+function issuePriorityBadgeClass(priority: IssuePriorityPayload | null): string {
+  switch (priority) {
+    case "critical":
+      return "border-red-500/18 bg-red-500/10 text-red-700 dark:text-red-200";
+    case "high":
+      return "border-orange-500/18 bg-orange-500/10 text-orange-700 dark:text-orange-200";
+    case "medium":
+      return "border-amber-500/18 bg-amber-500/10 text-amber-800 dark:text-amber-200";
+    case "low":
+      return "border-slate-500/18 bg-slate-500/10 text-slate-700 dark:text-slate-300";
+    default:
+      return "border-border bg-background/70 text-foreground/55";
+  }
+}
+
+function teammateWorkloadLabel(runningCount: number, assignedCount: number): string {
+  if (runningCount > 0) {
+    return `${runningCount} running`;
+  }
+  if (assignedCount > 0) {
+    return `${assignedCount} assigned`;
+  }
+  return "Idle";
+}
+
+function teammateSummary(teammate: TeammateRecordPayload): string {
+  const capabilitySummary = teammate.capability_profile.summary?.trim();
+  if (capabilitySummary) {
+    return capabilitySummary;
+  }
+  const summary = teammate.instructions?.trim();
+  if (summary) {
+    return summary;
+  }
+  return teammate.kind === "system"
+    ? "The built-in General teammate picks up work when no custom teammate is a stronger routing match."
+    : "No routing instructions yet.";
+}
+
 export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
   const { selectedWorkspace } = useWorkspaceDesktop();
+  const openIssueDetailTab = useOpenIssueDetailTab();
   const [teammates, setTeammates] = useState<TeammateRecordPayload[]>([]);
   const [issues, setIssues] = useState<IssueRecordPayload[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -136,6 +257,8 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
     null,
   );
   const [draft, setDraft] = useState<DraftState>(emptyDraft);
+  const [detailTab, setDetailTab] = useState<DetailTab>("activity");
+  const [searchQuery, setSearchQuery] = useState("");
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -177,40 +300,32 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
       ? teammatesById[selectedTeammateId] ?? null
       : null;
   const isCreating = selectedTeammateId === NEW_TEAMMATE_ID;
+  const showingDetail = isCreating || Boolean(selectedTeammate);
 
   useEffect(() => {
-    if (selectedTeammateId === NEW_TEAMMATE_ID) {
+    if (
+      selectedTeammateId &&
+      selectedTeammateId !== NEW_TEAMMATE_ID &&
+      !teammatesById[selectedTeammateId]
+    ) {
+      setSelectedTeammateId(null);
+      setDetailTab("activity");
+    }
+  }, [selectedTeammateId, teammatesById]);
+
+  useEffect(() => {
+    if (isCreating) {
+      setDraft((current) =>
+        current.teammateId == null ? current : emptyDraft(),
+      );
       return;
     }
     if (selectedTeammate) {
       setDraft(draftFromTeammate(selectedTeammate));
       return;
     }
-    const fallback = teammates.find((entry) => entry.status === "active") ?? null;
-    if (fallback) {
-      setSelectedTeammateId(fallback.teammate_id);
-      setDraft(draftFromTeammate(fallback));
-      return;
-    }
-    setSelectedTeammateId(NEW_TEAMMATE_ID);
     setDraft(emptyDraft());
-  }, [selectedTeammate, selectedTeammateId, teammates]);
-
-  const selectedIssueCount = useMemo(() => {
-    const teammateId = selectedTeammate?.teammate_id ?? null;
-    if (!teammateId) return 0;
-    return issues.filter((issue) => issue.assignee_teammate_id === teammateId).length;
-  }, [issues, selectedTeammate]);
-
-  const selectedRunningCount = useMemo(() => {
-    const teammateId = selectedTeammate?.teammate_id ?? null;
-    if (!teammateId) return 0;
-    return issues.filter(
-      (issue) =>
-        issue.assignee_teammate_id === teammateId &&
-        (issue.status === "in_progress" || Boolean(issue.active_subagent_id)),
-    ).length;
-  }, [issues, selectedTeammate]);
+  }, [isCreating, selectedTeammate]);
 
   const customActiveCount = useMemo(
     () =>
@@ -225,14 +340,77 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
     [teammates],
   );
 
+  const visibleTeammates = useMemo(
+    () =>
+      showArchived
+        ? teammates
+        : teammates.filter((teammate) => teammate.status === "active"),
+    [showArchived, teammates],
+  );
+
+  const filteredTeammates = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) {
+      return visibleTeammates;
+    }
+    return visibleTeammates.filter((teammate) => {
+      const haystacks = [
+        teammate.name,
+        teammate.instructions ?? "",
+        teammate.skills.map((skill) => skill.name).join(" "),
+      ];
+      return haystacks.some((value) => value.toLowerCase().includes(query));
+    });
+  }, [searchQuery, visibleTeammates]);
+
+  const selectedIssues = useMemo(() => {
+    if (!selectedTeammate) return [];
+    return [...issues]
+      .filter((issue) => issue.assignee_teammate_id === selectedTeammate.teammate_id)
+      .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
+  }, [issues, selectedTeammate]);
+
+  const selectedIssueCount = selectedIssues.length;
+  const selectedRunningIssues = useMemo(
+    () =>
+      selectedIssues.filter(
+        (issue) =>
+          issue.status === "in_progress" || Boolean(issue.active_subagent_id),
+      ),
+    [selectedIssues],
+  );
+  const selectedRunningCount = selectedRunningIssues.length;
+  const selectedCompletedCount = useMemo(
+    () => selectedIssues.filter((issue) => issue.status === "done").length,
+    [selectedIssues],
+  );
+
   const draftLocked =
     isSaving ||
     (!!selectedTeammate && selectedTeammate.kind === "system") ||
     (!!selectedTeammate && selectedTeammate.status === "archived");
+  const canSave =
+    isCreating ||
+    (!!selectedTeammate &&
+      selectedTeammate.kind === "custom" &&
+      selectedTeammate.status === "active");
+
+  const handleBackToList = useCallback(() => {
+    setSelectedTeammateId(null);
+    setDetailTab("activity");
+    setStatusMessage("");
+  }, []);
 
   const handleStartCreate = useCallback(() => {
     setSelectedTeammateId(NEW_TEAMMATE_ID);
     setDraft(emptyDraft());
+    setDetailTab("instructions");
+    setStatusMessage("");
+  }, []);
+
+  const handleSelectTeammate = useCallback((teammateId: string) => {
+    setSelectedTeammateId(teammateId);
+    setDetailTab("activity");
     setStatusMessage("");
   }, []);
 
@@ -285,6 +463,7 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
       );
       return;
     }
+    const capabilityProfile = normalizedCapabilityProfileInput(draft);
     setIsSaving(true);
     setStatusMessage("");
     try {
@@ -294,10 +473,12 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
           name,
           instructions: draft.instructions.trim() || null,
           skills,
+          capability_profile: capabilityProfile,
         });
         await refresh();
         setSelectedTeammateId(created.teammate.teammate_id);
         setDraft(draftFromTeammate(created.teammate));
+        setDetailTab("activity");
         setStatusMessage("Teammate created.");
       } else if (selectedTeammate) {
         const updated = await window.electronAPI.workspace.updateTeammate(
@@ -308,6 +489,7 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
             name,
             instructions: draft.instructions.trim() || null,
             skills,
+            capability_profile: capabilityProfile,
           },
         );
         await refresh();
@@ -341,6 +523,7 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
       );
       await refresh();
       setSelectedTeammateId(null);
+      setDetailTab("activity");
       setStatusMessage("Teammate archived.");
     } catch (error) {
       setStatusMessage(
@@ -379,6 +562,19 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
     }
   }, [refresh, selectedTeammate, workspaceId]);
 
+  const headerTitle = !showingDetail
+    ? "Teammates"
+    : isCreating
+      ? "New teammate"
+      : selectedTeammate?.name || "Teammate";
+  const headerDescription = !showingDetail
+    ? "Manage the fixed General teammate plus custom teammates with editable routing profiles, instructions, and freeform SKILL.md entries."
+    : isCreating
+      ? "Create a teammate the Workspace Manager can route work to using a capability profile, instructions, and freeform SKILL.md entries."
+      : selectedTeammate?.kind === "system"
+        ? "The built-in General teammate stays fixed in v1. You can inspect its routing context here, but not edit it."
+        : "Review current workload, adjust routing cues, and manage freeform SKILL.md entries without leaving the Teammates tab.";
+
   return (
     <>
       <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(245,118,66,0.06),transparent_26%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_32%)]">
@@ -389,173 +585,129 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
               <span>Agent Team</span>
               <span className="mx-2 text-foreground/20">/</span>
               <span>Teammates</span>
+              {showingDetail ? (
+                <>
+                  <span className="mx-2 text-foreground/20">/</span>
+                  <span>{headerTitle}</span>
+                </>
+              ) : null}
             </>
           }
-          title="Teammates"
-          description="Manage the fixed General teammate plus custom teammates with editable instructions and freeform SKILL.md entries."
+          title={headerTitle}
+          description={headerDescription}
+          meta={
+            showingDetail && !isCreating && selectedTeammate ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="bg-card/80">
+                  <StatusDot
+                    variant={teammateStatusVariant(selectedTeammate.status)}
+                    className="mr-2"
+                  />
+                  {teammateStatusLabel(selectedTeammate.status)}
+                </Badge>
+                <Badge variant="outline" className="bg-card/80">
+                  {selectedTeammate.kind === "system" ? "System" : "Custom"}
+                </Badge>
+                <Badge variant="outline" className="bg-card/80">
+                  {selectedTeammate.skills.length} skills
+                </Badge>
+                <Badge variant="outline" className="bg-card/80">
+                  {selectedIssueCount} issues
+                </Badge>
+              </div>
+            ) : null
+          }
           statusMessage={statusMessage}
           actions={
-            <>
-              <Badge variant="outline" className="h-9 rounded-full bg-card/80 px-3 text-foreground/65">
-                {customActiveCount} custom active
-              </Badge>
-              {showArchived ? (
+            !showingDetail ? (
+              <>
                 <Badge
                   variant="outline"
                   className="h-9 rounded-full bg-card/80 px-3 text-foreground/65"
                 >
-                  {archivedCount} archived
+                  {customActiveCount} custom active
                 </Badge>
-              ) : null}
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9 rounded-full border-border bg-card/80 px-3 text-foreground/80 hover:bg-card"
-                onClick={() => void refresh()}
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="size-4" />
-                )}
-                Refresh
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className={cn(
-                  "h-9 rounded-full border-border px-3",
-                  showArchived ? "bg-foreground/[0.08]" : "bg-card/80",
-                )}
-                onClick={() => setShowArchived((current) => !current)}
-              >
-                {showArchived ? "Hide archived" : "Show archived"}
-              </Button>
-              <Button
-                type="button"
-                className="h-9 rounded-full px-4"
-                onClick={handleStartCreate}
-              >
-                <Plus className="size-4" />
-                New teammate
-              </Button>
-            </>
-          }
-        />
-
-        <div className="grid min-h-0 flex-1 grid-cols-[320px_minmax(0,1fr)]">
-          <aside className="min-h-0 overflow-y-auto border-r border-border bg-card/25 px-4 py-5">
-            <div className="space-y-2">
-              {teammates.map((teammate) => {
-                const assignedCount = issues.filter(
-                  (issue) => issue.assignee_teammate_id === teammate.teammate_id,
-                ).length;
-                const isSelected =
-                  !isCreating && selectedTeammateId === teammate.teammate_id;
-                return (
-                  <button
-                    key={teammate.teammate_id}
-                    type="button"
-                    onClick={() => setSelectedTeammateId(teammate.teammate_id)}
-                    className={cn(
-                      "w-full rounded-2xl border px-4 py-3 text-left transition-colors",
-                      isSelected
-                        ? "border-foreground/15 bg-card shadow-sm"
-                        : "border-border bg-background/55 hover:bg-background/80",
-                    )}
+                {showArchived ? (
+                  <Badge
+                    variant="outline"
+                    className="h-9 rounded-full bg-card/80 px-3 text-foreground/65"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          {teammate.kind === "system" ? (
-                            <ShieldCheck className="size-4 text-foreground/45" />
-                          ) : (
-                            <UserRound className="size-4 text-foreground/45" />
-                          )}
-                          <div className="truncate text-sm font-medium text-foreground">
-                            {teammate.name}
-                          </div>
-                        </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-foreground/52">
-                          <Badge variant="outline" className="bg-card/70">
-                            {teammate.kind === "system" ? "System" : "Custom"}
-                          </Badge>
-                          <Badge variant="outline" className="bg-card/70">
-                            {teammate.skills.length} skills
-                          </Badge>
-                          <Badge variant="outline" className="bg-card/70">
-                            {assignedCount} issues
-                          </Badge>
-                          {teammate.status === "archived" ? (
-                            <Badge
-                              variant="outline"
-                              className="border-orange-500/18 bg-orange-500/[0.1] text-orange-800 dark:text-orange-100/85"
-                            >
-                              Archived
-                            </Badge>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="mt-2 text-xs text-foreground/42">
-                      Updated {relativeTimeLabel(teammate.updated_at)}
-                    </div>
-                  </button>
-                );
-              })}
-
-              {isCreating ? (
-                <div className="rounded-2xl border border-dashed border-primary/30 bg-primary/[0.06] px-4 py-3 text-sm text-primary">
-                  Creating a new teammate
-                </div>
-              ) : null}
-            </div>
-          </aside>
-
-          <div className="min-h-0 overflow-y-auto px-6 py-5">
-            <div className="mx-auto max-w-4xl">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.2em] text-foreground/35">
-                    <span>{selectedWorkspace?.name || "Workspace"}</span>
-                    <span className="text-foreground/20">/</span>
-                    <span>{isCreating ? "New teammate" : selectedTeammate?.name || "Teammate"}</span>
-                  </div>
-                  <h2 className="mt-2 text-[30px] font-semibold tracking-tight text-foreground">
-                    {isCreating
-                      ? "New teammate"
-                      : selectedTeammate?.name || "Select a teammate"}
-                  </h2>
-                  <p className="mt-1 text-sm text-foreground/55">
-                    {selectedTeammate?.kind === "system"
-                      ? "The built-in General teammate is fixed in v1 and can be viewed but not edited."
-                      : "Adjust routing instructions and freeform SKILL.md entries used by the Workspace Manager."}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  {selectedTeammate?.status === "archived" ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void handleRestore()}
-                      disabled={isSaving || selectedTeammate.kind === "system"}
-                    >
-                      <RotateCcw className="size-4" />
-                      Restore
-                    </Button>
-                  ) : null}
-                  {!isCreating && selectedTeammate?.kind === "custom" ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setArchiveConfirmOpen(true)}
-                      disabled={isSaving}
-                    >
-                      <Trash2 className="size-4" />
-                      Archive
-                    </Button>
-                  ) : null}
+                    {archivedCount} archived
+                  </Badge>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 rounded-full border-border bg-card/80 px-3 text-foreground/80 hover:bg-card"
+                  onClick={() => void refresh()}
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-4" />
+                  )}
+                  Refresh
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(
+                    "h-9 rounded-full border-border px-3",
+                    showArchived ? "bg-foreground/[0.08]" : "bg-card/80",
+                  )}
+                  onClick={() => setShowArchived((current) => !current)}
+                >
+                  {showArchived ? "Hide archived" : "Show archived"}
+                </Button>
+                <Button
+                  type="button"
+                  className="h-9 rounded-full px-4"
+                  onClick={handleStartCreate}
+                >
+                  <Plus className="size-4" />
+                  New teammate
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 rounded-full border-border bg-card/80 px-3 text-foreground/80 hover:bg-card"
+                  onClick={() => void refresh()}
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-4" />
+                  )}
+                  Refresh
+                </Button>
+                {selectedTeammate?.status === "archived" ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handleRestore()}
+                    disabled={isSaving || selectedTeammate.kind === "system"}
+                  >
+                    <RotateCcw className="size-4" />
+                    Restore
+                  </Button>
+                ) : null}
+                {!isCreating && selectedTeammate?.kind === "custom" ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setArchiveConfirmOpen(true)}
+                    disabled={isSaving}
+                  >
+                    <Trash2 className="size-4" />
+                    Archive
+                  </Button>
+                ) : null}
+                {canSave ? (
                   <Button
                     type="button"
                     onClick={() => void handleSave()}
@@ -564,207 +716,671 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                     {isSaving ? <Loader2 className="size-4 animate-spin" /> : null}
                     {isCreating ? "Create teammate" : "Save changes"}
                   </Button>
-                </div>
-              </div>
+                ) : null}
+              </>
+            )
+          }
+        />
 
-              <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_260px]">
-                <div className="space-y-6">
-                  <Card className="bg-card/85">
-                    <CardHeader>
-                      <CardTitle>Identity</CardTitle>
-                      <CardDescription>
-                        Name the teammate and describe the routing behavior the
-                        Workspace Manager should recognize.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="grid gap-4">
-                      <div>
-                        <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                          Name
-                        </div>
+        {!showingDetail ? (
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+            <div className="mx-auto max-w-7xl">
+              <Card className="overflow-hidden border-border bg-card/80 shadow-sm">
+                <CardContent className="p-0">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <div className="relative w-full max-w-md">
+                        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-foreground/38" />
                         <Input
-                          value={draft.name}
-                          onChange={(event) =>
-                            setDraft((current) => ({
-                              ...current,
-                              name: event.target.value,
-                            }))
-                          }
-                          placeholder="Coder"
-                          disabled={draftLocked}
-                          className="h-11 bg-background/75"
+                          value={searchQuery}
+                          onChange={(event) => setSearchQuery(event.target.value)}
+                          placeholder="Search teammates..."
+                          className="h-11 rounded-xl bg-background/70 pl-9"
                         />
                       </div>
-                      <div>
-                        <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                          Instructions
-                        </div>
-                        <Textarea
-                          value={draft.instructions}
-                          onChange={(event) =>
-                            setDraft((current) => ({
-                              ...current,
-                              instructions: event.target.value,
-                            }))
-                          }
-                          placeholder="Describe what this teammate is good at, how it should work, and any routing cues."
-                          disabled={draftLocked}
-                          className="min-h-[160px] resize-y bg-background/75"
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
+                      <Badge variant="outline" className="bg-background/80">
+                        All {visibleTeammates.length}
+                      </Badge>
+                      <Badge variant="outline" className="bg-background/80">
+                        Active{" "}
+                        {
+                          visibleTeammates.filter(
+                            (teammate) => teammate.status === "active",
+                          ).length
+                        }
+                      </Badge>
+                    </div>
+                    <div className="text-sm text-foreground/55">
+                      {filteredTeammates.length} of {visibleTeammates.length}
+                    </div>
+                  </div>
 
-                  <Card className="bg-card/85">
-                    <CardHeader>
-                      <div>
-                        <CardTitle>Skills</CardTitle>
-                        <CardDescription>
-                          Add multiple freeform SKILL.md entries for this teammate.
-                        </CardDescription>
-                      </div>
-                      <CardAction>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={handleAddSkill}
-                          disabled={draftLocked}
-                        >
-                          <Plus className="size-4" />
-                          Add skill
-                        </Button>
-                      </CardAction>
-                    </CardHeader>
+                  <div className="grid grid-cols-[minmax(0,1.6fr)_160px_170px_140px_120px] gap-4 border-b border-border px-5 py-3 text-[11px] font-medium uppercase tracking-[0.18em] text-foreground/38">
+                    <div>Agent</div>
+                    <div>Status</div>
+                    <div>Workload</div>
+                    <div>Issues</div>
+                    <div>Updated</div>
+                  </div>
 
-                    <CardContent className="space-y-4">
-                      {draft.skills.length === 0 ? (
-                        <div className="rounded-2xl border border-dashed border-border bg-background/45 px-4 py-8 text-center text-sm text-foreground/48">
-                          No skills yet
-                        </div>
-                      ) : (
-                        draft.skills.map((skill, index) => (
-                          <div
-                            key={skill.localId}
-                            className="rounded-2xl border border-border bg-background/55 p-4"
+                  <div className="divide-y divide-border">
+                    {filteredTeammates.length > 0 ? (
+                      filteredTeammates.map((teammate) => {
+                        const teammateIssues = issues.filter(
+                          (issue) =>
+                            issue.assignee_teammate_id === teammate.teammate_id,
+                        );
+                        const runningCount = teammateIssues.filter(
+                          (issue) =>
+                            issue.status === "in_progress" ||
+                            Boolean(issue.active_subagent_id),
+                        ).length;
+                        return (
+                          <button
+                            key={teammate.teammate_id}
+                            type="button"
+                            className="grid w-full grid-cols-[minmax(0,1.6fr)_160px_170px_140px_120px] gap-4 px-5 py-4 text-left transition-colors hover:bg-background/45"
+                            onClick={() => handleSelectTeammate(teammate.teammate_id)}
                           >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                                <FileCode2 className="size-4 text-foreground/45" />
-                                Skill {index + 1}
-                              </div>
-                              {!draftLocked ? (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  aria-label="Remove skill"
-                                  onClick={() => handleRemoveSkill(skill.localId)}
-                                >
-                                  <X className="size-4" />
-                                </Button>
-                              ) : null}
-                            </div>
-                            <div className="mt-4 grid gap-4">
-                              <div>
-                                <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                                  Skill name
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-3">
+                                <div className="grid size-10 shrink-0 place-items-center rounded-2xl border border-border bg-background/70">
+                                  {teammate.kind === "system" ? (
+                                    <ShieldCheck className="size-4 text-foreground/45" />
+                                  ) : (
+                                    <UserRound className="size-4 text-foreground/45" />
+                                  )}
                                 </div>
-                                <Input
-                                  value={skill.name}
-                                  onChange={(event) =>
-                                    handleSkillChange(
-                                      skill.localId,
-                                      "name",
-                                      event.target.value,
-                                    )
-                                  }
-                                  placeholder="frontend"
-                                  disabled={draftLocked}
-                                  className="h-10 bg-card/80"
-                                />
-                              </div>
-                              <div>
-                                <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                                  SKILL.md content
+                                <div className="min-w-0">
+                                  <div className="truncate text-sm font-medium text-foreground">
+                                    {teammate.name}
+                                  </div>
+                                  <div className="mt-1 truncate text-sm text-foreground/48">
+                                    {teammateSummary(teammate)}
+                                  </div>
                                 </div>
-                                <Textarea
-                                  value={skill.content}
-                                  onChange={(event) =>
-                                    handleSkillChange(
-                                      skill.localId,
-                                      "content",
-                                      event.target.value,
-                                    )
-                                  }
-                                  placeholder="# Skill&#10;Explain how this teammate should approach the work."
-                                  disabled={draftLocked}
-                                  className="min-h-[180px] resize-y bg-card/80 font-mono text-[13px]"
-                                />
                               </div>
                             </div>
-                          </div>
-                        ))
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
-
-                <aside className="space-y-4">
-                  <Card className="bg-card/85">
-                    <CardHeader>
-                      <CardTitle>Summary</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3 text-sm text-foreground/68">
-                      <SummaryRow label="Kind" value={draft.kind === "system" ? "System" : "Custom"} />
-                      <SummaryRow label="Status" value={draft.status === "archived" ? "Archived" : "Active"} />
-                      <SummaryRow label="Skills" value={`${draft.skills.filter((skill) => skill.name.trim() || skill.content.trim()).length}`} />
-                      <SummaryRow label="Assigned issues" value={`${selectedIssueCount}`} />
-                      <SummaryRow label="Working now" value={`${selectedRunningCount}`} />
-                    </CardContent>
-                  </Card>
-
-                  {selectedTeammate ? (
-                    <Card className="bg-card/85">
-                      <CardHeader>
-                        <CardTitle>Lifecycle</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-3 text-sm text-foreground/68">
-                        <SummaryRow
-                          label="Created"
-                          value={relativeTimeLabel(selectedTeammate.created_at)}
-                        />
-                        <SummaryRow
-                          label="Updated"
-                          value={relativeTimeLabel(selectedTeammate.updated_at)}
-                        />
-                        <SummaryRow
-                          label="Archived"
-                          value={relativeTimeLabel(selectedTeammate.archived_at)}
-                        />
-                      </CardContent>
-                    </Card>
-                  ) : null}
-
-                  <Card className="bg-card/85">
-                    <CardHeader>
-                      <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                        <Bot className="size-4 text-foreground/45" />
-                        Routing note
+                            <div className="flex items-center">
+                              <Badge variant="outline" className="bg-background/80">
+                                <StatusDot
+                                  variant={teammateStatusVariant(teammate.status)}
+                                  className="mr-2"
+                                />
+                                {teammateStatusLabel(teammate.status)}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center text-sm text-foreground/68">
+                              {teammateWorkloadLabel(runningCount, teammateIssues.length)}
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-foreground/68">
+                              <span>{teammateIssues.length}</span>
+                              <span className="text-foreground/35">assigned</span>
+                            </div>
+                            <div className="flex items-center text-sm text-foreground/48">
+                              {relativeTimeLabel(teammate.updated_at)}
+                            </div>
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="px-5 py-12 text-center text-sm text-foreground/48">
+                        {searchQuery.trim()
+                          ? "No teammates match that search."
+                          : "No teammates to show yet."}
                       </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+            <div className="mx-auto max-w-7xl">
+              <Button
+                type="button"
+                variant="ghost"
+                className="mb-4 h-9 rounded-full px-3 text-foreground/68"
+                onClick={handleBackToList}
+              >
+                <ArrowLeft className="size-4" />
+                Back to teammates
+              </Button>
+
+              <div className="grid items-start gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+                <aside className="space-y-4">
+                  <Card className="overflow-hidden bg-card/85">
+                    <CardContent className="p-0">
+                      <div className="border-b border-border px-5 py-5">
+                        <div className="grid size-14 place-items-center rounded-3xl border border-border bg-background/75">
+                          {selectedTeammate?.kind === "system" ? (
+                            <ShieldCheck className="size-6 text-foreground/45" />
+                          ) : (
+                            <Bot className="size-6 text-foreground/45" />
+                          )}
+                        </div>
+                        <div className="mt-5">
+                          <div className="text-2xl font-semibold tracking-tight text-foreground">
+                            {isCreating ? draft.name.trim() || "New teammate" : selectedTeammate?.name}
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <Badge variant="outline" className="bg-background/80">
+                              <StatusDot
+                                variant={
+                                  isCreating
+                                    ? "success"
+                                    : teammateStatusVariant(
+                                        selectedTeammate?.status ?? "active",
+                                      )
+                                }
+                                className="mr-2"
+                              />
+                              {isCreating
+                                ? "Active"
+                                : teammateStatusLabel(
+                                    selectedTeammate?.status ?? "active",
+                                  )}
+                            </Badge>
+                            <Badge variant="outline" className="bg-background/80">
+                              {isCreating
+                                ? "Custom"
+                                : selectedTeammate?.kind === "system"
+                                  ? "System"
+                                  : "Custom"}
+                            </Badge>
+                          </div>
+                          <p className="mt-4 text-sm leading-6 text-foreground/58">
+                            {isCreating
+                              ? "Create a teammate the Workspace Manager can recognize and route to."
+                              : selectedTeammate
+                                ? teammateSummary(selectedTeammate)
+                                : "No teammate selected."}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4 px-5 py-5 text-sm">
+                        <MetricRow
+                          label="Assigned issues"
+                          value={`${isCreating ? 0 : selectedIssueCount}`}
+                        />
+                        <MetricRow
+                          label="Working now"
+                          value={`${isCreating ? 0 : selectedRunningCount}`}
+                        />
+                        <MetricRow
+                          label="Completed"
+                          value={`${isCreating ? 0 : selectedCompletedCount}`}
+                        />
+                        <MetricRow
+                          label="Skills"
+                          value={`${
+                            draft.skills.filter(
+                              (skill) => skill.name.trim() || skill.content.trim(),
+                            ).length
+                          }`}
+                        />
+                        <MetricRow
+                          label="Created"
+                          value={
+                            isCreating
+                              ? "Not created yet"
+                              : relativeTimeLabel(selectedTeammate?.created_at ?? null)
+                          }
+                        />
+                        <MetricRow
+                          label="Updated"
+                          value={
+                            isCreating
+                              ? "Draft"
+                              : relativeTimeLabel(selectedTeammate?.updated_at ?? null)
+                          }
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-card/85">
+                    <CardHeader>
+                      <CardTitle>Routing note</CardTitle>
                     </CardHeader>
                     <CardContent>
                       <p className="text-sm leading-6 text-foreground/58">
-                        The Workspace Manager chooses teammates from their
-                        instructions and SKILL.md entries. Archived teammates drop
-                        out of routing and disappear from normal navigation.
-                      </p>
+                        The Workspace Manager routes from each teammate&apos;s
+                        capability profile first, then falls back to their
+                        instructions and SKILL.md entries. Archived teammates
+                        drop out of routing and disappear from normal navigation.
+                        </p>
                     </CardContent>
                   </Card>
                 </aside>
+
+                <div className="min-w-0">
+                  <Card className="overflow-hidden bg-card/85">
+                    <Tabs
+                      value={detailTab}
+                      onValueChange={(value) => setDetailTab(value as DetailTab)}
+                      className="block w-full"
+                    >
+                      <div className="border-b border-border px-5">
+                        <TabsList
+                          variant="line"
+                          className="w-full justify-start rounded-none bg-transparent p-0"
+                        >
+                          {!isCreating ? (
+                            <>
+                              <TabsTrigger
+                                value="activity"
+                                className="h-12 rounded-none px-3"
+                              >
+                                <Activity className="size-4" />
+                                Activity
+                              </TabsTrigger>
+                              <TabsTrigger
+                                value="issues"
+                                className="h-12 rounded-none px-3"
+                              >
+                                <ListTodo className="size-4" />
+                                Issues
+                              </TabsTrigger>
+                            </>
+                          ) : null}
+                          <TabsTrigger
+                            value="instructions"
+                            className="h-12 rounded-none px-3"
+                          >
+                            <ScrollText className="size-4" />
+                            Instructions
+                          </TabsTrigger>
+                          <TabsTrigger
+                            value="skills"
+                            className="h-12 rounded-none px-3"
+                          >
+                            <FileCode2 className="size-4" />
+                            Skills
+                          </TabsTrigger>
+                        </TabsList>
+                      </div>
+
+                      {!isCreating ? (
+                        <TabsContent value="activity" className="w-full px-5 py-5">
+                          <div className="space-y-4">
+                            <Card className="bg-background/55">
+                              <CardHeader>
+                                <CardTitle>Now</CardTitle>
+                                <CardDescription>
+                                  Current workload for this teammate.
+                                </CardDescription>
+                              </CardHeader>
+                              <CardContent className="space-y-3">
+                                {selectedRunningIssues.length > 0 ? (
+                                  selectedRunningIssues.map((issue) => (
+                                    <button
+                                      key={issue.issue_id}
+                                      type="button"
+                                      className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-background/70 px-4 py-3 text-left transition-colors hover:bg-background/90"
+                                      onClick={() =>
+                                        void openIssueDetailTab({
+                                          workspaceId: issue.workspace_id,
+                                          issueId: issue.issue_id,
+                                          title: issue.title,
+                                        })
+                                      }
+                                    >
+                                      <div className="min-w-0">
+                                        <div className="truncate text-sm font-medium text-foreground">
+                                          HOL-{issue.issue_number} · {issue.title}
+                                        </div>
+                                        <div className="mt-1 text-sm text-foreground/48">
+                                          Updated {relativeTimeLabel(issue.updated_at)}
+                                        </div>
+                                      </div>
+                                      <Badge
+                                        variant="outline"
+                                        className="bg-background/80"
+                                      >
+                                        <StatusDot
+                                          variant="primary"
+                                          className="mr-2"
+                                        />
+                                        Working
+                                      </Badge>
+                                    </button>
+                                  ))
+                                ) : (
+                                  <div className="rounded-2xl border border-dashed border-border bg-background/45 px-4 py-8 text-sm text-foreground/48">
+                                    No active work right now.
+                                  </div>
+                                )}
+                              </CardContent>
+                            </Card>
+
+                            <Card className="bg-background/55">
+                              <CardHeader>
+                                <CardTitle>Recent work</CardTitle>
+                                <CardDescription>
+                                  The latest issues this teammate has touched.
+                                </CardDescription>
+                              </CardHeader>
+                              <CardContent className="space-y-3">
+                                {selectedIssues.length > 0 ? (
+                                  selectedIssues.slice(0, 5).map((issue) => (
+                                    <button
+                                      key={issue.issue_id}
+                                      type="button"
+                                      className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-background/70 px-4 py-3 text-left transition-colors hover:bg-background/90"
+                                      onClick={() =>
+                                        void openIssueDetailTab({
+                                          workspaceId: issue.workspace_id,
+                                          issueId: issue.issue_id,
+                                          title: issue.title,
+                                        })
+                                      }
+                                    >
+                                      <div className="min-w-0">
+                                        <div className="truncate text-sm font-medium text-foreground">
+                                          HOL-{issue.issue_number} · {issue.title}
+                                        </div>
+                                        <div className="mt-1 text-sm text-foreground/48">
+                                          {issueStatusLabel(issue.status)} · Updated{" "}
+                                          {relativeTimeLabel(issue.updated_at)}
+                                        </div>
+                                      </div>
+                                      <Badge
+                                        variant="outline"
+                                        className={issuePriorityBadgeClass(
+                                          issue.priority,
+                                        )}
+                                      >
+                                        {issuePriorityLabel(issue.priority)}
+                                      </Badge>
+                                    </button>
+                                  ))
+                                ) : (
+                                  <div className="rounded-2xl border border-dashed border-border bg-background/45 px-4 py-8 text-sm text-foreground/48">
+                                    No issue activity yet.
+                                  </div>
+                                )}
+                              </CardContent>
+                            </Card>
+                          </div>
+                        </TabsContent>
+                      ) : null}
+
+                      {!isCreating ? (
+                        <TabsContent value="issues" className="w-full px-5 py-5">
+                          <Card className="bg-background/55">
+                            <CardHeader>
+                              <CardTitle>Assigned issues</CardTitle>
+                              <CardDescription>
+                                All issues currently assigned to this teammate.
+                              </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                              {selectedIssues.length > 0 ? (
+                                selectedIssues.map((issue) => (
+                                  <button
+                                    key={issue.issue_id}
+                                    type="button"
+                                    className="flex w-full items-center justify-between gap-4 rounded-2xl border border-border bg-background/70 px-4 py-3 text-left transition-colors hover:bg-background/90"
+                                    onClick={() =>
+                                      void openIssueDetailTab({
+                                        workspaceId: issue.workspace_id,
+                                        issueId: issue.issue_id,
+                                        title: issue.title,
+                                      })
+                                    }
+                                  >
+                                    <div className="min-w-0">
+                                      <div className="truncate text-sm font-medium text-foreground">
+                                        HOL-{issue.issue_number} · {issue.title}
+                                      </div>
+                                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-foreground/48">
+                                        <span>{issueStatusLabel(issue.status)}</span>
+                                        <span className="text-foreground/25">•</span>
+                                        <span>
+                                          Updated {relativeTimeLabel(issue.updated_at)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="flex shrink-0 items-center gap-2">
+                                      <Badge
+                                        variant="outline"
+                                        className="bg-background/80"
+                                      >
+                                        {issueStatusLabel(issue.status)}
+                                      </Badge>
+                                      <Badge
+                                        variant="outline"
+                                        className={issuePriorityBadgeClass(
+                                          issue.priority,
+                                        )}
+                                      >
+                                        {issuePriorityLabel(issue.priority)}
+                                      </Badge>
+                                    </div>
+                                  </button>
+                                ))
+                              ) : (
+                                <div className="rounded-2xl border border-dashed border-border bg-background/45 px-4 py-8 text-sm text-foreground/48">
+                                  No assigned issues yet.
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                        </TabsContent>
+                      ) : null}
+
+                      <TabsContent
+                        value="instructions"
+                        className="w-full px-5 py-5"
+                      >
+                        <Card className="bg-background/55">
+                          <CardHeader>
+                            <CardTitle>Identity</CardTitle>
+                            <CardDescription>
+                              Name the teammate and describe the routing behavior the
+                              Workspace Manager should recognize.
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent className="grid gap-4">
+                            <div>
+                              <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
+                                Name
+                              </div>
+                              <Input
+                                value={draft.name}
+                                onChange={(event) =>
+                                  setDraft((current) => ({
+                                    ...current,
+                                    name: event.target.value,
+                                  }))
+                                }
+                                placeholder="Coder"
+                                disabled={draftLocked}
+                                className="h-11 bg-background/75"
+                              />
+                            </div>
+                            <div>
+                              <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
+                                Routing summary
+                              </div>
+                              <Textarea
+                                value={draft.capabilitySummary}
+                                onChange={(event) =>
+                                  setDraft((current) => ({
+                                    ...current,
+                                    capabilitySummary: event.target.value,
+                                  }))
+                                }
+                                placeholder="Own React dashboard implementation, UI refactors, and frontend build issues."
+                                disabled={draftLocked}
+                                className="min-h-[120px] resize-y bg-background/75"
+                              />
+                            </div>
+                            <div>
+                              <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
+                                Capability tags
+                              </div>
+                              <Input
+                                value={draft.capabilityTags}
+                                onChange={(event) =>
+                                  setDraft((current) => ({
+                                    ...current,
+                                    capabilityTags: event.target.value,
+                                  }))
+                                }
+                                placeholder="frontend, react, dashboard, ui"
+                                disabled={draftLocked}
+                                className="h-11 bg-background/75"
+                              />
+                              <div className="mt-2 text-xs text-foreground/45">
+                                Comma-separated domains, specialties, or routing cues.
+                              </div>
+                            </div>
+                            <div>
+                              <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
+                                Preferred tools
+                              </div>
+                              <Input
+                                value={draft.preferredTools}
+                                onChange={(event) =>
+                                  setDraft((current) => ({
+                                    ...current,
+                                    preferredTools: event.target.value,
+                                  }))
+                                }
+                                placeholder="edit, bash, web_search"
+                                disabled={draftLocked}
+                                className="h-11 bg-background/75"
+                              />
+                              <div className="mt-2 text-xs text-foreground/45">
+                                Optional comma-separated tool ids that are strong fits for this teammate.
+                              </div>
+                            </div>
+                            <div>
+                              <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
+                                Instructions
+                              </div>
+                              <Textarea
+                                value={draft.instructions}
+                                onChange={(event) =>
+                                  setDraft((current) => ({
+                                    ...current,
+                                    instructions: event.target.value,
+                                  }))
+                                }
+                                placeholder="Describe what this teammate is good at, how it should work, and any routing cues."
+                                disabled={draftLocked}
+                                className="min-h-[280px] resize-y bg-background/75"
+                              />
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </TabsContent>
+
+                      <TabsContent value="skills" className="w-full px-5 py-5">
+                        <Card className="bg-background/55">
+                          <CardHeader>
+                            <div>
+                              <CardTitle>Skills</CardTitle>
+                              <CardDescription>
+                                Add multiple freeform SKILL.md entries for this teammate.
+                              </CardDescription>
+                            </div>
+                            <CardAction>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={handleAddSkill}
+                                disabled={draftLocked}
+                              >
+                                <Plus className="size-4" />
+                                Add skill
+                              </Button>
+                            </CardAction>
+                          </CardHeader>
+
+                          <CardContent className="space-y-4">
+                            {draft.skills.length === 0 ? (
+                              <div className="rounded-2xl border border-dashed border-border bg-background/45 px-4 py-8 text-center text-sm text-foreground/48">
+                                No skills yet
+                              </div>
+                            ) : (
+                              draft.skills.map((skill, index) => (
+                                <div
+                                  key={skill.localId}
+                                  className="rounded-2xl border border-border bg-background/70 p-4"
+                                >
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                                      <FileCode2 className="size-4 text-foreground/45" />
+                                      Skill {index + 1}
+                                    </div>
+                                    {!draftLocked ? (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        aria-label="Remove skill"
+                                        onClick={() => handleRemoveSkill(skill.localId)}
+                                      >
+                                        <X className="size-4" />
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                  <div className="mt-4 grid gap-4">
+                                    <div>
+                                      <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
+                                        Skill name
+                                      </div>
+                                      <Input
+                                        value={skill.name}
+                                        onChange={(event) =>
+                                          handleSkillChange(
+                                            skill.localId,
+                                            "name",
+                                            event.target.value,
+                                          )
+                                        }
+                                        placeholder="frontend"
+                                        disabled={draftLocked}
+                                        className="h-10 bg-card/80"
+                                      />
+                                    </div>
+                                    <div>
+                                      <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
+                                        SKILL.md content
+                                      </div>
+                                      <Textarea
+                                        value={skill.content}
+                                        onChange={(event) =>
+                                          handleSkillChange(
+                                            skill.localId,
+                                            "content",
+                                            event.target.value,
+                                          )
+                                        }
+                                        placeholder="# Skill&#10;Explain how this teammate should approach the work."
+                                        disabled={draftLocked}
+                                        className="min-h-[220px] resize-y bg-card/80 font-mono text-[13px]"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </CardContent>
+                        </Card>
+                      </TabsContent>
+                    </Tabs>
+                  </Card>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       <ConfirmDialog
@@ -782,7 +1398,7 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
   );
 }
 
-function SummaryRow({ label, value }: { label: string; value: string }) {
+function MetricRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <span className="text-foreground/45">{label}</span>

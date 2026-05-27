@@ -1,22 +1,19 @@
 import { useSetAtom } from "jotai";
-import { LayoutGrid, Loader2, Plus, RotateCw, Square, UserRound } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { Loader2, Plus, RotateCw, Square, UserRound } from "lucide-react";
+import {
+  type DragEvent as ReactDragEvent,
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { StatusDot } from "@/components/ui/status-dot";
 import { cn } from "@/lib/utils";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { newIssueOpenAtom } from "./state/ui";
 import { useOpenIssueDetailTab } from "./useOpenIssueDetailTab";
 import { useIssueWorkspaceData } from "./useIssues";
-import { WorkspaceSurfaceHeader } from "./WorkspaceSurfaceHeader";
 
 const BOARD_STATUS_ORDER: IssueStatusPayload[] = [
   "backlog",
@@ -25,19 +22,6 @@ const BOARD_STATUS_ORDER: IssueStatusPayload[] = [
   "in_review",
   "blocked",
   "done",
-];
-
-const BOARD_MUTATION_STATUSES: Array<{
-  value: IssueStatusPayload;
-  label: string;
-  disabled?: boolean;
-}> = [
-  { value: "backlog", label: "Backlog" },
-  { value: "todo", label: "Todo" },
-  { value: "in_progress", label: "In progress", disabled: true },
-  { value: "in_review", label: "In review" },
-  { value: "blocked", label: "Blocked" },
-  { value: "done", label: "Done" },
 ];
 
 const BOARD_COLUMN_CHROME: Record<
@@ -174,15 +158,10 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
   const openIssueDetailTab = useOpenIssueDetailTab();
   const setNewIssueOpen = useSetAtom(newIssueOpenAtom);
   const [pendingIssueId, setPendingIssueId] = useState("");
+  const [draggedIssueId, setDraggedIssueId] = useState("");
+  const [dropTargetStatus, setDropTargetStatus] =
+    useState<IssueStatusPayload | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
-
-  const teammates = useMemo(
-    () =>
-      Object.values(teammatesById).sort((left, right) =>
-        left.name.localeCompare(right.name),
-      ),
-    [teammatesById],
-  );
 
   const workingCount = useMemo(
     () =>
@@ -211,6 +190,11 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
     }
     return groups;
   }, [issues]);
+
+  const issuesById = useMemo(
+    () => Object.fromEntries(issues.map((issue) => [issue.issue_id, issue])),
+    [issues],
+  );
 
   const openIssueDetail = useCallback(
     (issue: IssueRecordPayload) => {
@@ -280,27 +264,6 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
     [mutateIssue, workspaceId],
   );
 
-  const handleAssigneeChange = useCallback(
-    async (issue: IssueRecordPayload, nextAssigneeId: string) => {
-      if (issue.active_subagent_id) return;
-      const normalizedAssignee =
-        nextAssigneeId === "__unassigned__" ? null : nextAssigneeId;
-      if ((issue.assignee_teammate_id ?? null) === normalizedAssignee) {
-        return;
-      }
-      await mutateIssue(
-        issue.issue_id,
-        () =>
-          window.electronAPI.workspace.updateIssue(workspaceId, issue.issue_id, {
-            workspace_id: workspaceId,
-            assignee_teammate_id: normalizedAssignee,
-          }),
-        "Failed to update issue assignee",
-      );
-    },
-    [mutateIssue, workspaceId],
-  );
-
   const handleStopIssue = useCallback(
     async (issue: IssueRecordPayload) => {
       if (!issue.active_subagent_id) return;
@@ -316,32 +279,111 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
     [mutateIssue, workspaceId],
   );
 
+  const canDropIssueToStatus = useCallback(
+    (issue: IssueRecordPayload | null, nextStatus: IssueStatusPayload) => {
+      if (!issue) return false;
+      if (issue.active_subagent_id) return false;
+      if (pendingIssueId === issue.issue_id) return false;
+      if (nextStatus === "in_progress") return false;
+      return nextStatus !== issue.status;
+    },
+    [pendingIssueId],
+  );
+
+  const handleCardDragStart = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>, issue: IssueRecordPayload) => {
+      if (issue.active_subagent_id || pendingIssueId === issue.issue_id) {
+        event.preventDefault();
+        return;
+      }
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", issue.issue_id);
+      setDraggedIssueId(issue.issue_id);
+      setDropTargetStatus(null);
+    },
+    [pendingIssueId],
+  );
+
+  const handleCardDragEnd = useCallback(() => {
+    setDraggedIssueId("");
+    setDropTargetStatus(null);
+  }, []);
+
+  const handleColumnDragOver = useCallback(
+    (event: ReactDragEvent<HTMLElement>, status: IssueStatusPayload) => {
+      const issueId = draggedIssueId || event.dataTransfer.getData("text/plain");
+      const issue = issueId ? issuesById[issueId] ?? null : null;
+      if (!canDropIssueToStatus(issue, status)) {
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      if (dropTargetStatus !== status) {
+        setDropTargetStatus(status);
+      }
+    },
+    [canDropIssueToStatus, draggedIssueId, dropTargetStatus, issuesById],
+  );
+
+  const handleColumnDrop = useCallback(
+    async (event: ReactDragEvent<HTMLElement>, status: IssueStatusPayload) => {
+      const issueId = draggedIssueId || event.dataTransfer.getData("text/plain");
+      const issue = issueId ? issuesById[issueId] ?? null : null;
+      setDropTargetStatus(null);
+      setDraggedIssueId("");
+      if (!canDropIssueToStatus(issue, status) || !issue) {
+        return;
+      }
+      event.preventDefault();
+      await handleStatusChange(issue, status);
+    },
+    [canDropIssueToStatus, draggedIssueId, handleStatusChange, issuesById],
+  );
+
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.05),transparent_20%),linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0)_32%)]">
-      <WorkspaceSurfaceHeader
-        icon={<LayoutGrid className="size-5 text-foreground/70" />}
-        eyebrow={
-          <>
-            <span>Agent Team</span>
-            <span className="mx-2 text-foreground/20">/</span>
-            <span>Issues</span>
-          </>
-        }
-        title="Kanban Board"
-        description="Track status at a glance, open issue pages from any card, and manage assignees without leaving the board."
-        statusMessage={errorMessage || statusMessage}
-        actions={
-          <>
-            <Badge variant="outline" className="h-9 rounded-full bg-card/80 px-3 text-foreground/65">
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <div className="border-b border-border px-6 py-3">
+        <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-foreground/35">
+          <span>Agent Team</span>
+          <span className="text-foreground/20">/</span>
+          <span>Issues</span>
+        </div>
+      </div>
+
+      <div className="border-b border-border px-6 py-3">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex h-9 items-center rounded-xl border border-border bg-card px-4 text-sm font-medium text-foreground shadow-sm"
+            >
+              All
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-9 items-center rounded-xl border border-border bg-background px-4 text-sm font-medium text-foreground/62 transition-colors hover:bg-card"
+            >
+              Members
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-9 items-center rounded-xl border border-border bg-background px-4 text-sm font-medium text-foreground/62 transition-colors hover:bg-card"
+            >
+              Agents
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Badge variant="outline" className="h-9 rounded-xl bg-background px-3 text-foreground/65">
               {workingCount} working
             </Badge>
-            <Badge variant="outline" className="h-9 rounded-full bg-card/80 px-3 text-foreground/65">
+            <Badge variant="outline" className="h-9 rounded-xl bg-background px-3 text-foreground/65">
               {issues.length} issues
             </Badge>
             <Button
               type="button"
               variant="outline"
-              className="h-9 rounded-full border-border bg-card/80 px-3 text-foreground/80 hover:bg-card"
+              className="h-9 rounded-xl px-3"
               onClick={() => void refresh()}
               disabled={isLoading}
             >
@@ -354,38 +396,25 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
             </Button>
             <Button
               type="button"
-              className="h-9 rounded-full px-4"
+              className="h-9 rounded-xl px-4"
               onClick={() => setNewIssueOpen(true)}
             >
               <Plus className="size-4" />
               New issue
             </Button>
-          </>
-        }
-      />
+          </div>
+        </div>
+        {errorMessage || statusMessage ? (
+          <div className="mt-3 rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground/65">
+            {errorMessage || statusMessage}
+          </div>
+        ) : null}
+      </div>
 
-      <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-6 py-5">
+      <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-6 py-4">
         {isLoading && issues.length === 0 ? (
           <div className="grid h-full place-items-center">
             <Loader2 className="size-5 animate-spin text-foreground/35" />
-          </div>
-        ) : issues.length === 0 ? (
-          <div className="grid h-full place-items-center">
-            <div className="rounded-[28px] border border-dashed border-border bg-card/70 px-8 py-10 text-center shadow-sm">
-              <div className="text-lg font-medium text-foreground">
-                No issues yet
-              </div>
-              <div className="mt-2 text-sm text-foreground/55">
-                Create the first issue directly on the board.
-              </div>
-              <Button
-                className="mt-5 rounded-full px-4"
-                onClick={() => setNewIssueOpen(true)}
-              >
-                <Plus className="size-4" />
-                New issue
-              </Button>
-            </div>
           </div>
         ) : (
           <div className="flex min-h-full min-w-max gap-5 pb-3">
@@ -396,13 +425,27 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
                 <section
                   key={status}
                   className={cn(
-                    "flex h-full w-[340px] shrink-0 flex-col overflow-hidden rounded-[28px] border",
+                    "flex h-full w-[330px] shrink-0 flex-col overflow-hidden rounded-2xl border transition-colors",
                     tone.shellClass,
+                    dropTargetStatus === status &&
+                      "ring-2 ring-primary/35 ring-offset-2 ring-offset-background",
                   )}
+                  onDragOver={(event) => handleColumnDragOver(event, status)}
+                  onDrop={(event) => void handleColumnDrop(event, status)}
+                  onDragLeave={(event) => {
+                    if (
+                      dropTargetStatus === status &&
+                      !event.currentTarget.contains(
+                        event.relatedTarget as Node | null,
+                      )
+                    ) {
+                      setDropTargetStatus(null);
+                    }
+                  }}
                 >
                   <div
                     className={cn(
-                      "flex items-center justify-between gap-3 border-b px-4 py-3.5",
+                      "flex items-center justify-between gap-3 border-b px-4 py-3",
                       tone.headerClass,
                     )}
                   >
@@ -426,7 +469,7 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
                     {columnIssues.length === 0 ? (
                       <div
                         className={cn(
-                          "grid min-h-[148px] place-items-center rounded-[22px] border border-dashed text-sm",
+                          "grid min-h-[148px] place-items-center rounded-xl border border-dashed text-sm",
                           tone.emptyClass,
                         )}
                       >
@@ -444,9 +487,16 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
                         return (
                           <div
                             key={issue.issue_id}
+                            draggable={!running && !pending}
+                            onDragStart={(event) => handleCardDragStart(event, issue)}
+                            onDragEnd={handleCardDragEnd}
                             className={cn(
-                              "group rounded-[22px] border border-border bg-background/82 p-4 shadow-sm backdrop-blur-sm transition duration-snappy hover:-translate-y-px hover:border-foreground/12 hover:bg-background/92",
+                              "group rounded-xl border border-border bg-background/88 p-4 shadow-sm transition duration-snappy hover:border-foreground/12 hover:bg-background",
                               running && "ring-1 ring-primary/30",
+                              !running &&
+                                !pending &&
+                                "cursor-grab active:cursor-grabbing",
+                              draggedIssueId === issue.issue_id && "opacity-55",
                             )}
                           >
                             <div className="flex items-start justify-between gap-3">
@@ -482,20 +532,25 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
                                   </div>
                                 ) : null}
                                 {issue.blocker_reason ? (
-                                  <div className="mt-3 rounded-2xl border border-orange-500/18 bg-orange-500/[0.1] px-3 py-2 text-xs leading-5 text-orange-800 dark:text-orange-100/85">
+                                  <div className="mt-3 rounded-xl border border-orange-500/18 bg-orange-500/[0.1] px-3 py-2 text-xs leading-5 text-orange-800 dark:text-orange-100/85">
                                     {issue.blocker_reason}
                                   </div>
                                 ) : null}
 
-                                <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-foreground/45">
-                                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/70 px-2.5 py-1">
-                                    <UserRound className="size-3" />
-                                    {assigneeName}
-                                  </span>
-                                  <span className="rounded-full border border-border bg-background/70 px-2.5 py-1">
-                                    Updated {issueRelativeTime(issue.updated_at)}
-                                  </span>
-                                </div>
+                            <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-foreground/45">
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/70 px-2.5 py-1">
+                                <UserRound className="size-3" />
+                                {assigneeName}
+                              </span>
+                              <span className="rounded-full border border-border bg-background/70 px-2.5 py-1">
+                                Updated {issueRelativeTime(issue.updated_at)}
+                              </span>
+                              {!running ? (
+                                <span className="rounded-full border border-dashed border-border bg-background/70 px-2.5 py-1 text-foreground/40">
+                                  Drag to move
+                                </span>
+                              ) : null}
+                            </div>
                               </button>
                               {running ? (
                                 <Button
@@ -512,59 +567,6 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
                               ) : null}
                             </div>
 
-                            <div className="mt-4 grid gap-2 border-t border-border/80 pt-3">
-                              <div className="grid gap-2 sm:grid-cols-2">
-                                <Select
-                                  value={issue.status}
-                                  onValueChange={(value) => {
-                                    if (!value) return;
-                                    void handleStatusChange(issue, value);
-                                  }}
-                                  disabled={pending || running}
-                                >
-                                  <SelectTrigger className="h-9 rounded-full border-border bg-background/70 text-xs">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent align="start">
-                                    {BOARD_MUTATION_STATUSES.map((option) => (
-                                      <SelectItem
-                                        key={option.value}
-                                        value={option.value}
-                                        disabled={option.disabled}
-                                      >
-                                        {option.label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-
-                                <Select
-                                  value={issue.assignee_teammate_id || "__unassigned__"}
-                                  onValueChange={(value) => {
-                                    if (!value) return;
-                                    void handleAssigneeChange(issue, value);
-                                  }}
-                                  disabled={pending || running}
-                                >
-                                  <SelectTrigger className="h-9 rounded-full border-border bg-background/70 text-xs">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent align="start">
-                                    <SelectItem value="__unassigned__">
-                                      Unassigned
-                                    </SelectItem>
-                                    {teammates.map((teammate) => (
-                                      <SelectItem
-                                        key={teammate.teammate_id}
-                                        value={teammate.teammate_id}
-                                      >
-                                        {teammate.name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            </div>
                           </div>
                         );
                       })

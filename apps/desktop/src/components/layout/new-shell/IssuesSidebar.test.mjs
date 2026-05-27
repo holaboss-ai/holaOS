@@ -37,9 +37,9 @@ test("new shell issues sidebar opens issue detail tabs and keeps inbox empty", a
   assert.match(sidebarSource, /section === "issues" \? <SidebarIssuesSection \/> : null/);
   assert.match(sidebarSource, /\{ key: "issues", label: "Agent Team", icon: <Bot \/> \}/);
   assert.match(sidebarSource, /function SidebarIssuesSection\(\) \{/);
-  assert.match(sidebarSource, /Open dashboard/);
-  assert.match(sidebarSource, /Open board/);
-  assert.match(sidebarSource, /Open teammates/);
+  assert.match(sidebarSource, />\s*Dashboard\s*</);
+  assert.match(sidebarSource, />\s*Board\s*</);
+  assert.match(sidebarSource, />\s*Teammates\s*</);
   assert.match(sidebarSource, /const openIssueDetailTab = useOpenIssueDetailTab\(\);/);
   assert.match(sidebarSource, /void openIssueDetailTab\(\{\s*workspaceId: issue\.workspace_id,\s*issueId: issue\.issue_id,/);
   assert.doesNotMatch(sidebarSource, /sessionId: issue\.session_id/);

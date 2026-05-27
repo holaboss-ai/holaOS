@@ -3962,6 +3962,72 @@ test("archiving a custom teammate unassigns issues and cancels linked runs", () 
   store.close();
 });
 
+test("teammate capability profiles persist and update cleanly", () => {
+  const root = makeTempDir("hb-state-store-teammate-capabilities-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Teammate Capability Workspace",
+    harness: "pi",
+    status: "active",
+  });
+
+  const general = store.ensureGeneralTeammate("workspace-1");
+  const teammate = store.createTeammate({
+    workspaceId: "workspace-1",
+    name: "Research",
+    instructions: "Own research, latest-info, and vendor comparison tasks.",
+    capabilityProfile: {
+      summary: "Best for live research, comparisons, and vendor analysis.",
+      capabilities: ["research", "comparison", "vendors"],
+      preferredTools: ["web_search", "browser_get_state"],
+    },
+  });
+  const updated = store.updateTeammate({
+    workspaceId: "workspace-1",
+    teammateId: teammate.teammateId,
+    fields: {
+      capabilityProfile: {
+        summary: "Best for live research, vendor analysis, and sourcing.",
+        capabilities: ["research", "vendors", "sourcing"],
+        preferredTools: ["web_search"],
+      },
+    },
+  });
+
+  assert.match(general.capabilityProfile.summary ?? "", /Fallback executor/i);
+  assert.deepEqual(general.capabilityProfile.capabilities, [
+    "generalist",
+    "implementation",
+    "research",
+    "triage",
+    "fallback",
+  ]);
+  assert.deepEqual(teammate.capabilityProfile.capabilities, [
+    "research",
+    "comparison",
+    "vendors",
+  ]);
+  assert.deepEqual(teammate.capabilityProfile.preferredTools, [
+    "web_search",
+    "browser_get_state",
+  ]);
+  assert.equal(
+    updated?.capabilityProfile.summary,
+    "Best for live research, vendor analysis, and sourcing.",
+  );
+  assert.deepEqual(updated?.capabilityProfile.capabilities, [
+    "research",
+    "vendors",
+    "sourcing",
+  ]);
+  assert.deepEqual(updated?.capabilityProfile.preferredTools, ["web_search"]);
+  store.close();
+});
+
 test("listSessions preserves millisecond ordering for latest session selection", async () => {
   const root = makeTempDir("hb-state-store-");
   const store = new RuntimeStateStore({

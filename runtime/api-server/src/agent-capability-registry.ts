@@ -394,7 +394,7 @@ const RUNTIME_TOOL_DEFINITIONS = new Map<string, ToolCapabilityDefinition>(
 );
 
 function browserToolSessionKinds(): string[] {
-  return ["main_session", "subagent"];
+  return ["subagent", "task_proposal"];
 }
 
 const BROWSER_TOOL_DEFINITIONS = new Map<string, ToolCapabilityDefinition>(
@@ -1386,9 +1386,9 @@ export function renderCapabilityPolicyCorePromptSection(
   ];
   if (normalizedSessionKind === "main_session") {
     lines.push(
-      "Use surfaced capabilities to inspect before mutating workspace, app, browser, or runtime state whenever possible.",
+      "Use inspection capabilities to gather context before mutating workspace, app, browser, or runtime state whenever possible.",
       "After edits, shell commands, browser actions, MCP mutations, or runtime mutations, run a follow-up inspection or verification step before claiming success.",
-      "Use coordination capabilities to track progress, consult available skills, delegate research or app-building work when appropriate, or ask for clarification instead of keeping hidden state.",
+      "Use coordination capabilities to track progress, consult available skills, route execution through delegated subagents when appropriate, or ask for clarification instead of keeping hidden state.",
       "If a capability is not surfaced in the runtime context for this run, do not assume it is available.",
     );
     return lines.join("\n");
@@ -1432,19 +1432,11 @@ export function renderCapabilityToolRoutingPromptSection(
   }
   if (manifest.runtime_tools.some((capability) => capability.id === "delegate_task")) {
     ensureHeading();
-    lines.push("Delegation routing: keep work inline by default. Use `delegate_task` primarily for research and investigation work that benefits from a separate execution branch, or for creating apps and making substantial app modifications.");
-    lines.push("Outside research and app-building, delegate only when the user explicitly asks for background execution or the task genuinely must continue outside the current turn.");
-    lines.push("Direct execution is allowed in this session when the surfaced tools can satisfy the request cleanly; do not delegate just because work is executable.");
-    lines.push("Do not treat deliverable length alone as a delegation signal; keep long-form answers inline unless the underlying task already fits delegated research, app-building, or an explicit artifact/workspace route.");
-    lines.push("Treat user requests as workspace-native by default. Prefer the direct surfaced workspace route first; if the required capability is not surfaced or the job should branch into background execution, delegate the workspace path unless the user explicitly asks for non-workspace handling.");
-    lines.push("Do not turn a named app or product request into a desktop install, browser-open, manual setup, or generic option list before checking the direct workspace-native route or delegated workspace route.");
-    lines.push("Do not infer task impossibility from missing direct tools. Treat missing direct execution capabilities as a delegation signal, not as a reason to ask the user for a manual fallback.");
-    lines.push("Ask clarifying questions only when ambiguity affects user intent, safety, consent, credentials, account selection, or other user-owned context; do not ask merely because a preferred tool is missing from this run.");
-    lines.push("Ground clarification in current workspace/session context or a concrete tool/subagent result. Do not ask abstract option-list questions or introduce unsupported alternatives from general product knowledge; inspect, execute, or delegate first when context is insufficient.");
-    lines.push("Fresh-work routing: when the user asks for fresh execution, fresh investigation, a rerun, or a new deliverable, inspect, execute, or delegate first; do not answer from prior chat memory alone.");
-    lines.push("Reuse guardrail: do not present a previous artifact or child result as the answer to a fresh request unless the user clearly asked to reuse or continue that exact result, or you verified that it already satisfies the current request.");
+    lines.push("Delegation routing: when the user asks for work that needs web, browser, terminal, or other execution-heavy capability not surfaced directly in this run, use `delegate_task` instead of replying that the current run lacks those tools.");
+    lines.push("Deliverable routing: when the user asks for a report, brief, memo, digest, recap, or other long-form deliverable, prefer `delegate_task` so the result is produced as an artifact and the main chat stays concise.");
+    lines.push("Treat the main session as a coordinator first: if the task is browser-heavy, web-heavy, terminal-heavy, multi-step, or interruptible, route it to a delegated subagent unless the direct capability is clearly surfaced and the work is truly small enough to finish inline.");
     lines.push("Available-tool fallback: missing the ideal MCP, API, browser, web, terminal, or file tool is not enough to stop; choose another viable direct or delegated route before surfacing a limitation.");
-    lines.push("Treat delegated subagents as overflow execution capacity, not as the only execution surface for this workspace.");
+    lines.push("Treat current-run capability limits as a delegation signal when hidden subagents can perform the task.");
     lines.push("Do not lead with a capability apology, manual workaround, or \"I can't do that here\" answer when delegation is available.");
     lines.push("If an earlier turn said a tool was unavailable or unsupported, but the current surfaced capability set now includes it, trust the current run and retry the tool when it is the right path.");
     lines.push("Only surface a hard capability limitation to the user when neither the current run nor delegated subagents can actually carry out the request.");
@@ -1531,7 +1523,7 @@ export function renderCapabilityAvailabilityContextPromptSection(
     manifest.runtime_tools.some((capability) => capability.id === "delegate_task")
   ) {
     lines.push(
-      "This front session can execute directly with the surfaced tools above. Use `delegate_task` mainly for research or app-building work, or when background continuation is explicitly needed.",
+      "This front session is intentionally capability-incomplete. Treat the surfaced tools above as your full direct capability set for this run; if the request needs more and `delegate_task` is available, delegate it.",
     );
   }
   return lines.join("\n");
@@ -1543,7 +1535,7 @@ export function renderDelegatedCapabilityAvailabilityContextPromptSection(
 ): string {
   const lines = [
     "Delegated executor capability snapshot:",
-    "Use this to decide when to branch work. These are additional capabilities hidden subagents may use for this run; they complement your direct authority in this front session when work should run in parallel, in background, or with tighter isolation.",
+    "Use this only for routing and delegation. These are backstage capabilities that hidden subagents may use for this run; they do not expand your own direct authority in this front session.",
     summarizeAvailability("Delegated inspect tools", delegatedManifest.inspect.length),
     summarizeAvailability("Delegated mutating tools", delegatedManifest.mutate.length),
     summarizeAvailability("Delegated coordination tools", delegatedManifest.coordinate.length),

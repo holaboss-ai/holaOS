@@ -7,7 +7,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { useSetAtom } from "jotai";
 import {
+  ArrowLeft,
   CircleDot,
   Loader2,
   MessageSquareText,
@@ -47,9 +49,16 @@ import {
 import { StatusDot } from "@/components/ui/status-dot";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
+import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { useIssueWorkspaceData } from "./useIssues";
 import { useOpenWorkspaceOutput } from "./useOpenWorkspaceOutput";
 import { WorkspaceSurfaceHeader } from "./WorkspaceSurfaceHeader";
+import {
+  activeInternalTabIdAtom,
+  internalTabsAtom,
+  upsertInternalTab,
+  workspaceSurfaceTab,
+} from "./state/internalTabs";
 
 const ISSUE_STATUS_OPTIONS: Array<{
   value: IssueStatusPayload;
@@ -234,6 +243,14 @@ function issueActivityLabel(issue: IssueRecordPayload): string {
   return issueStatusLabel(issue.status);
 }
 
+function shortSessionLabel(sessionId: string): string {
+  const normalized = sessionId.trim();
+  if (!normalized) {
+    return "—";
+  }
+  return normalized.length <= 16 ? normalized : `${normalized.slice(0, 16)}…`;
+}
+
 export function IssueDetailPane({
   workspaceId,
   issueId,
@@ -241,7 +258,10 @@ export function IssueDetailPane({
   workspaceId: string;
   issueId: string;
 }) {
+  const { setSelectedWorkspaceId } = useWorkspaceSelection();
   const { selectedWorkspace } = useWorkspaceDesktop();
+  const setInternalTabs = useSetAtom(internalTabsAtom);
+  const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
   const { issues, teammatesById, isLoading, statusMessage, refresh } =
     useIssueWorkspaceData(workspaceId);
   const { openOutput, openFileInInternalTab, openUrlInBrowserTab } =
@@ -328,6 +348,22 @@ export function IssueDetailPane({
   const refreshThread = useCallback(() => {
     setThreadRefreshToken((value) => value + 1);
   }, []);
+
+  const handleBackToBoard = useCallback(() => {
+    const normalizedWorkspaceId = workspaceId.trim();
+    if (!normalizedWorkspaceId) {
+      return;
+    }
+    setSelectedWorkspaceId(normalizedWorkspaceId);
+    const tab = workspaceSurfaceTab("issues_board", normalizedWorkspaceId);
+    setInternalTabs((prev) => upsertInternalTab(prev, tab));
+    setActiveInternalTabId(tab.id);
+  }, [
+    setActiveInternalTabId,
+    setInternalTabs,
+    setSelectedWorkspaceId,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     if (!issue) {
@@ -774,20 +810,35 @@ export function IssueDetailPane({
         statusMessage={mutationError || statusMessage}
         actions={
           !isEditingDetails ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setMutationError("");
-                setIsEditingDetails(true);
-              }}
-              disabled={Boolean(issue.active_subagent_id) || isMutationPending}
-            >
-              <PencilLine className="size-4" />
-              Edit details
-            </Button>
+            <>
+              <Button type="button" variant="ghost" onClick={handleBackToBoard}>
+                <ArrowLeft className="size-4" />
+                Back to board
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setMutationError("");
+                  setIsEditingDetails(true);
+                }}
+                disabled={Boolean(issue.active_subagent_id) || isMutationPending}
+              >
+                <PencilLine className="size-4" />
+                Edit details
+              </Button>
+            </>
           ) : (
             <>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={handleBackToBoard}
+                disabled={isMutationPending}
+              >
+                <ArrowLeft className="size-4" />
+                Back to board
+              </Button>
               <Button
                 type="button"
                 variant="ghost"
@@ -1121,13 +1172,73 @@ export function IssueDetailPane({
             </Card>
           </div>
 
-          <aside className="grid content-start gap-5 xl:sticky xl:top-0">
+          <aside className="grid content-start gap-4 xl:sticky xl:top-0">
+            <Card className="bg-card/85" size="sm">
+              <CardHeader>
+                <CardTitle>Overview</CardTitle>
+                <CardDescription>
+                  Current issue state and routing context.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline" className="bg-background/70">
+                    <StatusDot
+                      variant={issueStatusVariant(issue.status)}
+                      pulse={Boolean(issue.active_subagent_id)}
+                    />
+                    {issueStatusLabel(issue.status)}
+                  </Badge>
+                  <Badge variant="outline" className="bg-background/70">
+                    <UserRound className="size-3.5" />
+                    {assignee?.name || "Unassigned"}
+                  </Badge>
+                  {issue.priority ? (
+                    <Badge variant="outline" className="bg-background/70">
+                      {issue.priority.slice(0, 1).toUpperCase() +
+                        issue.priority.slice(1)}
+                    </Badge>
+                  ) : null}
+                  {issue.attachments.length > 0 ? (
+                    <Badge variant="outline" className="bg-background/70">
+                      <Paperclip className="size-3.5" />
+                      {issue.attachments.length} attachment
+                      {issue.attachments.length === 1 ? "" : "s"}
+                    </Badge>
+                  ) : null}
+                </div>
+                <div className="rounded-xl border border-border bg-background/65 px-3 py-3">
+                  <div className="text-sm font-medium text-foreground">
+                    {issueActivityLabel(issue)}
+                  </div>
+                  <div className="mt-1 text-xs text-foreground/48">
+                    {issue.active_subagent_id
+                      ? `${assignee?.name || "Assigned teammate"} is working now`
+                      : issue.completed_at
+                        ? `Completed ${formatRelativeTime(issue.completed_at)}`
+                        : `Updated ${formatRelativeTime(issue.updated_at)}`}
+                  </div>
+                  {issue.blocker_reason ? (
+                    <div className="mt-3 rounded-lg border border-amber-500/18 bg-amber-500/[0.08] px-3 py-2 text-xs leading-5 text-amber-900 dark:text-amber-100/88">
+                      {issue.blocker_reason}
+                    </div>
+                  ) : null}
+                </div>
+              </CardContent>
+            </Card>
+
             <Card className="bg-card/85">
               <CardHeader>
                 <CardTitle>Properties</CardTitle>
+                <CardDescription>
+                  Status, assignee, and priority can be changed while the issue is idle.
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
-                <PropertyRow label="Status">
+                <PropertyRow
+                  label="Status"
+                  description="Todo auto-dispatches when the issue has an assignee."
+                >
                   <Select
                     value={issue.status}
                     onValueChange={(value) => {
@@ -1153,7 +1264,10 @@ export function IssueDetailPane({
                   </Select>
                 </PropertyRow>
 
-                <PropertyRow label="Assignee">
+                <PropertyRow
+                  label="Assignee"
+                  description="Unassigned Todo issues stay idle until someone takes them."
+                >
                   <Select
                     value={issue.assignee_teammate_id ?? "__unassigned__"}
                     onValueChange={(value) => {
@@ -1181,7 +1295,10 @@ export function IssueDetailPane({
                   </Select>
                 </PropertyRow>
 
-                <PropertyRow label="Priority">
+                <PropertyRow
+                  label="Priority"
+                  description="Optional routing hint for humans reviewing the board."
+                >
                   <Select
                     value={issue.priority ?? "__none__"}
                     onValueChange={(value) => {
@@ -1210,33 +1327,12 @@ export function IssueDetailPane({
               </CardContent>
             </Card>
 
-            <Card className="bg-card/85">
+            <Card className="bg-card/85" size="sm">
               <CardHeader>
-                <CardTitle>Details</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-foreground/62">
-                <DetailLine
-                  label="Created by"
-                  value={(issue.created_by || "Workspace user").trim() || "Workspace user"}
-                />
-                <DetailLine
-                  label="Created"
-                  value={formatCalendarLabel(issue.created_at)}
-                />
-                <DetailLine
-                  label="Updated"
-                  value={formatCalendarLabel(issue.updated_at)}
-                />
-                <DetailLine
-                  label="Completed"
-                  value={formatCalendarLabel(issue.completed_at)}
-                />
-              </CardContent>
-            </Card>
-
-            <Card className="bg-card/85">
-              <CardHeader>
-                <CardTitle>Execution log</CardTitle>
+                <CardTitle>Execution</CardTitle>
+                <CardDescription>
+                  Current run state for the assigned teammate.
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="rounded-xl border border-border bg-background/70 px-4 py-3">
@@ -1273,20 +1369,35 @@ export function IssueDetailPane({
               </CardContent>
             </Card>
 
-            <Card className="bg-card/85">
+            <Card className="bg-card/85" size="sm">
               <CardHeader>
-                <CardTitle>Session</CardTitle>
+                <CardTitle>Details</CardTitle>
+                <CardDescription>
+                  Immutable issue metadata and the backing session reference.
+                </CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="rounded-xl border border-border bg-background/70 px-4 py-3 text-sm text-foreground/58">
-                  <div className="flex items-center gap-2">
-                    <UserRound className="size-4 text-foreground/45" />
-                    <span className="truncate">{assignee?.name || "Unassigned"}</span>
-                  </div>
-                  <div className="mt-2 text-xs text-foreground/42">
-                    Session {issue.session_id.slice(0, 12)}
-                  </div>
-                </div>
+              <CardContent className="space-y-3 text-sm text-foreground/62">
+                <DetailLine
+                  label="Created by"
+                  value={(issue.created_by || "Workspace user").trim() || "Workspace user"}
+                />
+                <DetailLine
+                  label="Created"
+                  value={formatCalendarLabel(issue.created_at)}
+                />
+                <DetailLine
+                  label="Updated"
+                  value={formatCalendarLabel(issue.updated_at)}
+                />
+                <DetailLine
+                  label="Completed"
+                  value={formatCalendarLabel(issue.completed_at)}
+                />
+                <DetailLine label="Session" value={shortSessionLabel(issue.session_id)} />
+                <DetailLine
+                  label="Current owner"
+                  value={assignee?.name || "Unassigned"}
+                />
               </CardContent>
             </Card>
           </aside>
@@ -1298,9 +1409,11 @@ export function IssueDetailPane({
 
 function PropertyRow({
   label,
+  description,
   children,
 }: {
   label: string;
+  description?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -1308,6 +1421,11 @@ function PropertyRow({
       <div className="text-xs font-medium uppercase tracking-[0.18em] text-foreground/38">
         {label}
       </div>
+      {description ? (
+        <div className="mt-1 text-xs leading-5 text-foreground/48">
+          {description}
+        </div>
+      ) : null}
       <div className="mt-2">{children}</div>
     </div>
   );

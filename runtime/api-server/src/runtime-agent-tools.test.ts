@@ -535,6 +535,77 @@ test("delegateTask creates issue-owned runs and routes to a matching custom team
   }
 });
 
+test("delegateTask prefers explicit teammate capability profiles when choosing an assignee", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-delegate-capability-"));
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const mainSessionId = "main-1";
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.ensureSession({
+      workspaceId,
+      sessionId: mainSessionId,
+      kind: "main_session",
+      createdBy: "workspace_user",
+    });
+    store.createTeammate({
+      workspaceId,
+      name: "Frontend",
+      instructions: "Own dashboard implementation tasks.",
+      capabilityProfile: {
+        summary: "Best for UI implementation and shipping frontend work.",
+        capabilities: ["frontend", "react", "dashboard"],
+        preferredTools: ["edit", "bash"],
+      },
+    });
+    const researcher = store.createTeammate({
+      workspaceId,
+      name: "Research",
+      instructions: "Own research and sourcing tasks.",
+      capabilityProfile: {
+        summary: "Best for live research, sourcing, and vendor comparisons.",
+        capabilities: ["research", "comparison", "vendors"],
+        preferredTools: ["web_search", "browser_get_state"],
+      },
+    });
+    const parentInput = store.enqueueInput({
+      workspaceId,
+      sessionId: mainSessionId,
+      payload: {
+        text: "Compare the latest vendor pricing and source the evidence.",
+      },
+    });
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    const result = service.delegateTask({
+      workspaceId,
+      sessionId: mainSessionId,
+      inputId: parentInput.inputId,
+      tasks: [
+        {
+          title: "Vendor pricing comparison",
+          goal: "Research current vendor pricing and summarize the differences.",
+          context: "Need live sourcing and comparison notes.",
+          tools: ["web_search"],
+        },
+      ],
+    }) as { tasks?: Array<Record<string, unknown>> };
+
+    assert.equal(result.tasks?.[0]?.teammate_id, researcher.teammateId);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("queueIssueReply reopens a completed issue on the same persistent issue session", async () => {
   const root = await mkdtemp(
     path.join(os.tmpdir(), "hb-runtime-agent-tools-issue-reply-"),

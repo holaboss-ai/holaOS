@@ -723,6 +723,12 @@ interface RuntimeNotificationListOptionsPayload {
     updated_at: string;
   }
 
+  interface TeammateCapabilityProfilePayload {
+    summary: string | null;
+    capabilities: string[];
+    preferred_tools: string[];
+  }
+
   interface TeammateRecordPayload {
     teammate_id: string;
     workspace_id: string;
@@ -731,6 +737,7 @@ interface RuntimeNotificationListOptionsPayload {
     status: TeammateStatusPayload;
     instructions: string | null;
     skills: TeammateSkillPayload[];
+    capability_profile: TeammateCapabilityProfilePayload;
     created_at: string;
     updated_at: string;
     archived_at: string | null;
@@ -755,6 +762,7 @@ interface RuntimeNotificationListOptionsPayload {
     name: string;
     instructions?: string | null;
     skills?: TeammateSkillInputPayload[] | null;
+    capability_profile?: Partial<TeammateCapabilityProfilePayload> | null;
   }
 
   interface CreateTeammateResponsePayload {
@@ -766,6 +774,7 @@ interface RuntimeNotificationListOptionsPayload {
     name?: string | null;
     instructions?: string | null;
     skills?: TeammateSkillInputPayload[] | null;
+    capability_profile?: Partial<TeammateCapabilityProfilePayload> | null;
     status?: TeammateStatusPayload;
   }
 

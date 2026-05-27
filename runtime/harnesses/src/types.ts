@@ -71,6 +71,7 @@ export type HarnessPromptLayerId =
   | "current_user_context"
   | "operator_surface_context"
   | "pending_user_memory"
+  | "teammate_routing_context"
   | "legacy_session_history"
   | "scratchpad_context"
   | "evolve_candidate_context"

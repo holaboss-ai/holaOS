@@ -51,9 +51,9 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   assert.match(sidebarSource, /kind: "issues_board"/);
   assert.match(sidebarSource, /kind: "teammates"/);
   assert.match(sidebarSource, /function SidebarIssuesSection\(\) \{/);
-  assert.match(sidebarSource, /Open dashboard/);
-  assert.match(sidebarSource, /Open board/);
-  assert.match(sidebarSource, /Open teammates/);
+  assert.match(sidebarSource, />\s*Dashboard\s*</);
+  assert.match(sidebarSource, />\s*Board\s*</);
+  assert.match(sidebarSource, />\s*Teammates\s*</);
   assert.match(sidebarSource, /SectionLabel>\s*Agent Team/);
   assert.match(sidebarSource, /setInternalTabs\(\(prev\) => upsertInternalTab\(prev, tab\)\);/);
   assert.match(sidebarSource, /setActiveInternalTabId\(tab\.id\);/);
@@ -76,16 +76,22 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   assert.match(topChromeSource, /kind === "teammates"/);
   assert.match(topChromeSource, /kind === "workspace_dashboard"/);
 
-  assert.match(boardPaneSource, /const BOARD_MUTATION_STATUSES:/);
   assert.match(boardPaneSource, /const BOARD_COLUMN_CHROME:/);
-  assert.match(boardPaneSource, /Kanban Board/);
+  assert.match(boardPaneSource, />\s*All\s*</);
+  assert.match(boardPaneSource, />\s*Members\s*</);
+  assert.match(boardPaneSource, />\s*Agents\s*</);
   assert.match(boardPaneSource, /workingCount/);
   assert.match(boardPaneSource, /const openIssueDetailTab = useOpenIssueDetailTab\(\);/);
   assert.match(boardPaneSource, /void openIssueDetailTab\(\{\s*workspaceId: issue\.workspace_id,\s*issueId: issue\.issue_id,/);
-  assert.match(boardPaneSource, /value: "in_progress", label: "In progress", disabled: true/);
+  assert.match(boardPaneSource, /draggable=\{!running && !pending\}/);
+  assert.match(boardPaneSource, /onDragStart=\{\(event\) => handleCardDragStart\(event, issue\)\}/);
+  assert.match(boardPaneSource, /onDragOver=\{\(event\) => handleColumnDragOver\(event, status\)\}/);
+  assert.match(boardPaneSource, /onDrop=\{\(event\) => void handleColumnDrop\(event, status\)\}/);
+  assert.match(boardPaneSource, /nextStatus === "in_progress"/);
   assert.match(boardPaneSource, /window\.electronAPI\.workspace\.stopIssueRun/);
   assert.match(boardPaneSource, /window\.prompt\(\s*"Why is this issue blocked\?"/);
-  assert.match(boardPaneSource, /WorkspaceSurfaceHeader/);
+  assert.doesNotMatch(boardPaneSource, /SelectTrigger/);
+  assert.doesNotMatch(boardPaneSource, /WorkspaceSurfaceHeader/);
 
   assert.match(dashboardPaneSource, /export function WorkspaceDashboardPane/);
   assert.match(dashboardPaneSource, /Track teammate coverage, active work, and issue flow at a glance\./);
@@ -100,6 +106,8 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   assert.match(issueDetailPaneSource, /window\.electronAPI\.workspace\.queueSessionInput/);
   assert.match(issueDetailPaneSource, /window\.electronAPI\.workspace\.getSessionHistory/);
   assert.match(issueDetailPaneSource, /window\.electronAPI\.workspace\.stageSessionAttachments/);
+  assert.match(issueDetailPaneSource, /workspaceSurfaceTab\("issues_board"/);
+  assert.match(issueDetailPaneSource, /Back to board/);
   assert.match(issueDetailPaneSource, /attachments: nextIssueAttachments/);
   assert.match(issueDetailPaneSource, /Properties/);
   assert.match(issueDetailPaneSource, /Activity/);
@@ -107,8 +115,17 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
 
   assert.match(teammatesPaneSource, /export function TeammatesPane/);
   assert.match(teammatesPaneSource, /window\.electronAPI\.workspace\.listTeammates/);
+  assert.match(teammatesPaneSource, /window\.electronAPI\.workspace\.listIssues/);
   assert.match(teammatesPaneSource, /window\.electronAPI\.workspace\.createTeammate/);
   assert.match(teammatesPaneSource, /window\.electronAPI\.workspace\.updateTeammate/);
+  assert.match(teammatesPaneSource, /useOpenIssueDetailTab/);
+  assert.match(teammatesPaneSource, /placeholder="Search teammates\.\.\."/);
+  assert.match(teammatesPaneSource, /Back to teammates/);
+  assert.match(teammatesPaneSource, /TabsTrigger\s+value="activity"/);
+  assert.match(teammatesPaneSource, /TabsTrigger\s+value="issues"/);
+  assert.match(teammatesPaneSource, /TabsTrigger\s+value="instructions"/);
+  assert.match(teammatesPaneSource, /TabsTrigger\s+value="skills"/);
+  assert.doesNotMatch(teammatesPaneSource, /Creating a new teammate/);
   assert.match(teammatesPaneSource, /ConfirmDialog/);
   assert.match(teammatesPaneSource, /SKILL\.md/);
   assert.match(teammatesPaneSource, /WorkspaceSurfaceHeader/);

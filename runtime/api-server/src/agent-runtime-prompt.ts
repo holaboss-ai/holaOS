@@ -82,6 +82,19 @@ export interface AgentPendingUserMemoryContext {
   }> | null;
 }
 
+export interface AgentTeammateRoutingContext {
+  teammates?: Array<{
+    teammate_id: string;
+    name: string;
+    kind: string;
+    status: string;
+    summary?: string | null;
+    capabilities?: string[] | null;
+    preferred_tools?: string[] | null;
+    skill_names?: string[] | null;
+  }> | null;
+}
+
 export interface AgentRecentRuntimeContext {
   lines?: string[] | null;
 }
@@ -136,6 +149,7 @@ export interface ComposeBaseAgentPromptRequest {
   currentUserContext?: AgentCurrentUserContext | null;
   operatorSurfaceContext?: AgentOperatorSurfaceContext | null;
   pendingUserMemoryContext?: AgentPendingUserMemoryContext | null;
+  teammateRoutingContext?: AgentTeammateRoutingContext | null;
   recentRuntimeContext?: AgentRecentRuntimeContext | null;
   sessionAttachmentContext?: AgentSessionAttachmentContext | null;
   scratchpadContext?: AgentScratchpadContext | null;
@@ -277,7 +291,7 @@ function sessionPolicyPromptSection(request: ComposeBaseAgentPromptRequest): str
       break;
     case "main_session":
       lines.push(
-        "This is a front-of-house workspace session. Stay conversational and user-facing, use surfaced capabilities to inspect and execute work directly when appropriate, delegate to subagents when that improves latency, isolation, or parallelism, and do not assume browser tooling is available unless the capability manifest exposes it."
+        "This is a front-of-house workspace session. Stay conversational, handle clarification and user-visible updates, prefer delegating long-running or execution-heavy work to subagents, and do not assume browser tooling is available unless the capability manifest exposes it."
       );
       break;
     default:
@@ -319,7 +333,7 @@ function mainSessionResponseDeliveryPolicyPromptSection(): string {
     "When background work finishes or reaches a useful milestone, weave relevant updates into the next reply when it fits naturally.",
     "When background work blocks on user input, ask directly in your own voice and keep the ask concrete.",
     "Keep accepted, in-progress, waiting, and completed work clearly separate in how you speak.",
-    "The main session may execute directly when that is the clearest path; do not narrate routine direct tool use as if it were automatically background work.",
+    "Treat the main session as a coordination surface by default.",
     "Kickoff, delegation, and status replies should usually be at most one to two short sentences unless reasoning itself is the user's requested deliverable.",
     "For kickoff and delegation replies, acknowledge the request and state the next action without turning the reply into a mini-analysis, rewrite theory, or speculative plan.",
     "Do not speculate before inspection. If you have not yet inspected the relevant artifact or received grounded tool or subagent results, do not present hypotheses, likely root causes, or detailed solution structure as established.",
@@ -468,6 +482,69 @@ function pendingUserMemoryContextPromptSection(context: AgentPendingUserMemoryCo
       lines.push(`  Evidence: ${evidence}`);
     }
   }
+  return linesSection(lines);
+}
+
+function teammateRoutingContextPromptSection(
+  context: AgentTeammateRoutingContext | null | undefined,
+): string {
+  const teammates = Array.isArray(context?.teammates)
+    ? context.teammates.filter((teammate) => Boolean(teammate))
+    : [];
+  if (teammates.length === 0) {
+    return "";
+  }
+
+  const lines = [
+    "Teammate routing roster:",
+    "Use this roster to choose who should receive delegated work. These are routing profiles for teammate selection, not direct authority grants for the current front session.",
+    "Prefer the teammate whose declared capabilities and preferred tools best match the task. Fall back to `General` when no custom teammate is a clear fit.",
+  ];
+
+  for (const teammate of teammates) {
+    const name = nonEmptyText(teammate.name);
+    const kind = nonEmptyText(teammate.kind) || "custom";
+    const status = nonEmptyText(teammate.status) || "active";
+    if (!name) {
+      continue;
+    }
+    const summary = nonEmptyText(teammate.summary) || "No explicit routing summary.";
+    const capabilities = Array.isArray(teammate.capabilities)
+      ? teammate.capabilities
+          .map((value) => nonEmptyText(value))
+          .filter((value) => value.length > 0)
+          .slice(0, 8)
+      : [];
+    const preferredTools = Array.isArray(teammate.preferred_tools)
+      ? teammate.preferred_tools
+          .map((value) => nonEmptyText(value))
+          .filter((value) => value.length > 0)
+          .slice(0, 8)
+      : [];
+    const skillNames = Array.isArray(teammate.skill_names)
+      ? teammate.skill_names
+          .map((value) => nonEmptyText(value))
+          .filter((value) => value.length > 0)
+          .slice(0, 6)
+      : [];
+    lines.push(`- \`${name}\` [${kind}/${status}]: ${summary}`);
+    if (capabilities.length > 0) {
+      lines.push(
+        `  Capability tags: ${capabilities.map((value) => `\`${value}\``).join(", ")}.`,
+      );
+    }
+    if (preferredTools.length > 0) {
+      lines.push(
+        `  Preferred tools: ${preferredTools.map((value) => `\`${value}\``).join(", ")}.`,
+      );
+    }
+    if (skillNames.length > 0) {
+      lines.push(
+        `  Skill names: ${skillNames.map((value) => `\`${value}\``).join(", ")}.`,
+      );
+    }
+  }
+
   return linesSection(lines);
 }
 
@@ -821,13 +898,23 @@ function pushSharedRuntimeContextPromptSections(
     content: pendingUserMemoryContextPromptSection(request.pendingUserMemoryContext)
   });
 
+  pushPromptLayer(promptSections, {
+    id: "teammate_routing_context",
+    channel: "context_message",
+    apply_at: "runtime_config",
+    precedence: "runtime_context",
+    priority: 492,
+    volatility: "workspace",
+    content: teammateRoutingContextPromptSection(request.teammateRoutingContext)
+  });
+
   if (options.includeScratchpadContext) {
     pushPromptLayer(promptSections, {
       id: "scratchpad_context",
       channel: "context_message",
       apply_at: "runtime_config",
       precedence: "runtime_context",
-      priority: 492,
+      priority: 493,
       volatility: "run",
       content: scratchpadContextPromptSection(
         request.scratchpadContext,
@@ -1031,10 +1118,12 @@ export function buildMainSessionPromptSections(
   const normalizedSessionKind = normalizeSessionKind(request.sessionKind);
   const conversationLines = [
     "Conversation and orchestration doctrine:",
-    "Keep this session conversational and user-facing, but use direct file, shell, browser, MCP/app, and runtime tools when they are surfaced and they are the clearest path.",
-    "Use this session to understand the request, execute directly when appropriate, choose when to delegate, brief delegated work clearly, and translate results back to the user.",
-    "Use surfaced capabilities to inspect before mutating when possible, and verify results before claiming success.",
-    "Treat explicit user requirements, verification targets, and deliverable shape as completion criteria for direct and delegated work, not optional detail.",
+    "Handle quick questions, clarification, and read/query requests inline when appropriate.",
+    "Keep this session to coordination, inspection, and user-facing conversation; route direct file edits, terminal execution, browser execution, and other state-changing implementation work to subagents.",
+    "Inspect before mutating workspace, app, or runtime state when possible.",
+    "After edits or other state-changing tool calls, verify the result with the most direct inspection path available.",
+    "Use available tools, skills, and MCP integrations when they are more reliable than reasoning alone.",
+    "Treat explicit user requirements and verification targets as completion criteria, not optional detail.",
     "Do not report work as done, verified, or already satisfied unless direct inspection, direct tool results, or grounded child results confirm it.",
     "Treat the active workspace root as the default boundary. Do not cross it unless the user explicitly asks, and then keep the scope minimal.",
     "If a surfaced file, skill, or reference path returns `ENOENT` or `Path not found`, stop guessing repo roots or absolute paths outside the workspace. Re-anchor on the workspace or the surfaced skill directory; if still missing, treat it as a missing packaged reference.",
@@ -1090,23 +1179,18 @@ export function buildMainSessionPromptSections(
     );
   } else {
     conversationLines.splice(4, 0,
-      "The main session is the default full-capability agent for this workspace, not a capability-thin coordinator.",
-      "Treat user requests as workspace-native by default. Prefer direct workspace execution in this session when the necessary surfaced tools are available. Keep work inline unless it clearly fits delegated research or app-building.",
-      "Use delegation primarily for research and app work: delegate evidence-heavy research, investigation, comparison, or fresh information gathering when a separate execution branch is useful, and delegate app creation or substantial app modification when the work should produce or update a workspace app.",
-      "Outside research and app-building, delegate only when the user explicitly asks for background execution or the task genuinely must continue outside the current turn.",
-      "Do not infer task impossibility from missing direct tools. If this run lacks a needed capability but delegated subagents can do it, delegate instead of falling back to a manual workaround.",
-      "Workspace apps are the workspace-native software surface. Apps include catalog-provided integration apps that can be installed directly, plus user-created apps that may compose data and functions from other apps.",
-      "When a request can be satisfied by workspace software or app-provided data/functions, prefer the direct surfaced app/runtime/MCP route first; delegate or install/build through the workspace route only when the direct path is unavailable or the job should branch.",
-      "For app creation or substantial app modification, prefer `delegate_task` with the app-builder-sdk skill as the detailed execution guide unless the change is small enough to complete directly with surfaced tools.",
+      "The main session is a front-of-house coordinator with only a partial direct capability surface, not the default heavy executor.",
+      "Treat the surfaced tool and capability set for this run as your full direct authority. Hidden subagents may have a broader executor surface than you do.",
+      "Prefer delegating long-running, tool-heavy, interruptible, or execution-heavy work to hidden subagents.",
+      "For browser control, web research, terminal work, or other execution-heavy tasks, default to delegating unless the direct capability is surfaced here and the work is genuinely small enough to finish inline.",
       "Do not turn a named app or product request into a desktop install, browser-open, manual setup, or generic option list before checking the direct workspace-native route or delegated workspace route.",
       "Ask clarifying questions only when ambiguity affects user intent, safety, consent, credentials, account selection, or other user-owned context; do not ask merely because a preferred tool is missing from this run.",
       "Clarifying questions must be grounded in the current workspace/session context or a concrete tool/subagent result. Do not ask abstract option-list questions or introduce unsupported alternatives from general product knowledge; inspect, execute, or delegate first when the current context is insufficient.",
       "When the user asks for fresh execution, fresh investigation, or a new deliverable, do not answer from prior chat memory alone; inspect, execute, or delegate first.",
-      "For browser control, terminal work, or other execution work, use direct tools when surfaced. Do not delegate them by default unless they are part of delegated research, part of app-building work, or genuinely need background continuation.",
       "Default delegated browser work to the agent browser. Set `use_user_browser_surface: true` on `delegate_task` only when the user explicitly says `use my browser`. Do not infer it from `current tab`, `current page`, `this page`, or similar phrasing.",
       "If the user asks for work that needs capabilities this run does not have directly, but delegated subagents can do it, delegate instead of replying that this run lacks those tools.",
       "Treat missing direct web, browser, terminal, MCP, or other execution-heavy capabilities as a routing signal to delegate, not as the final answer to the user.",
-      "When the ideal direct tool or integration is missing, do not stop there; try another viable direct or delegated route with available tools, or ask one precise question for missing access/context.",
+      "When the ideal direct tool or integration is missing, do not stop there; try another viable route with available tools, such as delegated browser inspection, web research, terminal/file inspection, or one precise question for missing access/context.",
       "If the delegated executor snapshot already shows a concrete additional capability family for the request, route against that capability instead of asking a generic tool-discovery question. Only ask clarifying questions about the user's actual goal, data, or ambiguity.",
       "Only tell the user a request cannot be completed after checking viable direct and delegated alternatives, or when the remaining blocker genuinely requires user access, credentials, confirmation, or context.",
       "Do not answer with a capability-apology or manual fallback first when `delegate_task` is available and the task can be routed there.",

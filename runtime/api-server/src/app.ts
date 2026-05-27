@@ -21,6 +21,7 @@ import {
   type CronjobRecord,
   type IssueAttachmentRecord,
   type IssueRecord,
+  type TeammateCapabilityProfileRecord,
   type TeammateRecord,
   type TeammateSkillRecord,
   type MemoryUpdateProposalRecord,
@@ -29,7 +30,6 @@ import {
   type RuntimeNotificationRecord,
   type SessionMessageRecord,
   type SessionRuntimeStateRecord,
-  type TaskProposalRecord,
   type OutputEventRecord,
   type TerminalSessionStatus,
   type TurnRequestSnapshotRecord,
@@ -917,6 +917,67 @@ function requiredTeammateSkillInputs(
   });
 }
 
+function optionalTrimmedStringArray(
+  value: unknown,
+  fieldName: string,
+): string[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an array`);
+  }
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const [index, entry] of value.entries()) {
+    if (typeof entry !== "string") {
+      throw new Error(`${fieldName}[${index}] must be a string`);
+    }
+    const trimmed = entry.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
+function requiredTeammateCapabilityProfileInput(
+  value: unknown,
+  fieldName: string,
+): Partial<TeammateCapabilityProfileRecord> | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (!isRecord(value)) {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  return {
+    summary: hasOwn(value, "summary")
+      ? (nullableString(value.summary) ?? null)
+      : undefined,
+    capabilities: hasOwn(value, "capabilities")
+      ? optionalTrimmedStringArray(value.capabilities, `${fieldName}.capabilities`)
+      : undefined,
+    preferredTools: hasOwn(value, "preferred_tools")
+      ? optionalTrimmedStringArray(
+          value.preferred_tools,
+          `${fieldName}.preferred_tools`,
+        )
+      : hasOwn(value, "preferredTools")
+        ? optionalTrimmedStringArray(
+            value.preferredTools,
+            `${fieldName}.preferredTools`,
+          )
+        : undefined,
+  };
+}
+
 function sessionMessageAttachments(
   store: RuntimeStateStore,
   workspaceId: string,
@@ -1370,6 +1431,16 @@ function teammateSkillPayload(record: TeammateSkillRecord): Record<string, unkno
   };
 }
 
+function teammateCapabilityProfilePayload(
+  record: TeammateCapabilityProfileRecord,
+): Record<string, unknown> {
+  return {
+    summary: record.summary,
+    capabilities: [...record.capabilities],
+    preferred_tools: [...record.preferredTools],
+  };
+}
+
 function teammatePayload(record: TeammateRecord): Record<string, unknown> {
   return {
     teammate_id: record.teammateId,
@@ -1379,6 +1450,9 @@ function teammatePayload(record: TeammateRecord): Record<string, unknown> {
     status: record.status,
     instructions: record.instructions,
     skills: record.skills.map((skill) => teammateSkillPayload(skill)),
+    capability_profile: teammateCapabilityProfilePayload(
+      record.capabilityProfile,
+    ),
     created_at: record.createdAt,
     updated_at: record.updatedAt,
     archived_at: record.archivedAt,
@@ -1416,23 +1490,6 @@ function issuePayload(record: IssueRecord): Record<string, unknown> {
     created_at: record.createdAt,
     updated_at: record.updatedAt,
     completed_at: record.completedAt,
-  };
-}
-
-function taskProposalPayload(record: TaskProposalRecord): Record<string, unknown> {
-  return {
-    proposal_id: record.proposalId,
-    workspace_id: record.workspaceId,
-    task_name: record.taskName,
-    task_prompt: record.taskPrompt,
-    task_generation_rationale: record.taskGenerationRationale,
-    proposal_source: record.proposalSource,
-    source_event_ids: record.sourceEventIds,
-    created_at: record.createdAt,
-    state: record.state,
-    accepted_session_id: record.acceptedSessionId,
-    accepted_input_id: record.acceptedInputId,
-    accepted_at: record.acceptedAt
   };
 }
 
@@ -10998,6 +11055,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         name: requiredString(request.body.name, "name"),
         instructions: nullableString(request.body.instructions) ?? null,
         skills: requiredTeammateSkillInputs(request.body.skills, "skills"),
+        capabilityProfile: requiredTeammateCapabilityProfileInput(
+          request.body.capability_profile,
+          "capability_profile",
+        ),
       });
       return { teammate: teammatePayload(teammate) };
     } catch (error) {
@@ -11045,6 +11106,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
                   : undefined,
                 skills: hasOwn(request.body, "skills")
                   ? requiredTeammateSkillInputs(request.body.skills, "skills")
+                  : undefined,
+                capabilityProfile: hasOwn(request.body, "capability_profile")
+                  ? requiredTeammateCapabilityProfileInput(
+                      request.body.capability_profile,
+                      "capability_profile",
+                    )
                   : undefined,
                 archivedAt: requestedStatus === "active" ? null : undefined,
               },
@@ -11285,368 +11352,6 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       }
       return sendError(reply, 400, error instanceof Error ? error.message : "issue stop failed");
     }
-  });
-
-  app.get("/api/v1/task-proposals", async (request, reply) => {
-    const query = isRecord(request.query) ? request.query : {};
-    const workspaceId = optionalString(query.workspace_id);
-    if (!workspaceId) {
-      return sendError(reply, 400, "workspace_id is required");
-    }
-    const proposals = store.listTaskProposals({ workspaceId }).map((item: TaskProposalRecord) => taskProposalPayload(item));
-    return { proposals, count: proposals.length };
-  });
-
-  app.get("/api/v1/task-proposals/unreviewed", async (request, reply) => {
-    const query = isRecord(request.query) ? request.query : {};
-    const workspaceId = optionalString(query.workspace_id);
-    if (!workspaceId) {
-      return sendError(reply, 400, "workspace_id is required");
-    }
-    const proposals = store
-      .listUnreviewedTaskProposals({ workspaceId })
-      .map((item: TaskProposalRecord) => taskProposalPayload(item));
-    return { proposals, count: proposals.length };
-  });
-
-  app.get("/api/v1/task-proposals/unreviewed/stream", async (request, reply) => {
-    const query = isRecord(request.query) ? request.query : {};
-    const workspaceId = optionalString(query.workspace_id);
-    if (!workspaceId) {
-      return sendError(reply, 400, "workspace_id is required");
-    }
-    reply.header("Cache-Control", "no-cache");
-    reply.header("Connection", "keep-alive");
-    reply.header("X-Accel-Buffering", "no");
-    reply.type("text/event-stream");
-
-    const stream = Readable.from(
-      (async function* () {
-        const seenProposalIds = new Set(
-          store.listUnreviewedTaskProposals({ workspaceId }).map((item: TaskProposalRecord) => item.proposalId)
-        );
-        yield sseComment("connected");
-        while (true) {
-          const proposals = store.listUnreviewedTaskProposals({ workspaceId });
-          for (const proposal of proposals) {
-            if (seenProposalIds.has(proposal.proposalId)) {
-              continue;
-            }
-            seenProposalIds.add(proposal.proposalId);
-            yield [
-              "event: insert",
-              `id: ${proposal.proposalId}`,
-              `data: ${JSON.stringify(taskProposalPayload(proposal))}`
-            ].join("\n") + "\n\n";
-          }
-          yield sseComment("ping");
-          await sleep(1000);
-        }
-      })()
-    );
-    return reply.send(stream);
-  });
-
-  app.post("/api/v1/task-proposals", async (request, reply) => {
-    if (!isRecord(request.body)) {
-      return sendError(reply, 400, "request body must be an object");
-    }
-    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
-    if (!store.getWorkspace(workspaceId)) {
-      return sendError(reply, 404, "workspace not found");
-    }
-    const proposal = store.createTaskProposal({
-      proposalId: requiredString(request.body.proposal_id, "proposal_id"),
-      workspaceId,
-      taskName: requiredString(request.body.task_name, "task_name"),
-      taskPrompt: requiredString(request.body.task_prompt, "task_prompt"),
-      taskGenerationRationale: requiredString(request.body.task_generation_rationale, "task_generation_rationale"),
-      proposalSource: optionalString(request.body.proposal_source) ?? "proactive",
-      sourceEventIds: optionalStringList(request.body.source_event_ids),
-      createdAt: requiredString(request.body.created_at, "created_at"),
-      state: optionalString(request.body.state) ?? "not_reviewed"
-    });
-    return { proposal: taskProposalPayload(proposal) };
-  });
-
-  app.post("/api/v1/task-proposals/:proposalId/accept", async (request, reply) => {
-    if (!isRecord(request.body)) {
-      return sendError(reply, 400, "request body must be an object");
-    }
-
-    const params = request.params as { proposalId: string };
-    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
-    const proposal = store.getTaskProposal({ workspaceId, proposalId: params.proposalId });
-    if (!proposal) {
-      return sendError(reply, 404, "Task proposal not found");
-    }
-
-    const workspace = store.getWorkspace(proposal.workspaceId);
-    if (!workspace) {
-      return sendError(reply, 404, "workspace not found");
-    }
-
-    if (proposal.state === "dismissed") {
-      return sendError(reply, 409, "Task proposal has already been dismissed");
-    }
-    if (proposal.state === "accepted" && proposal.acceptedSessionId && proposal.acceptedInputId) {
-      return sendError(reply, 409, "Task proposal has already been accepted");
-    }
-
-    const blockingApps = blockingWorkspaceApps({ store, workspaceId: proposal.workspaceId });
-    if (blockingApps.length > 0) {
-      return sendError(reply, 409, blockingWorkspaceAppsMessage(blockingApps));
-    }
-
-    const taskName = requiredString(request.body.task_name ?? proposal.taskName, "task_name");
-    const taskPrompt = requiredString(request.body.task_prompt ?? proposal.taskPrompt, "task_prompt");
-    const sessionId = optionalString(request.body.session_id) ?? `subagent-${randomUUID()}`;
-    const parentSessionId =
-      nullableString(request.body.parent_session_id) ??
-      preferredWorkspaceSessionId({ store, workspace }) ??
-      null;
-    const priority = optionalInteger(request.body.priority, 0);
-    const requestedModel = nullableString(request.body.model) ?? null;
-    const effectiveModel = resolveSubagentExecutionModel({
-      selectedModel: requestedModel,
-    });
-    const createdBy = nullableString(request.body.created_by) ?? "workspace_user";
-    const subagentId = randomUUID();
-
-    if (store.getSession({ workspaceId: proposal.workspaceId, sessionId })) {
-      return sendError(reply, 409, "session_id is already in use");
-    }
-    if (
-      parentSessionId &&
-      !store.getSession({
-        workspaceId: proposal.workspaceId,
-        sessionId: parentSessionId,
-      })
-    ) {
-      return sendError(reply, 404, "parent session not found");
-    }
-
-    const evolveCandidate =
-      proposal.proposalSource === "evolve"
-        ? store.getEvolveSkillCandidateByTaskProposalId({
-            workspaceId: proposal.workspaceId,
-            proposalId: proposal.proposalId,
-          })
-        : null;
-    let evolveCandidateMarkdown: string | null = null;
-    if (evolveCandidate) {
-      try {
-        const draft = await memoryService.get({
-          workspace_id: proposal.workspaceId,
-          path: evolveCandidate.skillPath,
-        });
-        evolveCandidateMarkdown = typeof draft.text === "string" ? draft.text : null;
-      } catch {
-        evolveCandidateMarkdown = null;
-      }
-    }
-
-    const assignee = store.ensureGeneralTeammate(proposal.workspaceId);
-    const issue = store.createIssue({
-      workspaceId: proposal.workspaceId,
-      sessionId,
-      title: taskName,
-      description: taskPrompt,
-      status: "todo",
-      assigneeTeammateId: assignee.teammateId,
-      createdBy,
-    });
-    const session = store.ensureSession(
-      {
-        workspaceId: proposal.workspaceId,
-        sessionId: issue.sessionId,
-        kind: "subagent",
-        title: taskName,
-        parentSessionId,
-        sourceProposalId: proposal.proposalId,
-        createdBy,
-        archivedAt: null,
-      },
-      { touchExisting: false },
-    );
-    if (!store.getBinding({ workspaceId: proposal.workspaceId, sessionId: session.sessionId })) {
-      store.upsertBinding({
-        workspaceId: proposal.workspaceId,
-        sessionId: session.sessionId,
-        harness: resolvedWorkspaceHarness(workspace),
-        harnessSessionId: session.sessionId
-      });
-    }
-    store.ensureRuntimeState({
-      workspaceId: proposal.workspaceId,
-      sessionId: session.sessionId,
-      status: "QUEUED"
-    });
-
-    const record = store.enqueueInput({
-      workspaceId: proposal.workspaceId,
-      sessionId: session.sessionId,
-      priority,
-      payload: {
-        text: taskPrompt,
-        attachments: [],
-        image_urls: [],
-        model: effectiveModel,
-        context: {
-          source: "task_proposal",
-          source_type: "task_proposal",
-          proposal_id: proposal.proposalId,
-          proposal_source: proposal.proposalSource,
-          subagent_id: subagentId,
-          issue_id: issue.issueId,
-          teammate_id: assignee.teammateId,
-          parent_session_id: parentSessionId,
-          origin_main_session_id: parentSessionId,
-          owner_main_session_id: parentSessionId,
-          task_title: taskName,
-          goal: taskPrompt,
-          evolve_candidate: evolveCandidate
-            ? {
-                candidate_id: evolveCandidate.candidateId,
-                kind: evolveCandidate.kind,
-                title: evolveCandidate.title,
-                summary: evolveCandidate.summary,
-                slug: evolveCandidate.slug,
-                skill_path: evolveCandidate.skillPath,
-                target_skill_path: promotedWorkspaceSkillPath(evolveCandidate.slug),
-                skill_markdown: typeof evolveCandidateMarkdown === "string" ? evolveCandidateMarkdown : null,
-                task_proposal_id: evolveCandidate.taskProposalId,
-              }
-            : null,
-        }
-      }
-    });
-    store.createSubagentRun({
-      subagentId,
-      workspaceId: proposal.workspaceId,
-      parentSessionId,
-      parentInputId: null,
-      originMainSessionId: parentSessionId ?? session.sessionId,
-      ownerMainSessionId: parentSessionId ?? session.sessionId,
-      childSessionId: session.sessionId,
-      initialChildInputId: record.inputId,
-      currentChildInputId: record.inputId,
-      latestChildInputId: record.inputId,
-      title: taskName,
-      goal: taskPrompt,
-      context: null,
-      sourceType: "task_proposal",
-      sourceId: proposal.proposalId,
-      issueId: issue.issueId,
-      teammateId: assignee.teammateId,
-      proposalId: proposal.proposalId,
-      toolProfile: {
-        requested_tools: ["terminal", "file", "browser", "web"],
-      },
-      requestedModel,
-      effectiveModel,
-      status: "queued",
-      lastEventAt: utcNowIso(),
-    });
-    store.updateRuntimeState({
-      workspaceId: proposal.workspaceId,
-      sessionId: session.sessionId,
-      status: "QUEUED",
-      currentInputId: record.inputId,
-      currentWorkerId: null,
-      leaseUntil: null,
-      heartbeatAt: null,
-      lastError: null
-    });
-    const updatedIssue = store.updateIssue({
-      workspaceId: proposal.workspaceId,
-      issueId: issue.issueId,
-      fields: {
-        latestSubagentId: subagentId,
-      },
-    }) ?? issue;
-
-    const updatedProposal = store.updateTaskProposal({
-      workspaceId: proposal.workspaceId,
-      proposalId: proposal.proposalId,
-      fields: {
-        taskName,
-        taskPrompt,
-        state: "accepted",
-        acceptedSessionId: session.sessionId,
-        acceptedInputId: record.inputId,
-        acceptedAt: utcNowIso()
-      }
-    });
-    if (evolveCandidate) {
-      store.updateEvolveSkillCandidate({
-        workspaceId: evolveCandidate.workspaceId,
-        candidateId: evolveCandidate.candidateId,
-        fields: {
-          status: "accepted",
-          acceptedAt: updatedProposal?.acceptedAt ?? utcNowIso(),
-        }
-      });
-    }
-    queueWorker?.wake();
-
-    return reply.send({
-      proposal: taskProposalPayload(updatedProposal ?? proposal),
-      issue: issuePayload(updatedIssue),
-      session: agentSessionPayload(session, store),
-      input: {
-        input_id: record.inputId,
-        session_id: record.sessionId,
-        status: record.status
-      }
-    });
-  });
-
-  app.get("/api/v1/task-proposals/:proposalId", async (request, reply) => {
-    const query = isRecord(request.query) ? request.query : {};
-    const workspaceId = optionalString(query.workspace_id);
-    if (!workspaceId) {
-      return sendError(reply, 400, "workspace_id is required");
-    }
-    const params = request.params as { proposalId: string };
-    const proposal = store.getTaskProposal({ workspaceId, proposalId: params.proposalId });
-    if (!proposal) {
-      return sendError(reply, 404, "Task proposal not found");
-    }
-    return { proposal: taskProposalPayload(proposal) };
-  });
-
-  app.patch("/api/v1/task-proposals/:proposalId", async (request, reply) => {
-    if (!isRecord(request.body)) {
-      return sendError(reply, 400, "request body must be an object");
-    }
-    const params = request.params as { proposalId: string };
-    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
-    const proposal = store.updateTaskProposalState({
-      workspaceId,
-      proposalId: params.proposalId,
-      state: requiredString(request.body.state, "state")
-    });
-    if (!proposal) {
-      return sendError(reply, 404, "Task proposal not found");
-    }
-    if (proposal.proposalSource === "evolve" && proposal.state === "dismissed") {
-      const candidate = store.getEvolveSkillCandidateByTaskProposalId({
-        workspaceId: proposal.workspaceId,
-        proposalId: proposal.proposalId,
-      });
-      if (candidate) {
-        store.updateEvolveSkillCandidate({
-          workspaceId: candidate.workspaceId,
-          candidateId: candidate.candidateId,
-          fields: {
-            status: "dismissed",
-            dismissedAt: utcNowIso(),
-          }
-        });
-      }
-    }
-    return { proposal: taskProposalPayload(proposal) };
   });
 
   app.get("/api/v1/agent-sessions/:sessionId/outputs/events", async (request, reply) => {

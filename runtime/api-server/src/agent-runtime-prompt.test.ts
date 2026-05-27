@@ -225,17 +225,11 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   const capabilityManifest = buildAgentCapabilityManifest({
     harnessId: "pi",
     sessionKind: "main_session",
-    defaultTools: ["read", "edit"],
+    defaultTools: ["read"],
     extraTools: ["delegate_task", "get_subagent", "list_background_tasks"],
     runtimeToolIds: ["delegate_task", "get_subagent", "list_background_tasks"],
     workspaceSkillIds: [],
-    resolvedMcpToolRefs: [
-      {
-        tool_id: "workspace.lookup",
-        server_id: "workspace",
-        tool_name: "lookup",
-      },
-    ],
+    resolvedMcpToolRefs: [],
     toolServerIdMap: {},
   });
   const delegatedCapabilityManifest = buildAgentCapabilityManifest({
@@ -268,16 +262,10 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   });
 
   const prompt = composeAgentPrompt("You are concise.", {
-    defaultTools: ["read", "edit"],
+    defaultTools: ["read"],
     extraTools: ["delegate_task", "get_subagent", "list_background_tasks"],
     workspaceSkillIds: [],
-    resolvedMcpToolRefs: [
-      {
-        tool_id: "workspace.lookup",
-        server_id: "workspace",
-        tool_name: "lookup",
-      },
-    ],
+    resolvedMcpToolRefs: [],
     sessionKind: "main_session",
     sessionMode: "code",
     harnessId: "pi",
@@ -316,31 +304,22 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /Do not fake empathy or perform customer-support warmth/);
   assert.match(prompt.systemPrompt, /Be concise and on-point\. Do not ramble, over-explain, or pad replies just to sound helpful\./);
   assert.match(prompt.systemPrompt, /Keep replies tight\. Do not blabber, wander, or repeat yourself\./);
-  assert.match(prompt.systemPrompt, /The main session is the default full-capability agent for this workspace, not a capability-thin coordinator\./);
-  assert.match(prompt.systemPrompt, /use direct file, shell, browser, MCP\/app, and runtime tools when they are surfaced and they are the clearest path\./);
-  assert.match(prompt.systemPrompt, /Use this session to understand the request, execute directly when appropriate, choose when to delegate, brief delegated work clearly, and translate results back to the user\./);
-  assert.match(prompt.systemPrompt, /Use surfaced capabilities to inspect before mutating when possible, and verify results before claiming success\./);
-  assert.match(prompt.systemPrompt, /Treat explicit user requirements, verification targets, and deliverable shape as completion criteria for direct and delegated work, not optional detail\./);
-  assert.match(prompt.systemPrompt, /Do not report work as done, verified, or already satisfied unless direct inspection, direct tool results, or grounded child results confirm it\./);
-  assert.match(prompt.systemPrompt, /Treat user requests as workspace-native by default\. Prefer direct workspace execution in this session when the necessary surfaced tools are available\. Keep work inline unless it clearly fits delegated research or app-building\./i);
-  assert.match(prompt.systemPrompt, /Use delegation primarily for research and app work: delegate evidence-heavy research, investigation, comparison, or fresh information gathering when a separate execution branch is useful, and delegate app creation or substantial app modification when the work should produce or update a workspace app\./i);
-  assert.match(prompt.systemPrompt, /Outside research and app-building, delegate only when the user explicitly asks for background execution or the task genuinely must continue outside the current turn\./i);
-  assert.match(prompt.systemPrompt, /Do not infer task impossibility from missing direct tools\. If this run lacks a needed capability but delegated subagents can do it, delegate instead of falling back to a manual workaround\./i);
-  assert.match(prompt.systemPrompt, /Workspace apps are the workspace-native software surface\. Apps include catalog-provided integration apps that can be installed directly, plus user-created apps that may compose data and functions from other apps\./i);
-  assert.match(prompt.systemPrompt, /prefer the direct surfaced app\/runtime\/MCP route first; delegate or install\/build through the workspace route only when the direct path is unavailable or the job should branch\./i);
-  assert.match(prompt.systemPrompt, /For app creation or substantial app modification, prefer `delegate_task` with the app-builder-sdk skill as the detailed execution guide unless the change is small enough to complete directly with surfaced tools\./i);
+  assert.match(prompt.systemPrompt, /Keep this session to coordination, inspection, and user-facing conversation; route direct file edits, terminal execution, browser execution, and other state-changing implementation work to subagents\./);
+  assert.match(prompt.systemPrompt, /The main session is a front-of-house coordinator with only a partial direct capability surface, not the default heavy executor\./);
+  assert.match(prompt.systemPrompt, /Treat the surfaced tool and capability set for this run as your full direct authority\./);
+  assert.match(prompt.systemPrompt, /Prefer delegating long-running, tool-heavy, interruptible, or execution-heavy work to hidden subagents\./);
+  assert.match(prompt.systemPrompt, /For browser control, web research, terminal work, or other execution-heavy tasks, default to delegating unless the direct capability is surfaced here and the work is genuinely small enough to finish inline\./i);
   assert.match(prompt.systemPrompt, /Do not turn a named app or product request into a desktop install, browser-open, manual setup, or generic option list before checking the direct workspace-native route or delegated workspace route\./i);
   assert.match(prompt.systemPrompt, /Ask clarifying questions only when ambiguity affects user intent, safety, consent, credentials, account selection, or other user-owned context; do not ask merely because a preferred tool is missing from this run\./i);
   assert.match(prompt.systemPrompt, /When a clarifying question is truly needed, make it grounded in the user's words, current session context, workspace state, or tool\/subagent evidence; ask only for the concrete missing fact that blocks routing or execution\./);
   assert.match(prompt.systemPrompt, /Clarifying questions must be grounded in the current workspace\/session context or a concrete tool\/subagent result\. Do not ask abstract option-list questions or introduce unsupported alternatives from general product knowledge; inspect, execute, or delegate first when the current context is insufficient\./);
   assert.match(prompt.systemPrompt, /If the delegated executor snapshot already shows a concrete additional capability family for the request, route against that capability instead of asking a generic tool-discovery question\./);
   assert.match(prompt.systemPrompt, /When the user asks for fresh execution, fresh investigation, or a new deliverable, do not answer from prior chat memory alone; inspect, execute, or delegate first\./);
-  assert.match(prompt.systemPrompt, /For browser control, terminal work, or other execution work, use direct tools when surfaced\. Do not delegate them by default unless they are part of delegated research, part of app-building work, or genuinely need background continuation\./i);
   assert.match(prompt.systemPrompt, /Default delegated browser work to the agent browser\./);
   assert.match(prompt.systemPrompt, /set `use_user_browser_surface: true` on `delegate_task`/i);
   assert.match(prompt.systemPrompt, /If the user asks for work that needs capabilities this run does not have directly, but delegated subagents can do it, delegate instead of replying that this run lacks those tools\./);
   assert.match(prompt.systemPrompt, /Treat missing direct web, browser, terminal, MCP, or other execution-heavy capabilities as a routing signal to delegate, not as the final answer to the user\./i);
-  assert.match(prompt.systemPrompt, /When the ideal direct tool or integration is missing, do not stop there; try another viable direct or delegated route with available tools, or ask one precise question for missing access\/context\./i);
+  assert.match(prompt.systemPrompt, /When the ideal direct tool or integration is missing, do not stop there; try another viable route with available tools, such as delegated browser inspection, web research, terminal\/file inspection, or one precise question for missing access\/context\./i);
   assert.match(prompt.systemPrompt, /Only tell the user a request cannot be completed after checking viable direct and delegated alternatives, or when the remaining blocker genuinely requires user access, credentials, confirmation, or context\./);
   assert.match(prompt.systemPrompt, /Do not answer with a capability-apology or manual fallback first when `delegate_task` is available and the task can be routed there\./i);
   assert.match(prompt.systemPrompt, /If an earlier turn said a tool was unavailable or unsupported, but the current surfaced capability set now includes it, trust the current run and retry the tool when appropriate\./);
@@ -356,7 +335,7 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /When the user answers a background-work blocker such as logging in, authorizing, confirming, or providing missing context, resume the waiting child session instead of starting a new task\./);
   assert.match(prompt.systemPrompt, /Treat chat like the user is messaging their assistant in an IM, not like the final deliverable surface\./);
   assert.match(prompt.systemPrompt, /Keep accepted, in-progress, waiting, and completed work clearly separate in how you speak\./);
-  assert.match(prompt.systemPrompt, /The main session may execute directly when that is the clearest path; do not narrate routine direct tool use as if it were automatically background work\./);
+  assert.match(prompt.systemPrompt, /Treat the main session as a coordination surface by default\./);
   assert.match(prompt.systemPrompt, /Kickoff, delegation, and status replies should usually be at most one to two short sentences unless reasoning itself is the user's requested deliverable\./);
   assert.match(prompt.systemPrompt, /For kickoff and delegation replies, acknowledge the request and state the next action without turning the reply into a mini-analysis, rewrite theory, or speculative plan\./);
   assert.match(prompt.systemPrompt, /Do not speculate before inspection\./);
@@ -379,18 +358,17 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   assert.match(prompt.systemPrompt, /Prefer short sentences and plain language; use headings or numbered lists only when structure genuinely helps\./);
   assert.match(prompt.systemPrompt, /Use contractions and natural transitions when they fit\./);
   assert.match(prompt.systemPrompt, /Avoid repetitive canned phrasing or stiff assistant boilerplate/);
-  assert.match(prompt.systemPrompt, /Prefer surfaced MCP\/app tools over opening the web app, browser exploration, or web research when they can satisfy the request, including when the user supplies a URL for that system; use browser\/web around an MCP-backed system only when the user explicitly asks for browser use, for UI verification, for requested independent confirmation, or after the MCP path is blocked\./);
   assert.match(prompt.systemPrompt, /Avoid pasting very long document, HTML, or markdown bodies into chat when a workspace artifact is the better surface\./);
-  assert.match(prompt.systemPrompt, /Use surfaced capabilities to inspect before mutating workspace, app, browser, or runtime state whenever possible\./);
+  assert.match(prompt.systemPrompt, /Use inspection capabilities to gather context before mutating workspace, app, browser, or runtime state whenever possible\./);
   assert.match(prompt.systemPrompt, /After edits, shell commands, browser actions, MCP mutations, or runtime mutations, run a follow-up inspection or verification step before claiming success\./);
-  assert.match(prompt.systemPrompt, /Use coordination capabilities to track progress, consult available skills, delegate research or app-building work when appropriate, or ask for clarification instead of keeping hidden state\./);
+  assert.match(prompt.systemPrompt, /Use coordination capabilities to track progress, consult available skills, route execution through delegated subagents when appropriate, or ask for clarification instead of keeping hidden state\./);
   assert.ok(
     prompt.contextMessages.some((message) =>
-      /This front session can execute directly with the surfaced tools above\. Use `delegate_task` mainly for research or app-building work, or when background continuation is explicitly needed\./.test(message),
+      /This front session is intentionally capability-incomplete\. Treat the surfaced tools above as your full direct capability set for this run; if the request needs more and `delegate_task` is available, delegate it\./.test(message),
     ),
   );
-  assert.doesNotMatch(prompt.systemPrompt, /front-of-house coordinator with only a partial direct capability surface/i);
-  assert.doesNotMatch(prompt.systemPrompt, /Treat the main session as a coordination surface by default\./);
+  assert.doesNotMatch(prompt.systemPrompt, /default full-capability agent for this workspace/i);
+  assert.doesNotMatch(prompt.systemPrompt, /may execute directly when that is the clearest path/i);
   assert.doesNotMatch(prompt.systemPrompt, /Delegate executable reasoning and task execution to hidden subagents\./);
   assert.ok(
     prompt.promptSections.some(
@@ -1214,6 +1192,58 @@ test("composeBaseAgentPrompt includes current user context when provided", () =>
   assert.match(prompt.contextMessages.join("\n\n"), /Current user context:/);
   assert.match(prompt.contextMessages.join("\n\n"), /The current operator name is `Jeffrey`\./);
   assert.match(prompt.contextMessages.join("\n\n"), /Name source: `manual`\./);
+});
+
+test("composeBaseAgentPrompt includes teammate routing context when provided", () => {
+  const prompt = composeBaseAgentPrompt("", {
+    defaultTools: ["read"],
+    extraTools: [],
+    workspaceSkillIds: [],
+    resolvedMcpToolRefs: [],
+    sessionKind: "main_session",
+    sessionMode: "code",
+    teammateRoutingContext: {
+      teammates: [
+        {
+          teammate_id: "general",
+          name: "General",
+          kind: "system",
+          status: "active",
+          summary: "Fallback executor for general implementation and research work.",
+          capabilities: ["generalist", "implementation", "research"],
+          preferred_tools: [],
+          skill_names: [],
+        },
+        {
+          teammate_id: "frontend",
+          name: "Frontend",
+          kind: "custom",
+          status: "active",
+          summary: "Best for React dashboard implementation and UI refactors.",
+          capabilities: ["frontend", "react", "dashboard", "ui"],
+          preferred_tools: ["edit", "bash"],
+          skill_names: ["Dashboard UI"],
+        },
+      ],
+    },
+  });
+
+  assert.ok(prompt.promptSections.some((section) => section.id === "teammate_routing_context"));
+  assert.equal(
+    prompt.promptSections.find((section) => section.id === "teammate_routing_context")?.channel,
+    "context_message",
+  );
+  assert.equal(
+    prompt.promptSections.find((section) => section.id === "teammate_routing_context")?.precedence,
+    "runtime_context",
+  );
+  assert.equal(prompt.promptLayers.some((layer) => layer.id === "teammate_routing_context"), false);
+  assert.doesNotMatch(prompt.systemPrompt, /Teammate routing roster:/);
+  assert.match(prompt.contextMessages.join("\n\n"), /Teammate routing roster:/);
+  assert.match(prompt.contextMessages.join("\n\n"), /Fall back to `General` when no custom teammate is a clear fit\./);
+  assert.match(prompt.contextMessages.join("\n\n"), /`Frontend` \[custom\/active\]: Best for React dashboard implementation and UI refactors\./);
+  assert.match(prompt.contextMessages.join("\n\n"), /Capability tags: `frontend`, `react`, `dashboard`, `ui`\./);
+  assert.match(prompt.contextMessages.join("\n\n"), /Preferred tools: `edit`, `bash`\./);
 });
 
 test("composeBaseAgentPrompt includes operator surface context when provided", () => {

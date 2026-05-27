@@ -64,6 +64,7 @@ export {
   type TerminalSessionOwner,
   type TerminalSessionRecord,
   type TerminalSessionStatus,
+  type TeammateCapabilityProfileRecord,
   type TeammateKind,
   type TeammateRecord,
   type TeammateSkillRecord,

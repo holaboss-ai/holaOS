@@ -41,7 +41,9 @@ import type {
   AgentRecalledMemoryContext,
   AgentSessionAttachmentContext,
   AgentScratchpadContext,
+  AgentTeammateRoutingContext,
 } from "./agent-runtime-prompt.js";
+import { buildTeammateRoutingRosterEntry } from "./teammate-routing.js";
 import {
   decodeTsRunnerRequestPayload,
   fallbackEventIdentity,
@@ -98,14 +100,10 @@ const DEFAULT_PROVIDER_ID = "openai";
 const WORKSPACE_MCP_READY_TIMEOUT_S = 10;
 const MAIN_SESSION_DEFAULT_TOOLS = [
   "read",
-  "edit",
-  "bash",
   "grep",
   "glob",
   "list",
   "question",
-  "todowrite",
-  "todoread",
   "skill",
 ];
 const ONBOARDING_DEFAULT_TOOLS = [
@@ -116,7 +114,18 @@ const ONBOARDING_DEFAULT_TOOLS = [
   "question",
   "skill",
 ];
-const SUBAGENT_DEFAULT_TOOLS = [...MAIN_SESSION_DEFAULT_TOOLS];
+const SUBAGENT_DEFAULT_TOOLS = [
+  "read",
+  "edit",
+  "bash",
+  "grep",
+  "glob",
+  "list",
+  "question",
+  "todowrite",
+  "todoread",
+  "skill",
+];
 const SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS = new Set([
   "delegate_task",
   "get_subagent",
@@ -1137,7 +1146,7 @@ function projectBrowserToolIdsForSession(params: {
   browserToolIds: string[];
 }): string[] {
   const normalized = normalizedSessionKindValue(params.sessionKind);
-  if (normalized === "main_session" || normalized === "subagent") {
+  if (normalized === "subagent" || normalized === "task_proposal") {
     return [...params.browserToolIds];
   }
   return [];
@@ -1148,16 +1157,18 @@ function projectRuntimeToolIdsForSession(params: {
   runtimeToolIds: string[];
 }): string[] {
   const normalized = normalizedSessionKindValue(params.sessionKind);
-  if (normalized === "onboarding") {
-    const allowed = ONBOARDING_SESSION_RUNTIME_TOOL_IDS;
+  if (isFrontSessionKind(normalized)) {
+    const allowed =
+      normalized === "onboarding"
+        ? ONBOARDING_SESSION_RUNTIME_TOOL_IDS
+        : MAIN_SESSION_RUNTIME_TOOL_IDS;
     return params.runtimeToolIds.filter((toolId) => allowed.has(toolId));
-  }
-  if (normalized === "main_session") {
-    return [...params.runtimeToolIds];
   }
   if (normalized === "subagent") {
     return params.runtimeToolIds.filter(
-      (toolId) => !SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS.has(toolId),
+      (toolId) =>
+        !SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS.has(toolId) &&
+        !MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS.has(toolId),
     );
   }
   return params.runtimeToolIds.filter(
@@ -1173,21 +1184,21 @@ function projectExtraToolIdsForSession(params: {
   extraToolIds: string[];
 }): string[] {
   const normalized = normalizedSessionKindValue(params.sessionKind);
-  if (normalized === "onboarding") {
-    const allowed = ONBOARDING_SESSION_RUNTIME_TOOL_IDS;
+  if (isFrontSessionKind(normalized)) {
+    const allowed =
+      normalized === "onboarding"
+        ? ONBOARDING_SESSION_RUNTIME_TOOL_IDS
+        : MAIN_SESSION_RUNTIME_TOOL_IDS;
     return params.extraToolIds.filter((toolId) => allowed.has(toolId));
-  }
-  if (normalized === "main_session") {
-    return Array.from(
-      new Set([...defaultExtraTools(params.harnessId), ...params.extraToolIds]),
-    );
   }
   if (normalized === "subagent") {
     return Array.from(
       new Set([
         ...defaultExtraTools(params.harnessId),
         ...params.extraToolIds.filter(
-          (toolId) => !SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS.has(toolId),
+          (toolId) =>
+            !SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS.has(toolId) &&
+            !MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS.has(toolId),
         ),
       ]),
     );
@@ -1208,7 +1219,7 @@ function projectResolvedMcpToolRefsForSession(params: {
   sessionKind: string | null | undefined;
   resolvedMcpToolRefs: CompiledWorkspaceRuntimePlan["resolved_mcp_tool_refs"];
 }): CompiledWorkspaceRuntimePlan["resolved_mcp_tool_refs"] {
-  if (normalizedSessionKindValue(params.sessionKind) === "onboarding") {
+  if (isFrontSessionKind(params.sessionKind)) {
     return [];
   }
   return params.resolvedMcpToolRefs;
@@ -1218,7 +1229,7 @@ function projectResolvedMcpServerIdsForSession(params: {
   sessionKind: string | null | undefined;
   resolvedMcpServerIds: string[];
 }): string[] {
-  if (normalizedSessionKindValue(params.sessionKind) === "onboarding") {
+  if (isFrontSessionKind(params.sessionKind)) {
     return [];
   }
   return params.resolvedMcpServerIds;
@@ -1422,6 +1433,41 @@ async function loadOperatorSurfaceContext(params: {
   }
 }
 
+function loadTeammateRoutingContext(params: {
+  workspaceRoot: string;
+  workspaceId: string;
+  logger?: LoggerLike;
+}): AgentTeammateRoutingContext | null {
+  const sandboxRoot = path.dirname(params.workspaceRoot);
+  const dbPath = defaultHostStateDbPathForSandbox(sandboxRoot);
+  if (!fs.existsSync(dbPath)) {
+    return null;
+  }
+
+  const store = new RuntimeStateStore({
+    workspaceRoot: params.workspaceRoot,
+    sandboxRoot,
+    dbPath,
+  });
+  try {
+    const teammates = store
+      .listTeammates({ workspaceId: params.workspaceId })
+      .filter((teammate) => teammate.status === "active")
+      .map((teammate) => buildTeammateRoutingRosterEntry(teammate));
+    if (teammates.length === 0) {
+      return null;
+    }
+    return { teammates };
+  } catch (error) {
+    params.logger?.warn?.(
+      `Failed to load teammate routing context workspace_id=${params.workspaceId}: ${errorMessage(error)}`,
+    );
+    return null;
+  } finally {
+    store.close();
+  }
+}
+
 function buildAgentRuntimeConfigRequest(params: {
   request: TsRunnerRequest;
   harnessId: string;
@@ -1443,6 +1489,7 @@ function buildAgentRuntimeConfigRequest(params: {
   currentUserContext?: AgentCurrentUserContext | null;
   operatorSurfaceContext?: AgentOperatorSurfaceContext | null;
   pendingUserMemoryContext?: AgentPendingUserMemoryContext | null;
+  teammateRoutingContext?: AgentTeammateRoutingContext | null;
   recentRuntimeContext?: AgentRecentRuntimeContext | null;
   sessionAttachmentContext?: AgentSessionAttachmentContext | null;
   sessionScratchpadContext?: AgentScratchpadContext | null;
@@ -1520,6 +1567,7 @@ function buildAgentRuntimeConfigRequest(params: {
     current_user_context: params.currentUserContext ?? undefined,
     operator_surface_context: params.operatorSurfaceContext ?? undefined,
     pending_user_memory_context: params.pendingUserMemoryContext ?? undefined,
+    teammate_routing_context: params.teammateRoutingContext ?? undefined,
     recent_runtime_context: params.recentRuntimeContext ?? undefined,
     session_attachment_context: params.sessionAttachmentContext ?? undefined,
     evolve_candidate_context: params.evolveCandidateContext ?? undefined,
@@ -2366,6 +2414,15 @@ export async function executeTsRunnerRequest(
             currentUserContext,
             operatorSurfaceContext,
             pendingUserMemoryContext,
+            teammateRoutingContext: isDelegatingFrontSessionKind(
+              request.session_kind,
+            )
+              ? loadTeammateRoutingContext({
+                  workspaceRoot: bootstrap.workspaceRoot,
+                  workspaceId: request.workspace_id,
+                  logger,
+                })
+              : null,
             recentRuntimeContext,
             sessionAttachmentContext,
             sessionScratchpadContext,

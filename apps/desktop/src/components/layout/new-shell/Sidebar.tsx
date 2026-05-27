@@ -479,14 +479,9 @@ function SidebarIssuesSection() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-3">
-      <SectionLabel>
-        Agent Team
-        {issues.length > 0 ? (
-          <span className="ml-auto text-foreground/30">{issues.length}</span>
-        ) : null}
-      </SectionLabel>
-      <div className="mb-2 grid gap-2 px-0.5">
-        <div className="grid gap-2 sm:grid-cols-2">
+      <SectionLabel>Agent Team</SectionLabel>
+      <div className="mb-2 px-0.5">
+        <div className="grid gap-2">
           <button
             type="button"
             onClick={handleOpenDashboard}
@@ -494,7 +489,7 @@ function SidebarIssuesSection() {
             className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
           >
             <LayoutDashboard className="size-3.5 text-foreground/55" />
-            <span>Open dashboard</span>
+            <span>Dashboard</span>
           </button>
           <button
             type="button"
@@ -503,18 +498,18 @@ function SidebarIssuesSection() {
             className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
           >
             <CircleDot className="size-3.5 text-foreground/55" />
-            <span>Open board</span>
+            <span>Board</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenTeammates}
+            disabled={!selectedWorkspaceId}
+            className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <Bot className="size-3.5 text-foreground/55" />
+            <span>Teammates</span>
           </button>
         </div>
-        <button
-          type="button"
-          onClick={handleOpenTeammates}
-          disabled={!selectedWorkspaceId}
-          className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
-        >
-          <Bot className="size-3.5 text-foreground/55" />
-          <span>Open teammates</span>
-        </button>
       </div>
       {statusMessage ? (
         <AnimatePresence initial={false}>

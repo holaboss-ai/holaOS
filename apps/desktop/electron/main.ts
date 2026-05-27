@@ -9754,6 +9754,7 @@ async function createTeammate(
         name: payload.name,
         instructions: payload.instructions ?? null,
         skills: payload.skills ?? [],
+        capability_profile: payload.capability_profile ?? null,
       },
     },
   );
@@ -9780,6 +9781,7 @@ async function updateTeammate(
         name: payload.name ?? undefined,
         instructions: payload.instructions ?? undefined,
         skills: payload.skills ?? undefined,
+        capability_profile: payload.capability_profile ?? undefined,
         status: payload.status ?? undefined,
       },
     },

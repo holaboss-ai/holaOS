@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { piHarnessDefinition } from "./pi.js";
 
-test("pi harness enables browser tools for main and subagent sessions", () => {
+test("pi harness enables browser tools only for executor sessions", () => {
   const buildHarnessHostRequest = piHarnessDefinition.runtimeAdapter.buildHarnessHostRequest;
   const baseParams = {
     request: {
@@ -53,12 +53,20 @@ test("pi harness enables browser tools for main and subagent sessions", () => {
       session_kind: "subagent",
     },
   });
+  const taskProposalRequest = buildHarnessHostRequest({
+    ...baseParams,
+    browserSpace: "agent",
+    request: {
+      ...baseParams.request,
+      session_kind: "task_proposal",
+    },
+  });
   const workspaceRequest = buildHarnessHostRequest({
     ...baseParams,
     browserSpace: "user",
     request: {
       ...baseParams.request,
-      session_kind: "main_session",
+      session_kind: "workspace_session",
     },
   });
   const onboardingRequest = buildHarnessHostRequest({
@@ -71,14 +79,18 @@ test("pi harness enables browser tools for main and subagent sessions", () => {
 
   assert.equal(subagentRequest.browser_tools_enabled, true);
   assert.equal(subagentRequest.browser_space, "user");
-  assert.equal(workspaceRequest.browser_tools_enabled, true);
+  assert.equal(taskProposalRequest.browser_tools_enabled, true);
+  assert.equal(taskProposalRequest.browser_space, "agent");
+  assert.equal(workspaceRequest.browser_tools_enabled, false);
   assert.equal(workspaceRequest.browser_space, "user");
   assert.equal(onboardingRequest.browser_tools_enabled, false);
   assert.equal(onboardingRequest.browser_space, null);
   assert.deepEqual(subagentRequest.context_messages, []);
+  assert.deepEqual(taskProposalRequest.context_messages, []);
   assert.deepEqual(workspaceRequest.context_messages, []);
   assert.deepEqual(onboardingRequest.context_messages, []);
   assert.deepEqual(subagentRequest.tools, { read: true });
+  assert.deepEqual(taskProposalRequest.tools, { read: true });
   assert.deepEqual(workspaceRequest.tools, { read: true });
   assert.deepEqual(onboardingRequest.tools, { read: true });
 });
