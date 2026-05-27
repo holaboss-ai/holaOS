@@ -3,6 +3,15 @@ import type { ReactNode } from "react";
 export type ChatAttachment = SessionInputAttachmentPayload;
 export type ChatPaneVariant = "default" | "onboarding" | "embedded";
 
+export interface ChatBackgroundTaskReference {
+  workspaceId: string;
+  sourceType: string | null;
+  sourceId: string | null;
+  issueId: string | null;
+  title: string | null;
+  status: string | null;
+}
+
 export type ChatAssistantSegment =
   | {
       kind: "execution";
@@ -24,6 +33,7 @@ export interface ChatMessage {
   segments?: ChatAssistantSegment[];
   executionItems?: ChatExecutionTimelineItem[];
   outputs?: WorkspaceOutputRecordPayload[];
+  backgroundTaskReferences?: ChatBackgroundTaskReference[];
   pendingIntegrations?: ChatPendingIntegration[];
   // Proposals emitted by `holaboss_workspace_integrations_propose_connect`. Same
   // visual treatment as pendingIntegrations but no app_id (the agent is

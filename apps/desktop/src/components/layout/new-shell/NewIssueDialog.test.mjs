@@ -61,10 +61,13 @@ test("new shell issue creation dialog stages attachments, creates issues, and op
     /assignee_teammate_id: assigneeTeammateId \|\| null,/,
   );
 
-  assert.match(boardPaneSource, />\s*All\s*</);
-  assert.match(boardPaneSource, />\s*Members\s*</);
-  assert.match(boardPaneSource, />\s*Agents\s*</);
-  assert.match(boardPaneSource, /onClick=\{\(\) => setNewIssueOpen\(true\)\}/);
+  assert.doesNotMatch(boardPaneSource, />\s*All\s*</);
+  assert.doesNotMatch(boardPaneSource, />\s*Members\s*</);
+  assert.doesNotMatch(boardPaneSource, />\s*Agents\s*</);
+  assert.doesNotMatch(boardPaneSource, /setNewIssueOpen/);
+  assert.match(sidebarSource, /const setNewIssueOpen = useSetAtom\(newIssueOpenAtom\);/);
+  assert.match(sidebarSource, /onClick=\{\(\) => setNewIssueOpen\(true\)\}/);
+  assert.match(sidebarSource, />\s*New issue\s*</);
   assert.doesNotMatch(searchDialogSource, /label="New issue"/);
   assert.doesNotMatch(sidebarSource, /function SidebarNewIssueAction\(\) \{/);
 });

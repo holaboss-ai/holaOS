@@ -51,9 +51,16 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   assert.match(sidebarSource, /kind: "issues_board"/);
   assert.match(sidebarSource, /kind: "teammates"/);
   assert.match(sidebarSource, /function SidebarIssuesSection\(\) \{/);
+  assert.match(sidebarSource, />\s*New issue\s*</);
   assert.match(sidebarSource, />\s*Dashboard\s*</);
-  assert.match(sidebarSource, />\s*Board\s*</);
+  assert.match(sidebarSource, />\s*Issues\s*</);
   assert.match(sidebarSource, />\s*Teammates\s*</);
+  assert.match(sidebarSource, /const setNewIssueOpen = useSetAtom\(newIssueOpenAtom\);/);
+  assert.match(sidebarSource, /onClick=\{\(\) => setNewIssueOpen\(true\)\}/);
+  assert.match(
+    sidebarSource,
+    /<div className="grid gap-2">[\s\S]*>\s*New issue\s*<[\s\S]*>\s*Dashboard\s*<[\s\S]*>\s*Issues\s*<[\s\S]*>\s*Teammates\s*</,
+  );
   assert.match(sidebarSource, /SectionLabel>\s*Agent Team/);
   assert.match(sidebarSource, /setInternalTabs\(\(prev\) => upsertInternalTab\(prev, tab\)\);/);
   assert.match(sidebarSource, /setActiveInternalTabId\(tab\.id\);/);
@@ -85,10 +92,13 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
     boardPaneSource,
     /const visibleIssues = useMemo\(\s*\(\) => issues\.filter\(\(issue\) => issue\.status !== "backlog"\),/,
   );
-  assert.match(boardPaneSource, />\s*All\s*</);
-  assert.match(boardPaneSource, />\s*Members\s*</);
-  assert.match(boardPaneSource, />\s*Agents\s*</);
-  assert.match(boardPaneSource, /workingCount/);
+  assert.doesNotMatch(boardPaneSource, />\s*All\s*</);
+  assert.doesNotMatch(boardPaneSource, />\s*Members\s*</);
+  assert.doesNotMatch(boardPaneSource, />\s*Agents\s*</);
+  assert.doesNotMatch(boardPaneSource, /workingCount/);
+  assert.doesNotMatch(boardPaneSource, /<span>Agent Team<\/span>/);
+  assert.match(boardPaneSource, />\s*Issues\s*</);
+  assert.doesNotMatch(boardPaneSource, /setNewIssueOpen/);
   assert.match(boardPaneSource, /const openIssueDetailTab = useOpenIssueDetailTab\(\);/);
   assert.match(boardPaneSource, /void openIssueDetailTab\(\{\s*workspaceId: issue\.workspace_id,\s*issueId: issue\.issue_id,/);
   assert.match(boardPaneSource, /line-clamp-1 text-\[15px\] font-semibold/);
@@ -111,7 +121,7 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
     dashboardPaneSource,
     /const visibleIssues = useMemo\(\s*\(\) => issues\.filter\(\(issue\) => issue\.status !== "backlog"\),/,
   );
-  assert.match(dashboardPaneSource, /<span>Agent Team<\/span>/);
+  assert.doesNotMatch(dashboardPaneSource, /<span>Agent Team<\/span>/);
   assert.match(dashboardPaneSource, />\s*Dashboard\s*</);
   assert.match(dashboardPaneSource, /Issues by priority/);
   assert.match(dashboardPaneSource, /Issues by status/);
@@ -156,6 +166,8 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   assert.match(teammatesPaneSource, /TabsTrigger\s+value="issues"/);
   assert.match(teammatesPaneSource, /TabsTrigger\s+value="instructions"/);
   assert.match(teammatesPaneSource, /TabsTrigger\s+value="skills"/);
+  assert.doesNotMatch(teammatesPaneSource, /<span>Agent Team<\/span>/);
+  assert.match(teammatesPaneSource, />\s*Teammate\s*</);
   assert.doesNotMatch(teammatesPaneSource, /Creating a new teammate/);
   assert.match(teammatesPaneSource, /ConfirmDialog/);
   assert.match(teammatesPaneSource, /SKILL\.md/);

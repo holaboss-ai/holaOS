@@ -7,11 +7,27 @@ const BACKGROUND_TASKS_SOURCE_PATH = new URL(
   "./BackgroundTasksPane.tsx",
   import.meta.url,
 );
+const CONVERSATION_TURNS_SOURCE_PATH = new URL(
+  "./ChatPane/ConversationTurns.tsx",
+  import.meta.url,
+);
+const TASK_REFERENCE_CARDS_SOURCE_PATH = new URL(
+  "./ChatPane/BackgroundTaskReferenceCards.tsx",
+  import.meta.url,
+);
 
 test("chat pane renders background tasks inline and removes the separate quick action", async () => {
   const source = await readFile(SOURCE_PATH, "utf8");
   const backgroundTasksSource = await readFile(
     BACKGROUND_TASKS_SOURCE_PATH,
+    "utf8",
+  );
+  const conversationTurnsSource = await readFile(
+    CONVERSATION_TURNS_SOURCE_PATH,
+    "utf8",
+  );
+  const taskReferenceCardsSource = await readFile(
+    TASK_REFERENCE_CARDS_SOURCE_PATH,
     "utf8",
   );
 
@@ -57,4 +73,29 @@ test("chat pane renders background tasks inline and removes the separate quick a
   assert.match(source, /onOpenSessions\?: \(\) => void;/);
   assert.match(source, /onOpenSessions=\{onOpenSessions\}/);
   assert.doesNotMatch(source, /aria-label="Select agent session"/);
+  assert.match(
+    source,
+    /function backgroundTaskReferencesFromSubagentLifecycle\([\s\S]*payload\.subagent_payload[\s\S]*parseBackgroundTaskReference\(subagentPayload\)/,
+  );
+  assert.match(source, /backgroundTaskReferences: restoredAssistantState\.backgroundTaskReferences,/);
+  assert.match(
+    source,
+    /const handleOpenBackgroundTaskReference = useCallback\([\s\S]*const syntheticTask: BackgroundTaskRecordPayload = \{[\s\S]*source_type: sourceType,[\s\S]*source_id: sourceId,[\s\S]*onOpenBackgroundTask\?\.\(syntheticTask\);[\s\S]*\[onOpenBackgroundTask\]\s*,?\s*\);/,
+  );
+  assert.match(
+    source,
+    /<ConversationTurns[\s\S]*onOpenBackgroundTaskReference=\{\s*handleOpenBackgroundTaskReference\s*\}/,
+  );
+  assert.match(
+    conversationTurnsSource,
+    /import \{ BackgroundTaskReferenceCards \} from "\.\/BackgroundTaskReferenceCards";/,
+  );
+  assert.match(
+    conversationTurnsSource,
+    /message\.backgroundTaskReferences\?\.length[\s\S]*<BackgroundTaskReferenceCards[\s\S]*onOpenReference=\{onOpenBackgroundTaskReference\}/,
+  );
+  assert.match(
+    taskReferenceCardsSource,
+    /function backgroundTaskReferencePrimaryLabel\([\s\S]*reference\.issueId\?\.trim\(\)[\s\S]*reference\.sourceId\?\.trim\(\)/,
+  );
 });

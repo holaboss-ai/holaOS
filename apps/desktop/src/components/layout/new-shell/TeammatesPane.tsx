@@ -650,12 +650,10 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
 
   return (
     <>
-      <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(245,118,66,0.06),transparent_26%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_32%)]">
+      <div className="flex h-full min-h-0 flex-col bg-background">
         <div className="border-b border-border px-6 py-3">
           <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-foreground/35">
-            <span>Agent Team</span>
-            <span className="text-foreground/20">/</span>
-            <span>Agents</span>
+            <span>Teammate</span>
             {showingDetail ? (
               <>
                 <span className="text-foreground/20">/</span>

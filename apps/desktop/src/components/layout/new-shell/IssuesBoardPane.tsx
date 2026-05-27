@@ -1,12 +1,9 @@
-import { useSetAtom } from "jotai";
-import { Loader2, Plus, RotateCw, Square, UserRound } from "lucide-react";
+import { Loader2, Square, UserRound } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/components/ui/status-dot";
 import { cn } from "@/lib/utils";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
-import { newIssueOpenAtom } from "./state/ui";
 import { useOpenIssueDetailTab } from "./useOpenIssueDetailTab";
 import { useIssueWorkspaceData } from "./useIssues";
 
@@ -153,17 +150,8 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
   const { issues, teammatesById, isLoading, statusMessage, refresh } =
     useIssueWorkspaceData(workspaceId);
   const openIssueDetailTab = useOpenIssueDetailTab();
-  const setNewIssueOpen = useSetAtom(newIssueOpenAtom);
   const [pendingIssueId, setPendingIssueId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
-
-  const workingCount = useMemo(
-    () =>
-      issues.filter(
-        (issue) => issue.status === "in_progress" || Boolean(issue.active_subagent_id),
-      ).length,
-    [issues],
-  );
 
   const visibleIssues = useMemo(
     () => issues.filter((issue) => issue.status !== "backlog"),
@@ -243,72 +231,17 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="border-b border-border px-6 py-3">
         <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-foreground/35">
-          <span>Agent Team</span>
-          <span className="text-foreground/20">/</span>
           <span>Issues</span>
         </div>
       </div>
 
-      <div className="border-b border-border px-6 py-3">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="inline-flex h-9 items-center rounded-xl border border-border bg-card px-4 text-sm font-medium text-foreground shadow-sm"
-            >
-              All
-            </button>
-            <button
-              type="button"
-              className="inline-flex h-9 items-center rounded-xl border border-border bg-background px-4 text-sm font-medium text-foreground/62 transition-colors hover:bg-card"
-            >
-              Members
-            </button>
-            <button
-              type="button"
-              className="inline-flex h-9 items-center rounded-xl border border-border bg-background px-4 text-sm font-medium text-foreground/62 transition-colors hover:bg-card"
-            >
-              Agents
-            </button>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Badge variant="outline" className="h-9 rounded-xl bg-background px-3 text-foreground/65">
-              {workingCount} working
-            </Badge>
-            <Badge variant="outline" className="h-9 rounded-xl bg-background px-3 text-foreground/65">
-              {visibleIssues.length} issues
-            </Badge>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 rounded-xl px-3"
-              onClick={() => void refresh()}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <RotateCw className="size-4" />
-              )}
-              Refresh
-            </Button>
-            <Button
-              type="button"
-              className="h-9 rounded-xl px-4"
-              onClick={() => setNewIssueOpen(true)}
-            >
-              <Plus className="size-4" />
-              New issue
-            </Button>
-          </div>
-        </div>
-        {errorMessage || statusMessage ? (
-          <div className="mt-3 rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground/65">
+      {errorMessage || statusMessage ? (
+        <div className="border-b border-border px-6 py-3">
+          <div className="rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground/65">
             {errorMessage || statusMessage}
           </div>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-6 py-4">
         {isLoading && visibleIssues.length === 0 ? (

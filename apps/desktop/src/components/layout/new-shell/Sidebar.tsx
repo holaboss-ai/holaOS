@@ -81,6 +81,7 @@ import {
   chatComposerPrefillAtom,
   createWorkspaceOpenAtom,
   focusModeAtom,
+  newIssueOpenAtom,
   publishOpenAtom,
   searchOpenAtom,
   SIDEBAR_MAX_WIDTH,
@@ -435,6 +436,7 @@ function SidebarIssuesSection() {
   const { issues, isLoading, statusMessage } = useIssues(
     selectedWorkspaceId || null,
   );
+  const setNewIssueOpen = useSetAtom(newIssueOpenAtom);
   const openIssueDetailTab = useOpenIssueDetailTab();
   const setInternalTabs = useSetAtom(internalTabsAtom);
   const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
@@ -482,6 +484,15 @@ function SidebarIssuesSection() {
       <SectionLabel>Agent Team</SectionLabel>
       <div className="mb-2 px-0.5">
         <div className="grid gap-2">
+          <Button
+            type="button"
+            onClick={() => setNewIssueOpen(true)}
+            disabled={!selectedWorkspaceId}
+            className="h-8 justify-start rounded-lg px-3 text-xs"
+          >
+            <Plus className="size-3.5" />
+            New issue
+          </Button>
           <button
             type="button"
             onClick={handleOpenDashboard}
@@ -498,7 +509,7 @@ function SidebarIssuesSection() {
             className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
           >
             <CircleDot className="size-3.5 text-foreground/55" />
-            <span>Board</span>
+            <span>Issues</span>
           </button>
           <button
             type="button"

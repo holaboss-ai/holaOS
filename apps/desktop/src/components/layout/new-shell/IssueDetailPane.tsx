@@ -14,7 +14,6 @@ import {
   Loader2,
   MessageSquareText,
   Paperclip,
-  PencilLine,
   Send,
   Square,
   UserRound,
@@ -1427,24 +1426,10 @@ export function IssueDetailPane({
         statusMessage={mutationError || statusMessage}
         actions={
           !isEditingDetails ? (
-            <>
-              <Button type="button" variant="ghost" onClick={handleBackToBoard}>
-                <ArrowLeft className="size-4" />
-                Back to board
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setMutationError("");
-                  setIsEditingDetails(true);
-                }}
-                disabled={Boolean(issue.active_subagent_id) || isMutationPending}
-              >
-                <PencilLine className="size-4" />
-                Edit details
-              </Button>
-            </>
+            <Button type="button" variant="ghost" onClick={handleBackToBoard}>
+              <ArrowLeft className="size-4" />
+              Back to board
+            </Button>
           ) : (
             <>
               <Button

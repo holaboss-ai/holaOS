@@ -121,6 +121,7 @@ import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import * as modelCatalog from "../../../../shared/model-catalog.js";
 import {
   type ChatAttachment,
+  type ChatBackgroundTaskReference,
   type ChatPaneVariant,
   type ChatAssistantSegment,
   type ChatMessage,
@@ -1073,6 +1074,7 @@ function syntheticAssistantMessageFromSessionTurn(params: {
       ? undefined
       : restoredAssistantState.executionItems,
     outputs: turnOutputs.length > 0 ? turnOutputs : undefined,
+    backgroundTaskReferences: restoredAssistantState.backgroundTaskReferences,
     pendingIntegrations: restoredAssistantState.pendingIntegrations,
     proposedIntegrations: restoredAssistantState.proposedIntegrations,
   };
@@ -1173,6 +1175,10 @@ export function chatMessagesFromSessionState(params: {
           }
           if (turnOutputs.length > 0) {
             nextMessage.outputs = turnOutputs;
+          }
+          if (restoredAssistantState.backgroundTaskReferences) {
+            nextMessage.backgroundTaskReferences =
+              restoredAssistantState.backgroundTaskReferences;
           }
           if (restoredAssistantState.pendingIntegrations) {
             nextMessage.pendingIntegrations = restoredAssistantState.pendingIntegrations;
@@ -2707,6 +2713,75 @@ function pendingIntegrationsFromSubagentLifecycle(
   return parsePendingIntegrationsList(subagentPayload.pending_integrations);
 }
 
+function parseBackgroundTaskReference(
+  value: unknown,
+): ChatBackgroundTaskReference | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const workspaceId =
+    typeof value.workspace_id === "string" ? value.workspace_id.trim() : "";
+  if (!workspaceId) {
+    return null;
+  }
+  const sourceType =
+    typeof value.source_type === "string" ? value.source_type.trim() : "";
+  const sourceId =
+    typeof value.source_id === "string" ? value.source_id.trim() : "";
+  const issueId =
+    typeof value.issue_id === "string" ? value.issue_id.trim() : "";
+  const title = typeof value.title === "string" ? value.title.trim() : "";
+  const status =
+    typeof value.status === "string" ? value.status.trim().toLowerCase() : "";
+  const normalizedSourceType = sourceType.toLowerCase();
+  const targetId = issueId || sourceId;
+  if (
+    normalizedSourceType !== "issue" &&
+    normalizedSourceType !== "delegate_task" &&
+    normalizedSourceType !== "cronjob"
+  ) {
+    return null;
+  }
+  if (normalizedSourceType !== "cronjob" && !targetId) {
+    return null;
+  }
+  return {
+    workspaceId,
+    sourceType: sourceType || null,
+    sourceId: sourceId || issueId || null,
+    issueId:
+      normalizedSourceType === "issue" ||
+      normalizedSourceType === "delegate_task"
+        ? issueId || sourceId || null
+        : null,
+    title: title || null,
+    status: status || null,
+  };
+}
+
+function backgroundTaskReferencesFromSubagentLifecycle(
+  payload: Record<string, unknown>,
+): ChatBackgroundTaskReference[] {
+  const subagentPayload = isRecord(payload.subagent_payload)
+    ? payload.subagent_payload
+    : null;
+  if (!subagentPayload) {
+    return [];
+  }
+  const reference = parseBackgroundTaskReference(subagentPayload);
+  return reference ? [reference] : [];
+}
+
+function backgroundTaskReferenceKey(reference: ChatBackgroundTaskReference) {
+  return [
+    reference.workspaceId,
+    reference.sourceType ?? "",
+    reference.issueId ?? "",
+    reference.sourceId ?? "",
+    reference.title ?? "",
+  ].join("|");
+}
+
 const PENDING_INTEGRATION_TOOL_NAMES = new Set([
   "workspace_apps_install",
   "workspace_apps_ensure_running",
@@ -2861,6 +2936,10 @@ function assistantHistoryStateFromOutputEvents(
   let terminalCreatedAt = "";
   const pendingIntegrations: ChatPendingIntegration[] = [];
   const proposedIntegrations: ChatProposedIntegration[] = [];
+  const backgroundTaskReferencesByKey = new Map<
+    string,
+    ChatBackgroundTaskReference
+  >();
 
   const flushExecutionSegment = () => {
     if (executionItems.length === 0) {
@@ -2972,6 +3051,14 @@ function assistantHistoryStateFromOutputEvents(
           pendingIntegrations.push(integration);
         }
       }
+      for (const reference of backgroundTaskReferencesFromSubagentLifecycle(
+        eventPayload,
+      )) {
+        backgroundTaskReferencesByKey.set(
+          backgroundTaskReferenceKey(reference),
+          reference,
+        );
+      }
     }
 
     if (event.event_type === "output_delta") {
@@ -3028,6 +3115,10 @@ function assistantHistoryStateFromOutputEvents(
     terminalCreatedAt: terminalCreatedAt || undefined,
     pendingIntegrations: pendingIntegrations.length > 0 ? pendingIntegrations : undefined,
     proposedIntegrations: proposedIntegrations.length > 0 ? proposedIntegrations : undefined,
+    backgroundTaskReferences:
+      backgroundTaskReferencesByKey.size > 0
+        ? Array.from(backgroundTaskReferencesByKey.values())
+        : undefined,
   };
 }
 
@@ -7130,6 +7221,68 @@ export function ChatPane({
     });
   };
 
+  const handleOpenBackgroundTaskReference = useCallback(
+    (reference: ChatBackgroundTaskReference) => {
+      const workspaceId = reference.workspaceId.trim();
+      const sourceType = (reference.sourceType ?? "").trim() || null;
+      const sourceId =
+        reference.issueId?.trim() ||
+        reference.sourceId?.trim() ||
+        null;
+      if (!workspaceId || !sourceType) {
+        return;
+      }
+      const now = new Date().toISOString();
+      const syntheticTask: BackgroundTaskRecordPayload = {
+        subagent_id: "",
+        workspace_id: workspaceId,
+        parent_session_id: null,
+        parent_input_id: null,
+        origin_main_session_id: "",
+        owner_main_session_id: "",
+        child_session_id: "",
+        initial_child_input_id: null,
+        current_child_input_id: null,
+        latest_child_input_id: null,
+        title: reference.title?.trim() || sourceId || "Task",
+        goal: reference.title?.trim() || sourceId || "Task",
+        context: null,
+        source_type: sourceType,
+        source_id: sourceId,
+        proposal_id: null,
+        cronjob_id: null,
+        retry_of_subagent_id: null,
+        tool_profile: {},
+        requested_model: null,
+        effective_model: null,
+        status: reference.status?.trim() || "",
+        summary: null,
+        latest_progress_payload: null,
+        blocking_payload: null,
+        result_payload: null,
+        error_payload: null,
+        last_event_at: null,
+        owner_transferred_at: null,
+        created_at: now,
+        started_at: null,
+        completed_at: null,
+        cancelled_at: null,
+        updated_at: now,
+        live_state: {
+          runtime_status: null,
+          current_input_id: null,
+          current_input_status: null,
+          latest_input_id: null,
+          latest_input_status: null,
+          latest_turn_status: null,
+          latest_turn_stop_reason: null,
+        },
+      };
+      onOpenBackgroundTask?.(syntheticTask);
+    },
+    [onOpenBackgroundTask],
+  );
+
   const onComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const nativeEvent =
       event.nativeEvent as KeyboardEvent<HTMLTextAreaElement>["nativeEvent"] & {
@@ -9217,6 +9370,9 @@ export function ChatPane({
                     onToggleTraceStep={toggleTraceStep}
                     onLinkClick={onOpenLinkInBrowser}
                     onLocalLinkClick={onOpenLocalLink}
+                    onOpenBackgroundTaskReference={
+                      handleOpenBackgroundTaskReference
+                    }
                     assistantFooterAccessoryMessageId={
                       lastCompletedAssistantMessageId
                     }
