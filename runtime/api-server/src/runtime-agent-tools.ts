@@ -1508,6 +1508,23 @@ function normalizedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function clippedSingleLineSummary(value: unknown, maxChars = 40_000): string {
+  const text = normalizedString(value);
+  if (!text) {
+    return "";
+  }
+  const firstParagraph =
+    text.split(/\n\s*\n/u).find((chunk) => chunk.trim().length > 0) ?? text;
+  const compact = firstParagraph.replace(/\s+/gu, " ").trim();
+  if (!compact) {
+    return "";
+  }
+  if (compact.length <= maxChars) {
+    return compact;
+  }
+  return `${compact.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
+}
+
 function normalizedInteger(
   value: unknown,
   defaultValue: number,
@@ -5832,20 +5849,20 @@ export class RuntimeAgentToolsService {
     if (blockingQuestion) {
       return blockingQuestion;
     }
-    const assistantText = normalizedString(
-      state.run.blockingPayload?.assistant_text ??
-        state.latestTurnResult?.assistantText ??
-        state.run.summary,
+    const summary = normalizedString(
+      state.run.blockingPayload?.summary ??
+        state.run.summary ??
+        state.latestTurnResult?.assistantText,
     );
-    return assistantText || null;
+    return summary || null;
   }
 
   private issueFailureReasonFromState(state: SyncedSubagentRunState): string | null {
     const errorMessage = normalizedString(
       state.run.errorPayload?.message ??
-        state.run.errorPayload?.assistant_text ??
-        state.latestTurnResult?.assistantText ??
-        state.run.summary,
+        state.run.errorPayload?.summary ??
+        state.run.summary ??
+        state.latestTurnResult?.assistantText,
     );
     return errorMessage || null;
   }
@@ -5982,7 +5999,7 @@ export class RuntimeAgentToolsService {
       derivedStatus = "queued";
     }
 
-    const summaryFromTurn = normalizedString(latestTurnResult?.assistantText);
+    const summaryFromTurn = clippedSingleLineSummary(latestTurnResult?.assistantText);
     const updates: Parameters<RuntimeStateStore["updateSubagentRun"]>[0]["fields"] = {};
     if (run.status !== derivedStatus) {
       updates.status = derivedStatus;
@@ -6007,7 +6024,7 @@ export class RuntimeAgentToolsService {
       updates.completedAt = run.completedAt ?? latestTurnResult.completedAt ?? utcNowIso();
       updates.summary = run.summary ?? summaryFromTurn ?? "Completed.";
       updates.resultPayload = run.resultPayload ?? {
-        assistant_text: latestTurnResult.assistantText,
+        summary: updates.summary,
         turn_status: latestTurnResult.status,
         stop_reason: latestTurnResult.stopReason,
       };
@@ -6020,7 +6037,7 @@ export class RuntimeAgentToolsService {
       updates.completedAt = run.completedAt ?? latestTurnResult.completedAt ?? utcNowIso();
       updates.summary = run.summary ?? summaryFromTurn ?? "Failed.";
       updates.errorPayload = run.errorPayload ?? {
-        assistant_text: latestTurnResult.assistantText,
+        summary: updates.summary,
         turn_status: latestTurnResult.status,
         stop_reason: latestTurnResult.stopReason,
       };
@@ -6032,7 +6049,7 @@ export class RuntimeAgentToolsService {
     ) {
       updates.summary = run.summary ?? summaryFromTurn ?? "Waiting on user input.";
       updates.blockingPayload = run.blockingPayload ?? {
-        assistant_text: latestTurnResult.assistantText,
+        summary: updates.summary,
         turn_status: latestTurnResult.status,
         stop_reason: latestTurnResult.stopReason,
       };

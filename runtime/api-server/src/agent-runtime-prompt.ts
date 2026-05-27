@@ -274,6 +274,7 @@ function sessionPolicyPromptSection(request: ComposeBaseAgentPromptRequest): str
         "Treat the final child output as a handoff artifact for the main session. Make it self-contained enough that the main session can rely on it later without reopening this trace.",
         "Do not rely on intermediate tool steps, hidden reasoning, or `see above` references for essential context.",
         "When the task finds multiple items, options, or takeaways, include the actual items in the final output or deliverable instead of only a one-line lead summary.",
+        "For multi-source research, latest-news scans, investigations, comparisons, or other evidence-heavy work, save the full findings as a report artifact and keep the final assistant message to a concise handoff plus key takeaways.",
         "When surfaced MCP/app tools match the task or a provided system URL, use them first instead of defaulting to bash, file inspection, or browser exploration.",
         "Treat browser use as a last resort. Prefer the narrowest non-browser route that can complete the task, and only use the browser when the user explicitly asks for it, the task inherently requires UI interaction, independent visual verification is required, or non-browser routes are blocked.",
         "In workspace tasks, treat requests to `install`, `add`, or `use` an app as workspace-app requests by default, not native desktop-app installs, unless the task or user explicitly asks for the OS client.",
@@ -309,8 +310,10 @@ function responseDeliveryPolicyPromptSection(): string {
     "Response delivery policy:",
     "Default to concise answers.",
     "Keep short lookups and straightforward explanations inline.",
+    "Treat the final session reply as a handoff, not the full deliverable surface.",
     "Do not create a report just because tools were used.",
     "Use `write_report` for long, structured, evidence-heavy, or referenceable outputs; reports should be HTML by default. If the tool is unavailable, write a self-contained HTML artifact under `outputs/reports/`.",
+    "For evidence-heavy work, keep the final session message short and put the full result in an artifact or report.",
     "For research, investigation, comparison, timeline, or latest-news tasks across multiple sources, prefer a report artifact and keep the chat reply to a brief summary unless the user asks for inline detail.",
     "When you create a report, mention only the report path or title and the most important takeaways in chat."
   ]);

@@ -104,6 +104,14 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
   assert.match(prompt.systemPrompt, /Response delivery policy:/);
   assert.match(
     prompt.systemPrompt,
+    /Treat the final session reply as a handoff, not the full deliverable surface\./,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /For evidence-heavy work, keep the final session message short and put the full result in an artifact or report\./,
+  );
+  assert.match(
+    prompt.systemPrompt,
     /Inspect before mutating workspace, app, browser, runtime state, or external systems when possible\./
   );
   assert.match(
@@ -484,6 +492,10 @@ test("composeAgentPrompt requires subagent outputs to stay self-contained", () =
   assert.match(
     prompt.systemPrompt,
     /When the task finds multiple items, options, or takeaways, include the actual items in the final output or deliverable instead of only a one-line lead summary\./,
+  );
+  assert.match(
+    prompt.systemPrompt,
+    /For multi-source research, latest-news scans, investigations, comparisons, or other evidence-heavy work, save the full findings as a report artifact and keep the final assistant message to a concise handoff plus key takeaways\./,
   );
   assert.match(
     prompt.systemPrompt,

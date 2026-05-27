@@ -2954,7 +2954,6 @@ function maybeQueueCronjobCompletionFollowup(params: {
   });
   const eventType = cronjobLifecycleEventType(params.turnResult);
   const summary = cronjobCompletionNotificationMessage(params.turnResult);
-  const assistantText = optionalString(params.turnResult.assistantText);
   const forwardableDeliverables = subagentForwardableDeliverables(outputs);
   const deliveryChannel = optionalString(delivery.channel)?.toLowerCase() ?? null;
   const payloadTitle = cronjobContainerTitle({
@@ -2983,19 +2982,15 @@ function maybeQueueCronjobCompletionFollowup(params: {
   if (instruction) {
     payload.context = instruction;
   }
-  if (assistantText) {
-    payload.assistant_text = assistantText;
-  }
   if (forwardableDeliverables.length > 0) {
     payload.forwardable_deliverables = forwardableDeliverables;
   }
   if (eventType === "waiting_on_user") {
-    payload.blocking_question = assistantText ?? summary;
+    payload.blocking_question = summary;
     if (forwardableDeliverables.length > 0) {
       payload.partial_deliverables = forwardableDeliverables;
     }
   } else if (eventType === "failed" || eventType === "cancelled") {
-    payload.partial_summary = summary;
     if (forwardableDeliverables.length > 0) {
       payload.partial_deliverables = forwardableDeliverables;
     }
@@ -3690,7 +3685,6 @@ function subagentLifecyclePayload(params: {
     workspaceId: params.run.workspaceId,
     childSessionId: params.run.childSessionId,
   });
-  const assistantText = optionalString(params.turnResult.assistantText);
   const payload: Record<string, unknown> = {
     workspace_id: params.run.workspaceId,
     subagent_id: params.run.subagentId,
@@ -3717,9 +3711,6 @@ function subagentLifecyclePayload(params: {
   if (params.run.context) {
     payload.context = params.run.context;
   }
-  if (assistantText) {
-    payload.assistant_text = assistantText;
-  }
   if (forwardableDeliverables.length > 0) {
     payload.forwardable_deliverables = forwardableDeliverables;
   }
@@ -3729,14 +3720,7 @@ function subagentLifecyclePayload(params: {
   if (params.status === "waiting_on_user") {
     payload.blocking_question =
       inferredRecoverableUserBlockerQuestion(params.turnResult) ??
-      assistantText ??
       params.summary;
-    if (
-      inferredRecoverableUserBlockerQuestion(params.turnResult) &&
-      assistantText
-    ) {
-      payload.partial_summary = assistantText;
-    }
     if (forwardableDeliverables.length > 0) {
       payload.partial_deliverables = forwardableDeliverables;
     }
@@ -3744,7 +3728,6 @@ function subagentLifecyclePayload(params: {
     params.status === "failed" ||
     params.status === "cancelled"
   ) {
-    payload.partial_summary = params.summary;
     if (forwardableDeliverables.length > 0) {
       payload.partial_deliverables = forwardableDeliverables;
     }
@@ -4000,10 +3983,43 @@ function maybeFinalizeMainSessionEvents(params: {
   if (eventIds.length === 0) {
     return;
   }
+  const inputSource = optionalString(context?.source)?.toLowerCase() ?? "";
   const now =
     params.turnResult.completedAt ??
     params.turnResult.updatedAt ??
     new Date().toISOString();
+  const completedWithoutVisibleOutcome =
+    inputSource === "main_session_event_batch" &&
+    params.turnResult.status === "completed" &&
+    !optionalString(params.turnResult.assistantText) &&
+    params.store.listOutputs({
+      workspaceId: params.record.workspaceId,
+      sessionId: params.record.sessionId,
+      inputId: params.record.inputId,
+      limit: 1,
+      offset: 0,
+    }).length === 0 &&
+    params.store.listMemoryUpdateProposals({
+      workspaceId: params.record.workspaceId,
+      sessionId: params.record.sessionId,
+      inputId: params.record.inputId,
+      limit: 1,
+      offset: 0,
+    }).length === 0;
+  if (completedWithoutVisibleOutcome) {
+    for (const eventId of eventIds) {
+      requeueMainSessionEventForRetry({
+        store: params.store,
+        workspaceId: params.record.workspaceId,
+        eventId,
+        completedAt: now,
+        stopReason:
+          params.turnResult.stopReason ?? "empty_background_delivery",
+        incrementAttemptCount: true,
+      });
+    }
+    return;
+  }
   if (
     params.turnResult.status !== "failed" &&
     params.turnResult.status !== "paused"

@@ -135,7 +135,7 @@ test("continueSubagent queues a new input onto the same completed child session"
       effectiveModel: "openai/gpt-5.4",
       status: "completed",
       summary: "Top AI results.",
-      resultPayload: { assistant_text: "Top AI results: item 1, item 2, item 3." },
+      resultPayload: { summary: "Top AI results: item 1, item 2, item 3." },
       completedAt,
     });
 
@@ -284,7 +284,7 @@ test("continueSubagent inherits the composer-selected thinking value for the eff
       effectiveModel: "openai/gpt-5.5",
       status: "completed",
       summary: "Top crypto results.",
-      resultPayload: { assistant_text: "Top crypto results." },
+      resultPayload: { summary: "Top crypto results." },
       completedAt,
     });
 
@@ -405,7 +405,7 @@ test("continueSubagent falls back to the controller session's latest model inste
       effectiveModel: "openai/gpt-5.4",
       status: "completed",
       summary: "Initial result.",
-      resultPayload: { assistant_text: "Initial result." },
+      resultPayload: { summary: "Initial result." },
       completedAt,
     });
 
@@ -590,7 +590,7 @@ test("rerunTask restarts an existing delegated task by task id", async () => {
       effectiveModel: "openai/gpt-5.4",
       status: "completed",
       summary: "Initial result.",
-      resultPayload: { assistant_text: "Initial result." },
+      resultPayload: { summary: "Initial result." },
       completedAt,
     });
 
@@ -1108,7 +1108,7 @@ test("continueSubagent preserves the user browser surface flag for follow-up wor
       sourceType: "delegate_task",
       status: "completed",
       summary: "Reached login.",
-      resultPayload: { assistant_text: "Reached the login page." },
+      resultPayload: { summary: "Reached the login page." },
       completedAt,
     });
 
@@ -1214,7 +1214,7 @@ test("background task sync preserves persisted waiting-on-user blockers", async 
         blocking_question:
           "Please log in or complete the required access step, then tell me to continue.",
       },
-      resultPayload: { assistant_text: "The page is logged out." },
+      resultPayload: { summary: "The page is logged out." },
       completedAt,
     });
 
@@ -1698,10 +1698,132 @@ test("listBackgroundTasks keeps a completed delegated run completed even if the 
     assert.equal(tasks[0]?.status, "completed");
     assert.equal(updatedRun?.status, "completed");
     assert.equal(updatedRun?.summary, "Workspace summary complete.");
-    assert.equal(updatedRun?.resultPayload?.assistant_text, "Workspace summary complete.");
+    assert.equal(updatedRun?.resultPayload?.summary, "Workspace summary complete.");
     assert.equal(issue?.status, "done");
     assert.equal(issue?.activeSubagentId, null);
     assert.notEqual(issue?.completedAt, null);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("listBackgroundTasks compacts long completed child replies into a short task summary", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-completed-summary-"));
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const mainSessionId = "main-1";
+  const childSessionId = "subagent-child-1";
+  const subagentId = "subagent-run-1";
+  const completedAt = utcNowIso();
+  const longAssistantText = new Array(8)
+    .fill(
+      "China markets rallied after a strong industrial profits print, while chip and payments headlines pointed to a broader theme of strategic resilience across the economy. Huawei, Tencent, and Nvidia all featured prominently, and the foreign-policy track stayed tense around the South China Sea and trade adjustments. The detailed report includes the full sourcing and takeaways for each headline.",
+    )
+    .join(" ");
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.ensureSession({
+      workspaceId,
+      sessionId: mainSessionId,
+      kind: "main_session",
+      createdBy: "workspace_user",
+    });
+    const assignee = store.ensureGeneralTeammate(workspaceId);
+    store.createIssue({
+      workspaceId,
+      issueId: "HOL-1",
+      sessionId: childSessionId,
+      title: "Summarize the China news",
+      description: "Finish the delegated summary.",
+      status: "in_progress",
+      assigneeTeammateId: assignee.teammateId,
+      activeSubagentId: subagentId,
+      latestSubagentId: subagentId,
+    });
+    store.ensureSession({
+      workspaceId,
+      sessionId: childSessionId,
+      kind: "subagent",
+      parentSessionId: mainSessionId,
+      createdBy: "workspace_agent",
+    });
+    const input = store.enqueueInput({
+      workspaceId,
+      sessionId: childSessionId,
+      payload: { text: "Summarize the China news." },
+    });
+    store.updateInput({
+      workspaceId,
+      inputId: input.inputId,
+      fields: {
+        status: "CLAIMED",
+        claimedBy: "worker-1",
+        claimedUntil: new Date(Date.now() + 60_000).toISOString(),
+      },
+    });
+    store.updateRuntimeState({
+      workspaceId,
+      sessionId: childSessionId,
+      status: "BUSY",
+      currentInputId: input.inputId,
+      currentWorkerId: "worker-1",
+      leaseUntil: new Date(Date.now() + 60_000).toISOString(),
+      heartbeatAt: completedAt,
+      lastError: null,
+    });
+    store.upsertTurnResult({
+      workspaceId,
+      sessionId: childSessionId,
+      inputId: input.inputId,
+      startedAt: completedAt,
+      completedAt,
+      status: "completed",
+      stopReason: "success",
+      assistantText: longAssistantText,
+    });
+    store.createSubagentRun({
+      subagentId,
+      workspaceId,
+      parentSessionId: mainSessionId,
+      parentInputId: "parent-input-1",
+      originMainSessionId: mainSessionId,
+      ownerMainSessionId: mainSessionId,
+      childSessionId,
+      initialChildInputId: input.inputId,
+      currentChildInputId: input.inputId,
+      latestChildInputId: input.inputId,
+      title: "China summary",
+      goal: "Summarize the China news.",
+      sourceType: "delegate_task",
+      issueId: "HOL-1",
+      teammateId: assignee.teammateId,
+      status: "running",
+      startedAt: completedAt,
+    });
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    service.listBackgroundTasks({
+      workspaceId,
+      sessionId: mainSessionId,
+      ownerMainSessionId: mainSessionId,
+      statuses: ["completed"],
+    });
+    const updatedRun = store.getSubagentRun({ workspaceId, subagentId });
+
+    assert.equal(updatedRun?.status, "completed");
+    assert.ok((updatedRun?.summary ?? "").startsWith("China markets rallied after a strong industrial profits print"));
+    assert.ok((updatedRun?.summary ?? "").length <= 40_000);
+    assert.ok((updatedRun?.summary ?? "").endsWith("..."));
+    assert.equal(updatedRun?.resultPayload?.summary, updatedRun?.summary);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });
