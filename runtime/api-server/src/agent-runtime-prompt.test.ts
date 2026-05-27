@@ -6,6 +6,8 @@ import { composeAgentPrompt, composeBaseAgentPrompt } from "./agent-runtime-prom
 
 test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
   const capabilityManifest = buildAgentCapabilityManifest({
+    harnessId: "pi",
+    sessionKind: "main_session",
     defaultTools: ["read", "edit"],
     extraTools: [],
     workspaceSkillIds: ["skill-creator"],
@@ -194,6 +196,14 @@ test("composeBaseAgentPrompt returns ordered runtime prompt layers", () => {
   assert.match(prompt.contextMessages.join("\n\n"), /Mutating tools: available \(\d+ enabled\)\./);
   assert.match(prompt.contextMessages.join("\n\n"), /Workspace skills: available \(1 enabled\)\./);
   assert.match(prompt.contextMessages.join("\n\n"), /Connected MCP access: available\./);
+  assert.match(
+    prompt.contextMessages.join("\n\n"),
+    /Use this only as a capability\/routing signal for the front session\. Do not rely on direct MCP callable inventories here\./,
+  );
+  assert.doesNotMatch(
+    prompt.contextMessages.join("\n\n"),
+    /MCP callable tool aliases for this run:/,
+  );
   assert.deepEqual(prompt.promptCacheProfile.cacheable_section_ids, [
     "runtime_core",
     "execution_policy",
@@ -402,12 +412,21 @@ test("composeAgentPrompt uses a conversational main-session prompt for workspace
   );
   assert.ok(
     prompt.contextMessages.some((message) =>
-      /Delegated MCP callable tool aliases for routing only:/.test(message),
+      /Delegated app integrations available via: `twitter`\./.test(message),
     ),
   );
   assert.ok(
-    prompt.contextMessages.some((message) =>
-      /`twitter\.twitter_create_post` -> call `mcp__twitter__twitter_create_post`/.test(message),
+    prompt.contextMessages.every(
+      (message) =>
+        !/Delegated MCP callable tool aliases for routing only:/.test(message),
+    ),
+  );
+  assert.ok(
+    prompt.contextMessages.every(
+      (message) =>
+        !/`twitter\.twitter_create_post` -> call `mcp__twitter__twitter_create_post`/.test(
+          message,
+        ),
     ),
   );
   assert.doesNotMatch(prompt.systemPrompt, /small direct edits inline/);

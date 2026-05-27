@@ -1092,11 +1092,11 @@ test("projectAgentRuntimeConfig includes delegated executor capability context f
       result.context_messages?.join("\n\n") ?? "",
       /Delegated app integrations available via: `twitter`\./,
     );
-    assert.match(
+    assert.doesNotMatch(
       result.context_messages?.join("\n\n") ?? "",
       /Delegated MCP callable tool aliases for routing only:/,
     );
-    assert.match(
+    assert.doesNotMatch(
       result.context_messages?.join("\n\n") ?? "",
       /`twitter\.twitter_create_post` -> call `mcp__twitter__twitter_create_post`/,
     );

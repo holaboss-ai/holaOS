@@ -372,8 +372,8 @@ test("renderDelegatedCapabilityAvailabilityContextPromptSection exposes backstag
   assert.match(section, /Delegated connected MCP\/app access: available\./);
   assert.match(section, /Delegated browser execution is available even though this front session has no direct browser tools\./);
   assert.match(section, /Delegated app integrations available via: `twitter`\./);
-  assert.match(section, /Delegated MCP callable tool aliases for routing only:/);
-  assert.match(section, /`twitter\.twitter_create_post` -> call `mcp__twitter__twitter_create_post`/);
+  assert.doesNotMatch(section, /Delegated MCP callable tool aliases for routing only:/);
+  assert.doesNotMatch(section, /`twitter\.twitter_create_post` -> call `mcp__twitter__twitter_create_post`/);
   assert.match(section, /Notable delegated-only tools for this run:/);
   assert.match(section, /Workspace Apps Get Status \(`workspace_apps_get_status`\)/);
   assert.match(section, /Workspace Data List Tables \(`workspace_data_list_tables`\)/);
@@ -454,8 +454,8 @@ test("renderDelegatedCapabilityAvailabilityContextPromptSection keeps delegated 
 
   assert.match(section, /Delegated connected MCP\/app access: available\./);
   assert.match(section, /Delegated app integrations available via: `notion`\./);
-  assert.match(section, /Delegated MCP callable tool aliases for routing only:/);
-  assert.match(section, /`notion\.notion_get_page` -> call `mcp__notion__notion_get_page`/);
+  assert.doesNotMatch(section, /Delegated MCP callable tool aliases for routing only:/);
+  assert.doesNotMatch(section, /`notion\.notion_get_page` -> call `mcp__notion__notion_get_page`/);
 });
 
 test("buildAgentCapabilityManifest marks connected MCP servers as available without pre-enumerated tool refs", () => {
@@ -485,7 +485,10 @@ test("buildAgentCapabilityManifest marks connected MCP servers as available with
 
   const section = renderCapabilityPolicyPromptSection(manifest);
   assert.match(section, /Connected MCP access: available\./);
-  assert.match(section, /Use surfaced MCP tools when relevant; tool names may be resolved dynamically by the runtime\./i);
+  assert.match(
+    section,
+    /Use this only as a capability\/routing signal for the front session\. Do not rely on direct MCP callable inventories here\./,
+  );
   assert.doesNotMatch(section, /MCP callable tool aliases for this run:/);
 });
 
@@ -751,16 +754,17 @@ test("renderCapabilityPolicyPromptSection summarizes grouped capabilities", () =
   assert.match(section, /After edits, shell commands, browser actions, MCP mutations, or runtime mutations, run a follow-up inspection or verification step before claiming success\./);
   assert.match(section, /Use coordination capabilities to track progress, consult available skills, route execution through delegated subagents when appropriate, or ask for clarification instead of keeping hidden state\./);
   assert.match(section, /Connected MCP access: available\./);
-  assert.match(section, /Use surfaced MCP tools when relevant/);
   assert.match(
     section,
-    /When the capability snapshot lists an MCP tool id alongside a callable alias, use the callable alias for tool invocation\./i,
+    /MCP\/app routing: when surfaced MCP\/app capabilities match the target system or supplied URL, treat them as delegation signals/i,
   );
-  assert.match(section, /MCP callable tool aliases for this run:/);
+  assert.match(section, /Connected app integrations available via: `workspace`\./);
   assert.match(
     section,
-    /`workspace\.lookup` -> call `mcp__workspace__lookup`/,
+    /Use this only as a capability\/routing signal for the front session\. Do not rely on direct MCP callable inventories here\./,
   );
+  assert.doesNotMatch(section, /MCP callable tool aliases for this run:/);
+  assert.doesNotMatch(section, /`workspace\.lookup` -> call `mcp__workspace__lookup`/);
   assert.doesNotMatch(section, /Skills available now:/);
   assert.doesNotMatch(section, /Connected MCP tools available now:/);
 });

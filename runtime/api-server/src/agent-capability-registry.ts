@@ -1326,7 +1326,7 @@ function delegatedOnlyCapabilities(
   );
 }
 
-function delegatedMcpServerNames(manifest: AgentCapabilityManifest): string[] {
+function mcpServerNames(manifest: AgentCapabilityManifest): string[] {
   const names = new Set<string>();
   for (const alias of manifest.mcp_tool_aliases) {
     const normalized = alias.server_id.trim();
@@ -1341,20 +1341,6 @@ function delegatedMcpServerNames(manifest: AgentCapabilityManifest): string[] {
     }
   }
   return [...names].sort((left, right) => left.localeCompare(right));
-}
-
-function pushMcpToolAliasLines(
-  lines: string[],
-  manifest: AgentCapabilityManifest,
-  heading: string,
-): void {
-  if (manifest.mcp_tool_aliases.length === 0) {
-    return;
-  }
-  lines.push(heading);
-  for (const alias of manifest.mcp_tool_aliases) {
-    lines.push(`- \`${alias.tool_id}\` -> call \`${alias.callable_name}\``);
-  }
 }
 
 function sortDelegatedOnlyCapabilities(
@@ -1465,12 +1451,13 @@ export function renderCapabilityToolRoutingPromptSection(
   }
   if (manifest.mcp_tools.length > 0) {
     ensureHeading();
-    lines.push(
-      "MCP-first routing: when surfaced MCP/app tools match the target system or supplied URL, use them before opening the web app, web search, bash, or file inspection.",
-    );
-    if (manifest.mcp_tool_aliases.length > 0) {
+    if (normalizedSessionKind === "main_session") {
       lines.push(
-        "When the capability snapshot lists an MCP tool id alongside a callable alias, use the callable alias for tool invocation. The dotted tool id is an identifier, not necessarily the runtime callable name.",
+        "MCP/app routing: when surfaced MCP/app capabilities match the target system or supplied URL, treat them as delegation signals and route the work through delegated execution instead of opening the web app, web search, bash, or file inspection.",
+      );
+    } else {
+      lines.push(
+        "MCP-first routing: when surfaced MCP/app tools match the target system or supplied URL, use them before opening the web app, web search, bash, or file inspection.",
       );
     }
     lines.push(
@@ -1516,8 +1503,21 @@ export function renderCapabilityAvailabilityContextPromptSection(
   }
   if (manifest.mcp_tools.length > 0 || (manifest.context.mcp_server_ids?.length ?? 0) > 0) {
     lines.push("Connected MCP access: available.");
-    lines.push("Use surfaced MCP tools when relevant; tool names may be resolved dynamically by the runtime.");
-    pushMcpToolAliasLines(lines, manifest, "MCP callable tool aliases for this run:");
+    const servers = mcpServerNames(manifest);
+    if (servers.length > 0) {
+      lines.push(
+        `Connected app integrations available via: ${servers
+          .map((serverId) => `\`${serverId}\``)
+          .join(", ")}.`,
+      );
+    }
+    if (normalizedSessionKind === "main_session") {
+      lines.push(
+        "Use this only as a capability/routing signal for the front session. Do not rely on direct MCP callable inventories here.",
+      );
+    } else {
+      lines.push("Use surfaced MCP tools when relevant; tool names may be resolved dynamically by the runtime.");
+    }
   } else {
     lines.push("Connected MCP access: none.");
   }
@@ -1567,7 +1567,7 @@ export function renderDelegatedCapabilityAvailabilityContextPromptSection(
     delegatedManifest.mcp_tools.length > 0 ||
     (delegatedManifest.context.mcp_server_ids?.length ?? 0) > 0
   ) {
-    const delegatedServers = delegatedMcpServerNames(delegatedManifest);
+    const delegatedServers = mcpServerNames(delegatedManifest);
     if (delegatedServers.length > 0) {
       lines.push(
         `Delegated app integrations available via: ${delegatedServers
@@ -1575,11 +1575,6 @@ export function renderDelegatedCapabilityAvailabilityContextPromptSection(
           .join(", ")}.`,
       );
     }
-    pushMcpToolAliasLines(
-      lines,
-      delegatedManifest,
-      "Delegated MCP callable tool aliases for routing only:",
-    );
   }
 
   const delegatedOnly = sortDelegatedOnlyCapabilities(
