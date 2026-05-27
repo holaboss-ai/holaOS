@@ -32,7 +32,7 @@ test("operations drawer keeps running sessions available beside the empty inbox"
 
   assert.match(source, /activeTab === "running" \? \(/);
   assert.match(source, /function defaultSessionTitle\(/);
-  assert.match(source, /if \(kind === "task_proposal"\) \{\s*return "Subagent run";\s*\}/);
+  assert.match(source, /if \(normalizedKind === "subagent" \|\| normalizedKind === "task_proposal"\) \{\s*return "Subagent run";\s*\}/);
 });
 
 test("operations drawer no longer carries the deprecated proactive sign-in notice", async () => {

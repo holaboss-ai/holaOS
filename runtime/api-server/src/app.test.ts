@@ -5761,7 +5761,7 @@ test("runtime states and history endpoints read TS state store", async () => {
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "proposal-session-1",
-    kind: "task_proposal",
+    kind: "subagent",
     title: "Follow up",
     parentSessionId: "session-main",
     sourceProposalId: "proposal-1",
@@ -5804,7 +5804,7 @@ test("runtime states and history endpoints read TS state store", async () => {
     .json()
     .items.find((item: { session_id: string }) => item.session_id === "proposal-session-1");
   assert.ok(proposalSession);
-  assert.equal(proposalSession.kind, "task_proposal");
+  assert.equal(proposalSession.kind, "subagent");
   assert.equal(proposalSession.parent_session_id, "session-main");
   assert.equal(states.statusCode, 200);
   assert.equal(states.json().count, 1);

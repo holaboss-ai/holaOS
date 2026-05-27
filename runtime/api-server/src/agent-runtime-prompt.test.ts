@@ -1345,7 +1345,7 @@ test("composeBaseAgentPrompt includes accepted evolve candidate context when pro
     extraTools: [],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
-    sessionKind: "task_proposal",
+    sessionKind: "subagent",
     sessionMode: "code",
     evolveCandidateContext: {
       candidate_id: "evolve-skill-input-10",

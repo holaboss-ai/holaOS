@@ -4937,7 +4937,7 @@ test("claimed input passes persisted child session kind into the runner payload"
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "proposal-session-1",
-    kind: "task_proposal",
+    kind: "subagent",
     parentSessionId: "session-main",
   });
   const queued = store.enqueueInput({
@@ -4976,7 +4976,7 @@ test("claimed input passes persisted child session kind into the runner payload"
     },
   });
 
-  assert.equal(capturedSessionKind, "task_proposal");
+  assert.equal(capturedSessionKind, "subagent");
   store.close();
 });
 

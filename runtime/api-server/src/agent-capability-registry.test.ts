@@ -163,7 +163,7 @@ test("buildAgentCapabilityManifest applies tool server id mappings to MCP callab
 test("buildAgentCapabilityManifest filters browser tools when policy context does not allow them", () => {
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
-    sessionKind: "task_proposal",
+    sessionKind: "subagent",
     browserToolsAvailable: false,
     browserToolIds: [],
     runtimeToolIds: ["holaboss_onboarding_complete"],
@@ -175,7 +175,7 @@ test("buildAgentCapabilityManifest filters browser tools when policy context doe
 
   assert.deepEqual(manifest.context, {
     harness_id: "pi",
-    session_kind: "task_proposal",
+    session_kind: "subagent",
     browser_tools_available: false,
     browser_tool_ids: [],
     runtime_tool_ids: ["holaboss_onboarding_complete"],

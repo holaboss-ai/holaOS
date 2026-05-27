@@ -108,7 +108,7 @@ test("projectAgentRuntimeConfig returns ordered prompt layers and renders system
       session_id: "session-1",
       workspace_id: "workspace-1",
       input_id: "input-1",
-      session_kind: "task_proposal",
+      session_kind: "subagent",
       harness_id: "pi",
       browser_tools_available: false,
       browser_tool_ids: [],
@@ -220,7 +220,7 @@ test("projectAgentRuntimeConfig returns ordered prompt layers and renders system
     });
     assert.match(result.system_prompt, /Session policy:/);
     assert.match(result.system_prompt, /Response delivery policy:/);
-    assert.match(result.system_prompt, /task proposal session/i);
+    assert.match(result.system_prompt, /hidden subagent executor session/i);
     assert.doesNotMatch(result.system_prompt, /OpenCode MCP tool naming:/);
     assert.doesNotMatch(
       result.system_prompt,
@@ -239,7 +239,7 @@ test("projectAgentRuntimeConfig returns ordered prompt layers and renders system
     assert.ok(result.capability_manifest);
     assert.deepEqual(result.capability_manifest?.context, {
       harness_id: "pi",
-      session_kind: "task_proposal",
+      session_kind: "subagent",
       browser_tools_available: false,
       browser_tool_ids: [],
       runtime_tool_ids: [],
