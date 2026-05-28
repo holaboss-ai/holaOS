@@ -1421,6 +1421,9 @@ test("runTsRunnerCli keeps main workspace sessions on a coordinator surface", as
                 "write_report",
                 "teammates_create",
                 "teammate_skills_create",
+                "workspace_integrations_list_catalog",
+                "holaboss_workspace_integrations_propose_connect",
+                "holaboss_workspace_integrations_set_default_account",
               ],
             }),
           },
@@ -1475,7 +1478,13 @@ test("runTsRunnerCli keeps main workspace sessions on a coordinator surface", as
   );
   assert.deepEqual(
     (capturedProjectRequest as { runtime_tool_ids: string[] }).runtime_tool_ids,
-    ["teammates_create", "teammate_skills_create"],
+    [
+      "teammates_create",
+      "teammate_skills_create",
+      "workspace_integrations_list_catalog",
+      "holaboss_workspace_integrations_propose_connect",
+      "holaboss_workspace_integrations_set_default_account",
+    ],
   );
   assert.deepEqual(
     (capturedProjectRequest as { default_tools: string[] }).default_tools,
@@ -1494,7 +1503,13 @@ test("runTsRunnerCli keeps main workspace sessions on a coordinator surface", as
   );
   assert.deepEqual(
     (capturedProjectRequest as { extra_tools: string[] }).extra_tools,
-    ["teammates_create", "teammate_skills_create"],
+    [
+      "teammates_create",
+      "teammate_skills_create",
+      "workspace_integrations_list_catalog",
+      "holaboss_workspace_integrations_propose_connect",
+      "holaboss_workspace_integrations_set_default_account",
+    ],
   );
   assert.equal(
     (capturedProjectRequest as {
@@ -1516,7 +1531,12 @@ test("runTsRunnerCli keeps main workspace sessions on a coordinator surface", as
   assert.deepEqual(
     (capturedProjectRequest as { delegated_runtime_tool_ids?: string[] })
       .delegated_runtime_tool_ids,
-    ["write_report"],
+    [
+      "write_report",
+      "workspace_integrations_list_catalog",
+      "holaboss_workspace_integrations_propose_connect",
+      "holaboss_workspace_integrations_set_default_account",
+    ],
   );
   assert.deepEqual(
     (capturedProjectRequest as { delegated_default_tools?: string[] })
@@ -1541,6 +1561,9 @@ test("runTsRunnerCli keeps main workspace sessions on a coordinator surface", as
       "web_search",
       "browser_get_state",
       "write_report",
+      "workspace_integrations_list_catalog",
+      "holaboss_workspace_integrations_propose_connect",
+      "holaboss_workspace_integrations_set_default_account",
     ],
   );
 });
@@ -4428,6 +4451,7 @@ test("runTsRunnerCli resolves workspace skill ids and source directories for the
       "browser-core-efficient",
       "browser-qa",
       "build-dashboard",
+      "create-teammate",
       "frontend-design",
       "interface-design",
       "mcp-configurator",
@@ -4452,6 +4476,7 @@ test("runTsRunnerCli resolves workspace skill ids and source directories for the
       "browser-core-efficient",
       "browser-qa",
       "build-dashboard",
+      "create-teammate",
       "frontend-design",
       "interface-design",
       "mcp-configurator",
@@ -4569,6 +4594,7 @@ test("runTsRunnerCli includes teammate-local skills for assigned subagent runs",
       "browser-core-efficient",
       "browser-qa",
       "build-dashboard",
+      "create-teammate",
       "frontend-design",
       "interface-design",
       "mcp-configurator",
@@ -4589,6 +4615,7 @@ test("runTsRunnerCli includes teammate-local skills for assigned subagent runs",
       "browser-core-efficient",
       "browser-qa",
       "build-dashboard",
+      "create-teammate",
       "frontend-design",
       "interface-design",
       "mcp-configurator",
@@ -5091,7 +5118,7 @@ test(
       assert.deepEqual(
         (capturedProjectRequest as { resolved_mcp_server_ids: string[] })
           .resolved_mcp_server_ids,
-        ["context7"],
+        [],
       );
       assert.deepEqual(
         (
@@ -5106,7 +5133,7 @@ test(
         (
           capturedHarnessRequest as { mcp_servers: Array<{ name: string }> }
         ).mcp_servers.map((server) => server.name),
-        ["context7"],
+        [],
       );
       assert.deepEqual(
         (capturedHarnessRequest as { mcp_tool_refs: unknown[] }).mcp_tool_refs,

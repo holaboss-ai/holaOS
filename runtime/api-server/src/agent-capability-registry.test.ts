@@ -355,7 +355,7 @@ test("renderCapabilityAvailabilityContextPromptSection surfaces memory-first ret
   const section = renderCapabilityAvailabilityContextPromptSection(manifest);
   assert.match(section, /Workspace memory retrieval: available via `memory_retrieve`\./);
   assert.match(section, /Default non-UI retrieval order for this run: current-turn context\/direct tool result, then `memory_retrieve`, then the most direct connected MCP\/app or other narrow authoritative source, and only then browser or web\./i);
-  assert.match(section, /Browser availability does not override that order\. Use browser first only for current page, current tab, or current browser UI state questions\./i);
+  assert.doesNotMatch(section, /Browser availability does not override that order\. Use browser first only for current page, current tab, or current browser UI state questions\./i);
   assert.match(section, /If the connected tool surface for a system is partial, do not jump to browser first\. Check `memory_retrieve` before the direct connected route, then surface any remaining capability gap\./i);
 });
 
@@ -822,8 +822,8 @@ test("renderCapabilityPolicyPromptSection surfaces coordinator-first front-sessi
   });
 
   const section = renderCapabilityPolicyPromptSection(manifest);
-  assert.match(section, /For non-trivial tasks, slow down: inventory knowns, unknowns, and assumptions first, then confirm the unknowns that materially affect the next action before acting\./i);
-  assert.match(section, /If the remaining uncertainty affects a high-stakes, destructive, externally visible, costly, or hard-to-reverse action, resolve it with a direct check or ask the user for confirmation instead of guessing\./i);
+  assert.doesNotMatch(section, /For non-trivial tasks, slow down: inventory knowns, unknowns, and assumptions first, then confirm the unknowns that materially affect the next action before acting\./i);
+  assert.doesNotMatch(section, /If the remaining uncertainty affects a high-stakes, destructive, externally visible, costly, or hard-to-reverse action, resolve it with a direct check or ask the user for confirmation instead of guessing\./i);
   assert.match(section, /Browser tools: none\./);
   assert.match(section, /This front session is intentionally capability-incomplete\./);
   assert.match(section, /Treat the surfaced tools above as your full direct capability set for this run/i);

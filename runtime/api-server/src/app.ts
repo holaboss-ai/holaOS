@@ -11371,7 +11371,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       const skill = upsertTeammateSkill({
         workspaceDir,
         teammateId: teammate.teammateId,
-        skill: requiredTeammateSkillInput(request.body, "skill"),
+        skill: requiredTeammateSkillInput(request.body.skill, "skill"),
       });
       return { skill: teammateSkillPayload(skill) };
     } catch (error) {

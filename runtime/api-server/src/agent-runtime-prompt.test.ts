@@ -641,7 +641,7 @@ test("composeAgentPrompt instructs main sessions to record durable workspace kno
     prompt.systemPrompt,
     /Do not record one-off task requests, unresolved hypotheses, partial investigations, or temporary runtime state\. When in doubt, prefer memory or transient context over `AGENTS\.md`, and leave it out until the pattern repeats or the user confirms it should persist as a default\./i,
   );
-  assert.match(
+  assert.doesNotMatch(
     prompt.systemPrompt,
     /For non-trivial requests, work in this order: inventory knowns and unknowns, confirm the unknowns that materially affect the next step, ask the user for confirmation if the remaining decision is high-stakes or judgment-based, then execute\./i,
   );
@@ -1357,8 +1357,8 @@ test("composeBaseAgentPrompt includes operator surface context when provided", (
   assert.match(prompt.contextMessages.join("\n\n"), /Operator surface context:/);
   assert.match(prompt.contextMessages.join("\n\n"), /default referent for deictic questions such as `what am I looking at right now`/i);
   assert.match(prompt.contextMessages.join("\n\n"), /continue from what they already opened, navigated, selected, or prepared/i);
-  assert.match(prompt.contextMessages.join("\n\n"), /An active browser surface or already-open site is not by itself a routing signal for non-UI questions\./i);
-  assert.match(prompt.contextMessages.join("\n\n"), /For recall, triage, recent activity, or factual lookup requests, prefer current-turn context and other non-browser authoritative sources before inspecting browser state unless the user is asking about that surface\./i);
+  assert.doesNotMatch(prompt.contextMessages.join("\n\n"), /An active browser surface or already-open site is not by itself a routing signal for non-UI questions\./i);
+  assert.doesNotMatch(prompt.contextMessages.join("\n\n"), /For recall, triage, recent activity, or factual lookup requests, prefer current-turn context and other non-browser authoritative sources before inspecting browser state unless the user is asking about that surface\./i);
   assert.match(prompt.contextMessages.join("\n\n"), /do not answer from browser state just because browser tools are available/i);
   assert.match(prompt.contextMessages.join("\n\n"), /Operator surfaces are continuity context, not authority grants\./);
   assert.match(prompt.contextMessages.join("\n\n"), /Do not mutate a user-owned surface unless surfaced runtime capabilities explicitly allow takeover or direct control\./);

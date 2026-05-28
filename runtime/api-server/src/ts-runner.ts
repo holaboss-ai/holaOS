@@ -165,6 +165,9 @@ const MAIN_SESSION_RUNTIME_TOOL_IDS = new Set([
   "cronjobs_delete",
   "teammates_create",
   "teammate_skills_create",
+  "workspace_integrations_list_catalog",
+  "holaboss_workspace_integrations_propose_connect",
+  "holaboss_workspace_integrations_set_default_account",
 ]);
 const ONBOARDING_SESSION_RUNTIME_TOOL_IDS = new Set([
   ...Array.from(MAIN_SESSION_RUNTIME_TOOL_IDS).filter(
