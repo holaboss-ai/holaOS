@@ -34,13 +34,15 @@ import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import {
-  Check,
+  Bot,
+  CircleDot,
   ChevronDown,
   ChevronRight,
   Clock,
   Copy,
   Globe,
   Home,
+  LayoutDashboard,
   Inbox,
   Link2,
   Loader2,
@@ -50,7 +52,6 @@ import {
   RotateCw,
   Search,
   Settings,
-  Sparkles,
   Trash2,
   Upload,
   Wrench,
@@ -62,8 +63,12 @@ import { SectionLabel } from "./shared";
 import {
   activeInternalTabIdAtom,
   fileNameFromPath,
+  type InternalTab,
   internalTabsAtom,
   makeInternalTabId,
+  type WorkspaceSurfaceTabKind,
+  upsertInternalTab,
+  workspaceSurfaceTab,
 } from "./state/internalTabs";
 import {
   type RecentFile,
@@ -76,6 +81,7 @@ import {
   chatComposerPrefillAtom,
   createWorkspaceOpenAtom,
   focusModeAtom,
+  newIssueOpenAtom,
   publishOpenAtom,
   searchOpenAtom,
   SIDEBAR_MAX_WIDTH,
@@ -87,7 +93,8 @@ import {
   settingsSectionAtom,
   sidebarCollapsedAtom,
 } from "./state/ui";
-import { useTaskProposals } from "./useTaskProposals";
+import { useIssues } from "./useIssues";
+import { useOpenIssueDetailTab } from "./useOpenIssueDetailTab";
 import {
   useRecentBrowserHistory,
   useWorkspaceArtifacts,
@@ -201,6 +208,7 @@ function SidebarExpanded() {
             className="absolute inset-0 flex flex-col"
           >
             {section === "home" ? <SidebarHomeSection /> : null}
+            {section === "issues" ? <SidebarIssuesSection /> : null}
             {section === "inbox" ? <SidebarInboxSection /> : null}
             {section === "artifacts" ? <SidebarArtifactsSection /> : null}
             {section === "automations" ? <SidebarAutomationsSection /> : null}
@@ -218,10 +226,26 @@ const SECTION_NAV_ITEMS: Array<{
   icon: React.ReactNode;
 }> = [
   { key: "home", label: "Home", icon: <Home /> },
+  { key: "issues", label: "Agent Team", icon: <Bot /> },
   { key: "inbox", label: "Inbox", icon: <Inbox /> },
   { key: "artifacts", label: "Artifacts", icon: <Package /> },
   { key: "automations", label: "Automations", icon: <Zap /> },
 ];
+
+function openWorkspaceSurfaceTab(params: {
+  kind: WorkspaceSurfaceTabKind;
+  workspaceId: string | null;
+  setInternalTabs: (updater: (tabs: InternalTab[]) => InternalTab[]) => void;
+  setActiveInternalTabId: (tabId: string | null) => void;
+}) {
+  const workspaceId = params.workspaceId?.trim() || "";
+  if (!workspaceId) {
+    return;
+  }
+  const tab = workspaceSurfaceTab(params.kind, workspaceId);
+  params.setInternalTabs((prev) => upsertInternalTab(prev, tab));
+  params.setActiveInternalTabId(tab.id);
+}
 
 // One shared spring for the pill slide and the button width morph.
 // stiffness 380 + damping 32 lands without overshoot but keeps the
@@ -235,15 +259,11 @@ const SECTION_NAV_SPRING = {
 
 function SidebarSectionNav() {
   const [section, setSection] = useAtom(sidebarSectionAtom);
-  const { selectedWorkspaceId } = useWorkspaceSelection();
-  const { proposals } = useTaskProposals(selectedWorkspaceId || null);
-  const unreadInbox = proposals.length;
 
   return (
     <div className="flex shrink-0 items-center gap-0.5 border-b border-sidebar-border bg-sidebar px-2 py-1.5">
       {SECTION_NAV_ITEMS.map((item) => {
         const active = section === item.key;
-        const badge = item.key === "inbox" && unreadInbox > 0 ? unreadInbox : 0;
         return (
           <motion.button
             key={item.key}
@@ -296,17 +316,6 @@ function SidebarSectionNav() {
                 </motion.span>
               ) : null}
             </AnimatePresence>
-            {badge > 0 ? (
-              <span
-                aria-hidden
-                className={cn(
-                  "relative z-10 grid h-3 min-w-3 shrink-0 place-items-center rounded-full bg-primary px-0.5 text-[9px] font-medium leading-none text-primary-foreground",
-                  active ? "-mr-0.5 ml-0" : "absolute top-0.5 right-0.5",
-                )}
-              >
-                {badge > 9 ? "9+" : badge}
-              </span>
-            ) : null}
           </motion.button>
         );
       })}
@@ -427,31 +436,101 @@ function SidebarGlobalFooter() {
   );
 }
 
-function SidebarInboxSection() {
+// Linear's signature ease — flat tail, no overshoot. Reused for sidebar
+// cards so the motion stays restrained instead of springy.
+const INBOX_EASE = [0.32, 0.72, 0, 1] as const;
+
+function SidebarIssuesSection() {
   const { selectedWorkspaceId } = useWorkspaceSelection();
-  const { proposals, isLoading, statusMessage, action, accept, dismiss } =
-    useTaskProposals(selectedWorkspaceId || null);
-  const [expandedProposalId, setExpandedProposalId] = useState<string | null>(
-    null,
+  const { issues, isLoading, statusMessage } = useIssues(
+    selectedWorkspaceId || null,
+  );
+  const setNewIssueOpen = useSetAtom(newIssueOpenAtom);
+  const openIssueDetailTab = useOpenIssueDetailTab();
+  const setInternalTabs = useSetAtom(internalTabsAtom);
+  const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
+
+  const handleOpenIssue = useCallback(
+    (issue: IssueRecordPayload) => {
+      void openIssueDetailTab({
+        workspaceId: issue.workspace_id,
+        issueId: issue.issue_id,
+        title: issue.title,
+      });
+    },
+    [openIssueDetailTab],
   );
 
-  useEffect(() => {
-    if (
-      expandedProposalId &&
-      !proposals.some((p) => p.proposal_id === expandedProposalId)
-    ) {
-      setExpandedProposalId(null);
-    }
-  }, [expandedProposalId, proposals]);
+  const handleOpenDashboard = useCallback(() => {
+    openWorkspaceSurfaceTab({
+      kind: "workspace_dashboard",
+      workspaceId: selectedWorkspaceId || null,
+      setInternalTabs,
+      setActiveInternalTabId,
+    });
+  }, [selectedWorkspaceId, setActiveInternalTabId, setInternalTabs]);
+
+  const handleOpenBoard = useCallback(() => {
+    openWorkspaceSurfaceTab({
+      kind: "issues_board",
+      workspaceId: selectedWorkspaceId || null,
+      setInternalTabs,
+      setActiveInternalTabId,
+    });
+  }, [selectedWorkspaceId, setActiveInternalTabId, setInternalTabs]);
+
+  const handleOpenTeammates = useCallback(() => {
+    openWorkspaceSurfaceTab({
+      kind: "teammates",
+      workspaceId: selectedWorkspaceId || null,
+      setInternalTabs,
+      setActiveInternalTabId,
+    });
+  }, [selectedWorkspaceId, setActiveInternalTabId, setInternalTabs]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-3">
-      <SectionLabel>
-        Inbox
-        {proposals.length > 0 ? (
-          <span className="ml-auto text-foreground/30">{proposals.length}</span>
-        ) : null}
-      </SectionLabel>
+      <SectionLabel>Agent Team</SectionLabel>
+      <div className="mb-2 px-0.5">
+        <div className="grid gap-2">
+          <Button
+            type="button"
+            onClick={() => setNewIssueOpen(true)}
+            disabled={!selectedWorkspaceId}
+            className="h-8 justify-start rounded-lg px-3 text-xs"
+          >
+            <Plus className="size-3.5" />
+            New issue
+          </Button>
+          <button
+            type="button"
+            onClick={handleOpenDashboard}
+            disabled={!selectedWorkspaceId}
+            className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <LayoutDashboard className="size-3.5 text-foreground/55" />
+            <span>Dashboard</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenBoard}
+            disabled={!selectedWorkspaceId}
+            className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <CircleDot className="size-3.5 text-foreground/55" />
+            <span>Issues</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenTeammates}
+            disabled={!selectedWorkspaceId}
+            className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <Bot className="size-3.5 text-foreground/55" />
+            <span>Teammates</span>
+          </button>
+        </div>
+      </div>
       {statusMessage ? (
         <AnimatePresence initial={false}>
           <motion.div
@@ -467,44 +546,30 @@ function SidebarInboxSection() {
         </AnimatePresence>
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {isLoading && proposals.length === 0 ? (
+        <SectionLabel className="px-0.5">Issues</SectionLabel>
+        {isLoading && issues.length === 0 ? (
           <div className="grid place-items-center py-8">
             <Loader2 className="size-4 animate-spin text-foreground/40" />
           </div>
-        ) : proposals.length === 0 ? (
+        ) : issues.length === 0 ? (
           <div className="grid place-items-center px-3 py-12 text-center">
             <div className="flex flex-col items-center gap-2">
-              <Inbox className="size-5 text-foreground/30" />
+              <CircleDot className="size-5 text-foreground/30" />
               <div className="text-xs text-foreground/55">
-                You're all caught up
+                No issues yet
               </div>
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-1.5 px-0.5 pt-1">
-            <AnimatePresence initial={false} mode="popLayout">
-              {proposals.map((proposal) => (
-                <InboxProposalCard
-                  key={proposal.proposal_id}
-                  proposal={proposal}
-                  expanded={expandedProposalId === proposal.proposal_id}
-                  onToggleExpand={() =>
-                    setExpandedProposalId((current) =>
-                      current === proposal.proposal_id
-                        ? null
-                        : proposal.proposal_id,
-                    )
-                  }
-                  pendingAction={
-                    action?.proposalId === proposal.proposal_id
-                      ? action.action
-                      : null
-                  }
-                  onAccept={() => void accept(proposal)}
-                  onDismiss={() => void dismiss(proposal)}
-                />
-              ))}
-            </AnimatePresence>
+          <div className="flex flex-col gap-1 px-0.5 pt-1">
+            {issues.map(({ issue, assignee }) => (
+              <IssueListRow
+                key={issue.issue_id}
+                issue={issue}
+                assigneeName={assignee?.name ?? null}
+                onOpen={() => handleOpenIssue(issue)}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -512,150 +577,23 @@ function SidebarInboxSection() {
   );
 }
 
-// Linear's signature ease — flat tail, no overshoot. Keeps card motion
-// restrained instead of the spring-y feel of easeOutExpo's [0.16, 1, 0.3, 1].
-const INBOX_EASE = [0.32, 0.72, 0, 1] as const;
-
-interface InboxProposalCardProps {
-  proposal: TaskProposalRecordPayload;
-  expanded: boolean;
-  pendingAction: "accept" | "dismiss" | null;
-  onToggleExpand: () => void;
-  onAccept: () => void;
-  onDismiss: () => void;
-}
-
-function InboxProposalCard({
-  proposal,
-  expanded,
-  pendingAction,
-  onToggleExpand,
-  onAccept,
-  onDismiss,
-}: InboxProposalCardProps) {
-  const isActing = pendingAction !== null;
-  const sourceLabel =
-    proposal.proposal_source === "evolve" ? "Evolve" : "Proactive";
-  const sourceIcon =
-    proposal.proposal_source === "evolve" ? (
-      <Sparkles className="size-2.5" />
-    ) : (
-      <Inbox className="size-2.5" />
-    );
-
+function SidebarInboxSection() {
   return (
-    <motion.div
-      layout="position"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{
-        opacity: 0,
-        transition: { duration: 0.12, ease: INBOX_EASE },
-      }}
-      transition={{
-        layout: { duration: 0.2, ease: INBOX_EASE },
-        default: { duration: 0.16, ease: INBOX_EASE },
-      }}
-      className="overflow-hidden rounded-lg border border-border bg-card"
-    >
-      <button
-        type="button"
-        onClick={onToggleExpand}
-        aria-expanded={expanded}
-        className="flex w-full items-start gap-2 px-2.5 py-2 text-left transition-colors hover:bg-foreground/[0.025]"
-      >
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-foreground/[0.06] px-1.5 py-px text-[9.5px] font-medium uppercase tracking-wide text-foreground/55">
-              {sourceIcon}
-              {sourceLabel}
-            </span>
-            <span className="shrink-0 text-[10px] text-foreground/40">
-              {inboxRelativeTime(proposal.created_at)}
-            </span>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-3">
+      <SectionLabel>Inbox</SectionLabel>
+      <div className="grid min-h-0 flex-1 place-items-center px-3 py-12 text-center">
+        <div className="flex flex-col items-center gap-2">
+          <Inbox className="size-5 text-foreground/30" />
+          <div className="text-xs text-foreground/55">
+            Inbox is empty for now
           </div>
-          <div className="mt-1 truncate text-xs font-medium text-foreground">
-            {proposal.task_name || "Untitled proposal"}
-          </div>
-          {proposal.task_generation_rationale ? (
-            <div className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-foreground/55">
-              {proposal.task_generation_rationale}
-            </div>
-          ) : null}
         </div>
-        <ChevronRight
-          className="mt-0.5 size-3 shrink-0 text-foreground/30 transition-transform duration-snappy ease-emphasized"
-          style={{
-            transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
-          }}
-        />
-      </button>
-      <AnimatePresence initial={false}>
-        {expanded ? (
-          <motion.div
-            key="details"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{
-              height: { duration: 0.16, ease: INBOX_EASE },
-              opacity: { duration: 0.12, ease: INBOX_EASE },
-            }}
-            className="overflow-hidden"
-          >
-            <div className="border-t border-border/60 px-2.5 py-1.5">
-              {proposal.task_prompt ? (
-                <div className="max-h-24 overflow-y-auto rounded-md bg-foreground/[0.04] px-2 py-1 font-mono text-[10.5px] leading-snug whitespace-pre-wrap break-words text-foreground/75">
-                  {proposal.task_prompt}
-                </div>
-              ) : null}
-              <div className="mt-1.5 flex items-center gap-1.5">
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="default"
-                  disabled={isActing}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onAccept();
-                  }}
-                  className="h-6 px-2 text-[11px]"
-                >
-                  {pendingAction === "accept" ? (
-                    <Loader2 className="size-3 animate-spin" />
-                  ) : (
-                    <Check className="size-3" />
-                  )}
-                  Accept
-                </Button>
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="ghost"
-                  disabled={isActing}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onDismiss();
-                  }}
-                  className="h-6 px-2 text-[11px] text-foreground/55 hover:text-foreground"
-                >
-                  {pendingAction === "dismiss" ? (
-                    <Loader2 className="size-3 animate-spin" />
-                  ) : (
-                    <X className="size-3" />
-                  )}
-                  Dismiss
-                </Button>
-              </div>
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-    </motion.div>
+      </div>
+    </div>
   );
 }
 
-function inboxRelativeTime(value: string): string {
+function issueRelativeTime(value: string): string {
   const ms = Date.now() - Date.parse(value);
   if (Number.isNaN(ms)) return value;
   const seconds = Math.floor(ms / 1000);
@@ -666,6 +604,97 @@ function inboxRelativeTime(value: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+function issueStatusLabel(status: IssueStatusPayload): string {
+  switch (status) {
+    case "in_progress":
+      return "In progress";
+    case "in_review":
+      return "In review";
+    default:
+      return status
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+}
+
+function issueStatusVariant(
+  status: IssueStatusPayload,
+): "success" | "warning" | "info" | "primary" | "muted" {
+  switch (status) {
+    case "done":
+      return "success";
+    case "blocked":
+      return "warning";
+    case "in_progress":
+      return "primary";
+    case "in_review":
+      return "info";
+    case "backlog":
+      return "muted";
+    case "todo":
+    default:
+      return "info";
+  }
+}
+
+function issuePriorityLabel(priority: IssuePriorityPayload | null): string {
+  if (!priority) return "";
+  return priority.slice(0, 1).toUpperCase() + priority.slice(1);
+}
+
+function IssueListRow({
+  issue,
+  assigneeName,
+  onOpen,
+}: {
+  issue: IssueRecordPayload;
+  assigneeName: string | null;
+  onOpen: () => void;
+}) {
+  const statusVariant = issueStatusVariant(issue.status);
+  const statusLabel = issueStatusLabel(issue.status);
+  const priorityLabel = issuePriorityLabel(issue.priority);
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full flex-col gap-1 rounded-lg border border-border bg-card px-2.5 py-2 text-left transition-colors hover:bg-foreground/[0.025]"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-xs font-medium text-foreground">
+            {issue.title || "Untitled issue"}
+          </div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-foreground/45">
+            <span>{issue.issue_id}</span>
+            <span aria-hidden>•</span>
+            <span>{issueRelativeTime(issue.updated_at)}</span>
+          </div>
+        </div>
+        <ChevronRight className="mt-0.5 size-3 shrink-0 text-foreground/30" />
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5 text-[10.5px] text-foreground/60">
+        <span className="inline-flex items-center gap-1 rounded-full bg-foreground/[0.05] px-1.5 py-0.5">
+          <StatusDot
+            variant={statusVariant}
+            pulse={issue.status === "in_progress"}
+          />
+          {statusLabel}
+        </span>
+        {priorityLabel ? (
+          <span className="rounded-full bg-foreground/[0.05] px-1.5 py-0.5">
+            {priorityLabel}
+          </span>
+        ) : null}
+        <span className="rounded-full bg-foreground/[0.05] px-1.5 py-0.5">
+          {assigneeName ?? "Unassigned"}
+        </span>
+      </div>
+    </button>
+  );
 }
 
 const ARTIFACT_FILTER_OPTIONS: ReadonlyArray<{

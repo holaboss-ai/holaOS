@@ -140,6 +140,7 @@ export interface BrowserTabSpaceState {
   lifecycleState: "active" | "suspended" | null;
   lastTouchedAt: string;
   suspendTimer: ReturnType<typeof setTimeout> | null;
+  userClosedAll?: boolean;
 }
 
 export interface BrowserSessionIdentity {
@@ -1219,13 +1220,20 @@ export function createBrowserPaneTabState(
     tabSpace.tabs.delete(tabId);
     closeBrowserTabRecord(tab);
     deps.browserTabSpaceTouch(tabSpace);
+    // Keep persistedTabs in sync. Without this, the persistence payload's
+    // empty-tabs fallback to `[...persistedTabs]` would re-hydrate the
+    // closed tab on the next workspace load and surface as a "tab came
+    // back on its own" bug.
+    tabSpace.persistedTabs = tabSpace.persistedTabs.filter(
+      (persisted) => persisted.id !== tabId,
+    );
     if (tabSpace.tabs.size === 0) {
-      const replacementTabId = createBrowserTab(workspace.workspaceId, {
-        url: deps.homeUrl,
-        browserSpace,
-        sessionId: resolvedSessionId,
-      });
-      tabSpace.activeTabId = replacementTabId ?? "";
+      tabSpace.activeTabId = "";
+      // Mark intent: the user emptied this space. Stops
+      // ensureBrowserTabSpaceInitialized from re-seeding on the next
+      // setActiveWorkspace round trip (which happens whenever any
+      // useWorkspaceBrowser-mounted component remounts).
+      tabSpace.userClosedAll = true;
     } else if (tabSpace.activeTabId === tabId) {
       const remainingIds = Array.from(tabSpace.tabs.keys());
       tabSpace.activeTabId =
@@ -1543,7 +1551,12 @@ export function createBrowserPaneTabState(
       !workspace ||
       !tabSpace ||
       tabSpace.tabs.size > 0 ||
-      tabSpace.persistedTabs.length > 0
+      tabSpace.persistedTabs.length > 0 ||
+      // Don't re-seed a space the user has explicitly emptied this
+      // session. closeBrowserTab flips this when the last tab is closed
+      // by user action; cold workspace loads start with the flag false
+      // so first-time entry still gets a starter tab.
+      tabSpace.userClosedAll === true
     ) {
       return false;
     }
@@ -1731,6 +1744,7 @@ export function createBrowserPaneTabState(
       return null;
     }
     tabSpace.lifecycleState = "active";
+    tabSpace.userClosedAll = false;
     deps.browserTabSpaceTouch(tabSpace);
 
     const tabId =
@@ -1789,14 +1803,17 @@ export function createBrowserPaneTabState(
           // leaving the user no way to close the popup without exiting the
           // parent's fullscreen entirely. Once that happens, the parent often
           // can't re-enter fullscreen until the popup is fully torn down.
+          //
+          // Two-part defence: (1) parent the popup to the main window so
+          // macOS keeps it in the same space and renders its own traffic
+          // lights (it's a child window, not a fullscreen sibling), and
+          // (2) lock down every fullscreen entry point on the popup via the
+          // did-create-window handler below.
           const mainWindow = deps.getMainWindow();
-          const parentIsFullscreen =
-            process.platform === "darwin" &&
-            Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isFullScreen());
           return {
             action: "allow",
             overrideBrowserWindowOptions: {
-              parent: parentIsFullscreen ? undefined : (mainWindow ?? undefined),
+              parent: mainWindow ?? undefined,
               autoHideMenuBar: true,
               backgroundColor: "#050907",
               width: 520,
@@ -1839,6 +1856,37 @@ export function createBrowserPaneTabState(
     );
     view.webContents.setZoomFactor(1);
     view.webContents.setVisualZoomLevelLimits(1, 1).catch(() => undefined);
+
+    // Harden popups against fullscreen escape. fullscreenable:false from the
+    // setWindowOpenHandler above only blocks the green-button / setFullScreen
+    // path — HTML5 element.requestFullscreen() runs through a separate code
+    // path that the popup's content (e.g. Google sign-in iframe banners) can
+    // still trigger. Catch that here and kick the popup back out, plus deny
+    // the underlying permission request so subsequent calls no-op.
+    view.webContents.on("did-create-window", (popupWindow) => {
+      if (!popupWindow || popupWindow.isDestroyed()) return;
+      const popupContents = popupWindow.webContents;
+      if (popupContents.session) {
+        popupContents.session.setPermissionRequestHandler(
+          (_wc, permission, callback) => {
+            if (permission === "fullscreen") {
+              callback(false);
+              return;
+            }
+            callback(true);
+          },
+        );
+      }
+      popupContents.on("enter-html-full-screen", () => {
+        try {
+          if (!popupWindow.isDestroyed() && popupWindow.isFullScreen()) {
+            popupWindow.setFullScreen(false);
+          }
+        } catch {
+          // popup gone — nothing to undo
+        }
+      });
+    });
 
     const currentTabRecord = () =>
       deps

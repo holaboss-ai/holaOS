@@ -84,7 +84,7 @@ test("cronjob helpers honor next_run_at and preserve legacy scheduling fallback"
   }
 });
 
-test("runtime cron worker queues due session_run cronjobs as hidden subagents and updates bookkeeping", async () => {
+test("runtime cron worker creates assigned issues for due session_run cronjobs and updates bookkeeping", async () => {
   const root = makeTempDir("hb-runtime-cron-worker-");
   const configPath = path.join(root, "state", "runtime-config.json");
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -128,6 +128,7 @@ test("runtime cron worker queues due session_run cronjobs as hidden subagents an
   const job = store.createCronjob({
     workspaceId: workspace.id,
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "Daily",
     cron: "0 9 * * *",
     description: "Daily check",
@@ -170,6 +171,7 @@ test("runtime cron worker queues due session_run cronjobs as hidden subagents an
     ? store.getSession({ workspaceId: workspace.id, sessionId: run.childSessionId })
     : null;
   const notifications = store.listRuntimeNotifications({ workspaceId: workspace.id });
+  const issues = store.listIssues({ workspaceId: workspace.id });
 
   assert.equal(processed, 1);
   assert.equal(wakeCalls, 1);
@@ -180,10 +182,15 @@ test("runtime cron worker queues due session_run cronjobs as hidden subagents an
   assert.ok(updated.nextRunAt);
   assert.equal(runs.length, 1);
   assert.ok(run);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0]?.title, "Daily");
+  assert.equal(issues[0]?.assigneeTeammateId, "general");
   assert.equal(run?.originMainSessionId, "session-main");
   assert.equal(run?.ownerMainSessionId, "session-main");
   assert.equal(run?.parentSessionId, "session-main");
-  assert.equal(run?.sourceType, "cronjob");
+  assert.equal(run?.sourceType, "issue");
+  assert.equal(run?.issueId, issues[0]?.issueId);
+  assert.equal(run?.teammateId, "general");
   assert.equal(run?.cronjobId, job.id);
   assert.equal(run?.status, "queued");
   assert.deepEqual(run?.toolProfile, {
@@ -200,15 +207,19 @@ test("runtime cron worker queues due session_run cronjobs as hidden subagents an
   assert.equal(queued[0].payload.thinking_value, "medium");
   assert.equal(
     (queued[0].payload.context as Record<string, unknown>).source,
-    "subagent",
-  );
-  assert.equal(
-    (queued[0].payload.context as Record<string, unknown>).source_type,
-    "cronjob",
+    "issue_bootstrap",
   );
   assert.equal(
     (queued[0].payload.context as Record<string, unknown>).cronjob_id,
     job.id,
+  );
+  assert.equal(
+    (queued[0].payload.context as Record<string, unknown>).issue_id,
+    issues[0]?.issueId,
+  );
+  assert.equal(
+    (queued[0].payload.context as Record<string, unknown>).teammate_id,
+    "general",
   );
   assert.equal(
     (queued[0].payload.context as Record<string, unknown>).subagent_id,
@@ -245,6 +256,7 @@ test("runtime cron worker auto-disables enabled lab cronjobs instead of executin
   const job = store.createCronjob({
     workspaceId: workspace.id,
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "Daily",
     cron: "0 9 * * *",
     description: "Daily check",
@@ -340,6 +352,7 @@ test("runtime cron worker inherits the latest non-batch main-session model when 
   const job = store.createCronjob({
     workspaceId: workspace.id,
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "Hourly follow composer",
     cron: "0 * * * *",
     description: "Follow the latest main-session model",
@@ -364,7 +377,7 @@ test("runtime cron worker inherits the latest non-batch main-session model when 
   const childQueued = queued.find((record) =>
     typeof record.payload.context === "object" &&
     record.payload.context !== null &&
-    (record.payload.context as Record<string, unknown>).source === "subagent"
+    (record.payload.context as Record<string, unknown>).source === "issue_bootstrap"
   );
 
   assert.equal(processed, 1);
@@ -447,6 +460,7 @@ test("runtime cron worker prefers the current desktop main-session binding over 
   const job = store.createCronjob({
     workspaceId: workspace.id,
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "Follow desktop composer",
     cron: "0 9 * * *",
     description: "Use the current desktop main session",
@@ -473,7 +487,7 @@ test("runtime cron worker prefers the current desktop main-session binding over 
   const childQueued = queued.find((record) =>
     typeof record.payload.context === "object" &&
     record.payload.context !== null &&
-    (record.payload.context as Record<string, unknown>).source === "subagent"
+    (record.payload.context as Record<string, unknown>).source === "issue_bootstrap"
   );
 
   assert.equal(processed, 1);
@@ -545,6 +559,7 @@ test("runtime cron worker ignores the configured global subagent model and follo
   const job = store.createCronjob({
     workspaceId: workspace.id,
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "Hello",
     cron: "0 9 * * *",
     description: "Say hello every day.",
@@ -569,7 +584,7 @@ test("runtime cron worker ignores the configured global subagent model and follo
   const childQueued = queued.find((record) =>
     typeof record.payload.context === "object" &&
     record.payload.context !== null &&
-    (record.payload.context as Record<string, unknown>).source === "subagent"
+    (record.payload.context as Record<string, unknown>).source === "issue_bootstrap"
   );
 
   assert.equal(processed, 1);
@@ -599,6 +614,7 @@ test("runtime cron worker persists system_notification cronjobs as unread notifi
   const job = store.createCronjob({
     workspaceId: workspace.id,
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "drink-water-minute",
     cron: "0 9 * * *",
     description: "Time to drink water.",
@@ -646,6 +662,7 @@ test("runtime cron worker records failures for unsupported delivery channels", a
   const job = store.createCronjob({
     workspaceId: "workspace-1",
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "Broken",
     cron: "0 9 * * *",
     description: "Broken",
@@ -701,6 +718,7 @@ test("cronjob routes compute next_run_at and cron worker lifecycle hooks run", a
       payload: {
         workspace_id: workspace.id,
         initiated_by: "workspace_agent",
+        teammate_id: "general",
         session_id: "session-main",
         cron: "0 9 * * *",
         description: "Daily check",
@@ -796,6 +814,7 @@ test("cronjob run-now route follows the current composer model override", async 
   const job = store.createCronjob({
     workspaceId: workspace.id,
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "Run now follows composer",
     cron: "0 9 * * *",
     description: "Follow the current composer model",
@@ -868,6 +887,7 @@ test("runtime cron worker does not execute a newly created cronjob before next_r
   const job = store.createCronjob({
     workspaceId: workspace.id,
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "Hourly US News",
     cron: "0 * * * *",
     description: "Fetch latest US news",

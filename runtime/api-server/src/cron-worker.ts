@@ -337,8 +337,6 @@ export function queueLocalCronjobRun(
     (typeof options?.sessionId === "string" && options.sessionId.trim()
       ? options.sessionId.trim()
       : null) ?? resolveCronjobMainSession({ store, workspace, metadata });
-  const childSessionId = `subagent-${randomUUID()}`;
-  const subagentId = randomUUID();
   const executionProfile = resolvedCronjobExecutionProfile({
     store,
     workspace,
@@ -357,6 +355,16 @@ export function queueLocalCronjobRun(
   const toolProfile = normalizeSubagentToolProfile({
     tools: ["terminal", "file", "browser", "web"],
   });
+  const issue = store.createIssue({
+    workspaceId: job.workspaceId,
+    title: subagentTitle,
+    description: executableInstruction,
+    status: "todo",
+    assigneeTeammateId: job.teammateId,
+    createdBy: job.initiatedBy,
+  });
+  const childSessionId = issue.sessionId;
+  const subagentId = randomUUID();
 
   store.ensureSession({
     workspaceId: job.workspaceId,
@@ -393,10 +401,11 @@ export function queueLocalCronjobRun(
       model: executionProfile.effectiveModel,
       thinking_value: executionProfile.thinkingValue,
       context: {
-        source: "subagent",
-        source_type: "cronjob",
+        source: "issue_bootstrap",
         cronjob_id: job.id,
         subagent_id: subagentId,
+        issue_id: issue.issueId,
+        teammate_id: job.teammateId,
         origin_main_session_id: mainSessionId,
         owner_main_session_id: mainSessionId,
         parent_session_id: mainSessionId,
@@ -422,13 +431,12 @@ export function queueLocalCronjobRun(
     currentChildInputId: record.inputId,
     latestChildInputId: record.inputId,
     title: subagentTitle,
-    goal:
-      normalizedString(job.description) ||
-      normalizedString(job.instruction) ||
-      subagentTitle,
-    context: normalizedString(job.instruction) || null,
-    sourceType: "cronjob",
-    sourceId: job.id,
+    goal: normalizedString(issue.description) || issue.title,
+    context: null,
+    sourceType: "issue",
+    sourceId: issue.issueId,
+    issueId: issue.issueId,
+    teammateId: job.teammateId,
     cronjobId: job.id,
     toolProfile,
     requestedModel: executionProfile.requestedModel,
@@ -446,6 +454,16 @@ export function queueLocalCronjobRun(
     leaseUntil: null,
     heartbeatAt: now.toISOString(),
     lastError: null
+  });
+  store.updateIssue({
+    workspaceId: job.workspaceId,
+    issueId: issue.issueId,
+    fields: {
+      latestSubagentId: subagentId,
+      activeSubagentId: null,
+      blockerReason: null,
+      completedAt: null,
+    },
   });
 
   wakeQueueWorker?.();

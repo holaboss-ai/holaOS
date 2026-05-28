@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import {
+  type ConversationBindingRecord,
   type MainSessionEventQueueRecord,
   type RuntimeStateStore,
   type WorkspaceRecord,
@@ -9,6 +11,11 @@ import {
 
 import type { QueueWorkerLike } from "./queue-worker.js";
 import { queuedMainSessionEventPromptEntry } from "./main-session-event-prompt.js";
+import {
+  isCoordinatorSessionKind,
+  normalizedCoordinatorSessionKind,
+  preferredCoordinatorSessionId,
+} from "./coordinator-session-routing.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const MAIN_SESSION_EVENT_INPUT_PRIORITY = -100;
@@ -42,6 +49,21 @@ function groupedEventPayload(events: MainSessionEventQueueRecord[]) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function optionalTrimmedString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function integerOrZero(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(value));
 }
 
 function appendSubagentLifecycleOutputEvents(params: {
@@ -91,24 +113,250 @@ function ownerMainSessionDeliveryConfig(params: {
   store: RuntimeStateStore;
   workspaceId: string;
   sessionId: string;
+  fallbackSessionId?: string | null;
 }): { model: string | null; thinkingValue: string | null } {
-  const latestInput = params.store.getLatestInputForSession({
-    workspaceId: params.workspaceId,
-    sessionId: params.sessionId,
-    excludeContextSources: ["main_session_event_batch"],
-    preferConfiguredModel: true,
+  const readConfig = (sessionId: string | null | undefined) => {
+    if (!sessionId) {
+      return { model: null, thinkingValue: null };
+    }
+    const latestInput = params.store.getLatestInputForSession({
+      workspaceId: params.workspaceId,
+      sessionId,
+      excludeContextSources: ["main_session_event_batch"],
+      preferConfiguredModel: true,
+    });
+    return {
+      model: optionalTrimmedString(latestInput?.payload.model),
+      thinkingValue: optionalTrimmedString(latestInput?.payload.thinking_value),
+    };
+  };
+
+  const primary = readConfig(params.sessionId);
+  if (
+    primary.model ||
+    primary.thinkingValue ||
+    !params.fallbackSessionId ||
+    params.fallbackSessionId === params.sessionId
+  ) {
+    return primary;
+  }
+  const fallback = readConfig(params.fallbackSessionId);
+  return {
+    model: primary.model ?? fallback.model,
+    thinkingValue: primary.thinkingValue ?? fallback.thinkingValue,
+  };
+}
+
+function mainSessionEventDeliveryRetryPayload(
+  event: MainSessionEventQueueRecord,
+): Record<string, unknown> | null {
+  const payload = isRecord(event.payload) ? event.payload : null;
+  const retry = payload && isRecord(payload.delivery_retry)
+    ? payload.delivery_retry
+    : null;
+  return retry;
+}
+
+function mainSessionEventLastStopReason(
+  event: MainSessionEventQueueRecord,
+): string | null {
+  return optionalTrimmedString(
+    mainSessionEventDeliveryRetryPayload(event)?.last_stop_reason,
+  )?.toLowerCase() ?? null;
+}
+
+function mainSessionEventSessionResetRecoveryCount(
+  event: MainSessionEventQueueRecord,
+): number {
+  return integerOrZero(
+    mainSessionEventDeliveryRetryPayload(event)?.session_reset_recovery_count,
+  );
+}
+
+function shouldRotateCoordinatorForSessionReset(
+  event: MainSessionEventQueueRecord,
+): boolean {
+  return (
+    mainSessionEventLastStopReason(event) === "session_reset_required" &&
+    mainSessionEventSessionResetRecoveryCount(event) < 1
+  );
+}
+
+function coordinatorResetSessionIdPrefix(
+  kind: string | null | undefined,
+): string {
+  switch (normalizedCoordinatorSessionKind(kind)) {
+    case "workspace_onboarding":
+      return "workspace_onboarding";
+    case "meeting_mode":
+      return "meeting_mode";
+    default:
+      return "main";
+  }
+}
+
+function rebindingTargetsForSession(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  sessionId: string;
+}): ConversationBindingRecord[] {
+  return params.store
+    .listConversationBindings({
+      workspaceId: params.workspaceId,
+      limit: 1000,
+      offset: 0,
+    })
+    .filter(
+      (binding) => binding.sessionId === params.sessionId && binding.isActive,
+    );
+}
+
+function rotatedCoordinatorEvents(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  eventIds: string[];
+  recoverySessionId: string;
+}): MainSessionEventQueueRecord[] {
+  return params.eventIds
+    .map((eventId) =>
+      params.store.getMainSessionEvent({
+        workspaceId: params.workspaceId,
+        eventId,
+      }),
+    )
+    .filter((event): event is MainSessionEventQueueRecord => event !== null)
+    .filter(
+      (event) =>
+        event.status === "pending" &&
+        !event.deliveredAt &&
+        !event.supersededAt &&
+        event.ownerMainSessionId === params.recoverySessionId,
+    )
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.createdAt);
+      const rightTime = Date.parse(right.createdAt);
+      if (leftTime !== rightTime) {
+        return leftTime - rightTime;
+      }
+      return left.eventId.localeCompare(right.eventId);
+    });
+}
+
+function rotateCoordinatorSessionForReset(params: {
+  store: RuntimeStateStore;
+  workspace: WorkspaceRecord;
+  ownerMainSessionId: string;
+  events: MainSessionEventQueueRecord[];
+}): {
+  recoverySessionId: string;
+  previousSessionId: string;
+  events: MainSessionEventQueueRecord[];
+} | null {
+  if (!params.events.some(shouldRotateCoordinatorForSessionReset)) {
+    return null;
+  }
+  const currentSession = params.store.getSession({
+    workspaceId: params.workspace.id,
+    sessionId: params.ownerMainSessionId,
   });
-  const model =
-    typeof latestInput?.payload.model === "string" &&
-    latestInput.payload.model.trim()
-      ? latestInput.payload.model.trim()
-      : null;
-  const thinkingValue =
-    typeof latestInput?.payload.thinking_value === "string" &&
-    latestInput.payload.thinking_value.trim()
-      ? latestInput.payload.thinking_value.trim()
-      : null;
-  return { model, thinkingValue };
+  const currentKind = normalizedCoordinatorSessionKind(currentSession?.kind);
+  const recoverySessionId = `${coordinatorResetSessionIdPrefix(currentKind)}-${randomUUID()}`;
+  const recoveryTitle =
+    optionalTrimmedString(currentSession?.title) ??
+    optionalTrimmedString(params.workspace.name) ??
+    "Main Session";
+  params.store.ensureSession({
+    workspaceId: params.workspace.id,
+    sessionId: recoverySessionId,
+    kind: currentKind,
+    title: recoveryTitle,
+    parentSessionId: params.ownerMainSessionId,
+    createdBy: "system",
+  });
+  const currentBinding = params.store.getBinding({
+    workspaceId: params.workspace.id,
+    sessionId: params.ownerMainSessionId,
+  });
+  params.store.upsertBinding({
+    workspaceId: params.workspace.id,
+    sessionId: recoverySessionId,
+    harness: currentBinding?.harness ?? params.workspace.harness ?? "pi",
+    harnessSessionId: recoverySessionId,
+  });
+  params.store.ensureRuntimeState({
+    workspaceId: params.workspace.id,
+    sessionId: recoverySessionId,
+    status: "IDLE",
+  });
+
+  const rebindingTargets = rebindingTargetsForSession({
+    store: params.store,
+    workspaceId: params.workspace.id,
+    sessionId: params.ownerMainSessionId,
+  });
+  for (const binding of rebindingTargets) {
+    params.store.upsertConversationBinding({
+      bindingId: binding.bindingId,
+      workspaceId: binding.workspaceId,
+      channel: binding.channel,
+      conversationKey: binding.conversationKey,
+      sessionId: recoverySessionId,
+      role: binding.role,
+      isActive: binding.isActive,
+      metadata: binding.metadata,
+      lastActiveAt: binding.lastActiveAt,
+    });
+  }
+
+  const ownedRuns = params.store.listSubagentRunsByOwner({
+    workspaceId: params.workspace.id,
+    ownerMainSessionId: params.ownerMainSessionId,
+    limit: 1000,
+    offset: 0,
+  });
+  for (const run of ownedRuns) {
+    params.store.transferSubagentOwnership({
+      workspaceId: params.workspace.id,
+      subagentId: run.subagentId,
+      ownerMainSessionId: recoverySessionId,
+    });
+  }
+
+  const recoveredAt = utcNowIso();
+  for (const event of params.events) {
+    const payload = isRecord(event.payload) ? event.payload : {};
+    const retry = isRecord(payload.delivery_retry) ? payload.delivery_retry : {};
+    const recoveryCount =
+      integerOrZero(retry.session_reset_recovery_count) + 1;
+    params.store.updateMainSessionEvent({
+      workspaceId: params.workspace.id,
+      eventId: event.eventId,
+      fields: {
+        ownerMainSessionId: recoverySessionId,
+        payload: {
+          ...payload,
+          delivery_retry: {
+            ...retry,
+            session_reset_recovery_count: recoveryCount,
+            recovered_owner_main_session_id: recoverySessionId,
+            previous_owner_main_session_id: params.ownerMainSessionId,
+            recovered_at: recoveredAt,
+          },
+        },
+      },
+    });
+  }
+
+  return {
+    recoverySessionId,
+    previousSessionId: params.ownerMainSessionId,
+    events: rotatedCoordinatorEvents({
+      store: params.store,
+      workspaceId: params.workspace.id,
+      eventIds: params.events.map((event) => event.eventId),
+      recoverySessionId,
+    }),
+  };
 }
 
 function buildMainSessionEventBatchInstruction(
@@ -138,6 +386,7 @@ function buildMainSessionEventBatchInstruction(
       "Do not persist one-off deliverables, unresolved hypotheses, partial investigations, or temporary runtime state. When in doubt, prefer memory or transient context over `AGENTS.md`.",
       "If an event comes from an automation or cronjob, treat it like a specific automation update rather than a generic status bulletin.",
       "Use the event title, goal, context, and deliverables to explain what ran and what changed in concrete terms.",
+      "If an event includes `issue_id` or another task reference such as `source_id`, mention that reference naturally so the user can inspect the underlying task if they want.",
       "If an automation update is marked as the first run, you may mention that naturally when it helps orient the user.",
       "If there is only one update, phrase it as a normal conversational continuation without a `Background updates` heading.",
       "Do not start with stock phrases like `Quick follow-up`, `Brief update`, or `One quick update` unless the user already used that tone.",
@@ -203,6 +452,36 @@ function eventQueueWorkspaces(store: RuntimeStateStore): WorkspaceRecord[] {
   return [...workspaces.values()];
 }
 
+function resolveEventDeliveryOwnerMainSessionId(params: {
+  store: RuntimeStateStore;
+  workspace: WorkspaceRecord;
+  event: MainSessionEventQueueRecord;
+}): string | null {
+  const ownerSession = params.store.getSession({
+    workspaceId: params.workspace.id,
+    sessionId: params.event.ownerMainSessionId,
+  });
+  if (ownerSession && !ownerSession.archivedAt && isCoordinatorSessionKind(ownerSession.kind)) {
+    return ownerSession.sessionId;
+  }
+  const run = params.event.subagentId
+    ? params.store.getSubagentRun({
+        workspaceId: params.workspace.id,
+        subagentId: params.event.subagentId,
+      })
+    : null;
+  return preferredCoordinatorSessionId({
+    store: params.store,
+    workspace: params.workspace,
+    preferredSessionIds: [
+      params.event.originMainSessionId,
+      run?.ownerMainSessionId,
+      run?.originMainSessionId,
+      run?.parentSessionId,
+    ],
+  });
+}
+
 export class RuntimeMainSessionEventWorker
   implements MainSessionEventWorkerLike
 {
@@ -264,25 +543,97 @@ export class RuntimeMainSessionEventWorker
         continue;
       }
 
-      const byOwner = new Map<string, MainSessionEventQueueRecord[]>();
+      const reroutedSubagents = new Map<string, string>();
+      const deliverableEvents: MainSessionEventQueueRecord[] = [];
       for (const event of dueEvents) {
+        const resolvedOwnerMainSessionId = resolveEventDeliveryOwnerMainSessionId({
+          store: this.#store,
+          workspace,
+          event,
+        });
+        if (!resolvedOwnerMainSessionId) {
+          this.#store.markMainSessionEventsSuperseded({
+            workspaceId: workspace.id,
+            eventIds: [event.eventId],
+          });
+          continue;
+        }
+        if (event.ownerMainSessionId === resolvedOwnerMainSessionId) {
+          deliverableEvents.push(event);
+          continue;
+        }
+        if (event.subagentId) {
+          const previousOwner = reroutedSubagents.get(event.subagentId);
+          if (previousOwner !== resolvedOwnerMainSessionId) {
+            this.#store.transferSubagentOwnership({
+              workspaceId: workspace.id,
+              subagentId: event.subagentId,
+              ownerMainSessionId: resolvedOwnerMainSessionId,
+            });
+            reroutedSubagents.set(
+              event.subagentId,
+              resolvedOwnerMainSessionId,
+            );
+          }
+        } else {
+          this.#store.updateMainSessionEvent({
+            workspaceId: workspace.id,
+            eventId: event.eventId,
+            fields: {
+              ownerMainSessionId: resolvedOwnerMainSessionId,
+            },
+          });
+        }
+        const refreshed = this.#store.getMainSessionEvent({
+          workspaceId: workspace.id,
+          eventId: event.eventId,
+        });
+        if (
+          refreshed &&
+          refreshed.status === "pending" &&
+          !refreshed.deliveredAt &&
+          !refreshed.supersededAt
+        ) {
+          deliverableEvents.push(refreshed);
+        }
+      }
+      if (deliverableEvents.length === 0) {
+        continue;
+      }
+
+      const byOwner = new Map<string, MainSessionEventQueueRecord[]>();
+      for (const event of deliverableEvents) {
         const existing = byOwner.get(event.ownerMainSessionId) ?? [];
         existing.push(event);
         byOwner.set(event.ownerMainSessionId, existing);
       }
 
       for (const [ownerMainSessionId, events] of byOwner.entries()) {
+        let effectiveOwnerMainSessionId = ownerMainSessionId;
+        let deliveryConfigFallbackSessionId: string | null = null;
+        let effectiveEvents = events;
+        const rotatedOwner = rotateCoordinatorSessionForReset({
+          store: this.#store,
+          workspace,
+          ownerMainSessionId,
+          events,
+        });
+        if (rotatedOwner) {
+          effectiveOwnerMainSessionId = rotatedOwner.recoverySessionId;
+          deliveryConfigFallbackSessionId = rotatedOwner.previousSessionId;
+          effectiveEvents = rotatedOwner.events;
+        }
         if (
           !isMainSessionNaturallyPaused({
             store: this.#store,
             workspaceId: workspace.id,
-            sessionId: ownerMainSessionId,
+            sessionId: effectiveOwnerMainSessionId,
           })
         ) {
           continue;
         }
 
-        const batch = materializableBatchForOwner(events);
+        const batch = materializableBatchForOwner(effectiveEvents);
         if (batch.length === 0) {
           continue;
         }
@@ -290,11 +641,12 @@ export class RuntimeMainSessionEventWorker
         const deliveryConfig = ownerMainSessionDeliveryConfig({
           store: this.#store,
           workspaceId: workspace.id,
-          sessionId: ownerMainSessionId,
+          sessionId: effectiveOwnerMainSessionId,
+          fallbackSessionId: deliveryConfigFallbackSessionId,
         });
         const input = this.#store.enqueueInput({
           workspaceId: workspace.id,
-          sessionId: ownerMainSessionId,
+          sessionId: effectiveOwnerMainSessionId,
           priority: MAIN_SESSION_EVENT_INPUT_PRIORITY,
           idempotencyKey: mainSessionEventBatchIdempotencyKey(batch),
           payload: {
@@ -305,7 +657,7 @@ export class RuntimeMainSessionEventWorker
             thinking_value: deliveryConfig.thinkingValue,
             context: {
               source: "main_session_event_batch",
-              owner_main_session_id: ownerMainSessionId,
+              owner_main_session_id: effectiveOwnerMainSessionId,
               origin_main_session_ids: [
                 ...new Set(batch.map((event) => event.originMainSessionId)),
               ],
@@ -331,7 +683,7 @@ export class RuntimeMainSessionEventWorker
         appendSubagentLifecycleOutputEvents({
           store: this.#store,
           workspaceId: workspace.id,
-          sessionId: ownerMainSessionId,
+          sessionId: effectiveOwnerMainSessionId,
           inputId: input.inputId,
           batch,
           createdAt: now,

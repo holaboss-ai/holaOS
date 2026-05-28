@@ -126,6 +126,16 @@ export interface PiSessionHandle {
   dispose: () => Promise<void>;
 }
 
+export function runtimeToolSelectedModelForPiRequest(
+  request: Pick<HarnessHostPiRequest, "selected_model" | "provider_id" | "model_id">,
+): string {
+  const selectedModel =
+    typeof request.selected_model === "string" ? request.selected_model.trim() : "";
+  return selectedModel.length > 0
+    ? selectedModel
+    : `${request.provider_id}/${request.model_id}`;
+}
+
 export interface PiDeps {
   createSession: (request: HarnessHostPiRequest) => Promise<PiSessionHandle>;
 }
@@ -186,6 +196,15 @@ const PI_REQUEST_TOOL_NAME_ALIASES: Record<string, string> = {
   find: "glob",
   ls: "list",
 };
+// The host provides local implementations for these public tool names. If the
+// runtime capability surface also returns them, OpenAI-compatible providers see
+// duplicate function names and can reject the request before generation starts.
+const PI_HOST_NATIVE_TOOL_NAMES = new Set([
+  "skill",
+  "todoread",
+  "todowrite",
+  "web_search",
+]);
 const PI_MCP_DISCOVERY_RETRY_INTERVAL_MS = 250;
 const PI_FALLBACK_CONTEXT_WINDOW = 65_536;
 const PI_FALLBACK_MAX_TOKENS = 8_192;
@@ -1772,6 +1791,12 @@ export function filterPiToolDefinitionsForRequest<TTool extends { name: string }
   return tools.filter((tool) => toolEnabledForPiRequest(request, tool.name));
 }
 
+export function filterPiRuntimeToolDefinitionsForHost<TTool extends { name: string }>(
+  tools: readonly TTool[],
+): TTool[] {
+  return tools.filter((tool) => !PI_HOST_NATIVE_TOOL_NAMES.has(tool.name.trim().toLowerCase()));
+}
+
 async function defaultCreateSession(request: HarnessHostPiRequest): Promise<PiSessionHandle> {
   const stateDir = resolvePiStateDir(request.workspace_dir);
   const sessionDir = resolvePiSessionDir(request.workspace_dir);
@@ -1847,9 +1872,10 @@ async function defaultCreateSession(request: HarnessHostPiRequest): Promise<PiSe
       workspaceId: request.workspace_id,
       sessionId: request.session_id,
       inputId: request.input_id,
-      selectedModel: `${request.provider_id}/${request.model_id}`,
+      selectedModel: runtimeToolSelectedModelForPiRequest(request),
     })
   );
+  const runtimeToolsForHost = filterPiRuntimeToolDefinitionsForHost(runtimeTools);
   const webSearchTools = toolEnabledForPiRequest(request, "web_search")
     ? await resolvePiWebSearchToolDefinitions()
     : [];
@@ -1862,7 +1888,7 @@ async function defaultCreateSession(request: HarnessHostPiRequest): Promise<PiSe
   const nonSkillCustomTools: ToolDefinition[] = [
     ...todoTools,
     ...(browserTools as unknown as ToolDefinition[]),
-    ...(runtimeTools as unknown as ToolDefinition[]),
+    ...(runtimeToolsForHost as unknown as ToolDefinition[]),
     ...webSearchTools,
     ...filterPiToolDefinitionsForRequest(request, mcpToolset.customTools),
   ];

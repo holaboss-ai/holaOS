@@ -26,6 +26,14 @@ function normalizeErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
 }
 
+function backgroundTaskOpenSessionTarget(task: BackgroundTaskRecordPayload) {
+  return (
+    task.parent_session_id?.trim() ||
+    task.owner_main_session_id.trim() ||
+    task.child_session_id.trim()
+  );
+}
+
 function backgroundTaskStatusIndicator(status: string): {
   className: string;
   icon: ReactNode;
@@ -131,12 +139,6 @@ function sortBackgroundTasks(tasks: BackgroundTaskRecordPayload[]) {
 }
 
 function summarizeInlineBackgroundTasks(tasks: BackgroundTaskRecordPayload[]) {
-  const waitingCount = tasks.filter(
-    (task) => task.status.trim().toLowerCase() === "waiting_on_user",
-  ).length;
-  if (waitingCount > 0) {
-    return `${waitingCount} waiting`;
-  }
   const activeCount = tasks.filter((task) => {
     const status = task.status.trim().toLowerCase();
     return status === "queued" || status === "running";
@@ -144,19 +146,18 @@ function summarizeInlineBackgroundTasks(tasks: BackgroundTaskRecordPayload[]) {
   if (activeCount > 0) {
     return `${activeCount} running`;
   }
-  const failedCount = tasks.filter(
-    (task) => task.status.trim().toLowerCase() === "failed",
-  ).length;
-  if (failedCount > 0) {
-    return `${failedCount} failed`;
-  }
-  return `${tasks.length} recent`;
+  return "";
 }
 
 function inlineBackgroundIndicator(tasks: BackgroundTaskRecordPayload[]) {
   const sortedTasks = sortBackgroundTasks(tasks);
   const focusTask = sortedTasks[0] ?? null;
   return backgroundTaskStatusIndicator(focusTask?.status ?? "");
+}
+
+function isInlineVisibleBackgroundTask(task: BackgroundTaskRecordPayload) {
+  const status = task.status.trim().toLowerCase();
+  return status === "queued" || status === "running";
 }
 
 export function BackgroundTasksPane({
@@ -329,6 +330,7 @@ export function BackgroundTasksPane({
   );
 
   const sortedTasks = sortBackgroundTasks(tasks);
+  const inlineVisibleTasks = sortedTasks.filter(isInlineVisibleBackgroundTask);
 
   function canRemoveTask(task: BackgroundTaskRecordPayload) {
     const status = task.status.trim().toLowerCase();
@@ -345,12 +347,12 @@ export function BackgroundTasksPane({
       return null;
     }
 
-    if (tasks.length === 0 && !errorMessage) {
+    if (inlineVisibleTasks.length === 0) {
       return null;
     }
 
-    const indicator = inlineBackgroundIndicator(sortedTasks);
-    const summaryLabel = summarizeInlineBackgroundTasks(sortedTasks);
+    const indicator = inlineBackgroundIndicator(inlineVisibleTasks);
+    const summaryLabel = summarizeInlineBackgroundTasks(inlineVisibleTasks);
 
     return (
       <div
@@ -390,13 +392,13 @@ export function BackgroundTasksPane({
                 </div>
               ) : null}
               <div className={`${errorMessage ? "mt-3 " : ""}space-y-2`}>
-                {sortedTasks.map((task) => {
+                {inlineVisibleTasks.map((task) => {
                   const taskIndicator = backgroundTaskStatusIndicator(
                     task.status,
                   );
                   const canOpenTaskSession =
                     typeof onOpenTaskSession === "function" &&
-                    Boolean(task.child_session_id.trim());
+                    Boolean(backgroundTaskOpenSessionTarget(task));
                   const showRemoveAction = canRemoveTask(task);
                   const showContinueAction = canContinueTask(task);
                   const taskBody = (
@@ -514,7 +516,7 @@ export function BackgroundTasksPane({
               const indicator = backgroundTaskStatusIndicator(task.status);
               const canOpenTaskSession =
                 typeof onOpenTaskSession === "function" &&
-                Boolean(task.child_session_id.trim());
+                Boolean(backgroundTaskOpenSessionTarget(task));
               const showRemoveAction = canRemoveTask(task);
               const showContinueAction = canContinueTask(task);
               const taskBody = (

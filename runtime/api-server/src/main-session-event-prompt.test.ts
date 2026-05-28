@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { queuedMainSessionEventPromptEntry } from "./main-session-event-prompt.js";
 
-test("queued main-session event prompt entry strips html-like child outputs", () => {
+test("queued main-session event prompt entry ignores raw child assistant text", () => {
   const entry = queuedMainSessionEventPromptEntry({
     event_id: "event-1",
     event_type: "completed",
@@ -25,14 +25,7 @@ test("queued main-session event prompt entry strips html-like child outputs", ()
   assert.equal(payload.summary, "Repo scan finished.");
 });
 
-test("queued main-session event prompt entry forwards plain-text child outputs", () => {
-  const assistantText = [
-    "Here are the items I found:",
-    "1. OpenAI expands on AWS Bedrock.",
-    "2. AI regulation is still unsettled.",
-    "3. Government AI deployment keeps moving.",
-  ].join("\n");
-
+test("queued main-session event prompt entry forwards summary and deliverables without child assistant text", () => {
   const entry = queuedMainSessionEventPromptEntry({
     event_id: "event-2",
     event_type: "completed",
@@ -43,7 +36,8 @@ test("queued main-session event prompt entry forwards plain-text child outputs",
     payload: {
       status: "completed",
       summary: "Hourly AI news run came in.",
-      assistant_text: assistantText,
+      assistant_text:
+        "Here are the items I found:\n1. OpenAI expands on AWS Bedrock.\n2. AI regulation is still unsettled.\n3. Government AI deployment keeps moving.",
       forwardable_deliverables: [
         {
           output_id: "output-1",
@@ -72,7 +66,8 @@ test("queued main-session event prompt entry forwards plain-text child outputs",
 
   const payload = entry.payload as Record<string, unknown>;
 
-  assert.equal(payload.assistant_text, assistantText);
+  assert.equal(payload.assistant_text, undefined);
+  assert.equal(payload.summary, "Hourly AI news run came in.");
   assert.deepEqual(payload.forwardable_deliverables, [
     {
       output_id: "output-1",
@@ -96,4 +91,29 @@ test("queued main-session event prompt entry forwards plain-text child outputs",
       },
     },
   ]);
+});
+
+test("queued main-session event prompt entry preserves task references for follow-up inspection", () => {
+  const entry = queuedMainSessionEventPromptEntry({
+    event_id: "event-3",
+    event_type: "completed",
+    delivery_bucket: "background_update",
+    status: "pending",
+    subagent_id: "subagent-3",
+    created_at: "2026-04-29T00:00:00.000Z",
+    payload: {
+      source_type: "delegate_task",
+      source_id: "HOL-7",
+      issue_id: "HOL-7",
+      status: "completed",
+      summary: "Dashboard polish finished.",
+    },
+  });
+
+  const payload = entry.payload as Record<string, unknown>;
+
+  assert.equal(payload.source_type, "delegate_task");
+  assert.equal(payload.source_id, "HOL-7");
+  assert.equal(payload.issue_id, "HOL-7");
+  assert.equal(payload.summary, "Dashboard polish finished.");
 });

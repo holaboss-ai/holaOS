@@ -83,6 +83,7 @@ export interface HarnessHostPiRequest {
   persisted_harness_session_id?: string | null;
   provider_id: string;
   model_id: string;
+  selected_model?: string | null;
   timeout_seconds: number;
   runtime_api_base_url?: string | null;
   system_prompt: string;
@@ -403,6 +404,7 @@ export function decodeHarnessHostPiRequestBase64(encoded: string): HarnessHostPi
     persisted_harness_session_id: optionalString(parsed.persisted_harness_session_id),
     provider_id: requiredString(parsed.provider_id, "provider_id"),
     model_id: requiredString(parsed.model_id, "model_id"),
+    selected_model: optionalString(parsed.selected_model),
     timeout_seconds: requiredInteger(parsed.timeout_seconds, "timeout_seconds"),
     runtime_api_base_url: optionalString(parsed.runtime_api_base_url),
     system_prompt: stringOrEmpty(parsed.system_prompt, "system_prompt"),

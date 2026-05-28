@@ -4,10 +4,11 @@ import test from "node:test";
 
 const OPERATIONS_DRAWER_PATH = new URL("./OperationsDrawer.tsx", import.meta.url);
 
-test("operations drawer inbox keeps proposal feedback after proactive controls are removed", async () => {
+test("operations drawer inbox stays empty in issue-first v1", async () => {
   const source = await readFile(OPERATIONS_DRAWER_PATH, "utf8");
 
-  assert.match(source, /proposalStatusMessage \?/);
+  assert.match(source, /title=\{hasWorkspace \? "Inbox is empty for now" : "Choose a workspace"\}/);
+  assert.match(source, /Issue-first v1 does not surface proposal review here\./);
   assert.match(source, /label="Sessions"/);
   assert.match(source, />\s*New Session\s*</);
   assert.doesNotMatch(source, /showProactiveControls/);
@@ -18,31 +19,20 @@ test("operations drawer inbox keeps proposal feedback after proactive controls a
   assert.doesNotMatch(source, /InboxHeaderActions/);
 });
 
-test("operations drawer shows proposal source lane and rationale copy", async () => {
+test("operations drawer inbox uses the shared empty-state component", async () => {
   const source = await readFile(OPERATIONS_DRAWER_PATH, "utf8");
 
-  assert.match(
-    source,
-    /function proposalSourceLabel\(\s*source: TaskProposalRecordPayload\["proposal_source"\],\s*\): string/,
-  );
-  assert.match(source, /proposalSourceLabel\(proposal\.proposal_source\)/);
-  assert.match(
-    source,
-    /const rationale =\s*proposal\.task_generation_rationale\.trim\(\)\s*\|\|\s*"No generation rationale was recorded\."/,
-  );
+  assert.match(source, /export function OperationsInboxPane\(\{/);
+  assert.match(source, /<EmptyState/);
+  assert.match(source, /icon=\{InboxIcon\}/);
 });
 
-test("operations drawer can open a centered proposal details dialog from the proposal row", async () => {
+test("operations drawer keeps running sessions available beside the empty inbox", async () => {
   const source = await readFile(OPERATIONS_DRAWER_PATH, "utf8");
 
-  assert.match(source, /function ProposalDetailsDialog\(/);
-  assert.match(source, /setExpandedProposalId\(proposal\.proposal_id\)/);
-  assert.match(source, /className="-mx-1 flex min-w-0 flex-1 flex-col gap-0\.5 rounded-md px-1 text-left transition-colors hover:bg-fg-2"/);
-  assert.match(source, /aria-label="Proposal details"/);
-  assert.match(source, /Why This Was Proposed/);
-  assert.match(source, /return createPortal\(modalContent, document\.body\);/);
-  assert.match(source, /onAcceptProposal=\{onAcceptProposal\}/);
-  assert.match(source, /onDismissProposal=\{onDismissProposal\}/);
+  assert.match(source, /activeTab === "running" \? \(/);
+  assert.match(source, /function defaultSessionTitle\(/);
+  assert.match(source, /if \(normalizedKind === "subagent"\) \{\s*return "Subagent run";\s*\}/);
 });
 
 test("operations drawer no longer carries the deprecated proactive sign-in notice", async () => {

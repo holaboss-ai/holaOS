@@ -16,6 +16,7 @@ import {
 } from "@/lib/workspaceSelection";
 import { Center } from "./Center";
 import { ChatPanel } from "./ChatPanel";
+import { NewIssueDialog } from "./NewIssueDialog";
 import { NewTabDialog } from "./NewTabDialog";
 import { NotificationStack } from "./NotificationStack";
 import { Overlays } from "./Overlays";
@@ -144,6 +145,7 @@ function NewAppShellContent() {
           <ChatPanel layout={layout} />
         </>
       )}
+      <NewIssueDialog />
       <NewTabDialog />
       <SearchDialog />
       <Overlays />

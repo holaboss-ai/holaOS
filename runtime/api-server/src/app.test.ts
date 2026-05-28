@@ -11,7 +11,7 @@ import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 
 import Database from "better-sqlite3";
-import { RuntimeStateStore } from "@holaboss/runtime-state-store";
+import { RuntimeStateStore, utcNowIso } from "@holaboss/runtime-state-store";
 import yazl from "yazl";
 import * as tar from "tar";
 
@@ -834,6 +834,16 @@ test("runtime tools capability routes expose local onboarding and cronjob action
     assert.ok(
       capabilityStatus
         .json()
+        .tools.some((tool: { id: string }) => tool.id === "teammates_create")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "teammate_skills_create")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
         .tools.some((tool: { id: string }) => tool.id === "memory_retrieve")
     );
     assert.ok(
@@ -875,6 +885,26 @@ test("runtime tools capability routes expose local onboarding and cronjob action
       capabilityStatus
         .json()
         .tools.some((tool: { id: string }) => tool.id === "workspace_data_query")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "get_task")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "list_tasks")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "cancel_task")
+    );
+    assert.ok(
+      capabilityStatus
+        .json()
+        .tools.some((tool: { id: string }) => tool.id === "rerun_task")
     );
 
     const onboardingStatus = await app.inject({
@@ -922,8 +952,10 @@ test("runtime tools capability routes expose local onboarding and cronjob action
         "x-holaboss-selected-model": "openai/gpt-5.4"
       },
       payload: {
+        teammate_id: "general",
         cron: "0 9 * * *",
         description: "Daily check",
+        instruction: "Check in daily",
         delivery: { mode: "deliver", channel: "session_run" }
       }
     });
@@ -1232,8 +1264,10 @@ test("runtime tools cronjobs stay inert inside draft labs", async () => {
         "x-holaboss-session-id": "session-main",
       },
       payload: {
+        teammate_id: "general",
         cron: "0 9 * * *",
         description: "Daily check",
+        instruction: "Check in daily",
         delivery: { mode: "announce", channel: "session_run" },
         enabled: true,
       }
@@ -1702,7 +1736,7 @@ env_contract:
   }
 });
 
-test("runtime subagent capability routes create and cancel hidden background tasks", async () => {
+test("runtime task capability routes create, inspect, rerun, and cancel delegated tasks", async () => {
   const root = makeTempDir("hb-runtime-api-subagents-");
   const workspaceRoot = path.join(root, "workspace");
   const store = new RuntimeStateStore({
@@ -1810,7 +1844,7 @@ test("runtime subagent capability routes create and cancel hidden background tas
   assert.deepEqual(childInput?.payload.attachments, parentInput.payload.attachments);
   assert.deepEqual(childInput?.payload.image_urls, parentInput.payload.image_urls);
   const childContext = (childInput?.payload.context ?? {}) as Record<string, unknown>;
-  assert.equal(childContext.source, "subagent");
+  assert.equal(childContext.source, "issue_bootstrap");
   assert.equal(childContext.subagent_id, task.subagent_id);
   assert.equal(childContext.forwarded_attachment_count, 1);
   assert.deepEqual(childContext.forwarded_quoted_skill_ids, [
@@ -1826,70 +1860,73 @@ test("runtime subagent capability routes create and cancel hidden background tas
   assert.equal(listed.json().count, 1);
   assert.equal(listed.json().tasks[0].subagent_id, task.subagent_id);
 
-  const listedViaCapability = await app.inject({
+  const listedTasksViaCapability = await app.inject({
     method: "GET",
-    url: "/api/v1/capabilities/runtime-tools/background-tasks?limit=10",
+    url: "/api/v1/capabilities/runtime-tools/tasks?limit=10",
     headers: {
       "x-holaboss-workspace-id": workspace.id,
       "x-holaboss-session-id": "session-main",
     },
   });
-  assert.equal(listedViaCapability.statusCode, 200);
-  assert.equal(listedViaCapability.json().count, 1);
-  assert.equal(listedViaCapability.json().tasks[0].subagent_id, task.subagent_id);
+  assert.equal(listedTasksViaCapability.statusCode, 200);
+  assert.equal(listedTasksViaCapability.json().count, 1);
+  assert.equal(listedTasksViaCapability.json().tasks[0].task_id, task.issue_id);
 
-  const fetchedViaCapability = await app.inject({
+  const fetchedTaskViaCapability = await app.inject({
     method: "GET",
-    url: `/api/v1/capabilities/runtime-tools/subagents/${encodeURIComponent(task.subagent_id)}`,
+    url: `/api/v1/capabilities/runtime-tools/tasks/${encodeURIComponent(task.issue_id)}`,
     headers: {
       "x-holaboss-workspace-id": workspace.id,
       "x-holaboss-session-id": "session-main",
     },
   });
-  assert.equal(fetchedViaCapability.statusCode, 200);
-  assert.equal(fetchedViaCapability.json().subagent_id, task.subagent_id);
+  assert.equal(fetchedTaskViaCapability.statusCode, 200);
+  assert.equal(fetchedTaskViaCapability.json().task_id, task.issue_id);
+  assert.equal(fetchedTaskViaCapability.json().latest_run.subagent_id, task.subagent_id);
 
-  const blockedSameTurnFetch = await app.inject({
+  const blockedSameTurnTaskFetch = await app.inject({
     method: "GET",
-    url: `/api/v1/capabilities/runtime-tools/subagents/${encodeURIComponent(task.subagent_id)}`,
-    headers: {
-      "x-holaboss-workspace-id": workspace.id,
-      "x-holaboss-session-id": "session-main",
-      "x-holaboss-input-id": parentInput.inputId,
-    },
-  });
-  assert.equal(blockedSameTurnFetch.statusCode, 409);
-  assert.match(
-    blockedSameTurnFetch.body,
-    /do not use get_subagent to poll a freshly delegated task in the same turn/i,
-  );
-
-  const blockedSameTurnList = await app.inject({
-    method: "GET",
-    url: "/api/v1/capabilities/runtime-tools/background-tasks?limit=10",
+    url: `/api/v1/capabilities/runtime-tools/tasks/${encodeURIComponent(task.issue_id)}`,
     headers: {
       "x-holaboss-workspace-id": workspace.id,
       "x-holaboss-session-id": "session-main",
       "x-holaboss-input-id": parentInput.inputId,
     },
   });
-  assert.equal(blockedSameTurnList.statusCode, 409);
+  assert.equal(blockedSameTurnTaskFetch.statusCode, 409);
   assert.match(
-    blockedSameTurnList.body,
-    /do not use list_background_tasks to poll a freshly delegated task in the same turn/i,
+    blockedSameTurnTaskFetch.body,
+    /do not use get_task to poll a freshly delegated task in the same turn/i,
   );
 
-  const cancelled = await app.inject({
+  const blockedSameTurnTaskList = await app.inject({
+    method: "GET",
+    url: "/api/v1/capabilities/runtime-tools/tasks?limit=10",
+    headers: {
+      "x-holaboss-workspace-id": workspace.id,
+      "x-holaboss-session-id": "session-main",
+      "x-holaboss-input-id": parentInput.inputId,
+    },
+  });
+  assert.equal(blockedSameTurnTaskList.statusCode, 409);
+  assert.match(
+    blockedSameTurnTaskList.body,
+    /do not use list_tasks to poll a freshly delegated task in the same turn/i,
+  );
+
+  const cancelledTask = await app.inject({
     method: "POST",
-    url: `/api/v1/capabilities/runtime-tools/subagents/${encodeURIComponent(task.subagent_id)}/cancel`,
+    url: `/api/v1/capabilities/runtime-tools/tasks/${encodeURIComponent(task.issue_id)}/cancel`,
     headers: {
       "x-holaboss-workspace-id": workspace.id,
       "x-holaboss-session-id": "session-main",
     },
     payload: {},
   });
-  assert.equal(cancelled.statusCode, 200);
-  assert.equal(cancelled.json().status, "cancelled");
+  assert.equal(cancelledTask.statusCode, 200);
+  assert.equal(cancelledTask.json().task_id, task.issue_id);
+  assert.equal(cancelledTask.json().status, "blocked");
+  assert.equal(cancelledTask.json().latest_run.status, "cancelled");
 
   const cancelledRun = store.getSubagentRun({ workspaceId: workspace.id, subagentId: task.subagent_id });
   assert.equal(cancelledRun?.status, "cancelled");
@@ -1897,6 +1934,34 @@ test("runtime subagent capability routes create and cancel hidden background tas
     ? store.getInput({ workspaceId: workspace.id, inputId: run.currentChildInputId })
     : null;
   assert.equal(cancelledInput?.status, "DONE");
+
+  const rerunTask = await app.inject({
+    method: "POST",
+    url: `/api/v1/capabilities/runtime-tools/tasks/${encodeURIComponent(task.issue_id)}/rerun`,
+    headers: {
+      "x-holaboss-workspace-id": workspace.id,
+      "x-holaboss-session-id": "session-main",
+      "x-holaboss-input-id": parentInput.inputId,
+    },
+    payload: {},
+  });
+  assert.equal(rerunTask.statusCode, 200);
+  assert.equal(rerunTask.json().task_id, task.issue_id);
+  assert.equal(rerunTask.json().status, "todo");
+  assert.equal(rerunTask.json().latest_run.status, "queued");
+
+  const cancelledRerunTask = await app.inject({
+    method: "POST",
+    url: `/api/v1/capabilities/runtime-tools/tasks/${encodeURIComponent(task.issue_id)}/cancel`,
+    headers: {
+      "x-holaboss-workspace-id": workspace.id,
+      "x-holaboss-session-id": "session-main",
+    },
+    payload: {},
+  });
+  assert.equal(cancelledRerunTask.statusCode, 200);
+  assert.equal(cancelledRerunTask.json().status, "blocked");
+  assert.equal(cancelledRerunTask.json().latest_run.status, "cancelled");
 
   const archived = await app.inject({
     method: "POST",
@@ -2103,6 +2168,218 @@ test("runtime skill tool resolves a workspace skill through shared runtime state
     assert.deepEqual(response.json().granted_tools, ["bash"]);
     assert.deepEqual(response.json().granted_commands, ["deploy-docs"]);
     assert.equal(response.json().tool_id, "skill");
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
+test("runtime skill tool resolves teammate-local skills through the assigned issue session", async () => {
+  const root = makeTempDir("hb-runtime-api-skill-tool-teammate-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const teammate = store.createTeammate({
+    workspaceId: workspace.id,
+    name: "Frontend",
+    instructions: "Own the UI.",
+  });
+  const issue = store.createIssue({
+    workspaceId: workspace.id,
+    sessionId: "session-issue-1",
+    title: "Ship dashboard",
+    description: "Implement the dashboard.",
+    status: "todo",
+    assigneeTeammateId: teammate.teammateId,
+    createdBy: "workspace_user",
+  });
+  const skillDir = path.join(
+    workspaceRoot,
+    "workspace-1",
+    "teammates",
+    teammate.teammateId,
+    "skills",
+    "frontend-playbook",
+  );
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillDir, "SKILL.md"),
+    [
+      "---",
+      "name: frontend-playbook",
+      "description: Frontend playbook",
+      "---",
+      "",
+      "# Frontend Playbook",
+      "",
+      "Use the dashboard patterns.",
+    ].join("\n"),
+    "utf8",
+  );
+  const app = buildTestRuntimeApiServer({ store });
+
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/skill",
+      headers: {
+        "x-holaboss-workspace-id": "workspace-1",
+        "x-holaboss-session-id": issue.sessionId,
+      },
+      payload: {
+        name: "frontend-playbook",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.match(
+      response.json().text,
+      /<skill name="frontend-playbook" location=".*frontend-playbook\/SKILL\.md">/,
+    );
+    assert.match(response.json().text, /Use the dashboard patterns\./);
+    assert.equal(response.json().skill_id, "frontend-playbook");
+    assert.equal(response.json().tool_id, "skill");
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
+test("runtime teammates_create tool creates a teammate without bundling skills into the create step", async () => {
+  const root = makeTempDir("hb-runtime-api-teammates-create-tool-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/capabilities/runtime-tools/teammates",
+      headers: {
+        "x-holaboss-workspace-id": workspace.id,
+      },
+      payload: {
+        name: "Researcher",
+        instructions: "Own research, synthesis, and briefing work.",
+        capability_profile: {
+          summary: "Best for research and synthesis tasks.",
+          capabilities: ["research", "synthesis"],
+          preferred_tools: ["web_search", "browser"],
+        },
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().tool_id, "teammates_create");
+    assert.equal(response.json().name, "Researcher");
+    assert.equal(response.json().skills.length, 0);
+    assert.deepEqual(
+      response.json().capability_profile,
+      {
+        summary: "Best for research and synthesis tasks.",
+        capabilities: ["research", "synthesis"],
+        preferred_tools: ["web_search", "browser"],
+      },
+    );
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
+test("runtime teammate_skills_create tool creates a teammate-local skill bundle", async () => {
+  const root = makeTempDir("hb-runtime-api-teammate-skills-create-tool-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const teammate = store.createTeammate({
+    workspaceId: workspace.id,
+    name: "Researcher",
+    instructions: "Own research work.",
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/capabilities/runtime-tools/teammates/${teammate.teammateId}/skills`,
+      headers: {
+        "x-holaboss-workspace-id": workspace.id,
+      },
+      payload: {
+        skill_id: "research-playbook",
+        skill_markdown: [
+          "---",
+          "name: research-playbook",
+          "description: Research Playbook",
+          "holaboss:",
+          "  granted_tools: [web_search, browser]",
+          "  granted_commands: [open-sources]",
+          "---",
+          "",
+          "# Research Playbook",
+          "",
+          "Always cite sources.",
+        ].join("\n"),
+        sidecar_files: [
+          {
+            path: "scripts/fetch.sh",
+            content: "#!/bin/sh\ncurl \"$1\"\n",
+          },
+        ],
+        directories: ["assets/templates"],
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().tool_id, "teammate_skills_create");
+    assert.equal(response.json().teammate_id, teammate.teammateId);
+    assert.equal(response.json().skill.skill_id, "research-playbook");
+    assert.equal(response.json().skill.storage_origin, "filesystem");
+    assert.deepEqual(response.json().skill.granted_tools, [
+      "web_search",
+      "browser",
+    ]);
+    assert.deepEqual(response.json().skill.granted_commands, [
+      "open-sources",
+    ]);
+    assert.equal(
+      response.json().skill.sidecar_files[0]?.path,
+      "scripts/fetch.sh",
+    );
+    assert.equal(
+      response.json().skill.sidecar_directories.includes("assets/templates"),
+      true,
+    );
+    assert.match(
+      String(response.json().skill.file_path ?? ""),
+      /teammates\/.*\/skills\/research-playbook\/SKILL\.md$/,
+    );
   } finally {
     await app.close();
     store.close();
@@ -4111,6 +4388,7 @@ test("workspace lab routes create hidden drafts and merge accepted design state"
   const originalJob = store.createCronjob({
     workspaceId: source.id,
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "Old job",
     cron: "0 8 * * *",
     description: "Old recurring work",
@@ -4268,6 +4546,7 @@ test("workspace lab routes create hidden drafts and merge accepted design state"
     workspaceId: createdPayload.lab.id,
     jobId: "lab-job",
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "New job",
     cron: "0 9 * * *",
     description: "New recurring work",
@@ -4394,6 +4673,7 @@ test("workspace lab keeps copied cronjobs inert and restores their recommended e
     workspaceId: source.id,
     jobId: "source-job",
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "Source job",
     cron: "0 8 * * *",
     description: "Existing recurring work",
@@ -5508,7 +5788,7 @@ test("runtime states and history endpoints read TS state store", async () => {
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "proposal-session-1",
-    kind: "task_proposal",
+    kind: "subagent",
     title: "Follow up",
     parentSessionId: "session-main",
     sourceProposalId: "proposal-1",
@@ -5551,7 +5831,7 @@ test("runtime states and history endpoints read TS state store", async () => {
     .json()
     .items.find((item: { session_id: string }) => item.session_id === "proposal-session-1");
   assert.ok(proposalSession);
-  assert.equal(proposalSession.kind, "task_proposal");
+  assert.equal(proposalSession.kind, "subagent");
   assert.equal(proposalSession.parent_session_id, "session-main");
   assert.equal(states.statusCode, 200);
   assert.equal(states.json().count, 1);
@@ -5992,7 +6272,7 @@ test("outputs, folders, and artifacts routes preserve local payload shape", asyn
   store.close();
 });
 
-test("cronjobs, task proposals, and session state routes preserve local payload shape", async () => {
+test("cronjobs and session state routes preserve local payload shape", async () => {
   const root = makeTempDir("hb-runtime-api-");
   const store = new RuntimeStateStore({
     dbPath: path.join(root, "runtime.db"),
@@ -6038,6 +6318,7 @@ test("cronjobs, task proposals, and session state routes preserve local payload 
     payload: {
       workspace_id: workspace.id,
       initiated_by: "workspace_agent",
+      teammate_id: "general",
       cron: "0 9 * * *",
       description: "Daily check",
       instruction: "Say hello",
@@ -6045,6 +6326,7 @@ test("cronjobs, task proposals, and session state routes preserve local payload 
     }
   });
   assert.equal(createdJob.statusCode, 200);
+  assert.equal(createdJob.json().teammate_id, "general");
   assert.equal(createdJob.json().instruction, "Say hello");
   const jobId = createdJob.json().id as string;
 
@@ -6073,6 +6355,7 @@ test("cronjobs, task proposals, and session state routes preserve local payload 
   assert.equal(runNowJob.json().cronjob.instruction, "Say hello");
   assert.ok(runNowJob.json().session_id);
   assert.equal(updatedJob.statusCode, 200);
+  assert.equal(updatedJob.json().teammate_id, "general");
   assert.equal(updatedJob.json().description, "Updated check");
   assert.equal(updatedJob.json().instruction, "Say hello louder");
 
@@ -6128,46 +6411,388 @@ test("cronjobs, task proposals, and session state routes preserve local payload 
   assert.equal(updatedNotification.json().state, "read");
   assert.ok(updatedNotification.json().read_at);
 
-  const createdProposal = await app.inject({
+  await app.close();
+  store.close();
+});
+
+test("teammate and issue routes preserve local payload shape", async () => {
+  const root = makeTempDir("hb-runtime-api-teammates-issues-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const app = buildTestRuntimeApiServer({ store });
+
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace Issues",
+    harness: "pi",
+    status: "active",
+  });
+  const workspaceDir = store.workspaceDir(workspace.id);
+  fs.mkdirSync(path.join(workspaceDir, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(workspaceDir, "docs", "brief.md"), "# Brief\n", "utf8");
+
+  const createdTeammate = await app.inject({
     method: "POST",
-    url: "/api/v1/task-proposals",
+    url: "/api/v1/teammates",
     payload: {
-      proposal_id: "proposal-1",
       workspace_id: workspace.id,
-      task_name: "Follow up",
-      task_prompt: "Write a follow-up message",
-      task_generation_rationale: "User has not replied",
-      source_event_ids: ["evt-1"],
-      created_at: new Date().toISOString()
+      name: "Coder",
+      instructions: "Own implementation tasks.",
+      capability_profile: {
+        summary: "Best for implementation, refactors, and shipping code changes.",
+        capabilities: ["implementation", "frontend", "react"],
+        preferred_tools: ["edit", "bash"],
+      }
     }
   });
-  assert.equal(createdProposal.statusCode, 200);
-  assert.equal(createdProposal.json().proposal.proposal_source, "proactive");
+  assert.equal(createdTeammate.statusCode, 200);
+  assert.equal(createdTeammate.json().teammate.name, "Coder");
+  assert.equal(createdTeammate.json().teammate.skills.length, 0);
+  const createdSkill = await app.inject({
+    method: "POST",
+    url: `/api/v1/teammates/${createdTeammate.json().teammate.teammate_id}/skills`,
+    payload: {
+      workspace_id: workspace.id,
+      skill: {
+        skill_id: "skill-1",
+        name: "Frontend",
+        content: "# Frontend\nBuild UI surfaces.",
+      },
+    },
+  });
+  assert.equal(createdSkill.statusCode, 200);
+  assert.equal(
+    createdSkill.json().skill.storage_origin,
+    "filesystem",
+  );
+  assert.match(
+    String(createdSkill.json().skill.file_path ?? ""),
+    /teammates\/.*\/skills\/skill-1\/SKILL\.md$/,
+  );
+  assert.equal(
+    fs.existsSync(
+      String(createdSkill.json().skill.file_path ?? ""),
+    ),
+    true,
+  );
+  assert.equal(
+    createdTeammate.json().teammate.capability_profile.summary,
+    "Best for implementation, refactors, and shipping code changes.",
+  );
+  assert.deepEqual(
+    createdTeammate.json().teammate.capability_profile.preferred_tools,
+    ["edit", "bash"],
+  );
 
-  const listedProposals = await app.inject({
+  const listedTeammates = await app.inject({
     method: "GET",
-    url: `/api/v1/task-proposals?workspace_id=${workspace.id}`
+    url: `/api/v1/teammates?workspace_id=${workspace.id}`
   });
-  const unreviewed = await app.inject({
-    method: "GET",
-    url: `/api/v1/task-proposals/unreviewed?workspace_id=${workspace.id}`
+  assert.equal(listedTeammates.statusCode, 200);
+  assert.equal(listedTeammates.json().count, 2);
+  assert.equal(listedTeammates.json().teammates[0]?.teammate_id, "general");
+  assert.equal(listedTeammates.json().teammates[1]?.skills.length, 1);
+  assert.match(
+    listedTeammates.json().teammates[0]?.capability_profile.summary ?? "",
+    /Fallback executor/i,
+  );
+
+  const createdIssue = await app.inject({
+    method: "POST",
+    url: "/api/v1/issues",
+    payload: {
+      workspace_id: workspace.id,
+      title: "Ship dashboard",
+      description: "Implement the workspace dashboard surface.",
+      status: "todo",
+      priority: "medium",
+      assignee_teammate_id: createdTeammate.json().teammate.teammate_id,
+      attachments: [
+        {
+          id: "attachment-1",
+          kind: "file",
+          name: "brief.md",
+          mime_type: "text/markdown",
+          size_bytes: 8,
+          workspace_path: "docs/brief.md"
+        }
+      ]
+    }
   });
-  const updatedProposal = await app.inject({
+  assert.equal(createdIssue.statusCode, 200);
+  assert.equal(createdIssue.json().issue.issue_id, "WOR-1");
+  assert.equal(createdIssue.json().issue.issue_number, 1);
+  assert.equal(createdIssue.json().issue.attachments.length, 1);
+  assert.ok(createdIssue.json().issue.latest_subagent_id);
+  assert.equal(createdIssue.json().session.kind, "subagent");
+  const createdIssueId = createdIssue.json().issue.issue_id as string;
+  const issueBinding = store.getBinding({
+    workspaceId: workspace.id,
+    sessionId: createdIssue.json().session.session_id,
+  });
+  assert.ok(issueBinding);
+  assert.equal(issueBinding?.harness, "pi");
+  const createdIssueRuntimeState = store.getRuntimeState({
+    workspaceId: workspace.id,
+    sessionId: createdIssue.json().session.session_id,
+  });
+  assert.equal(createdIssueRuntimeState?.status, "QUEUED");
+  assert.ok(createdIssueRuntimeState?.currentInputId);
+  const createdIssueInput = store.getInput({
+    workspaceId: workspace.id,
+    inputId: createdIssueRuntimeState?.currentInputId ?? "",
+  });
+  assert.ok(createdIssueInput);
+  assert.equal(
+    (createdIssueInput?.payload.context as Record<string, unknown> | undefined)
+      ?.source,
+    "issue_bootstrap",
+  );
+  assert.match(
+    String(createdIssueInput?.payload.text ?? ""),
+    /Implement the workspace dashboard surface\./,
+  );
+  assert.match(
+    String(createdIssueInput?.payload.text ?? ""),
+    /Implement the workspace dashboard surface\./,
+  );
+
+  const updatedIssue = await app.inject({
     method: "PATCH",
-    url: "/api/v1/task-proposals/proposal-1",
+    url: `/api/v1/issues/${createdIssueId}`,
     payload: {
       workspace_id: workspace.id,
-      state: "accepted"
+      status: "blocked",
+      blocker_reason: "Need product sign-off"
+    }
+  });
+  assert.equal(updatedIssue.statusCode, 200);
+  assert.equal(updatedIssue.json().issue.status, "blocked");
+  assert.equal(updatedIssue.json().issue.blocker_reason, "Need product sign-off");
+
+  const archivedTeammate = await app.inject({
+    method: "PATCH",
+    url: `/api/v1/teammates/${createdTeammate.json().teammate.teammate_id}`,
+    payload: {
+      workspace_id: workspace.id,
+      status: "archived"
+    }
+  });
+  assert.equal(archivedTeammate.statusCode, 200);
+  assert.equal(archivedTeammate.json().teammate.status, "archived");
+
+  const fetchedIssue = await app.inject({
+    method: "GET",
+    url: `/api/v1/issues/${createdIssueId}?workspace_id=${workspace.id}`
+  });
+  assert.equal(fetchedIssue.statusCode, 200);
+  assert.equal(fetchedIssue.json().issue.status, "todo");
+  assert.equal(fetchedIssue.json().issue.assignee_teammate_id, null);
+
+  const visibleTeammates = await app.inject({
+    method: "GET",
+    url: `/api/v1/teammates?workspace_id=${workspace.id}`
+  });
+  assert.equal(visibleTeammates.statusCode, 200);
+  assert.equal(visibleTeammates.json().count, 1);
+  assert.equal(visibleTeammates.json().teammates[0]?.teammate_id, "general");
+
+  await app.close();
+  store.close();
+});
+
+test("queue route reopens done issue sessions on the same persistent thread", async () => {
+  const root = makeTempDir("hb-runtime-api-issue-queue-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const app = buildTestRuntimeApiServer({ store });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace",
+    harness: "pi",
+    status: "active",
+  });
+  const teammate = store.createTeammate({
+    workspaceId: workspace.id,
+    name: "Coder",
+    instructions: "Own implementation tasks.",
+  });
+  const issue = store.createIssue({
+    workspaceId: workspace.id,
+    sessionId: "session-issue-1",
+    title: "Ship dashboard",
+    description: "Implement the workspace dashboard surface.",
+    status: "done",
+    assigneeTeammateId: teammate.teammateId,
+    createdBy: "workspace_user",
+  });
+  const staleRun = store.createSubagentRun({
+    workspaceId: workspace.id,
+    parentSessionId: issue.sessionId,
+    originMainSessionId: issue.sessionId,
+    ownerMainSessionId: issue.sessionId,
+    childSessionId: issue.sessionId,
+    goal: issue.description ?? issue.title,
+    issueId: issue.issueId,
+    teammateId: teammate.teammateId,
+    status: "completed",
+    completedAt: utcNowIso(),
+  });
+  store.updateIssue({
+    workspaceId: workspace.id,
+    issueId: issue.issueId,
+    fields: {
+      latestSubagentId: staleRun.subagentId,
+    },
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/v1/agent-sessions/queue",
+    payload: {
+      workspace_id: workspace.id,
+      session_id: issue.sessionId,
+      text: "Please tighten the empty state copy.",
     }
   });
 
-  assert.equal(listedProposals.statusCode, 200);
-  assert.equal(listedProposals.json().count, 1);
-  assert.equal(unreviewed.statusCode, 200);
-  assert.equal(unreviewed.json().count, 1);
-  assert.equal(updatedProposal.statusCode, 200);
-  assert.equal(updatedProposal.json().proposal.state, "accepted");
-  assert.equal(updatedProposal.json().proposal.proposal_source, "proactive");
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().session_id, issue.sessionId);
+  assert.equal(response.json().status, "QUEUED");
+  const queuedInput = store.getInput({
+    workspaceId: workspace.id,
+    inputId: response.json().input_id,
+  });
+  assert.ok(queuedInput);
+  assert.equal(queuedInput?.payload.text, "Please tighten the empty state copy.");
+  assert.equal(
+    (queuedInput?.payload.context as Record<string, unknown> | undefined)?.source,
+    "issue_reply",
+  );
+  const refreshedIssue = store.getIssue({
+    workspaceId: workspace.id,
+    issueId: issue.issueId,
+  });
+  assert.equal(refreshedIssue?.status, "todo");
+  assert.equal(refreshedIssue?.latestSubagentId, staleRun.subagentId);
+  assert.equal(
+    store.listSubagentRunsByWorkspace({ workspaceId: workspace.id }).length,
+    1,
+  );
+  const refreshedRuntimeState = store.getRuntimeState({
+    workspaceId: workspace.id,
+    sessionId: issue.sessionId,
+  });
+  assert.equal(refreshedRuntimeState?.status, "QUEUED");
+
+  await app.close();
+  store.close();
+});
+
+test("issue update route blocks execution-changing edits while an issue is actively running", async () => {
+  const root = makeTempDir("hb-runtime-api-issue-active-guard-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const app = buildTestRuntimeApiServer({ store });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace",
+    harness: "pi",
+    status: "active",
+  });
+  const issue = store.createIssue({
+    workspaceId: workspace.id,
+    sessionId: "session-issue-1",
+    title: "Ship dashboard",
+    description: "Implement the workspace dashboard surface.",
+    status: "in_progress",
+    createdBy: "workspace_user",
+  });
+  store.updateIssue({
+    workspaceId: workspace.id,
+    issueId: issue.issueId,
+    fields: {
+      activeSubagentId: "subagent-1",
+    },
+  });
+
+  const response = await app.inject({
+    method: "PATCH",
+    url: `/api/v1/issues/${issue.issueId}`,
+    payload: {
+      workspace_id: workspace.id,
+      status: "done",
+    }
+  });
+
+  assert.equal(response.statusCode, 409);
+  assert.match(
+    String(response.json().detail ?? ""),
+    /issue is currently running; stop the run before editing it/i,
+  );
+
+  await app.close();
+  store.close();
+});
+
+test("issue stop route cancels the active run and blocks the issue", async () => {
+  const root = makeTempDir("hb-runtime-api-issue-stop-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  const app = buildTestRuntimeApiServer({ store });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace",
+    harness: "pi",
+    status: "active",
+  });
+  const generalTeammate = store.listTeammates({
+    workspaceId: workspace.id,
+  })[0];
+  const issue = store.createIssue({
+    workspaceId: workspace.id,
+    sessionId: "session-issue-stop-1",
+    title: "Ship dashboard",
+    description: "Implement the workspace dashboard surface.",
+    status: "in_progress",
+    assigneeTeammateId: generalTeammate?.teammateId ?? null,
+    activeSubagentId: "subagent-1",
+    latestSubagentId: "subagent-1",
+    createdBy: "workspace_user",
+  });
+  store.createSubagentRun({
+    subagentId: "subagent-1",
+    workspaceId: workspace.id,
+    originMainSessionId: issue.sessionId,
+    ownerMainSessionId: issue.sessionId,
+    childSessionId: issue.sessionId,
+    title: issue.title,
+    goal: issue.description ?? issue.title,
+    issueId: issue.issueId,
+    teammateId: generalTeammate?.teammateId ?? null,
+    status: "running",
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/v1/issues/${issue.issueId}/stop`,
+    payload: {
+      workspace_id: workspace.id,
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().issue.status, "blocked");
+  assert.equal(response.json().issue.blocker_reason, "Run cancelled by user.");
+  assert.equal(response.json().issue.active_subagent_id, null);
 
   await app.close();
   store.close();
@@ -6196,6 +6821,7 @@ test("raw cronjob routes keep draft lab jobs disabled by default", async () => {
     payload: {
       workspace_id: workspace.id,
       initiated_by: "workspace_agent",
+      teammate_id: "general",
       cron: "0 9 * * *",
       description: "Daily check",
       instruction: "Say hello",
@@ -6257,6 +6883,7 @@ test("raw cronjob routes keep draft lab jobs disabled by default", async () => {
     payload: {
       workspace_id: workspace.id,
       initiated_by: "workspace_agent",
+      teammate_id: "general",
       cron: "0 9 * * *",
       description: "Daily check",
       instruction: "Say hello",
@@ -9171,335 +9798,6 @@ test("runtime api server starts and closes the main-session event worker", async
   await app.close();
 
   assert.equal(closed, 1);
-  store.close();
-});
-
-test("accept task proposal creates a hidden subagent run with queued work", async () => {
-  const root = makeTempDir("hb-runtime-api-task-proposal-");
-  writeRuntimeConfig(root, {
-    runtime: {
-      default_model: "openai/gpt-5.4",
-    },
-  });
-  const store = new RuntimeStateStore({
-    dbPath: path.join(root, "runtime.db"),
-    workspaceRoot: path.join(root, "workspace")
-  });
-  let wakeCount = 0;
-  const app = buildRuntimeApiServer({
-    store,
-    queueWorker: {
-      async start() {},
-      async close() {},
-      wake() {
-        wakeCount += 1;
-      }
-    },
-    cronWorker: null,
-    bridgeWorker: null
-  });
-
-  const workspace = store.createWorkspace({
-    workspaceId: "workspace-1",
-    name: "Workspace 1",
-    harness: "pi",
-    status: "active",
-  });
-  store.upsertBinding({
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    harness: "pi",
-    harnessSessionId: "session-main"
-  });
-  store.createTaskProposal({
-    proposalId: "proposal-1",
-    workspaceId: workspace.id,
-    taskName: "Follow up",
-    taskPrompt: "Write a follow-up message",
-    taskGenerationRationale: "User has not replied",
-    sourceEventIds: ["evt-1"],
-    createdAt: "2026-01-01T00:00:00+00:00"
-  });
-
-  const response = await app.inject({
-    method: "POST",
-    url: "/api/v1/task-proposals/proposal-1/accept",
-    payload: {
-      workspace_id: workspace.id,
-      parent_session_id: "session-main",
-      task_name: "Follow up",
-      task_prompt: "Write the follow-up and send a reminder",
-      model: "openai/gpt-5.2",
-      priority: 2,
-      created_by: "workspace_user"
-    }
-  });
-
-  assert.equal(response.statusCode, 200);
-  const body = response.json();
-  assert.equal(body.proposal.state, "accepted");
-  assert.equal(body.proposal.proposal_source, "proactive");
-  assert.equal(body.proposal.accepted_input_id, body.input.input_id);
-  assert.equal(body.proposal.accepted_session_id, body.session.session_id);
-  assert.equal(body.session.kind, "subagent");
-  assert.equal(body.session.parent_session_id, "session-main");
-  assert.equal(body.session.source_proposal_id, "proposal-1");
-  assert.equal(body.session.title, "Follow up");
-  assert.equal(body.input.session_id, body.session.session_id);
-  assert.equal(body.input.status, "QUEUED");
-  assert.equal(wakeCount, 1);
-
-  const childBinding = store.getBinding({ workspaceId: workspace.id, sessionId: body.session.session_id });
-  assert.ok(childBinding);
-  assert.equal(childBinding.harness, "pi");
-  assert.equal(childBinding.harnessSessionId, body.session.session_id);
-
-  const childRuntimeState = store.getRuntimeState({
-    workspaceId: workspace.id,
-    sessionId: body.session.session_id
-  });
-  assert.ok(childRuntimeState);
-  assert.equal(childRuntimeState.status, "QUEUED");
-  assert.equal(childRuntimeState.currentInputId, body.input.input_id);
-
-  const childInput = store.getInput({ workspaceId: workspace.id, inputId: body.input.input_id });
-  assert.ok(childInput);
-  assert.equal(childInput.sessionId, body.session.session_id);
-  assert.equal(childInput.priority, 2);
-  assert.equal(childInput.payload.text, "Write the follow-up and send a reminder");
-  assert.equal(childInput.payload.model, "openai/gpt-5.2");
-  const childContext = childInput.payload.context as Record<string, unknown>;
-  assert.deepEqual(childContext, {
-    source: "task_proposal",
-    source_type: "task_proposal",
-    proposal_id: "proposal-1",
-    proposal_source: "proactive",
-    subagent_id: childContext.subagent_id,
-    parent_session_id: "session-main",
-    origin_main_session_id: "session-main",
-    owner_main_session_id: "session-main",
-    task_title: "Follow up",
-    goal: "Write the follow-up and send a reminder",
-    evolve_candidate: null,
-  });
-  const subagentRun = store.getSubagentRun({
-    workspaceId: workspace.id,
-    subagentId: String(childContext.subagent_id),
-  });
-  assert.ok(subagentRun);
-  assert.equal(subagentRun?.childSessionId, body.session.session_id);
-  assert.equal(subagentRun?.proposalId, "proposal-1");
-  assert.equal(subagentRun?.sourceType, "task_proposal");
-  assert.equal(subagentRun?.status, "queued");
-  assert.equal(subagentRun?.requestedModel, "openai/gpt-5.2");
-  assert.equal(subagentRun?.effectiveModel, "openai/gpt-5.2");
-
-  const childHistory = store.listSessionMessages({
-    workspaceId: workspace.id,
-    sessionId: body.session.session_id
-  });
-  assert.equal(childHistory.length, 0);
-
-  const secondAccept = await app.inject({
-    method: "POST",
-    url: "/api/v1/task-proposals/proposal-1/accept",
-    payload: {
-      workspace_id: workspace.id
-    }
-  });
-  assert.equal(secondAccept.statusCode, 409);
-
-  await app.close();
-  store.close();
-});
-
-test("accepting and dismissing evolve task proposals updates linked skill candidates", async () => {
-  const root = makeTempDir("hb-runtime-api-evolve-task-proposal-");
-  const store = new RuntimeStateStore({
-    dbPath: path.join(root, "runtime.db"),
-    workspaceRoot: path.join(root, "workspace")
-  });
-  const memoryService = new FilesystemMemoryService({ workspaceRoot: store.workspaceRoot });
-  const workspace = store.createWorkspace({
-    workspaceId: "workspace-1",
-    name: "Workspace 1",
-    harness: "pi",
-    status: "active",
-  });
-  store.ensureSession({
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    kind: "main_session",
-    title: "Main"
-  });
-  store.upsertBinding({
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    harness: "pi",
-    harnessSessionId: "session-main"
-  });
-  store.createEvolveSkillCandidate({
-    candidateId: "evolve-skill-input-10",
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    inputId: "input-10",
-    kind: "skill_create",
-    status: "proposed",
-    taskProposalId: "evolve-proposal-1",
-    title: "Release verification skill",
-    summary: "Reusable release verification workflow.",
-    slug: "release-verification",
-    skillPath: `workspace/${workspace.id}/evolve/skills/evolve-skill-input-10/SKILL.md`,
-    contentFingerprint: "fp-1",
-    sourceTurnInputIds: ["input-10"],
-    proposedAt: "2026-04-10T00:00:00.000Z",
-  });
-  await memoryService.upsert({
-    workspace_id: workspace.id,
-    path: `workspace/${workspace.id}/evolve/skills/evolve-skill-input-10/SKILL.md`,
-    content: [
-      "---",
-      "name: release-verification",
-      "description: Reusable release verification workflow.",
-      "---",
-      "# Release verification skill",
-      "",
-      "## Workflow",
-      "1. Run verification checks.",
-    ].join("\n"),
-  });
-  store.createTaskProposal({
-    proposalId: "evolve-proposal-1",
-    workspaceId: workspace.id,
-    taskName: "Review new reusable skill: Release verification skill",
-    taskPrompt: "Review and promote the candidate skill.",
-    taskGenerationRationale: "Evolve detected a reusable workflow.",
-    proposalSource: "evolve",
-    sourceEventIds: ["input-10"],
-    createdAt: "2026-04-10T00:00:00.000Z"
-  });
-  store.createTaskProposal({
-    proposalId: "evolve-proposal-2",
-    workspaceId: workspace.id,
-    taskName: "Dismiss me",
-    taskPrompt: "Dismiss evolve candidate.",
-    taskGenerationRationale: "Evolve needs a user decision.",
-    proposalSource: "evolve",
-    sourceEventIds: ["input-11"],
-    createdAt: "2026-04-10T00:01:00.000Z"
-  });
-  store.createEvolveSkillCandidate({
-    candidateId: "evolve-skill-input-11",
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    inputId: "input-11",
-    kind: "skill_create",
-    status: "proposed",
-    taskProposalId: "evolve-proposal-2",
-    title: "Deploy status check skill",
-    summary: "Reusable deploy status verification workflow.",
-    slug: "deploy-status-check",
-    skillPath: `workspace/${workspace.id}/evolve/skills/evolve-skill-input-11/SKILL.md`,
-    contentFingerprint: "fp-2",
-    sourceTurnInputIds: ["input-11"],
-    proposedAt: "2026-04-10T00:01:00.000Z",
-  });
-
-  let wakeCount = 0;
-  const app = buildTestRuntimeApiServer({
-    store,
-    memoryService,
-    queueWorker: {
-      async start() {},
-      wake() {
-        wakeCount += 1;
-      },
-      async close() {},
-    }
-  });
-
-  const accepted = await app.inject({
-    method: "POST",
-    url: "/api/v1/task-proposals/evolve-proposal-1/accept",
-    payload: {
-      workspace_id: workspace.id,
-      parent_session_id: "session-main",
-      created_by: "workspace_user"
-    }
-  });
-  assert.equal(accepted.statusCode, 200);
-  const acceptedBody = accepted.json();
-  assert.equal(acceptedBody.proposal.proposal_source, "evolve");
-  assert.equal(acceptedBody.session.kind, "subagent");
-  const acceptedInput = store.getInput({ workspaceId: workspace.id, inputId: acceptedBody.input.input_id });
-  assert.ok(acceptedInput);
-  const acceptedContext = acceptedInput.payload.context as Record<string, unknown>;
-  assert.deepEqual(acceptedContext, {
-    source: "task_proposal",
-    source_type: "task_proposal",
-    proposal_id: "evolve-proposal-1",
-    proposal_source: "evolve",
-    subagent_id: acceptedContext.subagent_id,
-    parent_session_id: "session-main",
-    origin_main_session_id: "session-main",
-    owner_main_session_id: "session-main",
-    task_title: "Review new reusable skill: Release verification skill",
-    goal: "Review and promote the candidate skill.",
-    evolve_candidate: {
-      candidate_id: "evolve-skill-input-10",
-      kind: "skill_create",
-      title: "Release verification skill",
-      summary: "Reusable release verification workflow.",
-      slug: "release-verification",
-      skill_path: `workspace/${workspace.id}/evolve/skills/evolve-skill-input-10/SKILL.md`,
-      target_skill_path: "skills/release-verification/SKILL.md",
-      skill_markdown: [
-        "---",
-        "name: release-verification",
-        "description: Reusable release verification workflow.",
-        "---",
-        "# Release verification skill",
-        "",
-        "## Workflow",
-        "1. Run verification checks.",
-      ].join("\n"),
-      task_proposal_id: "evolve-proposal-1",
-    },
-  });
-  assert.equal(
-    store.getEvolveSkillCandidate({
-      workspaceId: "workspace-1",
-      candidateId: "evolve-skill-input-10"
-    })?.status,
-    "accepted"
-  );
-  assert.equal(wakeCount, 1);
-
-  const dismissed = await app.inject({
-    method: "PATCH",
-    url: "/api/v1/task-proposals/evolve-proposal-2",
-    payload: {
-      workspace_id: workspace.id,
-      state: "dismissed"
-    }
-  });
-  assert.equal(dismissed.statusCode, 200);
-  assert.equal(dismissed.json().proposal.proposal_source, "evolve");
-  assert.equal(
-    store.getEvolveSkillCandidate({
-      workspaceId: "workspace-1",
-      candidateId: "evolve-skill-input-11"
-    })?.status,
-    "dismissed"
-  );
-  assert.ok(
-    store.getEvolveSkillCandidate({
-      workspaceId: "workspace-1",
-      candidateId: "evolve-skill-input-11"
-    })?.dismissedAt
-  );
-
-  await app.close();
   store.close();
 });
 

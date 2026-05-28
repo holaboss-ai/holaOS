@@ -1,4 +1,4 @@
-import { Boxes, Clock3, History, Inbox, PanelLeftClose } from "lucide-react";
+import { Boxes, Clock3, Inbox, PanelLeftClose } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -14,7 +14,6 @@ interface ChatHeaderProps {
   workspace: WorkspaceRecordPayload | null;
   subtitle?: string;
   onReturnToMainSession?: () => void;
-  onOpenSessions?: () => void;
   onOpenInbox?: () => void;
   inboxUnreadCount: number;
   onOpenAutomations?: () => void;
@@ -33,7 +32,6 @@ export function ChatHeader({
   workspace,
   subtitle,
   onReturnToMainSession,
-  onOpenSessions,
   onOpenInbox,
   inboxUnreadCount,
   onOpenAutomations,
@@ -84,26 +82,6 @@ export function ChatHeader({
 
       <TooltipProvider delay={250}>
         <div className="flex shrink-0 items-center gap-0.5">
-          {onOpenSessions ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => onOpenSessions()}
-                    aria-label="Sessions"
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <History className="size-4" />
-                  </Button>
-                }
-              />
-              <TooltipContent>Sessions</TooltipContent>
-            </Tooltip>
-          ) : null}
-
           {onOpenInbox ? (
             <Tooltip>
               <TooltipTrigger

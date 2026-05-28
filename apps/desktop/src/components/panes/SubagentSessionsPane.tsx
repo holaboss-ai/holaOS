@@ -7,14 +7,10 @@ import {
   Loader2,
   MessageCircle,
   Search,
-  WandSparkles,
 } from "lucide-react";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
-import { Button } from "@/components/ui/button";
-import { StatusDot } from "@/components/ui/status-dot";
 
 const SUBAGENT_SESSIONS_POLL_INTERVAL_MS = 2000;
-type InspectableSessionFilter = "all" | "subagent" | "cronjob" | "task_proposal";
 
 interface SubagentSessionsPaneProps {
   workspaceId?: string | null;
@@ -28,7 +24,7 @@ function normalizeErrorMessage(error: unknown) {
 
 function isInspectableRunSession(session: AgentSessionRecordPayload) {
   const kind = session.kind.trim().toLowerCase();
-  return kind === "subagent" || kind === "task_proposal";
+  return kind === "subagent";
 }
 
 function sortInspectableRunSessions(items: AgentSessionRecordPayload[]) {
@@ -44,15 +40,12 @@ function sortInspectableRunSessions(items: AgentSessionRecordPayload[]) {
 
 function summarizeInspectableRunSessions(items: AgentSessionRecordPayload[]) {
   return items.length === 1
-    ? "1 recent subagent session"
-    : `${items.length} recent subagent sessions`;
+    ? "1 recent run session"
+    : `${items.length} recent run sessions`;
 }
 
 function inspectableRunSessionLabel(session: AgentSessionRecordPayload) {
   const category = inspectableRunSessionCategory(session);
-  if (category === "task_proposal") {
-    return "Task proposal run";
-  }
   if (category === "cronjob") {
     return "Cronjob run";
   }
@@ -61,19 +54,10 @@ function inspectableRunSessionLabel(session: AgentSessionRecordPayload) {
 
 function inspectableRunSessionCategory(
   session: AgentSessionRecordPayload,
-): Exclude<InspectableSessionFilter, "all"> {
+): "subagent" | "cronjob" {
   const sourceType = (session.source_type ?? "").trim().toLowerCase();
-  const kind = session.kind.trim().toLowerCase();
   if (sourceType === "cronjob" || Boolean((session.cronjob_id ?? "").trim())) {
     return "cronjob";
-  }
-  if (
-    kind === "task_proposal" ||
-    sourceType === "task_proposal" ||
-    Boolean((session.proposal_id ?? "").trim()) ||
-    Boolean((session.source_proposal_id ?? "").trim())
-  ) {
-    return "task_proposal";
   }
   return "subagent";
 }
@@ -161,8 +145,6 @@ export function SubagentSessionsPane({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [inlineExpanded, setInlineExpanded] = useState(false);
-  const [activeFilter, setActiveFilter] =
-    useState<InspectableSessionFilter>("all");
 
   const refreshSessions = useCallback(
     async (options?: { showLoading?: boolean }) => {
@@ -244,14 +226,13 @@ export function SubagentSessionsPane({
   }, [activeWorkspaceId, refreshSessions]);
 
   const latestSession = useMemo(() => sessions[0] ?? null, [sessions]);
-  const filteredSessions = useMemo(() => {
-    if (activeFilter === "all") {
-      return sessions;
-    }
-    return sessions.filter(
-      (session) => inspectableRunSessionCategory(session) === activeFilter,
-    );
-  }, [activeFilter, sessions]);
+  const cronjobSessions = useMemo(
+    () =>
+      sessions.filter(
+        (session) => inspectableRunSessionCategory(session) === "cronjob",
+      ),
+    [sessions],
+  );
 
   if (variant === "inline") {
     if (!activeWorkspaceId) {
@@ -261,7 +242,7 @@ export function SubagentSessionsPane({
       return null;
     }
 
-    const summaryLabel = summarizeInspectableRunSessions(filteredSessions);
+    const summaryLabel = summarizeInspectableRunSessions(sessions);
     const detailLabel = latestSession
       ? latestSession.title?.trim() || inspectableRunSessionLabel(latestSession)
       : "";
@@ -293,7 +274,7 @@ export function SubagentSessionsPane({
               ) : null}
             </div>
             <div className="shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground">
-              {filteredSessions.length}
+              {sessions.length}
             </div>
             <ChevronDown
               className={`size-3.5 shrink-0 text-muted-foreground transition ${inlineExpanded ? "rotate-0" : "-rotate-90"}`}
@@ -308,7 +289,7 @@ export function SubagentSessionsPane({
                 </div>
               ) : null}
               <div className={`${errorMessage ? "mt-3 " : ""}space-y-2`}>
-                {filteredSessions.map((session) => {
+                {sessions.map((session) => {
                   const title =
                     session.title?.trim() ||
                     inspectableRunSessionLabel(session);
@@ -322,9 +303,7 @@ export function SubagentSessionsPane({
                       className="flex w-full min-w-0 items-start gap-2 rounded-xl border border-border bg-muted px-3 py-2.5 text-left transition hover:border-primary/40 hover:text-primary"
                     >
                       <span className="mt-0.5 grid size-4 shrink-0 place-items-center text-muted-foreground">
-                        {session.kind.trim().toLowerCase() === "task_proposal" ? (
-                          <WandSparkles size={13} />
-                        ) : archived ? (
+                        {archived ? (
                           <Archive size={13} />
                         ) : (
                           <Bot size={13} />
@@ -357,12 +336,9 @@ export function SubagentSessionsPane({
 
   return (
     <FullSessionsView
-      sessions={sessions}
-      filteredSessions={filteredSessions}
+      sessions={cronjobSessions}
       isLoading={isLoading}
       errorMessage={errorMessage}
-      activeFilter={activeFilter}
-      onFilterChange={setActiveFilter}
       onOpenSession={onOpenSession}
     />
   );
@@ -370,32 +346,26 @@ export function SubagentSessionsPane({
 
 function FullSessionsView({
   sessions,
-  filteredSessions,
   isLoading,
   errorMessage,
-  activeFilter,
-  onFilterChange,
   onOpenSession,
 }: {
   sessions: AgentSessionRecordPayload[];
-  filteredSessions: AgentSessionRecordPayload[];
   isLoading: boolean;
   errorMessage: string;
-  activeFilter: InspectableSessionFilter;
-  onFilterChange: (next: InspectableSessionFilter) => void;
   onOpenSession?: (session: AgentSessionRecordPayload) => void;
 }) {
   const [query, setQuery] = useState("");
 
   const searched = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return filteredSessions;
-    return filteredSessions.filter((s) => {
+    if (!q) return sessions;
+    return sessions.filter((s) => {
       const title = (s.title ?? "").toLowerCase();
       const fallback = inspectableRunSessionLabel(s).toLowerCase();
       return title.includes(q) || fallback.includes(q);
     });
-  }, [filteredSessions, query]);
+  }, [query, sessions]);
 
   const grouped = useMemo(() => {
     const buckets = new Map<string, AgentSessionRecordPayload[]>();
@@ -413,12 +383,10 @@ function FullSessionsView({
 
   const emptyForReason =
     sessions.length === 0
-      ? "No agent sessions yet — kick one off from chat."
+      ? "No cronjob runs yet."
       : searched.length === 0 && query.trim()
-        ? `No sessions match "${query.trim()}".`
-        : searched.length === 0
-          ? "No sessions match this filter."
-          : null;
+        ? `No cronjob runs match "${query.trim()}".`
+        : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -432,36 +400,10 @@ function FullSessionsView({
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search sessions…"
-            aria-label="Search sessions"
+            placeholder="Search cronjobs…"
+            aria-label="Search cronjobs"
             className="h-8 w-full rounded-md border border-border bg-transparent pr-2 pl-7 text-xs text-foreground placeholder:text-muted-foreground focus-visible:border-foreground/20 focus-visible:outline-none"
           />
-        </div>
-        <div className="mt-2 flex items-center gap-1 overflow-x-auto">
-          {(
-            [
-              ["all", "All"],
-              ["subagent", "Subagents"],
-              ["cronjob", "Cronjobs"],
-              ["task_proposal", "Task proposals"],
-            ] as const
-          ).map(([filterId, label]) => {
-            const isActive = activeFilter === filterId;
-            return (
-              <button
-                key={filterId}
-                type="button"
-                onClick={() => onFilterChange(filterId)}
-                className={
-                  isActive
-                    ? "inline-flex h-6 items-center rounded-full bg-foreground/[0.08] px-2.5 text-[11px] font-medium text-foreground"
-                    : "inline-flex h-6 items-center rounded-full px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
-                }
-              >
-                {label}
-              </button>
-            );
-          })}
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
@@ -514,18 +456,13 @@ function SessionRow({
   const title = session.title?.trim() || inspectableRunSessionLabel(session);
   const archived = Boolean((session.archived_at || "").trim());
   const category = inspectableRunSessionCategory(session);
-  const isTaskProposal = category === "task_proposal" && !archived;
   const ms = sessionTimestampMs(session);
   const time = formatSessionTimeOnly(ms);
   const subtitle = archived
     ? "Archived"
-    : isTaskProposal
-      ? "Task proposal"
-      : inspectableRunSessionLabel(session);
+    : inspectableRunSessionLabel(session);
   const Icon =
-    category === "task_proposal"
-      ? WandSparkles
-      : category === "cronjob"
+    category === "cronjob"
         ? Clock3
         : archived
           ? Archive
@@ -547,9 +484,6 @@ function SessionRow({
       <span className="min-w-0 flex-1 truncate text-sm text-foreground">
         {title}
       </span>
-      {isTaskProposal ? (
-        <StatusDot variant="warning" size="sm" />
-      ) : null}
       <span className="shrink-0 truncate text-xs text-muted-foreground">
         {subtitle}
       </span>
