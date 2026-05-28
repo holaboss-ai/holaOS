@@ -772,6 +772,7 @@ interface BrowserTabSpaceState {
   lifecycleState: BrowserSurfaceLifecycleState;
   lastTouchedAt: string;
   suspendTimer: ReturnType<typeof setTimeout> | null;
+  userClosedAll?: boolean;
 }
 
 interface BrowserWorkspaceTabPersistencePayload {
@@ -24567,6 +24568,7 @@ app.whenReady().then(async () => {
         canCloseLeft: boolean;
         canCloseRight: boolean;
         canCloseOthers: boolean;
+        canCloseAll?: boolean;
         hasDeleteFile: boolean;
       },
     ): Promise<
@@ -24574,6 +24576,7 @@ app.whenReady().then(async () => {
       | "closeOthers"
       | "closeToLeft"
       | "closeToRight"
+      | "closeAll"
       | "deleteFile"
       | null
     > => {
@@ -24582,6 +24585,7 @@ app.whenReady().then(async () => {
         | "closeOthers"
         | "closeToLeft"
         | "closeToRight"
+        | "closeAll"
         | "deleteFile";
       const win = BrowserWindow.fromWebContents(event.sender);
       if (!win) return null;
@@ -24612,6 +24616,11 @@ app.whenReady().then(async () => {
             label: "Close tabs to the right",
             enabled: opts.canCloseRight,
             click: () => finish("closeToRight"),
+          },
+          {
+            label: "Close all tabs",
+            enabled: opts.canCloseAll !== false,
+            click: () => finish("closeAll"),
           },
         ];
         if (opts.hasDeleteFile) {

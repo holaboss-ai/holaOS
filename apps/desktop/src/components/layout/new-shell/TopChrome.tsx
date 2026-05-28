@@ -131,6 +131,7 @@ export function TopChrome() {
           canCloseLeft: idsLeft.length > 0,
           canCloseRight: idsRight.length > 0,
           canCloseOthers: idsOthers.length > 0,
+          canCloseAll: allIds.length > 0,
           hasDeleteFile: deletableFile !== null,
         })
         .then((action) => {
@@ -143,6 +144,7 @@ export function TopChrome() {
           if (action === "closeOthers") return closeMany(idsOthers);
           if (action === "closeToLeft") return closeMany(idsLeft);
           if (action === "closeToRight") return closeMany(idsRight);
+          if (action === "closeAll") return closeMany(allIds);
           if (action === "deleteFile" && deletableFile) {
             const tab = deletableFile;
             if (

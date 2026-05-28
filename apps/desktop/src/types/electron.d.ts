@@ -2229,12 +2229,14 @@ interface RuntimeNotificationListOptionsPayload {
         canCloseLeft: boolean;
         canCloseRight: boolean;
         canCloseOthers: boolean;
+        canCloseAll?: boolean;
         hasDeleteFile: boolean;
       }) => Promise<
         | "close"
         | "closeOthers"
         | "closeToLeft"
         | "closeToRight"
+        | "closeAll"
         | "deleteFile"
         | null
       >;
