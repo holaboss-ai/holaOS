@@ -123,6 +123,16 @@ export function FirstWorkspacePane({
     setStep("layout");
   }
 
+  function handleSelectMainViewMode(next: MainViewMode) {
+    if (next === mainViewMode) return;
+    trackUmamiEvent("first_workspace_main_view_selected", {
+      main_view_mode: next,
+      previous_main_view_mode: mainViewMode,
+      variant: isPanelVariant ? "panel" : "full",
+    });
+    setMainViewMode(next);
+  }
+
   function handleCreateWorkspace() {
     if (createDisabled) {
       return;
@@ -308,14 +318,14 @@ export function FirstWorkspacePane({
               <WorkModeOption
                 active={mainViewMode === "workspace"}
                 description="Tabs and chat side by side."
-                onSelect={() => setMainViewMode("workspace")}
+                onSelect={() => handleSelectMainViewMode("workspace")}
                 preview={<WorkspaceModePreview />}
                 title="Workspace mode"
               />
               <WorkModeOption
                 active={mainViewMode === "chat"}
                 description="Chat fills the canvas, tabs tucked away."
-                onSelect={() => setMainViewMode("chat")}
+                onSelect={() => handleSelectMainViewMode("chat")}
                 preview={<ChatModePreview />}
                 title="Chat mode"
               />
