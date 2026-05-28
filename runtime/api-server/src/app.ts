@@ -9855,7 +9855,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           workspaceId: executionWorkspaceId,
           sessionId: resolvedSessionId,
         });
-        const queueAwareState = effectiveSessionState(runtimeState, true);
+        const queueAwareState = effectiveSessionState(store, runtimeState, true);
         return {
           input_id: queuedIssueReply.input.inputId,
           session_id: queuedIssueReply.session.sessionId,

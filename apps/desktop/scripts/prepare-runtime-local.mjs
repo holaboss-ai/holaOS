@@ -1,6 +1,7 @@
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 import { localRuntimePackagerFileNames, resolveRuntimePlatform } from "./runtime-bundle.mjs";
 
@@ -10,6 +11,8 @@ function hasPackagerAtRoot(rootPath, fileNames) {
   );
 }
 
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const desktopRoot = path.resolve(scriptDir, "..");
 const repoRoot = process.cwd();
 const runtimePlatform = resolveRuntimePlatform();
 const explicitRuntimeRepoRoot = process.env.HOLABOSS_OSS_ROOT || process.env.HOLABOSS_RUNTIME_REPO_ROOT;
@@ -60,7 +63,7 @@ if ((buildRuntime.status ?? 1) !== 0) {
   process.exit(buildRuntime.status ?? 1);
 }
 
-const stageRuntime = spawnSync(process.execPath, [path.join(repoRoot, "scripts", "stage-runtime-bundle.mjs")], {
+const stageRuntime = spawnSync(process.execPath, [path.join(desktopRoot, "scripts", "stage-runtime-bundle.mjs")], {
   stdio: "inherit",
   env: {
     ...process.env,

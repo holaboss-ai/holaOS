@@ -13443,7 +13443,6 @@ export class RuntimeStateStore {
         );
       `);
     }
-    this.migrateLegacyMainSessionLabels(db);
     this.ensureSubagentRunsTableSchema(db);
     this.ensureSessionRuntimeStateTableSchema(db);
     this.ensureTurnArtifactsSchema(db);
