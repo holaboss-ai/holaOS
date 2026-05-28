@@ -164,9 +164,9 @@ test("buildAgentCapabilityManifest applies tool server id mappings to MCP callab
 test("buildAgentCapabilityManifest filters browser tools when policy context does not allow them", () => {
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
-    sessionKind: "task_proposal",
-    browserToolsAvailable: true,
-    browserToolIds: ["browser_get_state"],
+    sessionKind: "subagent",
+    browserToolsAvailable: false,
+    browserToolIds: [],
     runtimeToolIds: ["holaboss_onboarding_complete"],
     defaultTools: ["read"],
     extraTools: ["browser_get_state", "holaboss_onboarding_complete"],
@@ -176,9 +176,9 @@ test("buildAgentCapabilityManifest filters browser tools when policy context doe
 
   assert.deepEqual(manifest.context, {
     harness_id: "pi",
-    session_kind: "task_proposal",
-    browser_tools_available: true,
-    browser_tool_ids: ["browser_get_state"],
+    session_kind: "subagent",
+    browser_tools_available: false,
+    browser_tool_ids: [],
     runtime_tool_ids: ["holaboss_onboarding_complete"],
     workspace_command_ids: [],
     workspace_commands_available: false,
@@ -210,7 +210,7 @@ test("buildAgentCapabilityManifest includes staged browser tools for subagent se
   assert.equal(buildEnabledToolMapFromManifest(manifest).browser_get_state, true);
 });
 
-test("buildAgentCapabilityManifest includes staged browser tools for main sessions", () => {
+test("buildAgentCapabilityManifest excludes staged browser tools for main sessions", () => {
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
     sessionKind: "main_session",
@@ -223,8 +223,8 @@ test("buildAgentCapabilityManifest includes staged browser tools for main sessio
     resolvedMcpToolRefs: [],
   });
 
-  assert.equal(manifest.inspect.some((capability) => capability.callable_name === "browser_get_state"), true);
-  assert.equal(buildEnabledToolMapFromManifest(manifest).browser_get_state, true);
+  assert.equal(manifest.inspect.some((capability) => capability.callable_name === "browser_get_state"), false);
+  assert.equal(buildEnabledToolMapFromManifest(manifest).browser_get_state, undefined);
 });
 
 test("buildAgentCapabilityManifest excludes browser tools for onboarding sessions even when staged", () => {
@@ -270,44 +270,33 @@ test("buildAgentCapabilityManifest includes native web search as a runtime tool"
   assert.equal(buildEnabledToolMapFromManifest(manifest).web_search, true);
 });
 
-test("renderCapabilityToolRoutingPromptSection lets main sessions execute directly and delegate when useful", () => {
+test("renderCapabilityToolRoutingPromptSection keeps main sessions coordinator-first", () => {
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
     sessionKind: "main_session",
     browserToolsAvailable: false,
     browserToolIds: [],
-    runtimeToolIds: ["delegate_task", "continue_subagent"],
+    runtimeToolIds: ["delegate_task", "rerun_task"],
     defaultTools: ["read", "edit"],
-    extraTools: ["delegate_task", "continue_subagent"],
+    extraTools: ["delegate_task", "rerun_task"],
     workspaceSkillIds: [],
     resolvedMcpToolRefs: [],
   });
 
   const section = renderCapabilityToolRoutingPromptSection(manifest);
   assert.match(section, /Delegation routing:/);
-  assert.match(section, /keep work inline by default/i);
-  assert.match(section, /use `delegate_task` primarily for research and investigation work/i);
-  assert.match(section, /creating apps and making substantial app modifications/i);
-  assert.match(section, /Outside research and app-building, delegate only when the user explicitly asks for background execution or the task genuinely must continue outside the current turn/i);
-  assert.match(section, /Direct execution is allowed in this session when the surfaced tools can satisfy the request cleanly/i);
-  assert.match(section, /Do not treat deliverable length alone as a delegation signal/i);
-  assert.match(section, /Treat user requests as workspace-native by default/i);
-  assert.match(section, /Prefer the direct surfaced workspace route first/i);
-  assert.match(section, /Do not turn a named app or product request into a desktop install, browser-open, manual setup, or generic option list before checking the direct workspace-native route or delegated workspace route/i);
-  assert.match(section, /Ground clarification in current workspace\/session context or a concrete tool\/subagent result/i);
-  assert.match(section, /inspect, execute, or delegate first when context is insufficient/i);
-  assert.match(section, /Do not ask abstract option-list questions or introduce unsupported alternatives from general product knowledge/i);
+  assert.match(section, /use `delegate_task` instead of replying that the current run lacks those tools/i);
+  assert.match(section, /prefer `delegate_task` so the result is produced as an artifact and the main chat stays concise/i);
+  assert.match(section, /Treat the main session as a coordinator first/i);
+  assert.match(section, /browser-heavy, web-heavy, terminal-heavy, multi-step, or interruptible/i);
   assert.match(section, /Available-tool fallback:/);
   assert.match(section, /missing the ideal MCP, API, browser, web, terminal, or file tool is not enough to stop/i);
   assert.match(section, /choose another viable direct or delegated route/i);
-  assert.match(section, /Treat delegated subagents as overflow execution capacity, not as the only execution surface for this workspace/i);
+  assert.match(section, /Treat current-run capability limits as a delegation signal when hidden subagents can perform the task/i);
   assert.match(section, /Do not lead with a capability apology, manual workaround, or "I can't do that here" answer when delegation is available/i);
   assert.match(section, /trust the current run and retry the tool when it is the right path/i);
   assert.match(section, /Only surface a hard capability limitation to the user when neither the current run nor delegated subagents can actually carry out the request/i);
-  assert.match(section, /Continuation routing:/);
-  assert.match(section, /use `continue_subagent` on the relevant completed child session instead of creating a brand-new delegated task/i);
-  assert.match(section, /ask which one the user means before continuing/i);
-  assert.doesNotMatch(section, /main session as a coordinator first/i);
+  assert.doesNotMatch(section, /Continuation routing:/);
 });
 
 test("renderCapabilityToolRoutingPromptSection prefers surfaced MCP tools before diagnostic fallbacks in executor sessions", () => {
@@ -366,7 +355,7 @@ test("renderCapabilityAvailabilityContextPromptSection surfaces memory-first ret
   const section = renderCapabilityAvailabilityContextPromptSection(manifest);
   assert.match(section, /Workspace memory retrieval: available via `memory_retrieve`\./);
   assert.match(section, /Default non-UI retrieval order for this run: current-turn context\/direct tool result, then `memory_retrieve`, then the most direct connected MCP\/app or other narrow authoritative source, and only then browser or web\./i);
-  assert.match(section, /Browser availability does not override that order\. Use browser first only for current page, current tab, or current browser UI state questions\./i);
+  assert.doesNotMatch(section, /Browser availability does not override that order\. Use browser first only for current page, current tab, or current browser UI state questions\./i);
   assert.match(section, /If the connected tool surface for a system is partial, do not jump to browser first\. Check `memory_retrieve` before the direct connected route, then surface any remaining capability gap\./i);
 });
 
@@ -414,14 +403,14 @@ test("renderDelegatedCapabilityAvailabilityContextPromptSection exposes backstag
     delegatedManifest,
   );
   assert.match(section, /Delegated executor capability snapshot:/);
-  assert.match(section, /complement your direct authority in this front session/i);
+  assert.match(section, /do not expand your own direct authority in this front session/i);
   assert.match(section, /Delegated browser tools: available \(1 enabled\)\./);
   assert.match(section, /Delegated runtime tools: available \(2 enabled\)\./);
   assert.match(section, /Delegated connected MCP\/app access: available\./);
   assert.match(section, /Delegated browser execution is available even though this front session has no direct browser tools\./);
   assert.match(section, /Delegated app integrations available via: `twitter`\./);
-  assert.match(section, /Delegated MCP callable tool aliases for routing only:/);
-  assert.match(section, /`twitter\.twitter_create_post` -> call `mcp__twitter__twitter_create_post`/);
+  assert.doesNotMatch(section, /Delegated MCP callable tool aliases for routing only:/);
+  assert.doesNotMatch(section, /`twitter\.twitter_create_post` -> call `mcp__twitter__twitter_create_post`/);
   assert.match(section, /Notable delegated-only tools for this run:/);
   assert.match(section, /Workspace Apps Get Status \(`workspace_apps_get_status`\)/);
   assert.match(section, /Workspace Data List Tables \(`workspace_data_list_tables`\)/);
@@ -502,8 +491,8 @@ test("renderDelegatedCapabilityAvailabilityContextPromptSection keeps delegated 
 
   assert.match(section, /Delegated connected MCP\/app access: available\./);
   assert.match(section, /Delegated app integrations available via: `notion`\./);
-  assert.match(section, /Delegated MCP callable tool aliases for routing only:/);
-  assert.match(section, /`notion\.notion_get_page` -> call `mcp__notion__notion_get_page`/);
+  assert.doesNotMatch(section, /Delegated MCP callable tool aliases for routing only:/);
+  assert.doesNotMatch(section, /`notion\.notion_get_page` -> call `mcp__notion__notion_get_page`/);
 });
 
 test("buildAgentCapabilityManifest marks connected MCP servers as available without pre-enumerated tool refs", () => {
@@ -535,10 +524,10 @@ test("buildAgentCapabilityManifest marks connected MCP servers as available with
 
   const section = renderCapabilityPolicyPromptSection(manifest);
   assert.match(section, /Connected MCP access: available\./);
-  assert.match(section, /Use surfaced MCP tools when relevant; tool names may be resolved dynamically by the runtime\./i);
-  assert.match(section, /MCP-first routing:/);
-  assert.match(section, /If only connected MCP server ids are listed, treat that as a signal that callable tools may be resolved dynamically by the runtime, not as a reason to fall back to browser or web\./i);
-  assert.match(section, /Do not treat browser as the default path for non-UI freshness checks in a connected system\. For recent or important activity in that system, prefer the connected MCP\/app route before browser when it can provide the live state directly\./i);
+  assert.match(
+    section,
+    /Use this only as a capability\/routing signal for the front session\. Do not rely on direct MCP callable inventories here\./,
+  );
   assert.doesNotMatch(section, /MCP callable tool aliases for this run:/);
 });
 
@@ -800,25 +789,26 @@ test("renderCapabilityPolicyPromptSection summarizes grouped capabilities", () =
   assert.match(section, /Workspace commands: available \(1 enabled\)\./);
   assert.match(section, /Workspace skills: available \(1 enabled\)\./);
   assert.match(section, /Browser tools: none\./);
-  assert.match(section, /Use surfaced capabilities to inspect before mutating workspace, app, browser, or runtime state whenever possible\./);
+  assert.match(section, /Use inspection capabilities to gather context before mutating workspace, app, browser, or runtime state whenever possible\./);
   assert.match(section, /After edits, shell commands, browser actions, MCP mutations, or runtime mutations, run a follow-up inspection or verification step before claiming success\./);
-  assert.match(section, /Use coordination capabilities to track progress, consult available skills, delegate research or app-building work when appropriate, or ask for clarification instead of keeping hidden state\./);
+  assert.match(section, /Use coordination capabilities to track progress, consult available skills, route execution through delegated subagents when appropriate, or ask for clarification instead of keeping hidden state\./);
   assert.match(section, /Connected MCP access: available\./);
-  assert.match(section, /Use surfaced MCP tools when relevant/);
   assert.match(
     section,
-    /When the capability snapshot lists an MCP tool id alongside a callable alias, use the callable alias for tool invocation\./i,
+    /MCP\/app routing: when surfaced MCP\/app capabilities match the target system or supplied URL, treat them as delegation signals/i,
   );
-  assert.match(section, /MCP callable tool aliases for this run:/);
+  assert.match(section, /Connected app integrations available via: `workspace`\./);
   assert.match(
     section,
-    /`workspace\.lookup` -> call `mcp__workspace__lookup`/,
+    /Use this only as a capability\/routing signal for the front session\. Do not rely on direct MCP callable inventories here\./,
   );
+  assert.doesNotMatch(section, /MCP callable tool aliases for this run:/);
+  assert.doesNotMatch(section, /`workspace\.lookup` -> call `mcp__workspace__lookup`/);
   assert.doesNotMatch(section, /Skills available now:/);
   assert.doesNotMatch(section, /Connected MCP tools available now:/);
 });
 
-test("renderCapabilityPolicyPromptSection surfaces full-capability front-session semantics", () => {
+test("renderCapabilityPolicyPromptSection surfaces coordinator-first front-session semantics", () => {
   const manifest = buildAgentCapabilityManifest({
     harnessId: "pi",
     sessionKind: "main_session",
@@ -832,10 +822,10 @@ test("renderCapabilityPolicyPromptSection surfaces full-capability front-session
   });
 
   const section = renderCapabilityPolicyPromptSection(manifest);
-  assert.match(section, /For non-trivial tasks, slow down: inventory knowns, unknowns, and assumptions first, then confirm the unknowns that materially affect the next action before acting\./i);
-  assert.match(section, /If the remaining uncertainty affects a high-stakes, destructive, externally visible, costly, or hard-to-reverse action, resolve it with a direct check or ask the user for confirmation instead of guessing\./i);
+  assert.doesNotMatch(section, /For non-trivial tasks, slow down: inventory knowns, unknowns, and assumptions first, then confirm the unknowns that materially affect the next action before acting\./i);
+  assert.doesNotMatch(section, /If the remaining uncertainty affects a high-stakes, destructive, externally visible, costly, or hard-to-reverse action, resolve it with a direct check or ask the user for confirmation instead of guessing\./i);
   assert.match(section, /Browser tools: none\./);
-  assert.match(section, /This front session can execute directly with the surfaced tools above\./);
-  assert.match(section, /Use `delegate_task` mainly for research or app-building work, or when background continuation is explicitly needed/i);
-  assert.doesNotMatch(section, /intentionally capability-incomplete/i);
+  assert.match(section, /This front session is intentionally capability-incomplete\./);
+  assert.match(section, /Treat the surfaced tools above as your full direct capability set for this run/i);
+  assert.match(section, /if the request needs more and `delegate_task` is available, delegate it/i);
 });

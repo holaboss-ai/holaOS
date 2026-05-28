@@ -16,6 +16,7 @@ import {
 } from "@/lib/workspaceSelection";
 import { Center } from "./Center";
 import { ChatPanel } from "./ChatPanel";
+import { NewIssueDialog } from "./NewIssueDialog";
 import { NewTabDialog } from "./NewTabDialog";
 import { NotificationStack } from "./NotificationStack";
 import { Overlays } from "./Overlays";
@@ -29,6 +30,7 @@ import {
   publishOpenAtom,
   searchOpenAtom,
   sidebarCollapsedAtom,
+  workspaceMainViewModeMapAtom,
 } from "./state/ui";
 import { TopChrome } from "./TopChrome";
 import { useChatLayout } from "./useChatLayout";
@@ -58,10 +60,32 @@ function NewAppShellContent() {
   const hasWorkspaces = workspaces.length > 0;
   const layout = useChatLayout();
   const [focusMode, setFocusMode] = useAtom(focusModeAtom);
+  const workspaceMainViewMap = useAtomValue(workspaceMainViewModeMapAtom);
   const { browserState } = useWorkspaceBrowser("user");
   const internalTabs = useAtomValue(internalTabsAtom);
   const totalTabs = browserState.tabs.length + internalTabs.length;
   const prevTotalTabsRef = useRef(totalTabs);
+  const seededMainViewWorkspaceIdRef = useRef<string | null>(null);
+
+  // Seed focusMode from the workspace's stored main-view preference whenever
+  // the user switches to a workspace we haven't seeded yet this session.
+  // Re-seeding on every activation would clobber the in-session focus toggle,
+  // so we track which workspace id we've already applied. The choice itself
+  // is set at workspace creation (FirstWorkspacePane) and persisted in
+  // workspaceMainViewModeMapAtom keyed by workspace id.
+  useEffect(() => {
+    if (!selectedWorkspaceId) return;
+    if (seededMainViewWorkspaceIdRef.current === selectedWorkspaceId) return;
+    seededMainViewWorkspaceIdRef.current = selectedWorkspaceId;
+    const preference = workspaceMainViewMap[selectedWorkspaceId];
+    if (preference === "chat" && !focusMode) {
+      setFocusMode(true);
+    } else if (preference === "workspace" && focusMode) {
+      setFocusMode(false);
+    }
+    // Workspaces with no recorded preference (created before this feature
+    // shipped) inherit whatever focusMode currently is — no surprises.
+  }, [selectedWorkspaceId, workspaceMainViewMap, focusMode, setFocusMode]);
 
   // Auto-exit focus when a new tab appears (⌘T, chat link, sidebar app).
   // Opening a tab is an explicit "show me this" signal; staying hidden
@@ -121,6 +145,7 @@ function NewAppShellContent() {
           <ChatPanel layout={layout} />
         </>
       )}
+      <NewIssueDialog />
       <NewTabDialog />
       <SearchDialog />
       <Overlays />

@@ -41,9 +41,11 @@ function baseBuildParams() {
       {
         skill_id: "skill-creator",
         skill_name: "skill-creator",
+        description: "Skill creator",
         source_dir: "/tmp/workspace-1/skills/skill-creator",
         file_path: "/tmp/workspace-1/skills/skill-creator/SKILL.md",
         origin: "workspace" as const,
+        owner_teammate_id: null,
         granted_tools: ["bash"],
         granted_commands: ["deploy-docs"],
       },

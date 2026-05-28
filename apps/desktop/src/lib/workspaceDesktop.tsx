@@ -15,6 +15,8 @@ import { type AuthSession, useDesktopAuthSession } from "@/lib/auth/authClient";
 import { loadWorkspaceOnboardingPreference } from "@/features/workspace-onboarding/preferences";
 import { hydrateInstalledWorkspaceApps, type WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
+import { workspaceMainViewModeMapAtom } from "@/components/layout/new-shell/state/ui";
+import { useSetAtom } from "jotai";
 import { toolkitDisplayName } from "@/lib/toolkitDisplay";
 
 /**
@@ -144,7 +146,7 @@ const LOCAL_OSS_TEMPLATE_USER_ID = "local-oss";
 const DEFAULT_WORKSPACE_HARNESS: WorkspaceHarnessId = "pi";
 const BOOTSTRAP_IPC_TIMEOUT_MS = 8_000;
 type TemplateSourceMode = "local" | "marketplace" | "empty" | "empty_onboarding";
-export type FirstWorkspaceStep = "name" | "folder";
+export type FirstWorkspaceStep = "name" | "folder" | "layout";
 export type WorkspaceOnboardingEngine = "deterministic" | "agentic";
 type LifecycleStepState = "pending" | "current" | "done" | "error";
 type WorkspaceListLoadSource = "auto" | "live" | "cached";
@@ -263,7 +265,10 @@ interface WorkspaceDesktopContextValue {
   sessionTargetId: string;
   refreshWorkspaceData: () => Promise<void>;
   chooseTemplateFolder: () => Promise<void>;
-  createWorkspace: (options?: { workspaceOnboardingMode?: "start" | "skip" }) => Promise<void>;
+  createWorkspace: (options?: {
+    workspaceOnboardingMode?: "start" | "skip";
+    mainViewMode?: "workspace" | "chat";
+  }) => Promise<void>;
   continueDeterministicOnboarding: () => Promise<void>;
   skipWorkspaceOnboarding: () => Promise<void>;
   deleteWorkspace: (workspaceId: string) => Promise<void>;
@@ -425,6 +430,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
   // card) get their own signal — no shared mutable state to clobber.
   const appInstallConnectControllerRef = useRef<AbortController | null>(null);
   const [firstWorkspaceStep, setFirstWorkspaceStep] = useState<FirstWorkspaceStep>("name");
+  const setWorkspaceMainViewMap = useSetAtom(workspaceMainViewModeMapAtom);
   // Composio toolkit metadata (name + logo + categories) keyed by toolkit
   // slug. Single source of truth for app display name + icon across the
   // shell — both the marketplace gallery and the workspace sidebar look
@@ -846,7 +852,12 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     }
   }
 
-  async function createWorkspace(options: { workspaceOnboardingMode?: "start" | "skip" } = {}) {
+  async function createWorkspace(
+    options: {
+      workspaceOnboardingMode?: "start" | "skip";
+      mainViewMode?: "workspace" | "chat";
+    } = {},
+  ) {
     setIsCreatingWorkspace(true);
     setWorkspaceCreatePhase("creating_workspace");
     setWorkspaceErrorMessage("");
@@ -927,6 +938,16 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       upsertWorkspaceRecord(response.workspace);
       const createdWorkspaceId = response.workspace.id;
       setSelectedWorkspaceId(createdWorkspaceId);
+      // Persist the user's main-view choice keyed by the new workspace id so
+      // NewAppShell can seed the layout when activating this workspace, both
+      // on first entry and on every subsequent switch.
+      if (options.mainViewMode && createdWorkspaceId) {
+        const chosen = options.mainViewMode;
+        setWorkspaceMainViewMap((prev) => ({
+          ...prev,
+          [createdWorkspaceId]: chosen,
+        }));
+      }
 
       let postCreateWarning = "";
       if (browserBootstrapMode === "copy_workspace") {

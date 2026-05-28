@@ -21,6 +21,10 @@ const INTERACTION_BRANCH_FACTOR = 8;
 const MAX_ENTITY_SHORTLIST = 24;
 const MAX_RETRIEVE_RESULTS = 12;
 const EMBEDDING_EXCERPT_CHARS = 480;
+const RETRIEVAL_CANDIDATE_POOL_LIMIT = 320;
+const RETRIEVAL_FTS_CANDIDATE_LIMIT = 240;
+const RETRIEVAL_RECENT_CANDIDATE_LIMIT = 160;
+const RETRIEVAL_VECTOR_CANDIDATE_LIMIT = 120;
 const INTERACTION_UNCATEGORIZED_ENTITY_ID = "interaction:uncategorized";
 const INTERACTION_UNCATEGORIZED_SLUG = "uncategorized";
 const INTERACTION_UNCATEGORIZED_NAME = "Uncategorized";
@@ -28,6 +32,7 @@ const ENTITY_CREATE_CONFIDENCE_THRESHOLD = 0.68;
 const ENTITY_MATCH_CONFIDENCE_THRESHOLD = 0.6;
 const SEMANTIC_DEDUPE_SHORTLIST_LIMIT = 6;
 const SEMANTIC_DEDUPE_SIMILARITY_THRESHOLD = 0.52;
+const INTERACTION_SUMMARY_INPUT_FINGERPRINT_VERSION = 1;
 const PROJECT_SUBJECT_TOKENS = new Set([
   "api",
   "app",
@@ -200,6 +205,37 @@ const PROJECT_SIGNAL_TOKENS = new Set([
   "staging",
   "verification",
 ]);
+const RETRIEVAL_QUERY_STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "at",
+  "be",
+  "by",
+  "for",
+  "from",
+  "how",
+  "i",
+  "in",
+  "is",
+  "it",
+  "me",
+  "of",
+  "on",
+  "or",
+  "that",
+  "the",
+  "this",
+  "to",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
+  "with",
+]);
 
 const INTERACTION_ENTITY_TYPES = new Set<InteractionEntityType>([
   "project",
@@ -284,6 +320,8 @@ interface NodeCandidate {
   updatedAt: string | null;
 }
 
+type SemanticSearchDoc = ReturnType<RuntimeStateStore["listSemanticMemorySearchDocs"]>[number];
+
 interface TempSummaryNode {
   tempId: string;
   title: string;
@@ -322,6 +360,11 @@ type SemanticInteractionDraftNode = {
   observedAt: string | null;
   isMaterialized: boolean;
   metadata: Record<string, unknown>;
+};
+
+type ExistingInteractionSummaryNode = {
+  node: ReturnType<RuntimeStateStore["listSemanticMemoryNodes"]>[number];
+  body: string;
 };
 
 interface SemanticDuplicateCandidate {
@@ -566,6 +609,124 @@ function readFileIfExists(filePath: string): string | null {
   }
 }
 
+function removeObsoleteFiles(rootDir: string, keepAbsolutePaths: Set<string>): void {
+  if (!fs.existsSync(rootDir)) {
+    return;
+  }
+  const walk = (currentPath: string): void => {
+    for (const childName of fs.readdirSync(currentPath)) {
+      const childPath = path.join(currentPath, childName);
+      const stats = fs.lstatSync(childPath);
+      if (stats.isDirectory()) {
+        walk(childPath);
+        if (fs.existsSync(childPath) && fs.readdirSync(childPath).length === 0) {
+          fs.rmdirSync(childPath);
+        }
+        continue;
+      }
+      if (!keepAbsolutePaths.has(path.resolve(childPath))) {
+        fs.rmSync(childPath, { force: true });
+      }
+    }
+  };
+  walk(rootDir);
+  if (fs.existsSync(rootDir) && fs.readdirSync(rootDir).length === 0) {
+    fs.rmdirSync(rootDir);
+  }
+}
+
+function metadataString(metadata: Record<string, unknown> | null | undefined, key: string): string | null {
+  const value = metadata?.[key];
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized || null;
+}
+
+function interactionSummaryInputFingerprint(params: {
+  entity: InteractionEntityRecord;
+  nodeKind: "tree" | "partition";
+  title: string;
+  depthFromLeaves: number;
+  ordinal: number;
+  children: Array<{
+    kind: InteractionTreeChildKind;
+    id: string;
+    title: string;
+    summary: string;
+    excerpt: string | null;
+  }>;
+}): string {
+  return sha256(JSON.stringify({
+    version: INTERACTION_SUMMARY_INPUT_FINGERPRINT_VERSION,
+    entityId: params.entity.entityId,
+    entityName: params.entity.canonicalName,
+    entityType: params.entity.entityType,
+    entitySummary: params.entity.summary ?? null,
+    nodeKind: params.nodeKind,
+    title: params.title,
+    depthFromLeaves: params.depthFromLeaves,
+    ordinal: params.ordinal,
+    children: params.children.map((child) => ({
+      kind: child.kind,
+      id: child.id,
+      title: child.title,
+      summary: child.summary,
+      excerpt: child.excerpt ? clipText(child.excerpt, 280) : null,
+    })),
+  }));
+}
+
+function existingInteractionSummaryNode(params: {
+  cache: Map<string, ExistingInteractionSummaryNode>;
+  nodeId: string;
+  inputFingerprint: string;
+}): ExistingInteractionSummaryNode | null {
+  const existing = params.cache.get(params.nodeId);
+  if (!existing) {
+    return null;
+  }
+  return metadataString(existing.node.metadata, "summary_input_fingerprint") === params.inputFingerprint
+    ? existing
+    : null;
+}
+
+function loadExistingInteractionSummaryNodes(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  entity: InteractionEntityRecord;
+}): Map<string, ExistingInteractionSummaryNode> {
+  const docsByNodeId = new Map(
+    params.store.listSemanticMemorySearchDocs({
+      category: "interaction",
+      workspaceId: params.workspaceId,
+      treeId: params.entity.entityId,
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    }).map((doc) => [doc.nodeId, doc]),
+  );
+  const existing = new Map<string, ExistingInteractionSummaryNode>();
+  for (const node of params.store.listSemanticMemoryNodes({
+    category: "interaction",
+    workspaceId: params.workspaceId,
+    treeId: params.entity.entityId,
+    nodeClass: "semantic",
+    status: "active",
+    limit: 10_000,
+    offset: 0,
+  })) {
+    const body = docsByNodeId.get(node.nodeId)?.bodyText
+      ?? readFileIfExists(absolutePathForRelative(params.store.workspaceDir(params.workspaceId), node.path));
+    if (!body) {
+      continue;
+    }
+    existing.set(node.nodeId, { node, body });
+  }
+  return existing;
+}
+
 function markdownExcerpt(text: string, maxChars = EMBEDDING_EXCERPT_CHARS): string {
   const content = text
     .replace(/^\uFEFF/, "")
@@ -640,6 +801,26 @@ function textScore(query: string, ...texts: Array<string | null | undefined>): n
     }
   }
   return score + hitCount / Math.max(1, tokens.length);
+}
+
+function buildRetrievalFtsMatchQuery(query: string): string | null {
+  const rawTokens = [...new Set(tokenize(query))];
+  if (rawTokens.length === 0) {
+    return null;
+  }
+  const filteredTokens = rawTokens.filter((token) => !RETRIEVAL_QUERY_STOPWORDS.has(token));
+  const tokens = filteredTokens.length > 0 ? filteredTokens : rawTokens;
+  if (tokens.length === 0) {
+    return null;
+  }
+  return tokens.map((token) => `${token}*`).join(" OR ");
+}
+
+function lexicalRankBoost(rank: number | null | undefined): number {
+  if (!rank || !Number.isFinite(rank) || rank < 1) {
+    return 0;
+  }
+  return 1.4 / Math.sqrt(rank);
 }
 
 function cosineSimilarity(left: number[], right: number[]): number {
@@ -1413,12 +1594,35 @@ async function buildSemanticInteractionPartitionNode(params: {
   depthFromLeaves: number;
   ordinal: number;
   modelClient: MemoryModelClientConfig | null;
+  existingSummaryByNodeId: Map<string, ExistingInteractionSummaryNode>;
 }): Promise<{
   node: SemanticInteractionDraftNode;
   body: string;
   child: SemanticInteractionDraftChild;
 }> {
-  const summary = await generateSummaryText({
+  const childIdentity = params.children.map((child) => `${child.kind}:${child.id}`).join("|");
+  const nodeId = `semantic:interaction:${params.entity.entityId}:partition:L${params.depthFromLeaves}:${sha256(childIdentity).slice(0, 16)}`;
+  const title = `Slice ${params.ordinal}`;
+  const inputFingerprint = interactionSummaryInputFingerprint({
+    entity: params.entity,
+    nodeKind: "partition",
+    title,
+    depthFromLeaves: params.depthFromLeaves,
+    ordinal: params.ordinal,
+    children: params.children.map((child) => ({
+      kind: child.kind,
+      id: child.id,
+      title: child.title,
+      summary: child.summary,
+      excerpt: child.excerpt,
+    })),
+  });
+  const reused = existingInteractionSummaryNode({
+    cache: params.existingSummaryByNodeId,
+    nodeId,
+    inputFingerprint,
+  });
+  const summary = reused?.node.summary ?? await generateSummaryText({
     entity: params.entity,
     children: params.children.map((child) => ({
       kind: child.kind,
@@ -1431,14 +1635,11 @@ async function buildSemanticInteractionPartitionNode(params: {
     ordinal: params.ordinal,
     modelClient: params.modelClient,
   });
-  const childIdentity = params.children.map((child) => `${child.kind}:${child.id}`).join("|");
-  const nodeId = `semantic:interaction:${params.entity.entityId}:partition:L${params.depthFromLeaves}:${sha256(childIdentity).slice(0, 16)}`;
-  const title = `Slice ${params.ordinal}`;
   const path = semanticInteractionChildRelativePath(
     params.rootPath,
     `slice-l${params.depthFromLeaves}-${String(params.ordinal).padStart(2, "0")}-${nodeId.slice(-6)}`,
   );
-  const body = semanticInteractionNodeBody({
+  const body = reused?.body ?? semanticInteractionNodeBody({
     entity: params.entity,
     nodeKind: "partition",
     title,
@@ -1469,6 +1670,8 @@ async function buildSemanticInteractionPartitionNode(params: {
       metadata: {
         depth_from_leaves: params.depthFromLeaves,
         ordinal: params.ordinal,
+        source: "interaction_summary",
+        summary_input_fingerprint: inputFingerprint,
       },
     },
     body,
@@ -1489,6 +1692,7 @@ async function buildSemanticInteractionTree(params: {
   leaves: InteractionLeafRecord[];
   leafBodies: Map<string, string>;
   modelClient: MemoryModelClientConfig | null;
+  existingSummaryByNodeId: Map<string, ExistingInteractionSummaryNode>;
 }): Promise<{
   nodes: SemanticInteractionDraftNode[];
   edges: Array<{
@@ -1563,6 +1767,7 @@ async function buildSemanticInteractionTree(params: {
           depthFromLeaves,
           ordinal: index + 1,
           modelClient: params.modelClient,
+          existingSummaryByNodeId: params.existingSummaryByNodeId,
         })),
     );
     for (const [index, partition] of layer.entries()) {
@@ -1592,7 +1797,26 @@ async function buildSemanticInteractionTree(params: {
     depthFromLeaves += 1;
   }
 
-  const rootSummary = currentChildren.length > 0
+  const rootInputFingerprint = interactionSummaryInputFingerprint({
+    entity: params.entity,
+    nodeKind: "tree",
+    title: params.entity.canonicalName,
+    depthFromLeaves,
+    ordinal: 1,
+    children: currentChildren.map((child) => ({
+      kind: child.kind,
+      id: child.id,
+      title: child.title,
+      summary: child.summary,
+      excerpt: child.excerpt,
+    })),
+  });
+  const reusedRoot = existingInteractionSummaryNode({
+    cache: params.existingSummaryByNodeId,
+    nodeId: rootNodeId,
+    inputFingerprint: rootInputFingerprint,
+  });
+  const rootSummary = reusedRoot?.node.summary ?? (currentChildren.length > 0
     ? await generateSummaryText({
         entity: params.entity,
         children: currentChildren.map((child) => ({
@@ -1606,8 +1830,8 @@ async function buildSemanticInteractionTree(params: {
         ordinal: 1,
         modelClient: params.modelClient,
       })
-    : (params.entity.summary?.trim() || `${params.entity.canonicalName} interaction memory.`);
-  const rootBody = semanticInteractionNodeBody({
+    : (params.entity.summary?.trim() || `${params.entity.canonicalName} interaction memory.`));
+  const rootBody = reusedRoot?.body ?? semanticInteractionNodeBody({
     entity: params.entity,
     nodeKind: "tree",
     title: params.entity.canonicalName,
@@ -1636,6 +1860,8 @@ async function buildSemanticInteractionTree(params: {
       entity_id: params.entity.entityId,
       entity_type: params.entity.entityType,
       entity_slug: params.entity.slug,
+      source: "interaction_summary",
+      summary_input_fingerprint: rootInputFingerprint,
     },
   });
   currentChildren.forEach((child, index) => {
@@ -1662,6 +1888,28 @@ async function buildSemanticInteractionTree(params: {
     edges,
     bodiesByPath,
   };
+}
+
+function semanticSearchDocsForInteractionTree(params: {
+  nodes: Awaited<ReturnType<typeof buildSemanticInteractionTree>>["nodes"];
+  bodiesByPath: Awaited<ReturnType<typeof buildSemanticInteractionTree>>["bodiesByPath"];
+}) {
+  return params.nodes.map((node) => {
+    const bodyText = params.bodiesByPath.get(node.path) ?? "";
+    return {
+      nodeId: node.nodeId,
+      nodeClass: node.nodeClass,
+      nodeKind: node.nodeKind,
+      path: node.path,
+      childCount: node.childCount,
+      title: node.title,
+      summary: node.summary,
+      bodyText,
+      excerpt: bodyText ? markdownExcerpt(bodyText, 320) : null,
+      observedAt: node.observedAt ?? null,
+      status: "active" as const,
+    };
+  });
 }
 
 async function syncNodeEmbedding(params: {
@@ -1870,8 +2118,12 @@ export async function rebuildInteractionEntityTree(params: {
   const entityDir = interactionEntityDir(workspaceDir, entity.slug);
   const semanticTreeDir = semanticInteractionTreeDir(workspaceDir, entity.slug);
   const summariesDir = path.join(entityDir, "summaries");
+  const existingSummaryByNodeId = loadExistingInteractionSummaryNodes({
+    store: params.store,
+    workspaceId: params.workspaceId,
+    entity,
+  });
   fs.rmSync(summariesDir, { recursive: true, force: true });
-  fs.rmSync(semanticTreeDir, { recursive: true, force: true });
   fs.rmSync(
     absolutePathForRelative(
       workspaceDir,
@@ -1912,22 +2164,40 @@ export async function rebuildInteractionEntityTree(params: {
     leaves: activeLeaves,
     leafBodies,
     modelClient: params.summaryModelClient ?? null,
+    existingSummaryByNodeId,
   });
   for (const [relativePath, body] of semantic.bodiesByPath) {
     writeFileIfChanged(absolutePathForRelative(workspaceDir, relativePath), body);
   }
-  params.store.replaceSemanticMemoryTree({
+  removeObsoleteFiles(
+    semanticTreeDir,
+    new Set(
+      [...semantic.bodiesByPath.keys()].map((relativePath) =>
+        path.resolve(absolutePathForRelative(workspaceDir, relativePath))
+      ),
+    ),
+  );
+  params.store.syncSemanticMemoryTree({
     category: "interaction",
     workspaceId: params.workspaceId,
     treeId: params.entityId,
     nodes: semantic.nodes,
     edges: semantic.edges,
   });
-  params.store.replaceSemanticMemoryRelations({
+  params.store.syncSemanticMemoryRelations({
     category: "interaction",
     workspaceId: params.workspaceId,
     treeId: params.entityId,
     relations: [],
+  });
+  params.store.syncSemanticMemorySearchDocs({
+    category: "interaction",
+    workspaceId: params.workspaceId,
+    treeId: params.entityId,
+    docs: semanticSearchDocsForInteractionTree({
+      nodes: semantic.nodes,
+      bodiesByPath: semantic.bodiesByPath,
+    }),
   });
   for (const node of semantic.nodes) {
     if (node.nodeClass !== "semantic") {
@@ -2031,24 +2301,165 @@ async function queryEmbeddingVector(params: {
   };
 }
 
-function buildLeafCandidate(params: {
+function semanticSearchDocsByNodeId(params: {
   store: RuntimeStateStore;
   workspaceId: string;
+  treeId: string;
+}): Map<string, ReturnType<RuntimeStateStore["listSemanticMemorySearchDocs"]>[number]> {
+  return new Map(
+    params.store.listSemanticMemorySearchDocs({
+      category: "interaction",
+      workspaceId: params.workspaceId,
+      treeId: params.treeId,
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    }).map((doc) => [doc.nodeId, doc]),
+  );
+}
+
+function retrievalNodeClassForMode(mode: "mixed" | "summaries" | "leaves"): "leaf" | "semantic" | undefined {
+  if (mode === "leaves") {
+    return "leaf";
+  }
+  if (mode === "summaries") {
+    return "semantic";
+  }
+  return undefined;
+}
+
+function retrievalVectorNodeKindsForMode(mode: "mixed" | "summaries" | "leaves"): InteractionTreeChildKind[] {
+  if (mode === "leaves") {
+    return ["leaf"];
+  }
+  if (mode === "summaries") {
+    return ["summary"];
+  }
+  return ["leaf", "summary"];
+}
+
+function listInteractionVectorCandidateSearchDocs(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  mode: "mixed" | "summaries" | "leaves";
+  treeId?: string | null;
+  embeddingModelId: string;
+  queryVector: number[];
+  maxResults: number;
+}): SemanticSearchDoc[] {
+  const vectorHits = params.store.searchInteractionNodeEmbeddingsByVector({
+    workspaceId: params.workspaceId,
+    embedding: new Float32Array(params.queryVector),
+    embeddingModel: params.embeddingModelId,
+    limit: Math.max(RETRIEVAL_VECTOR_CANDIDATE_LIMIT, params.maxResults * 16),
+    entityIds: params.treeId ? [params.treeId] : undefined,
+    nodeKinds: retrievalVectorNodeKindsForMode(params.mode),
+  });
+  if (vectorHits.length === 0) {
+    return [];
+  }
+  const docsByNodeId = new Map(
+    params.store.listSemanticMemorySearchDocs({
+      category: "interaction",
+      workspaceId: params.workspaceId,
+      treeId: params.treeId ?? undefined,
+      nodeIds: vectorHits.map((hit) => hit.nodeId),
+      nodeClass: retrievalNodeClassForMode(params.mode),
+      status: "active",
+      limit: vectorHits.length,
+      offset: 0,
+    }).map((doc) => [doc.nodeId, doc]),
+  );
+  return vectorHits
+    .map((hit) => docsByNodeId.get(hit.nodeId) ?? null)
+    .filter((doc): doc is SemanticSearchDoc => Boolean(doc));
+}
+
+function semanticLexicalRanksByNodeId(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  query: string;
+  mode: "mixed" | "summaries" | "leaves";
+  treeId?: string | null;
+}): Map<string, number> {
+  const matchQuery = buildRetrievalFtsMatchQuery(params.query);
+  if (!matchQuery) {
+    return new Map();
+  }
+  const hits = params.store.searchSemanticMemorySearchDocs({
+    category: "interaction",
+    workspaceId: params.workspaceId,
+    treeId: params.treeId ?? undefined,
+    nodeClass: retrievalNodeClassForMode(params.mode),
+    status: "active",
+    matchQuery,
+    limit: 500,
+    offset: 0,
+  });
+  return new Map(hits.map((hit, index) => [hit.nodeId, index + 1]));
+}
+
+function listInteractionCandidateSearchDocs(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  query: string;
+  mode: "mixed" | "summaries" | "leaves";
+  treeId?: string | null;
+  maxResults: number;
+  vectorDocs?: SemanticSearchDoc[];
+}): SemanticSearchDoc[] {
+  const nodeClass = retrievalNodeClassForMode(params.mode);
+  const poolLimit = Math.max(RETRIEVAL_CANDIDATE_POOL_LIMIT, params.maxResults * 24);
+  const recentLimit = Math.max(RETRIEVAL_RECENT_CANDIDATE_LIMIT, params.maxResults * 12);
+  const ftsLimit = Math.max(RETRIEVAL_FTS_CANDIDATE_LIMIT, params.maxResults * 20);
+  const docsByNodeId = new Map<string, SemanticSearchDoc>();
+  const addDocs = (docs: SemanticSearchDoc[]) => {
+    for (const doc of docs) {
+      if (!docsByNodeId.has(doc.nodeId)) {
+        docsByNodeId.set(doc.nodeId, doc);
+      }
+      if (docsByNodeId.size >= poolLimit) {
+        break;
+      }
+    }
+  };
+  const matchQuery = buildRetrievalFtsMatchQuery(params.query);
+  if (matchQuery) {
+    addDocs(params.store.searchSemanticMemorySearchDocs({
+      category: "interaction",
+      workspaceId: params.workspaceId,
+      treeId: params.treeId ?? undefined,
+      nodeClass,
+      status: "active",
+      matchQuery,
+      limit: ftsLimit,
+      offset: 0,
+    }));
+  }
+  addDocs(params.vectorDocs ?? []);
+  addDocs(params.store.listSemanticMemorySearchDocs({
+    category: "interaction",
+    workspaceId: params.workspaceId,
+    treeId: params.treeId ?? undefined,
+    nodeClass,
+    status: "active",
+    limit: matchQuery ? recentLimit : poolLimit,
+    offset: 0,
+  }));
+  return [...docsByNodeId.values()];
+}
+
+function buildLeafCandidate(params: {
   entity: InteractionEntityRecord;
   leaf: InteractionLeafRecord;
 }): NodeCandidate {
-  const filePath = absolutePathForRelative(
-    params.store.workspaceDir(params.workspaceId),
-    params.leaf.path,
-  );
-  const body = readFileIfExists(filePath);
   return {
     kind: "leaf",
     id: params.leaf.leafId,
     entity: params.entity,
     title: params.leaf.title,
     summary: params.leaf.summary,
-    excerpt: body ? markdownExcerpt(body, 320) : null,
+    excerpt: params.leaf.summary ? clipText(params.leaf.summary, 320) : null,
     path: params.leaf.path,
     level: null,
     childCount: null,
@@ -2061,6 +2472,12 @@ function semanticInteractionCandidateKind(
   node: ReturnType<RuntimeStateStore["listSemanticMemoryNodes"]>[number],
 ): InteractionTreeChildKind {
   return node.nodeClass === "leaf" ? "leaf" : "summary";
+}
+
+function semanticInteractionCandidateKindForDoc(
+  doc: Pick<SemanticSearchDoc, "nodeClass">,
+): InteractionTreeChildKind {
+  return doc.nodeClass === "leaf" ? "leaf" : "summary";
 }
 
 function isSummaryLikeSemanticInteractionNode(
@@ -2082,24 +2499,32 @@ function semanticInteractionNodeLevel(
   return node.nodeKind === "tree" ? 1 : nodesDepth + 1;
 }
 
+function semanticInteractionNodeLevelForDoc(
+  doc: Pick<SemanticSearchDoc, "nodeClass" | "nodeKind" | "path">,
+): number | null {
+  if (doc.nodeClass === "leaf") {
+    return null;
+  }
+  const nodesDepth = semanticTreePathDepth(doc.path, ["semantic", "interaction", "trees"]);
+  if (nodesDepth === null) {
+    return null;
+  }
+  return doc.nodeKind === "tree" ? 1 : nodesDepth + 1;
+}
+
 function buildSemanticCandidate(params: {
-  store: RuntimeStateStore;
-  workspaceId: string;
   entity: InteractionEntityRecord;
   node: ReturnType<RuntimeStateStore["listSemanticMemoryNodes"]>[number];
+  searchDoc?: ReturnType<RuntimeStateStore["getSemanticMemorySearchDoc"]> | null;
 }): NodeCandidate {
-  const filePath = absolutePathForRelative(
-    params.store.workspaceDir(params.workspaceId),
-    params.node.path,
-  );
-  const body = readFileIfExists(filePath);
+  const excerpt = params.searchDoc?.excerpt ?? (params.node.summary ? clipText(params.node.summary, 320) : null);
   return {
     kind: semanticInteractionCandidateKind(params.node),
     id: params.node.nodeId,
     entity: params.entity,
     title: params.node.title,
     summary: params.node.summary,
-    excerpt: body ? markdownExcerpt(body, 320) : null,
+    excerpt,
     path: params.node.path,
     level: semanticInteractionNodeLevel(params.node),
     childCount: params.node.childCount,
@@ -2108,9 +2533,50 @@ function buildSemanticCandidate(params: {
   };
 }
 
+function buildSemanticCandidateFromSearchDoc(params: {
+  entity: InteractionEntityRecord;
+  doc: SemanticSearchDoc;
+}): NodeCandidate {
+  return {
+    kind: semanticInteractionCandidateKindForDoc(params.doc),
+    id: params.doc.nodeId,
+    entity: params.entity,
+    title: params.doc.title,
+    summary: params.doc.summary,
+    excerpt: params.doc.excerpt,
+    path: params.doc.path,
+    level: semanticInteractionNodeLevelForDoc(params.doc),
+    childCount: params.doc.childCount,
+    observedAt: params.doc.observedAt,
+    updatedAt: params.doc.updatedAt,
+  };
+}
+
+function loadInteractionEmbeddingsByCandidateKey(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  embeddingModelId: string | null;
+  candidateIds: string[];
+}): Map<string, number[]> {
+  const normalizedCandidateIds = [...new Set(params.candidateIds.map((value) => value.trim()).filter(Boolean))];
+  if (!params.embeddingModelId || normalizedCandidateIds.length === 0) {
+    return new Map();
+  }
+  const embeddingByKey = new Map<string, number[]>();
+  for (const record of params.store.listInteractionNodeEmbeddings({
+    workspaceId: params.workspaceId,
+    embeddingModel: params.embeddingModelId,
+    nodeIds: normalizedCandidateIds,
+  })) {
+    embeddingByKey.set(`${record.nodeKind}:${record.nodeId}:${record.embeddingModel}`, record.vector);
+  }
+  return embeddingByKey;
+}
+
 function nodeScore(params: {
   query: string;
   candidate: NodeCandidate;
+  lexicalRank: number | null;
   embeddingModelId: string | null;
   queryVector: number[] | null;
   embeddingByKey: Map<string, number[]>;
@@ -2127,6 +2593,11 @@ function nodeScore(params: {
   );
   if (score > 0) {
     reasons.push("lexical_match");
+  }
+  const lexicalBoost = lexicalRankBoost(params.lexicalRank);
+  if (lexicalBoost > 0) {
+    score += lexicalBoost;
+    reasons.push("fts_bm25");
   }
   if (params.embeddingModelId && params.queryVector) {
     const embeddingKey = `${params.candidate.kind}:${params.candidate.id}:${params.embeddingModelId}`;
@@ -2193,7 +2664,6 @@ async function childHitsForNode(params: {
   mode: "mixed" | "summaries" | "leaves";
   embeddingModelId: string | null;
   queryVector: number[] | null;
-  embeddingByKey: Map<string, number[]>;
 }): Promise<InteractionMemoryRetrieveHit[]> {
   const semanticEntity = params.store.listInteractionEntities({
     workspaceId: params.workspaceId,
@@ -2212,6 +2682,18 @@ async function childHitsForNode(params: {
     ),
   ) ?? null;
   if (semanticEntity) {
+    const searchDocsByNodeId = semanticSearchDocsByNodeId({
+      store: params.store,
+      workspaceId: params.workspaceId,
+      treeId: semanticEntity.entityId,
+    });
+    const lexicalRanksByNodeId = semanticLexicalRanksByNodeId({
+      store: params.store,
+      workspaceId: params.workspaceId,
+      query: params.query,
+      mode: params.mode,
+      treeId: semanticEntity.entityId,
+    });
     const candidates = params.store
       .listSemanticMemoryChildren({
         category: "interaction",
@@ -2229,21 +2711,27 @@ async function childHitsForNode(params: {
       .filter((node): node is NonNullable<typeof node> => Boolean(node))
       .map((node) =>
         buildSemanticCandidate({
-          store: params.store,
-          workspaceId: params.workspaceId,
           entity: semanticEntity,
           node,
+          searchDoc: searchDocsByNodeId.get(node.nodeId) ?? null,
         }))
       .filter((candidate) => params.mode === "mixed"
         || (params.mode === "leaves" ? candidate.kind === "leaf" : candidate.kind === "summary"));
+    const embeddingByKey = loadInteractionEmbeddingsByCandidateKey({
+      store: params.store,
+      workspaceId: params.workspaceId,
+      embeddingModelId: params.embeddingModelId,
+      candidateIds: candidates.map((candidate) => candidate.id),
+    });
     return candidates
       .map((candidate) => {
         const scored = nodeScore({
           query: params.query,
           candidate,
+          lexicalRank: lexicalRanksByNodeId.get(candidate.id) ?? null,
           embeddingModelId: params.embeddingModelId,
           queryVector: params.queryVector,
-          embeddingByKey: params.embeddingByKey,
+          embeddingByKey,
           mode: params.mode,
         });
         return candidateToHit({
@@ -2297,15 +2785,13 @@ export async function retrieveInteractionMemory(params: {
         selectedModel: params.selectedModel ?? null,
         query: params.query,
       });
-  const embeddingByKey = new Map<string, number[]>();
-  if (embeddingQuery) {
-    for (const record of params.store.listInteractionNodeEmbeddings({
-      workspaceId: params.workspaceId,
-      embeddingModel: embeddingQuery.modelId,
-    })) {
-      embeddingByKey.set(`${record.nodeKind}:${record.nodeId}:${record.embeddingModel}`, record.vector);
-    }
-  }
+  const lexicalRanksByNodeId = semanticLexicalRanksByNodeId({
+    store: params.store,
+    workspaceId: params.workspaceId,
+    query: params.query,
+    mode,
+    treeId: params.treeId ?? null,
+  });
 
   if (params.nodeId) {
     return {
@@ -2322,45 +2808,78 @@ export async function retrieveInteractionMemory(params: {
         mode,
         embeddingModelId: embeddingQuery?.modelId ?? null,
         queryVector: embeddingQuery?.vector ?? null,
-        embeddingByKey,
       }),
     };
   }
 
-  const candidates: NodeCandidate[] = [];
-  for (const entity of entities) {
-    const semanticNodes = params.store.listSemanticMemoryNodes({
-      category: "interaction",
-      workspaceId: params.workspaceId,
-      treeId: entity.entityId,
-      status: "active",
-      limit: 10_000,
-      offset: 0,
-    });
-    if (semanticNodes.length > 0) {
-      for (const node of semanticNodes) {
-        const candidate = buildSemanticCandidate({
-          store: params.store,
-          workspaceId: params.workspaceId,
-          entity,
-          node,
-        });
-        if (mode === "leaves" && candidate.kind !== "leaf") {
-          continue;
-        }
-        if (mode === "summaries" && candidate.kind !== "summary") {
-          continue;
-        }
-        candidates.push(candidate);
+  const entityById = new Map(entities.map((entity) => [entity.entityId, entity]));
+  const vectorCandidateDocs = embeddingQuery
+    ? listInteractionVectorCandidateSearchDocs({
+        store: params.store,
+        workspaceId: params.workspaceId,
+        mode,
+        treeId: params.treeId ?? null,
+        embeddingModelId: embeddingQuery.modelId,
+        queryVector: embeddingQuery.vector,
+        maxResults,
+      })
+    : [];
+  const candidateDocs = listInteractionCandidateSearchDocs({
+    store: params.store,
+    workspaceId: params.workspaceId,
+    query: params.query,
+    mode,
+    treeId: params.treeId ?? null,
+    maxResults,
+    vectorDocs: vectorCandidateDocs,
+  });
+  let candidates = candidateDocs
+    .map((doc) => {
+      const entity = entityById.get(doc.treeId);
+      if (!entity) {
+        return null;
       }
-    }
+      return buildSemanticCandidateFromSearchDoc({
+        entity,
+        doc,
+      });
+    })
+    .filter((candidate): candidate is NodeCandidate => Boolean(candidate));
+  if (candidates.length === 0 && mode !== "summaries") {
+    candidates = params.store
+      .listInteractionLeaves({
+        workspaceId: params.workspaceId,
+        entityId: params.treeId ?? undefined,
+        status: "active",
+        limit: Math.max(RETRIEVAL_RECENT_CANDIDATE_LIMIT, maxResults * 12),
+        offset: 0,
+      })
+      .map((leaf) => {
+        const entity = entityById.get(leaf.entityId);
+        if (!entity) {
+          return null;
+        }
+        return buildLeafCandidate({
+          entity,
+          leaf,
+        });
+      })
+      .filter((candidate): candidate is NodeCandidate => Boolean(candidate))
+      .filter((candidate) => mode === "mixed" || candidate.kind === "leaf");
   }
+  const embeddingByKey = loadInteractionEmbeddingsByCandidateKey({
+    store: params.store,
+    workspaceId: params.workspaceId,
+    embeddingModelId: embeddingQuery?.modelId ?? null,
+    candidateIds: candidates.map((candidate) => candidate.id),
+  });
 
   const hits = candidates
     .map((candidate) => {
       const scored = nodeScore({
         query: params.query,
         candidate,
+        lexicalRank: lexicalRanksByNodeId.get(candidate.id) ?? null,
         embeddingModelId: embeddingQuery?.modelId ?? null,
         queryVector: embeddingQuery?.vector ?? null,
         embeddingByKey,

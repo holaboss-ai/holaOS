@@ -349,11 +349,11 @@ test("native runner executor can use the TypeScript runner template", async () =
   });
 });
 
-test("native runner executor gives task proposal runs a longer hard timeout budget", async () => {
+test("native runner executor gives subagent runs a longer hard timeout budget", async () => {
   process.env.SANDBOX_AGENT_RUN_TIMEOUT_S = "1";
-  process.env.SANDBOX_AGENT_TASK_PROPOSAL_RUN_TIMEOUT_S = "5";
+  process.env.SANDBOX_AGENT_SUBAGENT_RUN_TIMEOUT_S = "5";
   process.env.SANDBOX_AGENT_RUN_IDLE_TIMEOUT_S = "10";
-  process.env.SANDBOX_AGENT_TASK_PROPOSAL_RUN_IDLE_TIMEOUT_S = "10";
+  process.env.SANDBOX_AGENT_SUBAGENT_RUN_IDLE_TIMEOUT_S = "10";
 
   setNodeRunnerTemplate([
     "setTimeout(() => {",
@@ -363,7 +363,7 @@ test("native runner executor gives task proposal runs a longer hard timeout budg
   ]);
 
   const executor = new NativeRunnerExecutor();
-  const response = await executor.run(payload({ session_kind: "task_proposal" }));
+  const response = await executor.run(payload({ session_kind: "subagent" }));
   const events = response.events as Array<Record<string, unknown>>;
 
   assert.deepEqual(
@@ -372,11 +372,11 @@ test("native runner executor gives task proposal runs a longer hard timeout budg
   );
 });
 
-test("native runner executor gives task proposal runs a longer idle timeout budget", async () => {
+test("native runner executor gives subagent runs a longer idle timeout budget", async () => {
   process.env.SANDBOX_AGENT_RUN_TIMEOUT_S = "10";
-  process.env.SANDBOX_AGENT_TASK_PROPOSAL_RUN_TIMEOUT_S = "10";
+  process.env.SANDBOX_AGENT_SUBAGENT_RUN_TIMEOUT_S = "10";
   process.env.SANDBOX_AGENT_RUN_IDLE_TIMEOUT_S = "1";
-  process.env.SANDBOX_AGENT_TASK_PROPOSAL_RUN_IDLE_TIMEOUT_S = "5";
+  process.env.SANDBOX_AGENT_SUBAGENT_RUN_IDLE_TIMEOUT_S = "5";
 
   setNodeRunnerTemplate([
     "process.stdout.write(JSON.stringify({ session_id: 'session-1', input_id: 'input-1', sequence: 1, event_type: 'run_started', payload: { instruction_preview: 'hello' } }) + '\\n');",
@@ -386,7 +386,7 @@ test("native runner executor gives task proposal runs a longer idle timeout budg
   ]);
 
   const executor = new NativeRunnerExecutor();
-  const response = await executor.run(payload({ session_kind: "task_proposal" }));
+  const response = await executor.run(payload({ session_kind: "subagent" }));
   const events = response.events as Array<Record<string, unknown>>;
 
   assert.deepEqual(

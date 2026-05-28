@@ -63,6 +63,18 @@ const bubbleShouldShow: NonNullable<BubbleMenuProps["shouldShow"]> = ({
 // matters later we can swap to a hand-picked subset.
 const lowlight = createLowlight(common);
 
+function normalizeHttpUrl(rawHref: string): string | null {
+  try {
+    const parsed = new URL(rawHref);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.toString();
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export interface MarkdownEditorProps {
   /** The markdown source. Treated as the controlled value. */
   value: string;
@@ -78,6 +90,10 @@ export interface MarkdownEditorProps {
   className?: string;
   /** Notified once when the editor instance is created. Useful for parent toolbars. */
   onReady?: (editor: Editor) => void;
+  /** Called when the user clicks an http(s) link inside the editor. */
+  onLinkClick?: (url: string) => void;
+  /** Called when the user clicks a non-http link (relative path, file://, etc). */
+  onLocalLinkClick?: (href: string) => void;
 }
 
 export interface MarkdownEditorRef {
@@ -104,11 +120,25 @@ export const MarkdownEditor = forwardRef<
   MarkdownEditorRef,
   MarkdownEditorProps
 >(function MarkdownEditor(
-  { value, onChange, placeholder, readOnly = false, autoFocus, className, onReady },
+  {
+    value,
+    onChange,
+    placeholder,
+    readOnly = false,
+    autoFocus,
+    className,
+    onReady,
+    onLinkClick,
+    onLocalLinkClick,
+  },
   ref,
 ) {
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onLinkClickRef = useRef(onLinkClick);
+  onLinkClickRef.current = onLinkClick;
+  const onLocalLinkClickRef = useRef(onLocalLinkClick);
+  onLocalLinkClickRef.current = onLocalLinkClick;
 
   const extensions = useMemo(
     () => [
@@ -167,6 +197,31 @@ export const MarkdownEditor = forwardRef<
     contentType: "markdown",
     editable: !readOnly,
     autofocus: autoFocus ?? false,
+    editorProps: {
+      handleDOMEvents: {
+        click: (_view, event) => {
+          const target = event.target as HTMLElement | null;
+          const anchor = target?.closest?.("a");
+          if (!anchor) return false;
+          const rawHref = (anchor.getAttribute("href") ?? "").trim();
+          if (!rawHref) return false;
+          const normalized = normalizeHttpUrl(rawHref);
+          if (normalized) {
+            const cb = onLinkClickRef.current;
+            if (!cb) return false;
+            event.preventDefault();
+            cb(normalized);
+            return true;
+          }
+          if (rawHref.startsWith("#")) return false;
+          const cb = onLocalLinkClickRef.current;
+          if (!cb) return false;
+          event.preventDefault();
+          cb(rawHref);
+          return true;
+        },
+      },
+    },
     onUpdate({ editor }) {
       onChangeRef.current?.(editor.getMarkdown());
     },

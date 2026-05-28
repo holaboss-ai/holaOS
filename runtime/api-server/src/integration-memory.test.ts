@@ -13,9 +13,17 @@ import {
 } from "./integration-memory.js";
 import { globalMemoryDirForWorkspaceRoot } from "./workspace-bundle-paths.js";
 
+const ORIGINAL_FETCH = globalThis.fetch;
+const ORIGINAL_RUNTIME_CONFIG_PATH = process.env.HOLABOSS_RUNTIME_CONFIG_PATH;
 const tempDirs: string[] = [];
 
 afterEach(() => {
+  globalThis.fetch = ORIGINAL_FETCH;
+  if (ORIGINAL_RUNTIME_CONFIG_PATH === undefined) {
+    delete process.env.HOLABOSS_RUNTIME_CONFIG_PATH;
+  } else {
+    process.env.HOLABOSS_RUNTIME_CONFIG_PATH = ORIGINAL_RUNTIME_CONFIG_PATH;
+  }
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -25,6 +33,44 @@ function makeTempDir(prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
+}
+
+function writeRecallEmbeddingRuntimeConfig(root: string): string {
+  const configPath = path.join(root, "runtime-config.json");
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify(
+      {
+        runtime: {
+          sandbox_id: "sandbox-test",
+        },
+        providers: {
+          openai_direct: {
+            kind: "openai_compatible",
+            base_url: "https://api.openai.com/v1",
+            api_key: "sk-test-openai",
+          },
+        },
+        integrations: {
+          holaboss: {
+            auth_token: "hbmk.test-token",
+            sandbox_id: "sandbox-test",
+            user_id: "user-1",
+          },
+        },
+        holaboss: {
+          auth_token: "hbmk.test-token",
+          sandbox_id: "sandbox-test",
+          user_id: "user-1",
+        },
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  process.env.HOLABOSS_RUNTIME_CONFIG_PATH = configPath;
+  return configPath;
 }
 
 test("rebuildIntegrationTree writes deterministic semantic summaries for integration roots", async () => {
@@ -127,6 +173,430 @@ test("rebuildIntegrationTree writes deterministic semantic summaries for integra
       "content.md",
     );
     assert.match(fs.readFileSync(rootPath, "utf8"), /Release GitHub memory\./);
+  } finally {
+    store.close();
+  }
+});
+
+test("retrieveIntegrationMemory recalls deep-body integration leaf terms through the semantic search index", async () => {
+  const root = makeTempDir("hb-integration-memory-fts-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  try {
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertIntegrationConnection({
+      connectionId: "github-1",
+      providerId: "github",
+      ownerUserId: "user-1",
+      accountLabel: "Release GitHub",
+      accountHandle: "release-github",
+      authMode: "composio",
+      grantedScopes: [],
+      status: "active",
+    });
+    store.upsertIntegrationTree({
+      treeId: "integration:github:acct-fts",
+      provider: "github",
+      ownerUserId: "user-1",
+      accountKey: "release-github",
+      accountLabel: "Release GitHub",
+      slug: "github-release-fts",
+      summary: "Release GitHub memory.",
+      status: "active",
+    });
+
+    const buriedToken = "orbitalfreeze88";
+    const leafId = "leaf-deep-body";
+    store.upsertIntegrationLeaf({
+      leafId,
+      treeId: "integration:github:acct-fts",
+      subjectKey: "repo:holaboss-ai/release:pr:fts",
+      entityKey: "repo:holaboss-ai/release",
+      entityLabel: "holaboss-ai/release",
+      branchKey: "pull_requests",
+      branchLabel: "Pull requests",
+      path: `integration/accounts/github-release-fts/leaves/${leafId}.md`,
+      title: "Release checksum gate",
+      summary: "Release approval depends on a checksum gate deep in the body.",
+      fingerprint: `fingerprint-${leafId}`,
+      bodySha256: `sha-${leafId}`,
+      tags: ["github", "release"],
+      sourceType: "github.pull_request",
+      sourceEventId: "evt-fts",
+      sourceMessageId: null,
+      externalObjectId: "9001",
+      externalObjectType: "pull_request",
+      admissionConfidence: 0.9,
+      observedAt: "2026-05-22T09:00:00.000Z",
+      supersedesLeafId: null,
+      status: "active",
+    });
+
+    const absolutePath = path.join(
+      globalMemoryDirForWorkspaceRoot(workspaceRoot),
+      "integration",
+      "accounts",
+      "github-release-fts",
+      "leaves",
+      `${leafId}.md`,
+    );
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.writeFileSync(
+      absolutePath,
+      `# Release checksum gate\n\n${"filler ".repeat(90)}${buriedToken} must be green before merge.\n`,
+      "utf8",
+    );
+
+    await rebuildIntegrationTree({
+      store,
+      treeId: "integration:github:acct-fts",
+      embeddingClient: null,
+    });
+
+    const leafNode = store.listSemanticMemoryNodes({
+      category: "integration",
+      treeId: "integration:github:acct-fts",
+      nodeClass: "leaf",
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    })[0];
+    assert.ok(leafNode);
+
+    const indexedDoc = store.getSemanticMemorySearchDoc({
+      category: "integration",
+      treeId: "integration:github:acct-fts",
+      nodeId: leafNode!.nodeId,
+    });
+    assert.ok(indexedDoc);
+    assert.equal(indexedDoc?.bodyText.includes(buriedToken), true);
+    assert.equal(indexedDoc?.excerpt?.includes(buriedToken) ?? false, false);
+
+    const result = await retrieveIntegrationMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: buriedToken,
+      mode: "leaves",
+      treeId: "integration:github:acct-fts",
+      maxResults: 5,
+    });
+    assert.ok(result.hits.some((hit) => hit.title === "Release checksum gate"));
+  } finally {
+    store.close();
+  }
+});
+
+test("retrieveIntegrationMemory falls back to leaf summaries without reading markdown files", async () => {
+  const root = makeTempDir("hb-integration-memory-leaf-fallback-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  try {
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertIntegrationConnection({
+      connectionId: "github-1",
+      providerId: "github",
+      ownerUserId: "user-1",
+      accountLabel: "Release GitHub",
+      accountHandle: "release-github",
+      authMode: "composio",
+      grantedScopes: [],
+      status: "active",
+    });
+    store.upsertIntegrationTree({
+      treeId: "integration:github:acct-fallback",
+      provider: "github",
+      ownerUserId: "user-1",
+      accountKey: "release-github",
+      accountLabel: "Release GitHub",
+      slug: "github-release-fallback",
+      summary: "Release GitHub memory.",
+      status: "active",
+    });
+    store.upsertIntegrationLeaf({
+      leafId: "leaf-summary-fallback",
+      treeId: "integration:github:acct-fallback",
+      subjectKey: "repo:holaboss-ai/release:issue:summary-fallback",
+      entityKey: "repo:holaboss-ai/release",
+      entityLabel: "holaboss-ai/release",
+      branchKey: "issues",
+      branchLabel: "Issues",
+      path: "integration/accounts/github-release-fallback/leaves/leaf-summary-fallback.md",
+      title: "Release metrics backfill",
+      summary: "Backfill heliograph metrics after the rollout stabilizes.",
+      fingerprint: "fingerprint-leaf-summary-fallback",
+      bodySha256: "sha-leaf-summary-fallback",
+      tags: ["github", "release"],
+      sourceType: "github.issue",
+      sourceEventId: "evt-fallback",
+      sourceMessageId: null,
+      externalObjectId: "202",
+      externalObjectType: "issue",
+      admissionConfidence: 0.9,
+      observedAt: "2026-05-22T10:00:00.000Z",
+      supersedesLeafId: null,
+      status: "active",
+    });
+
+    const result = await retrieveIntegrationMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "heliograph metrics",
+      mode: "leaves",
+      treeId: "integration:github:acct-fallback",
+      maxResults: 5,
+    });
+
+    assert.equal(result.hits.length, 1);
+    assert.equal(result.hits[0]?.title, "Release metrics backfill");
+    assert.match(result.hits[0]?.excerpt ?? "", /heliograph metrics/i);
+  } finally {
+    store.close();
+  }
+});
+
+test("retrieveIntegrationMemory adds vector-only semantic candidates that fall outside the recent doc window", async () => {
+  const root = makeTempDir("hb-integration-memory-vector-topk-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  try {
+    assert.equal(store.supportsVectorIndex(), true);
+    writeRecallEmbeddingRuntimeConfig(root);
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertIntegrationConnection({
+      connectionId: "github-vector",
+      providerId: "github",
+      ownerUserId: "user-1",
+      accountLabel: "Vector GitHub",
+      accountHandle: "vector-github",
+      authMode: "composio",
+      grantedScopes: [],
+      status: "active",
+    });
+    store.upsertIntegrationTree({
+      treeId: "integration:github:vector-topk",
+      provider: "github",
+      ownerUserId: "user-1",
+      accountKey: "vector-github",
+      accountLabel: "Vector GitHub",
+      slug: "github-vector-topk",
+      summary: "Vector GitHub memory.",
+      status: "active",
+    });
+
+    const relevantNodeId = "semantic:integration:integration:github:vector-topk:repo:archive-ledger";
+    const relevantVector = new Array<number>(1536).fill(0);
+    relevantVector[0] = 1;
+    globalThis.fetch = (async (input) => {
+      const url = typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+      assert.match(url, /\/embeddings$/);
+      return new Response(
+        JSON.stringify({
+          data: [{ embedding: relevantVector }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }) as typeof fetch;
+
+    store.replaceSemanticMemorySearchDocs({
+      category: "integration",
+      treeId: "integration:github:vector-topk",
+      docs: [
+        ...Array.from({ length: 170 }, (_, index) => ({
+          nodeId: index === 169
+            ? relevantNodeId
+            : `semantic:integration:integration:github:vector-topk:filler-${index + 1}`,
+          nodeClass: "semantic" as const,
+          nodeKind: index === 169 ? "repo" : "overview",
+          path: index === 169
+            ? "semantic/integration/trees/github-vector-topk/repo-archive-ledger/content.md"
+            : `semantic/integration/trees/github-vector-topk/filler-${index + 1}/content.md`,
+          childCount: 0,
+          title: index === 169 ? "Archive ledger" : `Filler summary ${index + 1}`,
+          summary: index === 169
+            ? "Legacy rollout approvals are organized in the archive ledger."
+            : `Filler semantic summary ${index + 1}.`,
+          bodyText: index === 169
+            ? "Legacy rollout approvals are organized in the archive ledger."
+            : `Filler semantic summary ${index + 1}.`,
+          excerpt: index === 169 ? "Legacy rollout approvals are organized in the archive ledger." : null,
+          observedAt: `2026-05-20T00:${String(index % 60).padStart(2, "0")}:00.000Z`,
+          status: "active" as const,
+          updatedAt: index === 169 ? "2026-01-01T00:00:00.000Z" : "2026-05-31T00:00:00.000Z",
+        })),
+      ],
+    });
+    store.upsertIntegrationNodeEmbedding({
+      nodeKind: "summary",
+      nodeId: relevantNodeId,
+      treeId: "integration:github:vector-topk",
+      embeddingModel: "text-embedding-3-small",
+      contentFingerprint: "v".repeat(64),
+      dimensions: 1536,
+      vector: relevantVector,
+    });
+
+    const result = await retrieveIntegrationMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "silentorbitvector42",
+      mode: "summaries",
+      maxResults: 5,
+    });
+    assert.ok(result.hits.some((hit) => hit.node_id === relevantNodeId && hit.title === "Archive ledger"));
+  } finally {
+    store.close();
+  }
+});
+
+test("retrieveIntegrationMemory recalls matches across multiple visible integration trees", async () => {
+  const root = makeTempDir("hb-integration-memory-multi-tree-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  try {
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    for (const account of [
+      { connectionId: "github-1", treeId: "integration:github:acct-a", slug: "github-acct-a", label: "Account A" },
+      { connectionId: "github-2", treeId: "integration:github:acct-b", slug: "github-acct-b", label: "Account B" },
+    ]) {
+      store.upsertIntegrationConnection({
+        connectionId: account.connectionId,
+        providerId: "github",
+        ownerUserId: "user-1",
+        accountLabel: account.label,
+        accountHandle: account.slug,
+        authMode: "composio",
+        grantedScopes: [],
+        status: "active",
+      });
+      store.upsertIntegrationTree({
+        treeId: account.treeId,
+        provider: "github",
+        ownerUserId: "user-1",
+        accountKey: account.slug,
+        accountLabel: account.label,
+        slug: account.slug,
+        summary: `${account.label} memory.`,
+        status: "active",
+      });
+    }
+
+    const buriedToken = "multitreeorbit77";
+    const seedLeaf = (params: {
+      treeId: string;
+      slug: string;
+      leafId: string;
+      title: string;
+      body: string;
+    }) => {
+      store.upsertIntegrationLeaf({
+        leafId: params.leafId,
+        treeId: params.treeId,
+        subjectKey: `repo:${params.slug}:${params.leafId}`,
+        entityKey: `repo:${params.slug}`,
+        entityLabel: params.slug,
+        branchKey: "pull_requests",
+        branchLabel: "Pull requests",
+        path: `integration/accounts/${params.slug}/leaves/${params.leafId}.md`,
+        title: params.title,
+        summary: `${params.title} summary.`,
+        fingerprint: `fingerprint-${params.leafId}`,
+        bodySha256: `sha-${params.leafId}`,
+        tags: ["github"],
+        sourceType: "github.pull_request",
+        sourceEventId: `evt-${params.leafId}`,
+        sourceMessageId: null,
+        externalObjectId: params.leafId,
+        externalObjectType: "pull_request",
+        admissionConfidence: 0.9,
+        observedAt: "2026-05-22T09:00:00.000Z",
+        supersedesLeafId: null,
+        status: "active",
+      });
+      const absolutePath = path.join(
+        globalMemoryDirForWorkspaceRoot(workspaceRoot),
+        "integration",
+        "accounts",
+        params.slug,
+        "leaves",
+        `${params.leafId}.md`,
+      );
+      fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+      fs.writeFileSync(absolutePath, params.body, "utf8");
+    };
+
+    seedLeaf({
+      treeId: "integration:github:acct-a",
+      slug: "github-acct-a",
+      leafId: "leaf-a",
+      title: "General release note",
+      body: "# General release note\n\nNormal release work.\n",
+    });
+    seedLeaf({
+      treeId: "integration:github:acct-b",
+      slug: "github-acct-b",
+      leafId: "leaf-b",
+      title: "Checksum gate",
+      body: `# Checksum gate\n\n${"filler ".repeat(90)}${buriedToken} must pass before merge.\n`,
+    });
+
+    await rebuildIntegrationTree({
+      store,
+      treeId: "integration:github:acct-a",
+      embeddingClient: null,
+    });
+    await rebuildIntegrationTree({
+      store,
+      treeId: "integration:github:acct-b",
+      embeddingClient: null,
+    });
+
+    const result = await retrieveIntegrationMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: buriedToken,
+      mode: "leaves",
+      maxResults: 5,
+    });
+    assert.ok(result.hits.some((hit) => hit.tree_id === "integration:github:acct-b" && hit.title === "Checksum gate"));
   } finally {
     store.close();
   }

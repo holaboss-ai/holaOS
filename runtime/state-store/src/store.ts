@@ -32,8 +32,31 @@ const WORKSPACE_IDENTITY_LOCK_STALE_MS = 30_000;
 const WORKSPACE_RUNTIME_LEGACY_BACKFILL_MARKER_KEY =
   "legacy_workspace_backfill_v1_complete";
 const MAIN_SESSION_KIND = "main_session";
+const SUBAGENT_SESSION_KIND = "subagent";
 const MAIN_SESSION_BINDING_ROLE = "main_session";
 const MAIN_SESSION_CONVERSATION_KEY = "main_session";
+const GENERAL_TEAMMATE_ID = "general";
+const GENERAL_TEAMMATE_NAME = "General";
+const LEGACY_GENERAL_TEAMMATE_INSTRUCTIONS =
+  "General-purpose execution teammate backed by the current subagent runtime.";
+const GENERAL_TEAMMATE_INSTRUCTIONS = [
+  LEGACY_GENERAL_TEAMMATE_INSTRUCTIONS,
+  "For multi-source research, latest-news scans, investigations, comparisons, and other evidence-heavy work, produce a report artifact instead of packing the full findings into the final session message.",
+  "Use `write_report` when available; otherwise save a self-contained HTML report under `outputs/reports/`.",
+  "Keep the final session message to a concise handoff with the key takeaways and the artifact reference.",
+].join("\n\n");
+const GENERAL_TEAMMATE_CAPABILITY_PROFILE: TeammateCapabilityProfileRecord = {
+  summary:
+    "Fallback executor for general implementation, research, triage, and catch-all delegated work.",
+  capabilities: [
+    "generalist",
+    "implementation",
+    "research",
+    "triage",
+    "fallback",
+  ],
+  preferredTools: [],
+};
 const WORKSPACE_SCOPED_LEGACY_BACKFILL_TABLES = [
   "agent_sessions",
   "agent_runtime_sessions",
@@ -49,6 +72,8 @@ const WORKSPACE_SCOPED_LEGACY_BACKFILL_TABLES = [
   "terminal_session_events",
   "turn_results",
   "turn_request_snapshots",
+  "teammates",
+  "issues",
   "task_proposals",
   "evolve_skill_candidates",
   "memory_update_proposals",
@@ -369,6 +394,8 @@ export interface SubagentRunRecord {
   context: string | null;
   sourceType: string | null;
   sourceId: string | null;
+  issueId: string | null;
+  teammateId: string | null;
   proposalId: string | null;
   cronjobId: string | null;
   retryOfSubagentId: string | null;
@@ -571,6 +598,16 @@ export interface InteractionNodeEmbeddingRecord {
   updatedAt: string;
 }
 
+export interface InteractionNodeEmbeddingVectorSearchResult {
+  vecRowid: number;
+  distance: number;
+  workspaceId: string;
+  nodeKind: InteractionTreeChildKind;
+  nodeId: string;
+  entityId: string;
+  embeddingModel: string;
+}
+
 export interface IntegrationTreeRecord {
   treeId: string;
   provider: string;
@@ -624,6 +661,15 @@ export interface IntegrationNodeEmbeddingRecord {
   updatedAt: string;
 }
 
+export interface IntegrationNodeEmbeddingVectorSearchResult {
+  vecRowid: number;
+  distance: number;
+  nodeKind: InteractionTreeChildKind;
+  nodeId: string;
+  treeId: string;
+  embeddingModel: string;
+}
+
 export interface SemanticMemoryNodeRecord {
   workspaceId: string | null;
   category: SemanticMemoryCategory;
@@ -665,6 +711,28 @@ export interface SemanticMemoryRelationRecord {
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SemanticMemorySearchDocRecord {
+  workspaceId: string | null;
+  category: SemanticMemoryCategory;
+  treeId: string;
+  nodeId: string;
+  nodeClass: SemanticMemoryNodeClass;
+  nodeKind: string;
+  path: string;
+  childCount: number;
+  title: string;
+  summary: string;
+  bodyText: string;
+  excerpt: string | null;
+  observedAt: string | null;
+  status: MemoryNodeStatus;
+  updatedAt: string;
+}
+
+export interface SemanticMemorySearchHitRecord extends SemanticMemorySearchDocRecord {
+  bm25Score: number;
 }
 
 export interface OutputFolderRecord {
@@ -755,6 +823,7 @@ export interface CronjobRecord {
   id: string;
   workspaceId: string;
   initiatedBy: string;
+  teammateId: string;
   name: string;
   cron: string;
   description: string;
@@ -791,6 +860,69 @@ export interface RuntimeNotificationRecord {
   dismissedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type TeammateKind = "system" | "custom";
+export type TeammateStatus = "active" | "archived";
+
+export interface TeammateSkillRecord {
+  skillId: string;
+  name: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TeammateCapabilityProfileRecord {
+  summary: string | null;
+  capabilities: string[];
+  preferredTools: string[];
+}
+
+export interface TeammateRecord {
+  teammateId: string;
+  workspaceId: string;
+  name: string;
+  kind: TeammateKind;
+  status: TeammateStatus;
+  instructions: string | null;
+  capabilityProfile: TeammateCapabilityProfileRecord;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+}
+
+export type IssueStatus = "backlog" | "todo" | "in_progress" | "in_review" | "done" | "blocked";
+export type IssuePriority = "critical" | "high" | "medium" | "low";
+
+export interface IssueAttachmentRecord {
+  id: string;
+  kind: "image" | "file" | "folder";
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  workspacePath: string;
+  createdAt: string;
+}
+
+export interface IssueRecord {
+  issueId: string;
+  workspaceId: string;
+  issueNumber: number;
+  sessionId: string;
+  title: string;
+  description: string | null;
+  status: IssueStatus;
+  priority: IssuePriority | null;
+  assigneeTeammateId: string | null;
+  blockerReason: string | null;
+  attachments: IssueAttachmentRecord[];
+  activeSubagentId: string | null;
+  latestSubagentId: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
 }
 
 export interface OAuthAppConfigRecord {
@@ -993,6 +1125,29 @@ type TaskProposalUpdateFields = Partial<{
   acceptedAt: string | null;
 }>;
 
+type TeammateUpdateFields = Partial<{
+  name: string;
+  status: TeammateStatus;
+  instructions: string | null;
+  capabilityProfile: Partial<TeammateCapabilityProfileRecord> | null;
+  archivedAt: string | null;
+}>;
+
+type IssueUpdateFields = Partial<{
+  sessionId: string;
+  title: string;
+  description: string | null;
+  status: IssueStatus;
+  priority: IssuePriority | null;
+  assigneeTeammateId: string | null;
+  blockerReason: string | null;
+  attachments: IssueAttachmentRecord[];
+  activeSubagentId: string | null;
+  latestSubagentId: string | null;
+  createdBy: string | null;
+  completedAt: string | null;
+}>;
+
 type MemoryUpdateProposalUpdateFields = Partial<{
   title: string;
   summary: string;
@@ -1035,6 +1190,8 @@ type SubagentRunUpdateFields = Partial<{
   context: string | null;
   sourceType: string | null;
   sourceId: string | null;
+  issueId: string | null;
+  teammateId: string | null;
   proposalId: string | null;
   cronjobId: string | null;
   retryOfSubagentId: string | null;
@@ -2029,6 +2186,719 @@ export class RuntimeStateStore {
     return rows.map((row) => this.rowToAgentSession(row));
   }
 
+  ensureGeneralTeammate(workspaceId: string): TeammateRecord {
+    const workspaceDb = this.workspaceRuntimeDb(workspaceId);
+    const existing = workspaceDb
+      .prepare<[string, string], Record<string, unknown>>(
+        `
+          SELECT *
+          FROM teammates
+          WHERE workspace_id = ? AND teammate_id = ?
+          LIMIT 1
+        `,
+      )
+      .get(workspaceId, GENERAL_TEAMMATE_ID);
+    if (existing) {
+      const existingInstructions =
+        typeof existing.instructions === "string" ? existing.instructions.trim() : "";
+      if (
+        !existingInstructions ||
+        existingInstructions === LEGACY_GENERAL_TEAMMATE_INSTRUCTIONS
+      ) {
+        const now = utcNowIso();
+        workspaceDb
+          .prepare(`
+            UPDATE teammates
+            SET instructions = ?, updated_at = ?
+            WHERE workspace_id = ?
+              AND teammate_id = ?
+          `)
+          .run(
+            GENERAL_TEAMMATE_INSTRUCTIONS,
+            now,
+            workspaceId,
+            GENERAL_TEAMMATE_ID,
+          );
+        const refreshed = workspaceDb
+          .prepare<[string, string], Record<string, unknown>>(
+            `
+              SELECT *
+              FROM teammates
+              WHERE workspace_id = ? AND teammate_id = ?
+              LIMIT 1
+            `,
+          )
+          .get(workspaceId, GENERAL_TEAMMATE_ID);
+        if (refreshed) {
+          return this.rowToTeammate(refreshed);
+        }
+      }
+      return this.rowToTeammate(existing);
+    }
+
+    const now = utcNowIso();
+    workspaceDb
+      .prepare(`
+        INSERT INTO teammates (
+            teammate_id,
+            workspace_id,
+            name,
+            kind,
+            status,
+            instructions,
+            capability_profile_json,
+            created_at,
+            updated_at,
+            archived_at
+        ) VALUES (?, ?, ?, 'system', 'active', ?, ?, ?, ?, NULL)
+      `)
+      .run(
+        GENERAL_TEAMMATE_ID,
+        workspaceId,
+        GENERAL_TEAMMATE_NAME,
+        GENERAL_TEAMMATE_INSTRUCTIONS,
+        JSON.stringify(GENERAL_TEAMMATE_CAPABILITY_PROFILE),
+        now,
+        now,
+      );
+    const created = workspaceDb
+      .prepare<[string, string], Record<string, unknown>>(
+        `
+          SELECT *
+          FROM teammates
+          WHERE workspace_id = ? AND teammate_id = ?
+          LIMIT 1
+        `,
+      )
+      .get(workspaceId, GENERAL_TEAMMATE_ID);
+    if (!created) {
+      throw new Error("general teammate row not found after insert");
+    }
+    return this.rowToTeammate(created);
+  }
+
+  createTeammate(params: {
+    teammateId?: string;
+    workspaceId: string;
+    name: string;
+    instructions?: string | null;
+    capabilityProfile?: Partial<TeammateCapabilityProfileRecord> | null;
+    kind?: TeammateKind | null;
+    status?: TeammateStatus | null;
+    createdAt?: string;
+    updatedAt?: string;
+    archivedAt?: string | null;
+  }): TeammateRecord {
+    this.ensureGeneralTeammate(params.workspaceId);
+    const teammateId = this.normalizedNullableText(params.teammateId) ?? randomUUID();
+    const kind = this.requiredTeammateKind(params.kind ?? "custom");
+    const status = this.requiredTeammateStatus(params.status ?? "active");
+    const now = params.updatedAt ?? utcNowIso();
+    const createdAt = params.createdAt ?? now;
+    const archivedAt =
+      status === "archived"
+        ? this.normalizedNullableText(params.archivedAt) ?? now
+        : this.normalizedNullableText(params.archivedAt);
+    const capabilityProfile = this.normalizedTeammateCapabilityProfile(
+      params.capabilityProfile,
+      kind === "system" && teammateId === GENERAL_TEAMMATE_ID
+        ? GENERAL_TEAMMATE_CAPABILITY_PROFILE
+        : undefined,
+    );
+
+    this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(`
+        INSERT INTO teammates (
+            teammate_id,
+            workspace_id,
+            name,
+            kind,
+            status,
+            instructions,
+            capability_profile_json,
+            created_at,
+            updated_at,
+            archived_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        teammateId,
+        params.workspaceId,
+        this.requiredNormalizedText(params.name, "name"),
+        kind,
+        status,
+        this.normalizedNullableText(params.instructions),
+        JSON.stringify(capabilityProfile),
+        createdAt,
+        now,
+        archivedAt,
+      );
+
+    const record = this.getTeammate({
+      workspaceId: params.workspaceId,
+      teammateId,
+      includeArchived: true,
+    });
+    if (!record) {
+      throw new Error("teammate row not found after insert");
+    }
+    return record;
+  }
+
+  getTeammate(params: {
+    workspaceId: string;
+    teammateId: string;
+    includeArchived?: boolean;
+  }): TeammateRecord | null {
+    if (params.teammateId === GENERAL_TEAMMATE_ID) {
+      this.ensureGeneralTeammate(params.workspaceId);
+    }
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<[string, string, number], Record<string, unknown>>(`
+        SELECT *
+        FROM teammates
+        WHERE workspace_id = ?
+          AND teammate_id = ?
+          AND (? = 1 OR archived_at IS NULL)
+        LIMIT 1
+      `)
+      .get(
+        params.workspaceId,
+        params.teammateId,
+        params.includeArchived ? 1 : 0,
+      );
+    return row ? this.rowToTeammate(row) : null;
+  }
+
+  listTeammates(params: {
+    workspaceId: string;
+    includeArchived?: boolean;
+    limit?: number;
+    offset?: number;
+  }): TeammateRecord[] {
+    this.ensureGeneralTeammate(params.workspaceId);
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<[string, number, number, number], Record<string, unknown>>(`
+        SELECT *
+        FROM teammates
+        WHERE workspace_id = ?
+          AND (? = 1 OR archived_at IS NULL)
+        ORDER BY
+          CASE WHEN kind = 'system' THEN 0 ELSE 1 END ASC,
+          datetime(updated_at) DESC,
+          datetime(created_at) DESC,
+          teammate_id DESC
+        LIMIT ? OFFSET ?
+      `)
+      .all(
+        params.workspaceId,
+        params.includeArchived ? 1 : 0,
+        params.limit ?? 100,
+        params.offset ?? 0,
+      );
+    return rows.map((row) => this.rowToTeammate(row));
+  }
+
+  updateTeammate(params: {
+    workspaceId: string;
+    teammateId: string;
+    fields: TeammateUpdateFields;
+  }): TeammateRecord | null {
+    const existing = this.getTeammate({
+      workspaceId: params.workspaceId,
+      teammateId: params.teammateId,
+      includeArchived: true,
+    });
+    if (!existing) {
+      return null;
+    }
+    const entries = Object.entries(params.fields).filter(([, value]) => value !== undefined);
+    if (entries.length === 0) {
+      return existing;
+    }
+
+    const columnMap: Record<keyof TeammateUpdateFields, string> = {
+      name: "name",
+      status: "status",
+      instructions: "instructions",
+      capabilityProfile: "capability_profile_json",
+      archivedAt: "archived_at",
+    };
+
+    const assignments: string[] = [];
+    const values: unknown[] = [];
+    for (const [key, rawValue] of entries) {
+      const typedKey = key as keyof TeammateUpdateFields;
+      const column = columnMap[typedKey];
+      if (!column) {
+        throw new Error(`unsupported teammate update field: ${key}`);
+      }
+      assignments.push(`${column} = ?`);
+      if (typedKey === "status") {
+        values.push(this.requiredTeammateStatus(rawValue as TeammateStatus));
+        continue;
+      }
+      if (typedKey === "capabilityProfile") {
+        const capabilityProfileDefaults =
+          rawValue === null
+            ? existing.kind === "system" &&
+              existing.teammateId === GENERAL_TEAMMATE_ID
+              ? GENERAL_TEAMMATE_CAPABILITY_PROFILE
+              : undefined
+            : existing.capabilityProfile;
+        values.push(
+          JSON.stringify(
+            this.normalizedTeammateCapabilityProfile(
+              rawValue as Partial<TeammateCapabilityProfileRecord> | null,
+              capabilityProfileDefaults,
+            ),
+          ),
+        );
+        continue;
+      }
+      if (typedKey === "name") {
+        values.push(this.requiredNormalizedText(rawValue as string | null | undefined, "name"));
+        continue;
+      }
+      values.push(this.normalizedNullableText(rawValue as string | null | undefined));
+    }
+    assignments.push("updated_at = ?");
+    values.push(utcNowIso(), params.teammateId);
+
+    this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(`UPDATE teammates SET ${assignments.join(", ")} WHERE teammate_id = ?`)
+      .run(...values);
+
+    return this.getTeammate({
+      workspaceId: params.workspaceId,
+      teammateId: params.teammateId,
+      includeArchived: true,
+    });
+  }
+
+  archiveTeammate(params: {
+    workspaceId: string;
+    teammateId: string;
+  }): TeammateRecord | null {
+    const existing = this.getTeammate({
+      workspaceId: params.workspaceId,
+      teammateId: params.teammateId,
+      includeArchived: true,
+    });
+    if (!existing) {
+      return null;
+    }
+    const now = utcNowIso();
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
+    const transaction = workspaceDb.transaction(() => {
+      workspaceDb
+        .prepare(`
+          UPDATE teammates
+          SET status = 'archived',
+              archived_at = ?,
+              updated_at = ?
+          WHERE workspace_id = ?
+            AND teammate_id = ?
+        `)
+        .run(now, now, params.workspaceId, params.teammateId);
+
+      workspaceDb
+        .prepare(`
+          UPDATE session_runtime_state
+          SET status = 'IDLE',
+              current_input_id = NULL,
+              current_worker_id = NULL,
+              lease_until = NULL,
+              heartbeat_at = ?,
+              last_error = NULL,
+              updated_at = ?
+          WHERE workspace_id = ?
+            AND session_id IN (
+              SELECT session_id
+              FROM issues
+              WHERE workspace_id = ?
+                AND assignee_teammate_id = ?
+            )
+        `)
+        .run(now, now, params.workspaceId, params.workspaceId, params.teammateId);
+
+      workspaceDb
+        .prepare(`
+          UPDATE issues
+          SET assignee_teammate_id = NULL,
+              status = 'todo',
+              blocker_reason = NULL,
+              active_subagent_id = NULL,
+              completed_at = NULL,
+              updated_at = ?
+          WHERE workspace_id = ?
+            AND assignee_teammate_id = ?
+        `)
+        .run(now, params.workspaceId, params.teammateId);
+
+      workspaceDb
+        .prepare(`
+          UPDATE subagent_runs
+          SET status = CASE
+                WHEN status IN ('queued', 'running', 'waiting_on_user') THEN 'cancelled'
+                ELSE status
+              END,
+              cancelled_at = CASE
+                WHEN status IN ('queued', 'running', 'waiting_on_user') THEN coalesce(cancelled_at, ?)
+                ELSE cancelled_at
+              END,
+              updated_at = CASE
+                WHEN status IN ('queued', 'running', 'waiting_on_user') THEN ?
+                ELSE updated_at
+              END
+          WHERE workspace_id = ?
+            AND teammate_id = ?
+        `)
+        .run(now, now, params.workspaceId, params.teammateId);
+    });
+    transaction();
+
+    return this.getTeammate({
+      workspaceId: params.workspaceId,
+      teammateId: params.teammateId,
+      includeArchived: true,
+    });
+  }
+
+  createIssue(params: {
+    issueId?: string;
+    workspaceId: string;
+    sessionId?: string;
+    title: string;
+    description?: string | null;
+    status: IssueStatus;
+    priority?: IssuePriority | null;
+    assigneeTeammateId?: string | null;
+    blockerReason?: string | null;
+    attachments?: Array<Partial<IssueAttachmentRecord> & {
+      name: string;
+      mimeType: string;
+      workspacePath: string;
+    }> | null;
+    activeSubagentId?: string | null;
+    latestSubagentId?: string | null;
+    createdBy?: string | null;
+    createdAt?: string;
+    updatedAt?: string;
+    completedAt?: string | null;
+  }): IssueRecord {
+    this.ensureGeneralTeammate(params.workspaceId);
+    const status = this.requiredIssueStatus(params.status);
+    const blockerReason = this.normalizedNullableText(params.blockerReason);
+    if (status === "blocked" && !blockerReason) {
+      throw new Error("blockerReason is required when issue status is blocked");
+    }
+    const assigneeTeammateId = this.normalizedNullableText(params.assigneeTeammateId);
+    if (assigneeTeammateId) {
+      const assignee = this.getTeammate({
+        workspaceId: params.workspaceId,
+        teammateId: assigneeTeammateId,
+        includeArchived: true,
+      });
+      if (!assignee) {
+        throw new Error(`teammate ${assigneeTeammateId} not found`);
+      }
+      if (assignee.status !== "active") {
+        throw new Error(`teammate ${assigneeTeammateId} is not active`);
+      }
+    }
+
+    const workspace = this.getWorkspace(params.workspaceId);
+    if (!workspace) {
+      throw new Error(`workspace ${params.workspaceId} not found`);
+    }
+    const workspaceDb = this.workspaceRuntimeDb(params.workspaceId);
+    const nextIssueNumber =
+      (
+        workspaceDb
+          .prepare<[], { max_issue_number: number | null }>(
+            "SELECT MAX(issue_number) AS max_issue_number FROM issues",
+          )
+          .get()?.max_issue_number ?? 0
+      ) + 1;
+    const issueId =
+      this.normalizedNullableText(params.issueId) ??
+      `${this.issueIdPrefixForWorkspaceName(workspace.name)}-${nextIssueNumber}`;
+    const sessionId =
+      this.normalizedNullableText(params.sessionId) ??
+      `issue-${randomUUID()}`;
+    if (this.getIssue({ workspaceId: params.workspaceId, issueId })) {
+      throw new Error(`issue ${issueId} already exists`);
+    }
+    if (this.getSession({ workspaceId: params.workspaceId, sessionId })) {
+      throw new Error(`session ${sessionId} already exists`);
+    }
+
+    const now = params.updatedAt ?? utcNowIso();
+    const createdAt = params.createdAt ?? now;
+    const attachments = this.normalizedIssueAttachments(params.attachments, createdAt);
+    const completedAt =
+      status === "done"
+        ? this.normalizedNullableText(params.completedAt) ?? now
+        : this.normalizedNullableText(params.completedAt);
+
+    const session = this.ensureSession(
+      {
+        workspaceId: params.workspaceId,
+        sessionId,
+        kind: "subagent",
+        title: params.title,
+        createdBy: params.createdBy ?? "workspace_user",
+      },
+      { touchExisting: false },
+    );
+    this.ensureRuntimeState({
+      workspaceId: params.workspaceId,
+      sessionId: session.sessionId,
+      status: "IDLE",
+      currentInputId: null,
+    });
+
+    workspaceDb
+      .prepare(`
+        INSERT INTO issues (
+            issue_id,
+            workspace_id,
+            issue_number,
+            session_id,
+            title,
+            description,
+            status,
+            priority,
+            assignee_teammate_id,
+            blocker_reason,
+            attachment_payloads,
+            active_subagent_id,
+            latest_subagent_id,
+            created_by,
+            created_at,
+            updated_at,
+            completed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        issueId,
+        params.workspaceId,
+        nextIssueNumber,
+        session.sessionId,
+        this.requiredNormalizedText(params.title, "title"),
+        this.normalizedNullableText(params.description),
+        status,
+        this.nullableIssuePriority(params.priority),
+        assigneeTeammateId,
+        blockerReason,
+        JSON.stringify(attachments),
+        this.normalizedNullableText(params.activeSubagentId),
+        this.normalizedNullableText(params.latestSubagentId),
+        this.normalizedNullableText(params.createdBy) ?? "workspace_user",
+        createdAt,
+        now,
+        completedAt,
+      );
+
+    const record = this.getIssue({ workspaceId: params.workspaceId, issueId });
+    if (!record) {
+      throw new Error("issue row not found after insert");
+    }
+    return record;
+  }
+
+  getIssue(params: { workspaceId: string; issueId: string }): IssueRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<[string, string], Record<string, unknown>>(`
+        SELECT *
+        FROM issues
+        WHERE workspace_id = ? AND issue_id = ?
+        LIMIT 1
+      `)
+      .get(params.workspaceId, params.issueId);
+    return row ? this.rowToIssue(row) : null;
+  }
+
+  getIssueBySessionId(params: {
+    workspaceId: string;
+    sessionId: string;
+  }): IssueRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<[string, string], Record<string, unknown>>(`
+        SELECT *
+        FROM issues
+        WHERE workspace_id = ? AND session_id = ?
+        LIMIT 1
+      `)
+      .get(params.workspaceId, params.sessionId);
+    return row ? this.rowToIssue(row) : null;
+  }
+
+  listIssues(params: {
+    workspaceId: string;
+    statuses?: IssueStatus[] | null;
+    limit?: number;
+    offset?: number;
+  }): IssueRecord[] {
+    const statuses = Array.from(new Set((params.statuses ?? []).filter((status): status is IssueStatus => !!status)));
+    const whereClauses = ["workspace_id = ?"];
+    const values: unknown[] = [params.workspaceId];
+    if (statuses.length > 0) {
+      whereClauses.push(`status IN (${statuses.map(() => "?").join(", ")})`);
+      values.push(...statuses);
+    }
+    values.push(params.limit ?? 200, params.offset ?? 0);
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<unknown[], Record<string, unknown>>(`
+        SELECT *
+        FROM issues
+        WHERE ${whereClauses.join(" AND ")}
+        ORDER BY datetime(updated_at) DESC, issue_number DESC, issue_id DESC
+        LIMIT ? OFFSET ?
+      `)
+      .all(...values);
+    return rows.map((row) => this.rowToIssue(row));
+  }
+
+  updateIssue(params: {
+    workspaceId: string;
+    issueId: string;
+    fields: IssueUpdateFields;
+  }): IssueRecord | null {
+    const existing = this.getIssue({ workspaceId: params.workspaceId, issueId: params.issueId });
+    if (!existing) {
+      return null;
+    }
+    const entries = Object.entries(params.fields).filter(([, value]) => value !== undefined);
+    if (entries.length === 0) {
+      return existing;
+    }
+
+    const nextStatus =
+      params.fields.status === undefined
+        ? existing.status
+        : this.requiredIssueStatus(params.fields.status);
+    const nextBlockerReason =
+      params.fields.blockerReason === undefined
+        ? existing.blockerReason
+        : this.normalizedNullableText(params.fields.blockerReason);
+    if (nextStatus === "blocked" && !nextBlockerReason) {
+      throw new Error("blockerReason is required when issue status is blocked");
+    }
+
+    const nextAssigneeTeammateId =
+      params.fields.assigneeTeammateId === undefined
+        ? existing.assigneeTeammateId
+        : this.normalizedNullableText(params.fields.assigneeTeammateId);
+    if (nextAssigneeTeammateId) {
+      const assignee = this.getTeammate({
+        workspaceId: params.workspaceId,
+        teammateId: nextAssigneeTeammateId,
+        includeArchived: true,
+      });
+      if (!assignee) {
+        throw new Error(`teammate ${nextAssigneeTeammateId} not found`);
+      }
+      if (assignee.status !== "active") {
+        throw new Error(`teammate ${nextAssigneeTeammateId} is not active`);
+      }
+    }
+
+    if (
+      params.fields.sessionId &&
+      params.fields.sessionId !== existing.sessionId &&
+      this.getSession({ workspaceId: existing.workspaceId, sessionId: params.fields.sessionId })
+    ) {
+      throw new Error(`session ${params.fields.sessionId} already exists`);
+    }
+    if (params.fields.sessionId) {
+      this.ensureSession(
+        {
+          workspaceId: existing.workspaceId,
+          sessionId: params.fields.sessionId,
+          kind: "subagent",
+          title: params.fields.title ?? existing.title,
+        },
+        { touchExisting: false },
+      );
+    }
+    if (params.fields.title !== undefined) {
+      this.ensureSession(
+        {
+          workspaceId: existing.workspaceId,
+          sessionId: params.fields.sessionId ?? existing.sessionId,
+          title: params.fields.title,
+          kind: "subagent",
+        },
+        { touchExisting: false },
+      );
+    }
+
+    const columnMap: Record<keyof IssueUpdateFields, string> = {
+      sessionId: "session_id",
+      title: "title",
+      description: "description",
+      status: "status",
+      priority: "priority",
+      assigneeTeammateId: "assignee_teammate_id",
+      blockerReason: "blocker_reason",
+      attachments: "attachment_payloads",
+      activeSubagentId: "active_subagent_id",
+      latestSubagentId: "latest_subagent_id",
+      createdBy: "created_by",
+      completedAt: "completed_at",
+    };
+
+    const assignments: string[] = [];
+    const values: unknown[] = [];
+    for (const [key, rawValue] of entries) {
+      const typedKey = key as keyof IssueUpdateFields;
+      const column = columnMap[typedKey];
+      if (!column) {
+        throw new Error(`unsupported issue update field: ${key}`);
+      }
+      assignments.push(`${column} = ?`);
+      if (typedKey === "attachments") {
+        values.push(
+          JSON.stringify(
+            this.normalizedIssueAttachments(
+              rawValue as IssueAttachmentRecord[],
+              existing.createdAt,
+            ),
+          ),
+        );
+        continue;
+      }
+      if (typedKey === "status") {
+        values.push(nextStatus);
+        continue;
+      }
+      if (typedKey === "priority") {
+        values.push(this.nullableIssuePriority(rawValue as IssuePriority | null | undefined));
+        continue;
+      }
+      if (typedKey === "title") {
+        values.push(this.requiredNormalizedText(rawValue as string | null | undefined, "title"));
+        continue;
+      }
+      values.push(this.normalizedNullableText(rawValue as string | null | undefined));
+    }
+
+    if (params.fields.status !== undefined && params.fields.completedAt === undefined) {
+      assignments.push("completed_at = ?");
+      values.push(nextStatus === "done" ? utcNowIso() : null);
+    }
+    assignments.push("updated_at = ?");
+    values.push(utcNowIso(), params.issueId);
+
+    this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(`UPDATE issues SET ${assignments.join(", ")} WHERE issue_id = ?`)
+      .run(...values);
+
+    return this.getIssue({ workspaceId: params.workspaceId, issueId: params.issueId });
+  }
+
   updateTaskProposal(params: { workspaceId: string; proposalId: string; fields: TaskProposalUpdateFields }): TaskProposalRecord | null {
     const existing = this.getTaskProposal({
       workspaceId: params.workspaceId,
@@ -2558,6 +3428,8 @@ export class RuntimeStateStore {
     context?: string | null;
     sourceType?: string | null;
     sourceId?: string | null;
+    issueId?: string | null;
+    teammateId?: string | null;
     proposalId?: string | null;
     cronjobId?: string | null;
     retryOfSubagentId?: string | null;
@@ -2641,6 +3513,8 @@ export class RuntimeStateStore {
             context,
             source_type,
             source_id,
+            issue_id,
+            teammate_id,
             proposal_id,
             cronjob_id,
             retry_of_subagent_id,
@@ -2660,7 +3534,7 @@ export class RuntimeStateStore {
             completed_at,
             cancelled_at,
             updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         subagentId,
@@ -2678,6 +3552,8 @@ export class RuntimeStateStore {
         this.normalizedNullableText(params.context),
         this.normalizedNullableText(params.sourceType),
         this.normalizedNullableText(params.sourceId),
+        this.normalizedNullableText(params.issueId),
+        this.normalizedNullableText(params.teammateId),
         this.normalizedNullableText(params.proposalId),
         this.normalizedNullableText(params.cronjobId),
         this.normalizedNullableText(params.retryOfSubagentId),
@@ -2771,6 +3647,8 @@ export class RuntimeStateStore {
       context: "context",
       sourceType: "source_type",
       sourceId: "source_id",
+      issueId: "issue_id",
+      teammateId: "teammate_id",
       proposalId: "proposal_id",
       cronjobId: "cronjob_id",
       retryOfSubagentId: "retry_of_subagent_id",
@@ -2811,6 +3689,8 @@ export class RuntimeStateStore {
       "context",
       "sourceType",
       "sourceId",
+      "issueId",
+      "teammateId",
       "proposalId",
       "cronjobId",
       "retryOfSubagentId",
@@ -5374,6 +6254,36 @@ export class RuntimeStateStore {
     return Number(row?.total ?? 0);
   }
 
+  countWorkspaceTurnResults(params: {
+    workspaceId: string;
+    sessionId?: string;
+    inputId?: string;
+    status?: string;
+  }): number {
+    let query = `
+      SELECT COUNT(*) AS total
+      FROM turn_results
+      WHERE workspace_id = ?
+    `;
+    const values: string[] = [params.workspaceId];
+    if (params.sessionId) {
+      query += " AND session_id = ?";
+      values.push(params.sessionId);
+    }
+    if (params.inputId) {
+      query += " AND input_id = ?";
+      values.push(params.inputId);
+    }
+    if (params.status) {
+      query += " AND status = ?";
+      values.push(params.status);
+    }
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(query)
+      .get(...values) as { total: number } | undefined;
+    return Number(row?.total ?? 0);
+  }
+
   listTurnResults(params: {
     workspaceId: string;
     sessionId: string;
@@ -5405,6 +6315,45 @@ export class RuntimeStateStore {
     `;
     values.push(params.limit ?? 100, params.offset ?? 0);
     const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToTurnResult(row));
+  }
+
+  listWorkspaceTurnResults(params: {
+    workspaceId: string;
+    sessionId?: string;
+    inputId?: string;
+    status?: string;
+    order?: "asc" | "desc";
+    limit?: number;
+    offset?: number;
+  }): TurnResultRecord[] {
+    let query = `
+      SELECT *
+      FROM turn_results
+      WHERE workspace_id = ?
+    `;
+    const values: Array<string | number> = [params.workspaceId];
+    if (params.sessionId) {
+      query += " AND session_id = ?";
+      values.push(params.sessionId);
+    }
+    if (params.inputId) {
+      query += " AND input_id = ?";
+      values.push(params.inputId);
+    }
+    if (params.status) {
+      query += " AND status = ?";
+      values.push(params.status);
+    }
+    const order = params.order === "asc" ? "ASC" : "DESC";
+    query += `
+      ORDER BY datetime(COALESCE(completed_at, started_at)) ${order}, created_at ${order}, input_id ${order}
+      LIMIT ? OFFSET ?
+    `;
+    values.push(params.limit ?? 100, params.offset ?? 0);
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(query)
+      .all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToTurnResult(row));
   }
 
@@ -6196,6 +7145,13 @@ export class RuntimeStateStore {
     if (!record) {
       throw new Error("interaction embedding row not found after upsert");
     }
+    this.replaceInteractionNodeEmbeddingVector({
+      workspaceId: params.workspaceId,
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+      embedding: new Float32Array(params.vector),
+    });
     return record;
   }
 
@@ -6221,11 +7177,171 @@ export class RuntimeStateStore {
     return row ? this.rowToInteractionNodeEmbedding(row) : null;
   }
 
+  private interactionNodeEmbeddingRowid(params: {
+    workspaceId: string;
+    nodeKind: InteractionTreeChildKind;
+    nodeId: string;
+    embeddingModel: string;
+  }): number | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<
+        [string, string, string, string],
+        { vec_rowid?: number | bigint | null }
+      >(
+        `
+          SELECT rowid AS vec_rowid
+          FROM interaction_node_embeddings
+          WHERE workspace_id = ?
+            AND node_kind = ?
+            AND node_id = ?
+            AND embedding_model = ?
+          LIMIT 1
+        `,
+      )
+      .get(params.workspaceId, params.nodeKind, params.nodeId, params.embeddingModel);
+    if (!row?.vec_rowid) {
+      return null;
+    }
+    return Number(row.vec_rowid);
+  }
+
+  replaceInteractionNodeEmbeddingVector(params: {
+    workspaceId: string;
+    nodeKind: InteractionTreeChildKind;
+    nodeId: string;
+    embeddingModel: string;
+    embedding: Float32Array;
+  }): void {
+    if (!this.#vectorIndexSupported || params.embedding.length !== 1536) {
+      return;
+    }
+    const record = this.getInteractionNodeEmbedding({
+      workspaceId: params.workspaceId,
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+    });
+    if (!record) {
+      return;
+    }
+    const vecRowid = this.interactionNodeEmbeddingRowid({
+      workspaceId: params.workspaceId,
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+    });
+    if (!Number.isFinite(vecRowid)) {
+      return;
+    }
+    const db = this.workspaceRuntimeDb(params.workspaceId);
+    db.prepare("DELETE FROM interaction_node_embedding_vec WHERE vec_rowid = ?").run(vecRowid);
+    db
+      .prepare(`
+        INSERT INTO interaction_node_embedding_vec (vec_rowid, embedding, entity_id, node_kind, embedding_model)
+        VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
+      `)
+      .run(
+        vecRowid,
+        params.embedding,
+        record.entityId,
+        record.nodeKind,
+        record.embeddingModel,
+      );
+  }
+
+  private backfillInteractionNodeEmbeddingVectors(params: {
+    workspaceId: string;
+    embeddingModel: string;
+    entityIds?: string[] | null;
+    nodeKinds?: InteractionTreeChildKind[] | null;
+  }): void {
+    if (!this.#vectorIndexSupported) {
+      return;
+    }
+    const normalizedEntityIds = params.entityIds
+      ? [...new Set(params.entityIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    const normalizedNodeKinds = params.nodeKinds
+      ? [...new Set(params.nodeKinds.map((value) => value.trim()).filter(Boolean) as InteractionTreeChildKind[])]
+      : null;
+    const db = this.workspaceRuntimeDb(params.workspaceId);
+    let query = `
+      SELECT rowid AS vec_rowid, vector_json, entity_id, node_kind, embedding_model
+      FROM interaction_node_embeddings
+      WHERE workspace_id = ?
+        AND embedding_model = ?
+        AND dimensions = 1536
+    `;
+    const values: Array<string | number> = [params.workspaceId, params.embeddingModel];
+    if (normalizedEntityIds && normalizedEntityIds.length > 0) {
+      query += ` AND entity_id IN (${normalizedEntityIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedEntityIds);
+    }
+    if (normalizedNodeKinds && normalizedNodeKinds.length > 0) {
+      query += ` AND node_kind IN (${normalizedNodeKinds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeKinds);
+    }
+    const sourceRows = db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+    if (sourceRows.length === 0) {
+      return;
+    }
+    const rowIds = sourceRows
+      .map((row) => Number(row.vec_rowid))
+      .filter((value) => Number.isFinite(value));
+    if (rowIds.length === 0) {
+      return;
+    }
+    const existingRowIds = new Set<number>(
+      (
+        db.prepare(`
+          SELECT vec_rowid
+          FROM interaction_node_embedding_vec
+          WHERE vec_rowid IN (${rowIds.map(() => "?").join(", ")})
+        `).all(...rowIds) as Array<{ vec_rowid: number | bigint }>
+      )
+        .map((row) => Number(row.vec_rowid))
+        .filter((value) => Number.isFinite(value)),
+    );
+    const insert = db.prepare(`
+      INSERT INTO interaction_node_embedding_vec (vec_rowid, embedding, entity_id, node_kind, embedding_model)
+      VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
+    `);
+    const insertMany = db.transaction((items: Array<Record<string, unknown>>) => {
+      for (const row of items) {
+        const vecRowid = Number(row.vec_rowid);
+        if (!Number.isFinite(vecRowid) || existingRowIds.has(vecRowid)) {
+          continue;
+        }
+        const vector = this.parseJsonList(row.vector_json)
+          .map((value) => (typeof value === "number" ? value : Number(value)))
+          .filter((value) => Number.isFinite(value));
+        if (vector.length !== 1536) {
+          continue;
+        }
+        insert.run(
+          vecRowid,
+          new Float32Array(vector),
+          String(row.entity_id),
+          String(row.node_kind),
+          String(row.embedding_model),
+        );
+      }
+    });
+    insertMany(sourceRows);
+  }
+
   listInteractionNodeEmbeddings(params: {
     workspaceId: string;
     entityId?: string | null;
     embeddingModel?: string | null;
+    nodeIds?: string[] | null;
   }): InteractionNodeEmbeddingRecord[] {
+    const normalizedNodeIds = params.nodeIds
+      ? [...new Set(params.nodeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    if (params.nodeIds && normalizedNodeIds && normalizedNodeIds.length === 0) {
+      return [];
+    }
     let query = `
       SELECT *
       FROM interaction_node_embeddings
@@ -6248,9 +7364,106 @@ export class RuntimeStateStore {
         values.push(params.embeddingModel);
       }
     }
+    if (normalizedNodeIds) {
+      query += ` AND node_id IN (${normalizedNodeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeIds);
+    }
     query += " ORDER BY updated_at DESC, created_at DESC, node_id ASC";
     const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToInteractionNodeEmbedding(row));
+  }
+
+  searchInteractionNodeEmbeddingsByVector(params: {
+    workspaceId: string;
+    embedding: Float32Array;
+    embeddingModel: string;
+    limit: number;
+    entityIds?: string[] | null;
+    nodeKinds?: InteractionTreeChildKind[] | null;
+  }): InteractionNodeEmbeddingVectorSearchResult[] {
+    if (!this.#vectorIndexSupported || params.embedding.length !== 1536) {
+      return [];
+    }
+    const normalizedLimit = Math.max(1, Math.trunc(params.limit));
+    const normalizedEntityIds = params.entityIds
+      ? [...new Set(params.entityIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    const normalizedNodeKinds = params.nodeKinds
+      ? [...new Set(params.nodeKinds.map((value) => value.trim()).filter(Boolean) as InteractionTreeChildKind[])]
+      : null;
+    this.backfillInteractionNodeEmbeddingVectors({
+      workspaceId: params.workspaceId,
+      embeddingModel: params.embeddingModel,
+      entityIds: normalizedEntityIds,
+      nodeKinds: normalizedNodeKinds,
+    });
+    let query = `
+      SELECT vec_rowid, distance
+      FROM interaction_node_embedding_vec
+      WHERE embedding MATCH ?
+        AND k = ?
+        AND embedding_model = ?
+    `;
+    const values: Array<string | number | Float32Array> = [params.embedding, normalizedLimit, params.embeddingModel];
+    if (normalizedEntityIds && normalizedEntityIds.length > 0) {
+      query += ` AND entity_id IN (${normalizedEntityIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedEntityIds);
+    }
+    if (normalizedNodeKinds && normalizedNodeKinds.length > 0) {
+      query += ` AND node_kind IN (${normalizedNodeKinds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeKinds);
+    }
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(query)
+      .all(...values) as Array<{ vec_rowid: number; distance: number }>;
+    return this.interactionEmbeddingVectorResultsForRows(params.workspaceId, rows);
+  }
+
+  private interactionEmbeddingVectorResultsForRows(
+    workspaceId: string,
+    rows: Array<{ vec_rowid: number; distance: number }>
+  ): InteractionNodeEmbeddingVectorSearchResult[] {
+    if (rows.length === 0) {
+      return [];
+    }
+    const rowIds = rows.map((row) => Number(row.vec_rowid)).filter((value) => Number.isFinite(value));
+    if (rowIds.length === 0) {
+      return [];
+    }
+    const db = this.workspaceRuntimeDb(workspaceId);
+    const mappingRows = db
+      .prepare(`
+        SELECT rowid AS vec_rowid, *
+        FROM interaction_node_embeddings
+        WHERE workspace_id = ?
+          AND rowid IN (${rowIds.map(() => "?").join(", ")})
+      `)
+      .all(workspaceId, ...rowIds) as Array<Record<string, unknown>>;
+    const byRowId = new Map<number, InteractionNodeEmbeddingRecord>();
+    for (const row of mappingRows) {
+      const vecRowid = Number(row.vec_rowid);
+      if (!Number.isFinite(vecRowid)) {
+        continue;
+      }
+      byRowId.set(vecRowid, this.rowToInteractionNodeEmbedding(row));
+    }
+    const results: InteractionNodeEmbeddingVectorSearchResult[] = [];
+    for (const row of rows) {
+      const mapping = byRowId.get(Number(row.vec_rowid));
+      if (!mapping) {
+        continue;
+      }
+      results.push({
+        vecRowid: Number(row.vec_rowid),
+        distance: Number(row.distance),
+        workspaceId: mapping.workspaceId,
+        nodeKind: mapping.nodeKind,
+        nodeId: mapping.nodeId,
+        entityId: mapping.entityId,
+        embeddingModel: mapping.embeddingModel,
+      });
+    }
+    return results;
   }
 
   upsertIntegrationTree(params: {
@@ -6833,6 +8046,969 @@ export class RuntimeStateStore {
     });
   }
 
+  syncSemanticMemoryTree(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId: string;
+    nodes: Array<{
+      nodeId: string;
+      nodeClass: SemanticMemoryNodeClass;
+      nodeKind: string;
+      sourceLeafId?: string | null;
+      path: string;
+      title: string;
+      summary: string;
+      bodySha256: string;
+      childCount?: number;
+      observedAt?: string | null;
+      status?: MemoryNodeStatus;
+      isMaterialized?: boolean;
+      metadata?: Record<string, unknown> | null;
+      createdAt?: string;
+      updatedAt?: string;
+    }>;
+    edges: Array<{
+      parentNodeId: string;
+      childNodeId: string;
+      position: number;
+      createdAt?: string;
+    }>;
+  }): SemanticMemoryNodeRecord[] {
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    const sync = scope.db.transaction(() => {
+      const now = utcNowIso();
+      const existingNodes = this.listSemanticMemoryNodes({
+        category: params.category,
+        workspaceId: scope.workspaceId,
+        treeId: params.treeId,
+        limit: 10_000,
+        offset: 0,
+      });
+      const existingNodesById = new Map(existingNodes.map((node) => [node.nodeId, node]));
+      const desiredNodeIds = new Set(params.nodes.map((node) => node.nodeId));
+      const upsertNode = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            INSERT INTO semantic_memory_nodes (
+              workspace_id,
+              category,
+              tree_id,
+              node_id,
+              node_class,
+              node_kind,
+              source_leaf_id,
+              path,
+              title,
+              summary,
+              body_sha256,
+              child_count,
+              observed_at,
+              status,
+              is_materialized,
+              metadata,
+              created_at,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workspace_id, category, tree_id, node_id) DO UPDATE SET
+              node_class = excluded.node_class,
+              node_kind = excluded.node_kind,
+              source_leaf_id = excluded.source_leaf_id,
+              path = excluded.path,
+              title = excluded.title,
+              summary = excluded.summary,
+              body_sha256 = excluded.body_sha256,
+              child_count = excluded.child_count,
+              observed_at = excluded.observed_at,
+              status = excluded.status,
+              is_materialized = excluded.is_materialized,
+              metadata = excluded.metadata,
+              updated_at = excluded.updated_at
+          `)
+        : scope.db.prepare(`
+            INSERT INTO semantic_memory_nodes (
+              category,
+              tree_id,
+              node_id,
+              node_class,
+              node_kind,
+              source_leaf_id,
+              path,
+              title,
+              summary,
+              body_sha256,
+              child_count,
+              observed_at,
+              status,
+              is_materialized,
+              metadata,
+              created_at,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(category, tree_id, node_id) DO UPDATE SET
+              node_class = excluded.node_class,
+              node_kind = excluded.node_kind,
+              source_leaf_id = excluded.source_leaf_id,
+              path = excluded.path,
+              title = excluded.title,
+              summary = excluded.summary,
+              body_sha256 = excluded.body_sha256,
+              child_count = excluded.child_count,
+              observed_at = excluded.observed_at,
+              status = excluded.status,
+              is_materialized = excluded.is_materialized,
+              metadata = excluded.metadata,
+              updated_at = excluded.updated_at
+          `);
+      for (const node of params.nodes) {
+        const existing = existingNodesById.get(node.nodeId) ?? null;
+        if (existing && this.semanticMemoryNodeMatches(existing, node)) {
+          continue;
+        }
+        const createdAt = existing?.createdAt ?? node.createdAt ?? now;
+        const updatedAt = node.updatedAt ?? now;
+        const metadataJson = JSON.stringify(node.metadata ?? {});
+        if (scope.workspaceId !== null) {
+          upsertNode.run(
+            scope.workspaceId,
+            params.category,
+            params.treeId,
+            node.nodeId,
+            node.nodeClass,
+            node.nodeKind,
+            node.sourceLeafId ?? null,
+            node.path,
+            node.title,
+            node.summary,
+            node.bodySha256,
+            node.childCount ?? 0,
+            node.observedAt ?? null,
+            node.status ?? "active",
+            node.isMaterialized ? 1 : 0,
+            metadataJson,
+            createdAt,
+            updatedAt,
+          );
+          continue;
+        }
+        upsertNode.run(
+          params.category,
+          params.treeId,
+          node.nodeId,
+          node.nodeClass,
+          node.nodeKind,
+          node.sourceLeafId ?? null,
+          node.path,
+          node.title,
+          node.summary,
+          node.bodySha256,
+          node.childCount ?? 0,
+          node.observedAt ?? null,
+          node.status ?? "active",
+          node.isMaterialized ? 1 : 0,
+          metadataJson,
+          createdAt,
+          updatedAt,
+        );
+      }
+
+      const existingEdges = this.listAllSemanticMemoryEdgesForTree({
+        category: params.category,
+        workspaceId: scope.workspaceId,
+        treeId: params.treeId,
+      });
+      const existingEdgesByParent = new Map<string, SemanticMemoryContainmentEdgeRecord[]>();
+      for (const edge of existingEdges) {
+        const bucket = existingEdgesByParent.get(edge.parentNodeId);
+        if (bucket) {
+          bucket.push(edge);
+        } else {
+          existingEdgesByParent.set(edge.parentNodeId, [edge]);
+        }
+      }
+      const desiredEdgesByParent = new Map<string, Array<{
+        parentNodeId: string;
+        childNodeId: string;
+        position: number;
+        createdAt?: string;
+      }>>();
+      for (const edge of params.edges) {
+        const bucket = desiredEdgesByParent.get(edge.parentNodeId);
+        if (bucket) {
+          bucket.push(edge);
+        } else {
+          desiredEdgesByParent.set(edge.parentNodeId, [edge]);
+        }
+      }
+      const deleteParentEdges = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            DELETE FROM semantic_memory_edges
+            WHERE workspace_id = ? AND category = ? AND tree_id = ? AND parent_node_id = ?
+          `)
+        : scope.db.prepare(`
+            DELETE FROM semantic_memory_edges
+            WHERE category = ? AND tree_id = ? AND parent_node_id = ?
+          `);
+      const insertEdge = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            INSERT INTO semantic_memory_edges (
+              workspace_id,
+              category,
+              tree_id,
+              parent_node_id,
+              child_node_id,
+              position,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `)
+        : scope.db.prepare(`
+            INSERT INTO semantic_memory_edges (
+              category,
+              tree_id,
+              parent_node_id,
+              child_node_id,
+              position,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+          `);
+      const parentIds = new Set([
+        ...existingEdgesByParent.keys(),
+        ...desiredEdgesByParent.keys(),
+      ]);
+      for (const parentNodeId of parentIds) {
+        const existingBucket = [...(existingEdgesByParent.get(parentNodeId) ?? [])]
+          .sort((left, right) => left.position - right.position || left.childNodeId.localeCompare(right.childNodeId));
+        const desiredBucket = [...(desiredEdgesByParent.get(parentNodeId) ?? [])]
+          .sort((left, right) => left.position - right.position || left.childNodeId.localeCompare(right.childNodeId));
+        if (this.semanticMemoryEdgesMatch(existingBucket, desiredBucket)) {
+          continue;
+        }
+        if (scope.workspaceId !== null) {
+          deleteParentEdges.run(scope.workspaceId, params.category, params.treeId, parentNodeId);
+        } else {
+          deleteParentEdges.run(params.category, params.treeId, parentNodeId);
+        }
+        for (const edge of desiredBucket) {
+          const existingEdge = existingBucket.find((candidate) => candidate.childNodeId === edge.childNodeId) ?? null;
+          const createdAt = existingEdge?.createdAt ?? edge.createdAt ?? now;
+          if (scope.workspaceId !== null) {
+            insertEdge.run(
+              scope.workspaceId,
+              params.category,
+              params.treeId,
+              edge.parentNodeId,
+              edge.childNodeId,
+              edge.position,
+              createdAt,
+            );
+            continue;
+          }
+          insertEdge.run(
+            params.category,
+            params.treeId,
+            edge.parentNodeId,
+            edge.childNodeId,
+            edge.position,
+            createdAt,
+          );
+        }
+      }
+
+      const deleteNode = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            DELETE FROM semantic_memory_nodes
+            WHERE workspace_id = ? AND category = ? AND tree_id = ? AND node_id = ?
+          `)
+        : scope.db.prepare(`
+            DELETE FROM semantic_memory_nodes
+            WHERE category = ? AND tree_id = ? AND node_id = ?
+          `);
+      for (const node of existingNodes) {
+        if (desiredNodeIds.has(node.nodeId)) {
+          continue;
+        }
+        if (scope.workspaceId !== null) {
+          deleteNode.run(scope.workspaceId, params.category, params.treeId, node.nodeId);
+        } else {
+          deleteNode.run(params.category, params.treeId, node.nodeId);
+        }
+      }
+    });
+    sync();
+    return this.listSemanticMemoryNodes({
+      category: params.category,
+      workspaceId: scope.workspaceId,
+      treeId: params.treeId,
+      status: "active",
+      limit: Math.max(200, params.nodes.length + 10),
+    });
+  }
+
+  replaceSemanticMemorySearchDocs(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId: string;
+    docs: Array<{
+      nodeId: string;
+      nodeClass: SemanticMemoryNodeClass;
+      nodeKind: string;
+      path: string;
+      childCount?: number;
+      title: string;
+      summary: string;
+      bodyText: string;
+      excerpt?: string | null;
+      observedAt?: string | null;
+      status?: MemoryNodeStatus;
+      updatedAt?: string;
+    }>;
+  }): SemanticMemorySearchDocRecord[] {
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    const replace = scope.db.transaction(() => {
+      const now = utcNowIso();
+      if (scope.workspaceId !== null) {
+        scope.db.prepare(`
+          DELETE FROM semantic_memory_search_docs
+          WHERE workspace_id = ? AND category = ? AND tree_id = ?
+        `).run(scope.workspaceId, params.category, params.treeId);
+        scope.db.prepare(`
+          DELETE FROM semantic_memory_search_fts
+          WHERE workspace_id = ? AND category = ? AND tree_id = ?
+        `).run(scope.workspaceId, params.category, params.treeId);
+
+        const insertDoc = scope.db.prepare(`
+          INSERT INTO semantic_memory_search_docs (
+            workspace_id,
+            category,
+            tree_id,
+            node_id,
+            node_class,
+            node_kind,
+            path,
+            child_count,
+            title,
+            summary,
+            body_text,
+            excerpt,
+            observed_at,
+            status,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const insertFts = scope.db.prepare(`
+          INSERT INTO semantic_memory_search_fts (
+            workspace_id,
+            category,
+            tree_id,
+            node_id,
+            node_class,
+            node_kind,
+            path,
+            child_count,
+            title,
+            summary,
+            body_text,
+            excerpt,
+            observed_at,
+            status,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const doc of params.docs) {
+          const updatedAt = doc.updatedAt ?? now;
+          const childCount = doc.childCount ?? 0;
+          const excerpt = doc.excerpt ?? null;
+          const observedAt = doc.observedAt ?? null;
+          const status = doc.status ?? "active";
+          insertDoc.run(
+            scope.workspaceId,
+            params.category,
+            params.treeId,
+            doc.nodeId,
+            doc.nodeClass,
+            doc.nodeKind,
+            doc.path,
+            childCount,
+            doc.title,
+            doc.summary,
+            doc.bodyText,
+            excerpt,
+            observedAt,
+            status,
+            updatedAt,
+          );
+          insertFts.run(
+            scope.workspaceId,
+            params.category,
+            params.treeId,
+            doc.nodeId,
+            doc.nodeClass,
+            doc.nodeKind,
+            doc.path,
+            childCount,
+            doc.title,
+            doc.summary,
+            doc.bodyText,
+            excerpt,
+            observedAt,
+            status,
+            updatedAt,
+          );
+        }
+        return;
+      }
+
+      scope.db.prepare(`
+        DELETE FROM semantic_memory_search_docs
+        WHERE category = ? AND tree_id = ?
+      `).run(params.category, params.treeId);
+      scope.db.prepare(`
+        DELETE FROM semantic_memory_search_fts
+        WHERE category = ? AND tree_id = ?
+      `).run(params.category, params.treeId);
+
+      const insertDoc = scope.db.prepare(`
+        INSERT INTO semantic_memory_search_docs (
+          category,
+          tree_id,
+          node_id,
+          node_class,
+          node_kind,
+          path,
+          child_count,
+          title,
+          summary,
+          body_text,
+          excerpt,
+          observed_at,
+          status,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const insertFts = scope.db.prepare(`
+        INSERT INTO semantic_memory_search_fts (
+          category,
+          tree_id,
+          node_id,
+          node_class,
+          node_kind,
+          path,
+          child_count,
+          title,
+          summary,
+          body_text,
+          excerpt,
+          observed_at,
+          status,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const doc of params.docs) {
+        const updatedAt = doc.updatedAt ?? now;
+        const childCount = doc.childCount ?? 0;
+        const excerpt = doc.excerpt ?? null;
+        const observedAt = doc.observedAt ?? null;
+        const status = doc.status ?? "active";
+        insertDoc.run(
+          params.category,
+          params.treeId,
+          doc.nodeId,
+          doc.nodeClass,
+          doc.nodeKind,
+          doc.path,
+          childCount,
+          doc.title,
+          doc.summary,
+          doc.bodyText,
+          excerpt,
+          observedAt,
+          status,
+          updatedAt,
+        );
+        insertFts.run(
+          params.category,
+          params.treeId,
+          doc.nodeId,
+          doc.nodeClass,
+          doc.nodeKind,
+          doc.path,
+          childCount,
+          doc.title,
+          doc.summary,
+          doc.bodyText,
+          excerpt,
+          observedAt,
+          status,
+          updatedAt,
+        );
+      }
+    });
+    replace();
+    return this.listSemanticMemorySearchDocs({
+      category: params.category,
+      workspaceId: scope.workspaceId,
+      treeId: params.treeId,
+      status: "active",
+      limit: Math.max(200, params.docs.length + 10),
+    });
+  }
+
+  syncSemanticMemorySearchDocs(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId: string;
+    docs: Array<{
+      nodeId: string;
+      nodeClass: SemanticMemoryNodeClass;
+      nodeKind: string;
+      path: string;
+      childCount?: number;
+      title: string;
+      summary: string;
+      bodyText: string;
+      excerpt?: string | null;
+      observedAt?: string | null;
+      status?: MemoryNodeStatus;
+      updatedAt?: string;
+    }>;
+  }): SemanticMemorySearchDocRecord[] {
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    const sync = scope.db.transaction(() => {
+      const now = utcNowIso();
+      const existingDocs = this.listSemanticMemorySearchDocs({
+        category: params.category,
+        workspaceId: scope.workspaceId,
+        treeId: params.treeId,
+        limit: 10_000,
+        offset: 0,
+      });
+      const existingDocsById = new Map(existingDocs.map((doc) => [doc.nodeId, doc]));
+      const desiredNodeIds = new Set(params.docs.map((doc) => doc.nodeId));
+      const upsertDoc = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            INSERT INTO semantic_memory_search_docs (
+              workspace_id,
+              category,
+              tree_id,
+              node_id,
+              node_class,
+              node_kind,
+              path,
+              child_count,
+              title,
+              summary,
+              body_text,
+              excerpt,
+              observed_at,
+              status,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workspace_id, category, tree_id, node_id) DO UPDATE SET
+              node_class = excluded.node_class,
+              node_kind = excluded.node_kind,
+              path = excluded.path,
+              child_count = excluded.child_count,
+              title = excluded.title,
+              summary = excluded.summary,
+              body_text = excluded.body_text,
+              excerpt = excluded.excerpt,
+              observed_at = excluded.observed_at,
+              status = excluded.status,
+              updated_at = excluded.updated_at
+          `)
+        : scope.db.prepare(`
+            INSERT INTO semantic_memory_search_docs (
+              category,
+              tree_id,
+              node_id,
+              node_class,
+              node_kind,
+              path,
+              child_count,
+              title,
+              summary,
+              body_text,
+              excerpt,
+              observed_at,
+              status,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(category, tree_id, node_id) DO UPDATE SET
+              node_class = excluded.node_class,
+              node_kind = excluded.node_kind,
+              path = excluded.path,
+              child_count = excluded.child_count,
+              title = excluded.title,
+              summary = excluded.summary,
+              body_text = excluded.body_text,
+              excerpt = excluded.excerpt,
+              observed_at = excluded.observed_at,
+              status = excluded.status,
+              updated_at = excluded.updated_at
+          `);
+      const deleteDoc = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            DELETE FROM semantic_memory_search_docs
+            WHERE workspace_id = ? AND category = ? AND tree_id = ? AND node_id = ?
+          `)
+        : scope.db.prepare(`
+            DELETE FROM semantic_memory_search_docs
+            WHERE category = ? AND tree_id = ? AND node_id = ?
+          `);
+      const deleteFtsByNode = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            DELETE FROM semantic_memory_search_fts
+            WHERE workspace_id = ? AND category = ? AND tree_id = ? AND node_id = ?
+          `)
+        : scope.db.prepare(`
+            DELETE FROM semantic_memory_search_fts
+            WHERE category = ? AND tree_id = ? AND node_id = ?
+          `);
+      const insertFts = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            INSERT INTO semantic_memory_search_fts (
+              workspace_id,
+              category,
+              tree_id,
+              node_id,
+              node_class,
+              node_kind,
+              path,
+              child_count,
+              title,
+              summary,
+              body_text,
+              excerpt,
+              observed_at,
+              status,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `)
+        : scope.db.prepare(`
+            INSERT INTO semantic_memory_search_fts (
+              category,
+              tree_id,
+              node_id,
+              node_class,
+              node_kind,
+              path,
+              child_count,
+              title,
+              summary,
+              body_text,
+              excerpt,
+              observed_at,
+              status,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+      for (const existing of existingDocs) {
+        if (desiredNodeIds.has(existing.nodeId)) {
+          continue;
+        }
+        if (scope.workspaceId !== null) {
+          deleteDoc.run(scope.workspaceId, params.category, params.treeId, existing.nodeId);
+          deleteFtsByNode.run(scope.workspaceId, params.category, params.treeId, existing.nodeId);
+        } else {
+          deleteDoc.run(params.category, params.treeId, existing.nodeId);
+          deleteFtsByNode.run(params.category, params.treeId, existing.nodeId);
+        }
+      }
+      for (const doc of params.docs) {
+        const existing = existingDocsById.get(doc.nodeId) ?? null;
+        if (existing && this.semanticMemorySearchDocMatches(existing, doc)) {
+          continue;
+        }
+        const updatedAt = doc.updatedAt ?? now;
+        const childCount = doc.childCount ?? 0;
+        const excerpt = doc.excerpt ?? null;
+        const observedAt = doc.observedAt ?? null;
+        const status = doc.status ?? "active";
+        if (scope.workspaceId !== null) {
+          upsertDoc.run(
+            scope.workspaceId,
+            params.category,
+            params.treeId,
+            doc.nodeId,
+            doc.nodeClass,
+            doc.nodeKind,
+            doc.path,
+            childCount,
+            doc.title,
+            doc.summary,
+            doc.bodyText,
+            excerpt,
+            observedAt,
+            status,
+            updatedAt,
+          );
+          deleteFtsByNode.run(scope.workspaceId, params.category, params.treeId, doc.nodeId);
+          insertFts.run(
+            scope.workspaceId,
+            params.category,
+            params.treeId,
+            doc.nodeId,
+            doc.nodeClass,
+            doc.nodeKind,
+            doc.path,
+            childCount,
+            doc.title,
+            doc.summary,
+            doc.bodyText,
+            excerpt,
+            observedAt,
+            status,
+            updatedAt,
+          );
+          continue;
+        }
+        upsertDoc.run(
+          params.category,
+          params.treeId,
+          doc.nodeId,
+          doc.nodeClass,
+          doc.nodeKind,
+          doc.path,
+          childCount,
+          doc.title,
+          doc.summary,
+          doc.bodyText,
+          excerpt,
+          observedAt,
+          status,
+          updatedAt,
+        );
+        deleteFtsByNode.run(params.category, params.treeId, doc.nodeId);
+        insertFts.run(
+          params.category,
+          params.treeId,
+          doc.nodeId,
+          doc.nodeClass,
+          doc.nodeKind,
+          doc.path,
+          childCount,
+          doc.title,
+          doc.summary,
+          doc.bodyText,
+          excerpt,
+          observedAt,
+          status,
+          updatedAt,
+        );
+      }
+    });
+    sync();
+    return this.listSemanticMemorySearchDocs({
+      category: params.category,
+      workspaceId: scope.workspaceId,
+      treeId: params.treeId,
+      status: "active",
+      limit: Math.max(200, params.docs.length + 10),
+    });
+  }
+
+  getSemanticMemorySearchDoc(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId: string;
+    nodeId: string;
+  }): SemanticMemorySearchDocRecord | null {
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    if (scope.workspaceId !== null) {
+      const row = scope.db
+        .prepare<[string, string, string, string], Record<string, unknown>>(
+          `
+            SELECT *
+            FROM semantic_memory_search_docs
+            WHERE workspace_id = ? AND category = ? AND tree_id = ? AND node_id = ?
+            LIMIT 1
+          `,
+        )
+        .get(scope.workspaceId, params.category, params.treeId, params.nodeId);
+      return row ? this.rowToSemanticMemorySearchDoc(row) : null;
+    }
+    const row = scope.db
+      .prepare<[string, string, string], Record<string, unknown>>(
+        `
+          SELECT *
+          FROM semantic_memory_search_docs
+          WHERE category = ? AND tree_id = ? AND node_id = ?
+          LIMIT 1
+        `,
+      )
+      .get(params.category, params.treeId, params.nodeId);
+    return row ? this.rowToSemanticMemorySearchDoc(row) : null;
+  }
+
+  listSemanticMemorySearchDocs(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId?: string | null;
+    treeIds?: string[] | null;
+    nodeId?: string | null;
+    nodeIds?: string[] | null;
+    nodeClass?: SemanticMemoryNodeClass | null;
+    nodeKind?: string | null;
+    status?: MemoryNodeStatus | null;
+    limit?: number;
+    offset?: number;
+  }): SemanticMemorySearchDocRecord[] {
+    const normalizedTreeIds = params.treeIds
+      ? [...new Set(params.treeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    const normalizedNodeIds = params.nodeIds
+      ? [...new Set(params.nodeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    if (params.treeIds && normalizedTreeIds && normalizedTreeIds.length === 0) {
+      return [];
+    }
+    if (params.nodeIds && normalizedNodeIds && normalizedNodeIds.length === 0) {
+      return [];
+    }
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    let query = `
+      SELECT *
+      FROM semantic_memory_search_docs
+      WHERE category = ?
+    `;
+    const values: Array<string | number> = [params.category];
+    if (scope.workspaceId !== null) {
+      query += " AND workspace_id = ?";
+      values.push(scope.workspaceId);
+    }
+    if (normalizedTreeIds) {
+      query += ` AND tree_id IN (${normalizedTreeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedTreeIds);
+    } else if (params.treeId !== undefined) {
+      if (params.treeId === null) {
+        query += " AND tree_id IS NULL";
+      } else {
+        query += " AND tree_id = ?";
+        values.push(params.treeId);
+      }
+    }
+    if (params.nodeId !== undefined) {
+      if (params.nodeId === null) {
+        query += " AND node_id IS NULL";
+      } else {
+        query += " AND node_id = ?";
+        values.push(params.nodeId);
+      }
+    } else if (normalizedNodeIds) {
+      query += ` AND node_id IN (${normalizedNodeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeIds);
+    }
+    if (params.nodeClass !== undefined) {
+      if (params.nodeClass === null) {
+        query += " AND node_class IS NULL";
+      } else {
+        query += " AND node_class = ?";
+        values.push(params.nodeClass);
+      }
+    }
+    if (params.nodeKind !== undefined) {
+      if (params.nodeKind === null) {
+        query += " AND node_kind IS NULL";
+      } else {
+        query += " AND node_kind = ?";
+        values.push(params.nodeKind);
+      }
+    }
+    if (params.status !== undefined) {
+      if (params.status === null) {
+        query += " AND status IS NULL";
+      } else {
+        query += " AND status = ?";
+        values.push(params.status);
+      }
+    }
+    query += `
+      ORDER BY updated_at DESC, path ASC, node_id ASC
+      LIMIT ? OFFSET ?
+    `;
+    values.push(params.limit ?? 500, params.offset ?? 0);
+    const rows = scope.db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToSemanticMemorySearchDoc(row));
+  }
+
+  searchSemanticMemorySearchDocs(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    matchQuery: string;
+    treeId?: string | null;
+    treeIds?: string[] | null;
+    nodeClass?: SemanticMemoryNodeClass | null;
+    nodeKind?: string | null;
+    status?: MemoryNodeStatus | null;
+    limit?: number;
+    offset?: number;
+  }): SemanticMemorySearchHitRecord[] {
+    const matchQuery = params.matchQuery.trim();
+    if (!matchQuery) {
+      return [];
+    }
+    const normalizedTreeIds = params.treeIds
+      ? [...new Set(params.treeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    if (params.treeIds && normalizedTreeIds && normalizedTreeIds.length === 0) {
+      return [];
+    }
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    let query = `
+      SELECT *,
+             bm25(semantic_memory_search_fts, 4.0, 2.0, 1.0) AS bm25_score
+      FROM semantic_memory_search_fts
+      WHERE semantic_memory_search_fts MATCH ?
+    `;
+    const values: Array<string | number> = [matchQuery];
+    if (scope.workspaceId !== null) {
+      query += " AND workspace_id = ?";
+      values.push(scope.workspaceId);
+    }
+    query += " AND category = ?";
+    values.push(params.category);
+    if (normalizedTreeIds) {
+      query += ` AND tree_id IN (${normalizedTreeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedTreeIds);
+    } else if (params.treeId !== undefined) {
+      if (params.treeId === null) {
+        query += " AND tree_id IS NULL";
+      } else {
+        query += " AND tree_id = ?";
+        values.push(params.treeId);
+      }
+    }
+    if (params.nodeClass !== undefined) {
+      if (params.nodeClass === null) {
+        query += " AND node_class IS NULL";
+      } else {
+        query += " AND node_class = ?";
+        values.push(params.nodeClass);
+      }
+    }
+    if (params.nodeKind !== undefined) {
+      if (params.nodeKind === null) {
+        query += " AND node_kind IS NULL";
+      } else {
+        query += " AND node_kind = ?";
+        values.push(params.nodeKind);
+      }
+    }
+    if (params.status !== undefined) {
+      if (params.status === null) {
+        query += " AND status IS NULL";
+      } else {
+        query += " AND status = ?";
+        values.push(params.status);
+      }
+    }
+    query += `
+      ORDER BY bm25_score ASC, updated_at DESC, path ASC, node_id ASC
+      LIMIT ? OFFSET ?
+    `;
+    values.push(params.limit ?? 100, params.offset ?? 0);
+    const rows = scope.db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToSemanticMemorySearchHit(row));
+  }
+
   getSemanticMemoryNode(params: {
     category: SemanticMemoryCategory;
     workspaceId?: string | null;
@@ -7083,6 +9259,145 @@ export class RuntimeStateStore {
     });
   }
 
+  syncSemanticMemoryRelations(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId: string;
+    relations: Array<{
+      fromNodeId: string;
+      toNodeId: string;
+      relationType: string;
+      metadata?: Record<string, unknown> | null;
+      createdAt?: string;
+      updatedAt?: string;
+    }>;
+  }): SemanticMemoryRelationRecord[] {
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    const sync = scope.db.transaction(() => {
+      const now = utcNowIso();
+      const existingRelations = this.listSemanticMemoryRelations({
+        category: params.category,
+        workspaceId: scope.workspaceId,
+        treeId: params.treeId,
+        limit: 10_000,
+        offset: 0,
+      });
+      const existingByKey = new Map(existingRelations.map((relation) => [
+        `${relation.fromNodeId}|${relation.toNodeId}|${relation.relationType}`,
+        relation,
+      ]));
+      const desiredKeys = new Set(
+        params.relations.map((relation) => `${relation.fromNodeId}|${relation.toNodeId}|${relation.relationType}`),
+      );
+      const deleteRelation = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            DELETE FROM semantic_memory_relations
+            WHERE workspace_id = ? AND category = ? AND tree_id = ? AND from_node_id = ? AND to_node_id = ? AND relation_type = ?
+          `)
+        : scope.db.prepare(`
+            DELETE FROM semantic_memory_relations
+            WHERE category = ? AND tree_id = ? AND from_node_id = ? AND to_node_id = ? AND relation_type = ?
+          `);
+      for (const existing of existingRelations) {
+        const key = `${existing.fromNodeId}|${existing.toNodeId}|${existing.relationType}`;
+        if (desiredKeys.has(key)) {
+          continue;
+        }
+        if (scope.workspaceId !== null) {
+          deleteRelation.run(
+            scope.workspaceId,
+            params.category,
+            params.treeId,
+            existing.fromNodeId,
+            existing.toNodeId,
+            existing.relationType,
+          );
+        } else {
+          deleteRelation.run(
+            params.category,
+            params.treeId,
+            existing.fromNodeId,
+            existing.toNodeId,
+            existing.relationType,
+          );
+        }
+      }
+      const upsertRelation = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            INSERT INTO semantic_memory_relations (
+              workspace_id,
+              category,
+              tree_id,
+              from_node_id,
+              to_node_id,
+              relation_type,
+              metadata,
+              created_at,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workspace_id, category, tree_id, from_node_id, to_node_id, relation_type) DO UPDATE SET
+              metadata = excluded.metadata,
+              updated_at = excluded.updated_at
+          `)
+        : scope.db.prepare(`
+            INSERT INTO semantic_memory_relations (
+              category,
+              tree_id,
+              from_node_id,
+              to_node_id,
+              relation_type,
+              metadata,
+              created_at,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(category, tree_id, from_node_id, to_node_id, relation_type) DO UPDATE SET
+              metadata = excluded.metadata,
+              updated_at = excluded.updated_at
+          `);
+      for (const relation of params.relations) {
+        const key = `${relation.fromNodeId}|${relation.toNodeId}|${relation.relationType}`;
+        const existing = existingByKey.get(key) ?? null;
+        if (existing && this.semanticMemoryRelationMatches(existing, relation)) {
+          continue;
+        }
+        const createdAt = existing?.createdAt ?? relation.createdAt ?? now;
+        const updatedAt = relation.updatedAt ?? now;
+        const metadataJson = JSON.stringify(relation.metadata ?? {});
+        if (scope.workspaceId !== null) {
+          upsertRelation.run(
+            scope.workspaceId,
+            params.category,
+            params.treeId,
+            relation.fromNodeId,
+            relation.toNodeId,
+            relation.relationType,
+            metadataJson,
+            createdAt,
+            updatedAt,
+          );
+          continue;
+        }
+        upsertRelation.run(
+          params.category,
+          params.treeId,
+          relation.fromNodeId,
+          relation.toNodeId,
+          relation.relationType,
+          metadataJson,
+          createdAt,
+          updatedAt,
+        );
+      }
+    });
+    sync();
+    return this.listSemanticMemoryRelations({
+      category: params.category,
+      workspaceId: scope.workspaceId,
+      treeId: params.treeId,
+      limit: Math.max(200, params.relations.length + 10),
+    });
+  }
+
   listSemanticMemoryRelations(params: {
     category: SemanticMemoryCategory;
     workspaceId?: string | null;
@@ -7145,6 +9460,7 @@ export class RuntimeStateStore {
     deletedSemanticNodes: number;
     deletedSemanticEdges: number;
     deletedSemanticRelations: number;
+    deletedSemanticSearchDocs: number;
     deletedEmbeddings: number;
   } {
     const db = this.controlPlaneDb();
@@ -7190,10 +9506,44 @@ export class RuntimeStateStore {
           )
           .get(params.treeId) as { count?: number } | undefined)?.count ?? 0,
       );
+      const deletedSemanticSearchDocs = Number(
+        (db
+          .prepare(
+            `
+              SELECT COUNT(*) AS count
+              FROM semantic_memory_search_docs
+              WHERE category = 'integration' AND tree_id = ?
+            `,
+          )
+          .get(params.treeId) as { count?: number } | undefined)?.count ?? 0,
+      );
+      const embeddingRowIds = (
+        db
+          .prepare<[string], { vec_rowid: number | bigint }>(
+            `
+              SELECT rowid AS vec_rowid
+              FROM integration_node_embeddings
+              WHERE tree_id = ?
+            `,
+          )
+          .all(params.treeId) as Array<{ vec_rowid: number | bigint }>
+      )
+        .map((row) => Number(row.vec_rowid))
+        .filter((value) => Number.isFinite(value));
 
       db.prepare(`
         DELETE FROM integration_node_embeddings
         WHERE tree_id = ?
+      `).run(params.treeId);
+      if (this.#vectorIndexSupported && embeddingRowIds.length > 0) {
+        db.prepare(`
+          DELETE FROM integration_node_embedding_vec
+          WHERE vec_rowid IN (${embeddingRowIds.map(() => "?").join(", ")})
+        `).run(...embeddingRowIds);
+      }
+      db.prepare(`
+        DELETE FROM semantic_memory_search_fts
+        WHERE category = 'integration' AND tree_id = ?
       `).run(params.treeId);
       db.prepare(`
         DELETE FROM semantic_memory_edges
@@ -7205,6 +9555,10 @@ export class RuntimeStateStore {
       `).run(params.treeId);
       db.prepare(`
         DELETE FROM semantic_memory_nodes
+        WHERE category = 'integration' AND tree_id = ?
+      `).run(params.treeId);
+      db.prepare(`
+        DELETE FROM semantic_memory_search_docs
         WHERE category = 'integration' AND tree_id = ?
       `).run(params.treeId);
       db.prepare(`
@@ -7221,12 +9575,14 @@ export class RuntimeStateStore {
           || deletedSemanticNodes > 0
           || deletedSemanticRelations > 0
           || deletedSemanticEdges > 0
+          || deletedSemanticSearchDocs > 0
           || deletedEmbeddings > 0,
         deletedTree,
         deletedLeaves,
         deletedSemanticNodes,
         deletedSemanticEdges,
         deletedSemanticRelations,
+        deletedSemanticSearchDocs,
         deletedEmbeddings,
       };
     });
@@ -7290,6 +9646,12 @@ export class RuntimeStateStore {
     if (!record) {
       throw new Error("integration embedding row not found after upsert");
     }
+    this.replaceIntegrationNodeEmbeddingVector({
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+      embedding: new Float32Array(params.vector),
+    });
     return record;
   }
 
@@ -7313,10 +9675,163 @@ export class RuntimeStateStore {
     return row ? this.rowToIntegrationNodeEmbedding(row) : null;
   }
 
+  private integrationNodeEmbeddingRowid(params: {
+    nodeKind: InteractionTreeChildKind;
+    nodeId: string;
+    embeddingModel: string;
+  }): number | null {
+    const row = this.controlPlaneDb()
+      .prepare<
+        [string, string, string],
+        { vec_rowid?: number | bigint | null }
+      >(
+        `
+          SELECT rowid AS vec_rowid
+          FROM integration_node_embeddings
+          WHERE node_kind = ?
+            AND node_id = ?
+            AND embedding_model = ?
+          LIMIT 1
+        `,
+      )
+      .get(params.nodeKind, params.nodeId, params.embeddingModel);
+    if (!row?.vec_rowid) {
+      return null;
+    }
+    return Number(row.vec_rowid);
+  }
+
+  replaceIntegrationNodeEmbeddingVector(params: {
+    nodeKind: InteractionTreeChildKind;
+    nodeId: string;
+    embeddingModel: string;
+    embedding: Float32Array;
+  }): void {
+    if (!this.#vectorIndexSupported || params.embedding.length !== 1536) {
+      return;
+    }
+    const record = this.getIntegrationNodeEmbedding({
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+    });
+    if (!record) {
+      return;
+    }
+    const vecRowid = this.integrationNodeEmbeddingRowid({
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+    });
+    if (!Number.isFinite(vecRowid)) {
+      return;
+    }
+    const db = this.controlPlaneDb();
+    db.prepare("DELETE FROM integration_node_embedding_vec WHERE vec_rowid = ?").run(vecRowid);
+    db
+      .prepare(`
+        INSERT INTO integration_node_embedding_vec (vec_rowid, embedding, tree_id, node_kind, embedding_model)
+        VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
+      `)
+      .run(
+        vecRowid,
+        params.embedding,
+        record.treeId,
+        record.nodeKind,
+        record.embeddingModel,
+      );
+  }
+
+  private backfillIntegrationNodeEmbeddingVectors(params: {
+    embeddingModel: string;
+    treeIds?: string[] | null;
+    nodeKinds?: InteractionTreeChildKind[] | null;
+  }): void {
+    if (!this.#vectorIndexSupported) {
+      return;
+    }
+    const normalizedTreeIds = params.treeIds
+      ? [...new Set(params.treeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    const normalizedNodeKinds = params.nodeKinds
+      ? [...new Set(params.nodeKinds.map((value) => value.trim()).filter(Boolean) as InteractionTreeChildKind[])]
+      : null;
+    const db = this.controlPlaneDb();
+    let query = `
+      SELECT rowid AS vec_rowid, vector_json, tree_id, node_kind, embedding_model
+      FROM integration_node_embeddings
+      WHERE embedding_model = ?
+        AND dimensions = 1536
+    `;
+    const values: Array<string | number> = [params.embeddingModel];
+    if (normalizedTreeIds && normalizedTreeIds.length > 0) {
+      query += ` AND tree_id IN (${normalizedTreeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedTreeIds);
+    }
+    if (normalizedNodeKinds && normalizedNodeKinds.length > 0) {
+      query += ` AND node_kind IN (${normalizedNodeKinds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeKinds);
+    }
+    const sourceRows = db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+    if (sourceRows.length === 0) {
+      return;
+    }
+    const rowIds = sourceRows
+      .map((row) => Number(row.vec_rowid))
+      .filter((value) => Number.isFinite(value));
+    if (rowIds.length === 0) {
+      return;
+    }
+    const existingRowIds = new Set<number>(
+      (
+        db.prepare(`
+          SELECT vec_rowid
+          FROM integration_node_embedding_vec
+          WHERE vec_rowid IN (${rowIds.map(() => "?").join(", ")})
+        `).all(...rowIds) as Array<{ vec_rowid: number | bigint }>
+      )
+        .map((row) => Number(row.vec_rowid))
+        .filter((value) => Number.isFinite(value)),
+    );
+    const insert = db.prepare(`
+      INSERT INTO integration_node_embedding_vec (vec_rowid, embedding, tree_id, node_kind, embedding_model)
+      VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
+    `);
+    const insertMany = db.transaction((items: Array<Record<string, unknown>>) => {
+      for (const row of items) {
+        const vecRowid = Number(row.vec_rowid);
+        if (!Number.isFinite(vecRowid) || existingRowIds.has(vecRowid)) {
+          continue;
+        }
+        const vector = this.parseJsonList(row.vector_json)
+          .map((value) => (typeof value === "number" ? value : Number(value)))
+          .filter((value) => Number.isFinite(value));
+        if (vector.length !== 1536) {
+          continue;
+        }
+        insert.run(
+          vecRowid,
+          new Float32Array(vector),
+          String(row.tree_id),
+          String(row.node_kind),
+          String(row.embedding_model),
+        );
+      }
+    });
+    insertMany(sourceRows);
+  }
+
   listIntegrationNodeEmbeddings(params: {
     treeId?: string | null;
     embeddingModel?: string | null;
+    nodeIds?: string[] | null;
   } = {}): IntegrationNodeEmbeddingRecord[] {
+    const normalizedNodeIds = params.nodeIds
+      ? [...new Set(params.nodeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    if (params.nodeIds && normalizedNodeIds && normalizedNodeIds.length === 0) {
+      return [];
+    }
     let query = `
       SELECT *
       FROM integration_node_embeddings
@@ -7339,9 +9854,101 @@ export class RuntimeStateStore {
         values.push(params.embeddingModel);
       }
     }
+    if (normalizedNodeIds) {
+      query += ` AND node_id IN (${normalizedNodeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeIds);
+    }
     query += " ORDER BY updated_at DESC, created_at DESC, node_id ASC";
     const rows = this.controlPlaneDb().prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToIntegrationNodeEmbedding(row));
+  }
+
+  searchIntegrationNodeEmbeddingsByVector(params: {
+    embedding: Float32Array;
+    embeddingModel: string;
+    limit: number;
+    treeIds?: string[] | null;
+    nodeKinds?: InteractionTreeChildKind[] | null;
+  }): IntegrationNodeEmbeddingVectorSearchResult[] {
+    if (!this.#vectorIndexSupported || params.embedding.length !== 1536) {
+      return [];
+    }
+    const normalizedLimit = Math.max(1, Math.trunc(params.limit));
+    const normalizedTreeIds = params.treeIds
+      ? [...new Set(params.treeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    const normalizedNodeKinds = params.nodeKinds
+      ? [...new Set(params.nodeKinds.map((value) => value.trim()).filter(Boolean) as InteractionTreeChildKind[])]
+      : null;
+    this.backfillIntegrationNodeEmbeddingVectors({
+      embeddingModel: params.embeddingModel,
+      treeIds: normalizedTreeIds,
+      nodeKinds: normalizedNodeKinds,
+    });
+    let query = `
+      SELECT vec_rowid, distance
+      FROM integration_node_embedding_vec
+      WHERE embedding MATCH ?
+        AND k = ?
+        AND embedding_model = ?
+    `;
+    const values: Array<string | number | Float32Array> = [params.embedding, normalizedLimit, params.embeddingModel];
+    if (normalizedTreeIds && normalizedTreeIds.length > 0) {
+      query += ` AND tree_id IN (${normalizedTreeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedTreeIds);
+    }
+    if (normalizedNodeKinds && normalizedNodeKinds.length > 0) {
+      query += ` AND node_kind IN (${normalizedNodeKinds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeKinds);
+    }
+    const rows = this.controlPlaneDb()
+      .prepare(query)
+      .all(...values) as Array<{ vec_rowid: number; distance: number }>;
+    return this.integrationEmbeddingVectorResultsForRows(rows);
+  }
+
+  private integrationEmbeddingVectorResultsForRows(
+    rows: Array<{ vec_rowid: number; distance: number }>
+  ): IntegrationNodeEmbeddingVectorSearchResult[] {
+    if (rows.length === 0) {
+      return [];
+    }
+    const rowIds = rows.map((row) => Number(row.vec_rowid)).filter((value) => Number.isFinite(value));
+    if (rowIds.length === 0) {
+      return [];
+    }
+    const db = this.controlPlaneDb();
+    const mappingRows = db
+      .prepare(`
+        SELECT rowid AS vec_rowid, *
+        FROM integration_node_embeddings
+        WHERE rowid IN (${rowIds.map(() => "?").join(", ")})
+      `)
+      .all(...rowIds) as Array<Record<string, unknown>>;
+    const byRowId = new Map<number, IntegrationNodeEmbeddingRecord>();
+    for (const row of mappingRows) {
+      const vecRowid = Number(row.vec_rowid);
+      if (!Number.isFinite(vecRowid)) {
+        continue;
+      }
+      byRowId.set(vecRowid, this.rowToIntegrationNodeEmbedding(row));
+    }
+    const results: IntegrationNodeEmbeddingVectorSearchResult[] = [];
+    for (const row of rows) {
+      const mapping = byRowId.get(Number(row.vec_rowid));
+      if (!mapping) {
+        continue;
+      }
+      results.push({
+        vecRowid: Number(row.vec_rowid),
+        distance: Number(row.distance),
+        nodeKind: mapping.nodeKind,
+        nodeId: mapping.nodeId,
+        treeId: mapping.treeId,
+        embeddingModel: mapping.embeddingModel,
+      });
+    }
+    return results;
   }
 
   getMemoryEmbeddingIndexByMemoryId(params: {
@@ -8344,6 +10951,7 @@ export class RuntimeStateStore {
   createCronjob(params: {
     workspaceId: string;
     initiatedBy: string;
+    teammateId: string;
     cron: string;
     description: string;
     instruction?: string;
@@ -8354,18 +10962,35 @@ export class RuntimeStateStore {
     jobId?: string;
     nextRunAt?: string | null;
   }): CronjobRecord {
+    this.ensureGeneralTeammate(params.workspaceId);
+    const teammateId = this.requiredNormalizedText(
+      params.teammateId,
+      "teammateId",
+    );
+    const teammate = this.getTeammate({
+      workspaceId: params.workspaceId,
+      teammateId,
+      includeArchived: true,
+    });
+    if (!teammate) {
+      throw new Error(`teammate ${teammateId} not found`);
+    }
+    if (teammate.status !== "active") {
+      throw new Error(`teammate ${teammateId} is not active`);
+    }
     const resolvedId = params.jobId ?? randomUUID();
     const now = utcNowIso();
     this.mirrorWorkspaceRuntimeMutation(params.workspaceId, (db) => {
       db.prepare(`
         INSERT INTO cronjobs (
-            id, workspace_id, initiated_by, name, cron, description, instruction, enabled, delivery, metadata,
+            id, workspace_id, initiated_by, teammate_id, name, cron, description, instruction, enabled, delivery, metadata,
             last_run_at, next_run_at, run_count, last_status, last_error, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 0, NULL, NULL, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 0, NULL, NULL, ?, ?)
       `).run(
         resolvedId,
         params.workspaceId,
         params.initiatedBy,
+        teammateId,
         params.name ?? "",
         params.cron,
         params.description,
@@ -8435,6 +11060,7 @@ export class RuntimeStateStore {
   updateCronjob(params: {
     workspaceId: string;
     jobId: string;
+    teammateId?: string | null;
     name?: string | null;
     cron?: string | null;
     description?: string | null;
@@ -8455,10 +11081,26 @@ export class RuntimeStateStore {
     if (!existing) {
       return null;
     }
+    const teammateId =
+      params.teammateId === undefined
+        ? existing.teammateId
+        : this.requiredNormalizedText(params.teammateId, "teammateId");
+    const teammate = this.getTeammate({
+      workspaceId: params.workspaceId,
+      teammateId,
+      includeArchived: true,
+    });
+    if (!teammate) {
+      throw new Error(`teammate ${teammateId} not found`);
+    }
+    if (teammate.status !== "active") {
+      throw new Error(`teammate ${teammateId} is not active`);
+    }
     this.mirrorWorkspaceRuntimeMutation(existing.workspaceId, (db) => {
       db.prepare(`
         UPDATE cronjobs
-        SET name = ?,
+        SET teammate_id = ?,
+            name = ?,
             cron = ?,
             description = ?,
             instruction = ?,
@@ -8473,6 +11115,7 @@ export class RuntimeStateStore {
             updated_at = ?
         WHERE id = ?
       `).run(
+        teammateId,
         params.name ?? existing.name,
         params.cron ?? existing.cron,
         params.description ?? existing.description,
@@ -10026,6 +12669,18 @@ export class RuntimeStateStore {
     this.ensureMemoryEmbeddingIndexSchema(db);
     this.ensureIntegrationLeavesTableSchema(db);
     this.ensureSemanticMemoryTableSchema({ db, workspaceScoped: false });
+    this.ensureSemanticMemorySearchTableSchema({ db, workspaceScoped: false });
+    if (this.#vectorIndexSupported) {
+      db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS integration_node_embedding_vec USING vec0(
+            vec_rowid INTEGER PRIMARY KEY,
+            embedding float[1536],
+            tree_id TEXT,
+            node_kind TEXT,
+            embedding_model TEXT
+        );
+      `);
+    }
     this.migrateIntegrationConnectionIdentityColumns(db);
     this.migrateAppCatalogProviderColumns(db);
   }
@@ -10106,12 +12761,6 @@ export class RuntimeStateStore {
           UNIQUE (session_id)
       );
 
-      CREATE INDEX IF NOT EXISTS idx_conversation_bindings_workspace_role_active_updated
-          ON conversation_bindings (workspace_id, role, is_active, updated_at DESC, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_conversation_bindings_channel_key_active
-          ON conversation_bindings (channel, conversation_key, is_active);
-
       CREATE TABLE IF NOT EXISTS agent_session_inputs (
           input_id TEXT PRIMARY KEY,
           session_id TEXT NOT NULL,
@@ -10179,18 +12828,6 @@ export class RuntimeStateStore {
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
       );
-
-      CREATE INDEX IF NOT EXISTS idx_main_session_event_queue_owner_status_earliest
-          ON main_session_event_queue (owner_main_session_id, status, earliest_deliver_at, created_at ASC);
-
-      CREATE INDEX IF NOT EXISTS idx_main_session_event_queue_workspace_status_created
-          ON main_session_event_queue (workspace_id, status, created_at ASC);
-
-      CREATE INDEX IF NOT EXISTS idx_main_session_event_queue_subagent_created
-          ON main_session_event_queue (subagent_id, created_at ASC);
-
-      CREATE INDEX IF NOT EXISTS idx_main_session_event_queue_materialized_input
-          ON main_session_event_queue (materialized_input_id);
 
       CREATE TABLE IF NOT EXISTS session_runtime_state (
           workspace_id TEXT NOT NULL,
@@ -10314,6 +12951,22 @@ export class RuntimeStateStore {
       CREATE INDEX IF NOT EXISTS idx_turn_results_session_input
           ON turn_results (session_id, input_id);
 
+      CREATE TABLE IF NOT EXISTS teammates (
+          teammate_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          kind TEXT NOT NULL DEFAULT 'custom',
+          status TEXT NOT NULL DEFAULT 'active',
+          instructions TEXT,
+          capability_profile_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          archived_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_teammates_workspace_status_updated
+          ON teammates (workspace_id, status, updated_at DESC, created_at DESC);
+
       CREATE TABLE IF NOT EXISTS subagent_runs (
           subagent_id TEXT PRIMARY KEY,
           workspace_id TEXT NOT NULL,
@@ -10330,6 +12983,8 @@ export class RuntimeStateStore {
           context TEXT,
           source_type TEXT,
           source_id TEXT,
+          issue_id TEXT,
+          teammate_id TEXT,
           proposal_id TEXT,
           cronjob_id TEXT,
           retry_of_subagent_id TEXT,
@@ -10352,17 +13007,33 @@ export class RuntimeStateStore {
           UNIQUE (workspace_id, child_session_id)
       );
 
-      CREATE INDEX IF NOT EXISTS idx_subagent_runs_workspace_status_updated
-          ON subagent_runs (workspace_id, status, updated_at DESC, created_at DESC);
+      CREATE TABLE IF NOT EXISTS issues (
+          issue_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          issue_number INTEGER NOT NULL,
+          session_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT,
+          status TEXT NOT NULL,
+          priority TEXT,
+          assignee_teammate_id TEXT,
+          blocker_reason TEXT,
+          attachment_payloads TEXT NOT NULL DEFAULT '[]',
+          active_subagent_id TEXT,
+          latest_subagent_id TEXT,
+          created_by TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT,
+          UNIQUE (workspace_id, issue_number),
+          UNIQUE (workspace_id, session_id)
+      );
 
-      CREATE INDEX IF NOT EXISTS idx_subagent_runs_owner_status_updated
-          ON subagent_runs (owner_main_session_id, status, updated_at DESC, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_issues_workspace_status_updated
+          ON issues (workspace_id, status, updated_at DESC, issue_number DESC);
 
-      CREATE INDEX IF NOT EXISTS idx_subagent_runs_origin_created
-          ON subagent_runs (origin_main_session_id, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_subagent_runs_retry_created
-          ON subagent_runs (retry_of_subagent_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_issues_workspace_assignee_status_updated
+          ON issues (workspace_id, assignee_teammate_id, status, updated_at DESC, issue_number DESC);
 
       CREATE TABLE IF NOT EXISTS task_proposals (
           proposal_id TEXT PRIMARY KEY,
@@ -10409,15 +13080,6 @@ export class RuntimeStateStore {
           promoted_at TEXT
       );
 
-      CREATE INDEX IF NOT EXISTS idx_evolve_skill_candidates_workspace_created
-          ON evolve_skill_candidates (workspace_id, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_evolve_skill_candidates_workspace_status_created
-          ON evolve_skill_candidates (workspace_id, status, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_evolve_skill_candidates_task_proposal
-          ON evolve_skill_candidates (task_proposal_id);
-
       CREATE TABLE IF NOT EXISTS memory_update_proposals (
           proposal_id TEXT PRIMARY KEY,
           workspace_id TEXT NOT NULL,
@@ -10438,15 +13100,6 @@ export class RuntimeStateStore {
           accepted_at TEXT,
           dismissed_at TEXT
       );
-
-      CREATE INDEX IF NOT EXISTS idx_memory_update_proposals_workspace_created
-          ON memory_update_proposals (workspace_id, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_memory_update_proposals_session_input_created
-          ON memory_update_proposals (session_id, input_id, created_at ASC);
-
-      CREATE INDEX IF NOT EXISTS idx_memory_update_proposals_workspace_state_created
-          ON memory_update_proposals (workspace_id, state, created_at DESC);
 
       CREATE TABLE IF NOT EXISTS interaction_entities (
           workspace_id TEXT NOT NULL,
@@ -10630,15 +13283,6 @@ export class RuntimeStateStore {
           updated_at TEXT NOT NULL
       );
 
-      CREATE INDEX IF NOT EXISTS idx_outputs_workspace_created
-          ON outputs (workspace_id, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_outputs_workspace_folder_created
-          ON outputs (workspace_id, folder_id, created_at DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_outputs_session_input_created
-          ON outputs (session_id, input_id, created_at DESC);
-
       CREATE TABLE IF NOT EXISTS app_builds (
           workspace_id TEXT NOT NULL,
           app_id TEXT NOT NULL,
@@ -10671,6 +13315,7 @@ export class RuntimeStateStore {
           id TEXT PRIMARY KEY,
           workspace_id TEXT NOT NULL,
           initiated_by TEXT NOT NULL,
+          teammate_id TEXT NOT NULL DEFAULT 'general',
           name TEXT NOT NULL DEFAULT '',
           cron TEXT NOT NULL,
           description TEXT NOT NULL,
@@ -10722,7 +13367,19 @@ export class RuntimeStateStore {
     this.ensureSessionMessagesTableSchema(db);
     this.ensureConversationBindingsTableSchema(db);
     this.ensureSemanticMemoryTableSchema({ db, workspaceScoped: true });
-    this.migrateLegacyMainSessionLabels(db);
+    this.migrateLegacySessionKinds(db);
+    this.ensureSemanticMemorySearchTableSchema({ db, workspaceScoped: true });
+    if (this.#vectorIndexSupported) {
+      db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS interaction_node_embedding_vec USING vec0(
+            vec_rowid INTEGER PRIMARY KEY,
+            embedding float[1536],
+            entity_id TEXT,
+            node_kind TEXT,
+            embedding_model TEXT
+        );
+      `);
+    }
     this.ensureSubagentRunsTableSchema(db);
     this.ensureSessionRuntimeStateTableSchema(db);
     this.ensureTurnArtifactsSchema(db);
@@ -10732,7 +13389,11 @@ export class RuntimeStateStore {
     this.ensureOutputsTableSchema(db);
     this.migrateRuntimeNotificationPriority(db);
     this.migrateCronjobInstructions(db);
+    this.migrateCronjobTeammates(db);
     this.migrateAppBuildRestartAttempts(db);
+    this.migrateLegacyTeammatesTableSchema(db);
+    this.migrateTeammateCapabilityProfiles(db);
+    this.migrateTeammateSkillsColumn(db);
   }
 
   private ensureRuntimeDbSchema(db: Database.Database): void {
@@ -10888,6 +13549,61 @@ export class RuntimeStateStore {
     `);
   }
 
+  private ensureSemanticMemorySearchTableSchema(params: {
+    db: Database.Database;
+    workspaceScoped: boolean;
+  }): void {
+    const prefix = params.workspaceScoped
+      ? `
+          workspace_id TEXT NOT NULL,
+      `
+      : "";
+    const workspaceIdPrefix = params.workspaceScoped ? "workspace_id, " : "";
+    params.db.exec(`
+      CREATE TABLE IF NOT EXISTS semantic_memory_search_docs (
+          ${prefix}category TEXT NOT NULL,
+          tree_id TEXT NOT NULL,
+          node_id TEXT NOT NULL,
+          node_class TEXT NOT NULL,
+          node_kind TEXT NOT NULL,
+          path TEXT NOT NULL,
+          child_count INTEGER NOT NULL DEFAULT 0,
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          body_text TEXT NOT NULL,
+          excerpt TEXT,
+          observed_at TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (${workspaceIdPrefix}category, tree_id, node_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_semantic_memory_search_docs_tree_status
+          ON semantic_memory_search_docs (${workspaceIdPrefix}category, tree_id, status, updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_semantic_memory_search_docs_tree_kind
+          ON semantic_memory_search_docs (${workspaceIdPrefix}category, tree_id, node_class, node_kind, updated_at DESC);
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS semantic_memory_search_fts USING fts5(
+          ${params.workspaceScoped ? "workspace_id UNINDEXED,\n" : ""}category UNINDEXED,
+          tree_id UNINDEXED,
+          node_id UNINDEXED,
+          node_class UNINDEXED,
+          node_kind UNINDEXED,
+          path UNINDEXED,
+          child_count UNINDEXED,
+          title,
+          summary,
+          body_text,
+          excerpt UNINDEXED,
+          observed_at UNINDEXED,
+          status UNINDEXED,
+          updated_at UNINDEXED,
+          tokenize = 'unicode61 remove_diacritics 2'
+      );
+    `);
+  }
+
   private ensureConversationBindingsTableSchema(db: Database.Database): void {
     const tableNames = new Set<string>(
       (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
@@ -10917,7 +13633,7 @@ export class RuntimeStateStore {
     `);
   }
 
-  private migrateLegacyMainSessionLabels(db: Database.Database): void {
+  private migrateLegacySessionKinds(db: Database.Database): void {
     const tableNames = new Set<string>(
       (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
         (row) => row.name,
@@ -10929,11 +13645,15 @@ export class RuntimeStateStore {
         db.prepare(
           `
             UPDATE agent_sessions
-            SET kind = ?,
+            SET kind = CASE
+                    WHEN lower(kind) IN ('workspace_session', 'main') THEN ?
+                    WHEN lower(kind) = 'task_proposal' THEN ?
+                    ELSE kind
+                END,
                 updated_at = ?
-            WHERE lower(kind) IN ('workspace_session', 'main')
+            WHERE lower(kind) IN ('workspace_session', 'main', 'task_proposal')
           `,
-        ).run(MAIN_SESSION_KIND, now);
+        ).run(MAIN_SESSION_KIND, SUBAGENT_SESSION_KIND, now);
       }
       if (tableNames.has("conversation_bindings")) {
         db.prepare(
@@ -10963,6 +13683,12 @@ export class RuntimeStateStore {
     const columns = new Set<string>(
       (db.prepare("PRAGMA table_info(subagent_runs)").all() as Array<{ name: string }>).map((row) => row.name)
     );
+    if (!columns.has("issue_id")) {
+      db.exec("ALTER TABLE subagent_runs ADD COLUMN issue_id TEXT;");
+    }
+    if (!columns.has("teammate_id")) {
+      db.exec("ALTER TABLE subagent_runs ADD COLUMN teammate_id TEXT;");
+    }
     if (!columns.has("initial_child_input_id")) {
       db.exec("ALTER TABLE subagent_runs ADD COLUMN initial_child_input_id TEXT;");
     }
@@ -11002,6 +13728,10 @@ export class RuntimeStateStore {
           ON subagent_runs (origin_main_session_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_subagent_runs_retry_created
           ON subagent_runs (retry_of_subagent_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_subagent_runs_issue_created
+          ON subagent_runs (issue_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_subagent_runs_teammate_status_updated
+          ON subagent_runs (teammate_id, status, updated_at DESC, created_at DESC);
     `);
   }
 
@@ -11131,6 +13861,16 @@ export class RuntimeStateStore {
     db.exec("UPDATE cronjobs SET instruction = description WHERE trim(coalesce(instruction, '')) = '';");
   }
 
+  private migrateCronjobTeammates(db: Database.Database): void {
+    const columns = new Set<string>(
+      (db.prepare("PRAGMA table_info(cronjobs)").all() as Array<{ name: string }>).map((row) => row.name)
+    );
+    if (!columns.has("teammate_id")) {
+      db.exec("ALTER TABLE cronjobs ADD COLUMN teammate_id TEXT NOT NULL DEFAULT 'general';");
+    }
+    db.exec("UPDATE cronjobs SET teammate_id = 'general' WHERE trim(coalesce(teammate_id, '')) = '';");
+  }
+
   private migrateAppBuildRestartAttempts(db: Database.Database): void {
     const columns = new Set<string>(
       (db.prepare("PRAGMA table_info(app_builds)").all() as Array<{ name: string }>).map((row) => row.name)
@@ -11138,6 +13878,97 @@ export class RuntimeStateStore {
     if (!columns.has("restart_attempts")) {
       db.exec("ALTER TABLE app_builds ADD COLUMN restart_attempts INTEGER NOT NULL DEFAULT 0;");
     }
+  }
+
+  private migrateLegacyTeammatesTableSchema(db: Database.Database): void {
+    if (!this.tableExists(db, "teammates")) {
+      return;
+    }
+    const columns = new Set<string>(
+      (db.prepare("PRAGMA table_info(teammates)").all() as Array<{ name: string }>).map((row) => row.name)
+    );
+    const addedStatusColumn = !columns.has("status");
+    if (!columns.has("kind")) {
+      db.exec("ALTER TABLE teammates ADD COLUMN kind TEXT NOT NULL DEFAULT 'custom';");
+    }
+    if (!columns.has("status")) {
+      db.exec("ALTER TABLE teammates ADD COLUMN status TEXT NOT NULL DEFAULT 'active';");
+    }
+    if (!columns.has("archived_at")) {
+      db.exec("ALTER TABLE teammates ADD COLUMN archived_at TEXT;");
+    }
+    db.prepare(`
+      UPDATE teammates
+      SET kind = CASE
+            WHEN teammate_id = ? THEN 'system'
+            ELSE 'custom'
+          END
+      WHERE lower(trim(coalesce(kind, ''))) NOT IN ('system', 'custom')
+         OR (teammate_id = ? AND lower(trim(coalesce(kind, ''))) != 'system')
+    `).run(GENERAL_TEAMMATE_ID, GENERAL_TEAMMATE_ID);
+    db.prepare(`
+      UPDATE teammates
+      SET status = CASE
+            WHEN teammate_id = ? THEN 'active'
+            WHEN trim(coalesce(archived_at, '')) != '' THEN 'archived'
+            ELSE 'active'
+          END
+      WHERE lower(trim(coalesce(status, ''))) NOT IN ('active', 'archived')
+         OR (teammate_id = ? AND lower(trim(coalesce(status, ''))) != 'active')
+    `).run(GENERAL_TEAMMATE_ID, GENERAL_TEAMMATE_ID);
+    if (addedStatusColumn) {
+      db.prepare(`
+        UPDATE teammates
+        SET status = CASE
+              WHEN teammate_id = ? THEN 'active'
+              WHEN trim(coalesce(archived_at, '')) != '' THEN 'archived'
+              ELSE 'active'
+            END
+      `).run(GENERAL_TEAMMATE_ID);
+    }
+    db.prepare(`
+      UPDATE teammates
+      SET archived_at = NULL
+      WHERE teammate_id = ?
+    `).run(GENERAL_TEAMMATE_ID);
+  }
+
+  private migrateTeammateCapabilityProfiles(db: Database.Database): void {
+    const columns = new Set<string>(
+      (db.prepare("PRAGMA table_info(teammates)").all() as Array<{ name: string }>).map((row) => row.name)
+    );
+    if (!columns.has("capability_profile_json")) {
+      db.exec("ALTER TABLE teammates ADD COLUMN capability_profile_json TEXT NOT NULL DEFAULT '{}';");
+    }
+    db.prepare(`
+      UPDATE teammates
+      SET capability_profile_json = ?
+      WHERE teammate_id = ?
+        AND trim(coalesce(capability_profile_json, '')) IN ('', '{}')
+    `).run(JSON.stringify(GENERAL_TEAMMATE_CAPABILITY_PROFILE), GENERAL_TEAMMATE_ID);
+    db.prepare(`
+      UPDATE teammates
+      SET instructions = ?
+      WHERE teammate_id = ?
+        AND trim(coalesce(instructions, '')) IN ('', ?)
+    `).run(
+      GENERAL_TEAMMATE_INSTRUCTIONS,
+      GENERAL_TEAMMATE_ID,
+      LEGACY_GENERAL_TEAMMATE_INSTRUCTIONS,
+    );
+  }
+
+  private migrateTeammateSkillsColumn(db: Database.Database): void {
+    if (!this.tableExists(db, "teammates")) {
+      return;
+    }
+    const columns = new Set<string>(
+      (db.prepare("PRAGMA table_info(teammates)").all() as Array<{ name: string }>).map((row) => row.name)
+    );
+    if (!columns.has("skills_json")) {
+      return;
+    }
+    db.exec("ALTER TABLE teammates DROP COLUMN skills_json;");
   }
 
   // Connections are user-global; per-workspace scoping lives in
@@ -11395,6 +14226,14 @@ export class RuntimeStateStore {
     if (!columns.has("promoted_at")) {
       db.exec("ALTER TABLE evolve_skill_candidates ADD COLUMN promoted_at TEXT;");
     }
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_evolve_skill_candidates_workspace_created
+          ON evolve_skill_candidates (workspace_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_evolve_skill_candidates_workspace_status_created
+          ON evolve_skill_candidates (workspace_id, status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_evolve_skill_candidates_task_proposal
+          ON evolve_skill_candidates (task_proposal_id);
+    `);
   }
 
   private ensureMemoryUpdateProposalsTableSchema(db: Database.Database): void {
@@ -11439,6 +14278,14 @@ export class RuntimeStateStore {
     if (!columns.has("dismissed_at")) {
       db.exec("ALTER TABLE memory_update_proposals ADD COLUMN dismissed_at TEXT;");
     }
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_memory_update_proposals_workspace_created
+          ON memory_update_proposals (workspace_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_memory_update_proposals_session_input_created
+          ON memory_update_proposals (session_id, input_id, created_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_memory_update_proposals_workspace_state_created
+          ON memory_update_proposals (workspace_id, state, created_at DESC);
+    `);
   }
 
   private rebuildTurnResultsWithoutLegacyColumns(db: Database.Database): void {
@@ -11602,6 +14449,14 @@ export class RuntimeStateStore {
     if (!columns.has("input_id")) {
       db.exec("ALTER TABLE outputs ADD COLUMN input_id TEXT;");
     }
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_outputs_workspace_created
+          ON outputs (workspace_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_outputs_workspace_folder_created
+          ON outputs (workspace_id, folder_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_outputs_session_input_created
+          ON outputs (session_id, input_id, created_at DESC);
+    `);
   }
 
   private ensureWorkspacesTableSchema(db: Database.Database): void {
@@ -12695,6 +15550,123 @@ export class RuntimeStateStore {
     };
   }
 
+  private listAllSemanticMemoryEdgesForTree(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId: string;
+  }): SemanticMemoryContainmentEdgeRecord[] {
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    if (scope.workspaceId !== null) {
+      const rows = scope.db
+        .prepare<[string, string, string], Record<string, unknown>>(
+          `
+            SELECT *
+            FROM semantic_memory_edges
+            WHERE workspace_id = ? AND category = ? AND tree_id = ?
+            ORDER BY parent_node_id ASC, position ASC, child_node_id ASC
+          `,
+        )
+        .all(scope.workspaceId, params.category, params.treeId) as Array<Record<string, unknown>>;
+      return rows.map((row) => this.rowToSemanticMemoryContainmentEdge(row));
+    }
+    const rows = scope.db
+      .prepare<[string, string], Record<string, unknown>>(
+        `
+          SELECT *
+          FROM semantic_memory_edges
+          WHERE category = ? AND tree_id = ?
+          ORDER BY parent_node_id ASC, position ASC, child_node_id ASC
+        `,
+      )
+      .all(params.category, params.treeId) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToSemanticMemoryContainmentEdge(row));
+  }
+
+  private semanticMemoryNodeMatches(
+    existing: SemanticMemoryNodeRecord,
+    desired: {
+      nodeClass: SemanticMemoryNodeClass;
+      nodeKind: string;
+      sourceLeafId?: string | null;
+      path: string;
+      title: string;
+      summary: string;
+      bodySha256: string;
+      childCount?: number;
+      observedAt?: string | null;
+      status?: MemoryNodeStatus;
+      isMaterialized?: boolean;
+      metadata?: Record<string, unknown> | null;
+    },
+  ): boolean {
+    return existing.nodeClass === desired.nodeClass
+      && existing.nodeKind === desired.nodeKind
+      && existing.sourceLeafId === (desired.sourceLeafId ?? null)
+      && existing.path === desired.path
+      && existing.title === desired.title
+      && existing.summary === desired.summary
+      && existing.bodySha256 === desired.bodySha256
+      && existing.childCount === (desired.childCount ?? 0)
+      && existing.observedAt === (desired.observedAt ?? null)
+      && existing.status === (desired.status ?? "active")
+      && existing.isMaterialized === Boolean(desired.isMaterialized)
+      && JSON.stringify(existing.metadata ?? {}) === JSON.stringify(desired.metadata ?? {});
+  }
+
+  private semanticMemoryEdgesMatch(
+    existing: SemanticMemoryContainmentEdgeRecord[],
+    desired: Array<{ childNodeId: string; position: number }>
+  ): boolean {
+    if (existing.length !== desired.length) {
+      return false;
+    }
+    for (let index = 0; index < existing.length; index += 1) {
+      if (existing[index]?.childNodeId !== desired[index]?.childNodeId) {
+        return false;
+      }
+      if (existing[index]?.position !== desired[index]?.position) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private semanticMemorySearchDocMatches(
+    existing: SemanticMemorySearchDocRecord,
+    desired: {
+      nodeClass: SemanticMemoryNodeClass;
+      nodeKind: string;
+      path: string;
+      childCount?: number;
+      title: string;
+      summary: string;
+      bodyText: string;
+      excerpt?: string | null;
+      observedAt?: string | null;
+      status?: MemoryNodeStatus;
+    },
+  ): boolean {
+    return existing.nodeClass === desired.nodeClass
+      && existing.nodeKind === desired.nodeKind
+      && existing.path === desired.path
+      && existing.childCount === (desired.childCount ?? 0)
+      && existing.title === desired.title
+      && existing.summary === desired.summary
+      && existing.bodyText === desired.bodyText
+      && existing.excerpt === (desired.excerpt ?? null)
+      && existing.observedAt === (desired.observedAt ?? null)
+      && existing.status === (desired.status ?? "active");
+  }
+
+  private semanticMemoryRelationMatches(
+    existing: SemanticMemoryRelationRecord,
+    desired: {
+      metadata?: Record<string, unknown> | null;
+    },
+  ): boolean {
+    return JSON.stringify(existing.metadata ?? {}) === JSON.stringify(desired.metadata ?? {});
+  }
+
   private rowToSemanticMemoryNode(row: Record<string, unknown>): SemanticMemoryNodeRecord {
     return {
       workspaceId: row.workspace_id == null ? null : String(row.workspace_id),
@@ -12715,6 +15687,37 @@ export class RuntimeStateStore {
       metadata: this.parseJsonDict(row.metadata),
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
+    };
+  }
+
+  private rowToSemanticMemorySearchDoc(
+    row: Record<string, unknown>,
+  ): SemanticMemorySearchDocRecord {
+    return {
+      workspaceId: row.workspace_id == null ? null : String(row.workspace_id),
+      category: String(row.category) as SemanticMemoryCategory,
+      treeId: String(row.tree_id),
+      nodeId: String(row.node_id),
+      nodeClass: String(row.node_class) as SemanticMemoryNodeClass,
+      nodeKind: String(row.node_kind),
+      path: String(row.path),
+      childCount: Number(row.child_count ?? 0),
+      title: String(row.title),
+      summary: String(row.summary),
+      bodyText: String(row.body_text ?? ""),
+      excerpt: row.excerpt == null ? null : String(row.excerpt),
+      observedAt: row.observed_at == null ? null : String(row.observed_at),
+      status: String(row.status) as MemoryNodeStatus,
+      updatedAt: String(row.updated_at),
+    };
+  }
+
+  private rowToSemanticMemorySearchHit(
+    row: Record<string, unknown>,
+  ): SemanticMemorySearchHitRecord {
+    return {
+      ...this.rowToSemanticMemorySearchDoc(row),
+      bm25Score: Number(row.bm25_score),
     };
   }
 
@@ -12874,7 +15877,7 @@ export class RuntimeStateStore {
     return {
       workspaceId: String(row.workspace_id),
       sessionId: String(row.session_id),
-      kind: String(row.kind),
+      kind: this.normalizedSessionKind(String(row.kind)),
       title: row.title == null ? null : String(row.title),
       parentSessionId: row.parent_session_id == null ? null : String(row.parent_session_id),
       sourceProposalId: row.source_proposal_id == null ? null : String(row.source_proposal_id),
@@ -12882,6 +15885,43 @@ export class RuntimeStateStore {
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
       archivedAt: row.archived_at == null ? null : String(row.archived_at)
+    };
+  }
+
+  private rowToTeammate(row: Record<string, unknown>): TeammateRecord {
+    return {
+      teammateId: String(row.teammate_id),
+      workspaceId: String(row.workspace_id),
+      name: String(row.name),
+      kind: this.requiredTeammateKind(row.kind == null ? null : String(row.kind)),
+      status: this.requiredTeammateStatus(row.status == null ? null : String(row.status)),
+      instructions: row.instructions == null ? null : String(row.instructions),
+      capabilityProfile: this.parseTeammateCapabilityProfile(row.capability_profile_json),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+      archivedAt: row.archived_at == null ? null : String(row.archived_at),
+    };
+  }
+
+  private rowToIssue(row: Record<string, unknown>): IssueRecord {
+    return {
+      issueId: String(row.issue_id),
+      workspaceId: String(row.workspace_id),
+      issueNumber: Number(row.issue_number),
+      sessionId: String(row.session_id),
+      title: String(row.title),
+      description: row.description == null ? null : String(row.description),
+      status: this.requiredIssueStatus(row.status == null ? null : String(row.status)),
+      priority: this.nullableIssuePriority(row.priority == null ? null : String(row.priority)),
+      assigneeTeammateId: row.assignee_teammate_id == null ? null : String(row.assignee_teammate_id),
+      blockerReason: row.blocker_reason == null ? null : String(row.blocker_reason),
+      attachments: this.parseIssueAttachments(row.attachment_payloads),
+      activeSubagentId: row.active_subagent_id == null ? null : String(row.active_subagent_id),
+      latestSubagentId: row.latest_subagent_id == null ? null : String(row.latest_subagent_id),
+      createdBy: row.created_by == null ? null : String(row.created_by),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+      completedAt: row.completed_at == null ? null : String(row.completed_at),
     };
   }
 
@@ -12902,6 +15942,8 @@ export class RuntimeStateStore {
       context: row.context == null ? null : String(row.context),
       sourceType: row.source_type == null ? null : String(row.source_type),
       sourceId: row.source_id == null ? null : String(row.source_id),
+      issueId: row.issue_id == null ? null : String(row.issue_id),
+      teammateId: row.teammate_id == null ? null : String(row.teammate_id),
       proposalId: row.proposal_id == null ? null : String(row.proposal_id),
       cronjobId: row.cronjob_id == null ? null : String(row.cronjob_id),
       retryOfSubagentId: row.retry_of_subagent_id == null ? null : String(row.retry_of_subagent_id),
@@ -13039,6 +16081,7 @@ export class RuntimeStateStore {
       id: String(row.id),
       workspaceId: String(row.workspace_id),
       initiatedBy: String(row.initiated_by),
+      teammateId: row.teammate_id == null ? "general" : String(row.teammate_id),
       name: row.name == null ? "" : String(row.name),
       cron: String(row.cron),
       description: String(row.description),
@@ -13168,6 +16211,205 @@ export class RuntimeStateStore {
     }
   }
 
+  private parseTeammateCapabilityProfile(
+    raw: unknown,
+  ): TeammateCapabilityProfileRecord {
+    const value = this.parseJsonDict(raw);
+    const capabilities = this.normalizedStringArray(
+      Array.isArray(value.capabilities) ? value.capabilities : [],
+    );
+    const preferredTools = this.normalizedStringArray(
+      Array.isArray(value.preferredTools)
+        ? value.preferredTools
+        : Array.isArray(value.preferred_tools)
+          ? value.preferred_tools
+          : [],
+    );
+    const summary = this.normalizedNullableText(
+      typeof value.summary === "string" ? value.summary : null,
+    );
+    return {
+      summary,
+      capabilities,
+      preferredTools,
+    };
+  }
+
+  private parseIssueAttachments(raw: unknown): IssueAttachmentRecord[] {
+    return this.parseJsonList(raw)
+      .map((entry) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          return null;
+        }
+        const value = entry as Record<string, unknown>;
+        const name = this.normalizedNullableText(typeof value.name === "string" ? value.name : null);
+        const mimeType = this.normalizedNullableText(
+          typeof value.mimeType === "string"
+            ? value.mimeType
+            : typeof value.mime_type === "string"
+              ? value.mime_type
+              : null,
+        );
+        const workspacePath = this.normalizedNullableText(
+          typeof value.workspacePath === "string"
+            ? value.workspacePath
+            : typeof value.workspace_path === "string"
+              ? value.workspace_path
+              : null,
+        );
+        if (!name || !mimeType || !workspacePath) {
+          return null;
+        }
+        const kindValue =
+          value.kind === "image" || value.kind === "folder" || value.kind === "file"
+            ? value.kind
+            : mimeType.startsWith("image/")
+              ? "image"
+              : mimeType === "inode/directory"
+                ? "folder"
+                : "file";
+        return {
+          id:
+            this.normalizedNullableText(
+              typeof value.id === "string" ? value.id : null,
+            ) ?? randomUUID(),
+          kind: kindValue,
+          name,
+          mimeType,
+          sizeBytes:
+            typeof value.sizeBytes === "number" && Number.isFinite(value.sizeBytes)
+              ? value.sizeBytes
+              : typeof value.size_bytes === "number" && Number.isFinite(value.size_bytes)
+                ? value.size_bytes
+                : 0,
+          workspacePath,
+          createdAt:
+            this.normalizedNullableText(
+              typeof value.createdAt === "string"
+                ? value.createdAt
+                : typeof value.created_at === "string"
+                  ? value.created_at
+                  : null,
+            ) ?? utcNowIso(),
+        };
+      })
+      .filter((entry): entry is IssueAttachmentRecord => Boolean(entry));
+  }
+
+  private normalizedTeammateCapabilityProfile(
+    profile:
+      | Partial<TeammateCapabilityProfileRecord>
+      | TeammateCapabilityProfileRecord
+      | null
+      | undefined,
+    defaults?: TeammateCapabilityProfileRecord,
+  ): TeammateCapabilityProfileRecord {
+    const rawProfile =
+      profile && typeof profile === "object" && !Array.isArray(profile)
+        ? (profile as Record<string, unknown>)
+        : null;
+    const parsed = this.parseTeammateCapabilityProfile(profile ?? {});
+    return {
+      summary:
+        rawProfile && Object.prototype.hasOwnProperty.call(rawProfile, "summary")
+          ? parsed.summary
+          : defaults?.summary ?? parsed.summary ?? null,
+      capabilities:
+        rawProfile && Object.prototype.hasOwnProperty.call(rawProfile, "capabilities")
+          ? parsed.capabilities
+          : [...(defaults?.capabilities ?? parsed.capabilities)],
+      preferredTools:
+        rawProfile &&
+        (Object.prototype.hasOwnProperty.call(rawProfile, "preferredTools") ||
+          Object.prototype.hasOwnProperty.call(rawProfile, "preferred_tools"))
+          ? parsed.preferredTools
+          : [...(defaults?.preferredTools ?? parsed.preferredTools)],
+    };
+  }
+
+  private normalizedIssueAttachments(
+    attachments:
+      | Array<Partial<IssueAttachmentRecord> & {
+          name: string;
+          mimeType?: string;
+          mime_type?: string;
+          workspacePath?: string;
+          workspace_path?: string;
+        }>
+      | IssueAttachmentRecord[]
+      | null
+      | undefined,
+    fallbackTimestamp: string,
+  ): IssueAttachmentRecord[] {
+    return this.parseIssueAttachments(attachments ?? []).map((attachment) => ({
+      ...attachment,
+      createdAt: this.normalizedNullableText(attachment.createdAt) ?? fallbackTimestamp,
+    }));
+  }
+
+  private requiredTeammateKind(value: string | null | undefined): TeammateKind {
+    const normalized = this.normalizedNullableText(value)?.toLowerCase();
+    if (normalized === "system" || normalized === "custom") {
+      return normalized;
+    }
+    throw new Error(`unsupported teammate kind: ${value ?? ""}`);
+  }
+
+  private requiredTeammateStatus(value: string | null | undefined): TeammateStatus {
+    const normalized = this.normalizedNullableText(value)?.toLowerCase();
+    if (normalized === "active" || normalized === "archived") {
+      return normalized;
+    }
+    throw new Error(`unsupported teammate status: ${value ?? ""}`);
+  }
+
+  private normalizedStringArray(values: unknown[]): string[] {
+    const seen = new Set<string>();
+    const normalized: string[] = [];
+    for (const value of values) {
+      if (typeof value !== "string") {
+        continue;
+      }
+      const trimmed = value.trim();
+      if (!trimmed) {
+        continue;
+      }
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      normalized.push(trimmed);
+    }
+    return normalized;
+  }
+
+  private requiredIssueStatus(value: string | null | undefined): IssueStatus {
+    const normalized = this.normalizedNullableText(value)?.toLowerCase();
+    if (
+      normalized === "backlog" ||
+      normalized === "todo" ||
+      normalized === "in_progress" ||
+      normalized === "in_review" ||
+      normalized === "done" ||
+      normalized === "blocked"
+    ) {
+      return normalized;
+    }
+    throw new Error(`unsupported issue status: ${value ?? ""}`);
+  }
+
+  private nullableIssuePriority(value: string | null | undefined): IssuePriority | null {
+    const normalized = this.normalizedNullableText(value)?.toLowerCase();
+    if (!normalized) {
+      return null;
+    }
+    if (normalized === "critical" || normalized === "high" || normalized === "medium" || normalized === "low") {
+      return normalized;
+    }
+    throw new Error(`unsupported issue priority: ${value ?? ""}`);
+  }
+
   private normalizedNullableText(value: string | null | undefined): string | null {
     if (value == null) {
       return null;
@@ -13205,7 +16447,18 @@ export class RuntimeStateStore {
     if (!normalized || normalized === "workspace_session" || normalized === "main") {
       return MAIN_SESSION_KIND;
     }
+    if (normalized === "task_proposal") {
+      return SUBAGENT_SESSION_KIND;
+    }
     return normalized;
+  }
+
+  private issueIdPrefixForWorkspaceName(workspaceName: string | null | undefined): string {
+    const compact = Array.from(this.normalizedNullableText(workspaceName) ?? "")
+      .filter((char) => /[\p{L}\p{N}]/u.test(char))
+      .slice(0, 3)
+      .join("");
+    return (compact || "WRK").toUpperCase();
   }
 
   private normalizedNotificationLevel(value: string | null | undefined): RuntimeNotificationLevel {

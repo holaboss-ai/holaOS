@@ -777,6 +777,8 @@ export function InternalSurfacePane({
                 readOnly={!preview.isEditable}
                 placeholder="Press / for commands…"
                 className="min-h-0 flex-1"
+                onLinkClick={openPreviewLink}
+                onLocalLinkClick={handleLocalLinkInPreview}
               />
             )
           ) : isHtmlPreview && textPreviewMode === "preview" ? (

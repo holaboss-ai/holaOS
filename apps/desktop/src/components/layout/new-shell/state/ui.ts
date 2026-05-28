@@ -29,7 +29,12 @@ export const sidebarWidthAtom = atomWithStorage<number>(
  * (Inbox / Artifacts / Automations) inside the sidebar so the main
  * canvas keeps painting whatever the user was looking at.
  */
-export type SidebarSection = "home" | "inbox" | "artifacts" | "automations";
+export type SidebarSection =
+  | "home"
+  | "issues"
+  | "inbox"
+  | "artifacts"
+  | "automations";
 export const sidebarSectionAtom = atomWithStorage<SidebarSection>(
   "holaboss-new-shell-sidebar-section-v1",
   "home",
@@ -46,6 +51,9 @@ export const publishOpenAtom = atom(false);
 
 /** Is the create-new-workspace panel open? */
 export const createWorkspaceOpenAtom = atom(false);
+
+/** Is the create-new-issue dialog open? */
+export const newIssueOpenAtom = atom(false);
 
 /** Is the Automations overlay open? */
 export const automationsOpenAtom = atom(false);
@@ -72,6 +80,23 @@ export const focusModeAtom = atomWithStorage(
   "holaboss-new-shell-focus-mode-v1",
   false,
 );
+
+/**
+ * Per-workspace "main view" preference chosen at workspace-creation time.
+ *  - "workspace" (default) → split layout: tabs + chat side by side.
+ *  - "chat"               → chat fills the canvas; the welcome surface
+ *                            takes over the middle when tabs are empty.
+ *
+ * Keyed by workspaceId so each workspace can remember its own choice.
+ * NewAppShell seeds focusModeAtom from this map on workspace activation,
+ * so the preference acts as the initial state but the in-session focus
+ * toggle still wins until the user navigates away and back.
+ */
+export type WorkspaceMainViewMode = "workspace" | "chat";
+
+export const workspaceMainViewModeMapAtom = atomWithStorage<
+  Record<string, WorkspaceMainViewMode>
+>("holaboss-new-shell-workspace-main-view-v1", {});
 
 /**
  * Chat panel width in split mode (canvas modes ignore this and flex-1
@@ -112,6 +137,17 @@ export interface ChatComposerPrefill {
 }
 export const chatComposerPrefillAtom = atom<ChatComposerPrefill | null>(null);
 
+export interface ChatSessionOpenRequest {
+  sessionId: string;
+  requestKey: number;
+  mode?: "session" | "draft";
+  parentSessionId?: string | null;
+  readOnly?: boolean;
+}
+export const chatSessionOpenRequestAtom = atom<ChatSessionOpenRequest | null>(
+  null,
+);
+
 /**
  * True when any overlay is open. BrowserPane reads this to detach the
  * native BrowserView; otherwise the OS-level webview paints on top of
@@ -123,6 +159,7 @@ export const browserViewSuspendedAtom = atom(
     get(searchOpenAtom) ||
     get(publishOpenAtom) ||
     get(createWorkspaceOpenAtom) ||
+    get(newIssueOpenAtom) ||
     get(automationsOpenAtom) ||
     get(settingsOpenAtom) ||
     get(marketplaceOpenAtom) ||

@@ -655,6 +655,10 @@ export function handleRequest(operation: string, envelope: RequestEnvelope): Jso
           store.createCronjob({
             workspaceId: String(envelope.workspace_id),
             initiatedBy: String(envelope.initiated_by),
+            teammateId:
+              typeof envelope.teammate_id === "string"
+                ? envelope.teammate_id
+                : "general",
             cron: String(envelope.cron),
             description: String(envelope.description),
             instruction: typeof envelope.instruction === "string" ? envelope.instruction : undefined,

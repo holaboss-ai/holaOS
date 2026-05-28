@@ -10,9 +10,17 @@ import { RuntimeStateStore } from "@holaboss/runtime-state-store";
 import { persistInteractionCandidate, rebuildInteractionEntityTree, retrieveInteractionMemory } from "./interaction-memory.js";
 import { workspaceMemoryDir } from "./workspace-bundle-paths.js";
 
+const ORIGINAL_FETCH = globalThis.fetch;
+const ORIGINAL_RUNTIME_CONFIG_PATH = process.env.HOLABOSS_RUNTIME_CONFIG_PATH;
 const tempDirs: string[] = [];
 
 afterEach(() => {
+  globalThis.fetch = ORIGINAL_FETCH;
+  if (ORIGINAL_RUNTIME_CONFIG_PATH === undefined) {
+    delete process.env.HOLABOSS_RUNTIME_CONFIG_PATH;
+  } else {
+    process.env.HOLABOSS_RUNTIME_CONFIG_PATH = ORIGINAL_RUNTIME_CONFIG_PATH;
+  }
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -22,6 +30,44 @@ function makeTempDir(prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
+}
+
+function writeRecallEmbeddingRuntimeConfig(root: string): string {
+  const configPath = path.join(root, "runtime-config.json");
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify(
+      {
+        runtime: {
+          sandbox_id: "sandbox-test",
+        },
+        providers: {
+          openai_direct: {
+            kind: "openai_compatible",
+            base_url: "https://api.openai.com/v1",
+            api_key: "sk-test-openai",
+          },
+        },
+        integrations: {
+          holaboss: {
+            auth_token: "hbmk.test-token",
+            sandbox_id: "sandbox-test",
+            user_id: "user-1",
+          },
+        },
+        holaboss: {
+          auth_token: "hbmk.test-token",
+          sandbox_id: "sandbox-test",
+          user_id: "user-1",
+        },
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  process.env.HOLABOSS_RUNTIME_CONFIG_PATH = configPath;
+  return configPath;
 }
 
 async function withJsonResponseServer(params: {
@@ -376,6 +422,437 @@ test("rebuildInteractionEntityTree writes semantic interaction trees and retriev
     });
     assert.equal(leafResult.children?.length, 8);
     assert.ok(leafResult.children?.every((hit) => hit.node_kind === "leaf"));
+  } finally {
+    store.close();
+  }
+});
+
+test("rebuildInteractionEntityTree reuses unchanged semantic partitions and only recomputes affected subtrees", async () => {
+  const root = makeTempDir("hb-interaction-memory-incremental-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertInteractionEntity({
+    workspaceId: "workspace-1",
+    entityId: "interaction:workflow:incremental-playbook",
+    entityType: "workflow",
+    canonicalName: "Incremental playbook",
+    slug: "workflow-incremental-playbook",
+    summary: "Incremental rebuild memory.",
+    aliases: [],
+    isSystem: false,
+    status: "active",
+  });
+
+  const leafIds = Array.from({ length: 10 }, (_, index) => `leaf-${index + 1}`);
+  for (const [index, leafId] of leafIds.entries()) {
+    const relativePath = `workspace/workspace-1/interaction/entities/workflow-incremental-playbook/leaves/${leafId}.md`;
+    store.upsertInteractionLeaf({
+      workspaceId: "workspace-1",
+      leafId,
+      entityId: "interaction:workflow:incremental-playbook",
+      subjectKey: `procedure:incremental:${index + 1}`,
+      path: relativePath,
+      title: `Incremental step ${index + 1}`,
+      summary: `Summary for incremental step ${index + 1}.`,
+      fingerprint: `fingerprint-${leafId}`,
+      bodySha256: `sha-${leafId}`,
+      tags: ["incremental"],
+      secondaryEntityIds: [],
+      sourceType: "manual",
+      sourceEventId: null,
+      sourceMessageId: null,
+      sourceTurnInputId: "input-seed",
+      admissionConfidence: 0.9,
+      entityConfidence: 0.9,
+      observedAt: `2026-05-20T00:${String(index + 1).padStart(2, "0")}:00.000Z`,
+      supersedesLeafId: null,
+      status: "active",
+    });
+    const absolutePath = path.join(
+      workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+      "interaction",
+      "entities",
+      "workflow-incremental-playbook",
+      "leaves",
+      `${leafId}.md`,
+    );
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.writeFileSync(
+      absolutePath,
+      `# Incremental step ${index + 1}\n\nSummary for incremental step ${index + 1}.\n`,
+      "utf8",
+    );
+  }
+
+  try {
+    await withJsonResponseServer({
+      responses: Array.from({ length: 8 }, (_, index) => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                summary: `Incremental summary ${index + 1}.`,
+              }),
+            },
+          },
+        ],
+      })),
+      run: async (baseUrl, requests) => {
+        const summaryModelClient = {
+          baseUrl,
+          apiKey: "test-key",
+          modelId: "openai/gpt-4.1-mini",
+        };
+
+        await rebuildInteractionEntityTree({
+          store,
+          workspaceId: "workspace-1",
+          entityId: "interaction:workflow:incremental-playbook",
+          summaryModelClient,
+          embeddingClient: null,
+        });
+        assert.equal(requests.length, 3);
+
+        await rebuildInteractionEntityTree({
+          store,
+          workspaceId: "workspace-1",
+          entityId: "interaction:workflow:incremental-playbook",
+          summaryModelClient,
+          embeddingClient: null,
+        });
+        assert.equal(requests.length, 3);
+
+        const updatedLeafPath = path.join(
+          workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+          "interaction",
+          "entities",
+          "workflow-incremental-playbook",
+          "leaves",
+          "leaf-1.md",
+        );
+        fs.writeFileSync(
+          updatedLeafPath,
+          "# Incremental step 1\n\nSummary for incremental step 1 with a revised approval gate.\n",
+          "utf8",
+        );
+        store.upsertInteractionLeaf({
+          workspaceId: "workspace-1",
+          leafId: "leaf-1",
+          entityId: "interaction:workflow:incremental-playbook",
+          subjectKey: "procedure:incremental:1",
+          path: "workspace/workspace-1/interaction/entities/workflow-incremental-playbook/leaves/leaf-1.md",
+          title: "Incremental step 1",
+          summary: "Summary for incremental step 1 with a revised approval gate.",
+          fingerprint: "fingerprint-leaf-1-revised",
+          bodySha256: "sha-leaf-1-revised",
+          tags: ["incremental"],
+          secondaryEntityIds: [],
+          sourceType: "manual",
+          sourceEventId: null,
+          sourceMessageId: null,
+          sourceTurnInputId: "input-seed",
+          admissionConfidence: 0.9,
+          entityConfidence: 0.9,
+          observedAt: "2026-05-20T00:01:00.000Z",
+          supersedesLeafId: null,
+          status: "active",
+        });
+
+        await rebuildInteractionEntityTree({
+          store,
+          workspaceId: "workspace-1",
+          entityId: "interaction:workflow:incremental-playbook",
+          summaryModelClient,
+          embeddingClient: null,
+        });
+        assert.equal(requests.length, 5);
+      },
+    });
+  } finally {
+    store.close();
+  }
+});
+
+test("retrieveInteractionMemory recalls deep-body leaf terms through the semantic search index", async () => {
+  const root = makeTempDir("hb-interaction-memory-fts-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.upsertInteractionEntity({
+    workspaceId: "workspace-1",
+    entityId: "interaction:workflow:escalation-playbook",
+    entityType: "workflow",
+    canonicalName: "Escalation playbook",
+    slug: "workflow-escalation-playbook",
+    summary: "Escalation workflow memory.",
+    aliases: [],
+    isSystem: false,
+    status: "active",
+  });
+
+  const leafId = "leaf-deep-body";
+  const relativePath = `workspace/workspace-1/interaction/entities/workflow-escalation-playbook/leaves/${leafId}.md`;
+  const buriedToken = "zephyrchecksum42";
+  store.upsertInteractionLeaf({
+    workspaceId: "workspace-1",
+    leafId,
+    entityId: "interaction:workflow:escalation-playbook",
+    subjectKey: "procedure:escalation:timer",
+    path: relativePath,
+    title: "Escalation timer detail",
+    summary: "Escalations require a staging checksum before release approval.",
+    fingerprint: `fingerprint-${leafId}`,
+    bodySha256: `sha-${leafId}`,
+    tags: ["escalation", "release"],
+    secondaryEntityIds: [],
+    sourceType: "manual",
+    sourceEventId: null,
+    sourceMessageId: null,
+    sourceTurnInputId: "input-seed",
+    admissionConfidence: 0.9,
+    entityConfidence: 0.9,
+    observedAt: "2026-05-22T08:00:00.000Z",
+    supersedesLeafId: null,
+    status: "active",
+  });
+  const absolutePath = path.join(
+    workspaceMemoryDir(path.join(workspaceRoot, "workspace-1")),
+    "interaction",
+    "entities",
+    "workflow-escalation-playbook",
+    "leaves",
+    `${leafId}.md`,
+  );
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  fs.writeFileSync(
+    absolutePath,
+    `# Escalation timer detail\n\n${"filler ".repeat(90)}${buriedToken} must match before approval.\n`,
+    "utf8",
+  );
+
+  try {
+    await rebuildInteractionEntityTree({
+      store,
+      workspaceId: "workspace-1",
+      entityId: "interaction:workflow:escalation-playbook",
+      summaryModelClient: null,
+      embeddingClient: null,
+    });
+
+    const leafNode = store.listSemanticMemoryNodes({
+      category: "interaction",
+      workspaceId: "workspace-1",
+      treeId: "interaction:workflow:escalation-playbook",
+      nodeClass: "leaf",
+      status: "active",
+      limit: 10_000,
+      offset: 0,
+    })[0];
+    assert.ok(leafNode);
+
+    const indexedDoc = store.getSemanticMemorySearchDoc({
+      category: "interaction",
+      workspaceId: "workspace-1",
+      treeId: "interaction:workflow:escalation-playbook",
+      nodeId: leafNode!.nodeId,
+    });
+    assert.ok(indexedDoc);
+    assert.equal(indexedDoc?.bodyText.includes(buriedToken), true);
+    assert.equal(indexedDoc?.excerpt?.includes(buriedToken) ?? false, false);
+
+    const result = await retrieveInteractionMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: buriedToken,
+      mode: "leaves",
+      treeId: "interaction:workflow:escalation-playbook",
+      maxResults: 5,
+    });
+    assert.ok(result.hits.some((hit) => hit.title === "Escalation timer detail"));
+  } finally {
+    store.close();
+  }
+});
+
+test("retrieveInteractionMemory falls back to leaf summaries without reading markdown files", async () => {
+  const root = makeTempDir("hb-interaction-memory-leaf-fallback-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  try {
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertInteractionEntity({
+      workspaceId: "workspace-1",
+      entityId: "interaction:uncategorized",
+      entityType: "misc",
+      canonicalName: "Uncategorized",
+      slug: "uncategorized",
+      summary: "Fallback interaction tree.",
+      aliases: [],
+      isSystem: true,
+      status: "active",
+    });
+    store.upsertInteractionLeaf({
+      workspaceId: "workspace-1",
+      leafId: "leaf-summary-fallback",
+      entityId: "interaction:uncategorized",
+      subjectKey: "verification:summary-fallback",
+      path: "workspace/workspace-1/interaction/entities/uncategorized/leaves/leaf-summary-fallback.md",
+      title: "Verification command",
+      summary: "Use nebula verify to validate release bundles before shipping.",
+      fingerprint: "fingerprint-leaf-summary-fallback",
+      bodySha256: "sha-leaf-summary-fallback",
+      tags: ["verification"],
+      secondaryEntityIds: [],
+      sourceType: "manual",
+      sourceEventId: null,
+      sourceMessageId: null,
+      sourceTurnInputId: "input-seed",
+      admissionConfidence: 0.9,
+      entityConfidence: 0.9,
+      observedAt: "2026-05-22T10:00:00.000Z",
+      supersedesLeafId: null,
+      status: "active",
+    });
+
+    const result = await retrieveInteractionMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "nebula verify",
+      mode: "leaves",
+      treeId: "interaction:uncategorized",
+      maxResults: 5,
+    });
+
+    assert.equal(result.hits.length, 1);
+    assert.equal(result.hits[0]?.title, "Verification command");
+    assert.match(result.hits[0]?.excerpt ?? "", /nebula verify/i);
+  } finally {
+    store.close();
+  }
+});
+
+test("retrieveInteractionMemory adds vector-only candidates that fall outside the recent semantic doc window", async () => {
+  const root = makeTempDir("hb-interaction-memory-vector-topk-");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot,
+  });
+  try {
+    assert.equal(store.supportsVectorIndex(), true);
+    writeRecallEmbeddingRuntimeConfig(root);
+    store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    store.upsertInteractionEntity({
+      workspaceId: "workspace-1",
+      entityId: "interaction:workflow:vector-playbook",
+      entityType: "workflow",
+      canonicalName: "Vector playbook",
+      slug: "workflow-vector-playbook",
+      summary: "Vector retrieval memory.",
+      aliases: [],
+      isSystem: false,
+      status: "active",
+    });
+
+    const relevantNodeId = "semantic:interaction:interaction:workflow:vector-playbook:archival-ledger";
+    const relevantVector = new Array<number>(1536).fill(0);
+    relevantVector[0] = 1;
+    globalThis.fetch = (async (input) => {
+      const url = typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+      assert.match(url, /\/embeddings$/);
+      return new Response(
+        JSON.stringify({
+          data: [{ embedding: relevantVector }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }) as typeof fetch;
+
+    store.replaceSemanticMemorySearchDocs({
+      category: "interaction",
+      workspaceId: "workspace-1",
+      treeId: "interaction:workflow:vector-playbook",
+      docs: [
+        ...Array.from({ length: 170 }, (_, index) => ({
+          nodeId: index === 169
+            ? relevantNodeId
+            : `semantic:interaction:interaction:workflow:vector-playbook:filler-${index + 1}`,
+          nodeClass: "semantic" as const,
+          nodeKind: "overview",
+          path: index === 169
+            ? "semantic/interaction/trees/workflow-vector-playbook/archive-ledger/content.md"
+            : `semantic/interaction/trees/workflow-vector-playbook/filler-${index + 1}/content.md`,
+          childCount: 0,
+          title: index === 169 ? "Archival ledger" : `Filler summary ${index + 1}`,
+          summary: index === 169
+            ? "Legacy shipment approvals are tracked in the archival ledger."
+            : `Filler summary body ${index + 1}.`,
+          bodyText: index === 169
+            ? "Legacy shipment approvals are tracked in the archival ledger."
+            : `Filler summary body ${index + 1}.`,
+          excerpt: index === 169 ? "Legacy shipment approvals are tracked in the archival ledger." : null,
+          observedAt: `2026-05-20T00:${String(index % 60).padStart(2, "0")}:00.000Z`,
+          status: "active" as const,
+          updatedAt: index === 169 ? "2026-01-01T00:00:00.000Z" : "2026-05-31T00:00:00.000Z",
+        })),
+      ],
+    });
+    store.upsertInteractionNodeEmbedding({
+      workspaceId: "workspace-1",
+      nodeKind: "summary",
+      nodeId: relevantNodeId,
+      entityId: "interaction:workflow:vector-playbook",
+      embeddingModel: "text-embedding-3-small",
+      contentFingerprint: "v".repeat(64),
+      dimensions: 1536,
+      vector: relevantVector,
+    });
+
+    const result = await retrieveInteractionMemory({
+      store,
+      workspaceId: "workspace-1",
+      query: "silentorbitvector42",
+      mode: "summaries",
+      maxResults: 5,
+    });
+    assert.ok(result.hits.some((hit) => hit.node_id === relevantNodeId && hit.title === "Archival ledger"));
   } finally {
     store.close();
   }

@@ -35,7 +35,20 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
   },
   {
     id: "cronjobs_create",
-    description: "Create a local cronjob for the current workspace.",
+    description:
+      "Create a local cronjob for the current workspace. Each run creates a teammate-assigned issue instead of executing hidden work directly.",
+    policy: "mutate"
+  },
+  {
+    id: "teammates_create",
+    description:
+      "Create a custom teammate record for the current workspace, including optional capability profile hints and durable teammate instructions.",
+    policy: "mutate"
+  },
+  {
+    id: "teammate_skills_create",
+    description:
+      "Create one teammate-local skill bundle under teammates/<teammate-id>/skills/<skill-id>/ for an existing teammate in the current workspace.",
     policy: "mutate"
   },
   {
@@ -45,7 +58,8 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
   },
   {
     id: "cronjobs_update",
-    description: "Update one local cronjob by id.",
+    description:
+      "Update one local cronjob by id, including its assigned teammate for future issue executions.",
     policy: "mutate"
   },
   {
@@ -60,32 +74,27 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     policy: "coordinate"
   },
   {
-    id: "get_subagent",
+    id: "get_task",
     description:
-      "Read one delegated background task by subagent id and return its latest structured state.",
+      "Read one delegated task by task id and return its current task state plus linked run details when available.",
     policy: "inspect"
   },
   {
-    id: "list_background_tasks",
+    id: "list_tasks",
     description:
-      "List delegated background tasks for the current workspace session using persisted task state instead of a blocking wait.",
+      "List delegated tasks for the current workspace, with optional task-status filters, using persisted task state instead of blocking waits.",
     policy: "inspect"
   },
   {
-    id: "cancel_subagent",
-    description: "Cancel one delegated background task by subagent id when it is still queued or waiting on user input.",
+    id: "cancel_task",
+    description:
+      "Cancel the active execution for one delegated task by task id when that task currently has running work.",
     policy: "mutate"
   },
   {
-    id: "resume_subagent",
+    id: "rerun_task",
     description:
-      "Resume a delegated background task that is waiting on user input by sending the user's answer back into the paused subagent run.",
-    policy: "mutate"
-  },
-  {
-    id: "continue_subagent",
-    description:
-      "Continue a completed delegated background task by sending a new instruction into the same child session.",
+      "Restart one delegated task by task id using its existing task brief and linked child session routing.",
     policy: "mutate"
   },
   {

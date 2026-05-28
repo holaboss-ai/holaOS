@@ -8,7 +8,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 
-import { RuntimeStateStore } from "./store.js";
+import { RuntimeStateStore, utcNowIso } from "./store.js";
 
 const tempDirs: string[] = [];
 
@@ -3064,6 +3064,124 @@ test("memory embedding index supports vector replacement, search, and delete", (
   store.close();
 });
 
+test("node embedding vector indexes support interaction and integration top-k search", () => {
+  const root = makeTempDir("hb-state-store-node-vec-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  });
+
+  assert.equal(store.supportsVectorIndex(), true);
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+
+  const primaryVector = new Float32Array(1536).fill(0);
+  primaryVector[0] = 1;
+  const secondaryVector = new Float32Array(1536).fill(0);
+  secondaryVector[1] = 1;
+
+  store.upsertInteractionNodeEmbedding({
+    workspaceId: "workspace-1",
+    nodeKind: "summary",
+    nodeId: "semantic:interaction:vector-primary",
+    entityId: "interaction:workflow:vector-primary",
+    embeddingModel: "text-embedding-3-small",
+    contentFingerprint: "c".repeat(64),
+    dimensions: 1536,
+    vector: Array.from(primaryVector),
+  });
+  store.upsertInteractionNodeEmbedding({
+    workspaceId: "workspace-1",
+    nodeKind: "summary",
+    nodeId: "semantic:interaction:vector-secondary",
+    entityId: "interaction:workflow:vector-primary",
+    embeddingModel: "text-embedding-3-small",
+    contentFingerprint: "d".repeat(64),
+    dimensions: 1536,
+    vector: Array.from(secondaryVector),
+  });
+
+  const interactionResults = store.searchInteractionNodeEmbeddingsByVector({
+    workspaceId: "workspace-1",
+    embedding: primaryVector,
+    embeddingModel: "text-embedding-3-small",
+    limit: 2,
+    entityIds: ["interaction:workflow:vector-primary"],
+    nodeKinds: ["summary"],
+  });
+  assert.equal(interactionResults[0]?.nodeId, "semantic:interaction:vector-primary");
+
+  const treeId = "integration:github:vector-primary";
+  store.upsertIntegrationTree({
+    treeId,
+    provider: "github",
+    ownerUserId: "user-1",
+    accountKey: "vector-github",
+    accountLabel: "Vector GitHub",
+    slug: "github-vector-primary",
+    summary: "Vector GitHub memory.",
+    status: "active",
+  });
+  store.upsertIntegrationNodeEmbedding({
+    nodeKind: "summary",
+    nodeId: "semantic:integration:vector-primary",
+    treeId,
+    embeddingModel: "text-embedding-3-small",
+    contentFingerprint: "e".repeat(64),
+    dimensions: 1536,
+    vector: Array.from(primaryVector),
+  });
+  store.upsertIntegrationNodeEmbedding({
+    nodeKind: "summary",
+    nodeId: "semantic:integration:vector-secondary",
+    treeId,
+    embeddingModel: "text-embedding-3-small",
+    contentFingerprint: "f".repeat(64),
+    dimensions: 1536,
+    vector: Array.from(secondaryVector),
+  });
+
+  const integrationResults = store.searchIntegrationNodeEmbeddingsByVector({
+    embedding: primaryVector,
+    embeddingModel: "text-embedding-3-small",
+    limit: 2,
+    treeIds: [treeId],
+    nodeKinds: ["summary"],
+  });
+  assert.equal(integrationResults[0]?.nodeId, "semantic:integration:vector-primary");
+
+  const vecRowid = integrationResults[0]?.vecRowid ?? null;
+  store.deleteIntegrationTreeMemory({ treeId });
+  assert.equal(
+    store.searchIntegrationNodeEmbeddingsByVector({
+      embedding: primaryVector,
+      embeddingModel: "text-embedding-3-small",
+      limit: 2,
+      treeIds: [treeId],
+      nodeKinds: ["summary"],
+    }).length,
+    0,
+  );
+  if (vecRowid !== null) {
+    const db = new Database(store.controlPlaneDbPath, { readonly: true });
+    sqliteVec.load(db as unknown as { loadExtension(file: string, entrypoint?: string | undefined): void });
+    const remaining = Number(
+      (
+        db.prepare<[number], { count: number }>("SELECT COUNT(*) AS count FROM integration_node_embedding_vec WHERE vec_rowid = ?")
+          .get(vecRowid) as { count: number }
+      ).count,
+    );
+    db.close();
+    assert.equal(remaining, 0);
+  }
+
+  store.close();
+});
+
 test("app build status round trip supports upsert, lookup, and delete", () => {
   const root = makeTempDir("hb-state-store-");
   const store = new RuntimeStateStore({
@@ -3155,6 +3273,7 @@ test("workspace-scoped runtime tables persist inside the workspace bundle and mi
   const cronjob = store.createCronjob({
     workspaceId: "workspace-1",
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     cron: "0 9 * * *",
     description: "Daily check",
     instruction: "Say hello",
@@ -3253,6 +3372,7 @@ test("cronjobs round trip supports create, list, update, get, and delete", () =>
   const job = store.createCronjob({
     workspaceId: "workspace-1",
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     cron: "0 9 * * *",
     description: "Daily check",
     instruction: "Say hello",
@@ -3270,6 +3390,7 @@ test("cronjobs round trip supports create, list, update, get, and delete", () =>
 
   assert.equal(listed.length, 1);
   assert.ok(fetched);
+  assert.equal(fetched.teammateId, "general");
   assert.equal(fetched.instruction, "Say hello");
   assert.ok(updated);
   assert.equal(updated.description, "Updated check");
@@ -3333,6 +3454,7 @@ test("cronjob schema migration backfills instruction from legacy description", (
   const migrated = store.getCronjob({ workspaceId: "workspace-1", jobId: "job-1" });
 
   assert.ok(migrated);
+  assert.equal(migrated.teammateId, "general");
   assert.equal(migrated.instruction, "Say hello every 5 minutes.");
   store.close();
 });
@@ -3408,6 +3530,7 @@ test("workspace-scoped runtime db backfills legacy cronjobs from runtime.db on f
 
   assert.equal(listed.length, 1);
   assert.equal(listed[0]?.id, "job-legacy");
+  assert.equal(listed[0]?.teammateId, "general");
   assert.equal(fs.existsSync(workspaceDbPath), true);
 
   const workspaceDb = new Database(workspaceDbPath, { readonly: true });
@@ -3774,9 +3897,10 @@ test("task proposals round trip supports create, list, unreviewed, get, and stat
 
 test("task proposal acceptance fields and child session metadata round trip", () => {
   const root = makeTempDir("hb-state-store-");
+  const workspaceRoot = path.join(root, "workspace");
   const store = new RuntimeStateStore({
     dbPath: path.join(root, "runtime.db"),
-    workspaceRoot: path.join(root, "workspace")
+    workspaceRoot
   });
 
   const session = store.ensureSession({
@@ -3810,8 +3934,9 @@ test("task proposal acceptance fields and child session metadata round trip", ()
     }
   });
 
+  assert.equal(session.kind, "subagent");
   assert.equal(sessions.length, 1);
-  assert.equal(sessions[0]?.kind, "task_proposal");
+  assert.equal(sessions[0]?.kind, "subagent");
   assert.equal(sessions[0]?.parentSessionId, "session-main");
   assert.equal(sessions[0]?.sourceProposalId, "proposal-1");
   assert.ok(updated);
@@ -3819,6 +3944,524 @@ test("task proposal acceptance fields and child session metadata round trip", ()
   assert.equal(updated.acceptedInputId, "input-1");
   assert.equal(updated.acceptedAt, "2026-01-01T01:00:00+00:00");
   store.close();
+
+  const legacyDb = new Database(workspaceRuntimeDbFile(workspaceRoot, "workspace-1"));
+  legacyDb
+    .prepare("UPDATE agent_sessions SET kind = ? WHERE workspace_id = ? AND session_id = ?")
+    .run("task_proposal", "workspace-1", "proposal-session-1");
+  legacyDb.close();
+
+  const reopened = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  const migratedSession = reopened.getSession({
+    workspaceId: "workspace-1",
+    sessionId: "proposal-session-1"
+  });
+  const migratedDb = new Database(workspaceRuntimeDbFile(workspaceRoot, "workspace-1"), { readonly: true });
+  const storedKind = migratedDb
+    .prepare("SELECT kind FROM agent_sessions WHERE workspace_id = ? AND session_id = ? LIMIT 1")
+    .get("workspace-1", "proposal-session-1") as { kind: string };
+
+  assert.equal(migratedSession?.kind, "subagent");
+  assert.equal(storedKind.kind, "subagent");
+  migratedDb.close();
+  reopened.close();
+});
+
+test("issues round trip creates persistent sessions with a workspace-derived prefix", () => {
+  const root = makeTempDir("hb-state-store-issues-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Issue Workspace",
+    harness: "pi",
+    status: "active",
+  });
+
+  const general = store.ensureGeneralTeammate("workspace-1");
+  const first = store.createIssue({
+    workspaceId: "workspace-1",
+    title: "Implement dashboard",
+    description: "Build the initial dashboard surface.",
+    status: "todo",
+    priority: "high",
+    assigneeTeammateId: general.teammateId,
+    attachments: [
+      {
+        id: "attachment-1",
+        kind: "file",
+        name: "brief.md",
+        mimeType: "text/markdown",
+        sizeBytes: 128,
+        workspacePath: "docs/brief.md",
+      },
+    ],
+  });
+  const second = store.createIssue({
+    workspaceId: "workspace-1",
+    title: "Instrument homepage metrics",
+    status: "backlog",
+  });
+  const listed = store.listIssues({ workspaceId: "workspace-1" });
+  const fetchedBySession = store.getIssueBySessionId({
+    workspaceId: "workspace-1",
+    sessionId: first.sessionId,
+  });
+  const updated = store.updateIssue({
+    workspaceId: "workspace-1",
+    issueId: first.issueId,
+    fields: {
+      title: "Implement workspace dashboard",
+      status: "done",
+      priority: "critical",
+    }
+  });
+  const updatedSession = store.getSession({
+    workspaceId: "workspace-1",
+    sessionId: first.sessionId,
+  });
+
+  assert.equal(first.issueId, "ISS-1");
+  assert.equal(first.issueNumber, 1);
+  assert.equal(first.status, "todo");
+  assert.equal(first.priority, "high");
+  assert.equal(first.attachments.length, 1);
+  assert.equal(second.issueId, "ISS-2");
+  assert.equal(second.issueNumber, 2);
+  assert.equal(listed.length, 2);
+  assert.equal(fetchedBySession?.issueId, first.issueId);
+  assert.equal(updated?.status, "done");
+  assert.equal(updated?.priority, "critical");
+  assert.ok(updated?.completedAt);
+  assert.equal(updatedSession?.title, "Implement workspace dashboard");
+  store.close();
+});
+
+test("archiving a custom teammate unassigns issues and cancels linked runs", () => {
+  const root = makeTempDir("hb-state-store-teammates-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Teammate Workspace",
+    harness: "pi",
+    status: "active",
+  });
+
+  const custom = store.createTeammate({
+    workspaceId: "workspace-1",
+    name: "Coder",
+    instructions: "Own implementation tickets.",
+  });
+  const issue = store.createIssue({
+    workspaceId: "workspace-1",
+    title: "Ship issue board",
+    status: "in_progress",
+    assigneeTeammateId: custom.teammateId,
+    activeSubagentId: "run-1",
+  });
+  store.createSubagentRun({
+    subagentId: "run-1",
+    workspaceId: "workspace-1",
+    originMainSessionId: issue.sessionId,
+    ownerMainSessionId: issue.sessionId,
+    childSessionId: "subagent-session-1",
+    goal: "Ship issue board",
+    status: "running",
+    issueId: issue.issueId,
+    teammateId: custom.teammateId,
+  });
+
+  const archived = store.archiveTeammate({
+    workspaceId: "workspace-1",
+    teammateId: custom.teammateId,
+  });
+  const updatedIssue = store.getIssue({
+    workspaceId: "workspace-1",
+    issueId: issue.issueId,
+  });
+  const updatedRun = store.getSubagentRun({
+    workspaceId: "workspace-1",
+    subagentId: "run-1",
+  });
+  const visibleTeammates = store.listTeammates({ workspaceId: "workspace-1" });
+
+  assert.equal(archived?.status, "archived");
+  assert.ok(archived?.archivedAt);
+  assert.equal(updatedIssue?.status, "todo");
+  assert.equal(updatedIssue?.assigneeTeammateId, null);
+  assert.equal(updatedIssue?.activeSubagentId, null);
+  assert.equal(updatedRun?.status, "cancelled");
+  assert.equal(visibleTeammates.some((record) => record.teammateId === custom.teammateId), false);
+  assert.equal(visibleTeammates[0]?.teammateId, "general");
+  store.close();
+});
+
+test("teammate capability profiles persist and update cleanly", () => {
+  const root = makeTempDir("hb-state-store-teammate-capabilities-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Teammate Capability Workspace",
+    harness: "pi",
+    status: "active",
+  });
+
+  const general = store.ensureGeneralTeammate("workspace-1");
+  const teammate = store.createTeammate({
+    workspaceId: "workspace-1",
+    name: "Research",
+    instructions: "Own research, latest-info, and vendor comparison tasks.",
+    capabilityProfile: {
+      summary: "Best for live research, comparisons, and vendor analysis.",
+      capabilities: ["research", "comparison", "vendors"],
+      preferredTools: ["web_search", "browser_get_state"],
+    },
+  });
+  const updated = store.updateTeammate({
+    workspaceId: "workspace-1",
+    teammateId: teammate.teammateId,
+    fields: {
+      capabilityProfile: {
+        summary: "Best for live research, vendor analysis, and sourcing.",
+        capabilities: ["research", "vendors", "sourcing"],
+        preferredTools: ["web_search"],
+      },
+    },
+  });
+
+  assert.match(general.capabilityProfile.summary ?? "", /Fallback executor/i);
+  assert.match(
+    general.instructions ?? "",
+    /produce a report artifact instead of packing the full findings into the final session message/i,
+  );
+  assert.deepEqual(general.capabilityProfile.capabilities, [
+    "generalist",
+    "implementation",
+    "research",
+    "triage",
+    "fallback",
+  ]);
+  assert.deepEqual(teammate.capabilityProfile.capabilities, [
+    "research",
+    "comparison",
+    "vendors",
+  ]);
+  assert.deepEqual(teammate.capabilityProfile.preferredTools, [
+    "web_search",
+    "browser_get_state",
+  ]);
+  assert.equal(
+    updated?.capabilityProfile.summary,
+    "Best for live research, vendor analysis, and sourcing.",
+  );
+  assert.deepEqual(updated?.capabilityProfile.capabilities, [
+    "research",
+    "vendors",
+    "sourcing",
+  ]);
+  assert.deepEqual(updated?.capabilityProfile.preferredTools, ["web_search"]);
+  store.close();
+});
+
+test("legacy teammate tables migrate missing kind and status columns", () => {
+  const root = makeTempDir("hb-state-store-teammate-legacy-schema-");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Legacy Teammates Workspace",
+    harness: "pi",
+    status: "active",
+  });
+  store.close();
+
+  const runtimeDbPath = workspaceRuntimeDbFile(workspaceRoot, "workspace-1");
+  fs.rmSync(runtimeDbPath, { force: true });
+
+  const legacyDb = new Database(runtimeDbPath);
+  legacyDb.exec(`
+    CREATE TABLE teammates (
+      teammate_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      instructions TEXT,
+      skills_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  const createdAt = utcNowIso();
+  legacyDb
+    .prepare(`
+      INSERT INTO teammates (
+        teammate_id,
+        workspace_id,
+        name,
+        instructions,
+        skills_json,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      "general",
+      "workspace-1",
+      "General",
+      "Legacy fallback executor.",
+      "[]",
+      createdAt,
+      createdAt,
+    );
+  legacyDb
+    .prepare(`
+      INSERT INTO teammates (
+        teammate_id,
+        workspace_id,
+        name,
+        instructions,
+        skills_json,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      "teammate-1",
+      "workspace-1",
+      "Coder",
+      "Own implementation tasks.",
+      "[]",
+      createdAt,
+      createdAt,
+    );
+  legacyDb.close();
+
+  const reopened = new RuntimeStateStore({ dbPath, workspaceRoot });
+  const teammates = reopened.listTeammates({
+    workspaceId: "workspace-1",
+    includeArchived: true,
+  });
+
+  assert.equal(teammates.length, 2);
+  assert.equal(teammates[0]?.teammateId, "general");
+  assert.equal(teammates[0]?.kind, "system");
+  assert.equal(teammates[0]?.status, "active");
+  assert.deepEqual(
+    teammates[0]?.capabilityProfile.preferredTools,
+    ["local-tools", "browser"],
+  );
+  assert.equal(teammates[1]?.teammateId, "teammate-1");
+  assert.equal(teammates[1]?.kind, "custom");
+  assert.equal(teammates[1]?.status, "active");
+
+  const migratedDb = new Database(runtimeDbPath, { readonly: true });
+  const teammateColumns = new Set<string>(
+    (migratedDb.prepare("PRAGMA table_info(teammates)").all() as Array<{ name: string }>).map(
+      (row) => row.name,
+    ),
+  );
+  const generalRow = migratedDb
+    .prepare<[string], { kind: string; status: string; capability_profile_json: string }>(`
+      SELECT kind, status, capability_profile_json
+      FROM teammates
+      WHERE teammate_id = ?
+      LIMIT 1
+    `)
+    .get("general");
+  migratedDb.close();
+
+  assert.equal(teammateColumns.has("kind"), true);
+  assert.equal(teammateColumns.has("status"), true);
+  assert.equal(teammateColumns.has("archived_at"), true);
+  assert.equal(teammateColumns.has("capability_profile_json"), true);
+  assert.ok(generalRow);
+  assert.equal(generalRow.kind, "system");
+  assert.equal(generalRow.status, "active");
+  assert.match(generalRow.capability_profile_json, /preferredTools/i);
+  reopened.close();
+});
+
+test("workspace runtime schema upgrades legacy tables before creating late indexes", () => {
+  const root = makeTempDir("hb-state-store-legacy-runtime-indexes-");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceRoot = path.join(root, "workspace");
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Legacy Runtime Workspace",
+    harness: "pi",
+    status: "active",
+  });
+  store.close();
+
+  const runtimeDbPath = workspaceRuntimeDbFile(workspaceRoot, "workspace-1");
+  fs.rmSync(runtimeDbPath, { force: true });
+
+  const legacyDb = new Database(runtimeDbPath);
+  legacyDb.exec(`
+    CREATE TABLE conversation_bindings (
+      binding_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      conversation_key TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'main_session',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE main_session_event_queue (
+      event_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      owner_main_session_id TEXT NOT NULL,
+      origin_main_session_id TEXT NOT NULL,
+      subagent_id TEXT,
+      event_type TEXT NOT NULL,
+      delivery_bucket TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      payload TEXT NOT NULL DEFAULT '{}',
+      earliest_deliver_at TEXT,
+      latest_deliver_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE subagent_runs (
+      subagent_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      parent_session_id TEXT,
+      parent_input_id TEXT,
+      origin_main_session_id TEXT NOT NULL,
+      owner_main_session_id TEXT NOT NULL,
+      child_session_id TEXT NOT NULL,
+      title TEXT,
+      goal TEXT NOT NULL,
+      context TEXT,
+      source_type TEXT,
+      source_id TEXT,
+      proposal_id TEXT,
+      cronjob_id TEXT,
+      retry_of_subagent_id TEXT,
+      tool_profile TEXT NOT NULL DEFAULT '{}',
+      requested_model TEXT,
+      effective_model TEXT,
+      status TEXT NOT NULL,
+      summary TEXT,
+      created_at TEXT NOT NULL,
+      started_at TEXT,
+      completed_at TEXT,
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, child_session_id)
+    );
+    CREATE TABLE outputs (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      output_type TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft',
+      module_id TEXT,
+      module_resource_id TEXT,
+      file_path TEXT,
+      html_content TEXT,
+      session_id TEXT,
+      artifact_id TEXT,
+      folder_id TEXT,
+      platform TEXT,
+      metadata TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE evolve_skill_candidates (
+      candidate_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      input_id TEXT NOT NULL
+    );
+    CREATE TABLE memory_update_proposals (
+      proposal_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      input_id TEXT NOT NULL,
+      proposal_kind TEXT NOT NULL,
+      target_key TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
+  legacyDb.close();
+
+  const reopened = new RuntimeStateStore({ dbPath, workspaceRoot });
+  const teammates = reopened.listTeammates({ workspaceId: "workspace-1" });
+  assert.equal(teammates[0]?.teammateId, "general");
+  reopened.close();
+
+  const migratedDb = new Database(runtimeDbPath, { readonly: true });
+  const subagentRunColumns = new Set<string>(
+    (migratedDb.prepare("PRAGMA table_info(subagent_runs)").all() as Array<{ name: string }>).map(
+      (row) => row.name,
+    ),
+  );
+  const outputColumns = new Set<string>(
+    (migratedDb.prepare("PRAGMA table_info(outputs)").all() as Array<{ name: string }>).map(
+      (row) => row.name,
+    ),
+  );
+  const evolveColumns = new Set<string>(
+    (migratedDb.prepare("PRAGMA table_info(evolve_skill_candidates)").all() as Array<{ name: string }>).map(
+      (row) => row.name,
+    ),
+  );
+  const memoryUpdateColumns = new Set<string>(
+    (migratedDb.prepare("PRAGMA table_info(memory_update_proposals)").all() as Array<{ name: string }>).map(
+      (row) => row.name,
+    ),
+  );
+  const subagentRunIndexes = new Set<string>(
+    (migratedDb.prepare("PRAGMA index_list(subagent_runs)").all() as Array<{ name: string }>).map(
+      (row) => row.name,
+    ),
+  );
+  const outputIndexes = new Set<string>(
+    (migratedDb.prepare("PRAGMA index_list(outputs)").all() as Array<{ name: string }>).map(
+      (row) => row.name,
+    ),
+  );
+  const evolveIndexes = new Set<string>(
+    (migratedDb.prepare("PRAGMA index_list(evolve_skill_candidates)").all() as Array<{ name: string }>).map(
+      (row) => row.name,
+    ),
+  );
+  const memoryUpdateIndexes = new Set<string>(
+    (migratedDb.prepare("PRAGMA index_list(memory_update_proposals)").all() as Array<{ name: string }>).map(
+      (row) => row.name,
+    ),
+  );
+  migratedDb.close();
+
+  assert.equal(subagentRunColumns.has("issue_id"), true);
+  assert.equal(subagentRunColumns.has("teammate_id"), true);
+  assert.equal(outputColumns.has("input_id"), true);
+  assert.equal(evolveColumns.has("task_proposal_id"), true);
+  assert.equal(evolveColumns.has("status"), true);
+  assert.equal(evolveColumns.has("created_at"), true);
+  assert.equal(memoryUpdateColumns.has("state"), true);
+  assert.equal(memoryUpdateColumns.has("updated_at"), true);
+  assert.equal(subagentRunIndexes.has("idx_subagent_runs_issue_created"), true);
+  assert.equal(subagentRunIndexes.has("idx_subagent_runs_teammate_status_updated"), true);
+  assert.equal(outputIndexes.has("idx_outputs_session_input_created"), true);
+  assert.equal(evolveIndexes.has("idx_evolve_skill_candidates_workspace_status_created"), true);
+  assert.equal(evolveIndexes.has("idx_evolve_skill_candidates_task_proposal"), true);
+  assert.equal(memoryUpdateIndexes.has("idx_memory_update_proposals_workspace_state_created"), true);
 });
 
 test("listSessions preserves millisecond ordering for latest session selection", async () => {
@@ -4631,4 +5274,794 @@ test("semantic memory substrate round trips for interaction and integration cate
     [{ toNodeId: "integration-issues", relationType: "tracks", provider: "github" }],
   );
   reopened.close();
+});
+
+test("sync semantic memory substrate patches interaction scope without rewriting unchanged rows", () => {
+  const root = makeTempDir("hb-state-store-semantic-sync-interaction-");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceRoot = path.join(root, "workspace");
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Acme",
+    harness: "pi",
+    status: "active",
+  });
+
+  store.replaceSemanticMemoryTree({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodes: [
+      {
+        nodeId: "interaction-root",
+        nodeClass: "semantic",
+        nodeKind: "workflow",
+        path: "memory/interaction/release-playbook/content.md",
+        title: "Release playbook",
+        summary: "Root release workflow.",
+        bodySha256: "sha-root-v1",
+        childCount: 1,
+        metadata: { owner: "ops" },
+        createdAt: "2026-05-24T10:00:00.000Z",
+        updatedAt: "2026-05-24T10:00:00.000Z",
+      },
+      {
+        nodeId: "interaction-section",
+        nodeClass: "semantic",
+        nodeKind: "section",
+        path: "memory/interaction/release-playbook/checklist/content.md",
+        title: "Checklist",
+        summary: "Release checklist.",
+        bodySha256: "sha-section-v1",
+        childCount: 1,
+        isMaterialized: true,
+        metadata: { partition: "current" },
+        createdAt: "2026-05-24T10:01:00.000Z",
+        updatedAt: "2026-05-24T10:01:00.000Z",
+      },
+      {
+        nodeId: "interaction-leaf-1",
+        nodeClass: "leaf",
+        nodeKind: "leaf",
+        sourceLeafId: "leaf-release-1",
+        path: "memory/interaction/release-playbook/checklist/step-1.md",
+        title: "Run migration",
+        summary: "Apply the migration before restarting workers.",
+        bodySha256: "sha-leaf-1",
+        observedAt: "2026-05-24T09:59:00.000Z",
+        metadata: { source: "interaction_leaf" },
+        createdAt: "2026-05-24T10:02:00.000Z",
+        updatedAt: "2026-05-24T10:02:00.000Z",
+      },
+    ],
+    edges: [
+      {
+        parentNodeId: "interaction-root",
+        childNodeId: "interaction-section",
+        position: 1,
+        createdAt: "2026-05-24T10:03:00.000Z",
+      },
+      {
+        parentNodeId: "interaction-section",
+        childNodeId: "interaction-leaf-1",
+        position: 1,
+        createdAt: "2026-05-24T10:04:00.000Z",
+      },
+    ],
+  });
+  store.replaceSemanticMemorySearchDocs({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    docs: [
+      {
+        nodeId: "interaction-root",
+        nodeClass: "semantic",
+        nodeKind: "workflow",
+        path: "memory/interaction/release-playbook/content.md",
+        childCount: 1,
+        title: "Release playbook",
+        summary: "Root release workflow.",
+        bodyText: "Release playbook root body.",
+        excerpt: "Release playbook root body.",
+        updatedAt: "2026-05-24T10:05:00.000Z",
+      },
+      {
+        nodeId: "interaction-section",
+        nodeClass: "semantic",
+        nodeKind: "section",
+        path: "memory/interaction/release-playbook/checklist/content.md",
+        childCount: 1,
+        title: "Checklist",
+        summary: "Release checklist.",
+        bodyText: "Checklist body covering migration sequencing.",
+        excerpt: "Checklist body covering migration sequencing.",
+        updatedAt: "2026-05-24T10:06:00.000Z",
+      },
+      {
+        nodeId: "interaction-leaf-1",
+        nodeClass: "leaf",
+        nodeKind: "leaf",
+        path: "memory/interaction/release-playbook/checklist/step-1.md",
+        title: "Run migration",
+        summary: "Apply the migration before restarting workers.",
+        bodyText: "Run the migration and restart the workers after it finishes.",
+        excerpt: "Run the migration and restart the workers.",
+        observedAt: "2026-05-24T09:59:00.000Z",
+        updatedAt: "2026-05-24T10:07:00.000Z",
+      },
+    ],
+  });
+  store.replaceSemanticMemoryRelations({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    relations: [
+      {
+        fromNodeId: "interaction-root",
+        toNodeId: "interaction-leaf-1",
+        relationType: "references",
+        metadata: { note: "original critical step" },
+        createdAt: "2026-05-24T10:08:00.000Z",
+        updatedAt: "2026-05-24T10:08:00.000Z",
+      },
+    ],
+  });
+
+  const rootBefore = store.getSemanticMemoryNode({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-root",
+  });
+  const sectionBefore = store.getSemanticMemoryNode({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-section",
+  });
+  const rootDocBefore = store.getSemanticMemorySearchDoc({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-root",
+  });
+  const rootEdgeBefore = store.listSemanticMemoryChildren({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    parentNodeId: "interaction-root",
+  })[0];
+
+  assert.ok(rootBefore);
+  assert.ok(sectionBefore);
+  assert.ok(rootDocBefore);
+  assert.ok(rootEdgeBefore);
+
+  store.syncSemanticMemoryTree({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodes: [
+      {
+        nodeId: "interaction-root",
+        nodeClass: "semantic",
+        nodeKind: "workflow",
+        path: "memory/interaction/release-playbook/content.md",
+        title: "Release playbook",
+        summary: "Root release workflow.",
+        bodySha256: "sha-root-v1",
+        childCount: 1,
+        metadata: { owner: "ops" },
+        createdAt: "2099-01-01T00:00:00.000Z",
+        updatedAt: "2099-01-01T00:00:00.000Z",
+      },
+      {
+        nodeId: "interaction-section",
+        nodeClass: "semantic",
+        nodeKind: "section",
+        path: "memory/interaction/release-playbook/checklist/content.md",
+        title: "Checklist",
+        summary: "Release checklist and restart order.",
+        bodySha256: "sha-section-v2",
+        childCount: 1,
+        isMaterialized: true,
+        metadata: { partition: "current", owner: "release-eng" },
+        createdAt: "2099-01-01T00:00:00.000Z",
+        updatedAt: "2026-05-25T10:01:00.000Z",
+      },
+      {
+        nodeId: "interaction-leaf-2",
+        nodeClass: "leaf",
+        nodeKind: "leaf",
+        sourceLeafId: "leaf-release-2",
+        path: "memory/interaction/release-playbook/checklist/step-2.md",
+        title: "Warm caches",
+        summary: "Warm the cache after the rollout finishes.",
+        bodySha256: "sha-leaf-2",
+        observedAt: "2026-05-25T09:59:00.000Z",
+        metadata: { source: "interaction_leaf" },
+        createdAt: "2026-05-25T10:02:00.000Z",
+        updatedAt: "2026-05-25T10:02:00.000Z",
+      },
+    ],
+    edges: [
+      {
+        parentNodeId: "interaction-root",
+        childNodeId: "interaction-section",
+        position: 1,
+        createdAt: "2099-01-01T00:00:00.000Z",
+      },
+      {
+        parentNodeId: "interaction-section",
+        childNodeId: "interaction-leaf-2",
+        position: 1,
+        createdAt: "2026-05-25T10:03:00.000Z",
+      },
+    ],
+  });
+  store.syncSemanticMemorySearchDocs({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    docs: [
+      {
+        nodeId: "interaction-root",
+        nodeClass: "semantic",
+        nodeKind: "workflow",
+        path: "memory/interaction/release-playbook/content.md",
+        childCount: 1,
+        title: "Release playbook",
+        summary: "Root release workflow.",
+        bodyText: "Release playbook root body.",
+        excerpt: "Release playbook root body.",
+        updatedAt: "2099-01-01T00:00:00.000Z",
+      },
+      {
+        nodeId: "interaction-section",
+        nodeClass: "semantic",
+        nodeKind: "section",
+        path: "memory/interaction/release-playbook/checklist/content.md",
+        childCount: 1,
+        title: "Checklist",
+        summary: "Release checklist and restart order.",
+        bodyText: "Checklist body covering restart sequencing and cache warmup.",
+        excerpt: "Checklist body covering restart sequencing.",
+        updatedAt: "2026-05-25T10:04:00.000Z",
+      },
+      {
+        nodeId: "interaction-leaf-2",
+        nodeClass: "leaf",
+        nodeKind: "leaf",
+        path: "memory/interaction/release-playbook/checklist/step-2.md",
+        title: "Warm caches",
+        summary: "Warm the cache after the rollout finishes.",
+        bodyText: "Run the runbook cache warmer after the rollout settles.",
+        excerpt: "Run the runbook cache warmer.",
+        observedAt: "2026-05-25T09:59:00.000Z",
+        updatedAt: "2026-05-25T10:05:00.000Z",
+      },
+    ],
+  });
+  store.syncSemanticMemoryRelations({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    relations: [
+      {
+        fromNodeId: "interaction-root",
+        toNodeId: "interaction-leaf-2",
+        relationType: "references",
+        metadata: { note: "updated critical step" },
+        createdAt: "2026-05-25T10:06:00.000Z",
+        updatedAt: "2026-05-25T10:06:00.000Z",
+      },
+    ],
+  });
+
+  const rootAfter = store.getSemanticMemoryNode({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-root",
+  });
+  const sectionAfter = store.getSemanticMemoryNode({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-section",
+  });
+  const leaf1After = store.getSemanticMemoryNode({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-leaf-1",
+  });
+  const leaf2After = store.getSemanticMemoryNode({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-leaf-2",
+  });
+  const rootDocAfter = store.getSemanticMemorySearchDoc({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-root",
+  });
+  const sectionDocAfter = store.getSemanticMemorySearchDoc({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-section",
+  });
+  const leaf1DocAfter = store.getSemanticMemorySearchDoc({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-leaf-1",
+  });
+  const leaf2DocAfter = store.getSemanticMemorySearchDoc({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-leaf-2",
+  });
+  const rootEdgeAfter = store.listSemanticMemoryChildren({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    parentNodeId: "interaction-root",
+  });
+  const sectionEdgeAfter = store.listSemanticMemoryChildren({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    parentNodeId: "interaction-section",
+  });
+  const relationsAfter = store.listSemanticMemoryRelations({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    fromNodeId: "interaction-root",
+  });
+
+  assert.ok(rootAfter);
+  assert.ok(sectionAfter);
+  assert.equal(leaf1After, null);
+  assert.ok(leaf2After);
+  assert.ok(rootDocAfter);
+  assert.ok(sectionDocAfter);
+  assert.equal(leaf1DocAfter, null);
+  assert.ok(leaf2DocAfter);
+  assert.equal(rootAfter.createdAt, rootBefore.createdAt);
+  assert.equal(rootAfter.updatedAt, rootBefore.updatedAt);
+  assert.equal(sectionAfter.createdAt, sectionBefore.createdAt);
+  assert.equal(sectionAfter.updatedAt, "2026-05-25T10:01:00.000Z");
+  assert.equal(sectionAfter.summary, "Release checklist and restart order.");
+  assert.deepEqual(sectionAfter.metadata, { partition: "current", owner: "release-eng" });
+  assert.equal(leaf2After.createdAt, "2026-05-25T10:02:00.000Z");
+  assert.equal(rootDocAfter.updatedAt, rootDocBefore.updatedAt);
+  assert.equal(sectionDocAfter.updatedAt, "2026-05-25T10:04:00.000Z");
+  assert.equal(leaf2DocAfter.updatedAt, "2026-05-25T10:05:00.000Z");
+  assert.equal(rootEdgeAfter.length, 1);
+  assert.equal(rootEdgeAfter[0]?.childNodeId, "interaction-section");
+  assert.equal(rootEdgeAfter[0]?.createdAt, rootEdgeBefore.createdAt);
+  assert.deepEqual(
+    sectionEdgeAfter.map((edge) => ({
+      childNodeId: edge.childNodeId,
+      createdAt: edge.createdAt,
+    })),
+    [{ childNodeId: "interaction-leaf-2", createdAt: "2026-05-25T10:03:00.000Z" }],
+  );
+  assert.deepEqual(
+    relationsAfter.map((relation) => ({
+      toNodeId: relation.toNodeId,
+      relationType: relation.relationType,
+      note: relation.metadata.note,
+      createdAt: relation.createdAt,
+    })),
+    [{
+      toNodeId: "interaction-leaf-2",
+      relationType: "references",
+      note: "updated critical step",
+      createdAt: "2026-05-25T10:06:00.000Z",
+    }],
+  );
+  assert.deepEqual(
+    store.searchSemanticMemorySearchDocs({
+      category: "interaction",
+      workspaceId: "workspace-1",
+      treeId: "interaction:release-playbook",
+      matchQuery: "runbook",
+    }).map((hit) => hit.nodeId),
+    ["interaction-leaf-2"],
+  );
+  assert.equal(
+    store.searchSemanticMemorySearchDocs({
+      category: "interaction",
+      workspaceId: "workspace-1",
+      treeId: "interaction:release-playbook",
+      matchQuery: "migration",
+    }).some((hit) => hit.nodeId === "interaction-leaf-1"),
+    false,
+  );
+
+  store.close();
+});
+
+test("sync semantic memory substrate patches integration scope without rewriting unchanged rows", () => {
+  const root = makeTempDir("hb-state-store-semantic-sync-integration-");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceRoot = path.join(root, "workspace");
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+
+  store.replaceSemanticMemoryTree({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodes: [
+      {
+        nodeId: "integration-root",
+        nodeClass: "semantic",
+        nodeKind: "repo",
+        path: "memory/integration/github/holaboss-ai-holaOS/content.md",
+        title: "holaboss-ai/holaOS",
+        summary: "Repository memory.",
+        bodySha256: "sha-integration-root-v1",
+        childCount: 1,
+        metadata: { provider: "github" },
+        createdAt: "2026-05-24T11:00:00.000Z",
+        updatedAt: "2026-05-24T11:00:00.000Z",
+      },
+      {
+        nodeId: "integration-issues",
+        nodeClass: "semantic",
+        nodeKind: "facet",
+        path: "memory/integration/github/holaboss-ai-holaOS/issues/content.md",
+        title: "Issues",
+        summary: "Open issues.",
+        bodySha256: "sha-integration-issues-v1",
+        childCount: 1,
+        createdAt: "2026-05-24T11:01:00.000Z",
+        updatedAt: "2026-05-24T11:01:00.000Z",
+      },
+      {
+        nodeId: "integration-issue-101",
+        nodeClass: "leaf",
+        nodeKind: "leaf",
+        sourceLeafId: "issue-101",
+        path: "memory/integration/github/holaboss-ai-holaOS/issues/101.md",
+        title: "Issue #101",
+        summary: "Fix layout mismatch.",
+        bodySha256: "sha-integration-leaf-101",
+        observedAt: "2026-05-24T10:59:00.000Z",
+        metadata: { source: "integration_leaf" },
+        createdAt: "2026-05-24T11:02:00.000Z",
+        updatedAt: "2026-05-24T11:02:00.000Z",
+      },
+    ],
+    edges: [
+      {
+        parentNodeId: "integration-root",
+        childNodeId: "integration-issues",
+        position: 1,
+        createdAt: "2026-05-24T11:03:00.000Z",
+      },
+      {
+        parentNodeId: "integration-issues",
+        childNodeId: "integration-issue-101",
+        position: 1,
+        createdAt: "2026-05-24T11:04:00.000Z",
+      },
+    ],
+  });
+  store.replaceSemanticMemorySearchDocs({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    docs: [
+      {
+        nodeId: "integration-root",
+        nodeClass: "semantic",
+        nodeKind: "repo",
+        path: "memory/integration/github/holaboss-ai-holaOS/content.md",
+        childCount: 1,
+        title: "holaboss-ai/holaOS",
+        summary: "Repository memory.",
+        bodyText: "Repository memory root body.",
+        excerpt: "Repository memory root body.",
+        updatedAt: "2026-05-24T11:05:00.000Z",
+      },
+      {
+        nodeId: "integration-issues",
+        nodeClass: "semantic",
+        nodeKind: "facet",
+        path: "memory/integration/github/holaboss-ai-holaOS/issues/content.md",
+        childCount: 1,
+        title: "Issues",
+        summary: "Open issues.",
+        bodyText: "Issue list body for layout bugs.",
+        excerpt: "Issue list body for layout bugs.",
+        updatedAt: "2026-05-24T11:06:00.000Z",
+      },
+      {
+        nodeId: "integration-issue-101",
+        nodeClass: "leaf",
+        nodeKind: "leaf",
+        path: "memory/integration/github/holaboss-ai-holaOS/issues/101.md",
+        title: "Issue #101",
+        summary: "Fix layout mismatch.",
+        bodyText: "Layout mismatch appears in the memory browser.",
+        excerpt: "Layout mismatch appears in the memory browser.",
+        observedAt: "2026-05-24T10:59:00.000Z",
+        updatedAt: "2026-05-24T11:07:00.000Z",
+      },
+    ],
+  });
+  store.replaceSemanticMemoryRelations({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    relations: [
+      {
+        fromNodeId: "integration-root",
+        toNodeId: "integration-issue-101",
+        relationType: "tracks",
+        metadata: { priority: "medium" },
+        createdAt: "2026-05-24T11:08:00.000Z",
+        updatedAt: "2026-05-24T11:08:00.000Z",
+      },
+    ],
+  });
+
+  const issuesBefore = store.getSemanticMemoryNode({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-issues",
+  });
+  const issuesDocBefore = store.getSemanticMemorySearchDoc({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-issues",
+  });
+  const rootEdgeBefore = store.listSemanticMemoryChildren({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    parentNodeId: "integration-root",
+  })[0];
+
+  assert.ok(issuesBefore);
+  assert.ok(issuesDocBefore);
+  assert.ok(rootEdgeBefore);
+
+  store.syncSemanticMemoryTree({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodes: [
+      {
+        nodeId: "integration-root",
+        nodeClass: "semantic",
+        nodeKind: "repo",
+        path: "memory/integration/github/holaboss-ai-holaOS/content.md",
+        title: "holaboss-ai/holaOS",
+        summary: "Repository memory with release issues.",
+        bodySha256: "sha-integration-root-v2",
+        childCount: 1,
+        metadata: { provider: "github", owner: "holaboss-ai" },
+        createdAt: "2099-01-01T00:00:00.000Z",
+        updatedAt: "2026-05-25T11:00:00.000Z",
+      },
+      {
+        nodeId: "integration-issues",
+        nodeClass: "semantic",
+        nodeKind: "facet",
+        path: "memory/integration/github/holaboss-ai-holaOS/issues/content.md",
+        title: "Issues",
+        summary: "Open issues.",
+        bodySha256: "sha-integration-issues-v1",
+        childCount: 1,
+        createdAt: "2099-01-01T00:00:00.000Z",
+        updatedAt: "2099-01-01T00:00:00.000Z",
+      },
+      {
+        nodeId: "integration-issue-202",
+        nodeClass: "leaf",
+        nodeKind: "leaf",
+        sourceLeafId: "issue-202",
+        path: "memory/integration/github/holaboss-ai-holaOS/issues/202.md",
+        title: "Issue #202",
+        summary: "Backfill release metrics after rollout.",
+        bodySha256: "sha-integration-leaf-202",
+        observedAt: "2026-05-25T10:59:00.000Z",
+        metadata: { source: "integration_leaf" },
+        createdAt: "2026-05-25T11:01:00.000Z",
+        updatedAt: "2026-05-25T11:01:00.000Z",
+      },
+    ],
+    edges: [
+      {
+        parentNodeId: "integration-root",
+        childNodeId: "integration-issues",
+        position: 1,
+        createdAt: "2099-01-01T00:00:00.000Z",
+      },
+      {
+        parentNodeId: "integration-issues",
+        childNodeId: "integration-issue-202",
+        position: 1,
+        createdAt: "2026-05-25T11:02:00.000Z",
+      },
+    ],
+  });
+  store.syncSemanticMemorySearchDocs({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    docs: [
+      {
+        nodeId: "integration-root",
+        nodeClass: "semantic",
+        nodeKind: "repo",
+        path: "memory/integration/github/holaboss-ai-holaOS/content.md",
+        childCount: 1,
+        title: "holaboss-ai/holaOS",
+        summary: "Repository memory with release issues.",
+        bodyText: "Repository memory root body with release issues.",
+        excerpt: "Repository memory root body with release issues.",
+        updatedAt: "2026-05-25T11:03:00.000Z",
+      },
+      {
+        nodeId: "integration-issues",
+        nodeClass: "semantic",
+        nodeKind: "facet",
+        path: "memory/integration/github/holaboss-ai-holaOS/issues/content.md",
+        childCount: 1,
+        title: "Issues",
+        summary: "Open issues.",
+        bodyText: "Issue list body for layout bugs.",
+        excerpt: "Issue list body for layout bugs.",
+        updatedAt: "2099-01-01T00:00:00.000Z",
+      },
+      {
+        nodeId: "integration-issue-202",
+        nodeClass: "leaf",
+        nodeKind: "leaf",
+        path: "memory/integration/github/holaboss-ai-holaOS/issues/202.md",
+        title: "Issue #202",
+        summary: "Backfill release metrics after rollout.",
+        bodyText: "Release metrics backfill should start after the rollout settles.",
+        excerpt: "Release metrics backfill should start after the rollout settles.",
+        observedAt: "2026-05-25T10:59:00.000Z",
+        updatedAt: "2026-05-25T11:04:00.000Z",
+      },
+    ],
+  });
+  store.syncSemanticMemoryRelations({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    relations: [
+      {
+        fromNodeId: "integration-root",
+        toNodeId: "integration-issue-202",
+        relationType: "tracks",
+        metadata: { priority: "high" },
+        createdAt: "2026-05-25T11:05:00.000Z",
+        updatedAt: "2026-05-25T11:05:00.000Z",
+      },
+    ],
+  });
+
+  const rootAfter = store.getSemanticMemoryNode({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-root",
+  });
+  const issuesAfter = store.getSemanticMemoryNode({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-issues",
+  });
+  const issue101After = store.getSemanticMemoryNode({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-issue-101",
+  });
+  const issue202After = store.getSemanticMemoryNode({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-issue-202",
+  });
+  const rootDocAfter = store.getSemanticMemorySearchDoc({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-root",
+  });
+  const issuesDocAfter = store.getSemanticMemorySearchDoc({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-issues",
+  });
+  const issue101DocAfter = store.getSemanticMemorySearchDoc({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-issue-101",
+  });
+  const issue202DocAfter = store.getSemanticMemorySearchDoc({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-issue-202",
+  });
+  const rootEdgeAfter = store.listSemanticMemoryChildren({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    parentNodeId: "integration-root",
+  });
+  const issueEdgesAfter = store.listSemanticMemoryChildren({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    parentNodeId: "integration-issues",
+  });
+  const relationsAfter = store.listSemanticMemoryRelations({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    fromNodeId: "integration-root",
+  });
+
+  assert.ok(rootAfter);
+  assert.ok(issuesAfter);
+  assert.equal(issue101After, null);
+  assert.ok(issue202After);
+  assert.ok(rootDocAfter);
+  assert.ok(issuesDocAfter);
+  assert.equal(issue101DocAfter, null);
+  assert.ok(issue202DocAfter);
+  assert.equal(rootAfter.createdAt, "2026-05-24T11:00:00.000Z");
+  assert.equal(rootAfter.updatedAt, "2026-05-25T11:00:00.000Z");
+  assert.equal(issuesAfter.createdAt, issuesBefore.createdAt);
+  assert.equal(issuesAfter.updatedAt, issuesBefore.updatedAt);
+  assert.deepEqual(rootAfter.metadata, { provider: "github", owner: "holaboss-ai" });
+  assert.equal(issue202After.createdAt, "2026-05-25T11:01:00.000Z");
+  assert.equal(rootDocAfter.updatedAt, "2026-05-25T11:03:00.000Z");
+  assert.equal(issuesDocAfter.updatedAt, issuesDocBefore.updatedAt);
+  assert.equal(issue202DocAfter.updatedAt, "2026-05-25T11:04:00.000Z");
+  assert.equal(rootEdgeAfter[0]?.createdAt, rootEdgeBefore.createdAt);
+  assert.deepEqual(
+    issueEdgesAfter.map((edge) => ({
+      childNodeId: edge.childNodeId,
+      createdAt: edge.createdAt,
+    })),
+    [{ childNodeId: "integration-issue-202", createdAt: "2026-05-25T11:02:00.000Z" }],
+  );
+  assert.deepEqual(
+    relationsAfter.map((relation) => ({
+      toNodeId: relation.toNodeId,
+      relationType: relation.relationType,
+      priority: relation.metadata.priority,
+      createdAt: relation.createdAt,
+    })),
+    [{
+      toNodeId: "integration-issue-202",
+      relationType: "tracks",
+      priority: "high",
+      createdAt: "2026-05-25T11:05:00.000Z",
+    }],
+  );
+  assert.deepEqual(
+    store.searchSemanticMemorySearchDocs({
+      category: "integration",
+      treeId: "integration:github:conn-1",
+      matchQuery: "backfill",
+    }).map((hit) => hit.nodeId),
+    ["integration-issue-202"],
+  );
+  assert.equal(
+    store.searchSemanticMemorySearchDocs({
+      category: "integration",
+      treeId: "integration:github:conn-1",
+      matchQuery: "mismatch",
+    }).some((hit) => hit.nodeId === "integration-issue-101"),
+    false,
+  );
+
+  store.close();
 });

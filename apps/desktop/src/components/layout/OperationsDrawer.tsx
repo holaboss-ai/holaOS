@@ -17,16 +17,6 @@ import { StatusDot } from "@/components/ui/status-dot";
 export type OperationsDrawerTab = "inbox" | "running";
 
 export interface OperationsInboxPaneProps {
-  proposals: TaskProposalRecordPayload[];
-  isLoadingProposals: boolean;
-  proposalStatusMessage: string;
-  proposalAction: {
-    proposalId: string;
-    action: "accept" | "dismiss";
-  } | null;
-  onAcceptProposal: (proposal: TaskProposalRecordPayload) => void;
-  onDismissProposal: (proposal: TaskProposalRecordPayload) => void;
-  onProposalDetailsOpenChange?: (open: boolean) => void;
   hasWorkspace: boolean;
 }
 
@@ -220,14 +210,7 @@ export function OperationsDrawer({
       <div className="min-h-0 flex-1 overflow-hidden">
         {activeTab === "inbox" ? (
           <OperationsInboxPane
-            proposals={proposals}
-            isLoadingProposals={isLoadingProposals}
-            proposalStatusMessage={proposalStatusMessage}
-            proposalAction={proposalAction}
             hasWorkspace={hasWorkspace}
-            onAcceptProposal={onAcceptProposal}
-            onDismissProposal={onDismissProposal}
-            onProposalDetailsOpenChange={onProposalDetailsOpenChange}
           />
         ) : null}
 
@@ -248,26 +231,22 @@ export function OperationsDrawer({
 }
 
 export function OperationsInboxPane({
-  proposals,
-  isLoadingProposals,
-  proposalStatusMessage,
-  proposalAction,
-  onAcceptProposal,
-  onDismissProposal,
-  onProposalDetailsOpenChange,
   hasWorkspace,
 }: OperationsInboxPaneProps) {
   return (
-    <InboxPanel
-      proposals={proposals}
-      isLoadingProposals={isLoadingProposals}
-      proposalStatusMessage={proposalStatusMessage}
-      proposalAction={proposalAction}
-      hasWorkspace={hasWorkspace}
-      onAcceptProposal={onAcceptProposal}
-      onDismissProposal={onDismissProposal}
-      onProposalDetailsOpenChange={onProposalDetailsOpenChange}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
+        <EmptyState
+          icon={InboxIcon}
+          title={hasWorkspace ? "Inbox is empty for now" : "Choose a workspace"}
+          description={
+            hasWorkspace
+              ? "Issue-first v1 does not surface proposal review here."
+              : "Select a workspace to view its sessions and issue inbox."
+          }
+        />
+      </div>
+    </div>
   );
 }
 
@@ -299,11 +278,12 @@ function defaultSessionTitle(
   kind: string | null | undefined,
   sessionId: string,
 ): string {
-  if (kind === "cronjob") {
+  const normalizedKind = (kind ?? "").trim().toLowerCase();
+  if (normalizedKind === "cronjob") {
     return "Cronjob run";
   }
-  if (kind === "task_proposal") {
-    return "Task proposal run";
+  if (normalizedKind === "subagent") {
+    return "Subagent run";
   }
   return `Session ${sessionId.slice(0, 8)}`;
 }

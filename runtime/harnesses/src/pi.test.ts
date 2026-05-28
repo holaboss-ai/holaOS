@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { piHarnessDefinition } from "./pi.js";
 
-test("pi harness enables browser tools for main and subagent sessions", () => {
+test("pi harness enables browser tools only for executor sessions", () => {
   const buildHarnessHostRequest = piHarnessDefinition.runtimeAdapter.buildHarnessHostRequest;
   const baseParams = {
     request: {
@@ -50,6 +50,7 @@ test("pi harness enables browser tools for main and subagent sessions", () => {
     browserSpace: "user",
     request: {
       ...baseParams.request,
+      model: "holaboss_model_proxy/gpt-5.4",
       session_kind: "subagent",
     },
   });
@@ -58,7 +59,7 @@ test("pi harness enables browser tools for main and subagent sessions", () => {
     browserSpace: "user",
     request: {
       ...baseParams.request,
-      session_kind: "main_session",
+      session_kind: "workspace_session",
     },
   });
   const onboardingRequest = buildHarnessHostRequest({
@@ -71,10 +72,13 @@ test("pi harness enables browser tools for main and subagent sessions", () => {
 
   assert.equal(subagentRequest.browser_tools_enabled, true);
   assert.equal(subagentRequest.browser_space, "user");
-  assert.equal(workspaceRequest.browser_tools_enabled, true);
+  assert.equal(workspaceRequest.browser_tools_enabled, false);
   assert.equal(workspaceRequest.browser_space, "user");
   assert.equal(onboardingRequest.browser_tools_enabled, false);
   assert.equal(onboardingRequest.browser_space, null);
+  assert.equal(subagentRequest.selected_model, "holaboss_model_proxy/gpt-5.4");
+  assert.equal(workspaceRequest.selected_model, null);
+  assert.equal(onboardingRequest.selected_model, null);
   assert.deepEqual(subagentRequest.context_messages, []);
   assert.deepEqual(workspaceRequest.context_messages, []);
   assert.deepEqual(onboardingRequest.context_messages, []);
