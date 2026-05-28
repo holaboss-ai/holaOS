@@ -952,8 +952,10 @@ test("runtime tools capability routes expose local onboarding and cronjob action
         "x-holaboss-selected-model": "openai/gpt-5.4"
       },
       payload: {
+        teammate_id: "general",
         cron: "0 9 * * *",
         description: "Daily check",
+        instruction: "Check in daily",
         delivery: { mode: "deliver", channel: "session_run" }
       }
     });
@@ -1262,8 +1264,10 @@ test("runtime tools cronjobs stay inert inside draft labs", async () => {
         "x-holaboss-session-id": "session-main",
       },
       payload: {
+        teammate_id: "general",
         cron: "0 9 * * *",
         description: "Daily check",
+        instruction: "Check in daily",
         delivery: { mode: "announce", channel: "session_run" },
         enabled: true,
       }
