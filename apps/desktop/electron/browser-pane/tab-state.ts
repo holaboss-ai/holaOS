@@ -1789,14 +1789,17 @@ export function createBrowserPaneTabState(
           // leaving the user no way to close the popup without exiting the
           // parent's fullscreen entirely. Once that happens, the parent often
           // can't re-enter fullscreen until the popup is fully torn down.
+          //
+          // Two-part defence: (1) parent the popup to the main window so
+          // macOS keeps it in the same space and renders its own traffic
+          // lights (it's a child window, not a fullscreen sibling), and
+          // (2) lock down every fullscreen entry point on the popup via the
+          // did-create-window handler below.
           const mainWindow = deps.getMainWindow();
-          const parentIsFullscreen =
-            process.platform === "darwin" &&
-            Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isFullScreen());
           return {
             action: "allow",
             overrideBrowserWindowOptions: {
-              parent: parentIsFullscreen ? undefined : (mainWindow ?? undefined),
+              parent: mainWindow ?? undefined,
               autoHideMenuBar: true,
               backgroundColor: "#050907",
               width: 520,
@@ -1839,6 +1842,37 @@ export function createBrowserPaneTabState(
     );
     view.webContents.setZoomFactor(1);
     view.webContents.setVisualZoomLevelLimits(1, 1).catch(() => undefined);
+
+    // Harden popups against fullscreen escape. fullscreenable:false from the
+    // setWindowOpenHandler above only blocks the green-button / setFullScreen
+    // path — HTML5 element.requestFullscreen() runs through a separate code
+    // path that the popup's content (e.g. Google sign-in iframe banners) can
+    // still trigger. Catch that here and kick the popup back out, plus deny
+    // the underlying permission request so subsequent calls no-op.
+    view.webContents.on("did-create-window", (popupWindow) => {
+      if (!popupWindow || popupWindow.isDestroyed()) return;
+      const popupContents = popupWindow.webContents;
+      if (popupContents.session) {
+        popupContents.session.setPermissionRequestHandler(
+          (_wc, permission, callback) => {
+            if (permission === "fullscreen") {
+              callback(false);
+              return;
+            }
+            callback(true);
+          },
+        );
+      }
+      popupContents.on("enter-html-full-screen", () => {
+        try {
+          if (!popupWindow.isDestroyed() && popupWindow.isFullScreen()) {
+            popupWindow.setFullScreen(false);
+          }
+        } catch {
+          // popup gone — nothing to undo
+        }
+      });
+    });
 
     const currentTabRecord = () =>
       deps
