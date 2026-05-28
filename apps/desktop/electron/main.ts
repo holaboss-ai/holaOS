@@ -2859,6 +2859,7 @@ interface CronjobRecordPayload {
   id: string;
   workspace_id: string;
   initiated_by: string;
+  teammate_id: string;
   name: string;
   cron: string;
   description: string;
@@ -2883,6 +2884,7 @@ interface CronjobListResponsePayload {
 interface CronjobCreatePayload {
   workspace_id: string;
   initiated_by: string;
+  teammate_id: string;
   session_id?: string;
   name?: string;
   cron: string;
@@ -2896,6 +2898,7 @@ interface CronjobCreatePayload {
 
 interface CronjobUpdatePayload {
   session_id?: string;
+  teammate_id?: string;
   name?: string;
   cron?: string;
   description?: string;
@@ -3168,6 +3171,47 @@ interface SessionHistoryRequestPayload {
   limit?: number;
   offset?: number;
   order?: "asc" | "desc";
+}
+
+interface SessionTurnResultPayload {
+  workspace_id: string;
+  session_id: string;
+  input_id: string;
+  started_at: string;
+  completed_at: string | null;
+  status: string;
+  stop_reason: string | null;
+  assistant_text: string;
+  tool_usage_summary: Record<string, unknown>;
+  permission_denials: Array<Record<string, unknown>>;
+  prompt_section_ids: string[];
+  capability_manifest_fingerprint: string | null;
+  request_snapshot_fingerprint: string | null;
+  prompt_cache_profile: Record<string, unknown> | null;
+  context_budget_decisions: Record<string, unknown> | null;
+  token_usage: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface SessionTurnResultListRequestPayload {
+  workspaceId: string;
+  sessionId?: string | null;
+  inputId?: string | null;
+  status?: string | null;
+  limit?: number;
+  offset?: number;
+  order?: "asc" | "desc";
+}
+
+interface SessionTurnResultListResponsePayload {
+  workspace_id: string;
+  session_id: string | null;
+  items: SessionTurnResultPayload[];
+  count: number;
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 interface SessionOutputEventPayload {
@@ -16000,6 +16044,26 @@ async function getSessionOutputEvents(
   );
 }
 
+async function listTurnResults(
+  payload: SessionTurnResultListRequestPayload,
+): Promise<SessionTurnResultListResponsePayload> {
+  return requestWorkspaceRuntimeJson<SessionTurnResultListResponsePayload>(
+    payload.workspaceId,
+    {
+      method: "GET",
+      path: `/api/v1/workspaces/${encodeURIComponent(payload.workspaceId)}/turn-results`,
+      params: {
+        session_id: payload.sessionId ?? undefined,
+        input_id: payload.inputId ?? undefined,
+        status: payload.status ?? undefined,
+        limit: payload.limit ?? 500,
+        offset: payload.offset ?? 0,
+        order: payload.order ?? "desc",
+      },
+    },
+  );
+}
+
 function normalizeErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Operation failed.";
 }
@@ -24078,6 +24142,12 @@ app.whenReady().then(async () => {
     ["main"],
     async (_event, payload: SessionHistoryRequestPayload) =>
       getSessionHistory(payload),
+  );
+  handleTrustedIpc(
+    "workspace:listTurnResults",
+    ["main"],
+    async (_event, payload: SessionTurnResultListRequestPayload) =>
+      listTurnResults(payload),
   );
   handleTrustedIpc(
     "workspace:getSessionOutputEvents",

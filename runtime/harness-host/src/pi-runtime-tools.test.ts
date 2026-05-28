@@ -306,6 +306,7 @@ test("Pi runtime cronjob tools send instruction separately from description", as
     "call-1",
     {
       cron: "*/5 * * * *",
+      teammate_id: "general",
       description: "Say hello every 5 minutes.",
       instruction: "Say hello.",
       delivery_channel: "session_run",
@@ -327,6 +328,7 @@ test("Pi runtime cronjob tools send instruction separately from description", as
         cron: "*/5 * * * *",
         description: "Say hello every 5 minutes.",
         instruction: "Say hello.",
+        teammate_id: "general",
         delivery: { channel: "session_run", mode: "announce" },
       }),
     },
@@ -375,6 +377,29 @@ test("Pi runtime cronjob tools expose only allowed delivery enum values", async 
   assert.deepEqual(createDeliveryChannelValues, ["system_notification", "session_run"]);
   assert.deepEqual(updateDeliveryModeValues, ["deliver", "none"]);
   assert.deepEqual(updateDeliveryChannelValues, ["system_notification", "session_run"]);
+});
+
+test("Pi runtime teammate_skills_create schema avoids top-level combinators for provider compatibility", async () => {
+  const tools = await resolvePiRuntimeToolDefinitions({
+    runtimeApiBaseUrl: "http://127.0.0.1:5060",
+    fetchImpl: async () =>
+      new Response(JSON.stringify({ available: true }), {
+        status: 200,
+        headers: { "content-type": "application/json; charset=utf-8" },
+      }),
+  });
+
+  const createSkillTool = tools.find((tool) => tool.name === "teammate_skills_create");
+  assert.ok(createSkillTool);
+  assert.equal(createSkillTool.parameters.type, "object");
+  assert.ok(!("anyOf" in createSkillTool.parameters));
+  assert.ok(!("oneOf" in createSkillTool.parameters));
+  assert.ok(!("allOf" in createSkillTool.parameters));
+  assert.deepEqual(createSkillTool.parameters.required, ["teammate_id"]);
+  assert.equal(
+    (createSkillTool.parameters.properties.payload_mode as { description?: string } | undefined)?.description?.includes("SKILL.md"),
+    true,
+  );
 });
 
 test("Pi runtime subagent tools normalize delegated task bodies and control routes", async () => {

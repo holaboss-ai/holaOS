@@ -782,6 +782,7 @@ export interface CronjobRecord {
   id: string;
   workspaceId: string;
   initiatedBy: string;
+  teammateId: string;
   name: string;
   cron: string;
   description: string;
@@ -6212,6 +6213,36 @@ export class RuntimeStateStore {
     return Number(row?.total ?? 0);
   }
 
+  countWorkspaceTurnResults(params: {
+    workspaceId: string;
+    sessionId?: string;
+    inputId?: string;
+    status?: string;
+  }): number {
+    let query = `
+      SELECT COUNT(*) AS total
+      FROM turn_results
+      WHERE workspace_id = ?
+    `;
+    const values: string[] = [params.workspaceId];
+    if (params.sessionId) {
+      query += " AND session_id = ?";
+      values.push(params.sessionId);
+    }
+    if (params.inputId) {
+      query += " AND input_id = ?";
+      values.push(params.inputId);
+    }
+    if (params.status) {
+      query += " AND status = ?";
+      values.push(params.status);
+    }
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(query)
+      .get(...values) as { total: number } | undefined;
+    return Number(row?.total ?? 0);
+  }
+
   listTurnResults(params: {
     workspaceId: string;
     sessionId: string;
@@ -6243,6 +6274,45 @@ export class RuntimeStateStore {
     `;
     values.push(params.limit ?? 100, params.offset ?? 0);
     const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToTurnResult(row));
+  }
+
+  listWorkspaceTurnResults(params: {
+    workspaceId: string;
+    sessionId?: string;
+    inputId?: string;
+    status?: string;
+    order?: "asc" | "desc";
+    limit?: number;
+    offset?: number;
+  }): TurnResultRecord[] {
+    let query = `
+      SELECT *
+      FROM turn_results
+      WHERE workspace_id = ?
+    `;
+    const values: Array<string | number> = [params.workspaceId];
+    if (params.sessionId) {
+      query += " AND session_id = ?";
+      values.push(params.sessionId);
+    }
+    if (params.inputId) {
+      query += " AND input_id = ?";
+      values.push(params.inputId);
+    }
+    if (params.status) {
+      query += " AND status = ?";
+      values.push(params.status);
+    }
+    const order = params.order === "asc" ? "ASC" : "DESC";
+    query += `
+      ORDER BY datetime(COALESCE(completed_at, started_at)) ${order}, created_at ${order}, input_id ${order}
+      LIMIT ? OFFSET ?
+    `;
+    values.push(params.limit ?? 100, params.offset ?? 0);
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(query)
+      .all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToTurnResult(row));
   }
 
@@ -9182,6 +9252,7 @@ export class RuntimeStateStore {
   createCronjob(params: {
     workspaceId: string;
     initiatedBy: string;
+    teammateId: string;
     cron: string;
     description: string;
     instruction?: string;
@@ -9192,18 +9263,35 @@ export class RuntimeStateStore {
     jobId?: string;
     nextRunAt?: string | null;
   }): CronjobRecord {
+    this.ensureGeneralTeammate(params.workspaceId);
+    const teammateId = this.requiredNormalizedText(
+      params.teammateId,
+      "teammateId",
+    );
+    const teammate = this.getTeammate({
+      workspaceId: params.workspaceId,
+      teammateId,
+      includeArchived: true,
+    });
+    if (!teammate) {
+      throw new Error(`teammate ${teammateId} not found`);
+    }
+    if (teammate.status !== "active") {
+      throw new Error(`teammate ${teammateId} is not active`);
+    }
     const resolvedId = params.jobId ?? randomUUID();
     const now = utcNowIso();
     this.mirrorWorkspaceRuntimeMutation(params.workspaceId, (db) => {
       db.prepare(`
         INSERT INTO cronjobs (
-            id, workspace_id, initiated_by, name, cron, description, instruction, enabled, delivery, metadata,
+            id, workspace_id, initiated_by, teammate_id, name, cron, description, instruction, enabled, delivery, metadata,
             last_run_at, next_run_at, run_count, last_status, last_error, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 0, NULL, NULL, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 0, NULL, NULL, ?, ?)
       `).run(
         resolvedId,
         params.workspaceId,
         params.initiatedBy,
+        teammateId,
         params.name ?? "",
         params.cron,
         params.description,
@@ -9273,6 +9361,7 @@ export class RuntimeStateStore {
   updateCronjob(params: {
     workspaceId: string;
     jobId: string;
+    teammateId?: string | null;
     name?: string | null;
     cron?: string | null;
     description?: string | null;
@@ -9293,10 +9382,26 @@ export class RuntimeStateStore {
     if (!existing) {
       return null;
     }
+    const teammateId =
+      params.teammateId === undefined
+        ? existing.teammateId
+        : this.requiredNormalizedText(params.teammateId, "teammateId");
+    const teammate = this.getTeammate({
+      workspaceId: params.workspaceId,
+      teammateId,
+      includeArchived: true,
+    });
+    if (!teammate) {
+      throw new Error(`teammate ${teammateId} not found`);
+    }
+    if (teammate.status !== "active") {
+      throw new Error(`teammate ${teammateId} is not active`);
+    }
     this.mirrorWorkspaceRuntimeMutation(existing.workspaceId, (db) => {
       db.prepare(`
         UPDATE cronjobs
-        SET name = ?,
+        SET teammate_id = ?,
+            name = ?,
             cron = ?,
             description = ?,
             instruction = ?,
@@ -9311,6 +9416,7 @@ export class RuntimeStateStore {
             updated_at = ?
         WHERE id = ?
       `).run(
+        teammateId,
         params.name ?? existing.name,
         params.cron ?? existing.cron,
         params.description ?? existing.description,
@@ -11561,6 +11667,7 @@ export class RuntimeStateStore {
           id TEXT PRIMARY KEY,
           workspace_id TEXT NOT NULL,
           initiated_by TEXT NOT NULL,
+          teammate_id TEXT NOT NULL DEFAULT 'general',
           name TEXT NOT NULL DEFAULT '',
           cron TEXT NOT NULL,
           description TEXT NOT NULL,
@@ -11622,6 +11729,7 @@ export class RuntimeStateStore {
     this.ensureOutputsTableSchema(db);
     this.migrateRuntimeNotificationPriority(db);
     this.migrateCronjobInstructions(db);
+    this.migrateCronjobTeammates(db);
     this.migrateAppBuildRestartAttempts(db);
     this.migrateTeammateCapabilityProfiles(db);
     this.migrateTeammateSkillsColumn(db);
@@ -12035,6 +12143,16 @@ export class RuntimeStateStore {
       db.exec("ALTER TABLE cronjobs ADD COLUMN instruction TEXT NOT NULL DEFAULT '';");
     }
     db.exec("UPDATE cronjobs SET instruction = description WHERE trim(coalesce(instruction, '')) = '';");
+  }
+
+  private migrateCronjobTeammates(db: Database.Database): void {
+    const columns = new Set<string>(
+      (db.prepare("PRAGMA table_info(cronjobs)").all() as Array<{ name: string }>).map((row) => row.name)
+    );
+    if (!columns.has("teammate_id")) {
+      db.exec("ALTER TABLE cronjobs ADD COLUMN teammate_id TEXT NOT NULL DEFAULT 'general';");
+    }
+    db.exec("UPDATE cronjobs SET teammate_id = 'general' WHERE trim(coalesce(teammate_id, '')) = '';");
   }
 
   private migrateAppBuildRestartAttempts(db: Database.Database): void {
@@ -14022,6 +14140,7 @@ export class RuntimeStateStore {
       id: String(row.id),
       workspaceId: String(row.workspace_id),
       initiatedBy: String(row.initiated_by),
+      teammateId: row.teammate_id == null ? "general" : String(row.teammate_id),
       name: row.name == null ? "" : String(row.name),
       cron: String(row.cron),
       description: String(row.description),

@@ -620,10 +620,9 @@ test("app shell uses the top toolbar for shell navigation and removes the left r
   assert.match(source, /controlCenterActive=\{controlCenterMode\}/);
   assert.match(source, /onOpenControlCenter=\{handleOpenControlCenter\}/);
   assert.match(source, /handleOpenAutomationsPane = useCallback/);
-  assert.match(source, /const handleOpenSessionsPane = useCallback\(\(\) => \{/);
-  assert.match(source, /setAgentView\(\{ type: "sessions" \}\)/);
+  assert.doesNotMatch(source, /const handleOpenSessionsPane = useCallback\(\(\) => \{/);
   assert.match(source, /setAgentView\(\{ type: "automations" \}\)/);
-  assert.match(source, /onOpenSessions=\{handleOpenSessionsPane\}/);
+  assert.doesNotMatch(source, /onOpenSessions=\{handleOpenSessionsPane\}/);
   assert.match(source, /onOpenAutomations=\{handleOpenAutomationsPane\}/);
   assert.match(source, /<SubagentSessionsPane[\s\S]*variant="full"/);
   assert.match(source, /<AutomationsPane[\s\S]*onRunNow=\{handleReturnToChatPane\}/);

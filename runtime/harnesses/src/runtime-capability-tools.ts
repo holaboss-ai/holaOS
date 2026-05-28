@@ -262,6 +262,10 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         type: "object",
         properties: {
           cron: { type: "string", description: "Cron expression." },
+          teammate_id: {
+            type: "string",
+            description: "Existing active teammate id that will execute issues created by this cronjob.",
+          },
           description: { type: "string", description: "Short display description for the cronjob." },
           instruction: {
             type: "string",
@@ -279,7 +283,7 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
               "JSON object string for cronjob metadata. For `system_notification`, include a short `message`. For `session_run`, use metadata for execution context only; keep the actual task instruction in `instruction`.",
           },
         },
-        required: ["cron", "description", "instruction"],
+        required: ["cron", "teammate_id", "description", "instruction"],
         additionalProperties: false,
       };
     case "teammates_create":
@@ -379,9 +383,14 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
             description: "Optional empty directories to create inside the skill directory.",
             items: { type: "string" },
           },
+          payload_mode: {
+            type: "string",
+            enum: ["skill_markdown", "name_content"],
+            description:
+              "Choose `skill_markdown` when sending a full SKILL.md document, or `name_content` when sending simple text-only skill fields.",
+          },
         },
         required: ["teammate_id"],
-        anyOf: [{ required: ["skill_markdown"] }, { required: ["name", "content"] }],
         additionalProperties: false,
       };
     case "cronjobs_update":
@@ -389,6 +398,10 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         type: "object",
         properties: {
           job_id: { type: "string", description: "Cronjob id." },
+          teammate_id: {
+            type: "string",
+            description: "Optional replacement teammate id for future issue executions.",
+          },
           name: { type: "string", description: "Optional cronjob name." },
           cron: { type: "string", description: "Cron expression." },
           description: { type: "string", description: "Short display description for the cronjob." },

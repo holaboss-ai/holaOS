@@ -342,6 +342,7 @@ interface RuntimeAgentToolAppLifecycleCallbacks {
 export interface RuntimeAgentToolsCreateCronjobParams {
   workspaceId: string;
   initiatedBy?: string | null;
+  teammateId: string;
   sessionId?: string | null;
   selectedModel?: string | null;
   name?: string | null;
@@ -375,6 +376,7 @@ export interface RuntimeAgentToolsCreateTeammateSkillParams {
 export interface RuntimeAgentToolsUpdateCronjobParams {
   jobId: string;
   workspaceId?: string | null;
+  teammateId?: string | null;
   name?: string | null;
   cron?: string | null;
   description?: string | null;
@@ -2700,6 +2702,7 @@ export function cronjobPayload(record: CronjobRecord): JsonObject {
     id: record.id,
     workspace_id: record.workspaceId,
     initiated_by: record.initiatedBy,
+    teammate_id: record.teammateId,
     name: record.name,
     cron: record.cron,
     description: record.description,
@@ -3480,6 +3483,7 @@ export class RuntimeAgentToolsService {
     const cron = normalizedString(params.cron);
     const description = normalizedString(params.description);
     const instruction = normalizedString(params.instruction ?? params.description);
+    const teammateId = normalizedString(params.teammateId);
     if (!cron) {
       throw new RuntimeAgentToolsServiceError(400, "cronjob_cron_required", "cron is required");
     }
@@ -3488,6 +3492,9 @@ export class RuntimeAgentToolsService {
     }
     if (!instruction) {
       throw new RuntimeAgentToolsServiceError(400, "cronjob_instruction_required", "instruction is required");
+    }
+    if (!teammateId) {
+      throw new RuntimeAgentToolsServiceError(400, "cronjob_teammate_required", "teammate_id is required");
     }
     const isDraftLab = workspace.workspaceRole === "draft_lab";
     const requestedEnabled = params.enabled !== false;
@@ -3515,6 +3522,7 @@ export class RuntimeAgentToolsService {
     const created = this.store.createCronjob({
       workspaceId: params.workspaceId,
       initiatedBy: normalizedString(params.initiatedBy) || "workspace_agent",
+      teammateId,
       name: normalizedString(params.name),
       cron,
       description,
@@ -3606,11 +3614,16 @@ export class RuntimeAgentToolsService {
     }
     const description = params.description == null ? null : normalizedString(params.description);
     const instruction = params.instruction == null ? null : normalizedString(params.instruction);
+    const teammateId =
+      params.teammateId === undefined ? undefined : normalizedString(params.teammateId);
     if (params.description !== undefined && !description) {
       throw new RuntimeAgentToolsServiceError(400, "cronjob_description_required", "description is required");
     }
     if (params.instruction !== undefined && !instruction) {
       throw new RuntimeAgentToolsServiceError(400, "cronjob_instruction_required", "instruction is required");
+    }
+    if (params.teammateId !== undefined && !teammateId) {
+      throw new RuntimeAgentToolsServiceError(400, "cronjob_teammate_required", "teammate_id is required");
     }
     const isDraftLab = workspace.workspaceRole === "draft_lab";
     const effectiveEnabled =
@@ -3646,6 +3659,7 @@ export class RuntimeAgentToolsService {
     const updated = this.store.updateCronjob({
       workspaceId,
       jobId: params.jobId,
+      teammateId,
       name: params.name === undefined ? undefined : normalizedString(params.name),
       cron,
       description,

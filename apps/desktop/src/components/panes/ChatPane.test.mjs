@@ -1216,12 +1216,12 @@ test("chat pane can create a workspace session when none exists yet", async () =
   );
 });
 
-test("chat pane exposes an in-pane session dropdown for switching agent sessions", async () => {
+test("chat pane keeps inbox and main-session controls without a sessions button", async () => {
   const source = await readFile(sourcePath, "utf8");
   const chatHeaderSource = await readFile(chatHeaderSourcePath, "utf8");
 
   assert.match(source, /onOpenInbox\?: \(\) => void;/);
-  assert.match(source, /onOpenSessions\?: \(\) => void;/);
+  assert.doesNotMatch(source, /onOpenSessions\?: \(\) => void;/);
   assert.match(source, /inboxUnreadCount\?: number;/);
   assert.match(source, /composerDraftText\?: string;/);
   assert.match(
@@ -1275,8 +1275,8 @@ test("chat pane exposes an in-pane session dropdown for switching agent sessions
   assert.match(source, /const handleOpenReadOnlyAgentSession = \(/);
   assert.match(source, /setLocalSessionOpenRequestState\(\{\s*sessionId: mainSessionId,\s*requestKey: Date\.now\(\),\s*readOnly: false,\s*\}\);/);
   assert.match(source, /setLocalSessionOpenRequestState\(\{\s*sessionId,\s*requestKey: Date\.now\(\),\s*readOnly: true,\s*\}\);/);
-  assert.match(source, /onOpenSessions=\{onOpenSessions\}/);
-  assert.match(chatHeaderSource, /aria-label="Sessions"/);
+  assert.doesNotMatch(source, /onOpenSessions=\{onOpenSessions\}/);
+  assert.doesNotMatch(chatHeaderSource, /aria-label="Sessions"/);
   assert.match(chatHeaderSource, /aria-label="Inbox"/);
   assert.match(chatHeaderSource, /inboxUnreadCount > 0 \? \(/);
   assert.match(chatHeaderSource, /onClick=\{\(\) => onOpenInbox\(\)\}/);
@@ -1940,7 +1940,7 @@ test("chat pane renders inline background tasks near the top of the pane", async
     /!isOnboardingVariant && !isReadOnlyInspectionSession \? \(\s*<SubagentSessionsPane[\s\S]*variant="inline"[\s\S]*\) : null/,
   );
   assert.match(source, /const handleOpenReadOnlyAgentSession = \(/);
-  assert.match(source, /onOpenSessions=\{onOpenSessions\}/);
+  assert.doesNotMatch(source, /onOpenSessions=\{onOpenSessions\}/);
   assert.match(
     source,
     /className=\{`mx-auto flex min-w-0 w-full \$\{CHAT_LAYOUT\.contentMaxWidth\} flex-col gap-2 pl-4 pr-7 pb-3 pt-5 \$\{\s*showHistoryRestoreScreen \? "invisible" : ""\s*\}`\}/,

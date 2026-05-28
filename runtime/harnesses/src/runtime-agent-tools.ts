@@ -35,7 +35,8 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
   },
   {
     id: "cronjobs_create",
-    description: "Create a local cronjob for the current workspace.",
+    description:
+      "Create a local cronjob for the current workspace. Each run creates a teammate-assigned issue instead of executing hidden work directly.",
     policy: "mutate"
   },
   {
@@ -57,7 +58,8 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
   },
   {
     id: "cronjobs_update",
-    description: "Update one local cronjob by id.",
+    description:
+      "Update one local cronjob by id, including its assigned teammate for future issue executions.",
     policy: "mutate"
   },
   {

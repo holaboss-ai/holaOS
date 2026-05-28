@@ -4364,6 +4364,7 @@ test("workspace lab routes create hidden drafts and merge accepted design state"
   const originalJob = store.createCronjob({
     workspaceId: source.id,
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "Old job",
     cron: "0 8 * * *",
     description: "Old recurring work",
@@ -4521,6 +4522,7 @@ test("workspace lab routes create hidden drafts and merge accepted design state"
     workspaceId: createdPayload.lab.id,
     jobId: "lab-job",
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "New job",
     cron: "0 9 * * *",
     description: "New recurring work",
@@ -4647,6 +4649,7 @@ test("workspace lab keeps copied cronjobs inert and restores their recommended e
     workspaceId: source.id,
     jobId: "source-job",
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "Source job",
     cron: "0 8 * * *",
     description: "Existing recurring work",
@@ -6291,6 +6294,7 @@ test("cronjobs and session state routes preserve local payload shape", async () 
     payload: {
       workspace_id: workspace.id,
       initiated_by: "workspace_agent",
+      teammate_id: "general",
       cron: "0 9 * * *",
       description: "Daily check",
       instruction: "Say hello",
@@ -6298,6 +6302,7 @@ test("cronjobs and session state routes preserve local payload shape", async () 
     }
   });
   assert.equal(createdJob.statusCode, 200);
+  assert.equal(createdJob.json().teammate_id, "general");
   assert.equal(createdJob.json().instruction, "Say hello");
   const jobId = createdJob.json().id as string;
 
@@ -6326,6 +6331,7 @@ test("cronjobs and session state routes preserve local payload shape", async () 
   assert.equal(runNowJob.json().cronjob.instruction, "Say hello");
   assert.ok(runNowJob.json().session_id);
   assert.equal(updatedJob.statusCode, 200);
+  assert.equal(updatedJob.json().teammate_id, "general");
   assert.equal(updatedJob.json().description, "Updated check");
   assert.equal(updatedJob.json().instruction, "Say hello louder");
 
@@ -6791,6 +6797,7 @@ test("raw cronjob routes keep draft lab jobs disabled by default", async () => {
     payload: {
       workspace_id: workspace.id,
       initiated_by: "workspace_agent",
+      teammate_id: "general",
       cron: "0 9 * * *",
       description: "Daily check",
       instruction: "Say hello",
@@ -6852,6 +6859,7 @@ test("raw cronjob routes keep draft lab jobs disabled by default", async () => {
     payload: {
       workspace_id: workspace.id,
       initiated_by: "workspace_agent",
+      teammate_id: "general",
       cron: "0 9 * * *",
       description: "Daily check",
       instruction: "Say hello",

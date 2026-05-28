@@ -23,6 +23,7 @@ import {
   createPiTodoToolDefinitions,
   createPiEventMapperState,
   filterPiToolDefinitionsForRequest,
+  filterPiRuntimeToolDefinitionsForHost,
   createPiMcpCustomTools,
   mapPiSessionEvent,
   piCompactionReserveTokens,
@@ -214,6 +215,22 @@ test("filterPiToolDefinitionsForRequest enforces the projected tool map and alia
   assert.deepEqual(
     filtered.map((tool) => tool.name),
     ["read", "find", "ls", "skill"]
+  );
+});
+
+test("filterPiRuntimeToolDefinitionsForHost removes host-native duplicates from runtime tools", () => {
+  const filtered = filterPiRuntimeToolDefinitionsForHost([
+    { name: "skill" },
+    { name: "todoread" },
+    { name: "todowrite" },
+    { name: "web_search" },
+    { name: "memory_retrieve" },
+    { name: "browser_navigate" },
+  ]);
+
+  assert.deepEqual(
+    filtered.map((tool) => tool.name),
+    ["memory_retrieve", "browser_navigate"]
   );
 });
 

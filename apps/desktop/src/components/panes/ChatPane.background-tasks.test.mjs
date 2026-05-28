@@ -70,8 +70,8 @@ test("chat pane renders background tasks inline and removes the separate quick a
   );
   assert.doesNotMatch(source, /<SubagentSessionsPane[\s\S]*variant="inline"/);
   assert.match(source, /handleOpenReadOnlyAgentSession\(\{[\s\S]*session_id: childSessionId,/);
-  assert.match(source, /onOpenSessions\?: \(\) => void;/);
-  assert.match(source, /onOpenSessions=\{onOpenSessions\}/);
+  assert.doesNotMatch(source, /onOpenSessions\?: \(\) => void;/);
+  assert.doesNotMatch(source, /onOpenSessions=\{onOpenSessions\}/);
   assert.doesNotMatch(source, /aria-label="Select agent session"/);
   assert.match(
     source,

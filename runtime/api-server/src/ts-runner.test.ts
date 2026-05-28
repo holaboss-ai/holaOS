@@ -1416,7 +1416,12 @@ test("runTsRunnerCli keeps main workspace sessions on a coordinator surface", as
             }),
             stageRuntimeTools: () => ({
               changed: false,
-              toolIds: ["holaboss_onboarding_complete", "write_report"],
+              toolIds: [
+                "holaboss_onboarding_complete",
+                "write_report",
+                "teammates_create",
+                "teammate_skills_create",
+              ],
             }),
           },
         }),
@@ -1470,7 +1475,7 @@ test("runTsRunnerCli keeps main workspace sessions on a coordinator surface", as
   );
   assert.deepEqual(
     (capturedProjectRequest as { runtime_tool_ids: string[] }).runtime_tool_ids,
-    [],
+    ["teammates_create", "teammate_skills_create"],
   );
   assert.deepEqual(
     (capturedProjectRequest as { default_tools: string[] }).default_tools,
@@ -1489,7 +1494,7 @@ test("runTsRunnerCli keeps main workspace sessions on a coordinator surface", as
   );
   assert.deepEqual(
     (capturedProjectRequest as { extra_tools: string[] }).extra_tools,
-    [],
+    ["teammates_create", "teammate_skills_create"],
   );
   assert.equal(
     (capturedProjectRequest as {
@@ -1511,7 +1516,7 @@ test("runTsRunnerCli keeps main workspace sessions on a coordinator surface", as
   assert.deepEqual(
     (capturedProjectRequest as { delegated_runtime_tool_ids?: string[] })
       .delegated_runtime_tool_ids,
-    ["holaboss_onboarding_complete", "write_report"],
+    ["write_report"],
   );
   assert.deepEqual(
     (capturedProjectRequest as { delegated_default_tools?: string[] })
@@ -1535,7 +1540,6 @@ test("runTsRunnerCli keeps main workspace sessions on a coordinator surface", as
     [
       "web_search",
       "browser_get_state",
-      "holaboss_onboarding_complete",
       "write_report",
     ],
   );
@@ -3828,7 +3832,11 @@ test("runTsRunnerCli stages browser tools for subagent executor sessions and str
               changed: false,
               toolIds: [
                 "holaboss_onboarding_complete",
+                "holaboss_create_alignment_report",
+                "cronjobs_create",
                 "delegate_task",
+                "teammates_create",
+                "teammate_skills_create",
               ],
             }),
           },
@@ -3891,7 +3899,7 @@ test("runTsRunnerCli stages browser tools for subagent executor sessions and str
   );
   assert.deepEqual(
     (capturedProjectRequest as { runtime_tool_ids: string[] }).runtime_tool_ids,
-    ["holaboss_onboarding_complete"],
+    [],
   );
   assert.deepEqual(
     (capturedProjectRequest as { default_tools: string[] }).default_tools,
@@ -3910,7 +3918,7 @@ test("runTsRunnerCli stages browser tools for subagent executor sessions and str
   );
   assert.deepEqual(
     (capturedProjectRequest as { extra_tools: string[] }).extra_tools,
-    ["web_search", "browser_get_state", "holaboss_onboarding_complete"],
+    ["web_search", "browser_get_state"],
   );
 });
 

@@ -1475,7 +1475,7 @@ export function IssueDetailPane({
       />
       <div className="min-h-0 flex-1 overflow-auto">
         <div className="mx-auto w-full max-w-[1680px] px-6 py-8 xl:px-8">
-          <div className="grid gap-10 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_188px]">
             <article className="min-w-0 space-y-10">
               {isEditingDetails || issueAttachmentItems.length > 0 ? (
                 <section className="border-b border-border/70 pb-10">
@@ -1738,7 +1738,7 @@ export function IssueDetailPane({
               </section>
             </article>
 
-            <aside className="grid content-start gap-6 xl:sticky xl:top-0 xl:self-start xl:border-l xl:border-border/70 xl:pl-8">
+            <aside className="grid content-start gap-6 xl:sticky xl:top-0 xl:self-start xl:border-l xl:border-border/70 xl:pl-5">
               <SidebarSection
                 title="Properties"
                 description="Status, assignee, and priority can be changed while the issue is idle."

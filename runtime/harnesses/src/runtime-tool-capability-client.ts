@@ -170,6 +170,7 @@ function createCronjobBody(toolParams: unknown): Record<string, unknown> {
     cron: String(params.cron ?? ""),
     description: String(params.description ?? ""),
     instruction: String(params.instruction ?? ""),
+    teammate_id: String(params.teammate_id ?? ""),
     ...(optionalString(params.initiated_by) ? { initiated_by: optionalString(params.initiated_by) } : {}),
     ...(optionalString(params.name) ? { name: optionalString(params.name) } : {}),
     ...(typeof params.enabled === "boolean" ? { enabled: params.enabled } : {}),
@@ -261,6 +262,7 @@ function updateCronjobBody(toolParams: unknown): Record<string, unknown> {
   const delivery = buildDeliveryPayload(params);
   const metadata = parseOptionalJsonObject(params.metadata_json, "metadata_json");
   return {
+    ...(optionalString(params.teammate_id) ? { teammate_id: optionalString(params.teammate_id) } : {}),
     ...(optionalString(params.name) ? { name: optionalString(params.name) } : {}),
     ...(optionalString(params.cron) ? { cron: optionalString(params.cron) } : {}),
     ...(optionalString(params.description) ? { description: optionalString(params.description) } : {}),

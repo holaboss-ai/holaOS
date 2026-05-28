@@ -1444,6 +1444,7 @@ function cronjobPayload(record: CronjobRecord): Record<string, unknown> {
     id: record.id,
     workspace_id: record.workspaceId,
     initiated_by: record.initiatedBy,
+    teammate_id: record.teammateId,
     name: record.name,
     cron: record.cron,
     description: record.description,
@@ -2076,6 +2077,7 @@ function replaceDesignCronjobs(params: {
       workspaceId: params.targetWorkspaceId,
       jobId: job.id,
       initiatedBy: job.initiatedBy,
+      teammateId: job.teammateId,
       name: job.name,
       cron: job.cron,
       description: job.description,
@@ -5967,6 +5969,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           body: request.body
         }),
         initiatedBy: optionalString(request.body.initiated_by),
+        teammateId: requiredString(request.body.teammate_id, "teammate_id"),
         name: optionalString(request.body.name),
         cron: requiredString(request.body.cron, "cron"),
         description: requiredString(request.body.description, "description"),
@@ -6018,6 +6021,9 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           query: isRecord(request.query) ? request.query : null,
           body: request.body
         }),
+        teammateId: hasOwn(request.body, "teammate_id")
+          ? nullableString(request.body.teammate_id)
+          : undefined,
         name: hasOwn(request.body, "name") ? nullableString(request.body.name) : undefined,
         cron: hasOwn(request.body, "cron") ? nullableString(request.body.cron) : undefined,
         description: hasOwn(request.body, "description") ? nullableString(request.body.description) : undefined,
@@ -10322,6 +10328,55 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     };
   });
 
+  app.get("/api/v1/workspaces/:workspaceId/turn-results", async (request, reply) => {
+    const params = request.params as { workspaceId: string };
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(params.workspaceId);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
+
+    const workspace = store.getWorkspace(workspaceId);
+    if (!workspace) {
+      return sendError(reply, 404, "workspace not found");
+    }
+
+    const sessionId = optionalString(query.session_id);
+    const inputId = optionalString(query.input_id);
+    const status = optionalString(query.status);
+    const limit = Math.max(1, Math.min(2000, optionalInteger(query.limit, 500)));
+    const offset = Math.max(0, optionalInteger(query.offset, 0));
+    const order = optionalString(query.order) === "asc" ? "asc" : "desc";
+
+    const total = store.countWorkspaceTurnResults({
+      workspaceId,
+      sessionId: sessionId ?? undefined,
+      inputId: inputId ?? undefined,
+      status: status ?? undefined,
+    });
+    const items = store
+      .listWorkspaceTurnResults({
+        workspaceId,
+        sessionId: sessionId ?? undefined,
+        inputId: inputId ?? undefined,
+        status: status ?? undefined,
+        order,
+        limit,
+        offset,
+      })
+      .map((item: TurnResultRecord) => turnResultPayload(item));
+
+    return {
+      workspace_id: workspaceId,
+      session_id: sessionId ?? null,
+      items,
+      count: items.length,
+      total,
+      limit,
+      offset,
+    };
+  });
+
   app.get("/api/v1/agent-sessions/:sessionId/request-snapshots", async (request, reply) => {
     const params = request.params as { sessionId: string };
     const query = isRecord(request.query) ? request.query : {};
@@ -10815,6 +10870,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const job = store.createCronjob({
       workspaceId,
       initiatedBy: requiredString(request.body.initiated_by, "initiated_by"),
+      teammateId: requiredString(request.body.teammate_id, "teammate_id"),
       name: optionalString(request.body.name) ?? "",
       cron: requiredString(request.body.cron, "cron"),
       description: requiredString(request.body.description, "description"),
@@ -10960,6 +11016,9 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const job = store.updateCronjob({
       workspaceId,
       jobId: params.jobId,
+      teammateId: hasOwn(request.body, "teammate_id")
+        ? nullableString(request.body.teammate_id)
+        : undefined,
       name: nullableString(request.body.name),
       cron,
       description,
@@ -11087,6 +11146,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         job = store.createCronjob({
           workspaceId,
           initiatedBy,
+          teammateId: optionalString(rawEntry.teammate_id) ?? "general",
           name: entryName,
           cron: entryCron,
           description: entryDescription,

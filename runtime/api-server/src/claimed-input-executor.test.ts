@@ -1052,6 +1052,7 @@ test("claimed input creates a completion notification for successful cronjob ses
   const job = store.createCronjob({
     workspaceId: workspace.id,
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "daily-sync",
     cron: "0 9 * * *",
     description: "Daily sync",
@@ -1146,6 +1147,7 @@ test("claimed input creates a completion notification for failed cronjob session
   const job = store.createCronjob({
     workspaceId: workspace.id,
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "daily-sync",
     cron: "0 9 * * *",
     description: "Daily sync",

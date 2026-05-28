@@ -108,6 +108,15 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   assert.doesNotMatch(boardPaneSource, /onDrop=\{/);
   assert.doesNotMatch(boardPaneSource, /Drag to move/);
   assert.match(boardPaneSource, /window\.electronAPI\.workspace\.stopIssueRun/);
+  assert.match(boardPaneSource, /const isCollapsed = columnIssues\.length === 0;/);
+  assert.match(
+    boardPaneSource,
+    /isCollapsed\s*\?\s*"min-w-\[128px\] flex-\[1_1_0%\]"\s*:\s*"min-w-\[320px\] flex-\[3_1_0%\]"/,
+  );
+  assert.match(boardPaneSource, /min-w-full items-stretch gap-5 pb-3/);
+  assert.match(boardPaneSource, /isCollapsed\s*\?\s*"justify-start px-4"\s*:\s*"justify-between gap-3 px-4"/);
+  assert.match(boardPaneSource, /className="truncate text-\[14px\] font-semibold text-foreground"/);
+  assert.match(boardPaneSource, /aria-label=\{`\$\{issueStatusLabel\(status\)\} column empty`\}/);
   assert.doesNotMatch(boardPaneSource, /window\.prompt\(\s*"Why is this issue blocked\?"/);
   assert.doesNotMatch(boardPaneSource, /SelectTrigger/);
   assert.doesNotMatch(boardPaneSource, /WorkspaceSurfaceHeader/);
@@ -121,11 +130,19 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
     dashboardPaneSource,
     /const visibleIssues = useMemo\(\s*\(\) => issues\.filter\(\(issue\) => issue\.status !== "backlog"\),/,
   );
+  assert.match(
+    dashboardPaneSource,
+    /window\.electronAPI\.workspace\.listTurnResults\(\{/,
+  );
   assert.doesNotMatch(dashboardPaneSource, /<span>Agent Team<\/span>/);
   assert.match(dashboardPaneSource, />\s*Dashboard\s*</);
-  assert.match(dashboardPaneSource, /Issues by priority/);
-  assert.match(dashboardPaneSource, /Issues by status/);
-  assert.match(dashboardPaneSource, /Recently updated/);
+  assert.match(dashboardPaneSource, /Token Consumption/);
+  assert.match(dashboardPaneSource, /Run Activity/);
+  assert.match(dashboardPaneSource, /Issues by Priority/);
+  assert.match(dashboardPaneSource, /Issues by Status/);
+  assert.match(dashboardPaneSource, /Success Rate/);
+  assert.match(dashboardPaneSource, /Recent Activity/);
+  assert.match(dashboardPaneSource, /Recent Tasks/);
   assert.doesNotMatch(dashboardPaneSource, /WorkspaceSurfaceHeader/);
 
   assert.match(issueDetailPaneSource, /export function IssueDetailPane/);

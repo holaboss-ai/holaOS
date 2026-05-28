@@ -1,7 +1,8 @@
-import { Loader2, MoveRight, TriangleAlert } from "lucide-react";
-import { type ReactNode, useMemo } from "react";
+import { Loader2 } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { StatusDot } from "@/components/ui/status-dot";
 import { cn } from "@/lib/utils";
+import { useOpenIssueDetailTab } from "./useOpenIssueDetailTab";
 import { useIssueWorkspaceData } from "./useIssues";
 
 const PRIORITY_ORDER: IssuePriorityPayload[] = [
@@ -18,6 +19,8 @@ const STATUS_ORDER: IssueStatusPayload[] = [
   "blocked",
   "done",
 ];
+
+const DAY_WINDOW = 14;
 
 function issueRelativeTime(value: string): string {
   const ms = Date.now() - Date.parse(value);
@@ -69,9 +72,250 @@ function issuePriorityLabel(priority: IssuePriorityPayload): string {
   return priority.slice(0, 1).toUpperCase() + priority.slice(1);
 }
 
-function percent(count: number, total: number): string {
-  if (total <= 0) return "0%";
-  return `${Math.max(6, Math.round((count / total) * 100))}%`;
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function tokenUsageNumber(
+  usage: Record<string, unknown> | null | undefined,
+  keys: string[],
+): number {
+  if (!usage) {
+    return 0;
+  }
+  for (const key of keys) {
+    const direct = finiteNumber(usage[key]);
+    if (direct !== null) {
+      return direct;
+    }
+  }
+  return 0;
+}
+
+function turnResultTimestamp(result: SessionTurnResultPayload): string {
+  return (
+    result.completed_at?.trim() ||
+    result.started_at?.trim() ||
+    result.updated_at?.trim() ||
+    result.created_at
+  );
+}
+
+function toMillis(value: string | null | undefined): number {
+  if (!value) {
+    return 0;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function isSuccessfulTurn(status: string): boolean {
+  return status.trim().toLowerCase() === "completed";
+}
+
+function isFailedTurn(status: string): boolean {
+  const normalized = status.trim().toLowerCase();
+  return normalized === "failed" || normalized === "error";
+}
+
+function isTerminalTurn(status: string): boolean {
+  return isSuccessfulTurn(status) || isFailedTurn(status);
+}
+
+function formatCompactNumber(value: number): string {
+  if (value === 0) {
+    return "0";
+  }
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: value < 100 ? 1 : 0,
+  }).format(value);
+}
+
+function dayKey(value: string): string {
+  return value.slice(0, 10);
+}
+
+function dayLabel(value: string): string {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
+}
+
+function windowDayKeys(days: number): string[] {
+  const keys: string[] = [];
+  const now = new Date();
+  for (let index = days - 1; index >= 0; index -= 1) {
+    const current = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
+    current.setUTCDate(current.getUTCDate() - index);
+    keys.push(current.toISOString().slice(0, 10));
+  }
+  return keys;
+}
+
+function buildDailyBars(
+  results: SessionTurnResultPayload[],
+  options: {
+    valueForDay: (items: SessionTurnResultPayload[]) => number;
+    color: string;
+  },
+) {
+  const days = windowDayKeys(DAY_WINDOW);
+  const grouped = new Map<string, SessionTurnResultPayload[]>();
+  for (const result of results) {
+    const key = dayKey(turnResultTimestamp(result));
+    const bucket = grouped.get(key);
+    if (bucket) {
+      bucket.push(result);
+    } else {
+      grouped.set(key, [result]);
+    }
+  }
+  return days.map((key, index) => ({
+    key,
+    label:
+      index === 0 || index === Math.floor(days.length / 2) || index === days.length - 1
+        ? dayLabel(key)
+        : "",
+    value: options.valueForDay(grouped.get(key) ?? []),
+    color: options.color,
+  }));
+}
+
+function shortIssueId(issueId: string): string {
+  const normalized = issueId.trim();
+  return normalized || "Issue";
+}
+
+function activityTone(
+  status: string,
+): "success" | "warning" | "primary" | "muted" {
+  if (isSuccessfulTurn(status)) {
+    return "success";
+  }
+  if (isFailedTurn(status)) {
+    return "warning";
+  }
+  const normalized = status.trim().toLowerCase();
+  if (normalized === "waiting_user" || normalized === "paused") {
+    return "primary";
+  }
+  return "muted";
+}
+
+function activityLabel(
+  status: string,
+  teammateName: string,
+  issueId: string,
+): string {
+  const normalized = status.trim().toLowerCase();
+  if (normalized === "completed") {
+    return `${teammateName} completed ${issueId}`;
+  }
+  if (normalized === "failed" || normalized === "error") {
+    return `${teammateName} failed ${issueId}`;
+  }
+  if (normalized === "waiting_user") {
+    return `${teammateName} is waiting on ${issueId}`;
+  }
+  if (normalized === "paused") {
+    return `${teammateName} paused ${issueId}`;
+  }
+  return `${teammateName} updated ${issueId}`;
+}
+
+function useWorkspaceIssueTurnResults(
+  workspaceId: string,
+  sessionIds: string[],
+) {
+  const [turnResults, setTurnResults] = useState<SessionTurnResultPayload[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
+
+  const normalizedSessionIds = useMemo(
+    () => [...new Set(sessionIds.map((sessionId) => sessionId.trim()).filter(Boolean))],
+    [sessionIds],
+  );
+  const sessionKey = normalizedSessionIds.join("|");
+
+  const refresh = useCallback(
+    async (signal: { cancelled: boolean }) => {
+      if (!workspaceId || normalizedSessionIds.length === 0) {
+        if (!signal.cancelled) {
+          setTurnResults([]);
+          setStatusMessage("");
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const responses = await Promise.allSettled(
+          normalizedSessionIds.map((sessionId) =>
+            window.electronAPI.workspace.listTurnResults({
+              workspaceId,
+              sessionId,
+              limit: 200,
+              offset: 0,
+              order: "desc",
+            }),
+          ),
+        );
+        if (signal.cancelled) {
+          return;
+        }
+        const nextResults = responses.flatMap((response) =>
+          response.status === "fulfilled" ? response.value.items : [],
+        );
+        nextResults.sort(
+          (left, right) =>
+            toMillis(turnResultTimestamp(right)) -
+            toMillis(turnResultTimestamp(left)),
+        );
+        setTurnResults(nextResults);
+        const rejected = responses.find(
+          (response) => response.status === "rejected",
+        );
+        setStatusMessage(
+          rejected && rejected.reason instanceof Error
+            ? rejected.reason.message
+            : "",
+        );
+      } catch (error) {
+        if (!signal.cancelled) {
+          setStatusMessage(
+            error instanceof Error ? error.message : "Failed to load usage",
+          );
+        }
+      } finally {
+        if (!signal.cancelled) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [normalizedSessionIds, workspaceId],
+  );
+
+  useEffect(() => {
+    const signal = { cancelled: false };
+    setIsLoading(true);
+    void refresh(signal);
+    const timer = window.setInterval(() => {
+      setIsLoading(true);
+      void refresh(signal);
+    }, 15000);
+    return () => {
+      signal.cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [refresh, sessionKey, workspaceId]);
+
+  return {
+    turnResults,
+    isLoading,
+    statusMessage,
+  };
 }
 
 export function WorkspaceDashboardPane({
@@ -79,17 +323,40 @@ export function WorkspaceDashboardPane({
 }: {
   workspaceId: string;
 }) {
-  const { issues, teammatesById, isLoading, statusMessage } =
-    useIssueWorkspaceData(workspaceId);
+  const openIssueDetailTab = useOpenIssueDetailTab();
+  const {
+    issues,
+    teammatesById,
+    isLoading: isLoadingIssues,
+    statusMessage: issueStatusMessage,
+  } = useIssueWorkspaceData(workspaceId);
 
-  const teammates = useMemo(
-    () => Object.values(teammatesById).sort((left, right) => left.name.localeCompare(right.name)),
-    [teammatesById],
-  );
   const visibleIssues = useMemo(
     () => issues.filter((issue) => issue.status !== "backlog"),
     [issues],
   );
+  const teammates = useMemo(
+    () =>
+      Object.values(teammatesById)
+        .filter((teammate) => teammate.status === "active")
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [teammatesById],
+  );
+  const issueSessionIds = useMemo(
+    () => visibleIssues.map((issue) => issue.session_id),
+    [visibleIssues],
+  );
+  const {
+    turnResults,
+    statusMessage: turnResultsStatusMessage,
+  } = useWorkspaceIssueTurnResults(workspaceId, issueSessionIds);
+
+  const recentIssueTurnResults = useMemo(() => {
+    const cutoff = Date.now() - DAY_WINDOW * 24 * 60 * 60 * 1000;
+    return turnResults.filter(
+      (result) => toMillis(turnResultTimestamp(result)) >= cutoff,
+    );
+  }, [turnResults]);
 
   const summary = useMemo(() => {
     const statusCounts = Object.fromEntries(
@@ -101,6 +368,11 @@ export function WorkspaceDashboardPane({
     let todoAssignedCount = 0;
     let todoIdleCount = 0;
     let completedThisWeek = 0;
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let totalTokens = 0;
+    let successfulRuns = 0;
+    let failedRuns = 0;
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
     for (const issue of visibleIssues) {
@@ -123,6 +395,29 @@ export function WorkspaceDashboardPane({
       }
     }
 
+    for (const result of recentIssueTurnResults) {
+      const usage = result.token_usage;
+      const directTotal = tokenUsageNumber(usage, ["total_tokens"]);
+      const directInput = tokenUsageNumber(usage, [
+        "input_tokens",
+        "prompt_tokens",
+      ]);
+      const directOutput = tokenUsageNumber(usage, [
+        "output_tokens",
+        "completion_tokens",
+      ]);
+      inputTokens += directInput;
+      outputTokens += directOutput;
+      totalTokens += directTotal > 0 ? directTotal : directInput + directOutput;
+      if (isSuccessfulTurn(result.status)) {
+        successfulRuns += 1;
+      } else if (isFailedTurn(result.status)) {
+        failedRuns += 1;
+      }
+    }
+
+    const terminalRuns = successfulRuns + failedRuns;
+
     return {
       totalIssues: visibleIssues.length,
       activeTeammates: teammates.length,
@@ -134,16 +429,151 @@ export function WorkspaceDashboardPane({
       completedThisWeek,
       statusCounts,
       priorityCounts,
+      inputTokens,
+      outputTokens,
+      totalTokens,
+      successfulRuns,
+      failedRuns,
+      terminalRuns,
+      successRate:
+        terminalRuns > 0
+          ? Math.round((successfulRuns / terminalRuns) * 100)
+          : 0,
     };
-  }, [teammates.length, visibleIssues]);
+  }, [recentIssueTurnResults, teammates.length, visibleIssues]);
 
-  const recentIssues = useMemo(
+  const runActivityBars = useMemo(
+    () =>
+      buildDailyBars(recentIssueTurnResults, {
+        valueForDay: (items) => items.length,
+        color: "bg-emerald-400/85",
+      }),
+    [recentIssueTurnResults],
+  );
+
+  const successRateBars = useMemo(
+    () =>
+      buildDailyBars(recentIssueTurnResults, {
+        valueForDay: (items) => {
+          const terminal = items.filter((item) => isTerminalTurn(item.status));
+          if (terminal.length === 0) {
+            return 0;
+          }
+          const successful = terminal.filter((item) =>
+            isSuccessfulTurn(item.status),
+          ).length;
+          return Math.round((successful / terminal.length) * 100);
+        },
+        color: "bg-cyan-400/85",
+      }),
+    [recentIssueTurnResults],
+  );
+
+  const priorityBars = useMemo(
+    () =>
+      PRIORITY_ORDER.map((priority) => ({
+        key: priority,
+        label:
+          priority === "critical"
+            ? "Critical"
+            : priority === "high"
+              ? "High"
+              : priority === "medium"
+                ? "Medium"
+                : "Low",
+        value: summary.priorityCounts[priority],
+        color:
+          priority === "critical"
+            ? "bg-red-400/85"
+            : priority === "high"
+              ? "bg-orange-400/85"
+              : priority === "medium"
+                ? "bg-amber-300/85"
+                : "bg-slate-400/85",
+      })),
+    [summary.priorityCounts],
+  );
+
+  const statusBars = useMemo(
+    () =>
+      STATUS_ORDER.map((status) => ({
+        key: status,
+        label:
+          status === "in_progress"
+            ? "WIP"
+            : status === "in_review"
+              ? "Review"
+              : status === "blocked"
+                ? "Blocked"
+                : status === "done"
+                  ? "Done"
+                  : "Todo",
+        value: summary.statusCounts[status],
+        color:
+          status === "done"
+            ? "bg-emerald-400/85"
+            : status === "blocked"
+              ? "bg-amber-300/85"
+              : status === "in_progress"
+                ? "bg-violet-400/85"
+                : status === "in_review"
+                  ? "bg-sky-400/85"
+                  : "bg-slate-400/85",
+      })),
+    [summary.statusCounts],
+  );
+
+  const recentTasks = useMemo(
     () =>
       [...visibleIssues]
         .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
-        .slice(0, 8),
+        .slice(0, 10),
     [visibleIssues],
   );
+
+  const recentActivity = useMemo(() => {
+    const issueBySessionId = new Map(
+      visibleIssues.map((issue) => [issue.session_id, issue]),
+    );
+    const items = turnResults
+      .map((result) => {
+        const issue = issueBySessionId.get(result.session_id);
+        if (!issue) {
+          return null;
+        }
+        const teammateName = issue.assignee_teammate_id
+          ? teammatesById[issue.assignee_teammate_id]?.name ?? "Teammate"
+          : "Teammate";
+        return {
+          id: `${result.session_id}:${result.input_id}:${result.status}`,
+          issueId: issue.issue_id,
+          issueTitle: issue.title || "Untitled issue",
+          label: activityLabel(result.status, teammateName, issue.issue_id),
+          detail: result.assistant_text.trim() || issue.title || "No detail",
+          timestamp: turnResultTimestamp(result),
+          tone: activityTone(result.status),
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+      .slice(0, 10);
+
+    if (items.length > 0) {
+      return items;
+    }
+
+    return recentTasks.slice(0, 10).map((issue) => ({
+      id: issue.issue_id,
+      issueId: issue.issue_id,
+      issueTitle: issue.title || "Untitled issue",
+      label: `Updated ${issue.issue_id}`,
+      detail: issue.title || "Untitled issue",
+      timestamp: issue.updated_at,
+      tone: activityTone(issue.status),
+    }));
+  }, [recentTasks, teammatesById, turnResults, visibleIssues]);
+
+  const dashboardStatusMessage = issueStatusMessage || turnResultsStatusMessage;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -153,16 +583,16 @@ export function WorkspaceDashboardPane({
         </div>
       </div>
 
-      {statusMessage ? (
+      {dashboardStatusMessage ? (
         <div className="border-b border-border px-6 py-3">
           <div className="rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground/65">
-            {statusMessage}
+            {dashboardStatusMessage}
           </div>
         </div>
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
-        {isLoading && issues.length === 0 ? (
+        {isLoadingIssues && visibleIssues.length === 0 ? (
           <div className="grid h-full place-items-center">
             <Loader2 className="size-5 animate-spin text-foreground/35" />
           </div>
@@ -170,177 +600,147 @@ export function WorkspaceDashboardPane({
           <div className="grid gap-5">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <MetricCard
-                label="Teammates enabled"
+                label="Agents Enabled"
                 value={summary.activeTeammates}
-                detail={`${summary.totalIssues} total issues`}
+                detail={`${summary.completedThisWeek} done this week`}
               />
               <MetricCard
-                label="Tasks in progress"
+                label="Tasks In Progress"
                 value={summary.inProgressCount}
-                detail={`${summary.todoAssignedCount} assigned todo, ${summary.todoIdleCount} idle todo`}
+                detail={`${summary.blockedCount} blocked, ${summary.reviewCount} in review`}
               />
               <MetricCard
-                label="Blocked"
-                value={summary.blockedCount}
-                detail={`${summary.reviewCount} waiting review`}
-                tone="warning"
+                label="Token Consumption"
+                value={formatCompactNumber(summary.totalTokens)}
+                detail={`${formatCompactNumber(summary.inputTokens)} in / ${formatCompactNumber(summary.outputTokens)} out · last 14 days`}
               />
               <MetricCard
-                label="Done this week"
-                value={summary.completedThisWeek}
-                detail={`${summary.statusCounts.done} done overall`}
+                label="Success Rate"
+                value={`${summary.successRate}%`}
+                detail={`${summary.successfulRuns}/${summary.terminalRuns || 0} terminal runs · last 14 days`}
                 tone="success"
               />
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.15fr)]">
-              <DistributionCard
-                title="Issues by priority"
-                emptyLabel="No priorities set yet"
-                rows={PRIORITY_ORDER.map((priority) => ({
-                  key: priority,
+            <div className="grid gap-4 xl:grid-cols-4">
+              <MiniBarChartCard
+                title="Run Activity"
+                subtitle="Last 14 days"
+                bars={runActivityBars}
+                legend={[
+                  { label: "Completed and terminal runs", color: "bg-emerald-400/85" },
+                ]}
+              />
+              <MiniBarChartCard
+                title="Issues by Priority"
+                subtitle="Current board mix"
+                bars={priorityBars}
+                legend={PRIORITY_ORDER.map((priority, index) => ({
                   label: issuePriorityLabel(priority),
-                  count: summary.priorityCounts[priority],
-                  total: summary.totalIssues,
-                  tone:
-                    priority === "critical"
-                      ? "bg-red-400/80"
-                      : priority === "high"
-                        ? "bg-orange-400/80"
-                        : priority === "medium"
-                          ? "bg-amber-300/80"
-                          : "bg-slate-400/80",
+                  color: priorityBars[index]?.color ?? "bg-slate-400/85",
                 }))}
               />
-              <DistributionCard
-                title="Issues by status"
-                emptyLabel="No issue states yet"
-                rows={STATUS_ORDER.map((status) => ({
-                  key: status,
+              <MiniBarChartCard
+                title="Issues by Status"
+                subtitle="Current board mix"
+                bars={statusBars}
+                legend={STATUS_ORDER.map((status, index) => ({
                   label: issueStatusLabel(status),
-                  count: summary.statusCounts[status],
-                  total: summary.totalIssues,
-                  tone:
-                    status === "done"
-                      ? "bg-emerald-400/80"
-                      : status === "blocked"
-                        ? "bg-amber-300/80"
-                        : status === "in_progress"
-                          ? "bg-sky-400/80"
-                          : status === "in_review"
-                            ? "bg-violet-300/80"
-                            : "bg-slate-400/80",
+                  color: statusBars[index]?.color ?? "bg-slate-400/85",
                 }))}
               />
-              <ActivityCard
-                title="Teammate roster"
-                emptyLabel="No teammates enabled yet"
-              >
-                {teammates.length > 0 ? (
-                  teammates.map((teammate) => {
-                    const activeCount = visibleIssues.filter(
-                      (issue) => issue.assignee_teammate_id === teammate.teammate_id,
-                    ).length;
-                    return (
-                      <div
-                        key={teammate.teammate_id}
-                        className="flex items-center justify-between rounded-xl border border-border bg-background/65 px-3 py-2.5"
-                      >
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-foreground">
-                            {teammate.name}
-                          </div>
-                          <div className="mt-0.5 truncate text-xs text-foreground/45">
-                            {teammate.kind === "system"
-                              ? "System teammate"
-                              : `${teammate.skills.length} skill${teammate.skills.length === 1 ? "" : "s"}`}
-                          </div>
-                        </div>
-                        <span className="rounded-full bg-foreground/[0.06] px-2 py-1 text-[11px] text-foreground/60">
-                          {activeCount} assigned
-                        </span>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <EmptyState label="No teammates enabled yet" />
-                )}
-              </ActivityCard>
+              <MiniBarChartCard
+                title="Success Rate"
+                subtitle="Last 14 days"
+                bars={successRateBars}
+                legend={[{ label: "Daily completion rate", color: "bg-cyan-400/85" }]}
+                valueSuffix="%"
+              />
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-              <ActivityCard
-                title="Recently updated"
-                emptyLabel="No issue activity yet"
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+              <ActivityListCard
+                title="Recent Activity"
+                emptyLabel="No recent activity yet"
               >
-                {recentIssues.length > 0 ? (
-                  recentIssues.map((issue) => (
-                    <div
-                      key={issue.issue_id}
-                      className="flex items-start justify-between gap-3 rounded-xl border border-border bg-background/65 px-3 py-2.5"
+                {recentActivity.length > 0 ? (
+                  recentActivity.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      onClick={() =>
+                        void openIssueDetailTab({
+                          workspaceId,
+                          issueId: entry.issueId,
+                        })
+                      }
+                      className="flex w-full items-start justify-between gap-4 rounded-xl border border-border bg-card/70 px-4 py-3 text-left transition hover:border-foreground/15 hover:bg-card"
                     >
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2 text-xs text-foreground/40">
-                          <span>{issue.issue_id}</span>
-                          <span aria-hidden>•</span>
+                        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                          <StatusDot variant={entry.tone} />
+                          <span className="truncate">{entry.label}</span>
+                        </div>
+                        <div className="mt-1 truncate text-sm text-foreground/55">
+                          {entry.issueTitle}
+                        </div>
+                      </div>
+                      <span className="shrink-0 text-xs text-foreground/40">
+                        {issueRelativeTime(entry.timestamp)}
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <EmptyState label="No recent activity yet" />
+                )}
+              </ActivityListCard>
+
+              <ActivityListCard
+                title="Recent Tasks"
+                emptyLabel="No tasks yet"
+              >
+                {recentTasks.length > 0 ? (
+                  recentTasks.map((issue) => (
+                    <button
+                      key={issue.issue_id}
+                      type="button"
+                      onClick={() =>
+                        void openIssueDetailTab({
+                          workspaceId: issue.workspace_id,
+                          issueId: issue.issue_id,
+                        })
+                      }
+                      className="flex w-full items-center justify-between gap-4 rounded-xl border border-border bg-card/70 px-4 py-3 text-left transition hover:border-foreground/15 hover:bg-card"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-xs text-foreground/42">
+                          <span>{shortIssueId(issue.issue_id)}</span>
+                          {issue.assignee_teammate_id ? (
+                            <span>
+                              {teammatesById[issue.assignee_teammate_id]?.name ??
+                                "Assigned"}
+                            </span>
+                          ) : (
+                            <span>Unassigned</span>
+                          )}
                           <span>{issueRelativeTime(issue.updated_at)}</span>
                         </div>
-                        <div className="mt-1 truncate text-sm font-medium text-foreground">
-                          {issue.title || "Untitled issue"}
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-foreground/52">
-                          <span className="inline-flex items-center gap-1 rounded-full bg-foreground/[0.05] px-1.5 py-0.5">
-                            <StatusDot
-                              variant={issueStatusVariant(issue.status)}
-                              pulse={issue.status === "in_progress"}
-                            />
-                            {issueStatusLabel(issue.status)}
-                          </span>
-                          <span>
-                            {issue.assignee_teammate_id
-                              ? teammatesById[issue.assignee_teammate_id]?.name ??
-                                "Assigned"
-                              : "Unassigned"}
+                        <div className="mt-1 flex items-center gap-2 text-sm font-medium text-foreground">
+                          <StatusDot
+                            variant={issueStatusVariant(issue.status)}
+                            pulse={issue.status === "in_progress"}
+                          />
+                          <span className="truncate">
+                            {issue.title || "Untitled issue"}
                           </span>
                         </div>
                       </div>
-                      <MoveRight className="mt-1 size-3.5 shrink-0 text-foreground/25" />
-                    </div>
+                    </button>
                   ))
                 ) : (
-                  <EmptyState label="No issue activity yet" />
+                  <EmptyState label="No tasks yet" />
                 )}
-              </ActivityCard>
-
-              <ActivityCard
-                title="Attention needed"
-                emptyLabel="Nothing needs attention right now"
-              >
-                {summary.blockedCount > 0 || summary.reviewCount > 0 || summary.todoIdleCount > 0 ? (
-                  <div className="grid gap-3">
-                    <AttentionRow
-                      label="Blocked issues"
-                      value={summary.blockedCount}
-                      detail="Require a blocker reply or manual intervention"
-                      tone="warning"
-                    />
-                    <AttentionRow
-                      label="In review"
-                      value={summary.reviewCount}
-                      detail="Waiting for explicit human review in the thread"
-                      tone="info"
-                    />
-                    <AttentionRow
-                      label="Unassigned todo"
-                      value={summary.todoIdleCount}
-                      detail="Todo issues without an assignee stay idle"
-                      tone="muted"
-                    />
-                  </div>
-                ) : (
-                  <EmptyState label="Nothing needs attention right now" />
-                )}
-              </ActivityCard>
+              </ActivityListCard>
             </div>
           </div>
         )}
@@ -356,15 +756,14 @@ function MetricCard({
   tone = "default",
 }: {
   label: string;
-  value: number;
+  value: number | string;
   detail: string;
-  tone?: "default" | "warning" | "success";
+  tone?: "default" | "success";
 }) {
   return (
     <div
       className={cn(
         "rounded-2xl border border-border bg-card/85 px-4 py-4 shadow-sm",
-        tone === "warning" && "bg-amber-500/6",
         tone === "success" && "bg-emerald-500/6",
       )}
     >
@@ -379,51 +778,68 @@ function MetricCard({
   );
 }
 
-function DistributionCard({
+function MiniBarChartCard({
   title,
-  emptyLabel,
-  rows,
+  subtitle,
+  bars,
+  legend,
+  valueSuffix = "",
 }: {
   title: string;
-  emptyLabel: string;
-  rows: Array<{
-    key: string;
-    label: string;
-    count: number;
-    total: number;
-    tone: string;
-  }>;
+  subtitle: string;
+  bars: Array<{ key: string; label: string; value: number; color: string }>;
+  legend: Array<{ label: string; color: string }>;
+  valueSuffix?: string;
 }) {
-  const hasAny = rows.some((row) => row.count > 0);
+  const maxValue = Math.max(1, ...bars.map((bar) => bar.value));
+  const hasAny = bars.some((bar) => bar.value > 0);
 
   return (
     <div className="rounded-2xl border border-border bg-card/85 px-4 py-4 shadow-sm">
-      <div className="text-sm font-medium text-foreground">{title}</div>
-      <div className="mt-4 space-y-3">
-        {hasAny ? (
-          rows.map((row) => (
-            <div key={row.key}>
-              <div className="mb-1.5 flex items-center justify-between text-xs text-foreground/55">
-                <span>{row.label}</span>
-                <span>{row.count}</span>
+      <div className="text-lg font-medium text-foreground">{title}</div>
+      <div className="mt-1 text-sm text-foreground/45">{subtitle}</div>
+      {hasAny ? (
+        <>
+          <div className="mt-6 flex h-44 items-end gap-3">
+            {bars.map((bar) => (
+              <div
+                key={bar.key}
+                className="flex min-w-0 flex-1 flex-col items-center gap-2"
+              >
+                <div className="flex h-32 w-full items-end justify-center">
+                  <div
+                    className={cn("w-full max-w-9 rounded-t-sm", bar.color)}
+                    style={{
+                      height: `${Math.max(4, Math.round((bar.value / maxValue) * 100))}%`,
+                    }}
+                    title={`${bar.value}${valueSuffix}`}
+                  />
+                </div>
+                <div className="h-4 text-center text-[11px] text-foreground/42">
+                  {bar.label}
+                </div>
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-foreground/[0.05]">
-                <div
-                  className={cn("h-full rounded-full", row.tone)}
-                  style={{ width: percent(row.count, row.total) }}
-                />
-              </div>
-            </div>
-          ))
-        ) : (
-          <EmptyState label={emptyLabel} />
-        )}
-      </div>
+            ))}
+          </div>
+          <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs text-foreground/52">
+            {legend.map((item) => (
+              <span key={item.label} className="inline-flex items-center gap-2">
+                <span className={cn("size-2 rounded-full", item.color)} />
+                {item.label}
+              </span>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="mt-6">
+          <EmptyState label="No chart data yet" />
+        </div>
+      )}
     </div>
   );
 }
 
-function ActivityCard({
+function ActivityListCard({
   title,
   emptyLabel,
   children,
@@ -434,47 +850,8 @@ function ActivityCard({
 }) {
   return (
     <div className="rounded-2xl border border-border bg-card/85 px-4 py-4 shadow-sm">
-      <div className="mb-4 text-sm font-medium text-foreground">{title}</div>
+      <div className="mb-4 text-lg font-medium text-foreground">{title}</div>
       <div className="grid gap-3">{children || <EmptyState label={emptyLabel} />}</div>
-    </div>
-  );
-}
-
-function AttentionRow({
-  label,
-  value,
-  detail,
-  tone,
-}: {
-  label: string;
-  value: number;
-  detail: string;
-  tone: "warning" | "info" | "muted";
-}) {
-  return (
-    <div
-      className={cn(
-        "rounded-xl border border-border bg-background/65 px-3 py-3",
-        tone === "warning" && "border-amber-400/20 bg-amber-500/8",
-      )}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <TriangleAlert
-            className={cn(
-              "size-4",
-              tone === "warning"
-                ? "text-amber-300"
-                : tone === "info"
-                  ? "text-sky-300"
-                  : "text-foreground/35",
-            )}
-          />
-          <span className="text-sm font-medium text-foreground">{label}</span>
-        </div>
-        <span className="text-lg font-semibold text-foreground">{value}</span>
-      </div>
-      <div className="mt-2 text-xs leading-5 text-foreground/52">{detail}</div>
     </div>
   );
 }

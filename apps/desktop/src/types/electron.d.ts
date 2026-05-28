@@ -987,6 +987,7 @@ interface RuntimeNotificationListOptionsPayload {
     id: string;
     workspace_id: string;
     initiated_by: string;
+    teammate_id: string;
     name: string;
     cron: string;
     description: string;
@@ -1018,6 +1019,7 @@ interface RuntimeNotificationListOptionsPayload {
   interface CronjobCreatePayload {
     workspace_id: string;
     initiated_by: string;
+    teammate_id: string;
     session_id?: string;
     name?: string;
     cron: string;
@@ -1031,6 +1033,7 @@ interface RuntimeNotificationListOptionsPayload {
 
   interface CronjobUpdatePayload {
     session_id?: string;
+    teammate_id?: string;
     name?: string;
     cron?: string;
     description?: string;
@@ -1164,6 +1167,47 @@ interface RuntimeNotificationListOptionsPayload {
     limit?: number;
     offset?: number;
     order?: "asc" | "desc";
+  }
+
+  interface SessionTurnResultPayload {
+    workspace_id: string;
+    session_id: string;
+    input_id: string;
+    started_at: string;
+    completed_at: string | null;
+    status: string;
+    stop_reason: string | null;
+    assistant_text: string;
+    tool_usage_summary: Record<string, unknown>;
+    permission_denials: Array<Record<string, unknown>>;
+    prompt_section_ids: string[];
+    capability_manifest_fingerprint: string | null;
+    request_snapshot_fingerprint: string | null;
+    prompt_cache_profile: Record<string, unknown> | null;
+    context_budget_decisions: Record<string, unknown> | null;
+    token_usage: Record<string, unknown> | null;
+    created_at: string;
+    updated_at: string;
+  }
+
+  interface SessionTurnResultListRequestPayload {
+    workspaceId: string;
+    sessionId?: string | null;
+    inputId?: string | null;
+    status?: string | null;
+    limit?: number;
+    offset?: number;
+    order?: "asc" | "desc";
+  }
+
+  interface SessionTurnResultListResponsePayload {
+    workspace_id: string;
+    session_id: string | null;
+    items: SessionTurnResultPayload[];
+    count: number;
+    total: number;
+    limit: number;
+    offset: number;
   }
 
   interface SessionOutputEventPayload {
@@ -2227,6 +2271,9 @@ interface RuntimeNotificationListOptionsPayload {
       createAgentSession: (payload: CreateAgentSessionPayload) => Promise<CreateAgentSessionResponsePayload>;
       listRuntimeStates: (workspaceId: string) => Promise<SessionRuntimeStateListResponsePayload>;
       getSessionHistory: (payload: SessionHistoryRequestPayload) => Promise<SessionHistoryResponsePayload>;
+      listTurnResults: (
+        payload: SessionTurnResultListRequestPayload
+      ) => Promise<SessionTurnResultListResponsePayload>;
       getSessionOutputEvents: (payload: SessionOutputEventListRequestPayload) => Promise<SessionOutputEventListResponsePayload>;
       stageSessionAttachments: (payload: StageSessionAttachmentsPayload) => Promise<StageSessionAttachmentsResponsePayload>;
       stageSessionAttachmentPaths: (

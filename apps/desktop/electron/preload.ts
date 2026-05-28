@@ -1528,6 +1528,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("workspace:listRuntimeStates", workspaceId) as Promise<SessionRuntimeStateListResponsePayload>,
     getSessionHistory: (payload: SessionHistoryRequestPayload) =>
       ipcRenderer.invoke("workspace:getSessionHistory", payload) as Promise<SessionHistoryResponsePayload>,
+    listTurnResults: (payload: SessionTurnResultListRequestPayload) =>
+      ipcRenderer.invoke("workspace:listTurnResults", payload) as Promise<SessionTurnResultListResponsePayload>,
     getSessionOutputEvents: (payload: SessionOutputEventListRequestPayload) =>
       ipcRenderer.invoke("workspace:getSessionOutputEvents", payload) as Promise<SessionOutputEventListResponsePayload>,
     stageSessionAttachments: (payload: StageSessionAttachmentsPayload) =>

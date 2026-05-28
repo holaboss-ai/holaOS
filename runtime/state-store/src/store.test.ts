@@ -3155,6 +3155,7 @@ test("workspace-scoped runtime tables persist inside the workspace bundle and mi
   const cronjob = store.createCronjob({
     workspaceId: "workspace-1",
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     cron: "0 9 * * *",
     description: "Daily check",
     instruction: "Say hello",
@@ -3253,6 +3254,7 @@ test("cronjobs round trip supports create, list, update, get, and delete", () =>
   const job = store.createCronjob({
     workspaceId: "workspace-1",
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     cron: "0 9 * * *",
     description: "Daily check",
     instruction: "Say hello",
@@ -3270,6 +3272,7 @@ test("cronjobs round trip supports create, list, update, get, and delete", () =>
 
   assert.equal(listed.length, 1);
   assert.ok(fetched);
+  assert.equal(fetched.teammateId, "general");
   assert.equal(fetched.instruction, "Say hello");
   assert.ok(updated);
   assert.equal(updated.description, "Updated check");
@@ -3333,6 +3336,7 @@ test("cronjob schema migration backfills instruction from legacy description", (
   const migrated = store.getCronjob({ workspaceId: "workspace-1", jobId: "job-1" });
 
   assert.ok(migrated);
+  assert.equal(migrated.teammateId, "general");
   assert.equal(migrated.instruction, "Say hello every 5 minutes.");
   store.close();
 });
@@ -3408,6 +3412,7 @@ test("workspace-scoped runtime db backfills legacy cronjobs from runtime.db on f
 
   assert.equal(listed.length, 1);
   assert.equal(listed[0]?.id, "job-legacy");
+  assert.equal(listed[0]?.teammateId, "general");
   assert.equal(fs.existsSync(workspaceDbPath), true);
 
   const workspaceDb = new Database(workspaceDbPath, { readonly: true });

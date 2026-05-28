@@ -93,10 +93,6 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
     setView("chat");
   }, [composerPrefill, setView]);
 
-  const handleOpenSessionsView = useCallback(() => {
-    setView("sessions");
-  }, [setView]);
-
   const handleReturnToChat = useCallback(() => {
     setView("chat");
   }, [setView]);
@@ -244,7 +240,6 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
     ) : (
       <ChatPane
         variant="embedded"
-        onOpenSessions={handleOpenSessionsView}
         onOpenOutput={openOutput}
         onOpenLinkInBrowser={openUrlInBrowserTab}
         onOpenLocalLink={handleOpenLocalLink}

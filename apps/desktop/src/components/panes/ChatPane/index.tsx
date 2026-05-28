@@ -3268,7 +3268,6 @@ interface ChatPaneProps {
   ) => void;
   onJumpToSessionBrowser?: (sessionId: string, requestKey: number) => void;
   onOpenBackgroundTask?: (task: BackgroundTaskRecordPayload) => boolean;
-  onOpenSessions?: () => void;
   onOpenMeetingMode?: () => void;
   meetingModeBusy?: boolean;
   meetingModeError?: string;
@@ -3319,7 +3318,6 @@ export function ChatPane({
   onBrowserJumpRequestConsumed,
   onJumpToSessionBrowser,
   onOpenBackgroundTask,
-  onOpenSessions,
   onOpenInbox,
   inboxUnreadCount = 0,
   onOpenAutomations,
@@ -9115,7 +9113,6 @@ export function ChatPane({
               }
               onOpenInbox={onOpenInbox}
               inboxUnreadCount={inboxUnreadCount}
-              onOpenSessions={onOpenSessions}
               onOpenAutomations={onOpenAutomations}
               onOpenArtifacts={onOpenArtifacts}
               onEnterFocusMode={onEnterFocusMode}

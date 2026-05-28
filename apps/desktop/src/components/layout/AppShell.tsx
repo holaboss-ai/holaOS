@@ -3220,15 +3220,6 @@ function AppShellContent() {
     setAgentView({ type: "inbox" });
   }, []);
 
-  const handleOpenSessionsPane = useCallback(() => {
-    setActiveShellView("space");
-    setSpaceVisibility((previous) => ({
-      ...previous,
-      agent: true,
-    }));
-    setAgentView({ type: "sessions" });
-  }, []);
-
   const handleOpenAutomationsPane = useCallback(() => {
     setActiveShellView("space");
     setSpaceVisibility((previous) => ({
@@ -4636,7 +4627,6 @@ function AppShellContent() {
           onBrowserJumpRequestConsumed={consumeChatBrowserJumpRequest}
           onJumpToSessionBrowser={handleJumpToSessionBrowser}
           onOpenBackgroundTask={handleOpenBackgroundTask}
-          onOpenSessions={handleOpenSessionsPane}
           onOpenMeetingMode={handleOpenMeetingMode}
           meetingModeBusy={isStartingMeetingMode}
           meetingModeError={meetingModeError}
@@ -4706,7 +4696,6 @@ function AppShellContent() {
     handleJumpToSessionBrowser,
     handleMissingInternalResource,
     handleOpenInboxPane,
-    handleOpenSessionsPane,
     handleOpenMeetingMode,
     handleOpenAutomationsPane,
     handleOpenArtifactsPane,

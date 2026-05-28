@@ -249,21 +249,28 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
             <Loader2 className="size-5 animate-spin text-foreground/35" />
           </div>
         ) : (
-          <div className="flex h-full min-h-full min-w-max items-stretch gap-5 pb-3">
+          <div className="flex h-full min-h-full min-w-full items-stretch gap-5 pb-3">
             {BOARD_STATUS_ORDER.map((status) => {
               const tone = BOARD_COLUMN_CHROME[status];
               const columnIssues = issuesByStatus[status];
+              const isCollapsed = columnIssues.length === 0;
               return (
                 <section
                   key={status}
                   className={cn(
-                    "flex h-full min-h-0 w-[330px] shrink-0 self-stretch flex-col overflow-hidden rounded-2xl border transition-colors",
+                    "flex h-full min-h-0 min-w-0 self-stretch flex-col overflow-hidden rounded-2xl border transition-[flex-grow,flex-basis,background-color,border-color] duration-200",
+                    isCollapsed
+                      ? "min-w-[128px] flex-[1_1_0%]"
+                      : "min-w-[320px] flex-[3_1_0%]",
                     tone.shellClass,
                   )}
                 >
                   <div
                     className={cn(
-                      "flex items-center justify-between gap-3 border-b px-4 py-3",
+                      "flex items-center border-b py-3",
+                      isCollapsed
+                        ? "justify-start px-4"
+                        : "justify-between gap-3 px-4",
                       tone.headerClass,
                     )}
                   >
@@ -272,27 +279,45 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
                         variant={issueStatusVariant(status)}
                         pulse={status === "in_progress"}
                       />
-                      <div className="flex items-baseline gap-2">
-                        <h2 className="text-[15px] font-semibold text-foreground">
-                          {issueStatusLabel(status)}
-                        </h2>
-                        <span className="text-xs text-foreground/45">
-                          {columnIssues.length}
-                        </span>
-                      </div>
+                      {isCollapsed ? (
+                        <div className="flex min-w-0 items-baseline gap-2">
+                          <h2
+                            className="truncate text-[14px] font-semibold text-foreground"
+                            title={issueStatusLabel(status)}
+                          >
+                            {issueStatusLabel(status)}
+                          </h2>
+                          <span className="shrink-0 text-xs text-foreground/45">
+                            {columnIssues.length}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-baseline gap-2">
+                          <h2 className="text-[15px] font-semibold text-foreground">
+                            {issueStatusLabel(status)}
+                          </h2>
+                          <span className="text-xs text-foreground/45">
+                            {columnIssues.length}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3">
+                  <div
+                    className={cn(
+                      "flex min-h-0 flex-1 overflow-y-auto",
+                      isCollapsed ? "px-2 py-2.5" : "flex-col gap-3 px-3 py-3",
+                    )}
+                  >
                     {columnIssues.length === 0 ? (
                       <div
                         className={cn(
-                          "grid min-h-[220px] flex-1 place-items-center rounded-xl border border-dashed text-sm",
+                          "min-h-[220px] flex-1 rounded-xl border",
                           tone.emptyClass,
                         )}
-                      >
-                        No issues
-                      </div>
+                        aria-label={`${issueStatusLabel(status)} column empty`}
+                      />
                     ) : (
                       columnIssues.map((issue) => {
                         const pending = pendingIssueId === issue.issue_id;

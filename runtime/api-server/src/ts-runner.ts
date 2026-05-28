@@ -133,6 +133,20 @@ const SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS = new Set([
   "cancel_task",
   "rerun_task",
 ]);
+const SUBAGENT_BLOCKED_RUNTIME_TOOL_IDS = new Set([
+  "onboarding_status",
+  "holaboss_create_alignment_report",
+  "holaboss_create_alignment_question",
+  "holaboss_create_verification_report",
+  "holaboss_onboarding_complete",
+  "cronjobs_list",
+  "cronjobs_create",
+  "cronjobs_get",
+  "cronjobs_update",
+  "cronjobs_delete",
+  "teammates_create",
+  "teammate_skills_create",
+]);
 const MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS = new Set([
   "update_workspace_instructions",
 ]);
@@ -148,6 +162,8 @@ const MAIN_SESSION_RUNTIME_TOOL_IDS = new Set([
   "cronjobs_get",
   "cronjobs_update",
   "cronjobs_delete",
+  "teammates_create",
+  "teammate_skills_create",
 ]);
 const ONBOARDING_SESSION_RUNTIME_TOOL_IDS = new Set([
   ...Array.from(MAIN_SESSION_RUNTIME_TOOL_IDS).filter(
@@ -1169,7 +1185,8 @@ function projectRuntimeToolIdsForSession(params: {
     return params.runtimeToolIds.filter(
       (toolId) =>
         !SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS.has(toolId) &&
-        !MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS.has(toolId),
+        !MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS.has(toolId) &&
+        !SUBAGENT_BLOCKED_RUNTIME_TOOL_IDS.has(toolId),
     );
   }
   return params.runtimeToolIds.filter(
@@ -1199,7 +1216,8 @@ function projectExtraToolIdsForSession(params: {
         ...params.extraToolIds.filter(
           (toolId) =>
             !SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS.has(toolId) &&
-            !MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS.has(toolId),
+            !MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS.has(toolId) &&
+            !SUBAGENT_BLOCKED_RUNTIME_TOOL_IDS.has(toolId),
         ),
       ]),
     );
