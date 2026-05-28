@@ -4,7 +4,7 @@ function browserToolsEnabledForSessionKind(
   sessionKind: string | null | undefined,
 ): boolean {
   const normalized = String(sessionKind ?? "").trim().toLowerCase();
-  return normalized === "main_session" || normalized === "subagent";
+  return normalized === "subagent";
 }
 
 export const piHarnessDefinition: HarnessDefinition = {
@@ -50,6 +50,10 @@ export const piHarnessDefinition: HarnessDefinition = {
         persisted_harness_session_id: params.bootstrap.persistedHarnessSessionId,
         provider_id: params.runtimeConfig.provider_id,
         model_id: params.runtimeConfig.model_id,
+        selected_model:
+          typeof params.request.model === "string" && params.request.model.trim().length > 0
+            ? params.request.model.trim()
+            : null,
         timeout_seconds: params.timeoutSeconds,
         runtime_api_base_url: params.runtimeApiBaseUrl ?? null,
         system_prompt: params.runtimeConfig.system_prompt,

@@ -17,8 +17,9 @@ const RUNTIME_TOOLS_ONBOARDING_VERIFICATION_REPORT_PATH =
   "/api/v1/capabilities/runtime-tools/onboarding/verification-report";
 const RUNTIME_TOOLS_ONBOARDING_COMPLETE_PATH = "/api/v1/capabilities/runtime-tools/onboarding/complete";
 const RUNTIME_TOOLS_CRONJOBS_PATH = "/api/v1/capabilities/runtime-tools/cronjobs";
+const RUNTIME_TOOLS_TEAMMATES_PATH = "/api/v1/capabilities/runtime-tools/teammates";
 const RUNTIME_TOOLS_SUBAGENTS_PATH = "/api/v1/capabilities/runtime-tools/subagents";
-const RUNTIME_TOOLS_BACKGROUND_TASKS_PATH = "/api/v1/capabilities/runtime-tools/background-tasks";
+const RUNTIME_TOOLS_TASKS_PATH = "/api/v1/capabilities/runtime-tools/tasks";
 const RUNTIME_TOOLS_IMAGE_GENERATE_PATH = "/api/v1/capabilities/runtime-tools/images/generate";
 const RUNTIME_TOOLS_DOWNLOADS_PATH = "/api/v1/capabilities/runtime-tools/downloads";
 const RUNTIME_TOOLS_REPORTS_PATH = "/api/v1/capabilities/runtime-tools/reports";
@@ -135,12 +136,12 @@ function rewriteCronjobDeliveryModesForModel(value: unknown): unknown {
   return next;
 }
 
-function subagentPath(subagentId: unknown): string {
-  const value = optionalString(subagentId);
+function taskPath(taskId: unknown): string {
+  const value = optionalString(taskId);
   if (!value) {
-    throw new Error("subagent_id is required");
+    throw new Error("task_id is required");
   }
-  return `${RUNTIME_TOOLS_SUBAGENTS_PATH}/${encodeURIComponent(value)}`;
+  return `${RUNTIME_TOOLS_TASKS_PATH}/${encodeURIComponent(value)}`;
 }
 
 function cronjobPath(jobId: unknown): string {
@@ -169,6 +170,7 @@ function createCronjobBody(toolParams: unknown): Record<string, unknown> {
     cron: String(params.cron ?? ""),
     description: String(params.description ?? ""),
     instruction: String(params.instruction ?? ""),
+    teammate_id: String(params.teammate_id ?? ""),
     ...(optionalString(params.initiated_by) ? { initiated_by: optionalString(params.initiated_by) } : {}),
     ...(optionalString(params.name) ? { name: optionalString(params.name) } : {}),
     ...(typeof params.enabled === "boolean" ? { enabled: params.enabled } : {}),
@@ -177,11 +179,90 @@ function createCronjobBody(toolParams: unknown): Record<string, unknown> {
   };
 }
 
+function createTeammateBody(toolParams: unknown): Record<string, unknown> {
+  const params = isRecord(toolParams) ? toolParams : {};
+  const capabilityProfile = isRecord(params.capability_profile)
+    ? {
+        ...(optionalString(params.capability_profile.summary)
+          ? { summary: optionalString(params.capability_profile.summary) }
+          : {}),
+        ...(optionalStringArray(params.capability_profile.capabilities)
+          ? {
+              capabilities: optionalStringArray(
+                params.capability_profile.capabilities,
+              ),
+            }
+          : {}),
+        ...(optionalStringArray(params.capability_profile.preferred_tools)
+          ? {
+              preferred_tools: optionalStringArray(
+                params.capability_profile.preferred_tools,
+              ),
+            }
+          : {}),
+      }
+    : undefined;
+  return {
+    name: String(params.name ?? ""),
+    ...(optionalString(params.teammate_id)
+      ? { teammate_id: optionalString(params.teammate_id) }
+      : {}),
+    ...(optionalString(params.instructions)
+      ? { instructions: optionalString(params.instructions) }
+      : {}),
+    ...(capabilityProfile ? { capability_profile: capabilityProfile } : {}),
+  };
+}
+
+function teammateSkillsPath(teammateId: unknown): string {
+  const value = optionalString(teammateId);
+  if (!value) {
+    throw new Error("teammate_id is required");
+  }
+  return `${RUNTIME_TOOLS_TEAMMATES_PATH}/${encodeURIComponent(value)}/skills`;
+}
+
+function createTeammateSkillBody(toolParams: unknown): Record<string, unknown> {
+  const params = isRecord(toolParams) ? toolParams : {};
+  return {
+    ...(optionalString(params.skill_id)
+      ? { skill_id: optionalString(params.skill_id) }
+      : {}),
+    ...(optionalString(params.name) ? { name: String(params.name ?? "") } : {}),
+    ...(optionalString(params.content)
+      ? { content: String(params.content ?? "") }
+      : {}),
+    ...(optionalString(params.skill_markdown)
+      ? { skill_markdown: String(params.skill_markdown ?? "") }
+      : {}),
+    ...(optionalStringArray(params.granted_tools)
+      ? { granted_tools: optionalStringArray(params.granted_tools) }
+      : {}),
+    ...(optionalStringArray(params.granted_commands)
+      ? { granted_commands: optionalStringArray(params.granted_commands) }
+      : {}),
+    ...(Array.isArray(params.sidecar_files)
+      ? {
+          sidecar_files: params.sidecar_files
+            .filter((file): file is Record<string, unknown> => isRecord(file))
+            .map((file) => ({
+              path: String(file.path ?? ""),
+              content: String(file.content ?? ""),
+            })),
+        }
+      : {}),
+    ...(optionalStringArray(params.directories)
+      ? { directories: optionalStringArray(params.directories) }
+      : {}),
+  };
+}
+
 function updateCronjobBody(toolParams: unknown): Record<string, unknown> {
   const params = isRecord(toolParams) ? toolParams : {};
   const delivery = buildDeliveryPayload(params);
   const metadata = parseOptionalJsonObject(params.metadata_json, "metadata_json");
   return {
+    ...(optionalString(params.teammate_id) ? { teammate_id: optionalString(params.teammate_id) } : {}),
     ...(optionalString(params.name) ? { name: optionalString(params.name) } : {}),
     ...(optionalString(params.cron) ? { cron: optionalString(params.cron) } : {}),
     ...(optionalString(params.description) ? { description: optionalString(params.description) } : {}),
@@ -243,43 +324,30 @@ function createWorkspaceInstructionsBody(toolParams: unknown): Record<string, un
   return body;
 }
 
-function getSubagentPath(toolParams: unknown): string {
-  return subagentPath(isRecord(toolParams) ? toolParams.subagent_id : undefined);
+function getTaskPath(toolParams: unknown): string {
+  return taskPath(isRecord(toolParams) ? toolParams.task_id : undefined);
 }
 
-function listBackgroundTasksPath(toolParams: unknown): string {
+function listTasksPath(toolParams: unknown): string {
   const params = isRecord(toolParams) ? toolParams : {};
   const query = new URLSearchParams();
   for (const status of optionalStringArray(params.statuses) ?? []) {
-    query.append("status", status);
-  }
-  const ownerMainSessionId = optionalString(params.owner_main_session_id);
-  if (ownerMainSessionId) {
-    query.set("owner_main_session_id", ownerMainSessionId);
+    query.append("statuses", status);
   }
   if (typeof params.limit === "number" && Number.isFinite(params.limit)) {
     query.set("limit", String(Math.trunc(params.limit)));
   }
   const suffix = query.toString();
-  return suffix
-    ? `${RUNTIME_TOOLS_BACKGROUND_TASKS_PATH}?${suffix}`
-    : RUNTIME_TOOLS_BACKGROUND_TASKS_PATH;
+  return suffix ? `${RUNTIME_TOOLS_TASKS_PATH}?${suffix}` : RUNTIME_TOOLS_TASKS_PATH;
 }
 
-function createResumeSubagentBody(toolParams: unknown): Record<string, unknown> {
+function createRerunTaskBody(toolParams: unknown): Record<string, unknown> {
   const params = isRecord(toolParams) ? toolParams : {};
   return {
-    answer: String(params.answer ?? ""),
     ...(optionalString(params.model) ? { model: optionalString(params.model) } : {}),
-  };
-}
-
-function createContinueSubagentBody(toolParams: unknown): Record<string, unknown> {
-  const params = isRecord(toolParams) ? toolParams : {};
-  return {
-    instruction: String(params.instruction ?? ""),
-    ...(optionalString(params.title) ? { title: optionalString(params.title) } : {}),
-    ...(optionalString(params.model) ? { model: optionalString(params.model) } : {}),
+    ...(typeof params.priority === "number" && Number.isFinite(params.priority)
+      ? { priority: Math.trunc(params.priority) }
+      : {}),
   };
 }
 
@@ -657,6 +725,20 @@ function requestPlan(
       return { method: "GET", requestPath: cronjobsListPath(toolParams) };
     case "cronjobs_create":
       return { method: "POST", requestPath: RUNTIME_TOOLS_CRONJOBS_PATH, body: createCronjobBody(toolParams) };
+    case "teammates_create":
+      return {
+        method: "POST",
+        requestPath: RUNTIME_TOOLS_TEAMMATES_PATH,
+        body: createTeammateBody(toolParams),
+      };
+    case "teammate_skills_create":
+      return {
+        method: "POST",
+        requestPath: teammateSkillsPath(
+          isRecord(toolParams) ? toolParams.teammate_id : undefined,
+        ),
+        body: createTeammateSkillBody(toolParams),
+      };
     case "cronjobs_get":
       return {
         method: "GET",
@@ -679,33 +761,27 @@ function requestPlan(
         requestPath: RUNTIME_TOOLS_SUBAGENTS_PATH,
         body: createDelegateTaskBody(toolParams),
       };
-    case "get_subagent":
+    case "get_task":
       return {
         method: "GET",
-        requestPath: getSubagentPath(toolParams),
+        requestPath: getTaskPath(toolParams),
       };
-    case "list_background_tasks":
+    case "list_tasks":
       return {
         method: "GET",
-        requestPath: listBackgroundTasksPath(toolParams),
+        requestPath: listTasksPath(toolParams),
       };
-    case "cancel_subagent":
+    case "cancel_task":
       return {
         method: "POST",
-        requestPath: `${subagentPath(isRecord(toolParams) ? toolParams.subagent_id : undefined)}/cancel`,
+        requestPath: `${taskPath(isRecord(toolParams) ? toolParams.task_id : undefined)}/cancel`,
         body: {},
       };
-    case "resume_subagent":
+    case "rerun_task":
       return {
         method: "POST",
-        requestPath: `${subagentPath(isRecord(toolParams) ? toolParams.subagent_id : undefined)}/resume`,
-        body: createResumeSubagentBody(toolParams),
-      };
-    case "continue_subagent":
-      return {
-        method: "POST",
-        requestPath: `${subagentPath(isRecord(toolParams) ? toolParams.subagent_id : undefined)}/continue`,
-        body: createContinueSubagentBody(toolParams),
+        requestPath: `${taskPath(isRecord(toolParams) ? toolParams.task_id : undefined)}/rerun`,
+        body: createRerunTaskBody(toolParams),
       };
     case "image_generate":
       return { method: "POST", requestPath: RUNTIME_TOOLS_IMAGE_GENERATE_PATH, body: createImageGenerationBody(toolParams) };

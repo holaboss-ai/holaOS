@@ -3273,6 +3273,7 @@ test("workspace-scoped runtime tables persist inside the workspace bundle and mi
   const cronjob = store.createCronjob({
     workspaceId: "workspace-1",
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     cron: "0 9 * * *",
     description: "Daily check",
     instruction: "Say hello",
@@ -3371,6 +3372,7 @@ test("cronjobs round trip supports create, list, update, get, and delete", () =>
   const job = store.createCronjob({
     workspaceId: "workspace-1",
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     cron: "0 9 * * *",
     description: "Daily check",
     instruction: "Say hello",
@@ -3388,6 +3390,7 @@ test("cronjobs round trip supports create, list, update, get, and delete", () =>
 
   assert.equal(listed.length, 1);
   assert.ok(fetched);
+  assert.equal(fetched.teammateId, "general");
   assert.equal(fetched.instruction, "Say hello");
   assert.ok(updated);
   assert.equal(updated.description, "Updated check");
@@ -3451,6 +3454,7 @@ test("cronjob schema migration backfills instruction from legacy description", (
   const migrated = store.getCronjob({ workspaceId: "workspace-1", jobId: "job-1" });
 
   assert.ok(migrated);
+  assert.equal(migrated.teammateId, "general");
   assert.equal(migrated.instruction, "Say hello every 5 minutes.");
   store.close();
 });
@@ -3526,6 +3530,7 @@ test("workspace-scoped runtime db backfills legacy cronjobs from runtime.db on f
 
   assert.equal(listed.length, 1);
   assert.equal(listed[0]?.id, "job-legacy");
+  assert.equal(listed[0]?.teammateId, "general");
   assert.equal(fs.existsSync(workspaceDbPath), true);
 
   const workspaceDb = new Database(workspaceDbPath, { readonly: true });
@@ -3892,9 +3897,10 @@ test("task proposals round trip supports create, list, unreviewed, get, and stat
 
 test("task proposal acceptance fields and child session metadata round trip", () => {
   const root = makeTempDir("hb-state-store-");
+  const workspaceRoot = path.join(root, "workspace");
   const store = new RuntimeStateStore({
     dbPath: path.join(root, "runtime.db"),
-    workspaceRoot: path.join(root, "workspace")
+    workspaceRoot
   });
 
   const session = store.ensureSession({
@@ -3928,14 +3934,243 @@ test("task proposal acceptance fields and child session metadata round trip", ()
     }
   });
 
+  assert.equal(session.kind, "subagent");
   assert.equal(sessions.length, 1);
-  assert.equal(sessions[0]?.kind, "task_proposal");
+  assert.equal(sessions[0]?.kind, "subagent");
   assert.equal(sessions[0]?.parentSessionId, "session-main");
   assert.equal(sessions[0]?.sourceProposalId, "proposal-1");
   assert.ok(updated);
   assert.equal(updated.acceptedSessionId, "proposal-session-1");
   assert.equal(updated.acceptedInputId, "input-1");
   assert.equal(updated.acceptedAt, "2026-01-01T01:00:00+00:00");
+  store.close();
+
+  const legacyDb = new Database(workspaceRuntimeDbFile(workspaceRoot, "workspace-1"));
+  legacyDb
+    .prepare("UPDATE agent_sessions SET kind = ? WHERE workspace_id = ? AND session_id = ?")
+    .run("task_proposal", "workspace-1", "proposal-session-1");
+  legacyDb.close();
+
+  const reopened = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot
+  });
+  const migratedSession = reopened.getSession({
+    workspaceId: "workspace-1",
+    sessionId: "proposal-session-1"
+  });
+  const migratedDb = new Database(workspaceRuntimeDbFile(workspaceRoot, "workspace-1"), { readonly: true });
+  const storedKind = migratedDb
+    .prepare("SELECT kind FROM agent_sessions WHERE workspace_id = ? AND session_id = ? LIMIT 1")
+    .get("workspace-1", "proposal-session-1") as { kind: string };
+
+  assert.equal(migratedSession?.kind, "subagent");
+  assert.equal(storedKind.kind, "subagent");
+  migratedDb.close();
+  reopened.close();
+});
+
+test("issues round trip creates persistent sessions with a workspace-derived prefix", () => {
+  const root = makeTempDir("hb-state-store-issues-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Issue Workspace",
+    harness: "pi",
+    status: "active",
+  });
+
+  const general = store.ensureGeneralTeammate("workspace-1");
+  const first = store.createIssue({
+    workspaceId: "workspace-1",
+    title: "Implement dashboard",
+    description: "Build the initial dashboard surface.",
+    status: "todo",
+    priority: "high",
+    assigneeTeammateId: general.teammateId,
+    attachments: [
+      {
+        id: "attachment-1",
+        kind: "file",
+        name: "brief.md",
+        mimeType: "text/markdown",
+        sizeBytes: 128,
+        workspacePath: "docs/brief.md",
+      },
+    ],
+  });
+  const second = store.createIssue({
+    workspaceId: "workspace-1",
+    title: "Instrument homepage metrics",
+    status: "backlog",
+  });
+  const listed = store.listIssues({ workspaceId: "workspace-1" });
+  const fetchedBySession = store.getIssueBySessionId({
+    workspaceId: "workspace-1",
+    sessionId: first.sessionId,
+  });
+  const updated = store.updateIssue({
+    workspaceId: "workspace-1",
+    issueId: first.issueId,
+    fields: {
+      title: "Implement workspace dashboard",
+      status: "done",
+      priority: "critical",
+    }
+  });
+  const updatedSession = store.getSession({
+    workspaceId: "workspace-1",
+    sessionId: first.sessionId,
+  });
+
+  assert.equal(first.issueId, "ISS-1");
+  assert.equal(first.issueNumber, 1);
+  assert.equal(first.status, "todo");
+  assert.equal(first.priority, "high");
+  assert.equal(first.attachments.length, 1);
+  assert.equal(second.issueId, "ISS-2");
+  assert.equal(second.issueNumber, 2);
+  assert.equal(listed.length, 2);
+  assert.equal(fetchedBySession?.issueId, first.issueId);
+  assert.equal(updated?.status, "done");
+  assert.equal(updated?.priority, "critical");
+  assert.ok(updated?.completedAt);
+  assert.equal(updatedSession?.title, "Implement workspace dashboard");
+  store.close();
+});
+
+test("archiving a custom teammate unassigns issues and cancels linked runs", () => {
+  const root = makeTempDir("hb-state-store-teammates-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace")
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Teammate Workspace",
+    harness: "pi",
+    status: "active",
+  });
+
+  const custom = store.createTeammate({
+    workspaceId: "workspace-1",
+    name: "Coder",
+    instructions: "Own implementation tickets.",
+  });
+  const issue = store.createIssue({
+    workspaceId: "workspace-1",
+    title: "Ship issue board",
+    status: "in_progress",
+    assigneeTeammateId: custom.teammateId,
+    activeSubagentId: "run-1",
+  });
+  store.createSubagentRun({
+    subagentId: "run-1",
+    workspaceId: "workspace-1",
+    originMainSessionId: issue.sessionId,
+    ownerMainSessionId: issue.sessionId,
+    childSessionId: "subagent-session-1",
+    goal: "Ship issue board",
+    status: "running",
+    issueId: issue.issueId,
+    teammateId: custom.teammateId,
+  });
+
+  const archived = store.archiveTeammate({
+    workspaceId: "workspace-1",
+    teammateId: custom.teammateId,
+  });
+  const updatedIssue = store.getIssue({
+    workspaceId: "workspace-1",
+    issueId: issue.issueId,
+  });
+  const updatedRun = store.getSubagentRun({
+    workspaceId: "workspace-1",
+    subagentId: "run-1",
+  });
+  const visibleTeammates = store.listTeammates({ workspaceId: "workspace-1" });
+
+  assert.equal(archived?.status, "archived");
+  assert.ok(archived?.archivedAt);
+  assert.equal(updatedIssue?.status, "todo");
+  assert.equal(updatedIssue?.assigneeTeammateId, null);
+  assert.equal(updatedIssue?.activeSubagentId, null);
+  assert.equal(updatedRun?.status, "cancelled");
+  assert.equal(visibleTeammates.some((record) => record.teammateId === custom.teammateId), false);
+  assert.equal(visibleTeammates[0]?.teammateId, "general");
+  store.close();
+});
+
+test("teammate capability profiles persist and update cleanly", () => {
+  const root = makeTempDir("hb-state-store-teammate-capabilities-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Teammate Capability Workspace",
+    harness: "pi",
+    status: "active",
+  });
+
+  const general = store.ensureGeneralTeammate("workspace-1");
+  const teammate = store.createTeammate({
+    workspaceId: "workspace-1",
+    name: "Research",
+    instructions: "Own research, latest-info, and vendor comparison tasks.",
+    capabilityProfile: {
+      summary: "Best for live research, comparisons, and vendor analysis.",
+      capabilities: ["research", "comparison", "vendors"],
+      preferredTools: ["web_search", "browser_get_state"],
+    },
+  });
+  const updated = store.updateTeammate({
+    workspaceId: "workspace-1",
+    teammateId: teammate.teammateId,
+    fields: {
+      capabilityProfile: {
+        summary: "Best for live research, vendor analysis, and sourcing.",
+        capabilities: ["research", "vendors", "sourcing"],
+        preferredTools: ["web_search"],
+      },
+    },
+  });
+
+  assert.match(general.capabilityProfile.summary ?? "", /Fallback executor/i);
+  assert.match(
+    general.instructions ?? "",
+    /produce a report artifact instead of packing the full findings into the final session message/i,
+  );
+  assert.deepEqual(general.capabilityProfile.capabilities, [
+    "generalist",
+    "implementation",
+    "research",
+    "triage",
+    "fallback",
+  ]);
+  assert.deepEqual(teammate.capabilityProfile.capabilities, [
+    "research",
+    "comparison",
+    "vendors",
+  ]);
+  assert.deepEqual(teammate.capabilityProfile.preferredTools, [
+    "web_search",
+    "browser_get_state",
+  ]);
+  assert.equal(
+    updated?.capabilityProfile.summary,
+    "Best for live research, vendor analysis, and sourcing.",
+  );
+  assert.deepEqual(updated?.capabilityProfile.capabilities, [
+    "research",
+    "vendors",
+    "sourcing",
+  ]);
+  assert.deepEqual(updated?.capabilityProfile.preferredTools, ["web_search"]);
   store.close();
 });
 

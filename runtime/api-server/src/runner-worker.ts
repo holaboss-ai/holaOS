@@ -117,7 +117,11 @@ function prependPathEntries(currentPath: string | undefined, entries: string[]):
 
 function normalizeSessionKind(payload: Record<string, unknown>): string {
   const value = payload.session_kind;
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (normalized === "task_proposal") {
+    return "subagent";
+  }
+  return normalized;
 }
 
 function secondsFromEnv(
@@ -151,14 +155,14 @@ function runnerTimeoutSeconds(payload: Record<string, unknown>): number {
     min: 1,
     max: 7200
   });
-  if (normalizeSessionKind(payload) !== "task_proposal") {
-    return baseTimeoutSeconds;
+  if (normalizeSessionKind(payload) === "subagent") {
+    return secondsFromEnv(
+      "SANDBOX_AGENT_SUBAGENT_RUN_TIMEOUT_S",
+      Math.max(baseTimeoutSeconds, DEFAULT_TASK_PROPOSAL_RUN_TIMEOUT_SECONDS),
+      { min: 1, max: 7200 }
+    );
   }
-  return secondsFromEnv(
-    "SANDBOX_AGENT_TASK_PROPOSAL_RUN_TIMEOUT_S",
-    Math.max(baseTimeoutSeconds, DEFAULT_TASK_PROPOSAL_RUN_TIMEOUT_SECONDS),
-    { min: 1, max: 7200 }
-  );
+  return baseTimeoutSeconds;
 }
 
 function runnerIdleTimeoutSeconds(payload: Record<string, unknown>): number {
@@ -166,14 +170,14 @@ function runnerIdleTimeoutSeconds(payload: Record<string, unknown>): number {
     min: 1,
     max: 7200
   });
-  if (normalizeSessionKind(payload) !== "task_proposal") {
-    return baseIdleTimeoutSeconds;
+  if (normalizeSessionKind(payload) === "subagent") {
+    return secondsFromEnv(
+      "SANDBOX_AGENT_SUBAGENT_RUN_IDLE_TIMEOUT_S",
+      runnerTimeoutSeconds(payload),
+      { min: 1, max: 7200 }
+    );
   }
-  return secondsFromEnv(
-    "SANDBOX_AGENT_TASK_PROPOSAL_RUN_IDLE_TIMEOUT_S",
-    runnerTimeoutSeconds(payload),
-    { min: 1, max: 7200 }
-  );
+  return baseIdleTimeoutSeconds;
 }
 
 function runnerHeartbeatIntervalMs(): number {

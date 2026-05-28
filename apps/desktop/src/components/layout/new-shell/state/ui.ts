@@ -29,7 +29,12 @@ export const sidebarWidthAtom = atomWithStorage<number>(
  * (Inbox / Artifacts / Automations) inside the sidebar so the main
  * canvas keeps painting whatever the user was looking at.
  */
-export type SidebarSection = "home" | "inbox" | "artifacts" | "automations";
+export type SidebarSection =
+  | "home"
+  | "issues"
+  | "inbox"
+  | "artifacts"
+  | "automations";
 export const sidebarSectionAtom = atomWithStorage<SidebarSection>(
   "holaboss-new-shell-sidebar-section-v1",
   "home",
@@ -46,6 +51,9 @@ export const publishOpenAtom = atom(false);
 
 /** Is the create-new-workspace panel open? */
 export const createWorkspaceOpenAtom = atom(false);
+
+/** Is the create-new-issue dialog open? */
+export const newIssueOpenAtom = atom(false);
 
 /** Is the Automations overlay open? */
 export const automationsOpenAtom = atom(false);
@@ -112,6 +120,17 @@ export interface ChatComposerPrefill {
 }
 export const chatComposerPrefillAtom = atom<ChatComposerPrefill | null>(null);
 
+export interface ChatSessionOpenRequest {
+  sessionId: string;
+  requestKey: number;
+  mode?: "session" | "draft";
+  parentSessionId?: string | null;
+  readOnly?: boolean;
+}
+export const chatSessionOpenRequestAtom = atom<ChatSessionOpenRequest | null>(
+  null,
+);
+
 /**
  * True when any overlay is open. BrowserPane reads this to detach the
  * native BrowserView; otherwise the OS-level webview paints on top of
@@ -123,6 +142,7 @@ export const browserViewSuspendedAtom = atom(
     get(searchOpenAtom) ||
     get(publishOpenAtom) ||
     get(createWorkspaceOpenAtom) ||
+    get(newIssueOpenAtom) ||
     get(automationsOpenAtom) ||
     get(settingsOpenAtom) ||
     get(marketplaceOpenAtom) ||

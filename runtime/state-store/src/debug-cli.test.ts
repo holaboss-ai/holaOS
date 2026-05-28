@@ -209,6 +209,7 @@ test("jobs merges workspace runtime DB counts with legacy host-state cron and ev
   store.createCronjob({
     workspaceId: "ws-1",
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     cron: "0 9 * * *",
     description: "Runtime DB cron",
     instruction: "Runtime DB cron",

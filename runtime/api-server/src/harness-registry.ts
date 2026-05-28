@@ -97,11 +97,15 @@ function normalizeHarnessIdInternal(value: unknown): string {
 
 function browserToolsAllowedForSession(sessionKind: string | null | undefined): boolean {
   const normalized = normalizeSessionKind(sessionKind);
-  return normalized === "main_session" || normalized === "subagent";
+  return normalized === "subagent";
 }
 
 function normalizeSessionKind(value: string | null | undefined): string {
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (normalized === "task_proposal") {
+    return "subagent";
+  }
+  return normalized;
 }
 
 function timeoutSecondsFromEnv(envName: string, defaultValue: number): number {
@@ -122,13 +126,7 @@ function defaultHarnessTimeoutSeconds(sessionKind: string | null | undefined): n
       Math.max(baseTimeoutSeconds, 7200)
     );
   }
-  if (normalizedSessionKind !== "task_proposal") {
-    return baseTimeoutSeconds;
-  }
-  return timeoutSecondsFromEnv(
-    "HOLABOSS_TASK_PROPOSAL_HARNESS_RUN_TIMEOUT_S",
-    Math.max(baseTimeoutSeconds, 7200)
-  );
+  return baseTimeoutSeconds;
 }
 
 const adapterById = new Map(HARNESS_DEFINITIONS.map((definition) => [definition.id, definition.runtimeAdapter]));

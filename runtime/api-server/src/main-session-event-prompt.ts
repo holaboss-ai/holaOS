@@ -12,22 +12,22 @@ function optionalString(value: unknown): string | null {
   return trimmed ? trimmed : null;
 }
 
-const MAX_BACKGROUND_OUTPUT_PROMPT_CHARS = 6_000;
-const HTML_LIKE_BACKGROUND_OUTPUT_PATTERN =
-  /<(?:!doctype|html|head|body|script|style|iframe|svg)\b/i;
+const MAX_BACKGROUND_SUMMARY_PROMPT_CHARS = 40_000;
+const MAX_BACKGROUND_GOAL_PROMPT_CHARS = 1_200;
+const MAX_BACKGROUND_CONTEXT_PROMPT_CHARS = 1_200;
 
-function sanitizeBackgroundOutputForPrompt(value: unknown): string | undefined {
+function sanitizePromptText(
+  value: unknown,
+  maxChars: number,
+): string | undefined {
   const text = optionalString(value);
   if (!text) {
     return undefined;
   }
-  if (HTML_LIKE_BACKGROUND_OUTPUT_PATTERN.test(text)) {
-    return undefined;
-  }
-  if (text.length <= MAX_BACKGROUND_OUTPUT_PROMPT_CHARS) {
+  if (text.length <= maxChars) {
     return text;
   }
-  return `${text.slice(0, MAX_BACKGROUND_OUTPUT_PROMPT_CHARS)}\n\n[truncated]`;
+  return `${text.slice(0, maxChars)}\n\n[truncated]`;
 }
 
 function sanitizedDeliverableMetadata(
@@ -102,15 +102,19 @@ function sanitizeBackgroundEventPayloadForPrompt(
   payload: Record<string, unknown>,
 ): Record<string, unknown> {
   const sanitized: Record<string, unknown> = {};
+  const forwardableDeliverables = sanitizeDeliverableArray(
+    payload.forwardable_deliverables,
+  );
+  const partialDeliverables = sanitizeDeliverableArray(
+    payload.partial_deliverables,
+  );
+
   for (const key of [
     "source_type",
+    "source_id",
+    "issue_id",
     "status",
-    "summary",
-    "partial_summary",
-    "blocking_question",
     "title",
-    "goal",
-    "context",
     "turn_status",
     "stop_reason",
     "cronjob_name",
@@ -124,20 +128,38 @@ function sanitizeBackgroundEventPayloadForPrompt(
     }
   }
 
-  const assistantText = sanitizeBackgroundOutputForPrompt(payload.assistant_text);
-  if (assistantText) {
-    sanitized.assistant_text = assistantText;
+  const summary = sanitizePromptText(
+    payload.summary,
+    MAX_BACKGROUND_SUMMARY_PROMPT_CHARS,
+  );
+  if (summary) {
+    sanitized.summary = summary;
+  }
+  const blockingQuestion = sanitizePromptText(
+    payload.blocking_question,
+    MAX_BACKGROUND_SUMMARY_PROMPT_CHARS,
+  );
+  if (blockingQuestion) {
+    sanitized.blocking_question = blockingQuestion;
+  }
+  const goal = sanitizePromptText(
+    payload.goal,
+    MAX_BACKGROUND_GOAL_PROMPT_CHARS,
+  );
+  if (goal) {
+    sanitized.goal = goal;
+  }
+  const context = sanitizePromptText(
+    payload.context,
+    MAX_BACKGROUND_CONTEXT_PROMPT_CHARS,
+  );
+  if (context) {
+    sanitized.context = context;
   }
 
-  const forwardableDeliverables = sanitizeDeliverableArray(
-    payload.forwardable_deliverables,
-  );
   if (forwardableDeliverables.length > 0) {
     sanitized.forwardable_deliverables = forwardableDeliverables;
   }
-  const partialDeliverables = sanitizeDeliverableArray(
-    payload.partial_deliverables,
-  );
   if (partialDeliverables.length > 0) {
     sanitized.partial_deliverables = partialDeliverables;
   }

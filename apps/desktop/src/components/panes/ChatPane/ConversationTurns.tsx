@@ -1,12 +1,29 @@
 import { Fragment, type ReactNode } from "react";
 import { AssistantTurn } from "./AssistantTurn";
+import { BackgroundTaskReferenceCards } from "./BackgroundTaskReferenceCards";
 import { UserTurn } from "./UserTurn";
 import type {
   AttachmentListItem,
   ChatAssistantSegment,
+  ChatBackgroundTaskReference,
   ChatExecutionTimelineItem,
   ChatMessage,
 } from "./types";
+
+function mergedFooterAccessory(
+  accessoryA: ReactNode,
+  accessoryB: ReactNode,
+): ReactNode {
+  if (accessoryA && accessoryB) {
+    return (
+      <div className="flex flex-col items-start gap-2">
+        {accessoryA}
+        {accessoryB}
+      </div>
+    );
+  }
+  return accessoryA || accessoryB || null;
+}
 
 export function ConversationTurns<Message extends ChatMessage>({
   messages,
@@ -26,6 +43,7 @@ export function ConversationTurns<Message extends ChatMessage>({
   onLocalLinkClick,
   assistantFooterAccessoryMessageId = null,
   assistantFooterAccessory = null,
+  onOpenBackgroundTaskReference,
   getMessageWrapperClassName,
   liveAssistantTurn = null,
   onAfterIntegrationBind,
@@ -46,6 +64,9 @@ export function ConversationTurns<Message extends ChatMessage>({
   onLocalLinkClick?: (href: string) => void;
   assistantFooterAccessoryMessageId?: string | null;
   assistantFooterAccessory?: ReactNode;
+  onOpenBackgroundTaskReference?: (
+    reference: ChatBackgroundTaskReference,
+  ) => void;
   getMessageWrapperClassName?: (message: Message) => string | undefined;
   liveAssistantTurn?: {
     text: string;
@@ -91,6 +112,14 @@ export function ConversationTurns<Message extends ChatMessage>({
           // a user turn the live turn is a new group and this assistant
           // message keeps its avatar.
           !(liveAssistantTurn && !next);
+        const backgroundTaskFooterAccessory =
+          message.role === "assistant" &&
+          (message.backgroundTaskReferences?.length ?? 0) > 0 ? (
+            <BackgroundTaskReferenceCards
+              references={message.backgroundTaskReferences ?? []}
+              onOpenReference={onOpenBackgroundTaskReference}
+            />
+          ) : null;
         const turn =
           message.role === "user" ? (
             <UserTurn
@@ -131,9 +160,12 @@ export function ConversationTurns<Message extends ChatMessage>({
               workspaceId={workspaceId ?? null}
               createdAt={message.createdAt}
               footerAccessory={
-                message.id === assistantFooterAccessoryMessageId
-                  ? assistantFooterAccessory
-                  : null
+                mergedFooterAccessory(
+                  backgroundTaskFooterAccessory,
+                  message.id === assistantFooterAccessoryMessageId
+                    ? assistantFooterAccessory
+                    : null,
+                )
               }
             />
           );

@@ -108,7 +108,7 @@ test("projectAgentRuntimeConfig returns ordered prompt layers and renders system
       session_id: "session-1",
       workspace_id: "workspace-1",
       input_id: "input-1",
-      session_kind: "task_proposal",
+      session_kind: "subagent",
       harness_id: "pi",
       browser_tools_available: false,
       browser_tool_ids: [],
@@ -220,7 +220,7 @@ test("projectAgentRuntimeConfig returns ordered prompt layers and renders system
     });
     assert.match(result.system_prompt, /Session policy:/);
     assert.match(result.system_prompt, /Response delivery policy:/);
-    assert.match(result.system_prompt, /task proposal session/i);
+    assert.match(result.system_prompt, /hidden subagent executor session/i);
     assert.doesNotMatch(result.system_prompt, /OpenCode MCP tool naming:/);
     assert.doesNotMatch(
       result.system_prompt,
@@ -239,7 +239,7 @@ test("projectAgentRuntimeConfig returns ordered prompt layers and renders system
     assert.ok(result.capability_manifest);
     assert.deepEqual(result.capability_manifest?.context, {
       harness_id: "pi",
-      session_kind: "task_proposal",
+      session_kind: "subagent",
       browser_tools_available: false,
       browser_tool_ids: [],
       runtime_tool_ids: [],
@@ -453,11 +453,9 @@ test("projectAgentRuntimeConfig includes current user context as a context messa
       "context_message",
     );
     assert.deepEqual(result.prompt_cache_profile?.context_message_ids, [
-      "capability_availability_context",
       "current_user_context",
     ]);
     assert.deepEqual(result.prompt_cache_profile?.compatibility_context_ids, [
-      "capability_availability_context",
       "current_user_context",
     ]);
     assert.deepEqual(
@@ -471,6 +469,112 @@ test("projectAgentRuntimeConfig includes current user context as a context messa
     assert.match(
       result.context_messages?.join("\n\n") ?? "",
       /The current operator name is `Jeffrey`\./,
+    );
+  } finally {
+    delete process.env.HOLABOSS_MODEL_PROXY_BASE_URL;
+  }
+});
+
+test("projectAgentRuntimeConfig includes teammate routing context as a context message", () => {
+  process.env.HOLABOSS_MODEL_PROXY_BASE_URL =
+    "https://runtime.example/api/v1/model-proxy";
+  process.env.HOLABOSS_USER_ID = "user-1";
+  try {
+    const result = projectAgentRuntimeConfig({
+      session_id: "session-1",
+      workspace_id: "workspace-1",
+      input_id: "input-1",
+      session_kind: "main_session",
+      harness_id: "pi",
+      browser_tools_available: false,
+      browser_tool_ids: [],
+      runtime_tool_ids: [],
+      workspace_command_ids: [],
+      runtime_exec_model_proxy_api_key: "hbrt.v1.token",
+      runtime_exec_sandbox_id: "sandbox-1",
+      runtime_exec_run_id: "run-1",
+      teammate_routing_context: {
+        teammates: [
+          {
+            teammate_id: "general",
+            name: "General",
+            kind: "system",
+            status: "active",
+            summary:
+              "Fallback executor for general implementation and research work.",
+            capabilities: ["generalist", "implementation", "research"],
+            preferred_tools: [],
+            skills: [],
+            skill_names: [],
+          },
+          {
+            teammate_id: "frontend",
+            name: "Frontend",
+            kind: "custom",
+            status: "active",
+            summary:
+              "Best for React dashboard implementation and UI refactors.",
+            capabilities: ["frontend", "react", "dashboard"],
+            preferred_tools: ["edit", "bash"],
+            skills: [
+              {
+                name: "Dashboard UI",
+                description:
+                  "Patterns for production dashboard UI implementation and refactors",
+              },
+            ],
+            skill_names: ["Dashboard UI"],
+          },
+        ],
+      },
+      selected_model: null,
+      default_provider_id: "openai",
+      session_mode: "code",
+      workspace_config_checksum: "checksum-1",
+      workspace_skill_ids: [],
+      default_tools: ["read"],
+      extra_tools: [],
+      resolved_mcp_tool_refs: [],
+      resolved_output_schemas: {},
+      agent: {
+        id: "workspace.general",
+        model: "gpt-5.2",
+        prompt: "You are concise.",
+      },
+    });
+
+    assert.ok(
+      result.prompt_sections?.some(
+        (section) => section.id === "teammate_routing_context",
+      ),
+    );
+    assert.equal(
+      result.prompt_layers?.some(
+        (layer) => layer.id === "teammate_routing_context",
+      ),
+      false,
+    );
+    assert.equal(
+      result.prompt_sections?.find(
+        (section) => section.id === "teammate_routing_context",
+      )?.channel,
+      "context_message",
+    );
+    assert.match(
+      result.context_messages?.join("\n\n") ?? "",
+      /Teammate routing roster:/,
+    );
+    assert.match(
+      result.context_messages?.join("\n\n") ?? "",
+      /Skills: `Dashboard UI` — Patterns for production dashboard UI implementation and refactors\./,
+    );
+    assert.doesNotMatch(
+      result.context_messages?.join("\n\n") ?? "",
+      /Skill names:/,
+    );
+    assert.doesNotMatch(
+      result.context_messages?.join("\n\n") ?? "",
+      /Preferred tools:/,
     );
   } finally {
     delete process.env.HOLABOSS_MODEL_PROXY_BASE_URL;
@@ -573,7 +677,7 @@ test("projectAgentRuntimeConfig includes session attachment timeline as a contex
   }
 });
 
-test("projectAgentRuntimeConfig preserves direct MCP access for workspace sessions", () => {
+test("projectAgentRuntimeConfig strips direct MCP access from workspace sessions", () => {
   process.env.HOLABOSS_MODEL_PROXY_BASE_URL =
     "https://runtime.example/api/v1/model-proxy";
   process.env.HOLABOSS_USER_ID = "user-1";
@@ -614,16 +718,20 @@ test("projectAgentRuntimeConfig preserves direct MCP access for workspace sessio
       },
     });
 
-    assert.match(
+    assert.doesNotMatch(
       result.context_messages?.join("\n\n") ?? "",
       /Connected MCP access: available\./,
     );
-    assert.match(
+    assert.doesNotMatch(
+      result.system_prompt,
+      /If connected MCP access exists without tool names listed here, do not assume MCP is unavailable; use surfaced MCP tools when relevant\./i,
+    );
+    assert.doesNotMatch(
       result.system_prompt,
       /Use relevant MCP tools directly instead of only describing them\./,
     );
-    assert.equal(result.tools.mcp__workspace__lookup, true);
-    assert.deepEqual(result.workspace_tool_ids, ["workspace.lookup"]);
+    assert.equal(result.tools.mcp__workspace__lookup, undefined);
+    assert.deepEqual(result.workspace_tool_ids, []);
     assert.deepEqual(result.capability_manifest?.context, {
       harness_id: "pi",
       session_kind: "main_session",
@@ -631,10 +739,9 @@ test("projectAgentRuntimeConfig preserves direct MCP access for workspace sessio
       browser_tool_ids: [],
       runtime_tool_ids: [],
       workspace_command_ids: [],
-      mcp_server_ids: ["context7", "workspace"],
       workspace_commands_available: false,
       workspace_skills_available: false,
-      mcp_tools_available: true,
+      mcp_tools_available: false,
     });
   } finally {
     delete process.env.HOLABOSS_MODEL_PROXY_BASE_URL;
@@ -652,8 +759,8 @@ test("projectAgentRuntimeConfig includes operator surface context as a context m
       input_id: "input-1",
       session_kind: "main_session",
       harness_id: "pi",
-      browser_tools_available: true,
-      browser_tool_ids: ["browser_get_state"],
+      browser_tools_available: false,
+      browser_tool_ids: [],
       runtime_tool_ids: [],
       workspace_command_ids: [],
       runtime_exec_model_proxy_api_key: "hbrt.v1.token",
@@ -688,7 +795,7 @@ test("projectAgentRuntimeConfig includes operator surface context as a context m
       workspace_config_checksum: "checksum-1",
       workspace_skill_ids: [],
       default_tools: ["read"],
-      extra_tools: ["browser_get_state"],
+      extra_tools: [],
       resolved_mcp_tool_refs: [],
       resolved_output_schemas: {},
       agent: {
@@ -731,12 +838,19 @@ test("projectAgentRuntimeConfig includes operator surface context as a context m
       result.context_messages?.join("\n\n") ?? "",
       /mutability=`inspect_only`/,
     );
-    assert.equal(result.tools.browser_get_state, true);
+    assert.doesNotMatch(
+      result.context_messages?.join("\n\n") ?? "",
+      /Prefer agent-owned surfaces/i,
+    );
+    assert.doesNotMatch(
+      result.context_messages?.join("\n\n") ?? "",
+      /\[agent\/browser\] `browser:agent`/,
+    );
     assert.deepEqual(result.capability_manifest?.context, {
       harness_id: "pi",
       session_kind: "main_session",
-      browser_tools_available: true,
-      browser_tool_ids: ["browser_get_state"],
+      browser_tools_available: false,
+      browser_tool_ids: [],
       runtime_tool_ids: [],
       workspace_command_ids: [],
       workspace_commands_available: false,
@@ -811,11 +925,9 @@ test("projectAgentRuntimeConfig includes pending user memory context as a contex
       "context_message",
     );
     assert.deepEqual(result.prompt_cache_profile?.context_message_ids, [
-      "capability_availability_context",
       "pending_user_memory",
     ]);
     assert.deepEqual(result.prompt_cache_profile?.compatibility_context_ids, [
-      "capability_availability_context",
       "pending_user_memory",
     ]);
     assert.match(
@@ -881,14 +993,10 @@ test("projectAgentRuntimeConfig omits workspace and recent-runtime layers when n
       ),
       false,
     );
-    assert.equal(result.context_messages?.length, 1);
-    assert.match(
-      result.context_messages?.join("\n\n") ?? "",
-      /Capability availability snapshot:/,
-    );
+    assert.equal(result.context_messages?.length ?? 0, 0);
     assert.match(
       result.system_prompt,
-      /default full-capability agent for this workspace/i,
+      /front-of-house coordinator with only a partial direct capability surface/i,
     );
   } finally {
     delete process.env.HOLABOSS_MODEL_PROXY_BASE_URL;
@@ -955,59 +1063,25 @@ test("projectAgentRuntimeConfig includes delegated executor capability context f
       },
     });
 
-    assert.ok(
+    assert.equal(
+      result.prompt_sections?.some(
+        (section) => section.id === "capability_availability_context",
+      ),
+      false,
+    );
+    assert.equal(
       result.prompt_sections?.some(
         (section) => section.id === "delegated_capability_availability_context",
       ),
+      false,
     );
-    assert.deepEqual(result.prompt_cache_profile?.context_message_ids, [
-      "capability_availability_context",
-      "delegated_capability_availability_context",
-    ]);
-    assert.deepEqual(result.prompt_cache_profile?.compatibility_context_ids, [
-      "capability_availability_context",
-      "delegated_capability_availability_context",
-    ]);
+    assert.deepEqual(result.prompt_cache_profile?.context_message_ids, []);
+    assert.deepEqual(result.prompt_cache_profile?.compatibility_context_ids, []);
     assert.match(
       result.system_prompt,
-      /route against that capability instead of asking a generic tool-discovery question/i,
+      /route against that fit instead of asking a generic tool-discovery question/i,
     );
-    assert.match(
-      result.context_messages?.join("\n\n") ?? "",
-      /Delegated executor capability snapshot:/,
-    );
-    assert.match(
-      result.context_messages?.join("\n\n") ?? "",
-      /Delegated browser execution is available even though this front session has no direct browser tools\./,
-    );
-    assert.match(
-      result.context_messages?.join("\n\n") ?? "",
-      /Workspace Apps Get Status \(`workspace_apps_get_status`\)/,
-    );
-    assert.match(
-      result.context_messages?.join("\n\n") ?? "",
-      /Workspace Data List Tables \(`workspace_data_list_tables`\)/,
-    );
-    assert.doesNotMatch(
-      result.context_messages?.join("\n\n") ?? "",
-      /Stale Runtime Tool Alpha \(`stale_runtime_tool_alpha`\)/,
-    );
-    assert.doesNotMatch(
-      result.context_messages?.join("\n\n") ?? "",
-      /Stale Runtime Tool Beta \(`stale_runtime_tool_beta`\)/,
-    );
-    assert.match(
-      result.context_messages?.join("\n\n") ?? "",
-      /Delegated app integrations available via: `twitter`\./,
-    );
-    assert.match(
-      result.context_messages?.join("\n\n") ?? "",
-      /Delegated MCP callable tool aliases for routing only:/,
-    );
-    assert.match(
-      result.context_messages?.join("\n\n") ?? "",
-      /`twitter\.twitter_create_post` -> call `mcp__twitter__twitter_create_post`/,
-    );
+    assert.equal(result.context_messages?.length ?? 0, 0);
   } finally {
     delete process.env.HOLABOSS_MODEL_PROXY_BASE_URL;
   }
@@ -1104,11 +1178,9 @@ test("projectAgentRuntimeConfig includes recalled durable memory in context mess
       false,
     );
     assert.deepEqual(result.prompt_cache_profile?.context_message_ids, [
-      "capability_availability_context",
       "memory_recall",
     ]);
     assert.deepEqual(result.prompt_cache_profile?.compatibility_context_ids, [
-      "capability_availability_context",
       "memory_recall",
     ]);
     assert.deepEqual(

@@ -38,7 +38,8 @@ function writeSkill(root: string, skillId: string, description = `${skillId} ski
 function expectedResolvedSkill(params: {
   root: string;
   skillId: string;
-  origin: "workspace" | "embedded";
+  origin: "workspace" | "embedded" | "teammate";
+  ownerTeammateId?: string | null;
   grantedTools?: string[];
   grantedCommands?: string[];
   description?: string;
@@ -51,6 +52,7 @@ function expectedResolvedSkill(params: {
     source_dir: sourceDir,
     file_path: path.join(sourceDir, "SKILL.md"),
     origin: params.origin,
+    owner_teammate_id: params.ownerTeammateId ?? null,
     granted_tools: params.grantedTools ?? [],
     granted_commands: params.grantedCommands ?? [],
   };
@@ -151,6 +153,95 @@ test("resolveWorkspaceSkills includes workspace-local skills without requiring w
       { skill_id: "gamma", origin: "workspace" }
     ]
   );
+});
+
+test("resolveWorkspaceSkills does not auto-load teammate-local skills without an assigned teammate context", () => {
+  const embeddedRoot = makeTempDir("hb-embedded-skills-empty-");
+  process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = embeddedRoot;
+
+  const workspaceDir = makeTempDir("hb-workspace-teammate-skills-opt-in-");
+  const teammateSkillsRoot = path.join(workspaceDir, "teammates", "general", "skills");
+  writeSkill(teammateSkillsRoot, "private-playbook");
+
+  assert.deepEqual(resolveWorkspaceSkills(workspaceDir), []);
+});
+
+test("resolveWorkspaceSkills includes teammate-local skills when a teammate context is provided", () => {
+  const embeddedRoot = makeTempDir("hb-embedded-skills-empty-");
+  process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = embeddedRoot;
+
+  const workspaceDir = makeTempDir("hb-workspace-teammate-skills-");
+  const teammateId = "general";
+  const teammateSkillsRoot = path.join(workspaceDir, "teammates", teammateId, "skills");
+  writeSkill(teammateSkillsRoot, "private-playbook");
+
+  assert.deepEqual(resolveWorkspaceSkills(workspaceDir, { teammateId }), [
+    expectedResolvedSkill({
+      root: teammateSkillsRoot,
+      skillId: "private-playbook",
+      origin: "teammate",
+      ownerTeammateId: teammateId,
+    }),
+  ]);
+});
+
+test("resolveWorkspaceSkills lets teammate-local skills shadow shared workspace skills for the assigned teammate", () => {
+  const embeddedRoot = makeTempDir("hb-embedded-skills-empty-");
+  process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = embeddedRoot;
+
+  const workspaceDir = makeTempDir("hb-workspace-teammate-skill-shadowing-");
+  const teammateId = "general";
+  const workspaceSkillsRoot = path.join(workspaceDir, "skills");
+  const teammateSkillsRoot = path.join(workspaceDir, "teammates", teammateId, "skills");
+  writeSkill(workspaceSkillsRoot, "alpha", "workspace alpha");
+  writeSkill(teammateSkillsRoot, "alpha", "teammate alpha");
+
+  const resolved = resolveWorkspaceSkills(workspaceDir, { teammateId });
+  assert.deepEqual(
+    resolved.map((skill) => ({
+      skill_id: skill.skill_id,
+      origin: skill.origin,
+      owner_teammate_id: skill.owner_teammate_id,
+    })),
+    [
+      {
+        skill_id: "alpha",
+        origin: "teammate",
+        owner_teammate_id: teammateId,
+      },
+    ],
+  );
+  assert.equal(resolved[0]?.description, "teammate alpha");
+  assert.equal(resolved[0]?.source_dir, fs.realpathSync(path.join(teammateSkillsRoot, "alpha")));
+});
+
+test("resolveWorkspaceSkills keeps embedded skills authoritative even over teammate-local skills", () => {
+  const embeddedRoot = makeTempDir("hb-embedded-skills-");
+  process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = embeddedRoot;
+  writeSkill(embeddedRoot, "alpha", "embedded alpha");
+
+  const workspaceDir = makeTempDir("hb-workspace-embedded-over-teammate-");
+  const teammateId = "general";
+  const teammateSkillsRoot = path.join(workspaceDir, "teammates", teammateId, "skills");
+  writeSkill(teammateSkillsRoot, "alpha", "teammate alpha");
+
+  const resolved = resolveWorkspaceSkills(workspaceDir, { teammateId });
+  assert.deepEqual(
+    resolved.map((skill) => ({
+      skill_id: skill.skill_id,
+      origin: skill.origin,
+      owner_teammate_id: skill.owner_teammate_id,
+    })),
+    [
+      {
+        skill_id: "alpha",
+        origin: "embedded",
+        owner_teammate_id: null,
+      },
+    ],
+  );
+  assert.equal(resolved[0]?.description, "embedded alpha");
+  assert.equal(resolved[0]?.source_dir, fs.realpathSync(path.join(embeddedRoot, "alpha")));
 });
 
 test("resolveWorkspaceSkills ignores legacy agents.proactive.skills_path fallback", () => {

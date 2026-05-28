@@ -599,7 +599,7 @@ test("processClaimedInput promotes accepted evolve skill candidates into live wo
   store.ensureSession({
     workspaceId: "workspace-1",
     sessionId: "session-review",
-    kind: "task_proposal",
+    kind: "subagent",
     title: "Review evolve skill",
   });
   const draftMarkdown = [
@@ -734,7 +734,7 @@ test("processClaimedInput promotes misplaced evolve workspace skill files into t
   store.ensureSession({
     workspaceId: "workspace-1",
     sessionId: "session-review",
-    kind: "task_proposal",
+    kind: "subagent",
     title: "Review evolve skill",
   });
   const draftMarkdown = [

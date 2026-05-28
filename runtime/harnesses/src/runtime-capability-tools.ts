@@ -262,6 +262,10 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         type: "object",
         properties: {
           cron: { type: "string", description: "Cron expression." },
+          teammate_id: {
+            type: "string",
+            description: "Existing active teammate id that will execute issues created by this cronjob.",
+          },
           description: { type: "string", description: "Short display description for the cronjob." },
           instruction: {
             type: "string",
@@ -279,7 +283,114 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
               "JSON object string for cronjob metadata. For `system_notification`, include a short `message`. For `session_run`, use metadata for execution context only; keep the actual task instruction in `instruction`.",
           },
         },
-        required: ["cron", "description", "instruction"],
+        required: ["cron", "teammate_id", "description", "instruction"],
+        additionalProperties: false,
+      };
+    case "teammates_create":
+      return {
+        type: "object",
+        properties: {
+          teammate_id: {
+            type: "string",
+            description: "Optional stable teammate id. Omit to let the runtime generate one.",
+          },
+          name: { type: "string", description: "Teammate display name." },
+          instructions: {
+            type: "string",
+            description: "Optional role instructions that define the teammate's standing remit.",
+          },
+          capability_profile: {
+            type: "object",
+            description:
+              "Optional routing hints used by the coordinator when deciding which teammate to delegate to.",
+            properties: {
+              summary: {
+                type: "string",
+                description: "Short summary of the teammate's specialty.",
+              },
+              capabilities: {
+                type: "array",
+                description: "Short capability tags such as frontend, research, or implementation.",
+                items: { type: "string" },
+              },
+              preferred_tools: {
+                type: "array",
+                description: "Preferred tool ids or buckets for this teammate.",
+                items: { type: "string" },
+              },
+            },
+            additionalProperties: false,
+          },
+        },
+        required: ["name"],
+        additionalProperties: false,
+      };
+    case "teammate_skills_create":
+      return {
+        type: "object",
+        properties: {
+          teammate_id: {
+            type: "string",
+            description: "Existing teammate id that will own the skill bundle.",
+          },
+          skill_id: {
+            type: "string",
+            description: "Optional stable skill id used for the skill folder name.",
+          },
+          name: {
+            type: "string",
+            description: "Human-readable skill label, used as the SKILL.md description when skill_markdown is not provided.",
+          },
+          content: {
+            type: "string",
+            description: "The SKILL.md body content when skill_markdown is not provided.",
+          },
+          skill_markdown: {
+            type: "string",
+            description: "Optional full SKILL.md document including YAML frontmatter. Preferred for richer skills.",
+          },
+          granted_tools: {
+            type: "array",
+            description: "Optional granted tools written into holaboss frontmatter when skill_markdown is not provided.",
+            items: { type: "string" },
+          },
+          granted_commands: {
+            type: "array",
+            description: "Optional granted commands written into holaboss frontmatter when skill_markdown is not provided.",
+            items: { type: "string" },
+          },
+          sidecar_files: {
+            type: "array",
+            description: "Optional extra text files to create inside the skill directory, such as scripts/, references/, assets/, or agents/openai.yaml.",
+            items: {
+              type: "object",
+              properties: {
+                path: {
+                  type: "string",
+                  description: "Relative path inside the skill directory, for example scripts/fetch.sh.",
+                },
+                content: {
+                  type: "string",
+                  description: "UTF-8 file content for the sidecar file.",
+                },
+              },
+              required: ["path", "content"],
+              additionalProperties: false,
+            },
+          },
+          directories: {
+            type: "array",
+            description: "Optional empty directories to create inside the skill directory.",
+            items: { type: "string" },
+          },
+          payload_mode: {
+            type: "string",
+            enum: ["skill_markdown", "name_content"],
+            description:
+              "Choose `skill_markdown` when sending a full SKILL.md document, or `name_content` when sending simple text-only skill fields.",
+          },
+        },
+        required: ["teammate_id"],
         additionalProperties: false,
       };
     case "cronjobs_update":
@@ -287,6 +398,10 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         type: "object",
         properties: {
           job_id: { type: "string", description: "Cronjob id." },
+          teammate_id: {
+            type: "string",
+            description: "Optional replacement teammate id for future issue executions.",
+          },
           name: { type: "string", description: "Optional cronjob name." },
           cron: { type: "string", description: "Cron expression." },
           description: { type: "string", description: "Short display description for the cronjob." },
@@ -364,81 +479,59 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
         },
         additionalProperties: false,
       };
-    case "get_subagent":
+    case "get_task":
       return {
         type: "object",
         properties: {
-          subagent_id: {
+          task_id: {
             type: "string",
-            description: "Delegated background task id to inspect.",
+            description: "Delegated task id to inspect.",
           },
         },
-        required: ["subagent_id"],
+        required: ["task_id"],
         additionalProperties: false,
       };
-    case "list_background_tasks":
+    case "list_tasks":
       return {
         type: "object",
         properties: {
           statuses: {
             type: "array",
-            description: "Optional delegated background task statuses to include.",
+            description: "Optional delegated task statuses to include.",
             items: literalStringUnion(
-              ["queued", "running", "waiting_on_user", "completed", "failed", "cancelled"],
-              "Background task status filter.",
+              ["backlog", "todo", "in_progress", "in_review", "done", "blocked"],
+              "Task status filter.",
             ),
-          },
-          owner_main_session_id: {
-            type: "string",
-            description: "Optional owner main session id filter.",
           },
           limit: {
             type: "integer",
-            description: "Optional maximum number of background tasks to return.",
+            description: "Optional maximum number of delegated tasks to return.",
             minimum: 1,
           },
         },
         additionalProperties: false,
       };
-    case "cancel_subagent":
+    case "cancel_task":
       return {
         type: "object",
         properties: {
-          subagent_id: { type: "string", description: "Delegated background task id to cancel." },
+          task_id: { type: "string", description: "Delegated task id whose active execution should be cancelled." },
         },
-        required: ["subagent_id"],
+        required: ["task_id"],
         additionalProperties: false,
       };
-    case "resume_subagent":
+    case "rerun_task":
       return {
         type: "object",
         properties: {
-          subagent_id: { type: "string", description: "Delegated background task id to resume." },
-          answer: { type: "string", description: "The user's answer that should resume the paused task." },
-          model: { type: "string", description: "Optional model override for the resumed task turn." },
+          task_id: { type: "string", description: "Delegated task id to rerun from its saved brief." },
+          model: { type: "string", description: "Optional model override for the rerun." },
+          priority: {
+            type: "integer",
+            description: "Optional queue priority override for the rerun.",
+          },
         },
-        required: ["subagent_id", "answer"],
-        additionalProperties: false,
-      };
-    case "continue_subagent":
-      return {
-        type: "object",
-        properties: {
-          subagent_id: {
-            type: "string",
-            description: "Delegated background task id whose child session should receive the continuation.",
-          },
-          instruction: {
-            type: "string",
-            description: "The follow-up instruction to run in the same child session.",
-          },
-          title: {
-            type: "string",
-            description: "Optional updated display title for the continued task.",
-          },
-          model: { type: "string", description: "Optional model override for the continuation turn." },
-        },
-        required: ["subagent_id", "instruction"],
+        required: ["task_id"],
         additionalProperties: false,
       };
     case "image_generate":
@@ -1140,6 +1233,22 @@ function runtimeToolPromptGuidelines(toolId: RuntimeAgentToolId): string[] {
       "Use `append_rule` for concise rules, `remove_rule` to retract one, and `replace_managed_section` for structured markdown templates, indexes, or larger rule sets.",
     ];
   }
+  if (toolId === "teammates_create") {
+    return [
+      "Use `teammates_create` when the workspace needs a new custom teammate identity with a defined remit.",
+      "Keep this tool focused on teammate metadata: `name`, durable `instructions`, and `capability_profile` routing hints.",
+      "Do not overload teammate creation with skill bundle authoring; create teammate-local skills with `teammate_skills_create` after the teammate exists.",
+      "Prefer short, stable capability tags in `capability_profile.capabilities` so future delegation matching stays predictable.",
+    ];
+  }
+  if (toolId === "teammate_skills_create") {
+    return [
+      "Use `teammate_skills_create` to create one filesystem-backed skill bundle for an existing teammate.",
+      "Prefer `skill_markdown` plus `sidecar_files` and optional `directories` for real skill bundles; use `name` + `content` only for simple text-only skills.",
+      "Place scripts under `scripts/`, reference docs under `references/`, templates or static files under `assets/`, and UI metadata under `agents/openai.yaml` when needed.",
+      "Treat this as teammate-local skill authoring under `teammates/<teammate-id>/skills/<skill-id>/`; do not use it for shared workspace skills under `skills/`.",
+    ];
+  }
   if (toolId === "memory_retrieve") {
     return [
       "Use `memory_retrieve` when you need durable interaction memory that is not already available in the current prompt context.",
@@ -1170,41 +1279,31 @@ function runtimeToolPromptGuidelines(toolId: RuntimeAgentToolId): string[] {
       "When the ideal direct integration is missing, delegate with the capability bucket that can still solve the task: `browser` for UI/app state, `web` for public information, and `terminal` or `file` for workspace inspection.",
     ];
   }
-  if (toolId === "get_subagent") {
+  if (toolId === "get_task") {
     return [
-      "Use `get_subagent` when you need the latest structured state for one delegated background task.",
-      "Use this for targeted status questions like whether one task is done, failed, or waiting on user input.",
+      "Use `get_task` when the user is referring to a delegated work item or task rather than a low-level subagent run id.",
       "This reads persisted task state only; it does not block waiting for the task to change.",
-      "Do not call this repeatedly in the same turn right after delegating a fresh task just to see if it finished; return control unless the task is already in a terminal or waiting-on-user state.",
+      "Do not call this repeatedly in the same turn right after delegating a fresh task just to see if it finished; return control unless the task is already terminal or waiting on user input.",
     ];
   }
-  if (toolId === "list_background_tasks") {
+  if (toolId === "list_tasks") {
     return [
-      "Use `list_background_tasks` when you need a compact overview of delegated background work for the current workspace.",
-      "Use optional filters to narrow the list instead of asking every task to report in full.",
+      "Use `list_tasks` for a task-oriented overview of delegated work in the current workspace.",
+      "Filter by `statuses` when the user only wants blocked, in-progress, done, or similar subsets.",
       "This reads persisted task state only; it does not block waiting for any task to change.",
       "Do not use this as a polling loop in the same turn after spawning fresh delegated work.",
     ];
   }
-  if (toolId === "cancel_subagent") {
+  if (toolId === "cancel_task") {
     return [
-      "Use `cancel_subagent` only when the user clearly wants to stop a specific delegated task.",
-      "Resolve which delegated task the user means before calling this tool; do not guess if multiple background tasks are plausible matches.",
+      "Use `cancel_task` when the user wants to stop a delegated task and you know the task id.",
+      "Use this against the stable task record instead of thinking in terms of low-level run ids.",
     ];
   }
-  if (toolId === "resume_subagent") {
+  if (toolId === "rerun_task") {
     return [
-      "Use `resume_subagent` when a delegated task is waiting on user input and the user has provided that answer.",
-      "Resume the same paused subagent run instead of delegating a brand-new task when the user is answering an explicit blocker question.",
-      "Pass only the answer needed to continue the task; do not restate the entire conversation unless it materially changes the task.",
-    ];
-  }
-  if (toolId === "continue_subagent") {
-    return [
-      "Use `continue_subagent` when the user asks to transform, save, refine, compare, or otherwise continue the result of a completed delegated task.",
-      "Prefer continuing the existing child session for referential requests like 'turn that into a report', 'save item 2', 'summarize those', or 'compare them'.",
-      "If it is unclear which delegated task the user means, ask a short clarifying question before continuing.",
-      "Do not start a fresh delegated task for a true continuation of the most recent relevant child result.",
+      "Use `rerun_task` when the user wants to retry or restart an existing delegated task from its saved brief.",
+      "Prefer this over `delegate_task` when the work item already exists and the intent is to rerun the same task rather than create a new one.",
     ];
   }
   if (toolId === "todoread") {

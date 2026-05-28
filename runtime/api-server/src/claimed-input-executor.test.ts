@@ -121,6 +121,23 @@ function setNodeRunnerCommand(lines: string[]): void {
   process.env.SANDBOX_AGENT_RUNNER_COMMAND_TEMPLATE = `printf '%s' '${scriptBase64}' | base64 --decode | {runtime_node} - {request_base64}`;
 }
 
+function writeWorkspaceSkill(
+  root: string,
+  relativeRoot: string,
+  skillId: string,
+  description = `${skillId} skill`,
+  body = `# ${skillId}\n`,
+): string {
+  const skillDir = path.join(root, relativeRoot, skillId);
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillDir, "SKILL.md"),
+    `---\nname: ${skillId}\ndescription: ${description}\n---\n${body}`,
+    "utf8",
+  );
+  return skillDir;
+}
+
 function openPiSessionManager(sessionFile: string) {
   const { SessionManager } = require(PI_SESSION_MANAGER_MODULE_PATH) as {
     SessionManager: {
@@ -1038,6 +1055,7 @@ test("claimed input creates a completion notification for successful cronjob ses
   const job = store.createCronjob({
     workspaceId: workspace.id,
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "daily-sync",
     cron: "0 9 * * *",
     description: "Daily sync",
@@ -1132,6 +1150,7 @@ test("claimed input creates a completion notification for failed cronjob session
   const job = store.createCronjob({
     workspaceId: workspace.id,
     initiatedBy: "workspace_agent",
+    teammateId: "general",
     name: "daily-sync",
     cron: "0 9 * * *",
     description: "Daily sync",
@@ -1841,10 +1860,7 @@ test("claimed input treats recoverable login blockers as waiting-on-user subagen
     updatedRun?.blockingPayload?.blocking_question,
     "Please log in or complete the required access step, then tell me to continue.",
   );
-  assert.match(
-    String(updatedRun?.blockingPayload?.partial_summary ?? ""),
-    /currently logged out/,
-  );
+  assert.match(String(updatedRun?.summary ?? ""), /currently logged out/);
   assert.equal(queuedEvents.length, 1);
   assert.equal(queuedEvents[0]?.eventType, "waiting_on_user");
   assert.equal(queuedEvents[0]?.deliveryBucket, "waiting_on_user");
@@ -2181,6 +2197,102 @@ test("claimed input requeues paused materialized main-session event batches with
   assert.equal(deliveryRetry?.retry_delay_ms, 0);
   assert.equal(deliveryRetry?.next_retry_at, updatedEvent?.earliestDeliverAt);
   assert.equal(deliveryRetry?.last_stop_reason, "paused");
+
+  store.close();
+});
+
+test("claimed input requeues completed materialized main-session event batches when no visible output is produced", async () => {
+  const store = makeStore("hb-claimed-input-main-session-event-empty-complete-");
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.ensureSession({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    kind: "main_session",
+  });
+  const event = store.enqueueMainSessionEvent({
+    workspaceId: workspace.id,
+    ownerMainSessionId: "session-main",
+    originMainSessionId: "session-main",
+    subagentId: "subagent-1",
+    eventType: "completed",
+    deliveryBucket: "background_update",
+    payload: {
+      status: "completed",
+      summary: "Research is done.",
+    },
+  });
+  const queued = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: {
+      text: "[Holaboss Main Session Event Batch v1]\nSummarize the queued event.",
+      context: {
+        source: "main_session_event_batch",
+        main_session_event_ids: [event.eventId],
+        delivery_bucket: "background_update",
+      },
+    },
+    idempotencyKey: `main-session-event-batch:${event.eventId}`,
+  });
+  store.markMainSessionEventsMaterialized({
+    workspaceId: workspace.id,
+    eventIds: [event.eventId],
+    materializedInputId: queued.inputId,
+  });
+
+  await processClaimedInput({
+    store,
+    record: queued,
+    executeRunnerRequestFn: async (payload, options = {}) => {
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 1,
+        event_type: "run_started",
+        payload: {},
+      });
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 2,
+        event_type: "run_completed",
+        payload: { status: "ok" },
+      });
+      return {
+        events: [],
+        skippedLines: [],
+        stderr: "",
+        returnCode: 0,
+        sawTerminal: true,
+      };
+    },
+  });
+
+  const updatedEvent = store.getMainSessionEvent({
+    workspaceId: workspace.id,
+    eventId: event.eventId,
+  });
+  const updatedPayload = recordValue(updatedEvent?.payload);
+  const deliveryRetry = recordValue(updatedPayload?.delivery_retry);
+  const messages = store.listSessionMessages({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+  });
+
+  assert.equal(messages.length, 0);
+  assert.equal(updatedEvent?.status, "pending");
+  assert.equal(updatedEvent?.materializedInputId, null);
+  assert.equal(updatedEvent?.deliveredAt, null);
+  assert.ok(updatedEvent?.earliestDeliverAt);
+  assert.equal(deliveryRetry?.attempt_count, 1);
+  assert.equal(deliveryRetry?.retry_delay_ms, 5_000);
+  assert.equal(deliveryRetry?.next_retry_at, updatedEvent?.earliestDeliverAt);
+  assert.equal(deliveryRetry?.last_stop_reason, "ok");
 
   store.close();
 });
@@ -4495,6 +4607,190 @@ test("claimed onboarding input includes ONBOARD.md verbatim", async () => {
   store.close();
 });
 
+test("claimed issue bootstrap input prefers teammate-local skill directories over inline skill blobs", async () => {
+  const store = makeStore("hb-claimed-input-issue-bootstrap-");
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const teammate = store.createTeammate({
+    workspaceId: workspace.id,
+    name: "Coder",
+    instructions: "Own implementation tasks.",
+  });
+  const teammateSkillDir = writeWorkspaceSkill(
+    store.workspaceDir(workspace.id),
+    path.join("teammates", teammate.teammateId, "skills"),
+    "frontend-playbook",
+    "Frontend playbook",
+    "# Frontend Playbook\nUse the canonical dashboard patterns.\n",
+  );
+  const issue = store.createIssue({
+    workspaceId: workspace.id,
+    sessionId: "session-issue-1",
+    title: "Ship dashboard",
+    description: "Implement the workspace dashboard surface.",
+    status: "todo",
+    assigneeTeammateId: teammate.teammateId,
+    createdBy: "workspace_user",
+  });
+  const queued = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: issue.sessionId,
+    payload: {
+      text: "Implement the workspace dashboard surface.",
+      context: {
+        source: "issue_bootstrap",
+        issue_id: issue.issueId,
+        teammate_id: teammate.teammateId,
+      },
+    },
+  });
+
+  let capturedInstruction = "";
+  await processClaimedInput({
+    store,
+    record: queued,
+    executeRunnerRequestFn: async (payload, options = {}) => {
+      capturedInstruction = String(payload.instruction ?? "");
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 1,
+        event_type: "run_started",
+        payload: { instruction_preview: capturedInstruction.slice(0, 120) },
+      });
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 2,
+        event_type: "run_completed",
+        payload: { status: "ok" },
+      });
+      return {
+        events: [],
+        skippedLines: [],
+        stderr: "",
+        returnCode: 0,
+        sawTerminal: true,
+      };
+    },
+  });
+
+  assert.match(capturedInstruction, /Assigned teammate: Coder/);
+  assert.match(
+    capturedInstruction,
+    /Teammate instructions:\nOwn implementation tasks\./,
+  );
+  assert.match(
+    capturedInstruction,
+    /Teammate skills:\n<skill name="frontend-playbook" location=".*frontend-playbook\/SKILL\.md">/,
+  );
+  assert.match(
+    capturedInstruction,
+    /References are relative to .*frontend-playbook/,
+  );
+  assert.match(
+    capturedInstruction,
+    /Use the canonical dashboard patterns\./,
+  );
+  assert.doesNotMatch(
+    capturedInstruction,
+    /Skill: Frontend\n# Frontend\nBuild UI surfaces\./,
+  );
+  const messages = store.listSessionMessages({
+    workspaceId: workspace.id,
+    sessionId: issue.sessionId,
+    order: "asc",
+    limit: 20,
+    offset: 0,
+  });
+  assert.equal(messages.length, 0);
+  assert.equal(
+    fs.existsSync(path.join(teammateSkillDir, "SKILL.md")),
+    true,
+  );
+
+  store.close();
+});
+
+test("claimed issue bootstrap input ignores inline teammate skill blobs when no teammate-local skills exist", async () => {
+  const store = makeStore("hb-claimed-input-issue-bootstrap-no-inline-fallback-");
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const teammate = store.createTeammate({
+    workspaceId: workspace.id,
+    name: "Coder",
+    instructions: "Own implementation tasks.",
+  });
+  const issue = store.createIssue({
+    workspaceId: workspace.id,
+    sessionId: "session-issue-1",
+    title: "Ship dashboard",
+    description: "Implement the workspace dashboard surface.",
+    status: "todo",
+    assigneeTeammateId: teammate.teammateId,
+    createdBy: "workspace_user",
+  });
+  const queued = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: issue.sessionId,
+    payload: {
+      text: "Implement the workspace dashboard surface.",
+      context: {
+        source: "issue_bootstrap",
+        issue_id: issue.issueId,
+        teammate_id: teammate.teammateId,
+      },
+    },
+  });
+
+  let capturedInstruction = "";
+  await processClaimedInput({
+    store,
+    record: queued,
+    executeRunnerRequestFn: async (payload, options = {}) => {
+      capturedInstruction = String(payload.instruction ?? "");
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 1,
+        event_type: "run_started",
+        payload: { instruction_preview: capturedInstruction.slice(0, 120) },
+      });
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 2,
+        event_type: "run_completed",
+        payload: { status: "ok" },
+      });
+      return {
+        events: [],
+        skippedLines: [],
+        stderr: "",
+        returnCode: 0,
+        sawTerminal: true,
+      };
+    },
+  });
+
+  assert.match(capturedInstruction, /Assigned teammate: Coder/);
+  assert.match(
+    capturedInstruction,
+    /Teammate instructions:\nOwn implementation tasks\./,
+  );
+  assert.doesNotMatch(capturedInstruction, /Teammate skills:/);
+
+  store.close();
+});
+
 test("claimed input persists replacement harness session id from terminal runner event", async () => {
   const store = makeStore("hb-claimed-input-harness-session-");
   const workspace = store.createWorkspace({
@@ -4765,7 +5061,7 @@ test("claimed input passes persisted child session kind into the runner payload"
   store.ensureSession({
     workspaceId: workspace.id,
     sessionId: "proposal-session-1",
-    kind: "task_proposal",
+    kind: "subagent",
     parentSessionId: "session-main",
   });
   const queued = store.enqueueInput({
@@ -4804,7 +5100,7 @@ test("claimed input passes persisted child session kind into the runner payload"
     },
   });
 
-  assert.equal(capturedSessionKind, "task_proposal");
+  assert.equal(capturedSessionKind, "subagent");
   store.close();
 });
 

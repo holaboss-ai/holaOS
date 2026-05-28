@@ -71,6 +71,10 @@ import {
   persistWorkspaceHarnessSessionId,
   readWorkspaceHarnessSessionId,
 } from "./ts-runner-session-state.js";
+import {
+  quotedSkillBlock,
+  resolveWorkspaceSkills,
+} from "./workspace-skills.js";
 
 const ONBOARD_PROMPT_HEADER = "[Holaboss Workspace Onboarding v1]";
 const RETRY_CONTINUATION_PROMPT_HEADER = "[Holaboss Retry Continuation v1]";
@@ -1448,6 +1452,78 @@ function instructionWithInlineBackgroundUpdates(params: {
     .trim();
 }
 
+function instructionWithIssueAssignmentContext(params: {
+  store: RuntimeStateStore;
+  workspaceDir: string;
+  workspaceId: string;
+  sessionId: string;
+  baseInstruction: string;
+  context: Record<string, unknown> | null | undefined;
+}): string {
+  const issueId = optionalString(params.context?.issue_id);
+  const teammateId = optionalString(params.context?.teammate_id);
+  const issue =
+    (issueId
+      ? params.store.getIssue({
+          workspaceId: params.workspaceId,
+          issueId,
+        })
+      : null) ??
+    params.store.getIssueBySessionId({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+    });
+  if (!issue) {
+    return params.baseInstruction;
+  }
+  const effectiveTeammateId =
+    teammateId || (issue.assigneeTeammateId ?? "").trim();
+  if (!effectiveTeammateId) {
+    return params.baseInstruction;
+  }
+  const teammate = params.store.getTeammate({
+    workspaceId: params.workspaceId,
+    teammateId: effectiveTeammateId,
+    includeArchived: true,
+  });
+  if (!teammate || teammate.status !== "active") {
+    return params.baseInstruction;
+  }
+  const sections: string[] = [];
+  const teammateName = teammate.name.trim();
+  if (teammateName) {
+    sections.push(`Assigned teammate: ${teammateName}`);
+  }
+  const instructions = (teammate.instructions ?? "").trim();
+  if (instructions) {
+    sections.push(`Teammate instructions:\n${instructions}`);
+  }
+  const teammateSkillBlocks = resolveWorkspaceSkills(params.workspaceDir, {
+    teammateId: effectiveTeammateId,
+  })
+    .filter(
+      (skill) =>
+        skill.origin === "teammate" &&
+        skill.owner_teammate_id === effectiveTeammateId,
+    )
+    .map((skill) => quotedSkillBlock(skill))
+    .filter((block): block is string => Boolean(block));
+  if (teammateSkillBlocks.length > 0) {
+    sections.push(`Teammate skills:\n${teammateSkillBlocks.join("\n\n")}`);
+  }
+  if (sections.length === 0) {
+    return params.baseInstruction;
+  }
+  return [...sections, params.baseInstruction].join("\n\n");
+}
+
+function shouldPersistUserSessionMessage(inputSource: string): boolean {
+  return (
+    inputSource !== "main_session_event_batch" &&
+    inputSource !== "issue_bootstrap"
+  );
+}
+
 function instructionWithRetryContinuationPrompt(params: {
   baseInstruction: string;
   failureMessage?: string | null;
@@ -1649,7 +1725,9 @@ function inferSessionKind(params: {
   const persistedKind =
     typeof params.persistedKind === "string" ? params.persistedKind.trim() : "";
   if (persistedKind) {
-    return persistedKind;
+    return persistedKind.toLowerCase() === "task_proposal"
+      ? "subagent"
+      : persistedKind;
   }
   const sessionId = params.sessionId.trim();
   const onboardingSessionId = (
@@ -2876,7 +2954,6 @@ function maybeQueueCronjobCompletionFollowup(params: {
   });
   const eventType = cronjobLifecycleEventType(params.turnResult);
   const summary = cronjobCompletionNotificationMessage(params.turnResult);
-  const assistantText = optionalString(params.turnResult.assistantText);
   const forwardableDeliverables = subagentForwardableDeliverables(outputs);
   const deliveryChannel = optionalString(delivery.channel)?.toLowerCase() ?? null;
   const payloadTitle = cronjobContainerTitle({
@@ -2905,19 +2982,15 @@ function maybeQueueCronjobCompletionFollowup(params: {
   if (instruction) {
     payload.context = instruction;
   }
-  if (assistantText) {
-    payload.assistant_text = assistantText;
-  }
   if (forwardableDeliverables.length > 0) {
     payload.forwardable_deliverables = forwardableDeliverables;
   }
   if (eventType === "waiting_on_user") {
-    payload.blocking_question = assistantText ?? summary;
+    payload.blocking_question = summary;
     if (forwardableDeliverables.length > 0) {
       payload.partial_deliverables = forwardableDeliverables;
     }
   } else if (eventType === "failed" || eventType === "cancelled") {
-    payload.partial_summary = summary;
     if (forwardableDeliverables.length > 0) {
       payload.partial_deliverables = forwardableDeliverables;
     }
@@ -3612,7 +3685,6 @@ function subagentLifecyclePayload(params: {
     workspaceId: params.run.workspaceId,
     childSessionId: params.run.childSessionId,
   });
-  const assistantText = optionalString(params.turnResult.assistantText);
   const payload: Record<string, unknown> = {
     workspace_id: params.run.workspaceId,
     subagent_id: params.run.subagentId,
@@ -3627,11 +3699,17 @@ function subagentLifecyclePayload(params: {
     turn_status: params.turnResult.status,
     stop_reason: params.turnResult.stopReason,
   };
+  if (params.run.sourceType) {
+    payload.source_type = params.run.sourceType;
+  }
+  if (params.run.sourceId) {
+    payload.source_id = params.run.sourceId;
+  }
+  if (params.run.issueId) {
+    payload.issue_id = params.run.issueId;
+  }
   if (params.run.context) {
     payload.context = params.run.context;
-  }
-  if (assistantText) {
-    payload.assistant_text = assistantText;
   }
   if (forwardableDeliverables.length > 0) {
     payload.forwardable_deliverables = forwardableDeliverables;
@@ -3642,14 +3720,7 @@ function subagentLifecyclePayload(params: {
   if (params.status === "waiting_on_user") {
     payload.blocking_question =
       inferredRecoverableUserBlockerQuestion(params.turnResult) ??
-      assistantText ??
       params.summary;
-    if (
-      inferredRecoverableUserBlockerQuestion(params.turnResult) &&
-      assistantText
-    ) {
-      payload.partial_summary = assistantText;
-    }
     if (forwardableDeliverables.length > 0) {
       payload.partial_deliverables = forwardableDeliverables;
     }
@@ -3657,7 +3728,6 @@ function subagentLifecyclePayload(params: {
     params.status === "failed" ||
     params.status === "cancelled"
   ) {
-    payload.partial_summary = params.summary;
     if (forwardableDeliverables.length > 0) {
       payload.partial_deliverables = forwardableDeliverables;
     }
@@ -3913,10 +3983,43 @@ function maybeFinalizeMainSessionEvents(params: {
   if (eventIds.length === 0) {
     return;
   }
+  const inputSource = optionalString(context?.source)?.toLowerCase() ?? "";
   const now =
     params.turnResult.completedAt ??
     params.turnResult.updatedAt ??
     new Date().toISOString();
+  const completedWithoutVisibleOutcome =
+    inputSource === "main_session_event_batch" &&
+    params.turnResult.status === "completed" &&
+    !optionalString(params.turnResult.assistantText) &&
+    params.store.listOutputs({
+      workspaceId: params.record.workspaceId,
+      sessionId: params.record.sessionId,
+      inputId: params.record.inputId,
+      limit: 1,
+      offset: 0,
+    }).length === 0 &&
+    params.store.listMemoryUpdateProposals({
+      workspaceId: params.record.workspaceId,
+      sessionId: params.record.sessionId,
+      inputId: params.record.inputId,
+      limit: 1,
+      offset: 0,
+    }).length === 0;
+  if (completedWithoutVisibleOutcome) {
+    for (const eventId of eventIds) {
+      requeueMainSessionEventForRetry({
+        store: params.store,
+        workspaceId: params.record.workspaceId,
+        eventId,
+        completedAt: now,
+        stopReason:
+          params.turnResult.stopReason ?? "empty_background_delivery",
+        incrementAttemptCount: true,
+      });
+    }
+    return;
+  }
   if (
     params.turnResult.status !== "failed" &&
     params.turnResult.status !== "paused"
@@ -4390,21 +4493,28 @@ export async function processClaimedInput(params: {
     const inputContext = isRecord(record.payload.context)
       ? record.payload.context
       : null;
-    const inputSource = optionalString(inputContext?.source)?.toLowerCase();
+    const inputSource = (optionalString(inputContext?.source) ?? "").toLowerCase();
 
-    const instruction = instructionWithInlineBackgroundUpdates({
-      baseInstruction: buildOnboardingInstruction({
-        workspaceRoot: store.workspaceRoot,
-        workspaceId: record.workspaceId,
-        sessionId: record.sessionId,
-        text: String(record.payload.text ?? ""),
-        attachments,
-        imageUrls,
-        workspace,
+    const instruction = instructionWithIssueAssignmentContext({
+      store,
+      workspaceDir,
+      workspaceId: record.workspaceId,
+      sessionId: record.sessionId,
+      baseInstruction: instructionWithInlineBackgroundUpdates({
+        baseInstruction: buildOnboardingInstruction({
+          workspaceRoot: store.workspaceRoot,
+          workspaceId: record.workspaceId,
+          sessionId: record.sessionId,
+          text: String(record.payload.text ?? ""),
+          attachments,
+          imageUrls,
+          workspace,
+        }),
+        context: inputContext,
       }),
       context: inputContext,
     });
-    if (inputSource !== "main_session_event_batch") {
+    if (shouldPersistUserSessionMessage(inputSource)) {
       store.insertSessionMessage({
         workspaceId: record.workspaceId,
         sessionId: record.sessionId,

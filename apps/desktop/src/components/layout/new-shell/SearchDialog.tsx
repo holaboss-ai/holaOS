@@ -1,7 +1,9 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useAtom, useSetAtom } from "jotai";
 import {
+  Bot,
   AppWindow,
+  CircleDot,
   Check,
   CornerDownLeft,
   FileText,
@@ -27,6 +29,12 @@ import { useWorkspaceBrowser } from "@/components/panes/useWorkspaceBrowser";
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
+import {
+  activeInternalTabIdAtom,
+  internalTabsAtom,
+  upsertInternalTab,
+  workspaceSurfaceTab,
+} from "./state/internalTabs";
 import {
   automationsOpenAtom,
   chatPanelViewAtom,
@@ -84,6 +92,17 @@ function SearchContent({ onSelect }: { onSelect: () => void }) {
   const setMarketplaceOpen = useSetAtom(marketplaceOpenAtom);
   const setSettingsOpen = useSetAtom(settingsOpenAtom);
   const setCreateWorkspaceOpen = useSetAtom(createWorkspaceOpenAtom);
+  const setInternalTabs = useSetAtom(internalTabsAtom);
+  const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
+
+  const openWorkspaceSurface = (
+    kind: "workspace_dashboard" | "issues_board" | "teammates",
+  ) => {
+    if (!selectedWorkspaceId) return;
+    const tab = workspaceSurfaceTab(kind, selectedWorkspaceId);
+    setInternalTabs((prev) => upsertInternalTab(prev, tab));
+    setActiveInternalTabId(tab.id);
+  };
 
   const close = onSelect;
   const wrap = (action: () => void) => () => {
@@ -152,6 +171,30 @@ function SearchContent({ onSelect }: { onSelect: () => void }) {
         ) : null}
 
         <CommandGroup heading="Actions">
+          <ActionItem
+            label="Open Dashboard"
+            icon={<LayoutDashboard />}
+            onSelect={wrap(() => {
+              setSidebarSection("home");
+              openWorkspaceSurface("workspace_dashboard");
+            })}
+          />
+          <ActionItem
+            label="Open Board"
+            icon={<CircleDot />}
+            onSelect={wrap(() => {
+              setSidebarSection("issues");
+              openWorkspaceSurface("issues_board");
+            })}
+          />
+          <ActionItem
+            label="Open Teammates"
+            icon={<Bot />}
+            onSelect={wrap(() => {
+              setSidebarSection("issues");
+              openWorkspaceSurface("teammates");
+            })}
+          />
           <ActionItem
             label="New tab"
             shortcut="⌘T"

@@ -140,6 +140,7 @@ export interface BrowserTabSpaceState {
   lifecycleState: "active" | "suspended" | null;
   lastTouchedAt: string;
   suspendTimer: ReturnType<typeof setTimeout> | null;
+  userClosedAll?: boolean;
 }
 
 export interface BrowserSessionIdentity {
@@ -1219,13 +1220,20 @@ export function createBrowserPaneTabState(
     tabSpace.tabs.delete(tabId);
     closeBrowserTabRecord(tab);
     deps.browserTabSpaceTouch(tabSpace);
+    // Keep persistedTabs in sync. Without this, the persistence payload's
+    // empty-tabs fallback to `[...persistedTabs]` would re-hydrate the
+    // closed tab on the next workspace load and surface as a "tab came
+    // back on its own" bug.
+    tabSpace.persistedTabs = tabSpace.persistedTabs.filter(
+      (persisted) => persisted.id !== tabId,
+    );
     if (tabSpace.tabs.size === 0) {
-      const replacementTabId = createBrowserTab(workspace.workspaceId, {
-        url: deps.homeUrl,
-        browserSpace,
-        sessionId: resolvedSessionId,
-      });
-      tabSpace.activeTabId = replacementTabId ?? "";
+      tabSpace.activeTabId = "";
+      // Mark intent: the user emptied this space. Stops
+      // ensureBrowserTabSpaceInitialized from re-seeding on the next
+      // setActiveWorkspace round trip (which happens whenever any
+      // useWorkspaceBrowser-mounted component remounts).
+      tabSpace.userClosedAll = true;
     } else if (tabSpace.activeTabId === tabId) {
       const remainingIds = Array.from(tabSpace.tabs.keys());
       tabSpace.activeTabId =
@@ -1543,7 +1551,12 @@ export function createBrowserPaneTabState(
       !workspace ||
       !tabSpace ||
       tabSpace.tabs.size > 0 ||
-      tabSpace.persistedTabs.length > 0
+      tabSpace.persistedTabs.length > 0 ||
+      // Don't re-seed a space the user has explicitly emptied this
+      // session. closeBrowserTab flips this when the last tab is closed
+      // by user action; cold workspace loads start with the flag false
+      // so first-time entry still gets a starter tab.
+      tabSpace.userClosedAll === true
     ) {
       return false;
     }
@@ -1731,6 +1744,7 @@ export function createBrowserPaneTabState(
       return null;
     }
     tabSpace.lifecycleState = "active";
+    tabSpace.userClosedAll = false;
     deps.browserTabSpaceTouch(tabSpace);
 
     const tabId =
