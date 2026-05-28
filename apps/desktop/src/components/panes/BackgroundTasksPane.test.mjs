@@ -20,10 +20,13 @@ test("background tasks pane polls workspace background tasks and supports inline
   assert.match(source, /window\.addEventListener\("focus", refreshVisibleTasks\);/);
   assert.match(source, /document\.addEventListener\("visibilitychange", refreshVisibleTasks\);/);
   assert.match(source, /if \(variant === "inline"\) \{/);
-  assert.match(source, /if \(tasks\.length === 0 && !errorMessage\) \{\s*return null;\s*\}/);
+  assert.match(source, /function isInlineVisibleBackgroundTask\(task: BackgroundTaskRecordPayload\) \{\s*const status = task\.status\.trim\(\)\.toLowerCase\(\);\s*return status === "queued" \|\| status === "running";\s*\}/);
+  assert.match(source, /const inlineVisibleTasks = sortedTasks\.filter\(isInlineVisibleBackgroundTask\);/);
+  assert.match(source, /if \(inlineVisibleTasks\.length === 0\) \{\s*return null;\s*\}/);
   assert.match(source, /case "running":\s*return goal \|\| "Working in the background\.";?/);
   assert.match(source, /case "queued":\s*return goal \|\| "Queued to run\.";?/);
   assert.match(source, /case "completed":/);
+  assert.doesNotMatch(source, /return `\$\{failedCount\} failed`;/);
   assert.doesNotMatch(source, /if \(summary\) \{\s*return summary;\s*\}\s*return task\.goal\.trim\(\) \|\| "No summary yet\.";?/);
   assert.match(source, /onClick=\{\(\) => setInlineExpanded\(\(value\) => !value\)\}/);
   assert.match(source, /const \[removingTaskId, setRemovingTaskId\] = useState<string \| null>\(null\);/);

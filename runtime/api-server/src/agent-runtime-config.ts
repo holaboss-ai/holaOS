@@ -15,6 +15,7 @@ import {
   type AgentRecentRuntimeContext,
   type AgentSessionAttachmentContext,
   type AgentScratchpadContext,
+  type AgentTeammateRoutingContext,
 } from "./agent-runtime-prompt.js";
 import type { AgentRecalledMemoryContext } from "./memory-retrieval-pack.js";
 import type {
@@ -55,6 +56,7 @@ export interface AgentRuntimeConfigCliRequest {
   current_user_context?: AgentCurrentUserContext | null;
   operator_surface_context?: AgentOperatorSurfaceContext | null;
   pending_user_memory_context?: AgentPendingUserMemoryContext | null;
+  teammate_routing_context?: AgentTeammateRoutingContext | null;
   recent_runtime_context?: AgentRecentRuntimeContext | null;
   session_attachment_context?: AgentSessionAttachmentContext | null;
   session_scratchpad_context?: AgentScratchpadContext | null;
@@ -206,6 +208,42 @@ const LEGACY_DIRECT_PROVIDER_MODEL_ALIASES: Record<
     "gemini-3.1-flash-lite-preview": "gemini-2.5-flash",
   },
 };
+
+function normalizedSessionKindValue(value: string | null | undefined): string {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!normalized || normalized === "workspace_session" || normalized === "main") {
+    return "main_session";
+  }
+  if (normalized === "task_proposal") {
+    return "subagent";
+  }
+  return normalized;
+}
+
+function directMcpDisabledForSession(value: string | null | undefined): boolean {
+  const normalized = normalizedSessionKindValue(value);
+  return normalized === "main_session" || normalized === "onboarding";
+}
+
+function directResolvedMcpToolRefsForSession(
+  sessionKind: string | null | undefined,
+  toolRefs: AgentRuntimeConfigCliRequest["resolved_mcp_tool_refs"],
+): AgentRuntimeConfigCliRequest["resolved_mcp_tool_refs"] {
+  if (directMcpDisabledForSession(sessionKind)) {
+    return [];
+  }
+  return toolRefs;
+}
+
+function directResolvedMcpServerIdsForSession(
+  sessionKind: string | null | undefined,
+  serverIds: string[] | null | undefined,
+): string[] {
+  if (directMcpDisabledForSession(sessionKind)) {
+    return [];
+  }
+  return serverIds ?? [];
+}
 
 interface ConfiguredRuntimeProvider {
   id: string;
@@ -1491,8 +1529,14 @@ export function projectAgentRuntimeConfig(
 ): AgentRuntimeConfigCliResponse {
   const selectedModel =
     request.selected_model?.trim() || defaultExecutionModel();
-  const directResolvedMcpToolRefs = request.resolved_mcp_tool_refs;
-  const directResolvedMcpServerIds = request.resolved_mcp_server_ids ?? [];
+  const directResolvedMcpToolRefs = directResolvedMcpToolRefsForSession(
+    request.session_kind ?? null,
+    request.resolved_mcp_tool_refs,
+  );
+  const directResolvedMcpServerIds = directResolvedMcpServerIdsForSession(
+    request.session_kind ?? null,
+    request.resolved_mcp_server_ids ?? null,
+  );
   const capabilityManifest = buildAgentCapabilityManifest({
     harnessId: request.harness_id ?? null,
     sessionKind: request.session_kind ?? null,
@@ -1551,6 +1595,7 @@ export function projectAgentRuntimeConfig(
     currentUserContext: request.current_user_context ?? null,
     operatorSurfaceContext: request.operator_surface_context ?? null,
     pendingUserMemoryContext: request.pending_user_memory_context ?? null,
+    teammateRoutingContext: request.teammate_routing_context ?? null,
     recentRuntimeContext: request.recent_runtime_context ?? null,
     sessionAttachmentContext: request.session_attachment_context ?? null,
     scratchpadContext: request.session_scratchpad_context ?? null,

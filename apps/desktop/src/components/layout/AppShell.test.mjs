@@ -620,10 +620,9 @@ test("app shell uses the top toolbar for shell navigation and removes the left r
   assert.match(source, /controlCenterActive=\{controlCenterMode\}/);
   assert.match(source, /onOpenControlCenter=\{handleOpenControlCenter\}/);
   assert.match(source, /handleOpenAutomationsPane = useCallback/);
-  assert.match(source, /const handleOpenSessionsPane = useCallback\(\(\) => \{/);
-  assert.match(source, /setAgentView\(\{ type: "sessions" \}\)/);
+  assert.doesNotMatch(source, /const handleOpenSessionsPane = useCallback\(\(\) => \{/);
   assert.match(source, /setAgentView\(\{ type: "automations" \}\)/);
-  assert.match(source, /onOpenSessions=\{handleOpenSessionsPane\}/);
+  assert.doesNotMatch(source, /onOpenSessions=\{handleOpenSessionsPane\}/);
   assert.match(source, /onOpenAutomations=\{handleOpenAutomationsPane\}/);
   assert.match(source, /<SubagentSessionsPane[\s\S]*variant="full"/);
   assert.match(source, /<AutomationsPane[\s\S]*onRunNow=\{handleReturnToChatPane\}/);
@@ -682,44 +681,24 @@ test("app shell no longer exposes the deprecated manual proactive proposal trigg
   assert.doesNotMatch(source, /Pending cloud jobs/);
 });
 
-test("accepting a task proposal starts background work without surfacing a hidden session id", async () => {
+test("app shell no longer routes proposal acceptance through the desktop inbox", async () => {
   const source = await readFile(APP_SHELL_PATH, "utf8");
 
   assert.match(source, /async function acceptTaskProposal\(proposal: TaskProposalRecordPayload\)/);
-  assert.match(source, /function currentComposerSelectedModel\(/);
-  assert.match(source, /localStorage\.getItem\(CHAT_MODEL_STORAGE_KEY\)/);
-  assert.match(source, /model: currentComposerSelectedModel\(runtimeConfig\)/);
-  assert.match(source, /Started background task "\$\{proposal\.task_name\}"\./);
-  assert.doesNotMatch(source, /const proposalSessionId = `proposal-\$\{crypto\.randomUUID\(\)\}`;/);
-  assert.doesNotMatch(source, /Queued "\$\{proposal\.task_name\}" into session \$\{targetSessionId\}\./);
-  assert.doesNotMatch(source, /session_id: proposalSessionId/);
+  assert.match(source, /setTaskProposalStatusMessage\("Inbox is empty for now\."\);/);
+  assert.doesNotMatch(source, /window\.electronAPI\.workspace\.acceptTaskProposal\(/);
+  assert.doesNotMatch(source, /Started background task "\$\{proposal\.task_name\}"\./);
 });
 
-test("app shell raises a local toast when fresh task proposals arrive and opens the inbox from it", async () => {
+test("app shell keeps proposal polling disabled and clears the inbox state locally", async () => {
   const source = await readFile(APP_SHELL_PATH, "utf8");
 
-  assert.match(source, /const TASK_PROPOSAL_TOAST_ID_PREFIX = "task-proposal-toast:";/);
-  assert.match(source, /function buildTaskProposalToastNotification\(/);
-  assert.match(
-    source,
-    /const \[taskProposalToastNotifications,\s*setTaskProposalToastNotifications\] =\s*useState<\s*RuntimeNotificationRecordPayload\[\]\s*>\(\[\]\);/,
-  );
-  assert.match(
-    source,
-    /const knownTaskProposalIdsByWorkspaceRef = useRef<Record<string, string\[]>>\(\s*\{\s*\},?\s*\);/,
-  );
   assert.match(source, /const applyTaskProposals = useCallback\(/);
-  assert.match(source, /const pendingNewProposals = proposals\.filter\(\(proposal\) => \{/);
   assert.match(
     source,
-    /return isNew && proposal\.state\.trim\(\)\.toLowerCase\(\) === "pending";/,
+    /applyTaskProposals\(selectedWorkspaceId, selectedWorkspace\?\.name, \[\], \{\s*notify: false,\s*\}\);/,
   );
-  assert.match(
-    source,
-    /setTaskProposalToastNotifications\(\(current\) =>\s*\[toast, \.\.\.current\]\.slice\(0, 4\),?\s*\)\s*;/,
-  );
-  assert.match(source, /if \(isTaskProposalToastId\(notificationId\)\) \{/);
-  assert.match(source, /openTaskProposalInbox\(notification\.workspace_id\);/);
+  assert.doesNotMatch(source, /window\.electronAPI\.workspace\.listTaskProposals\(/);
 });
 
 test("app shell does not replay agent browser navigations through the user-facing browser IPC", async () => {
@@ -766,21 +745,12 @@ test("app shell keeps agent browser open requests session-scoped until the user 
   );
 });
 
-test("app shell tracks unread task proposals and badges the inbox control", async () => {
+test("app shell opens the inbox without proposal unread badges", async () => {
   const source = await readFile(APP_SHELL_PATH, "utf8");
 
-  assert.match(source, /const TASK_PROPOSAL_SEEN_STORAGE_KEY = "holaboss-task-proposal-seen-v1";/);
-  assert.match(source, /const \[seenTaskProposalIdsByWorkspace, setSeenTaskProposalIdsByWorkspace\] =\s*useState<Record<string, string\[]>>\(loadSeenTaskProposalIdsByWorkspace\);/);
-  assert.match(source, /const unreadTaskProposalCount = useMemo\(\(\) => \{/);
-  assert.match(source, /const markTaskProposalsSeen = useCallback\(/);
-  assert.match(
-    source,
-    /if \(\s*agentView\.type !== "inbox" \|\|\s*!selectedWorkspaceId \|\|\s*taskProposals.length === 0\s*\) \{\s*return;\s*\}\s*markTaskProposalsSeen\(selectedWorkspaceId, taskProposals\);/,
-  );
-  assert.match(source, /if \(tab === "inbox" && selectedWorkspaceId\) \{\s*markTaskProposalsSeen\(selectedWorkspaceId, taskProposals\);\s*\}/);
   assert.match(source, /const handleOpenInboxPane = useCallback\(\(\) => \{/);
   assert.match(source, /setAgentView\(\{ type: "inbox" \}\);/);
-  assert.match(source, /inboxUnreadCount=\{unreadTaskProposalCount\}/);
+  assert.match(source, /inboxUnreadCount=\{0\}/);
   assert.match(source, /onOpenInbox=\{handleOpenInboxPane\}/);
   assert.doesNotMatch(source, /unreadProposalCount=\{unreadTaskProposalCount\}/);
   assert.doesNotMatch(source, /aria-label="Open inbox"/);
@@ -921,15 +891,14 @@ test("app shell no longer reloads proactive preferences after workspace hydratio
   assert.doesNotMatch(source, /setIsLoadingProactiveTaskProposalsEnabled/);
 });
 
-test("app shell keeps polling task proposals without proactive preference plumbing", async () => {
+test("app shell no longer polls task proposals from the desktop inbox", async () => {
   const source = await readFile(APP_SHELL_PATH, "utf8");
 
-  assert.match(source, /workspace\.listTaskProposals\(\s*selectedWorkspace\.id,/);
+  assert.doesNotMatch(source, /workspace\.listTaskProposals\(\s*selectedWorkspace\.id,/);
   assert.doesNotMatch(source, /workspace\.getProactiveTaskProposalPreference\(\)/);
   assert.doesNotMatch(source, /workspace\.getProactiveHeartbeatConfig\(\)/);
-  assert.doesNotMatch(source, /if \(!hasLoadedProactiveTaskProposalsPreference\) \{\s*setIsLoadingTaskProposals\(false\);\s*return;\s*\}/);
-  assert.doesNotMatch(source, /if \(!proactiveTaskProposalsEnabled\) \{\s*setIsLoadingTaskProposals\(false\);\s*return;\s*\}/);
-  assert.match(source, /\}, \[selectedWorkspace, selectedWorkspaceId\]\);/);
+  assert.match(source, /setIsLoadingTaskProposals\(false\);/);
+  assert.match(source, /\}, \[applyTaskProposals, selectedWorkspace, selectedWorkspaceId\]\);/);
 });
 
 test("app shell no longer renders a separate right panel in space mode", async () => {
@@ -1078,7 +1047,8 @@ test("app shell passes new session requests into the chat pane selector", async 
   assert.doesNotMatch(source, /window\.electronAPI\.workspace\.createAgentSession\(\{/);
   assert.match(source, /const handleReturnToChatPane = useCallback\(\(\) => \{/);
   assert.match(source, /aria-label="Return to chat"/);
-  assert.match(source, /<OperationsInboxPane[\s\S]*proposals=\{taskProposals\}/);
+  assert.match(source, /<OperationsInboxPane[\s\S]*hasWorkspace=\{hasSelectedWorkspace\}/);
+  assert.doesNotMatch(source, /<OperationsInboxPane[\s\S]*proposals=\{taskProposals\}/);
   assert.match(
     source,
     /sessionOpenRequest=\{chatSessionOpenRequest\}[\s\S]*composerDraftText=\{[\s\S]*chatComposerDraftTextByWorkspace\[selectedWorkspaceId\] \?\? ""[\s\S]*\}[\s\S]*onComposerDraftTextChange=\{handleChatComposerDraftTextChange\}/,

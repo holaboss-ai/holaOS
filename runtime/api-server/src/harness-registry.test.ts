@@ -56,10 +56,9 @@ test("requireRuntimeHarnessAdapter rejects unsupported harnesses", () => {
   assert.throws(() => requireRuntimeHarnessAdapter("unsupported"), /unsupported harness: unsupported/);
 });
 
-test("requireRuntimeHarnessPlugin uses extended timeouts for task proposal runs", () => {
+test("requireRuntimeHarnessPlugin uses extended timeouts for subagent runs", () => {
   process.env.HOLABOSS_HARNESS_RUN_TIMEOUT_S = "45";
   process.env.HOLABOSS_SUBAGENT_HARNESS_RUN_TIMEOUT_S = "900";
-  process.env.HOLABOSS_TASK_PROPOSAL_HARNESS_RUN_TIMEOUT_S = "600";
 
   const plugin = requireRuntimeHarnessPlugin("pi");
   assert.equal(
@@ -86,21 +85,9 @@ test("requireRuntimeHarnessPlugin uses extended timeouts for task proposal runs"
     }),
     900
   );
-  assert.equal(
-    plugin.timeoutSeconds({
-      request: {
-        workspace_id: "workspace-1",
-        session_id: "proposal-1",
-        session_kind: "task_proposal",
-        input_id: "input-2",
-        instruction: "Finish the delegated task"
-      }
-    }),
-    600
-  );
 });
 
-test("requireRuntimeHarnessPlugin stages browser tools for main and subagent sessions", () => {
+test("requireRuntimeHarnessPlugin stages browser tools only for executor sessions", () => {
   const plugin = requireRuntimeHarnessPlugin("pi");
   const browserConfig = {
     desktopBrowserEnabled: true,
@@ -116,7 +103,7 @@ test("requireRuntimeHarnessPlugin stages browser tools for main and subagent ses
     }),
     {
       changed: false,
-      toolIds: [...DESKTOP_BROWSER_TOOL_IDS]
+      toolIds: []
     }
   );
   assert.deepEqual(
@@ -128,17 +115,6 @@ test("requireRuntimeHarnessPlugin stages browser tools for main and subagent ses
     {
       changed: false,
       toolIds: [...DESKTOP_BROWSER_TOOL_IDS]
-    }
-  );
-  assert.deepEqual(
-    plugin.stageBrowserTools({
-      workspaceDir: "/tmp/workspace-1",
-      sessionKind: "task_proposal",
-      browserConfig
-    }),
-    {
-      changed: false,
-      toolIds: []
     }
   );
   assert.deepEqual(

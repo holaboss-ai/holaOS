@@ -2905,6 +2905,7 @@ interface CronjobRecordPayload {
   id: string;
   workspace_id: string;
   initiated_by: string;
+  teammate_id: string;
   name: string;
   cron: string;
   description: string;
@@ -2929,6 +2930,7 @@ interface CronjobListResponsePayload {
 interface CronjobCreatePayload {
   workspace_id: string;
   initiated_by: string;
+  teammate_id: string;
   session_id?: string;
   name?: string;
   cron: string;
@@ -2942,6 +2944,7 @@ interface CronjobCreatePayload {
 
 interface CronjobUpdatePayload {
   session_id?: string;
+  teammate_id?: string;
   name?: string;
   cron?: string;
   description?: string;
@@ -3214,6 +3217,47 @@ interface SessionHistoryRequestPayload {
   limit?: number;
   offset?: number;
   order?: "asc" | "desc";
+}
+
+interface SessionTurnResultPayload {
+  workspace_id: string;
+  session_id: string;
+  input_id: string;
+  started_at: string;
+  completed_at: string | null;
+  status: string;
+  stop_reason: string | null;
+  assistant_text: string;
+  tool_usage_summary: Record<string, unknown>;
+  permission_denials: Array<Record<string, unknown>>;
+  prompt_section_ids: string[];
+  capability_manifest_fingerprint: string | null;
+  request_snapshot_fingerprint: string | null;
+  prompt_cache_profile: Record<string, unknown> | null;
+  context_budget_decisions: Record<string, unknown> | null;
+  token_usage: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface SessionTurnResultListRequestPayload {
+  workspaceId: string;
+  sessionId?: string | null;
+  inputId?: string | null;
+  status?: string | null;
+  limit?: number;
+  offset?: number;
+  order?: "asc" | "desc";
+}
+
+interface SessionTurnResultListResponsePayload {
+  workspace_id: string;
+  session_id: string | null;
+  items: SessionTurnResultPayload[];
+  count: number;
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 interface SessionOutputEventPayload {
@@ -9747,22 +9791,206 @@ async function downloadAppArchive(url: string, appId: string): Promise<string> {
   }
 }
 
-async function listTaskProposals(
+async function listTeammates(
   workspaceId: string,
-): Promise<TaskProposalListResponsePayload> {
+  includeArchived = false,
+): Promise<TeammateListResponsePayload> {
   if (!workspaceId.trim()) {
-    return { proposals: [], count: 0 };
+    return { teammates: [], count: 0 };
   }
-  return requestWorkspaceRuntimeJson<TaskProposalListResponsePayload>(
+  return requestWorkspaceRuntimeJson<TeammateListResponsePayload>(
     workspaceId,
     {
       method: "GET",
-      path: "/api/v1/task-proposals/unreviewed",
+      path: "/api/v1/teammates",
+      params: {
+        workspace_id: workspaceId,
+        include_archived: includeArchived,
+      },
+    },
+  );
+}
+
+async function createTeammate(
+  payload: CreateTeammatePayload,
+): Promise<CreateTeammateResponsePayload> {
+  if (!payload.workspace_id.trim()) {
+    throw new Error("workspace_id is required");
+  }
+  return requestWorkspaceRuntimeJson<CreateTeammateResponsePayload>(
+    payload.workspace_id,
+    {
+      method: "POST",
+      path: "/api/v1/teammates",
+      payload: {
+        workspace_id: payload.workspace_id,
+        teammate_id: payload.teammate_id ?? null,
+        name: payload.name,
+        instructions: payload.instructions ?? null,
+        capability_profile: payload.capability_profile ?? null,
+      },
+    },
+  );
+}
+
+async function updateTeammate(
+  workspaceId: string,
+  teammateId: string,
+  payload: UpdateTeammatePayload,
+): Promise<UpdateTeammateResponsePayload> {
+  if (!workspaceId.trim()) {
+    throw new Error("workspace_id is required");
+  }
+  if (!teammateId.trim()) {
+    throw new Error("teammateId is required");
+  }
+  return requestWorkspaceRuntimeJson<UpdateTeammateResponsePayload>(
+    workspaceId,
+    {
+      method: "PATCH",
+      path: `/api/v1/teammates/${encodeURIComponent(teammateId)}`,
+      payload: {
+        workspace_id: workspaceId,
+        name: payload.name ?? undefined,
+        instructions: payload.instructions ?? undefined,
+        capability_profile: payload.capability_profile ?? undefined,
+        status: payload.status ?? undefined,
+      },
+    },
+  );
+}
+
+async function createTeammateSkill(
+  workspaceId: string,
+  teammateId: string,
+  payload: CreateTeammateSkillPayload,
+): Promise<CreateTeammateSkillResponsePayload> {
+  if (!workspaceId.trim()) {
+    throw new Error("workspace_id is required");
+  }
+  if (!teammateId.trim()) {
+    throw new Error("teammateId is required");
+  }
+  return requestWorkspaceRuntimeJson<CreateTeammateSkillResponsePayload>(
+    workspaceId,
+    {
+      method: "POST",
+      path: `/api/v1/teammates/${encodeURIComponent(teammateId)}/skills`,
+      payload: {
+        workspace_id: payload.workspace_id,
+        skill: payload.skill,
+      },
+    },
+  );
+}
+
+async function deleteTeammateSkill(
+  workspaceId: string,
+  teammateId: string,
+  skillId: string,
+): Promise<DeleteTeammateSkillResponsePayload> {
+  if (!workspaceId.trim()) {
+    throw new Error("workspace_id is required");
+  }
+  if (!teammateId.trim()) {
+    throw new Error("teammateId is required");
+  }
+  if (!skillId.trim()) {
+    throw new Error("skillId is required");
+  }
+  return requestWorkspaceRuntimeJson<DeleteTeammateSkillResponsePayload>(
+    workspaceId,
+    {
+      method: "DELETE",
+      path: `/api/v1/teammates/${encodeURIComponent(teammateId)}/skills/${encodeURIComponent(skillId)}`,
       params: {
         workspace_id: workspaceId,
       },
     },
   );
+}
+
+async function listIssues(
+  workspaceId: string,
+): Promise<IssueListResponsePayload> {
+  if (!workspaceId.trim()) {
+    return { issues: [], count: 0 };
+  }
+  return requestWorkspaceRuntimeJson<IssueListResponsePayload>(workspaceId, {
+    method: "GET",
+    path: "/api/v1/issues",
+    params: {
+      workspace_id: workspaceId,
+    },
+  });
+}
+
+async function createIssue(
+  payload: CreateIssuePayload,
+): Promise<CreateIssueResponsePayload> {
+  return requestWorkspaceRuntimeJson<CreateIssueResponsePayload>(
+    payload.workspace_id,
+    {
+      method: "POST",
+      path: "/api/v1/issues",
+      payload: {
+        workspace_id: payload.workspace_id,
+        title: payload.title,
+        description: payload.description ?? null,
+        status: payload.status,
+        priority: payload.priority ?? null,
+        assignee_teammate_id: payload.assignee_teammate_id ?? null,
+        blocker_reason: payload.blocker_reason ?? null,
+        attachments: payload.attachments ?? [],
+      },
+    },
+  );
+}
+
+async function updateIssue(
+  workspaceId: string,
+  issueId: string,
+  payload: UpdateIssuePayload,
+): Promise<UpdateIssueResponsePayload> {
+  if (!workspaceId.trim()) {
+    throw new Error("workspace_id is required");
+  }
+  if (!issueId.trim()) {
+    throw new Error("issueId is required");
+  }
+  return requestWorkspaceRuntimeJson<UpdateIssueResponsePayload>(workspaceId, {
+    method: "PATCH",
+    path: `/api/v1/issues/${encodeURIComponent(issueId)}`,
+      payload: {
+        workspace_id: workspaceId,
+        title: payload.title ?? undefined,
+        description: payload.description ?? undefined,
+        status: payload.status ?? undefined,
+        priority: payload.priority ?? undefined,
+        assignee_teammate_id: payload.assignee_teammate_id ?? undefined,
+        blocker_reason: payload.blocker_reason ?? undefined,
+        attachments: payload.attachments ?? undefined,
+      },
+    });
+}
+
+async function stopIssueRun(
+  workspaceId: string,
+  issueId: string,
+): Promise<StopIssueRunResponsePayload> {
+  if (!workspaceId.trim()) {
+    throw new Error("workspace_id is required");
+  }
+  if (!issueId.trim()) {
+    throw new Error("issueId is required");
+  }
+  return requestWorkspaceRuntimeJson<StopIssueRunResponsePayload>(workspaceId, {
+    method: "POST",
+    path: `/api/v1/issues/${encodeURIComponent(issueId)}/stop`,
+    payload: {
+      workspace_id: workspaceId,
+    },
+  });
 }
 
 async function listBackgroundTasks(
@@ -9841,29 +10069,6 @@ async function continueBackgroundTask(
     },
   );
 }
-
-async function acceptTaskProposal(
-  payload: TaskProposalAcceptPayload,
-): Promise<TaskProposalAcceptResponsePayload> {
-  return requestWorkspaceRuntimeJson<TaskProposalAcceptResponsePayload>(
-    payload.workspace_id,
-    {
-      method: "POST",
-      path: `/api/v1/task-proposals/${encodeURIComponent(payload.proposal_id)}/accept`,
-      payload: {
-        workspace_id: payload.workspace_id,
-        task_name: payload.task_name,
-        task_prompt: payload.task_prompt,
-        session_id: payload.session_id,
-        parent_session_id: payload.parent_session_id,
-        created_by: payload.created_by,
-        priority: payload.priority ?? 0,
-        model: payload.model ?? null,
-      },
-    },
-  );
-}
-
 async function listCronjobs(
   workspaceId: string,
   enabledOnly = false,
@@ -11798,24 +12003,6 @@ async function resolveTemplateIntegrations(
     missing_providers: missingProviders,
     provider_logos: providerLogos,
   };
-}
-
-async function updateTaskProposalState(
-  workspaceId: string,
-  proposalId: string,
-  state: string,
-): Promise<TaskProposalStateUpdatePayload> {
-  return requestWorkspaceRuntimeJson<TaskProposalStateUpdatePayload>(
-    workspaceId,
-    {
-      method: "PATCH",
-      path: `/api/v1/task-proposals/${encodeURIComponent(proposalId)}`,
-      payload: {
-        workspace_id: workspaceId,
-        state,
-      },
-    },
-  );
 }
 
 const LOCAL_TEMPLATE_IGNORE_NAMES = new Set([
@@ -15439,9 +15626,42 @@ async function deleteLocalWorkspace(
     safeWorkspaceId,
     keepFiles !== undefined ? { keepFiles } : undefined,
   );
+  await cleanupDeletedWorkspaceBrowserStorage(safeWorkspaceId);
   forgetWorkspaceDir(safeWorkspaceId);
   forgetWorkspaceRuntimeSession(safeWorkspaceId);
   return withWorkspaceResponseLocation(response);
+}
+
+async function cleanupDeletedWorkspaceBrowserStorage(
+  workspaceId: string,
+): Promise<void> {
+  const safeWorkspaceId = assertSafeWorkspaceId(workspaceId);
+  if (activeBrowserWorkspaceId === safeWorkspaceId) {
+    await setActiveBrowserWorkspace("");
+  }
+  destroyBrowserWorkspace(safeWorkspaceId);
+
+  try {
+    const browserSession = session.fromPartition(
+      browserWorkspacePartition(safeWorkspaceId),
+    );
+    await browserSession.clearData();
+  } catch (error) {
+    void appendRuntimeLog(
+      `[browser-workspace-cleanup] failed to clear session data for ${safeWorkspaceId}: ${normalizeErrorMessage(error)}\n`,
+    );
+  }
+
+  try {
+    await fs.rm(browserWorkspaceStorageDir(safeWorkspaceId), {
+      recursive: true,
+      force: true,
+    });
+  } catch (error) {
+    void appendRuntimeLog(
+      `[browser-workspace-cleanup] failed to remove persisted state for ${safeWorkspaceId}: ${normalizeErrorMessage(error)}\n`,
+    );
+  }
 }
 
 async function relocateWorkspace(
@@ -15862,6 +16082,26 @@ async function getSessionOutputEvents(
         include_history: true,
         after_event_id: 0,
         include_native: false,
+      },
+    },
+  );
+}
+
+async function listTurnResults(
+  payload: SessionTurnResultListRequestPayload,
+): Promise<SessionTurnResultListResponsePayload> {
+  return requestWorkspaceRuntimeJson<SessionTurnResultListResponsePayload>(
+    payload.workspaceId,
+    {
+      method: "GET",
+      path: `/api/v1/workspaces/${encodeURIComponent(payload.workspaceId)}/turn-results`,
+      params: {
+        session_id: payload.sessionId ?? undefined,
+        input_id: payload.inputId ?? undefined,
+        status: payload.status ?? undefined,
+        limit: payload.limit ?? 500,
+        offset: payload.offset ?? 0,
+        order: payload.order ?? "desc",
       },
     },
   );
@@ -23841,9 +24081,71 @@ app.whenReady().then(async () => {
     ) => updateNotification(workspaceId, notificationId, payload),
   );
   handleTrustedIpc(
-    "workspace:listTaskProposals",
+    "workspace:listTeammates",
     ["main"],
-    async (_event, workspaceId: string) => listTaskProposals(workspaceId),
+    async (_event, workspaceId: string, includeArchived?: boolean) =>
+      listTeammates(workspaceId, includeArchived),
+  );
+  handleTrustedIpc(
+    "workspace:createTeammate",
+    ["main"],
+    async (_event, payload: CreateTeammatePayload) => createTeammate(payload),
+  );
+  handleTrustedIpc(
+    "workspace:updateTeammate",
+    ["main"],
+    async (
+      _event,
+      workspaceId: string,
+      teammateId: string,
+      payload: UpdateTeammatePayload,
+    ) => updateTeammate(workspaceId, teammateId, payload),
+  );
+  handleTrustedIpc(
+    "workspace:createTeammateSkill",
+    ["main"],
+    async (
+      _event,
+      workspaceId: string,
+      teammateId: string,
+      payload: CreateTeammateSkillPayload,
+    ) => createTeammateSkill(workspaceId, teammateId, payload),
+  );
+  handleTrustedIpc(
+    "workspace:deleteTeammateSkill",
+    ["main"],
+    async (
+      _event,
+      workspaceId: string,
+      teammateId: string,
+      skillId: string,
+    ) => deleteTeammateSkill(workspaceId, teammateId, skillId),
+  );
+  handleTrustedIpc(
+    "workspace:listIssues",
+    ["main"],
+    async (_event, workspaceId: string) => listIssues(workspaceId),
+  );
+  handleTrustedIpc(
+    "workspace:createIssue",
+    ["main"],
+    async (_event, payload: CreateIssuePayload) => createIssue(payload),
+  );
+  handleTrustedIpc(
+    "workspace:updateIssue",
+    ["main"],
+    async (
+      _event,
+      workspaceId: string,
+      issueId: string,
+      payload: UpdateIssuePayload,
+    ) => updateIssue(workspaceId, issueId, payload),
+  );
+  handleTrustedIpc(
+    "workspace:stopIssueRun",
+    ["main"],
+    async (_event, workspaceId: string, issueId: string) =>
+      stopIssueRun(workspaceId, issueId),
   );
   handleTrustedIpc(
     "workspace:listBackgroundTasks",
@@ -23862,18 +24164,6 @@ app.whenReady().then(async () => {
     ["main"],
     async (_event, payload: ContinueBackgroundTaskPayload) =>
       continueBackgroundTask(payload),
-  );
-  handleTrustedIpc(
-    "workspace:acceptTaskProposal",
-    ["main"],
-    async (_event, payload: TaskProposalAcceptPayload) =>
-      acceptTaskProposal(payload),
-  );
-  handleTrustedIpc(
-    "workspace:updateTaskProposalState",
-    ["main"],
-    async (_event, workspaceId: string, proposalId: string, state: string) =>
-      updateTaskProposalState(workspaceId, proposalId, state),
   );
   handleTrustedIpc(
     "workspace:listRuntimeStates",
@@ -23901,6 +24191,12 @@ app.whenReady().then(async () => {
     ["main"],
     async (_event, payload: SessionHistoryRequestPayload) =>
       getSessionHistory(payload),
+  );
+  handleTrustedIpc(
+    "workspace:listTurnResults",
+    ["main"],
+    async (_event, payload: SessionTurnResultListRequestPayload) =>
+      listTurnResults(payload),
   );
   handleTrustedIpc(
     "workspace:getSessionOutputEvents",

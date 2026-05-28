@@ -1469,18 +1469,46 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ) as Promise<RuntimeNotificationListResponsePayload>,
     updateNotification: (workspaceId: string, notificationId: string, payload: RuntimeNotificationUpdatePayload) =>
       ipcRenderer.invoke("workspace:updateNotification", workspaceId, notificationId, payload) as Promise<RuntimeNotificationRecordPayload>,
-    listTaskProposals: (workspaceId: string) =>
-      ipcRenderer.invoke("workspace:listTaskProposals", workspaceId) as Promise<TaskProposalListResponsePayload>,
+    listTeammates: (workspaceId: string, includeArchived = false) =>
+      ipcRenderer.invoke("workspace:listTeammates", workspaceId, includeArchived) as Promise<TeammateListResponsePayload>,
+    createTeammate: (payload: CreateTeammatePayload) =>
+      ipcRenderer.invoke("workspace:createTeammate", payload) as Promise<CreateTeammateResponsePayload>,
+    updateTeammate: (
+      workspaceId: string,
+      teammateId: string,
+      payload: UpdateTeammatePayload,
+    ) =>
+      ipcRenderer.invoke("workspace:updateTeammate", workspaceId, teammateId, payload) as Promise<UpdateTeammateResponsePayload>,
+    createTeammateSkill: (
+      workspaceId: string,
+      teammateId: string,
+      payload: CreateTeammateSkillPayload,
+    ) =>
+      ipcRenderer.invoke("workspace:createTeammateSkill", workspaceId, teammateId, payload) as Promise<CreateTeammateSkillResponsePayload>,
+    deleteTeammateSkill: (
+      workspaceId: string,
+      teammateId: string,
+      skillId: string,
+    ) =>
+      ipcRenderer.invoke("workspace:deleteTeammateSkill", workspaceId, teammateId, skillId) as Promise<DeleteTeammateSkillResponsePayload>,
+    listIssues: (workspaceId: string) =>
+      ipcRenderer.invoke("workspace:listIssues", workspaceId) as Promise<IssueListResponsePayload>,
+    createIssue: (payload: CreateIssuePayload) =>
+      ipcRenderer.invoke("workspace:createIssue", payload) as Promise<CreateIssueResponsePayload>,
+    updateIssue: (
+      workspaceId: string,
+      issueId: string,
+      payload: UpdateIssuePayload,
+    ) =>
+      ipcRenderer.invoke("workspace:updateIssue", workspaceId, issueId, payload) as Promise<UpdateIssueResponsePayload>,
+    stopIssueRun: (workspaceId: string, issueId: string) =>
+      ipcRenderer.invoke("workspace:stopIssueRun", workspaceId, issueId) as Promise<StopIssueRunResponsePayload>,
     listBackgroundTasks: (payload: BackgroundTaskListRequestPayload) =>
       ipcRenderer.invoke("workspace:listBackgroundTasks", payload) as Promise<BackgroundTaskListResponsePayload>,
     archiveBackgroundTask: (payload: ArchiveBackgroundTaskPayload) =>
       ipcRenderer.invoke("workspace:archiveBackgroundTask", payload) as Promise<ArchiveBackgroundTaskResponsePayload>,
     continueBackgroundTask: (payload: ContinueBackgroundTaskPayload) =>
       ipcRenderer.invoke("workspace:continueBackgroundTask", payload) as Promise<ContinueBackgroundTaskResponsePayload>,
-    acceptTaskProposal: (payload: TaskProposalAcceptPayload) =>
-      ipcRenderer.invoke("workspace:acceptTaskProposal", payload) as Promise<TaskProposalAcceptResponsePayload>,
-    updateTaskProposalState: (workspaceId: string, proposalId: string, state: string) =>
-      ipcRenderer.invoke("workspace:updateTaskProposalState", workspaceId, proposalId, state) as Promise<TaskProposalStateUpdatePayload>,
     ensureMainSession: (workspaceId: string) =>
       ipcRenderer.invoke("workspace:ensureMainSession", workspaceId) as Promise<EnsureWorkspaceMainSessionResponsePayload>,
     listAgentSessions: (payload: string | ListAgentSessionsRequestPayload) =>
@@ -1491,6 +1519,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("workspace:listRuntimeStates", workspaceId) as Promise<SessionRuntimeStateListResponsePayload>,
     getSessionHistory: (payload: SessionHistoryRequestPayload) =>
       ipcRenderer.invoke("workspace:getSessionHistory", payload) as Promise<SessionHistoryResponsePayload>,
+    listTurnResults: (payload: SessionTurnResultListRequestPayload) =>
+      ipcRenderer.invoke("workspace:listTurnResults", payload) as Promise<SessionTurnResultListResponsePayload>,
     getSessionOutputEvents: (payload: SessionOutputEventListRequestPayload) =>
       ipcRenderer.invoke("workspace:getSessionOutputEvents", payload) as Promise<SessionOutputEventListResponsePayload>,
     stageSessionAttachments: (payload: StageSessionAttachmentsPayload) =>

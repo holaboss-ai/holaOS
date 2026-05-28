@@ -34,35 +34,36 @@ import {
   CHAT_PANEL_DEFAULT_WIDTH,
   CHAT_PANEL_MAX_WIDTH,
   CHAT_PANEL_MIN_WIDTH,
+  automationsOpenAtom,
   chatComposerPrefillAtom,
   chatPanelViewAtom,
+  chatSessionOpenRequestAtom,
   chatPanelWidthAtom,
+  type ChatSessionOpenRequest,
   focusModeAtom,
   newTabOpenAtom,
 } from "./state/ui";
 import type { ChatLayout } from "./useChatLayout";
+import { useOpenIssueDetailTab } from "./useOpenIssueDetailTab";
 import { useOpenWorkspaceOutput } from "./useOpenWorkspaceOutput";
 
 // Linear-style ease — flat, no overshoot. Reused across canvas/width
 // transitions so the shell feels of a piece with the inbox cards.
 const CHAT_EASE = [0.32, 0.72, 0, 1] as const;
 
-interface ChatSessionOpenRequest {
-  sessionId: string;
-  requestKey: number;
-  mode?: "session" | "draft";
-}
-
 export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const [internalTabs, setInternalTabs] = useAtom(internalTabsAtom);
   const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
+  const setAutomationsOpen = useSetAtom(automationsOpenAtom);
   const { openOutput, openUrlInBrowserTab, openFileInInternalTab } =
     useOpenWorkspaceOutput();
+  const openIssueDetailTab = useOpenIssueDetailTab();
 
   const [view, setView] = useAtom(chatPanelViewAtom);
-  const [sessionOpenRequest, setSessionOpenRequest] =
-    useState<ChatSessionOpenRequest | null>(null);
+  const [sessionOpenRequest, setSessionOpenRequest] = useAtom(
+    chatSessionOpenRequestAtom,
+  );
   const sessionRequestKeyRef = useRef(0);
   const composerPrefill = useAtomValue(chatComposerPrefillAtom);
 
@@ -70,7 +71,8 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
   // workspace-scoped and would otherwise show stale items briefly.
   useEffect(() => {
     setView("chat");
-  }, [selectedWorkspaceId, setView]);
+    setSessionOpenRequest(null);
+  }, [selectedWorkspaceId, setSessionOpenRequest, setView]);
 
   // When a prefill request arrives from outside (e.g. Automations "New
   // schedule"), open a fresh draft session so the prefill lands in a clean
@@ -91,10 +93,6 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
     setView("chat");
   }, [composerPrefill, setView]);
 
-  const handleOpenSessionsView = useCallback(() => {
-    setView("sessions");
-  }, [setView]);
-
   const handleReturnToChat = useCallback(() => {
     setView("chat");
   }, [setView]);
@@ -114,12 +112,53 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
     [setView],
   );
 
+  const handleSessionOpenRequestConsumed = useCallback(
+    (requestKey: number) => {
+      setSessionOpenRequest((current) =>
+        current?.requestKey === requestKey ? null : current,
+      );
+    },
+    [setSessionOpenRequest],
+  );
+
   const handleOpenLocalLink = useCallback(
     (href: string) => {
       if (!href.trim()) return;
       openFileInInternalTab(href);
     },
     [openFileInInternalTab],
+  );
+
+  const setFocusMode = useSetAtom(focusModeAtom);
+  const handleOpenBackgroundTask = useCallback(
+    (task: BackgroundTaskRecordPayload) => {
+      const workspaceId = task.workspace_id.trim();
+      const sourceType = (task.source_type ?? "").trim().toLowerCase();
+      const sourceId = (task.source_id ?? "").trim();
+      const cronjobId = (task.cronjob_id ?? "").trim();
+
+      if (
+        workspaceId &&
+        sourceId &&
+        (sourceType === "issue" || sourceType === "delegate_task")
+      ) {
+        setFocusMode(false);
+        openIssueDetailTab({
+          workspaceId,
+          issueId: sourceId,
+          title: task.title,
+        });
+        return true;
+      }
+
+      if (workspaceId && (sourceType === "cronjob" || cronjobId)) {
+        setAutomationsOpen(true);
+        return true;
+      }
+
+      return false;
+    },
+    [openIssueDetailTab, setAutomationsOpen, setFocusMode],
   );
 
   // Blob URLs we minted for ephemeral-image tabs, keyed by tab id. Revoke
@@ -184,7 +223,6 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
 
   const isCanvas = layout !== "split";
   const chatPanelWidth = useAtomValue(chatPanelWidthAtom);
-  const setFocusMode = useSetAtom(focusModeAtom);
   // Only the split layout offers a focus toggle inside ChatHeader; in
   // canvas modes the affordance is the dropdown / restore icon up top.
   const handleEnterFocusMode = useCallback(() => {
@@ -202,12 +240,13 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
     ) : (
       <ChatPane
         variant="embedded"
-        onOpenSessions={handleOpenSessionsView}
         onOpenOutput={openOutput}
         onOpenLinkInBrowser={openUrlInBrowserTab}
         onOpenLocalLink={handleOpenLocalLink}
         onPreviewImageAttachment={handlePreviewImageAttachment}
+        onOpenBackgroundTask={handleOpenBackgroundTask}
         sessionOpenRequest={sessionOpenRequest}
+        onSessionOpenRequestConsumed={handleSessionOpenRequestConsumed}
         composerPrefillRequest={composerPrefill}
         onEnterFocusMode={isCanvas ? undefined : handleEnterFocusMode}
       />
@@ -558,7 +597,9 @@ function SessionsView({
         <SubagentSessionsPane
           workspaceId={workspaceId}
           variant="full"
-          onOpenSession={(session) => onOpenSession(session.session_id)}
+          onOpenSession={(session) =>
+            onOpenSession(session.parent_session_id?.trim() || session.session_id)
+          }
         />
       </div>
     </div>

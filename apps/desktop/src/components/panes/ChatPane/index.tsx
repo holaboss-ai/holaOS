@@ -121,6 +121,7 @@ import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import * as modelCatalog from "../../../../shared/model-catalog.js";
 import {
   type ChatAttachment,
+  type ChatBackgroundTaskReference,
   type ChatPaneVariant,
   type ChatAssistantSegment,
   type ChatMessage,
@@ -211,6 +212,7 @@ import {
   formatAttachmentSize,
 } from "./AttachmentList";
 import { ImageAttachmentPreviewModal } from "./ImageAttachmentPreviewModal";
+import { IssueThreadControls } from "./IssueThreadControls";
 import {
   ArtifactBrowserModal,
   OutputArtifactIcon,
@@ -903,7 +905,7 @@ function isMainSessionEventBatchInstructionPreview(
   return (value || "").trim().startsWith(MAIN_SESSION_EVENT_BATCH_HEADER);
 }
 
-function hasRenderableAssistantTurn(
+export function hasRenderableAssistantTurn(
   message: ChatMessage,
   options?: { showExecutionInternals?: boolean },
 ) {
@@ -927,7 +929,7 @@ function hasRenderableAssistantTurn(
   );
 }
 
-function appendAssistantOutputSegment(
+export function appendAssistantOutputSegment(
   segments: ChatAssistantSegment[],
   text: string,
   tone: ChatMessage["tone"] = "default",
@@ -952,7 +954,7 @@ function appendAssistantOutputSegment(
   return next;
 }
 
-function appendAssistantExecutionSegment(
+export function appendAssistantExecutionSegment(
   segments: ChatAssistantSegment[],
   items: ChatExecutionTimelineItem[],
 ): ChatAssistantSegment[] {
@@ -968,7 +970,7 @@ function appendAssistantExecutionSegment(
   ];
 }
 
-function upsertAssistantExecutionTraceStep(
+export function upsertAssistantExecutionTraceStep(
   segments: ChatAssistantSegment[],
   step: ChatTraceStep,
 ): ChatAssistantSegment[] | null {
@@ -996,7 +998,7 @@ function upsertAssistantExecutionTraceStep(
   );
 }
 
-function finalizeAssistantExecutionSegments(
+export function finalizeAssistantExecutionSegments(
   segments: ChatAssistantSegment[],
   status: Extract<ChatTraceStepStatus, "completed" | "error" | "waiting">,
 ): ChatAssistantSegment[] {
@@ -1010,7 +1012,7 @@ function finalizeAssistantExecutionSegments(
   );
 }
 
-function liveAssistantSegmentsForRender(
+export function liveAssistantSegmentsForRender(
   segments: ChatAssistantSegment[],
   executionItems: ChatExecutionTimelineItem[],
   text: string,
@@ -1025,10 +1027,57 @@ function liveAssistantSegmentsForRender(
   return next;
 }
 
-function assistantSegmentsIncludeOutput(segments: ChatAssistantSegment[]) {
+export function assistantSegmentsIncludeOutput(segments: ChatAssistantSegment[]) {
   return segments.some(
     (segment) => segment.kind === "output" && Boolean(segment.text.trim()),
   );
+}
+
+function syntheticAssistantMessageFromSessionTurn(params: {
+  inputId: string;
+  outputEvents: SessionOutputEventPayload[];
+  outputs: WorkspaceOutputRecordPayload[];
+  fallbackCreatedAt?: string;
+  showBootstrapPhaseTrace?: boolean;
+}): ChatMessage {
+  const restoredAssistantState = assistantHistoryStateFromOutputEvents(
+    params.outputEvents,
+    {
+      showBootstrapPhaseTrace: params.showBootstrapPhaseTrace,
+    },
+  );
+  const turnOutputs = sortOutputs(params.outputs);
+  const orderedEvents = [...params.outputEvents].sort(
+    (left, right) => left.sequence - right.sequence || left.id - right.id,
+  );
+  const firstEventCreatedAt = orderedEvents[0]?.created_at || "";
+  const createdAt =
+    restoredAssistantState.terminalCreatedAt ||
+    firstEventCreatedAt ||
+    turnOutputs[0]?.created_at ||
+    turnOutputs[0]?.updated_at ||
+    params.fallbackCreatedAt;
+  return {
+    id: `assistant-${params.inputId}`,
+    role: "assistant",
+    text:
+      restoredAssistantState.segments || !restoredAssistantState.failureText
+        ? ""
+        : restoredAssistantState.failureText,
+    tone:
+      restoredAssistantState.segments || !restoredAssistantState.failureText
+        ? "default"
+        : "error",
+    createdAt,
+    segments: restoredAssistantState.segments,
+    executionItems: restoredAssistantState.segments
+      ? undefined
+      : restoredAssistantState.executionItems,
+    outputs: turnOutputs.length > 0 ? turnOutputs : undefined,
+    backgroundTaskReferences: restoredAssistantState.backgroundTaskReferences,
+    pendingIntegrations: restoredAssistantState.pendingIntegrations,
+    proposedIntegrations: restoredAssistantState.proposedIntegrations,
+  };
 }
 
 export function chatMessagesFromSessionState(params: {
@@ -1071,17 +1120,24 @@ export function chatMessagesFromSessionState(params: {
   }
 
   const assistantHistoryInputIds = new Set(params.knownAssistantInputIds ?? []);
+  const historyTurnInputIds = new Set<string>();
   for (const message of params.historyMessages) {
-    if (message.role !== "assistant") {
-      continue;
+    const assistantInputId =
+      message.role === "assistant"
+        ? inputIdFromMessageId(message.id, "assistant")
+        : "";
+    if (assistantInputId) {
+      assistantHistoryInputIds.add(assistantInputId);
+      historyTurnInputIds.add(assistantInputId);
     }
-    const inputId = inputIdFromMessageId(message.id, "assistant");
-    if (inputId) {
-      assistantHistoryInputIds.add(inputId);
+    const userInputId =
+      message.role === "user" ? inputIdFromMessageId(message.id, "user") : "";
+    if (userInputId) {
+      historyTurnInputIds.add(userInputId);
     }
   }
 
-  return params.historyMessages
+  const renderedMessages = params.historyMessages
     .flatMap((message) => {
       const attachments = attachmentsFromMetadata(message.metadata);
       const nextMessage: ChatMessage = {
@@ -1122,6 +1178,10 @@ export function chatMessagesFromSessionState(params: {
           }
           if (turnOutputs.length > 0) {
             nextMessage.outputs = turnOutputs;
+          }
+          if (restoredAssistantState.backgroundTaskReferences) {
+            nextMessage.backgroundTaskReferences =
+              restoredAssistantState.backgroundTaskReferences;
           }
           if (restoredAssistantState.pendingIntegrations) {
             nextMessage.pendingIntegrations = restoredAssistantState.pendingIntegrations;
@@ -1170,6 +1230,8 @@ export function chatMessagesFromSessionState(params: {
             ? undefined
             : restoredAssistantState.executionItems,
           outputs: turnOutputs.length > 0 ? turnOutputs : undefined,
+          backgroundTaskReferences:
+            restoredAssistantState.backgroundTaskReferences,
           pendingIntegrations: restoredAssistantState.pendingIntegrations,
           proposedIntegrations: restoredAssistantState.proposedIntegrations,
         };
@@ -1184,6 +1246,23 @@ export function chatMessagesFromSessionState(params: {
 
       return renderedMessages;
     })
+    .concat(
+      Array.from(
+        new Set([
+          ...outputEventsByInputId.keys(),
+          ...outputsByInputId.keys(),
+        ]),
+      )
+        .filter((inputId) => inputId && !historyTurnInputIds.has(inputId))
+        .map((inputId) =>
+          syntheticAssistantMessageFromSessionTurn({
+            inputId,
+            outputEvents: outputEventsByInputId.get(inputId) ?? [],
+            outputs: outputsByInputId.get(inputId) ?? [],
+            showBootstrapPhaseTrace: params.showBootstrapPhaseTrace,
+          }),
+        ),
+    )
     .filter(
       (message) =>
         (message.role === "user" || message.role === "assistant") &&
@@ -1192,7 +1271,24 @@ export function chatMessagesFromSessionState(params: {
               showExecutionInternals: params.showExecutionInternals,
             })
           : hasRenderableMessageContent(message.text, message.attachments ?? [])),
-    );
+    )
+    .map((message, index) => ({ message, index }))
+    .sort((left, right) => {
+      const leftAt = Date.parse(left.message.createdAt || "");
+      const rightAt = Date.parse(right.message.createdAt || "");
+      const leftHasDate = Number.isFinite(leftAt);
+      const rightHasDate = Number.isFinite(rightAt);
+      if (leftHasDate && rightHasDate && leftAt !== rightAt) {
+        return leftAt - rightAt;
+      }
+      if (leftHasDate !== rightHasDate) {
+        return leftHasDate ? -1 : 1;
+      }
+      return left.index - right.index;
+    })
+    .map(({ message }) => message);
+
+  return renderedMessages;
 }
 
 function attachmentUploadPayload(
@@ -1310,16 +1406,12 @@ function defaultWorkspaceSessionTitle(
   if (normalizedKind === "subagent") {
     return "Subagent run";
   }
-  if (normalizedKind === "task_proposal") {
-    return "Task proposal run";
-  }
   return `Session ${sessionId.slice(0, 8)}`;
 }
 
 type InspectableSessionCategory =
   | "subagent"
   | "cronjob"
-  | "task_proposal"
   | "session";
 
 function inspectableSessionCategory(
@@ -1341,14 +1433,12 @@ function inspectableSessionCategory(
     return "cronjob";
   }
   if (
-    kind === "task_proposal" ||
+    kind === "subagent" ||
+    sourceType === "subagent" ||
     sourceType === "task_proposal" ||
     Boolean((session?.proposal_id ?? "").trim()) ||
     Boolean((session?.source_proposal_id ?? "").trim())
   ) {
-    return "task_proposal";
-  }
-  if (kind === "subagent") {
     return "subagent";
   }
   return "session";
@@ -1370,9 +1460,6 @@ function inspectableSessionLabel(
   const category = inspectableSessionCategory(session);
   if (category === "cronjob") {
     return "Cronjob run";
-  }
-  if (category === "task_proposal") {
-    return "Task proposal run";
   }
   if (category === "subagent") {
     return "Subagent run";
@@ -1452,7 +1539,7 @@ function runFailedContextLabel(payload: Record<string, unknown>): string {
   return provider || model;
 }
 
-function runFailedDetail(payload: Record<string, unknown>): string {
+export function runFailedDetail(payload: Record<string, unknown>): string {
   const detail =
     typeof payload.error === "string"
       ? payload.error.trim()
@@ -2064,7 +2151,7 @@ function toolTraceStepFromPayload(
   };
 }
 
-function toolTraceStepFromEvent(
+export function toolTraceStepFromEvent(
   eventType: string,
   payload: Record<string, unknown>,
   order: number,
@@ -2127,7 +2214,7 @@ function contextBudgetDetails(
   return details;
 }
 
-function phaseTraceStepFromEvent(
+export function phaseTraceStepFromEvent(
   eventType: string,
   payload: Record<string, unknown>,
   order: number,
@@ -2496,7 +2583,7 @@ function mergeTraceStep(
   };
 }
 
-function appendExecutionTimelineThinkingDelta(
+export function appendExecutionTimelineThinkingDelta(
   previous: ChatExecutionTimelineItem[],
   delta: string,
   order: number,
@@ -2523,7 +2610,7 @@ function appendExecutionTimelineThinkingDelta(
   return [...previous, nextItem];
 }
 
-function upsertExecutionTimelineTraceItem(
+export function upsertExecutionTimelineTraceItem(
   previous: ChatExecutionTimelineItem[],
   step: ChatTraceStep,
 ) {
@@ -2552,7 +2639,7 @@ function upsertExecutionTimelineTraceItem(
   );
 }
 
-function finalizeExecutionTimelineTraceItems(
+export function finalizeExecutionTimelineTraceItems(
   previous: ChatExecutionTimelineItem[],
   status: Extract<ChatTraceStepStatus, "completed" | "error" | "waiting">,
 ) {
@@ -2662,15 +2749,81 @@ function pendingIntegrationsFromSubagentLifecycle(
   return parsePendingIntegrationsList(subagentPayload.pending_integrations);
 }
 
+function parseBackgroundTaskReference(
+  value: unknown,
+): ChatBackgroundTaskReference | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const workspaceId =
+    typeof value.workspace_id === "string" ? value.workspace_id.trim() : "";
+  if (!workspaceId) {
+    return null;
+  }
+  const sourceType =
+    typeof value.source_type === "string" ? value.source_type.trim() : "";
+  const sourceId =
+    typeof value.source_id === "string" ? value.source_id.trim() : "";
+  const issueId =
+    typeof value.issue_id === "string" ? value.issue_id.trim() : "";
+  const title = typeof value.title === "string" ? value.title.trim() : "";
+  const status =
+    typeof value.status === "string" ? value.status.trim().toLowerCase() : "";
+  const normalizedSourceType = sourceType.toLowerCase();
+  const targetId = issueId || sourceId;
+  if (
+    normalizedSourceType !== "issue" &&
+    normalizedSourceType !== "delegate_task" &&
+    normalizedSourceType !== "cronjob"
+  ) {
+    return null;
+  }
+  if (normalizedSourceType !== "cronjob" && !targetId) {
+    return null;
+  }
+  return {
+    workspaceId,
+    sourceType: sourceType || null,
+    sourceId: sourceId || issueId || null,
+    issueId:
+      normalizedSourceType === "issue" ||
+      normalizedSourceType === "delegate_task"
+        ? issueId || sourceId || null
+        : null,
+    title: title || null,
+    status: status || null,
+  };
+}
+
+function backgroundTaskReferencesFromSubagentLifecycle(
+  payload: Record<string, unknown>,
+): ChatBackgroundTaskReference[] {
+  const subagentPayload = isRecord(payload.subagent_payload)
+    ? payload.subagent_payload
+    : null;
+  if (!subagentPayload) {
+    return [];
+  }
+  const reference = parseBackgroundTaskReference(subagentPayload);
+  return reference ? [reference] : [];
+}
+
+function backgroundTaskReferenceKey(reference: ChatBackgroundTaskReference) {
+  return [
+    reference.workspaceId,
+    reference.sourceType ?? "",
+    reference.issueId ?? "",
+    reference.sourceId ?? "",
+    reference.title ?? "",
+  ].join("|");
+}
+
 const PENDING_INTEGRATION_TOOL_NAMES = new Set([
   "workspace_apps_install",
   "workspace_apps_ensure_running",
   "workspace_apps_restart",
   "workspace_apps_restart_and_wait_ready",
   "delegate_task",
-  "resume_subagent",
-  "continue_subagent",
-  "get_subagent",
 ]);
 
 function parseProposedIntegration(value: unknown): ChatProposedIntegration | null {
@@ -2820,6 +2973,10 @@ function assistantHistoryStateFromOutputEvents(
   let terminalCreatedAt = "";
   const pendingIntegrations: ChatPendingIntegration[] = [];
   const proposedIntegrations: ChatProposedIntegration[] = [];
+  const backgroundTaskReferencesByKey = new Map<
+    string,
+    ChatBackgroundTaskReference
+  >();
 
   const flushExecutionSegment = () => {
     if (executionItems.length === 0) {
@@ -2935,6 +3092,14 @@ function assistantHistoryStateFromOutputEvents(
           pendingIntegrations.push(integration);
         }
       }
+      for (const reference of backgroundTaskReferencesFromSubagentLifecycle(
+        eventPayload,
+      )) {
+        backgroundTaskReferencesByKey.set(
+          backgroundTaskReferenceKey(reference),
+          reference,
+        );
+      }
     }
 
     if (event.event_type === "output_delta") {
@@ -2991,6 +3156,10 @@ function assistantHistoryStateFromOutputEvents(
     terminalCreatedAt: terminalCreatedAt || undefined,
     pendingIntegrations: pendingIntegrations.length > 0 ? pendingIntegrations : undefined,
     proposedIntegrations: proposedIntegrations.length > 0 ? proposedIntegrations : undefined,
+    backgroundTaskReferences:
+      backgroundTaskReferencesByKey.size > 0
+        ? Array.from(backgroundTaskReferencesByKey.values())
+        : undefined,
   };
 }
 
@@ -3139,7 +3308,7 @@ interface ChatPaneProps {
     requestKey: number,
   ) => void;
   onJumpToSessionBrowser?: (sessionId: string, requestKey: number) => void;
-  onOpenSessions?: () => void;
+  onOpenBackgroundTask?: (task: BackgroundTaskRecordPayload) => boolean;
   onOpenMeetingMode?: () => void;
   meetingModeBusy?: boolean;
   meetingModeError?: string;
@@ -3189,7 +3358,7 @@ export function ChatPane({
   browserJumpRequest = null,
   onBrowserJumpRequestConsumed,
   onJumpToSessionBrowser,
-  onOpenSessions,
+  onOpenBackgroundTask,
   onOpenInbox,
   inboxUnreadCount = 0,
   onOpenAutomations,
@@ -3413,6 +3582,15 @@ export function ChatPane({
     useState<PendingOptimisticUserMessage[]>([]);
   const [desktopMainSession, setDesktopMainSession] =
     useState<AgentSessionRecordPayload | null>(null);
+  const [workspaceIssues, setWorkspaceIssues] = useState<IssueRecordPayload[]>(
+    [],
+  );
+  const [workspaceTeammates, setWorkspaceTeammates] = useState<
+    TeammateRecordPayload[]
+  >([]);
+  const [issueMutationErrorMessage, setIssueMutationErrorMessage] =
+    useState("");
+  const [isIssueMutationPending, setIsIssueMutationPending] = useState(false);
   const [sessionRecordOverrides, setSessionRecordOverrides] = useState<
     Record<string, AgentSessionRecordPayload>
   >({});
@@ -5321,6 +5499,75 @@ export function ChatPane({
     }
   }, [selectedWorkspaceId]);
 
+  const refreshWorkspaceIssues = useCallback(
+    async (workspaceId: string, signal?: { cancelled: boolean }) => {
+      try {
+        const response = await window.electronAPI.workspace.listIssues(workspaceId);
+        if (!signal?.cancelled) {
+          setWorkspaceIssues(response.issues);
+        }
+      } catch {
+        if (!signal?.cancelled) {
+          setWorkspaceIssues([]);
+        }
+      }
+    },
+    [],
+  );
+
+  const refreshWorkspaceTeammates = useCallback(
+    async (workspaceId: string, signal?: { cancelled: boolean }) => {
+      try {
+        const response =
+          await window.electronAPI.workspace.listTeammates(workspaceId);
+        if (!signal?.cancelled) {
+          setWorkspaceTeammates(response.teammates);
+        }
+      } catch {
+        if (!signal?.cancelled) {
+          setWorkspaceTeammates([]);
+        }
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!selectedWorkspaceId) {
+      setWorkspaceIssues([]);
+      return () => {
+        // no-op cleanup for symmetry with the subscribed branch below
+      };
+    }
+    const signal = { cancelled: false };
+    void refreshWorkspaceIssues(selectedWorkspaceId, signal);
+    const timer = window.setInterval(() => {
+      void refreshWorkspaceIssues(selectedWorkspaceId, signal);
+    }, 5000);
+    return () => {
+      signal.cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [refreshWorkspaceIssues, selectedWorkspaceId]);
+
+  useEffect(() => {
+    if (!selectedWorkspaceId) {
+      setWorkspaceTeammates([]);
+      return () => {
+        // no-op cleanup for symmetry with the subscribed branch below
+      };
+    }
+    const signal = { cancelled: false };
+    void refreshWorkspaceTeammates(selectedWorkspaceId, signal);
+    const timer = window.setInterval(() => {
+      void refreshWorkspaceTeammates(selectedWorkspaceId, signal);
+    }, 5000);
+    return () => {
+      signal.cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [refreshWorkspaceTeammates, selectedWorkspaceId]);
+
   useEffect(() => {
     const unsubscribe = window.electronAPI.workspace.onSessionStreamEvent(
       (payload) => {
@@ -6980,6 +7227,23 @@ export function ChatPane({
   };
 
   const handleOpenBackgroundTaskSession = (task: BackgroundTaskRecordPayload) => {
+    if (onOpenBackgroundTask?.(task) === true) {
+      return;
+    }
+
+    const taskMainSessionId =
+      task.parent_session_id?.trim() ||
+      task.owner_main_session_id.trim() ||
+      "";
+    if (taskMainSessionId) {
+      setLocalSessionOpenRequestState({
+        sessionId: taskMainSessionId,
+        requestKey: Date.now(),
+        readOnly: false,
+      });
+      return;
+    }
+
     const childSessionId = task.child_session_id.trim();
     if (!childSessionId) {
       return;
@@ -6991,12 +7255,77 @@ export function ChatPane({
       title: task.title?.trim() || null,
       parent_session_id: task.parent_session_id?.trim() || null,
       source_proposal_id: task.proposal_id?.trim() || null,
+      source_type: task.source_type?.trim() || null,
+      cronjob_id: task.cronjob_id?.trim() || null,
+      proposal_id: task.proposal_id?.trim() || null,
       created_by: null,
       created_at: task.created_at,
       updated_at: task.updated_at,
       archived_at: null,
     });
   };
+
+  const handleOpenBackgroundTaskReference = useCallback(
+    (reference: ChatBackgroundTaskReference) => {
+      const workspaceId = reference.workspaceId.trim();
+      const sourceType = (reference.sourceType ?? "").trim() || null;
+      const sourceId =
+        reference.issueId?.trim() ||
+        reference.sourceId?.trim() ||
+        null;
+      if (!workspaceId || !sourceType) {
+        return;
+      }
+      const now = new Date().toISOString();
+      const syntheticTask: BackgroundTaskRecordPayload = {
+        subagent_id: "",
+        workspace_id: workspaceId,
+        parent_session_id: null,
+        parent_input_id: null,
+        origin_main_session_id: "",
+        owner_main_session_id: "",
+        child_session_id: "",
+        initial_child_input_id: null,
+        current_child_input_id: null,
+        latest_child_input_id: null,
+        title: reference.title?.trim() || sourceId || "Task",
+        goal: reference.title?.trim() || sourceId || "Task",
+        context: null,
+        source_type: sourceType,
+        source_id: sourceId,
+        proposal_id: null,
+        cronjob_id: null,
+        retry_of_subagent_id: null,
+        tool_profile: {},
+        requested_model: null,
+        effective_model: null,
+        status: reference.status?.trim() || "",
+        summary: null,
+        latest_progress_payload: null,
+        blocking_payload: null,
+        result_payload: null,
+        error_payload: null,
+        last_event_at: null,
+        owner_transferred_at: null,
+        created_at: now,
+        started_at: null,
+        completed_at: null,
+        cancelled_at: null,
+        updated_at: now,
+        live_state: {
+          runtime_status: null,
+          current_input_id: null,
+          current_input_status: null,
+          latest_input_id: null,
+          latest_input_status: null,
+          latest_turn_status: null,
+          latest_turn_stop_reason: null,
+        },
+      };
+      onOpenBackgroundTask?.(syntheticTask);
+    },
+    [onOpenBackgroundTask],
+  );
 
   const onComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const nativeEvent =
@@ -7343,20 +7672,48 @@ export function ChatPane({
   const activeSessionKind = (activeSessionRecord?.kind || "")
     .trim()
     .toLowerCase();
+  const activeIssue = useMemo(() => {
+    const normalizedActiveSessionId = activeSessionId.trim();
+    if (!normalizedActiveSessionId) {
+      return null;
+    }
+    return (
+      workspaceIssues.find(
+        (issue) => issue.session_id.trim() === normalizedActiveSessionId,
+      ) ?? null
+    );
+  }, [activeSessionId, workspaceIssues]);
+  const activeIssueAssignee = useMemo(() => {
+    if (!activeIssue?.assignee_teammate_id) {
+      return null;
+    }
+    return (
+      workspaceTeammates.find(
+        (teammate) =>
+          teammate.teammate_id === activeIssue.assignee_teammate_id,
+      ) ?? null
+    );
+  }, [activeIssue, workspaceTeammates]);
   const isViewingBoundMainSession =
     !activeSessionId ||
     activeSessionId === (desktopMainSession?.session_id || "").trim();
   const isReadOnlyInspectionSession =
-    !isViewingBoundMainSession && !isOnboardingVariant;
+    !isViewingBoundMainSession && !isOnboardingVariant && !activeIssue;
   const activeSessionTitle = isViewingBoundMainSession
     ? (desktopMainSession?.title?.trim() ||
         selectedWorkspace?.name?.trim() ||
         "Main session")
     : (activeSessionRecord?.title?.trim() ||
         defaultWorkspaceSessionTitle(activeSessionRecord?.kind, activeSessionId));
-  const assistantLabel = isViewingBoundMainSession ? "Hola" : activeSessionTitle;
+  const assistantLabel = activeIssue
+    ? activeIssueAssignee?.name?.trim() || "Unassigned"
+    : isViewingBoundMainSession
+      ? "Hola"
+      : activeSessionTitle;
   const activeSessionDetail = isViewingBoundMainSession
     ? "Main session"
+    : activeIssue
+      ? `${activeIssue.status.replace(/_/g, " ")} issue thread`
     : isReadOnlyInspectionSession
       ? `${inspectableSessionLabel(activeSessionRecord)} · Read-only inspection`
       : "Session view";
@@ -7686,8 +8043,18 @@ export function ChatPane({
       ? "Inspection sessions are read-only. Return to the onboarding session to continue the conversation."
       : "Inspection sessions are read-only. Return to the main session to continue the conversation."
     : "";
+  const issueComposerDisabledReason = !activeIssue
+    ? ""
+    : activeIssue.status === "backlog"
+      ? "Move this issue to Todo before replying in the issue thread."
+      : !activeIssue.assignee_teammate_id
+        ? "Assign a teammate before replying in the issue thread."
+        : isResponding
+          ? "This issue is actively running. Wait for the current run to finish before replying."
+          : "";
   const composerBaseDisabledReason =
     readOnlyInspectionDisabledReason ||
+    issueComposerDisabledReason ||
     baseComposerDisabledReason ||
     onboardingReviewDisabledReason ||
     onboardingImplementingDisabledReason ||
@@ -7697,6 +8064,163 @@ export function ChatPane({
     (!isOnboardingVariant && !resolvedChatModel
       ? modelSelectionUnavailableReason
       : "");
+  const runIssueMutation = useCallback(
+    async (action: () => Promise<unknown>, fallbackMessage: string) => {
+      if (!selectedWorkspaceId || !activeIssue) {
+        return false;
+      }
+      setIsIssueMutationPending(true);
+      setIssueMutationErrorMessage("");
+      try {
+        await action();
+        await refreshWorkspaceIssues(selectedWorkspaceId);
+        scheduleConversationRefresh(activeIssue.session_id, selectedWorkspaceId);
+        return true;
+      } catch (error) {
+        setIssueMutationErrorMessage(
+          error instanceof Error ? error.message : fallbackMessage,
+        );
+        return false;
+      } finally {
+        setIsIssueMutationPending(false);
+      }
+    },
+    [activeIssue, refreshWorkspaceIssues, selectedWorkspaceId],
+  );
+  const handleIssueStatusChange = useCallback(
+    async (nextStatus: IssueStatusPayload) => {
+      if (!selectedWorkspaceId || !activeIssue) {
+        return;
+      }
+      if (nextStatus === activeIssue.status) {
+        return;
+      }
+      let blockerReason: string | null | undefined = undefined;
+      if (nextStatus === "blocked") {
+        const response = window.prompt(
+          "Why is this issue blocked?",
+          activeIssue.blocker_reason ?? "",
+        );
+        if (response == null) {
+          return;
+        }
+        const trimmed = response.trim();
+        if (!trimmed) {
+          setIssueMutationErrorMessage("Blocked issues need a blocker reason.");
+          return;
+        }
+        blockerReason = trimmed;
+      } else if (activeIssue.blocker_reason) {
+        blockerReason = null;
+      }
+      await runIssueMutation(
+        () =>
+          window.electronAPI.workspace.updateIssue(
+            selectedWorkspaceId,
+            activeIssue.issue_id,
+            {
+              workspace_id: selectedWorkspaceId,
+              status: nextStatus,
+              blocker_reason: blockerReason,
+            },
+          ),
+        "Failed to update issue status",
+      );
+    },
+    [activeIssue, runIssueMutation, selectedWorkspaceId],
+  );
+  const handleIssueAssigneeChange = useCallback(
+    async (teammateId: string | null) => {
+      if (!selectedWorkspaceId || !activeIssue) {
+        return;
+      }
+      if ((activeIssue.assignee_teammate_id ?? null) === teammateId) {
+        return;
+      }
+      await runIssueMutation(
+        () =>
+          window.electronAPI.workspace.updateIssue(
+            selectedWorkspaceId,
+            activeIssue.issue_id,
+            {
+              workspace_id: selectedWorkspaceId,
+              assignee_teammate_id: teammateId,
+            },
+          ),
+        "Failed to update issue assignee",
+      );
+    },
+    [activeIssue, runIssueMutation, selectedWorkspaceId],
+  );
+  const handleIssuePriorityChange = useCallback(
+    async (priority: IssuePriorityPayload | null) => {
+      if (!selectedWorkspaceId || !activeIssue) {
+        return;
+      }
+      if ((activeIssue.priority ?? null) === priority) {
+        return;
+      }
+      await runIssueMutation(
+        () =>
+          window.electronAPI.workspace.updateIssue(
+            selectedWorkspaceId,
+            activeIssue.issue_id,
+            {
+              workspace_id: selectedWorkspaceId,
+              priority,
+            },
+          ),
+        "Failed to update issue priority",
+      );
+    },
+    [activeIssue, runIssueMutation, selectedWorkspaceId],
+  );
+  const handleIssueDetailsSave = useCallback(
+    async (fields: {
+      title: string;
+      description: string | null;
+      blockerReason: string | null;
+    }) => {
+      if (!selectedWorkspaceId || !activeIssue) {
+        return false;
+      }
+      return runIssueMutation(
+        () =>
+          window.electronAPI.workspace.updateIssue(
+            selectedWorkspaceId,
+            activeIssue.issue_id,
+            {
+              workspace_id: selectedWorkspaceId,
+              title: fields.title,
+              description: fields.description,
+              blocker_reason: fields.blockerReason,
+            },
+          ),
+        "Failed to update issue details",
+      );
+    },
+    [activeIssue, runIssueMutation, selectedWorkspaceId],
+  );
+  const handleStopActiveIssueRun = useCallback(async () => {
+    if (!selectedWorkspaceId || !activeIssue?.active_subagent_id) {
+      return;
+    }
+    if (!window.confirm(`Stop ${activeIssue.issue_id}?`)) {
+      return;
+    }
+    await runIssueMutation(
+      () =>
+        window.electronAPI.workspace.stopIssueRun(
+          selectedWorkspaceId,
+          activeIssue.issue_id,
+        ),
+      "Failed to stop issue run",
+    );
+  }, [activeIssue, runIssueMutation, selectedWorkspaceId]);
+  useEffect(() => {
+    setIssueMutationErrorMessage("");
+    setIsIssueMutationPending(false);
+  }, [activeIssue?.issue_id]);
   const composerDisabledReason =
     composerBaseDisabledReason ||
     (isSubmittingMessage ? "Submitting message..." : "");
@@ -8637,10 +9161,25 @@ export function ChatPane({
               }
               onOpenInbox={onOpenInbox}
               inboxUnreadCount={inboxUnreadCount}
-              onOpenSessions={onOpenSessions}
               onOpenAutomations={onOpenAutomations}
               onOpenArtifacts={onOpenArtifacts}
               onEnterFocusMode={onEnterFocusMode}
+            />
+          </div>
+        ) : null}
+
+        {!isOnboardingVariant && activeIssue ? (
+          <div className="shrink-0 px-4 pt-2 sm:px-5">
+            <IssueThreadControls
+              issue={activeIssue}
+              teammates={workspaceTeammates}
+              isPending={isIssueMutationPending}
+              errorMessage={issueMutationErrorMessage}
+              onChangeStatus={handleIssueStatusChange}
+              onChangeAssignee={handleIssueAssigneeChange}
+              onChangePriority={handleIssuePriorityChange}
+              onSaveDetails={handleIssueDetailsSave}
+              onStopIssueRun={handleStopActiveIssueRun}
             />
           </div>
         ) : null}
@@ -8800,7 +9339,7 @@ export function ChatPane({
         ) : null}
 
         <div className="relative flex min-h-0 flex-1 flex-col">
-          {!isOnboardingVariant && !isReadOnlyInspectionSession ? (
+          {!isOnboardingVariant && isViewingBoundMainSession ? (
             <div className="flex shrink-0 justify-center px-4 pt-2 empty:hidden">
               <BackgroundTasksPane
                 workspaceId={selectedWorkspaceId}
@@ -8876,6 +9415,9 @@ export function ChatPane({
                     onToggleTraceStep={toggleTraceStep}
                     onLinkClick={onOpenLinkInBrowser}
                     onLocalLinkClick={onOpenLocalLink}
+                    onOpenBackgroundTaskReference={
+                      handleOpenBackgroundTaskReference
+                    }
                     assistantFooterAccessoryMessageId={
                       lastCompletedAssistantMessageId
                     }

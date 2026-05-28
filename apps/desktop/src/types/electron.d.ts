@@ -712,6 +712,189 @@ interface RuntimeNotificationListOptionsPayload {
     archived_at: string | null;
   }
 
+  type TeammateKindPayload = "system" | "custom";
+  type TeammateStatusPayload = "active" | "archived";
+
+  interface TeammateSkillPayload {
+    skill_id: string;
+    name: string;
+    content: string;
+    skill_markdown?: string;
+    granted_tools?: string[];
+    granted_commands?: string[];
+    sidecar_files?: Array<{
+      path: string;
+      content: string;
+      size_bytes?: number;
+    }>;
+    sidecar_directories?: string[];
+    created_at: string;
+    updated_at: string;
+    storage_origin?: "filesystem";
+    source_dir?: string | null;
+    file_path?: string | null;
+    has_sidecar_assets?: boolean;
+  }
+
+  interface TeammateCapabilityProfilePayload {
+    summary: string | null;
+    capabilities: string[];
+    preferred_tools: string[];
+  }
+
+  interface TeammateRecordPayload {
+    teammate_id: string;
+    workspace_id: string;
+    name: string;
+    kind: TeammateKindPayload;
+    status: TeammateStatusPayload;
+    instructions: string | null;
+    skills: TeammateSkillPayload[];
+    capability_profile: TeammateCapabilityProfilePayload;
+    created_at: string;
+    updated_at: string;
+    archived_at: string | null;
+  }
+
+  interface TeammateListResponsePayload {
+    teammates: TeammateRecordPayload[];
+    count: number;
+  }
+
+  interface TeammateSkillInputPayload {
+    skill_id?: string | null;
+    name?: string | null;
+    content?: string | null;
+    skill_markdown?: string | null;
+    granted_tools?: string[] | null;
+    granted_commands?: string[] | null;
+    sidecar_files?: Array<{
+      path: string;
+      content: string;
+    }> | null;
+    directories?: string[] | null;
+    created_at?: string | null;
+    updated_at?: string | null;
+  }
+
+  interface CreateTeammatePayload {
+    workspace_id: string;
+    teammate_id?: string | null;
+    name: string;
+    instructions?: string | null;
+    capability_profile?: Partial<TeammateCapabilityProfilePayload> | null;
+  }
+
+  interface CreateTeammateResponsePayload {
+    teammate: TeammateRecordPayload;
+  }
+
+  interface UpdateTeammatePayload {
+    workspace_id: string;
+    name?: string | null;
+    instructions?: string | null;
+    capability_profile?: Partial<TeammateCapabilityProfilePayload> | null;
+    status?: TeammateStatusPayload;
+  }
+
+  interface UpdateTeammateResponsePayload {
+    teammate: TeammateRecordPayload;
+  }
+
+  interface CreateTeammateSkillPayload {
+    workspace_id: string;
+    skill: TeammateSkillInputPayload;
+  }
+
+  interface CreateTeammateSkillResponsePayload {
+    skill: TeammateSkillPayload;
+  }
+
+  interface DeleteTeammateSkillResponsePayload {
+    teammate_id: string;
+    skill_id: string;
+    deleted: boolean;
+  }
+
+  type IssueStatusPayload =
+    | "backlog"
+    | "todo"
+    | "in_progress"
+    | "in_review"
+    | "done"
+    | "blocked";
+  type IssuePriorityPayload = "critical" | "high" | "medium" | "low";
+
+  interface IssueAttachmentPayload {
+    id: string;
+    kind: "image" | "file" | "folder";
+    name: string;
+    mime_type: string;
+    size_bytes: number;
+    workspace_path: string;
+    created_at: string;
+  }
+
+  interface IssueRecordPayload {
+    issue_id: string;
+    workspace_id: string;
+    issue_number: number;
+    session_id: string;
+    title: string;
+    description: string | null;
+    status: IssueStatusPayload;
+    priority: IssuePriorityPayload | null;
+    assignee_teammate_id: string | null;
+    blocker_reason: string | null;
+    attachments: IssueAttachmentPayload[];
+    active_subagent_id: string | null;
+    latest_subagent_id: string | null;
+    created_by: string | null;
+    created_at: string;
+    updated_at: string;
+    completed_at: string | null;
+  }
+
+  interface IssueListResponsePayload {
+    issues: IssueRecordPayload[];
+    count: number;
+  }
+
+  interface CreateIssuePayload {
+    workspace_id: string;
+    title: string;
+    description?: string | null;
+    status: IssueStatusPayload;
+    priority?: IssuePriorityPayload | null;
+    assignee_teammate_id?: string | null;
+    blocker_reason?: string | null;
+    attachments?: SessionInputAttachmentPayload[] | null;
+  }
+
+  interface CreateIssueResponsePayload {
+    issue: IssueRecordPayload;
+    session: AgentSessionRecordPayload | null;
+  }
+
+  interface UpdateIssuePayload {
+    workspace_id: string;
+    title?: string | null;
+    description?: string | null;
+    status?: IssueStatusPayload;
+    priority?: IssuePriorityPayload | null;
+    assignee_teammate_id?: string | null;
+    blocker_reason?: string | null;
+    attachments?: SessionInputAttachmentPayload[] | null;
+  }
+
+  interface UpdateIssueResponsePayload {
+    issue: IssueRecordPayload;
+  }
+
+  interface StopIssueRunResponsePayload {
+    issue: IssueRecordPayload;
+  }
+
   interface ContinueBackgroundTaskPayload {
     workspaceId: string;
     subagentId: string;
@@ -799,6 +982,7 @@ interface RuntimeNotificationListOptionsPayload {
 
   interface TaskProposalAcceptResponsePayload {
     proposal: TaskProposalRecordPayload;
+    issue: IssueRecordPayload;
     session: AgentSessionRecordPayload;
     input: EnqueueSessionInputResponsePayload;
   }
@@ -813,6 +997,7 @@ interface RuntimeNotificationListOptionsPayload {
     id: string;
     workspace_id: string;
     initiated_by: string;
+    teammate_id: string;
     name: string;
     cron: string;
     description: string;
@@ -844,6 +1029,7 @@ interface RuntimeNotificationListOptionsPayload {
   interface CronjobCreatePayload {
     workspace_id: string;
     initiated_by: string;
+    teammate_id: string;
     session_id?: string;
     name?: string;
     cron: string;
@@ -857,6 +1043,7 @@ interface RuntimeNotificationListOptionsPayload {
 
   interface CronjobUpdatePayload {
     session_id?: string;
+    teammate_id?: string;
     name?: string;
     cron?: string;
     description?: string;
@@ -990,6 +1177,47 @@ interface RuntimeNotificationListOptionsPayload {
     limit?: number;
     offset?: number;
     order?: "asc" | "desc";
+  }
+
+  interface SessionTurnResultPayload {
+    workspace_id: string;
+    session_id: string;
+    input_id: string;
+    started_at: string;
+    completed_at: string | null;
+    status: string;
+    stop_reason: string | null;
+    assistant_text: string;
+    tool_usage_summary: Record<string, unknown>;
+    permission_denials: Array<Record<string, unknown>>;
+    prompt_section_ids: string[];
+    capability_manifest_fingerprint: string | null;
+    request_snapshot_fingerprint: string | null;
+    prompt_cache_profile: Record<string, unknown> | null;
+    context_budget_decisions: Record<string, unknown> | null;
+    token_usage: Record<string, unknown> | null;
+    created_at: string;
+    updated_at: string;
+  }
+
+  interface SessionTurnResultListRequestPayload {
+    workspaceId: string;
+    sessionId?: string | null;
+    inputId?: string | null;
+    status?: string | null;
+    limit?: number;
+    offset?: number;
+    order?: "asc" | "desc";
+  }
+
+  interface SessionTurnResultListResponsePayload {
+    workspace_id: string;
+    session_id: string | null;
+    items: SessionTurnResultPayload[];
+    count: number;
+    total: number;
+    limit: number;
+    offset: number;
   }
 
   interface SessionOutputEventPayload {
@@ -1996,7 +2224,39 @@ interface RuntimeNotificationListOptionsPayload {
         notificationId: string,
         payload: RuntimeNotificationUpdatePayload
       ) => Promise<RuntimeNotificationRecordPayload>;
-      listTaskProposals: (workspaceId: string) => Promise<TaskProposalListResponsePayload>;
+      listTeammates: (
+        workspaceId: string,
+        includeArchived?: boolean
+      ) => Promise<TeammateListResponsePayload>;
+      createTeammate: (
+        payload: CreateTeammatePayload
+      ) => Promise<CreateTeammateResponsePayload>;
+      updateTeammate: (
+        workspaceId: string,
+        teammateId: string,
+        payload: UpdateTeammatePayload
+      ) => Promise<UpdateTeammateResponsePayload>;
+      createTeammateSkill: (
+        workspaceId: string,
+        teammateId: string,
+        payload: CreateTeammateSkillPayload
+      ) => Promise<CreateTeammateSkillResponsePayload>;
+      deleteTeammateSkill: (
+        workspaceId: string,
+        teammateId: string,
+        skillId: string
+      ) => Promise<DeleteTeammateSkillResponsePayload>;
+      listIssues: (workspaceId: string) => Promise<IssueListResponsePayload>;
+      createIssue: (payload: CreateIssuePayload) => Promise<CreateIssueResponsePayload>;
+      updateIssue: (
+        workspaceId: string,
+        issueId: string,
+        payload: UpdateIssuePayload
+      ) => Promise<UpdateIssueResponsePayload>;
+      stopIssueRun: (
+        workspaceId: string,
+        issueId: string
+      ) => Promise<StopIssueRunResponsePayload>;
       listBackgroundTasks: (
         payload: BackgroundTaskListRequestPayload
       ) => Promise<BackgroundTaskListResponsePayload>;
@@ -2006,12 +2266,6 @@ interface RuntimeNotificationListOptionsPayload {
       continueBackgroundTask: (
         payload: ContinueBackgroundTaskPayload
       ) => Promise<ContinueBackgroundTaskResponsePayload>;
-      acceptTaskProposal: (payload: TaskProposalAcceptPayload) => Promise<TaskProposalAcceptResponsePayload>;
-      updateTaskProposalState: (
-        workspaceId: string,
-        proposalId: string,
-        state: string
-      ) => Promise<TaskProposalStateUpdatePayload>;
       ensureMainSession: (workspaceId: string) => Promise<EnsureWorkspaceMainSessionResponsePayload>;
       listAgentSessions: (
         payload: string | ListAgentSessionsRequestPayload
@@ -2019,6 +2273,9 @@ interface RuntimeNotificationListOptionsPayload {
       createAgentSession: (payload: CreateAgentSessionPayload) => Promise<CreateAgentSessionResponsePayload>;
       listRuntimeStates: (workspaceId: string) => Promise<SessionRuntimeStateListResponsePayload>;
       getSessionHistory: (payload: SessionHistoryRequestPayload) => Promise<SessionHistoryResponsePayload>;
+      listTurnResults: (
+        payload: SessionTurnResultListRequestPayload
+      ) => Promise<SessionTurnResultListResponsePayload>;
       getSessionOutputEvents: (payload: SessionOutputEventListRequestPayload) => Promise<SessionOutputEventListResponsePayload>;
       stageSessionAttachments: (payload: StageSessionAttachmentsPayload) => Promise<StageSessionAttachmentsResponsePayload>;
       stageSessionAttachmentPaths: (

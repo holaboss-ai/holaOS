@@ -17,8 +17,9 @@ test("experimental shell swaps into onboarding takeover mode for onboarding work
   );
   assert.match(
     source,
-    /\{onboardingModeActive \? \(\s*<ExperimentalWorkspaceOnboardingTakeover \/>\s*\) : \(\s*<>\s*<Center \/>\s*<ChatPanel \/>\s*<\/>\s*\)\}/,
+    /\{onboardingModeActive \? \(\s*<div className="flex min-w-0 flex-1 flex-col bg-background">\s*<ExperimentalWorkspaceOnboardingTakeover \/>\s*<\/div>\s*\) : \(\s*<>\s*<div[\s\S]*?<TopChrome \/>\s*<Center \/>\s*<\/div>\s*<ChatPanel layout=\{layout\} \/>\s*<\/>\s*\)\}/,
   );
+  assert.match(source, /<NewIssueDialog \/>/);
   assert.match(
     source,
     /function ExperimentalWorkspaceOnboardingTakeover\(\) \{[\s\S]*<WorkspaceOnboardingSurface \/>[\s\S]*\}/,

@@ -8,6 +8,9 @@ function compactWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+const MAX_TURN_SUMMARY_LINES = 100;
+const MAX_TURN_SUMMARY_CHARS = 40_000;
+
 function firstNonEmptyLines(value: string, maxLines: number, maxChars: number): string[] {
   const lines = value
     .split(/\r?\n/)
@@ -108,7 +111,11 @@ function browserRunSummary(turnResult: TurnResultRecord): string | null {
 }
 
 export function compactTurnSummary(turnResult: TurnResultRecord): string | null {
-  const assistantLines = firstNonEmptyLines(turnResult.assistantText, 3, 320);
+  const assistantLines = firstNonEmptyLines(
+    turnResult.assistantText,
+    MAX_TURN_SUMMARY_LINES,
+    MAX_TURN_SUMMARY_CHARS,
+  );
   if (assistantLines.length > 0) {
     return assistantLines.join(" ");
   }

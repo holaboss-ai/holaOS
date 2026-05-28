@@ -1327,11 +1327,10 @@ test("runTsRunnerCli strips subagent orchestration tools from onboarding session
               changed: false,
               toolIds: [
                 "delegate_task",
-                "get_subagent",
-                "list_background_tasks",
-                "cancel_subagent",
-                "resume_subagent",
-                "continue_subagent",
+                "get_task",
+                "list_tasks",
+                "cancel_task",
+                "rerun_task",
                 "holaboss_onboarding_complete",
               ],
             }),
@@ -1398,7 +1397,7 @@ test("runTsRunnerCli strips subagent orchestration tools from onboarding session
   );
 });
 
-test("runTsRunnerCli keeps staged execution tools on front-of-house workspace sessions", async () => {
+test("runTsRunnerCli keeps main workspace sessions on a coordinator surface", async () => {
   setTempSandboxRoot("hb-ts-runner-runtime-tools-");
   let capturedProjectRequest: AgentRuntimeConfigCliRequest | null = null;
 
@@ -1417,7 +1416,15 @@ test("runTsRunnerCli keeps staged execution tools on front-of-house workspace se
             }),
             stageRuntimeTools: () => ({
               changed: false,
-              toolIds: ["holaboss_onboarding_complete", "write_report"],
+              toolIds: [
+                "holaboss_onboarding_complete",
+                "write_report",
+                "teammates_create",
+                "teammate_skills_create",
+                "workspace_integrations_list_catalog",
+                "holaboss_workspace_integrations_propose_connect",
+                "holaboss_workspace_integrations_set_default_account",
+              ],
             }),
           },
         }),
@@ -1463,28 +1470,30 @@ test("runTsRunnerCli keeps staged execution tools on front-of-house workspace se
   assert.equal(
     (capturedProjectRequest as { browser_tools_available: boolean })
       .browser_tools_available,
-    true,
+    false,
   );
   assert.deepEqual(
     (capturedProjectRequest as { browser_tool_ids: string[] }).browser_tool_ids,
-    ["browser_get_state"],
+    [],
   );
   assert.deepEqual(
     (capturedProjectRequest as { runtime_tool_ids: string[] }).runtime_tool_ids,
-    ["holaboss_onboarding_complete", "write_report"],
+    [
+      "teammates_create",
+      "teammate_skills_create",
+      "workspace_integrations_list_catalog",
+      "holaboss_workspace_integrations_propose_connect",
+      "holaboss_workspace_integrations_set_default_account",
+    ],
   );
   assert.deepEqual(
     (capturedProjectRequest as { default_tools: string[] }).default_tools,
     [
       "read",
-      "edit",
-      "bash",
       "grep",
       "glob",
       "list",
       "question",
-      "todowrite",
-      "todoread",
       "skill",
     ],
   );
@@ -1495,10 +1504,11 @@ test("runTsRunnerCli keeps staged execution tools on front-of-house workspace se
   assert.deepEqual(
     (capturedProjectRequest as { extra_tools: string[] }).extra_tools,
     [
-      "web_search",
-      "browser_get_state",
-      "holaboss_onboarding_complete",
-      "write_report",
+      "teammates_create",
+      "teammate_skills_create",
+      "workspace_integrations_list_catalog",
+      "holaboss_workspace_integrations_propose_connect",
+      "holaboss_workspace_integrations_set_default_account",
     ],
   );
   assert.equal(
@@ -1521,7 +1531,12 @@ test("runTsRunnerCli keeps staged execution tools on front-of-house workspace se
   assert.deepEqual(
     (capturedProjectRequest as { delegated_runtime_tool_ids?: string[] })
       .delegated_runtime_tool_ids,
-    ["holaboss_onboarding_complete", "write_report"],
+    [
+      "write_report",
+      "workspace_integrations_list_catalog",
+      "holaboss_workspace_integrations_propose_connect",
+      "holaboss_workspace_integrations_set_default_account",
+    ],
   );
   assert.deepEqual(
     (capturedProjectRequest as { delegated_default_tools?: string[] })
@@ -1545,8 +1560,10 @@ test("runTsRunnerCli keeps staged execution tools on front-of-house workspace se
     [
       "web_search",
       "browser_get_state",
-      "holaboss_onboarding_complete",
       "write_report",
+      "workspace_integrations_list_catalog",
+      "holaboss_workspace_integrations_propose_connect",
+      "holaboss_workspace_integrations_set_default_account",
     ],
   );
 });
@@ -1612,12 +1629,12 @@ test("runTsRunnerCli exposes workspace-instructions updates only to main workspa
   );
   assert.deepEqual(
     (capturedProjectRequest as { extra_tools: string[] }).extra_tools,
-    ["web_search", "update_workspace_instructions"],
+    ["update_workspace_instructions"],
   );
   assert.deepEqual(
     (capturedProjectRequest as { delegated_runtime_tool_ids?: string[] })
       .delegated_runtime_tool_ids,
-    ["update_workspace_instructions"],
+    [],
   );
 });
 
@@ -1766,7 +1783,7 @@ test("runTsRunnerCli exposes workspace-instructions updates to subagent sessions
   );
 });
 
-test("runTsRunnerCli keeps direct MCP tools on front-session requests", async () => {
+test("runTsRunnerCli removes direct MCP tools from front-session requests", async () => {
   const sandboxRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "hb-ts-runner-front-mcp-filter-"),
   );
@@ -1848,18 +1865,7 @@ test("runTsRunnerCli keeps direct MCP tools on front-session requests", async ()
         resolved_mcp_tool_refs: Array<Record<string, string>>;
       }
     ).resolved_mcp_tool_refs,
-    [
-      {
-        tool_id: "docs.lookup",
-        server_id: "docs",
-        tool_name: "lookup",
-      },
-      {
-        tool_id: "workspace.write_report",
-        server_id: "workspace",
-        tool_name: "write_report",
-      },
-    ],
+    [],
   );
   assert.deepEqual(
     (
@@ -3963,7 +3969,11 @@ test("runTsRunnerCli stages browser tools for subagent executor sessions and str
               changed: false,
               toolIds: [
                 "holaboss_onboarding_complete",
+                "holaboss_create_alignment_report",
+                "cronjobs_create",
                 "delegate_task",
+                "teammates_create",
+                "teammate_skills_create",
               ],
             }),
           },
@@ -4026,7 +4036,7 @@ test("runTsRunnerCli stages browser tools for subagent executor sessions and str
   );
   assert.deepEqual(
     (capturedProjectRequest as { runtime_tool_ids: string[] }).runtime_tool_ids,
-    ["holaboss_onboarding_complete"],
+    [],
   );
   assert.deepEqual(
     (capturedProjectRequest as { default_tools: string[] }).default_tools,
@@ -4045,7 +4055,7 @@ test("runTsRunnerCli stages browser tools for subagent executor sessions and str
   );
   assert.deepEqual(
     (capturedProjectRequest as { extra_tools: string[] }).extra_tools,
-    ["web_search", "browser_get_state", "holaboss_onboarding_complete"],
+    ["web_search", "browser_get_state"],
   );
 });
 
@@ -4441,6 +4451,7 @@ test("runTsRunnerCli resolves workspace skill ids and source directories for the
       "browser-core-efficient",
       "browser-qa",
       "build-dashboard",
+      "create-teammate",
       "frontend-design",
       "interface-design",
       "mcp-configurator",
@@ -4465,12 +4476,152 @@ test("runTsRunnerCli resolves workspace skill ids and source directories for the
       "browser-core-efficient",
       "browser-qa",
       "build-dashboard",
+      "create-teammate",
       "frontend-design",
       "interface-design",
       "mcp-configurator",
       "skill-creator",
       "skill-installer",
       "alpha",
+    ],
+  );
+});
+
+test("runTsRunnerCli includes teammate-local skills for assigned subagent runs", async () => {
+  const sandboxRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "hb-ts-runner-pi-teammate-skills-"),
+  );
+  process.env.HB_SANDBOX_ROOT = sandboxRoot;
+  const workspaceDir = path.join(sandboxRoot, "workspace", "workspace-1");
+  const teammateSkillDir = path.join(
+    workspaceDir,
+    "teammates",
+    "general",
+    "skills",
+    "frontend-playbook",
+  );
+  fs.mkdirSync(teammateSkillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(teammateSkillDir, "SKILL.md"),
+    [
+      "---",
+      "name: frontend-playbook",
+      "description: Frontend playbook",
+      "---",
+      "",
+      "# Frontend Playbook",
+    ].join("\n"),
+    "utf8",
+  );
+
+  let capturedProjectRequest: Record<string, unknown> | null = null;
+  let capturedHarnessRequest: Record<string, unknown> | null = null;
+
+  const exitCode = await runTsRunnerCli(
+    [
+      "--request-base64",
+      encodeRequest({
+        ...baseRequest(),
+        session_kind: "subagent",
+        context: {
+          teammate_id: "general",
+          _sandbox_runtime_exec_v1: {
+            harness: "pi",
+          },
+        },
+      }),
+    ],
+    {
+      deps: {
+        ...testDeps(),
+        projectAgentRuntimeConfig: (request) => {
+          capturedProjectRequest = request as unknown as Record<
+            string,
+            unknown
+          >;
+          return {
+            provider_id: "openai",
+            model_id: "gpt-5.4",
+            mode: "code",
+            system_prompt: "You are concise.",
+            model_client: {
+              model_proxy_provider: "openai_compatible",
+              api_key: "token",
+              base_url: "http://127.0.0.1:4000/openai/v1",
+              default_headers: { "X-Test": "1" },
+            },
+            tools: { read: true },
+            workspace_tool_ids: [],
+            workspace_skill_ids: ["frontend-playbook"],
+            output_schema_member_id: null,
+            output_format: null,
+            workspace_config_checksum: "checksum-1",
+          };
+        },
+        runHarnessHost: async ({ requestPayload }) => {
+          capturedHarnessRequest = requestPayload;
+          return {
+            exitCode: 0,
+            stderr: "",
+            sawEvent: false,
+            terminalEmitted: false,
+            lastSequence: 0,
+          };
+        },
+      },
+      io: {
+        stdout: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+        stderr: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+      },
+    },
+  );
+
+  assert.equal(exitCode, 0);
+  assert.ok(capturedProjectRequest);
+  assert.deepEqual(
+    (capturedProjectRequest as { workspace_skill_ids: string[] })
+      .workspace_skill_ids,
+    [
+      "app-builder-sdk",
+      "browser-core-efficient",
+      "browser-qa",
+      "build-dashboard",
+      "create-teammate",
+      "frontend-design",
+      "interface-design",
+      "mcp-configurator",
+      "skill-creator",
+      "skill-installer",
+      "frontend-playbook",
+    ],
+  );
+  assert.ok(capturedHarnessRequest);
+  assert.deepEqual(
+    (
+      capturedHarnessRequest as {
+        workspace_skill_dirs: string[];
+      }
+    ).workspace_skill_dirs.map((skillDir) => path.basename(skillDir)),
+    [
+      "app-builder-sdk",
+      "browser-core-efficient",
+      "browser-qa",
+      "build-dashboard",
+      "create-teammate",
+      "frontend-design",
+      "interface-design",
+      "mcp-configurator",
+      "skill-creator",
+      "skill-installer",
+      "frontend-playbook",
     ],
   );
 });
@@ -4967,7 +5118,7 @@ test(
       assert.deepEqual(
         (capturedProjectRequest as { resolved_mcp_server_ids: string[] })
           .resolved_mcp_server_ids,
-        ["context7"],
+        [],
       );
       assert.deepEqual(
         (
@@ -4982,7 +5133,7 @@ test(
         (
           capturedHarnessRequest as { mcp_servers: Array<{ name: string }> }
         ).mcp_servers.map((server) => server.name),
-        ["context7"],
+        [],
       );
       assert.deepEqual(
         (capturedHarnessRequest as { mcp_tool_refs: unknown[] }).mcp_tool_refs,

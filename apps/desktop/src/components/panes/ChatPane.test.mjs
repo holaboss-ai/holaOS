@@ -962,6 +962,11 @@ test("main-session assistant turns keep execution internals visible in the main 
     source,
     /const displayMessages = useMemo\([\s\S]*hasRenderableAssistantTurn\(message,\s*\{\s*showExecutionInternals: showSessionExecutionInternals,\s*\}\)/,
   );
+  assert.match(source, /function syntheticAssistantMessageFromSessionTurn\(params: \{/);
+  assert.match(
+    source,
+    /Array\.from\(\s*new Set\(\[\s*\.\.\.outputEventsByInputId\.keys\(\),\s*\.\.\.outputsByInputId\.keys\(\),\s*\]\),\s*\)\s*\.filter\(\(inputId\) => inputId && !historyTurnInputIds\.has\(inputId\)\)/,
+  );
 });
 
 test("chat pane no longer sends native desktop notifications directly for main-session completions", async () => {
@@ -1211,12 +1216,12 @@ test("chat pane can create a workspace session when none exists yet", async () =
   );
 });
 
-test("chat pane exposes an in-pane session dropdown for switching agent sessions", async () => {
+test("chat pane keeps inbox and main-session controls without a sessions button", async () => {
   const source = await readFile(sourcePath, "utf8");
   const chatHeaderSource = await readFile(chatHeaderSourcePath, "utf8");
 
   assert.match(source, /onOpenInbox\?: \(\) => void;/);
-  assert.match(source, /onOpenSessions\?: \(\) => void;/);
+  assert.doesNotMatch(source, /onOpenSessions\?: \(\) => void;/);
   assert.match(source, /inboxUnreadCount\?: number;/);
   assert.match(source, /composerDraftText\?: string;/);
   assert.match(
@@ -1270,8 +1275,8 @@ test("chat pane exposes an in-pane session dropdown for switching agent sessions
   assert.match(source, /const handleOpenReadOnlyAgentSession = \(/);
   assert.match(source, /setLocalSessionOpenRequestState\(\{\s*sessionId: mainSessionId,\s*requestKey: Date\.now\(\),\s*readOnly: false,\s*\}\);/);
   assert.match(source, /setLocalSessionOpenRequestState\(\{\s*sessionId,\s*requestKey: Date\.now\(\),\s*readOnly: true,\s*\}\);/);
-  assert.match(source, /onOpenSessions=\{onOpenSessions\}/);
-  assert.match(chatHeaderSource, /aria-label="Sessions"/);
+  assert.doesNotMatch(source, /onOpenSessions=\{onOpenSessions\}/);
+  assert.doesNotMatch(chatHeaderSource, /aria-label="Sessions"/);
   assert.match(chatHeaderSource, /aria-label="Inbox"/);
   assert.match(chatHeaderSource, /inboxUnreadCount > 0 \? \(/);
   assert.match(chatHeaderSource, /onClick=\{\(\) => onOpenInbox\(\)\}/);
@@ -1936,14 +1941,14 @@ test("chat pane renders inline background tasks near the top of the pane", async
 
   assert.match(
     source,
-    /!isReadOnlyInspectionSession \? \(\s*<div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-4">[\s\S]*<BackgroundTasksPane[\s\S]*workspaceId=\{controllerBackgroundTasksWorkspaceId\}[\s\S]*ownerMainSessionId=\{[\s\S]*controllerBackgroundTasksOwnerMainSessionId[\s\S]*\}[\s\S]*variant="inline"[\s\S]*\) : null/,
+    /isViewingBoundMainSession \? \(\s*<div className="flex shrink-0 justify-center px-4 pt-2 empty:hidden">[\s\S]*<BackgroundTasksPane[\s\S]*workspaceId=\{selectedWorkspaceId\}[\s\S]*variant="inline"[\s\S]*\) : null/,
   );
   assert.doesNotMatch(
     source,
     /!isOnboardingVariant && !isReadOnlyInspectionSession \? \(\s*<SubagentSessionsPane[\s\S]*variant="inline"[\s\S]*\) : null/,
   );
   assert.match(source, /const handleOpenReadOnlyAgentSession = \(/);
-  assert.match(source, /onOpenSessions=\{onOpenSessions\}/);
+  assert.doesNotMatch(source, /onOpenSessions=\{onOpenSessions\}/);
   assert.match(
     source,
     /className=\{`mx-auto flex min-w-0 w-full \$\{CHAT_LAYOUT\.contentMaxWidth\} flex-col gap-2 pl-4 pr-7 pb-3 pt-5 \$\{\s*showHistoryRestoreScreen \? "invisible" : ""\s*\}`\}/,

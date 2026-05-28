@@ -8,6 +8,10 @@ import { cn } from "@/lib/utils";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { FilePreviewPane } from "./FilePreviewPane";
+import { IssueDetailPane } from "./IssueDetailPane";
+import { IssuesBoardPane } from "./IssuesBoardPane";
+import { TeammatesPane } from "./TeammatesPane";
+import { WorkspaceDashboardPane } from "./WorkspaceDashboardPane";
 import {
   activeInternalTabIdAtom,
   fileNameFromPath,
@@ -53,11 +57,24 @@ export function Center() {
             dataUrl={activeInternal.dataUrl}
             name={activeInternal.label}
           />
-        ) : (
+        ) : activeInternal.kind === "file" ? (
           <FilePreviewPane
             filePath={activeInternal.filePath}
             onClose={closeActiveInternalTab}
           />
+        ) : activeInternal.kind === "issue_detail" ? (
+          <IssueDetailPane
+            workspaceId={activeInternal.workspaceId}
+            issueId={activeInternal.issueId}
+          />
+        ) : activeInternal.kind === "issues_board" ? (
+          <IssuesBoardPane workspaceId={activeInternal.workspaceId} />
+        ) : activeInternal.kind === "teammates" ? (
+          <TeammatesPane workspaceId={activeInternal.workspaceId} />
+        ) : activeInternal.kind === "workspace_dashboard" ? (
+          <WorkspaceDashboardPane workspaceId={activeInternal.workspaceId} />
+        ) : (
+          <NewTabLanding />
         )
       ) : hasActiveTab ? (
         <BrowserPane

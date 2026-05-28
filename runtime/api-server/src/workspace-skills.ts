@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import yaml from "js-yaml";
 
-export type ResolvedSkillOrigin = "workspace" | "embedded";
+export type ResolvedSkillOrigin = "workspace" | "embedded" | "teammate";
 
 export interface ResolvedWorkspaceSkill {
   skill_id: string;
@@ -13,6 +13,7 @@ export interface ResolvedWorkspaceSkill {
   source_dir: string;
   file_path: string;
   origin: ResolvedSkillOrigin;
+  owner_teammate_id: string | null;
   granted_tools: string[];
   granted_commands: string[];
 }
@@ -38,6 +39,7 @@ export interface WorkspaceSkillInvocationResult {
 
 const EMBEDDED_SKILLS_DIR_ENV = "HOLABOSS_EMBEDDED_SKILLS_DIR";
 const WORKSPACE_SKILLS_RELATIVE_PATH = "skills";
+const WORKSPACE_TEAMMATES_RELATIVE_PATH = "teammates";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -85,6 +87,15 @@ function embeddedSkillsRoot(): string {
     }
   }
   return candidates[0] ?? path.join(runtimeRoot, "harnesses", "src", "embedded-skills");
+}
+
+function realWorkspaceRoot(workspaceDirInput: string): string | null {
+  const workspaceDir = path.resolve(workspaceDirInput);
+  try {
+    return fs.realpathSync(workspaceDir);
+  } catch {
+    return null;
+  }
 }
 
 function skillFrontmatter(content: string): Record<string, unknown> | null {
@@ -287,6 +298,7 @@ function readSkillMetadata(params: {
   skillFilePath: string;
   sourceDir: string;
   origin: ResolvedSkillOrigin;
+  ownerTeammateId?: string | null;
 }): ResolvedWorkspaceSkill | null {
   let content: string;
   try {
@@ -310,12 +322,18 @@ function readSkillMetadata(params: {
     source_dir: params.sourceDir,
     file_path: params.skillFilePath,
     origin: params.origin,
+    owner_teammate_id: params.ownerTeammateId ?? null,
     granted_tools: grantedToolsFromFrontmatter(frontmatter),
     granted_commands: grantedCommandsFromFrontmatter(frontmatter),
   };
 }
 
-function listSkillsInRoot(skillRoot: string, origin: ResolvedSkillOrigin): ResolvedWorkspaceSkill[] {
+function listSkillsInRoot(params: {
+  skillRoot: string;
+  origin: ResolvedSkillOrigin;
+  ownerTeammateId?: string | null;
+}): ResolvedWorkspaceSkill[] {
+  const { skillRoot, origin, ownerTeammateId } = params;
   const skillRootPath = path.resolve(skillRoot);
   const stats = fs.statSync(skillRootPath, { throwIfNoEntry: false });
   if (!stats?.isDirectory()) {
@@ -349,22 +367,25 @@ function listSkillsInRoot(skillRoot: string, origin: ResolvedSkillOrigin): Resol
         skillFilePath,
         sourceDir: sourceRealPath,
         origin,
+        ownerTeammateId,
       });
     })
     .filter((skill): skill is ResolvedWorkspaceSkill => Boolean(skill))
     .sort((left, right) => left.skill_id.localeCompare(right.skill_id));
 }
 
-function resolveWorkspaceLocalSkills(workspaceDirInput: string): ResolvedWorkspaceSkill[] {
-  const workspaceDir = path.resolve(workspaceDirInput);
-  let workspaceRealRoot: string;
-  try {
-    workspaceRealRoot = fs.realpathSync(workspaceDir);
-  } catch {
+function resolveWorkspaceScopedSkills(params: {
+  workspaceDirInput: string;
+  rootPath: string;
+  origin: ResolvedSkillOrigin;
+  ownerTeammateId?: string | null;
+}): ResolvedWorkspaceSkill[] {
+  const workspaceRealRoot = realWorkspaceRoot(params.workspaceDirInput);
+  if (!workspaceRealRoot) {
     return [];
   }
 
-  const skillsPath = path.resolve(workspaceDir, WORKSPACE_SKILLS_RELATIVE_PATH);
+  const skillsPath = path.resolve(params.rootPath);
   let skillsRealPath: string;
   try {
     skillsRealPath = fs.realpathSync(skillsPath);
@@ -376,18 +397,67 @@ function resolveWorkspaceLocalSkills(workspaceDirInput: string): ResolvedWorkspa
     return [];
   }
 
-  return listSkillsInRoot(skillsRealPath, "workspace").filter((skill) => {
+  return listSkillsInRoot({
+    skillRoot: skillsRealPath,
+    origin: params.origin,
+    ownerTeammateId: params.ownerTeammateId,
+  }).filter((skill) => {
     const relativeSourcePath = path.relative(workspaceRealRoot, skill.source_dir);
     return !(relativeSourcePath.startsWith("..") || path.isAbsolute(relativeSourcePath));
   });
 }
 
-export function resolveWorkspaceSkills(workspaceDirInput: string): ResolvedWorkspaceSkill[] {
-  const embeddedSkills = listSkillsInRoot(embeddedSkillsRoot(), "embedded");
+function resolveWorkspaceLocalSkills(workspaceDirInput: string): ResolvedWorkspaceSkill[] {
+  return resolveWorkspaceScopedSkills({
+    workspaceDirInput,
+    rootPath: path.resolve(workspaceDirInput, WORKSPACE_SKILLS_RELATIVE_PATH),
+    origin: "workspace",
+  });
+}
+
+function resolveTeammateLocalSkills(params: {
+  workspaceDirInput: string;
+  teammateId: string;
+}): ResolvedWorkspaceSkill[] {
+  return resolveWorkspaceScopedSkills({
+    workspaceDirInput: params.workspaceDirInput,
+    rootPath: path.resolve(
+      params.workspaceDirInput,
+      WORKSPACE_TEAMMATES_RELATIVE_PATH,
+      params.teammateId,
+      WORKSPACE_SKILLS_RELATIVE_PATH,
+    ),
+    origin: "teammate",
+    ownerTeammateId: params.teammateId,
+  });
+}
+
+export interface ResolveWorkspaceSkillsOptions {
+  teammateId?: string | null;
+}
+
+export function resolveWorkspaceSkills(
+  workspaceDirInput: string,
+  options: ResolveWorkspaceSkillsOptions = {},
+): ResolvedWorkspaceSkill[] {
+  const embeddedSkills = listSkillsInRoot({
+    skillRoot: embeddedSkillsRoot(),
+    origin: "embedded",
+  });
   const workspaceSkills = resolveWorkspaceLocalSkills(workspaceDirInput);
+  const teammateId = normalizeSkillId(options.teammateId);
+  const teammateSkills = teammateId
+    ? resolveTeammateLocalSkills({
+        workspaceDirInput,
+        teammateId,
+      })
+    : [];
 
   const resolvedById = new Map<string, ResolvedWorkspaceSkill>();
   for (const skill of workspaceSkills) {
+    resolvedById.set(skill.skill_id, skill);
+  }
+  for (const skill of teammateSkills) {
     resolvedById.set(skill.skill_id, skill);
   }
   for (const skill of embeddedSkills) {
@@ -397,7 +467,7 @@ export function resolveWorkspaceSkills(workspaceDirInput: string): ResolvedWorks
   const orderedSkillIds = (() => {
     const ordered: string[] = [];
     const seen = new Set<string>();
-    for (const skill of [...embeddedSkills, ...workspaceSkills]) {
+    for (const skill of [...embeddedSkills, ...teammateSkills, ...workspaceSkills]) {
       if (seen.has(skill.skill_id)) {
         continue;
       }

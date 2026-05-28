@@ -19,13 +19,16 @@ import {
   type AppBuildRecord,
   type AppCatalogEntryRecord,
   type CronjobRecord,
+  type IssueAttachmentRecord,
+  type IssueRecord,
+  type TeammateCapabilityProfileRecord,
+  type TeammateRecord,
   type MemoryUpdateProposalRecord,
   type OutputFolderRecord,
   type OutputRecord,
   type RuntimeNotificationRecord,
   type SessionMessageRecord,
   type SessionRuntimeStateRecord,
-  type TaskProposalRecord,
   type OutputEventRecord,
   type TerminalSessionStatus,
   type TurnRequestSnapshotRecord,
@@ -72,6 +75,14 @@ import {
   RuntimeRemoteBridgeWorker,
   tsBridgeWorkerEnabled
 } from "./bridge-worker.js";
+import {
+  createTeammateIdForFilesystem,
+  type ResolvedTeammateSkillRecord,
+  type TeammateSkillInput,
+  deleteTeammateSkill,
+  resolvedTeammateSkillsForRecord,
+  upsertTeammateSkill,
+} from "./teammate-skill-files.js";
 import {
   type RecallEmbeddingBackfillWorkerLike,
   RuntimeRecallEmbeddingBackfillWorker,
@@ -874,6 +885,158 @@ function attachmentsFromInputPayload(value: unknown): SessionInputAttachmentPayl
   return value.map((item) => parseSessionInputAttachment(item)).filter((item): item is SessionInputAttachmentPayload => Boolean(item));
 }
 
+function requiredIssueAttachments(value: unknown, workspaceDir: string): IssueAttachmentRecord[] {
+  return requiredSessionInputAttachments(value, workspaceDir).map((attachment) => ({
+    id: attachment.id,
+    kind: attachment.kind,
+    name: attachment.name,
+    mimeType: attachment.mime_type,
+    sizeBytes: attachment.size_bytes,
+    workspacePath: attachment.workspace_path,
+    createdAt: utcNowIso(),
+  }));
+}
+
+function requiredTeammateSkillInputs(
+  value: unknown,
+  fieldName: string,
+): TeammateSkillInput[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an array`);
+  }
+  return value.map((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`${fieldName}[${index}] must be an object`);
+    }
+    const sidecarFiles = hasOwn(entry, "sidecar_files")
+      ? (() => {
+          const raw = entry.sidecar_files;
+          if (!Array.isArray(raw)) {
+            throw new Error(`${fieldName}[${index}].sidecar_files must be an array`);
+          }
+          return raw.map((file, fileIndex) => {
+            if (!isRecord(file)) {
+              throw new Error(`${fieldName}[${index}].sidecar_files[${fileIndex}] must be an object`);
+            }
+            return {
+              path: requiredString(
+                file.path,
+                `${fieldName}[${index}].sidecar_files[${fileIndex}].path`,
+              ),
+              content: requiredString(
+                file.content,
+                `${fieldName}[${index}].sidecar_files[${fileIndex}].content`,
+              ),
+            };
+          });
+        })()
+      : undefined;
+    return {
+      skillId: nullableString(entry.skill_id) ?? undefined,
+      name: nullableString(entry.name) ?? undefined,
+      content: nullableString(entry.content) ?? undefined,
+      skillMarkdown: nullableString(entry.skill_markdown) ?? undefined,
+      grantedTools: hasOwn(entry, "granted_tools")
+        ? optionalTrimmedStringArray(
+            entry.granted_tools,
+            `${fieldName}[${index}].granted_tools`,
+          )
+        : undefined,
+      grantedCommands: hasOwn(entry, "granted_commands")
+        ? optionalTrimmedStringArray(
+            entry.granted_commands,
+            `${fieldName}[${index}].granted_commands`,
+          )
+        : undefined,
+      sidecarFiles,
+      directories: hasOwn(entry, "directories")
+        ? optionalTrimmedStringArray(
+            entry.directories,
+            `${fieldName}[${index}].directories`,
+          )
+        : undefined,
+      createdAt: nullableString(entry.created_at) ?? undefined,
+      updatedAt: nullableString(entry.updated_at) ?? undefined,
+    };
+  });
+}
+
+function requiredTeammateSkillInput(
+  value: unknown,
+  fieldName: string,
+): TeammateSkillInput {
+  const parsed = requiredTeammateSkillInputs([value], fieldName);
+  const first = parsed[0];
+  if (!first) {
+    throw new Error(`${fieldName} is required`);
+  }
+  return first;
+}
+
+function optionalTrimmedStringArray(
+  value: unknown,
+  fieldName: string,
+): string[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an array`);
+  }
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const [index, entry] of value.entries()) {
+    if (typeof entry !== "string") {
+      throw new Error(`${fieldName}[${index}] must be a string`);
+    }
+    const trimmed = entry.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
+function requiredTeammateCapabilityProfileInput(
+  value: unknown,
+  fieldName: string,
+): Partial<TeammateCapabilityProfileRecord> | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (!isRecord(value)) {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  return {
+    summary: hasOwn(value, "summary")
+      ? (nullableString(value.summary) ?? null)
+      : undefined,
+    capabilities: hasOwn(value, "capabilities")
+      ? optionalTrimmedStringArray(value.capabilities, `${fieldName}.capabilities`)
+      : undefined,
+    preferredTools: hasOwn(value, "preferred_tools")
+      ? optionalTrimmedStringArray(
+          value.preferred_tools,
+          `${fieldName}.preferred_tools`,
+        )
+      : hasOwn(value, "preferredTools")
+        ? optionalTrimmedStringArray(
+            value.preferredTools,
+            `${fieldName}.preferredTools`,
+          )
+        : undefined,
+  };
+}
+
 function sessionMessageAttachments(
   store: RuntimeStateStore,
   workspaceId: string,
@@ -1078,7 +1241,7 @@ function agentSessionPayload(
   });
   const sourceType =
     linkedSubagentRun?.sourceType ??
-    (record.kind === "task_proposal" || record.sourceProposalId ? "task_proposal" : null);
+    (record.sourceProposalId ? "subagent" : null);
   return {
     workspace_id: record.workspaceId,
     session_id: record.sessionId,
@@ -1281,6 +1444,7 @@ function cronjobPayload(record: CronjobRecord): Record<string, unknown> {
     id: record.id,
     workspace_id: record.workspaceId,
     initiated_by: record.initiatedBy,
+    teammate_id: record.teammateId,
     name: record.name,
     cron: record.cron,
     description: record.description,
@@ -1318,20 +1482,97 @@ function runtimeNotificationPayload(record: RuntimeNotificationRecord): Record<s
   };
 }
 
-function taskProposalPayload(record: TaskProposalRecord): Record<string, unknown> {
+function teammateSkillPayload(
+  record: ResolvedTeammateSkillRecord,
+): Record<string, unknown> {
   return {
-    proposal_id: record.proposalId,
-    workspace_id: record.workspaceId,
-    task_name: record.taskName,
-    task_prompt: record.taskPrompt,
-    task_generation_rationale: record.taskGenerationRationale,
-    proposal_source: record.proposalSource,
-    source_event_ids: record.sourceEventIds,
+    skill_id: record.skillId,
+    name: record.name,
+    content: record.content,
+    skill_markdown: record.skillMarkdown,
+    granted_tools: [...record.grantedTools],
+    granted_commands: [...record.grantedCommands],
+    sidecar_files: record.sidecarFiles.map((file) => ({
+      path: file.relativePath,
+      content: file.content,
+      size_bytes: file.sizeBytes,
+    })),
+    sidecar_directories: [...record.sidecarDirectories],
     created_at: record.createdAt,
-    state: record.state,
-    accepted_session_id: record.acceptedSessionId,
-    accepted_input_id: record.acceptedInputId,
-    accepted_at: record.acceptedAt
+    updated_at: record.updatedAt,
+    storage_origin: record.storageOrigin,
+    source_dir: record.sourceDir,
+    file_path: record.filePath,
+    has_sidecar_assets: record.hasSidecarAssets,
+  };
+}
+
+function teammateCapabilityProfilePayload(
+  record: TeammateCapabilityProfileRecord,
+): Record<string, unknown> {
+  return {
+    summary: record.summary,
+    capabilities: [...record.capabilities],
+    preferred_tools: [...record.preferredTools],
+  };
+}
+
+function teammatePayload(
+  record: TeammateRecord,
+  workspaceDir: string,
+): Record<string, unknown> {
+  const resolvedSkills = resolvedTeammateSkillsForRecord({
+    workspaceDir,
+    teammate: record,
+  });
+  return {
+    teammate_id: record.teammateId,
+    workspace_id: record.workspaceId,
+    name: record.name,
+    kind: record.kind,
+    status: record.status,
+    instructions: record.instructions,
+    skills: resolvedSkills.map((skill) => teammateSkillPayload(skill)),
+    capability_profile: teammateCapabilityProfilePayload(
+      record.capabilityProfile,
+    ),
+    created_at: record.createdAt,
+    updated_at: record.updatedAt,
+    archived_at: record.archivedAt,
+  };
+}
+
+function issueAttachmentPayload(record: IssueAttachmentRecord): Record<string, unknown> {
+  return {
+    id: record.id,
+    kind: record.kind,
+    name: record.name,
+    mime_type: record.mimeType,
+    size_bytes: record.sizeBytes,
+    workspace_path: record.workspacePath,
+    created_at: record.createdAt,
+  };
+}
+
+function issuePayload(record: IssueRecord): Record<string, unknown> {
+  return {
+    issue_id: record.issueId,
+    workspace_id: record.workspaceId,
+    issue_number: record.issueNumber,
+    session_id: record.sessionId,
+    title: record.title,
+    description: record.description,
+    status: record.status,
+    priority: record.priority,
+    assignee_teammate_id: record.assigneeTeammateId,
+    blocker_reason: record.blockerReason,
+    attachments: record.attachments.map((attachment) => issueAttachmentPayload(attachment)),
+    active_subagent_id: record.activeSubagentId,
+    latest_subagent_id: record.latestSubagentId,
+    created_by: record.createdBy,
+    created_at: record.createdAt,
+    updated_at: record.updatedAt,
+    completed_at: record.completedAt,
   };
 }
 
@@ -1360,9 +1601,13 @@ function inferredSessionKind(workspace: WorkspaceRecord, sessionId: string): str
 
 function normalizedPrimaryChatSessionKind(kind: string | null | undefined): string {
   const normalized = (kind ?? "").trim().toLowerCase() || "main_session";
-  return normalized === "workspace_session" || normalized === "main"
-    ? "main_session"
-    : normalized;
+  if (normalized === "workspace_session" || normalized === "main") {
+    return "main_session";
+  }
+  if (normalized === "task_proposal") {
+    return "subagent";
+  }
+  return normalized;
 }
 
 function isPrimaryChatSessionKind(kind: string | null | undefined): boolean {
@@ -1832,6 +2077,7 @@ function replaceDesignCronjobs(params: {
       workspaceId: params.targetWorkspaceId,
       jobId: job.id,
       initiatedBy: job.initiatedBy,
+      teammateId: job.teammateId,
       name: job.name,
       cron: job.cron,
       description: job.description,
@@ -5726,6 +5972,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           body: request.body
         }),
         initiatedBy: optionalString(request.body.initiated_by),
+        teammateId: requiredString(request.body.teammate_id, "teammate_id"),
         name: optionalString(request.body.name),
         cron: requiredString(request.body.cron, "cron"),
         description: requiredString(request.body.description, "description"),
@@ -5777,6 +6024,9 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           query: isRecord(request.query) ? request.query : null,
           body: request.body
         }),
+        teammateId: hasOwn(request.body, "teammate_id")
+          ? nullableString(request.body.teammate_id)
+          : undefined,
         name: hasOwn(request.body, "name") ? nullableString(request.body.name) : undefined,
         cron: hasOwn(request.body, "cron") ? nullableString(request.body.cron) : undefined,
         description: hasOwn(request.body, "description") ? nullableString(request.body.description) : undefined,
@@ -5849,7 +6099,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
   });
 
-  app.get("/api/v1/capabilities/runtime-tools/background-tasks", async (request, reply) => {
+  app.get("/api/v1/capabilities/runtime-tools/tasks", async (request, reply) => {
     const query = isRecord(request.query) ? request.query : {};
     try {
       const workspaceId = requiredCapabilityWorkspaceId({
@@ -5860,27 +6110,31 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         headers: request.headers as Record<string, unknown>,
         body: query,
       });
-      return runtimeAgentToolsService.listBackgroundTasks({
+      const statuses = Array.isArray(query.statuses)
+        ? optionalStringList(query.statuses)
+        : typeof query.statuses === "string" && query.statuses.trim()
+          ? [query.statuses.trim()]
+          : [];
+      return runtimeAgentToolsService.listTasks({
         workspaceId,
         sessionId: sessionId ?? undefined,
         inputId: capabilityInputId({
           headers: request.headers as Record<string, unknown>,
           body: query,
         }) || undefined,
-        ownerMainSessionId: nullableString(query.owner_main_session_id) ?? undefined,
-        statuses: optionalStringList(query.statuses),
+        statuses,
         limit: hasOwn(query, "limit") ? optionalInteger(query.limit, 200) : undefined,
       });
     } catch (error) {
       if (error instanceof RuntimeAgentToolsServiceError) {
         return sendError(reply, error.statusCode, error.message);
       }
-      return sendError(reply, 400, error instanceof Error ? error.message : "runtime list background tasks failed");
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime list tasks failed");
     }
   });
 
-  app.get("/api/v1/capabilities/runtime-tools/subagents/:subagentId", async (request, reply) => {
-    const params = request.params as { subagentId: string };
+  app.get("/api/v1/capabilities/runtime-tools/tasks/:taskId", async (request, reply) => {
+    const params = request.params as { taskId: string };
     const query = isRecord(request.query) ? request.query : {};
     try {
       const workspaceId = requiredCapabilityWorkspaceId({
@@ -5891,129 +6145,81 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         headers: request.headers as Record<string, unknown>,
         body: query,
       });
-      return runtimeAgentToolsService.getBackgroundTask({
+      return runtimeAgentToolsService.getTask({
         workspaceId,
         sessionId: sessionId ?? undefined,
         inputId: capabilityInputId({
           headers: request.headers as Record<string, unknown>,
           body: query,
         }) || undefined,
-        subagentId: requiredString(params.subagentId, "subagentId"),
-        ownerMainSessionId: nullableString(query.owner_main_session_id) ?? undefined,
+        taskId: requiredString(params.taskId, "taskId"),
       });
     } catch (error) {
       if (error instanceof RuntimeAgentToolsServiceError) {
         return sendError(reply, error.statusCode, error.message);
       }
-      return sendError(reply, 400, error instanceof Error ? error.message : "runtime get subagent failed");
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime get task failed");
     }
   });
 
-  app.post("/api/v1/capabilities/runtime-tools/subagents/:subagentId/cancel", async (request, reply) => {
-    const params = request.params as { subagentId: string };
-    try {
-      const workspaceId = requiredCapabilityWorkspaceId({
-        headers: request.headers as Record<string, unknown>,
-        body: isRecord(request.body) ? request.body : null,
-      });
-      const sessionId = capabilitySessionId({
-        headers: request.headers as Record<string, unknown>,
-        body: isRecord(request.body) ? request.body : null,
-      });
-      if (!sessionId) {
-        return sendError(reply, 400, "session_id is required");
-      }
-      return await runtimeAgentToolsService.cancelSubagent({
-        workspaceId,
-        sessionId,
-        subagentId: requiredString(params.subagentId, "subagentId"),
-      });
-    } catch (error) {
-      if (error instanceof RuntimeAgentToolsServiceError) {
-        return sendError(reply, error.statusCode, error.message);
-      }
-      return sendError(reply, 400, error instanceof Error ? error.message : "runtime cancel subagent failed");
-    }
-  });
-
-  app.post("/api/v1/capabilities/runtime-tools/subagents/:subagentId/resume", async (request, reply) => {
-    if (!isRecord(request.body)) {
+  app.post("/api/v1/capabilities/runtime-tools/tasks/:taskId/cancel", async (request, reply) => {
+    if (request.body != null && !isRecord(request.body)) {
       return sendError(reply, 400, "request body must be an object");
     }
-    const params = request.params as { subagentId: string };
+    const params = request.params as { taskId: string };
+    const body = isRecord(request.body) ? request.body : {};
     try {
       const workspaceId = requiredCapabilityWorkspaceId({
         headers: request.headers as Record<string, unknown>,
-        body: request.body,
+        body,
       });
-      const sessionId = capabilitySessionId({
-        headers: request.headers as Record<string, unknown>,
-        body: request.body,
-      });
-      if (!sessionId) {
-        return sendError(reply, 400, "session_id is required");
-      }
-      return runtimeAgentToolsService.resumeSubagent({
+      return await runtimeAgentToolsService.cancelTask({
         workspaceId,
-        sessionId,
-        inputId: capabilityInputId({
-          headers: request.headers as Record<string, unknown>,
-          body: request.body,
-        }),
-        subagentId: requiredString(params.subagentId, "subagentId"),
-        answer: requiredString(request.body.answer, "answer"),
-        selectedModel: capabilitySelectedModel({
-          headers: request.headers as Record<string, unknown>,
-          body: request.body,
-        }),
-        model: nullableString(request.body.model) ?? undefined,
+        taskId: requiredString(params.taskId, "taskId"),
       });
     } catch (error) {
       if (error instanceof RuntimeAgentToolsServiceError) {
         return sendError(reply, error.statusCode, error.message);
       }
-      return sendError(reply, 400, error instanceof Error ? error.message : "runtime resume subagent failed");
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime cancel task failed");
     }
   });
 
-  app.post("/api/v1/capabilities/runtime-tools/subagents/:subagentId/continue", async (request, reply) => {
-    if (!isRecord(request.body)) {
+  app.post("/api/v1/capabilities/runtime-tools/tasks/:taskId/rerun", async (request, reply) => {
+    if (request.body != null && !isRecord(request.body)) {
       return sendError(reply, 400, "request body must be an object");
     }
-    const params = request.params as { subagentId: string };
+    const params = request.params as { taskId: string };
+    const body = isRecord(request.body) ? request.body : {};
     try {
       const workspaceId = requiredCapabilityWorkspaceId({
         headers: request.headers as Record<string, unknown>,
-        body: request.body,
+        body,
       });
       const sessionId = capabilitySessionId({
         headers: request.headers as Record<string, unknown>,
-        body: request.body,
+        body,
       });
-      if (!sessionId) {
-        return sendError(reply, 400, "session_id is required");
-      }
-      return runtimeAgentToolsService.continueSubagent({
+      return runtimeAgentToolsService.rerunTask({
         workspaceId,
-        sessionId,
+        sessionId: sessionId ?? undefined,
         inputId: capabilityInputId({
           headers: request.headers as Record<string, unknown>,
-          body: request.body,
-        }),
-        subagentId: requiredString(params.subagentId, "subagentId"),
-        instruction: requiredString(request.body.instruction, "instruction"),
-        title: nullableString(request.body.title) ?? undefined,
+          body,
+        }) || undefined,
+        taskId: requiredString(params.taskId, "taskId"),
         selectedModel: capabilitySelectedModel({
           headers: request.headers as Record<string, unknown>,
-          body: request.body,
+          body,
         }),
-        model: nullableString(request.body.model) ?? undefined,
+        model: nullableString(body.model) ?? undefined,
+        priority: hasOwn(body, "priority") ? optionalInteger(body.priority, 0) : undefined,
       });
     } catch (error) {
       if (error instanceof RuntimeAgentToolsServiceError) {
         return sendError(reply, error.statusCode, error.message);
       }
-      return sendError(reply, 400, error instanceof Error ? error.message : "runtime continue subagent failed");
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime rerun task failed");
     }
   });
 
@@ -6260,6 +6466,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       });
       const result = runtimeAgentToolsService.invokeSkill({
         workspaceId,
+        sessionId,
         requestedName: requiredString(request.body.name, "name"),
         args: nullableString(request.body.args) ?? undefined,
       });
@@ -6277,6 +6484,87 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 400, error instanceof Error ? error.message : "runtime skill invocation failed");
     }
   });
+
+  app.post("/api/v1/capabilities/runtime-tools/teammates", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      const sessionId = capabilitySessionId({
+        headers: request.headers as Record<string, unknown>,
+        body: request.body,
+      });
+      const result = runtimeAgentToolsService.createTeammate({
+        workspaceId,
+        teammateId: nullableString(request.body.teammate_id) ?? null,
+        name: requiredString(request.body.name, "name"),
+        instructions: nullableString(request.body.instructions) ?? null,
+        capabilityProfile: requiredTeammateCapabilityProfileInput(
+          request.body.capability_profile,
+          "capability_profile",
+        ),
+      });
+      return await maybeShapeCapabilityToolResult({
+        headers: request.headers as Record<string, unknown>,
+        toolId: "teammates_create",
+        payload: result,
+        workspaceId,
+        sessionId,
+      });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime teammate creation failed");
+    }
+  });
+
+  app.post(
+    "/api/v1/capabilities/runtime-tools/teammates/:teammateId/skills",
+    async (request, reply) => {
+      if (!isRecord(request.body)) {
+        return sendError(reply, 400, "request body must be an object");
+      }
+      try {
+        const workspaceId = requiredCapabilityWorkspaceId({
+          headers: request.headers as Record<string, unknown>,
+          body: request.body,
+        });
+        const sessionId = capabilitySessionId({
+          headers: request.headers as Record<string, unknown>,
+          body: request.body,
+        });
+        const params = request.params as { teammateId: string };
+        const result = runtimeAgentToolsService.createTeammateSkill({
+          workspaceId,
+          teammateId: requiredString(params.teammateId, "teammateId"),
+          skill: requiredTeammateSkillInput(request.body, "skill"),
+        });
+        return await maybeShapeCapabilityToolResult({
+          headers: request.headers as Record<string, unknown>,
+          toolId: "teammate_skills_create",
+          payload: result,
+          workspaceId,
+          sessionId,
+        });
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error
+            ? error.message
+            : "runtime teammate skill creation failed",
+        );
+      }
+    },
+  );
 
   app.get("/api/v1/capabilities/runtime-tools/todo", async (request, reply) => {
     try {
@@ -9445,7 +9733,9 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const session = store.ensureSession({
       workspaceId,
       sessionId,
-      kind: optionalString(request.body.kind) ?? inferredSessionKind(workspace, sessionId),
+      kind:
+        canonicalAgentSessionKind(optionalString(request.body.kind)) ??
+        inferredSessionKind(workspace, sessionId),
       title: nullableString(request.body.title) ?? null,
       parentSessionId: nullableString(request.body.parent_session_id) ?? null,
       createdBy: nullableString(request.body.created_by) ?? "workspace_user",
@@ -9544,6 +9834,48 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       sessionId: resolvedSessionId
     });
     const inferredKind = existingSession?.kind ?? inferredSessionKind(executionWorkspace, resolvedSessionId);
+    const linkedIssue = store.getIssueBySessionId({
+      workspaceId: executionWorkspaceId,
+      sessionId: resolvedSessionId,
+    });
+    if (linkedIssue) {
+      try {
+        const queuedIssueReply = runtimeAgentToolsService.queueIssueReply({
+          workspaceId: executionWorkspaceId,
+          issueId: linkedIssue.issueId,
+          text: trimmedText,
+          attachments,
+          imageUrls,
+          model: nullableString(request.body.model) ?? undefined,
+          selectedThinkingValue:
+            nullableString(request.body.thinking_value) ?? undefined,
+          priority: optionalInteger(request.body.priority, 0),
+        });
+        const runtimeState = store.getRuntimeState({
+          workspaceId: executionWorkspaceId,
+          sessionId: resolvedSessionId,
+        });
+        const queueAwareState = effectiveSessionState(store, runtimeState, true);
+        return {
+          input_id: queuedIssueReply.input.inputId,
+          session_id: queuedIssueReply.session.sessionId,
+          status: queuedIssueReply.input.status,
+          effective_state: queueAwareState.effective_state,
+          runtime_status: queueAwareState.runtime_status,
+          current_input_id: queueAwareState.current_input_id,
+          has_queued_inputs: true,
+        };
+      } catch (error) {
+        if (error instanceof RuntimeAgentToolsServiceError) {
+          return sendError(reply, error.statusCode, error.message);
+        }
+        return sendError(
+          reply,
+          400,
+          error instanceof Error ? error.message : "issue reply queue failed",
+        );
+      }
+    }
     const generatedSessionTitle = sessionTitleFromFirstUserInput(trimmedText, attachments, imageUrls);
 
     store.ensureSession({
@@ -10020,6 +10352,55 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     return {
       workspace_id: workspaceId,
       session_id: params.sessionId,
+      items,
+      count: items.length,
+      total,
+      limit,
+      offset,
+    };
+  });
+
+  app.get("/api/v1/workspaces/:workspaceId/turn-results", async (request, reply) => {
+    const params = request.params as { workspaceId: string };
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(params.workspaceId);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
+
+    const workspace = store.getWorkspace(workspaceId);
+    if (!workspace) {
+      return sendError(reply, 404, "workspace not found");
+    }
+
+    const sessionId = optionalString(query.session_id);
+    const inputId = optionalString(query.input_id);
+    const status = optionalString(query.status);
+    const limit = Math.max(1, Math.min(2000, optionalInteger(query.limit, 500)));
+    const offset = Math.max(0, optionalInteger(query.offset, 0));
+    const order = optionalString(query.order) === "asc" ? "asc" : "desc";
+
+    const total = store.countWorkspaceTurnResults({
+      workspaceId,
+      sessionId: sessionId ?? undefined,
+      inputId: inputId ?? undefined,
+      status: status ?? undefined,
+    });
+    const items = store
+      .listWorkspaceTurnResults({
+        workspaceId,
+        sessionId: sessionId ?? undefined,
+        inputId: inputId ?? undefined,
+        status: status ?? undefined,
+        order,
+        limit,
+        offset,
+      })
+      .map((item: TurnResultRecord) => turnResultPayload(item));
+
+    return {
+      workspace_id: workspaceId,
+      session_id: sessionId ?? null,
       items,
       count: items.length,
       total,
@@ -10522,6 +10903,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const job = store.createCronjob({
       workspaceId,
       initiatedBy: requiredString(request.body.initiated_by, "initiated_by"),
+      teammateId: requiredString(request.body.teammate_id, "teammate_id"),
       name: optionalString(request.body.name) ?? "",
       cron: requiredString(request.body.cron, "cron"),
       description: requiredString(request.body.description, "description"),
@@ -10667,6 +11049,9 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const job = store.updateCronjob({
       workspaceId,
       jobId: params.jobId,
+      teammateId: hasOwn(request.body, "teammate_id")
+        ? nullableString(request.body.teammate_id)
+        : undefined,
       name: nullableString(request.body.name),
       cron,
       description,
@@ -10794,6 +11179,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         job = store.createCronjob({
           workspaceId,
           initiatedBy,
+          teammateId: optionalString(rawEntry.teammate_id) ?? "general",
           name: entryName,
           cron: entryCron,
           description: entryDescription,
@@ -10825,67 +11211,54 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     };
   });
 
-  app.get("/api/v1/task-proposals", async (request, reply) => {
+  app.get("/api/v1/teammates", async (request, reply) => {
     const query = isRecord(request.query) ? request.query : {};
     const workspaceId = optionalString(query.workspace_id);
     if (!workspaceId) {
       return sendError(reply, 400, "workspace_id is required");
     }
-    const proposals = store.listTaskProposals({ workspaceId }).map((item: TaskProposalRecord) => taskProposalPayload(item));
-    return { proposals, count: proposals.length };
+    if (!store.getWorkspace(workspaceId)) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    const workspaceDir = requireHealthyWorkspaceFolder(store, workspaceId, reply);
+    if (!workspaceDir) {
+      return;
+    }
+    const teammates = store
+      .listTeammates({
+        workspaceId,
+        includeArchived: optionalBoolean(query.include_archived),
+      })
+      .map((record) => teammatePayload(record, workspaceDir));
+    return { teammates, count: teammates.length };
   });
 
-  app.get("/api/v1/task-proposals/unreviewed", async (request, reply) => {
+  app.get("/api/v1/teammates/:teammateId", async (request, reply) => {
     const query = isRecord(request.query) ? request.query : {};
     const workspaceId = optionalString(query.workspace_id);
     if (!workspaceId) {
       return sendError(reply, 400, "workspace_id is required");
     }
-    const proposals = store
-      .listUnreviewedTaskProposals({ workspaceId })
-      .map((item: TaskProposalRecord) => taskProposalPayload(item));
-    return { proposals, count: proposals.length };
-  });
-
-  app.get("/api/v1/task-proposals/unreviewed/stream", async (request, reply) => {
-    const query = isRecord(request.query) ? request.query : {};
-    const workspaceId = optionalString(query.workspace_id);
-    if (!workspaceId) {
-      return sendError(reply, 400, "workspace_id is required");
+    if (!store.getWorkspace(workspaceId)) {
+      return sendError(reply, 404, "workspace not found");
     }
-    reply.header("Cache-Control", "no-cache");
-    reply.header("Connection", "keep-alive");
-    reply.header("X-Accel-Buffering", "no");
-    reply.type("text/event-stream");
-
-    const stream = Readable.from(
-      (async function* () {
-        const seenProposalIds = new Set(
-          store.listUnreviewedTaskProposals({ workspaceId }).map((item: TaskProposalRecord) => item.proposalId)
-        );
-        yield sseComment("connected");
-        while (true) {
-          const proposals = store.listUnreviewedTaskProposals({ workspaceId });
-          for (const proposal of proposals) {
-            if (seenProposalIds.has(proposal.proposalId)) {
-              continue;
-            }
-            seenProposalIds.add(proposal.proposalId);
-            yield [
-              "event: insert",
-              `id: ${proposal.proposalId}`,
-              `data: ${JSON.stringify(taskProposalPayload(proposal))}`
-            ].join("\n") + "\n\n";
-          }
-          yield sseComment("ping");
-          await sleep(1000);
-        }
-      })()
-    );
-    return reply.send(stream);
+    const workspaceDir = requireHealthyWorkspaceFolder(store, workspaceId, reply);
+    if (!workspaceDir) {
+      return;
+    }
+    const params = request.params as { teammateId: string };
+    const teammate = store.getTeammate({
+      workspaceId,
+      teammateId: requiredString(params.teammateId, "teammateId"),
+      includeArchived: optionalBoolean(query.include_archived),
+    });
+    if (!teammate) {
+      return sendError(reply, 404, "teammate not found");
+    }
+    return { teammate: teammatePayload(teammate, workspaceDir) };
   });
 
-  app.post("/api/v1/task-proposals", async (request, reply) => {
+  app.post("/api/v1/teammates", async (request, reply) => {
     if (!isRecord(request.body)) {
       return sendError(reply, 400, "request body must be an object");
     }
@@ -10893,272 +11266,392 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!store.getWorkspace(workspaceId)) {
       return sendError(reply, 404, "workspace not found");
     }
-    const proposal = store.createTaskProposal({
-      proposalId: requiredString(request.body.proposal_id, "proposal_id"),
-      workspaceId,
-      taskName: requiredString(request.body.task_name, "task_name"),
-      taskPrompt: requiredString(request.body.task_prompt, "task_prompt"),
-      taskGenerationRationale: requiredString(request.body.task_generation_rationale, "task_generation_rationale"),
-      proposalSource: optionalString(request.body.proposal_source) ?? "proactive",
-      sourceEventIds: optionalStringList(request.body.source_event_ids),
-      createdAt: requiredString(request.body.created_at, "created_at"),
-      state: optionalString(request.body.state) ?? "not_reviewed"
-    });
-    return { proposal: taskProposalPayload(proposal) };
+    const workspaceDir = requireHealthyWorkspaceFolder(store, workspaceId, reply);
+    if (!workspaceDir) {
+      return;
+    }
+    try {
+      const teammateId =
+        nullableString(request.body.teammate_id) ?? createTeammateIdForFilesystem();
+      const teammate = store.createTeammate({
+        teammateId,
+        workspaceId,
+        name: requiredString(request.body.name, "name"),
+        instructions: nullableString(request.body.instructions) ?? null,
+        capabilityProfile: requiredTeammateCapabilityProfileInput(
+          request.body.capability_profile,
+          "capability_profile",
+        ),
+      });
+      return { teammate: teammatePayload(teammate, workspaceDir) };
+    } catch (error) {
+      return sendError(reply, 400, error instanceof Error ? error.message : "teammate create failed");
+    }
   });
 
-  app.post("/api/v1/task-proposals/:proposalId/accept", async (request, reply) => {
+  app.patch("/api/v1/teammates/:teammateId", async (request, reply) => {
     if (!isRecord(request.body)) {
       return sendError(reply, 400, "request body must be an object");
     }
-
-    const params = request.params as { proposalId: string };
     const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
-    const proposal = store.getTaskProposal({ workspaceId, proposalId: params.proposalId });
-    if (!proposal) {
-      return sendError(reply, 404, "Task proposal not found");
-    }
-
-    const workspace = store.getWorkspace(proposal.workspaceId);
-    if (!workspace) {
+    if (!store.getWorkspace(workspaceId)) {
       return sendError(reply, 404, "workspace not found");
     }
-
-    if (proposal.state === "dismissed") {
-      return sendError(reply, 409, "Task proposal has already been dismissed");
+    const workspaceDir = requireHealthyWorkspaceFolder(store, workspaceId, reply);
+    if (!workspaceDir) {
+      return;
     }
-    if (proposal.state === "accepted" && proposal.acceptedSessionId && proposal.acceptedInputId) {
-      return sendError(reply, 409, "Task proposal has already been accepted");
-    }
-
-    const blockingApps = blockingWorkspaceApps({ store, workspaceId: proposal.workspaceId });
-    if (blockingApps.length > 0) {
-      return sendError(reply, 409, blockingWorkspaceAppsMessage(blockingApps));
-    }
-
-    const taskName = requiredString(request.body.task_name ?? proposal.taskName, "task_name");
-    const taskPrompt = requiredString(request.body.task_prompt ?? proposal.taskPrompt, "task_prompt");
-    const sessionId = optionalString(request.body.session_id) ?? `subagent-${randomUUID()}`;
-    const parentSessionId =
-      nullableString(request.body.parent_session_id) ??
-      preferredWorkspaceSessionId({ store, workspace }) ??
-      null;
-    const priority = optionalInteger(request.body.priority, 0);
-    const requestedModel = nullableString(request.body.model) ?? null;
-    const effectiveModel = resolveSubagentExecutionModel({
-      selectedModel: requestedModel,
+    const params = request.params as { teammateId: string };
+    const existing = store.getTeammate({
+      workspaceId,
+      teammateId: requiredString(params.teammateId, "teammateId"),
+      includeArchived: true,
     });
-    const createdBy = nullableString(request.body.created_by) ?? "workspace_user";
-    const subagentId = randomUUID();
-
-    if (store.getSession({ workspaceId: proposal.workspaceId, sessionId })) {
-      return sendError(reply, 409, "session_id is already in use");
+    if (!existing) {
+      return sendError(reply, 404, "teammate not found");
     }
-    if (
-      parentSessionId &&
-      !store.getSession({
-        workspaceId: proposal.workspaceId,
-        sessionId: parentSessionId,
-      })
-    ) {
-      return sendError(reply, 404, "parent session not found");
+    if (existing.kind === "system") {
+      return sendError(reply, 403, "system teammates are fixed in v1");
     }
 
-    const evolveCandidate =
-      proposal.proposalSource === "evolve"
-        ? store.getEvolveSkillCandidateByTaskProposalId({
-            workspaceId: proposal.workspaceId,
-            proposalId: proposal.proposalId,
-          })
-        : null;
-    let evolveCandidateMarkdown: string | null = null;
-    if (evolveCandidate) {
-      try {
-        const draft = await memoryService.get({
-          workspace_id: proposal.workspaceId,
-          path: evolveCandidate.skillPath,
-        });
-        evolveCandidateMarkdown = typeof draft.text === "string" ? draft.text : null;
-      } catch {
-        evolveCandidateMarkdown = null;
+    try {
+      const requestedStatus = nullableString(request.body.status);
+      const teammate =
+        requestedStatus === "archived"
+          ? store.archiveTeammate({ workspaceId, teammateId: existing.teammateId })
+          : store.updateTeammate({
+              workspaceId,
+              teammateId: existing.teammateId,
+              fields: {
+                name: hasOwn(request.body, "name") ? requiredString(request.body.name, "name") : undefined,
+                status: requestedStatus === "active" ? "active" : undefined,
+                instructions: hasOwn(request.body, "instructions")
+                  ? (nullableString(request.body.instructions) ?? null)
+                  : undefined,
+                capabilityProfile: hasOwn(request.body, "capability_profile")
+                  ? requiredTeammateCapabilityProfileInput(
+                      request.body.capability_profile,
+                      "capability_profile",
+                    )
+                  : undefined,
+                archivedAt: requestedStatus === "active" ? null : undefined,
+              },
+            });
+      if (!teammate) {
+        return sendError(reply, 404, "teammate not found");
       }
+      return { teammate: teammatePayload(teammate, workspaceDir) };
+    } catch (error) {
+      return sendError(reply, 400, error instanceof Error ? error.message : "teammate update failed");
     }
-
-    const session = store.ensureSession({
-      workspaceId: proposal.workspaceId,
-      sessionId,
-      kind: "subagent",
-      title: taskName,
-      parentSessionId,
-      sourceProposalId: proposal.proposalId,
-      createdBy
-    });
-    if (!store.getBinding({ workspaceId: proposal.workspaceId, sessionId })) {
-      store.upsertBinding({
-        workspaceId: proposal.workspaceId,
-        sessionId,
-        harness: resolvedWorkspaceHarness(workspace),
-        harnessSessionId: sessionId
-      });
-    }
-    store.ensureRuntimeState({
-      workspaceId: proposal.workspaceId,
-      sessionId,
-      status: "QUEUED"
-    });
-
-    const record = store.enqueueInput({
-      workspaceId: proposal.workspaceId,
-      sessionId,
-      priority,
-      payload: {
-        text: taskPrompt,
-        attachments: [],
-        image_urls: [],
-        model: effectiveModel,
-        context: {
-          source: "task_proposal",
-          source_type: "task_proposal",
-          proposal_id: proposal.proposalId,
-          proposal_source: proposal.proposalSource,
-          subagent_id: subagentId,
-          parent_session_id: parentSessionId,
-          origin_main_session_id: parentSessionId,
-          owner_main_session_id: parentSessionId,
-          task_title: taskName,
-          goal: taskPrompt,
-          evolve_candidate: evolveCandidate
-            ? {
-                candidate_id: evolveCandidate.candidateId,
-                kind: evolveCandidate.kind,
-                title: evolveCandidate.title,
-                summary: evolveCandidate.summary,
-                slug: evolveCandidate.slug,
-                skill_path: evolveCandidate.skillPath,
-                target_skill_path: promotedWorkspaceSkillPath(evolveCandidate.slug),
-                skill_markdown: typeof evolveCandidateMarkdown === "string" ? evolveCandidateMarkdown : null,
-                task_proposal_id: evolveCandidate.taskProposalId,
-              }
-            : null,
-        }
-      }
-    });
-    store.createSubagentRun({
-      subagentId,
-      workspaceId: proposal.workspaceId,
-      parentSessionId,
-      parentInputId: null,
-      originMainSessionId: parentSessionId ?? sessionId,
-      ownerMainSessionId: parentSessionId ?? sessionId,
-      childSessionId: sessionId,
-      initialChildInputId: record.inputId,
-      currentChildInputId: record.inputId,
-      latestChildInputId: record.inputId,
-      title: taskName,
-      goal: taskPrompt,
-      context: null,
-      sourceType: "task_proposal",
-      sourceId: proposal.proposalId,
-      proposalId: proposal.proposalId,
-      toolProfile: {
-        requested_tools: ["terminal", "file", "browser", "web"],
-      },
-      requestedModel,
-      effectiveModel,
-      status: "queued",
-      lastEventAt: utcNowIso(),
-    });
-    store.updateRuntimeState({
-      workspaceId: proposal.workspaceId,
-      sessionId,
-      status: "QUEUED",
-      currentInputId: record.inputId,
-      currentWorkerId: null,
-      leaseUntil: null,
-      heartbeatAt: null,
-      lastError: null
-    });
-
-    const updatedProposal = store.updateTaskProposal({
-      workspaceId: proposal.workspaceId,
-      proposalId: proposal.proposalId,
-      fields: {
-        taskName,
-        taskPrompt,
-        state: "accepted",
-        acceptedSessionId: sessionId,
-        acceptedInputId: record.inputId,
-        acceptedAt: utcNowIso()
-      }
-    });
-    if (evolveCandidate) {
-      store.updateEvolveSkillCandidate({
-        workspaceId: evolveCandidate.workspaceId,
-        candidateId: evolveCandidate.candidateId,
-        fields: {
-          status: "accepted",
-          acceptedAt: updatedProposal?.acceptedAt ?? utcNowIso(),
-        }
-      });
-    }
-    queueWorker?.wake();
-
-    return reply.send({
-      proposal: taskProposalPayload(updatedProposal ?? proposal),
-      session: agentSessionPayload(session, store),
-      input: {
-        input_id: record.inputId,
-        session_id: record.sessionId,
-        status: record.status
-      }
-    });
   });
 
-  app.get("/api/v1/task-proposals/:proposalId", async (request, reply) => {
+  app.post("/api/v1/teammates/:teammateId/skills", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
+    if (!store.getWorkspace(workspaceId)) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    const workspaceDir = requireHealthyWorkspaceFolder(store, workspaceId, reply);
+    if (!workspaceDir) {
+      return;
+    }
+    const params = request.params as { teammateId: string };
+    const teammate = store.getTeammate({
+      workspaceId,
+      teammateId: requiredString(params.teammateId, "teammateId"),
+      includeArchived: true,
+    });
+    if (!teammate) {
+      return sendError(reply, 404, "teammate not found");
+    }
+    try {
+      const skill = upsertTeammateSkill({
+        workspaceDir,
+        teammateId: teammate.teammateId,
+        skill: requiredTeammateSkillInput(request.body.skill, "skill"),
+      });
+      return { skill: teammateSkillPayload(skill) };
+    } catch (error) {
+      return sendError(
+        reply,
+        400,
+        error instanceof Error ? error.message : "teammate skill write failed",
+      );
+    }
+  });
+
+  app.delete("/api/v1/teammates/:teammateId/skills/:skillId", async (request, reply) => {
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = requiredString(query.workspace_id, "workspace_id");
+    if (!store.getWorkspace(workspaceId)) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    const workspaceDir = requireHealthyWorkspaceFolder(store, workspaceId, reply);
+    if (!workspaceDir) {
+      return;
+    }
+    const params = request.params as { teammateId: string; skillId: string };
+    const teammate = store.getTeammate({
+      workspaceId,
+      teammateId: requiredString(params.teammateId, "teammateId"),
+      includeArchived: true,
+    });
+    if (!teammate) {
+      return sendError(reply, 404, "teammate not found");
+    }
+    try {
+      const deleted = deleteTeammateSkill({
+        workspaceDir,
+        teammateId: teammate.teammateId,
+        skillId: requiredString(params.skillId, "skillId"),
+      });
+      if (!deleted) {
+        return sendError(reply, 404, "teammate skill not found");
+      }
+      return {
+        teammate_id: teammate.teammateId,
+        skill_id: requiredString(params.skillId, "skillId"),
+        deleted: true,
+      };
+    } catch (error) {
+      return sendError(
+        reply,
+        400,
+        error instanceof Error ? error.message : "teammate skill delete failed",
+      );
+    }
+  });
+
+  app.get("/api/v1/issues", async (request, reply) => {
     const query = isRecord(request.query) ? request.query : {};
     const workspaceId = optionalString(query.workspace_id);
     if (!workspaceId) {
       return sendError(reply, 400, "workspace_id is required");
     }
-    const params = request.params as { proposalId: string };
-    const proposal = store.getTaskProposal({ workspaceId, proposalId: params.proposalId });
-    if (!proposal) {
-      return sendError(reply, 404, "Task proposal not found");
+    if (!store.getWorkspace(workspaceId)) {
+      return sendError(reply, 404, "workspace not found");
     }
-    return { proposal: taskProposalPayload(proposal) };
+    if (!requireHealthyWorkspaceFolder(store, workspaceId, reply)) {
+      return;
+    }
+    const issues = store.listIssues({ workspaceId }).map((record) => issuePayload(record));
+    return { issues, count: issues.length };
   });
 
-  app.patch("/api/v1/task-proposals/:proposalId", async (request, reply) => {
+  app.get("/api/v1/issues/:issueId", async (request, reply) => {
+    const query = isRecord(request.query) ? request.query : {};
+    const workspaceId = optionalString(query.workspace_id);
+    if (!workspaceId) {
+      return sendError(reply, 400, "workspace_id is required");
+    }
+    if (!store.getWorkspace(workspaceId)) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    if (!requireHealthyWorkspaceFolder(store, workspaceId, reply)) {
+      return;
+    }
+    const params = request.params as { issueId: string };
+    const issue = store.getIssue({
+      workspaceId,
+      issueId: requiredString(params.issueId, "issueId"),
+    });
+    if (!issue) {
+      return sendError(reply, 404, "issue not found");
+    }
+    return { issue: issuePayload(issue) };
+  });
+
+  app.post("/api/v1/issues", async (request, reply) => {
     if (!isRecord(request.body)) {
       return sendError(reply, 400, "request body must be an object");
     }
-    const params = request.params as { proposalId: string };
     const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
-    const proposal = store.updateTaskProposalState({
-      workspaceId,
-      proposalId: params.proposalId,
-      state: requiredString(request.body.state, "state")
-    });
-    if (!proposal) {
-      return sendError(reply, 404, "Task proposal not found");
+    const workspace = store.getWorkspace(workspaceId);
+    if (!workspace) {
+      return sendError(reply, 404, "workspace not found");
     }
-    if (proposal.proposalSource === "evolve" && proposal.state === "dismissed") {
-      const candidate = store.getEvolveSkillCandidateByTaskProposalId({
-        workspaceId: proposal.workspaceId,
-        proposalId: proposal.proposalId,
+    const workspaceDir = requireHealthyWorkspaceFolder(store, workspaceId, reply);
+    if (!workspaceDir) {
+      return;
+    }
+    try {
+      let issue = store.createIssue({
+        issueId: nullableString(request.body.issue_id) ?? undefined,
+        workspaceId,
+        sessionId: nullableString(request.body.session_id) ?? undefined,
+        title: requiredString(request.body.title, "title"),
+        description: nullableString(request.body.description) ?? null,
+        status: requiredString(request.body.status, "status") as IssueRecord["status"],
+        priority: nullableString(request.body.priority) as IssueRecord["priority"],
+        assigneeTeammateId: nullableString(request.body.assignee_teammate_id) ?? null,
+        blockerReason: nullableString(request.body.blocker_reason) ?? null,
+        attachments: requiredIssueAttachments(request.body.attachments, workspaceDir),
+        createdBy: nullableString(request.body.created_by) ?? "workspace_user",
       });
-      if (candidate) {
-        store.updateEvolveSkillCandidate({
-          workspaceId: candidate.workspaceId,
-          candidateId: candidate.candidateId,
-          fields: {
-            status: "dismissed",
-            dismissedAt: utcNowIso(),
-          }
+      let session = store.getSession({ workspaceId, sessionId: issue.sessionId });
+      if (session && !store.getBinding({ workspaceId, sessionId: session.sessionId })) {
+        store.upsertBinding({
+          workspaceId,
+          sessionId: session.sessionId,
+          harness: resolvedWorkspaceHarness(workspace),
+          harnessSessionId: session.sessionId,
         });
       }
+      if (issue.status === "todo" && issue.assigneeTeammateId) {
+        const dispatched = runtimeAgentToolsService.dispatchIssue({
+          workspaceId,
+          issueId: issue.issueId,
+          createdBy: issue.createdBy,
+        });
+        issue = dispatched.issue;
+        session = dispatched.session;
+      }
+      return {
+        issue: issuePayload(issue),
+        session: session ? agentSessionPayload(session, store) : null,
+      };
+    } catch (error) {
+      return sendError(reply, 400, error instanceof Error ? error.message : "issue create failed");
     }
-    return { proposal: taskProposalPayload(proposal) };
+  });
+
+  app.patch("/api/v1/issues/:issueId", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    const body = request.body;
+    const workspaceId = requiredString(body.workspace_id, "workspace_id");
+    if (!store.getWorkspace(workspaceId)) {
+      return sendError(reply, 404, "workspace not found");
+    }
+    const workspaceDir = requireHealthyWorkspaceFolder(store, workspaceId, reply);
+    if (!workspaceDir) {
+      return;
+    }
+    const params = request.params as { issueId: string };
+    try {
+      const existingIssue = store.getIssue({
+        workspaceId,
+        issueId: requiredString(params.issueId, "issueId"),
+      });
+      if (!existingIssue) {
+        return sendError(reply, 404, "issue not found");
+      }
+      const mutatesExecutionState = [
+        "title",
+        "description",
+        "status",
+        "priority",
+        "assignee_teammate_id",
+        "blocker_reason",
+        "attachments",
+      ].some((key) => hasOwn(body, key));
+      if (existingIssue.activeSubagentId && mutatesExecutionState) {
+        return sendError(
+          reply,
+          409,
+          "issue is currently running; stop the run before editing it",
+        );
+      }
+      let issue = store.updateIssue({
+        workspaceId,
+        issueId: requiredString(params.issueId, "issueId"),
+        fields: {
+          title: hasOwn(body, "title") ? requiredString(body.title, "title") : undefined,
+          description: hasOwn(body, "description")
+            ? (nullableString(body.description) ?? null)
+            : undefined,
+          status: hasOwn(body, "status")
+            ? (requiredString(body.status, "status") as IssueRecord["status"])
+            : undefined,
+          priority: hasOwn(body, "priority")
+            ? (nullableString(body.priority) as IssueRecord["priority"])
+            : undefined,
+          assigneeTeammateId: hasOwn(body, "assignee_teammate_id")
+            ? (nullableString(body.assignee_teammate_id) ?? null)
+            : undefined,
+          blockerReason: hasOwn(body, "blocker_reason")
+            ? (nullableString(body.blocker_reason) ?? null)
+            : undefined,
+          attachments: hasOwn(body, "attachments")
+            ? requiredIssueAttachments(body.attachments ?? [], workspaceDir)
+            : undefined,
+          activeSubagentId: hasOwn(body, "active_subagent_id")
+            ? (nullableString(body.active_subagent_id) ?? null)
+            : undefined,
+          latestSubagentId: hasOwn(body, "latest_subagent_id")
+            ? (nullableString(body.latest_subagent_id) ?? null)
+            : undefined,
+          completedAt: hasOwn(body, "completed_at")
+            ? (nullableString(body.completed_at) ?? null)
+            : undefined,
+        },
+      });
+      if (!issue) {
+        return sendError(reply, 404, "issue not found");
+      }
+      const shouldDispatchIssue =
+        issue.status === "todo" &&
+        Boolean(issue.assigneeTeammateId) &&
+        !issue.activeSubagentId &&
+        (
+          existingIssue.status !== "todo" ||
+          existingIssue.assigneeTeammateId !== issue.assigneeTeammateId
+        );
+      if (shouldDispatchIssue) {
+        const dispatched = runtimeAgentToolsService.dispatchIssue({
+          workspaceId,
+          issueId: issue.issueId,
+          createdBy: issue.createdBy,
+        });
+        issue = dispatched.issue;
+      }
+      return { issue: issuePayload(issue) };
+    } catch (error) {
+      return sendError(reply, 400, error instanceof Error ? error.message : "issue update failed");
+    }
+  });
+
+  app.post("/api/v1/issues/:issueId/stop", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    const workspaceId = requiredString(request.body.workspace_id, "workspace_id");
+    const params = request.params as { issueId: string };
+    try {
+      const issue = store.getIssue({
+        workspaceId,
+        issueId: requiredString(params.issueId, "issueId"),
+      });
+      if (!issue) {
+        return sendError(reply, 404, "issue not found");
+      }
+      if (!nullableString(issue.activeSubagentId)) {
+        return sendError(reply, 409, "issue is not currently running");
+      }
+      await runtimeAgentToolsService.cancelIssueRun({
+        workspaceId,
+        issueId: issue.issueId,
+      });
+      const updatedIssue = store.getIssue({
+        workspaceId,
+        issueId: issue.issueId,
+      });
+      if (!updatedIssue) {
+        return sendError(reply, 404, "issue not found");
+      }
+      return {
+        issue: issuePayload(updatedIssue),
+      };
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "issue stop failed");
+    }
   });
 
   app.get("/api/v1/agent-sessions/:sessionId/outputs/events", async (request, reply) => {
@@ -11402,4 +11895,11 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   });
 
   return app;
+}
+function canonicalAgentSessionKind(kind: string | null | undefined): string | null {
+  const normalized = (kind ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  return normalizedPrimaryChatSessionKind(normalized);
 }
