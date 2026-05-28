@@ -182,7 +182,7 @@ export function CodexOAuthModal({
                     )}
                     aria-label="Copy device code"
                   >
-                    <span className="font-mono text-lg font-semibold tracking-[0.18em] text-foreground">
+                    <span className="font-mono text-lg font-semibold text-foreground">
                       {userCode}
                     </span>
                     <span className="flex items-center gap-1 text-xs text-muted-foreground transition-colors group-hover:text-foreground">

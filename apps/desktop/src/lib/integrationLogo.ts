@@ -18,13 +18,20 @@
 
 const CDN_BASE = "https://logos.composio.dev/api";
 
-// Slugs where the CDN asset is known to be broken or low-quality. Render
-// the Plug fallback instead of the broken image.
-const KNOWN_BROKEN_LOGO_SLUGS = new Set<string>([
-  // intentionally empty — fill in as production reports come in. Existing
-  // overrides (e.g. GitHub white-on-white at bd82591c) are handled
-  // separately in the receiving components today; we'll migrate them here.
-]);
+// Composio's logo CDN returns wide wordmark SVGs (and sometimes a pure
+// white fill) for a handful of providers, so the square thumbnails render
+// as a sliver-in-a-banner or invisibly white-on-white. Simple Icons
+// publishes a square monochrome SVG per brand at a stable unpkg URL —
+// short-circuit just those slugs.
+const BRAND_LOGO_OVERRIDES: Record<string, string> = {
+  github: "https://unpkg.com/simple-icons@16.20.0/icons/github.svg",
+  linear: "https://unpkg.com/simple-icons@16.20.0/icons/linear.svg",
+};
+
+// Slugs where the CDN asset is known to be broken or low-quality and no
+// override is provided. Render the Plug fallback instead of the broken
+// image.
+const KNOWN_BROKEN_LOGO_SLUGS = new Set<string>([]);
 
 export interface IntegrationLogoSource {
   url: string | null;
@@ -33,9 +40,23 @@ export interface IntegrationLogoSource {
   isLocal: boolean;
 }
 
+function normalizeSlug(slug: string): string {
+  return slug.trim().toLowerCase();
+}
+
+export function brandLogoOverride(slug: string): string | null {
+  const key = normalizeSlug(slug);
+  if (!key) return null;
+  return BRAND_LOGO_OVERRIDES[key] ?? null;
+}
+
 export function getIntegrationLogo(slug: string): IntegrationLogoSource {
-  const key = slug.trim().toLowerCase();
+  const key = normalizeSlug(slug);
   if (!key) return { url: null, isLocal: false };
+  const override = BRAND_LOGO_OVERRIDES[key];
+  if (override) {
+    return { url: override, isLocal: false };
+  }
   if (KNOWN_BROKEN_LOGO_SLUGS.has(key)) {
     return { url: null, isLocal: false };
   }

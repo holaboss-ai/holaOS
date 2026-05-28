@@ -6,7 +6,10 @@ import path from "node:path";
 import { afterEach, test as nodeTest } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { RuntimeStateStore } from "@holaboss/runtime-state-store";
+import {
+  RuntimeStateStore,
+  type SessionRuntimeStateRecord,
+} from "@holaboss/runtime-state-store";
 
 import {
   processClaimedInput,
@@ -4965,9 +4968,30 @@ test("claimed input waits for an in-flight session checkpoint before starting th
     sessionId: "session-main",
     payload: { text: "hello" },
   });
+  store.updateInput({
+    workspaceId: workspace.id,
+    inputId: queued.inputId,
+    fields: {
+      status: "CLAIMED",
+      claimedBy: "worker-1",
+      claimedUntil: "2026-04-17T12:00:00.000Z",
+    },
+  });
+  const claimed = store.getInput({
+    workspaceId: workspace.id,
+    inputId: queued.inputId,
+  });
+  assert.ok(claimed);
 
   let checkpointReleased = false;
+  const runtimeStateWhileWaiting: {
+    value: SessionRuntimeStateRecord | null;
+  } = { value: null };
   setTimeout(() => {
+    runtimeStateWhileWaiting.value = store.getRuntimeState({
+      workspaceId: workspace.id,
+      sessionId: "session-main",
+    });
     checkpointReleased = true;
     store.updatePostRunJob({
       workspaceId: workspace.id,
@@ -4984,7 +5008,8 @@ test("claimed input waits for an in-flight session checkpoint before starting th
   let runnerStarted = false;
   await processClaimedInput({
     store,
-    record: queued,
+    record: claimed,
+    claimedBy: "worker-1",
     executeRunnerRequestFn: async (payload, options = {}) => {
       runnerStarted = true;
       assert.equal(checkpointReleased, true);
@@ -5013,6 +5038,10 @@ test("claimed input waits for an in-flight session checkpoint before starting th
   });
 
   assert.equal(runnerStarted, true);
+  assert.ok(runtimeStateWhileWaiting.value);
+  assert.equal(runtimeStateWhileWaiting.value.status, "QUEUED");
+  assert.equal(runtimeStateWhileWaiting.value.currentInputId, queued.inputId);
+  assert.equal(runtimeStateWhileWaiting.value.currentWorkerId, "worker-1");
   assert.equal(
     store.getPostRunJob({ workspaceId: workspace.id, jobId: checkpointJob.jobId })?.status,
     "DONE",
@@ -5877,7 +5906,7 @@ test("claimed input continues when pre-run compaction cannot get below the maint
     workspaceDir,
     sessionDir: path.join(workspaceDir, ".holaboss", "pi-sessions"),
   });
-  sessionManager.appendMessage(piUserMessage("x".repeat(260_000)));
+  sessionManager.appendMessage(piUserMessage("x".repeat(600_000)));
   sessionManager.appendMessage(piAssistantMessage("previous response"));
   store.upsertBinding({
     workspaceId: workspace.id,
@@ -5918,9 +5947,9 @@ test("claimed input continues when pre-run compaction cannot get below the maint
     promptCacheProfile: null,
     contextBudgetDecisions: {
       context_usage: {
-        tokens: 130_100,
+        tokens: 300_100,
         context_window: 400_000,
-        percent: 32.5,
+        percent: 75.025,
       },
     },
     tokenUsage: null,
@@ -5975,9 +6004,9 @@ test("claimed input continues when pre-run compaction cannot get below the maint
       reason: "already_compacted",
       diagnostics: {
         context_usage: {
-          tokens: 130_100,
+          tokens: 300_100,
           contextWindow: 400_000,
-          percent: 32.5,
+          percent: 75.025,
         },
       },
       error: null,

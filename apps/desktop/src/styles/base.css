@@ -6,12 +6,15 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground font-normal;
   }
+
   html {
     @apply font-sans;
   }
+
   strong {
     @apply font-medium;
   }
@@ -78,6 +81,7 @@ body {
 
 /* Narrow panels: clamp popouts and stack settings rows. */
 @container panel (max-width: 448px) {
+
   [data-popover-popup],
   [data-menu-popup],
   [data-select-popup] {
@@ -90,7 +94,8 @@ body {
     align-items: stretch;
     gap: 10px;
   }
-  [data-layout="settings-row"] > [data-layout="settings-control"] {
+
+  [data-layout="settings-row"]>[data-layout="settings-control"] {
     width: 100%;
     min-width: 0;
     flex-wrap: wrap;
@@ -103,6 +108,7 @@ body {
   container-type: inline-size;
   container-name: shell;
 }
+
 [data-container="panel"] {
   container-type: inline-size;
   container-name: panel;
@@ -114,9 +120,7 @@ body {
    0 specificity so utility classes can override individual properties.
    Opt out per-element with `data-no-focus-ring` (e.g. inputs nested in
    popovers/menus that already have their own active state). */
-:where(button, [role="button"], input, select, a, summary):not(
-    [data-no-focus-ring]
-  ):focus-visible {
+:where(button, [role="button"], input, select, a, summary):not([data-no-focus-ring]):focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 50%, transparent);
 }
@@ -152,21 +156,27 @@ webview {
 .border {
   border-width: 0.8px;
 }
+
 .border-x {
   border-inline-width: 0.8px;
 }
+
 .border-y {
   border-block-width: 0.8px;
 }
+
 .border-t {
   border-top-width: 0.8px;
 }
+
 .border-r {
   border-right-width: 0.8px;
 }
+
 .border-b {
   border-bottom-width: 0.8px;
 }
+
 .border-l {
   border-left-width: 0.8px;
 }
@@ -184,13 +194,16 @@ webview {
   width: 8px;
   height: 8px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: var(--muted-foreground);
 }
@@ -200,6 +213,7 @@ webview {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
@@ -210,9 +224,11 @@ webview {
   border-radius: 4px;
   transition: background 180ms ease;
 }
+
 .group:hover .scrollbar-ghost::-webkit-scrollbar-thumb {
   background: var(--border);
 }
+
 .group:hover .scrollbar-ghost::-webkit-scrollbar-thumb:hover {
   background: var(--muted-foreground);
 }
@@ -230,8 +246,7 @@ webview {
 
 .chat-scrollbar-thin {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in oklch, var(--muted-foreground) 30%, transparent)
-    transparent;
+  scrollbar-color: color-mix(in oklch, var(--muted-foreground) 30%, transparent) transparent;
 }
 
 .chat-scrollbar-thin::-webkit-scrollbar {

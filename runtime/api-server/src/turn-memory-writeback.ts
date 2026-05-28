@@ -121,6 +121,139 @@ export interface TurnMemoryWritebackModelContext {
   instruction?: string | null;
 }
 
+const INTERACTION_REBUILD_DEBOUNCE_MS = 75;
+
+interface PendingInteractionEntityRebuild {
+  key: string;
+  store: RuntimeStateStore;
+  workspaceId: string;
+  entityId: string;
+  summaryModelClient: MemoryModelClientConfig | null;
+  embeddingClient: MemoryModelClientConfig | null;
+  debounceMs: number;
+  timer: ReturnType<typeof setTimeout> | null;
+  running: boolean;
+  dirty: boolean;
+  settled: Promise<void>;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+}
+
+const pendingInteractionEntityRebuilds = new Map<string, PendingInteractionEntityRebuild>();
+
+function interactionEntityRebuildKey(workspaceId: string, entityId: string): string {
+  return `${workspaceId}::${entityId}`;
+}
+
+function queueInteractionEntityRebuild(params: {
+  store: RuntimeStateStore;
+  workspaceId: string;
+  entityId: string;
+  summaryModelClient?: MemoryModelClientConfig | null;
+  embeddingClient?: MemoryModelClientConfig | null;
+  debounceMs?: number;
+}): Promise<void> {
+  const key = interactionEntityRebuildKey(params.workspaceId, params.entityId);
+  let pending = pendingInteractionEntityRebuilds.get(key) ?? null;
+  if (!pending) {
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const settled = new Promise<void>((innerResolve, innerReject) => {
+      resolve = innerResolve;
+      reject = innerReject;
+    });
+    pending = {
+      key,
+      store: params.store,
+      workspaceId: params.workspaceId,
+      entityId: params.entityId,
+      summaryModelClient: params.summaryModelClient ?? null,
+      embeddingClient: params.embeddingClient ?? null,
+      debounceMs: Math.max(0, params.debounceMs ?? INTERACTION_REBUILD_DEBOUNCE_MS),
+      timer: null,
+      running: false,
+      dirty: true,
+      settled,
+      resolve,
+      reject,
+    };
+    // Swallow unhandled rejections for fire-and-forget background callers while
+    // still allowing explicit awaiters to observe the same rejection.
+    void settled.catch(() => undefined);
+    pendingInteractionEntityRebuilds.set(key, pending);
+  } else {
+    pending.store = params.store;
+    pending.summaryModelClient = params.summaryModelClient ?? pending.summaryModelClient ?? null;
+    pending.embeddingClient = params.embeddingClient ?? pending.embeddingClient ?? null;
+    pending.debounceMs = Math.max(0, params.debounceMs ?? pending.debounceMs);
+    pending.dirty = true;
+  }
+
+  if (!pending.running) {
+    if (pending.timer) {
+      clearTimeout(pending.timer);
+    }
+    pending.timer = setTimeout(() => {
+      pending!.timer = null;
+      void runQueuedInteractionEntityRebuild(pending!);
+    }, pending.debounceMs);
+  }
+  return pending.settled;
+}
+
+async function runQueuedInteractionEntityRebuild(pending: PendingInteractionEntityRebuild): Promise<void> {
+  if (pending.running) {
+    return;
+  }
+  pending.running = true;
+  try {
+    while (pending.dirty) {
+      pending.dirty = false;
+      await rebuildInteractionEntityTree({
+        store: pending.store,
+        workspaceId: pending.workspaceId,
+        entityId: pending.entityId,
+        summaryModelClient: pending.summaryModelClient,
+        embeddingClient: pending.embeddingClient,
+      });
+    }
+    pending.resolve();
+  } catch (error) {
+    pending.reject(error);
+  } finally {
+    if (pending.timer) {
+      clearTimeout(pending.timer);
+      pending.timer = null;
+    }
+    pending.running = false;
+    pendingInteractionEntityRebuilds.delete(pending.key);
+  }
+}
+
+export async function waitForPendingInteractionEntityRebuilds(params?: {
+  workspaceId?: string | null;
+  entityIds?: string[] | null;
+}): Promise<void> {
+  const normalizedEntityIds = params?.entityIds
+    ? new Set(params.entityIds.map((value) => value.trim()).filter(Boolean))
+    : null;
+  while (true) {
+    const pending = [...pendingInteractionEntityRebuilds.values()].filter((candidate) => {
+      if (params?.workspaceId && candidate.workspaceId !== params.workspaceId) {
+        return false;
+      }
+      if (normalizedEntityIds && !normalizedEntityIds.has(candidate.entityId)) {
+        return false;
+      }
+      return true;
+    });
+    if (pending.length === 0) {
+      return;
+    }
+    await Promise.all(pending.map((candidate) => candidate.settled));
+  }
+}
+
 const TURN_BATCH_SIZE = 3;
 const BATCH_CURSOR_KEY_PREFIX = "interaction_memory_batch_processed_count:";
 const BATCH_STATE_KEY_PREFIX = "interaction_memory_batch_state:";
@@ -813,7 +946,7 @@ export async function persistDurableMemoryCandidate(params: {
     modelClient: null,
     embeddingClient,
   });
-  await rebuildInteractionEntityTree({
+  void queueInteractionEntityRebuild({
     store: params.store,
     workspaceId: params.workspaceId,
     entityId: result.entity.entityId,
@@ -827,20 +960,47 @@ export async function refreshMemoryIndexes(params: {
   store: RuntimeStateStore;
   memoryService: MemoryServiceLike;
   workspaceId: string;
+  entityIds?: string[] | null;
 }): Promise<string[]> {
   void params.memoryService;
-  await rebuildAllInteractionTrees({
-    store: params.store,
-    workspaceId: params.workspaceId,
-  });
-  const semanticPaths = params.store
-    .listInteractionEntities({
+  const requestedEntityIds = params.entityIds
+    ? [...new Set(params.entityIds.map((value) => value.trim()).filter(Boolean))]
+    : [];
+  const targetEntities = requestedEntityIds.length > 0
+    ? requestedEntityIds
+      .map((entityId) =>
+        params.store.getInteractionEntity({
+          workspaceId: params.workspaceId,
+          entityId,
+        }))
+      .filter((entity): entity is NonNullable<typeof entity> => Boolean(entity))
+    : params.store.listInteractionEntities({
       workspaceId: params.workspaceId,
       status: "active",
       includeSystem: true,
       limit: 10_000,
       offset: 0,
-    })
+    });
+  if (requestedEntityIds.length > 0) {
+    for (const entity of targetEntities) {
+      void queueInteractionEntityRebuild({
+        store: params.store,
+        workspaceId: params.workspaceId,
+        entityId: entity.entityId,
+        debounceMs: 0,
+      });
+    }
+    await waitForPendingInteractionEntityRebuilds({
+      workspaceId: params.workspaceId,
+      entityIds: targetEntities.map((entity) => entity.entityId),
+    });
+  } else {
+    await rebuildAllInteractionTrees({
+      store: params.store,
+      workspaceId: params.workspaceId,
+    });
+  }
+  const semanticPaths = targetEntities
     .flatMap((entity) =>
       params.store.listSemanticMemoryNodes({
         category: "interaction",
@@ -850,8 +1010,7 @@ export async function refreshMemoryIndexes(params: {
         status: "active",
         limit: 10_000,
         offset: 0,
-      }),
-    )
+      }))
     .filter((node) => isSummaryLikeSemanticInteractionNode(node))
     .map((node) => node.path);
   return semanticPaths;
@@ -1049,20 +1208,14 @@ export async function writeTurnDurableMemory(params: {
           value: String(processedTurnCount),
         });
         const rebuildStartedAt = Date.now();
-        try {
-          for (const entityId of touchedEntityIds) {
-            await rebuildInteractionEntityTree({
-              store: params.store,
-              workspaceId: batchLastTurn.workspaceId,
-              entityId,
-              summaryModelClient,
-              embeddingClient,
-            });
-          }
-        } catch (error) {
-          rebuildFailureReason = error instanceof Error && error.message
-            ? error.message
-            : "summary_rebuild_failed";
+        for (const entityId of touchedEntityIds) {
+          void queueInteractionEntityRebuild({
+            store: params.store,
+            workspaceId: batchLastTurn.workspaceId,
+            entityId,
+            summaryModelClient,
+            embeddingClient,
+          });
         }
         rebuildMs = Date.now() - rebuildStartedAt;
       } else {

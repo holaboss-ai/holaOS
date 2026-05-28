@@ -482,7 +482,7 @@ Add the "connect_integrations" view inside the return JSX, as a new branch in th
       <div className="mt-1 text-[20px] font-semibold text-text-main">
         This workspace needs access
       </div>
-      <div className="mt-2 text-[13px] leading-7 text-text-muted/84">
+      <div className="mt-2 text-[13px] text-text-muted/84">
         Connect the following accounts to continue.
       </div>
 

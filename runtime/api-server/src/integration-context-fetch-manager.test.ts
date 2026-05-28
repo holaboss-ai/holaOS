@@ -260,9 +260,9 @@ test("integration context fetch manager dedups per connection while allowing par
 test("integration context fetch manager records unsupported providers without starting a run", async () => {
   const store = createStore([
     buildConnection({
-      connectionId: "conn-linear-1",
-      providerId: "linear",
-      accountLabel: "Linear",
+      connectionId: "conn-unsupported-1",
+      providerId: "unsupported-provider",
+      accountLabel: "Unsupported",
     }),
   ]);
 
@@ -275,7 +275,7 @@ test("integration context fetch manager records unsupported providers without st
     },
   });
 
-  const response = await manager.start({ connectionId: "conn-linear-1" });
+  const response = await manager.start({ connectionId: "conn-unsupported-1" });
 
   assert.equal(response.started, false);
   assert.equal(response.deduped, false);
@@ -283,11 +283,11 @@ test("integration context fetch manager records unsupported providers without st
   assert.equal(response.status.status, "unsupported");
   assert.equal(called, false);
 
-  const listed = manager.list({ connectionIds: ["conn-linear-1"] });
+  const listed = manager.list({ connectionIds: ["conn-unsupported-1"] });
   assert.equal(listed.statuses.length, 1);
   assert.equal(listed.statuses[0]?.status, "unsupported");
   assert.equal(
-    store.getIntegrationConnection("conn-linear-1")?.lastContextFetchStatus,
+    store.getIntegrationConnection("conn-unsupported-1")?.lastContextFetchStatus,
     "unsupported",
   );
 });

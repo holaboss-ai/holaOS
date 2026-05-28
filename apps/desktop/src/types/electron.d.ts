@@ -895,6 +895,16 @@ interface RuntimeNotificationListOptionsPayload {
     issue: IssueRecordPayload;
   }
 
+  interface ContinueBackgroundTaskPayload {
+    workspaceId: string;
+    subagentId: string;
+    ownerMainSessionId: string;
+    instruction: string;
+    title?: string | null;
+  }
+
+  type ContinueBackgroundTaskResponsePayload = Record<string, unknown>;
+
   interface MainSessionLegacyExportPayload {
     session_id: string;
     title: string | null;
@@ -1719,17 +1729,6 @@ interface RuntimeNotificationListOptionsPayload {
     usage: ConnectionWorkspaceUsageEntry[];
   }
 
-  interface ComposioToolkitCapability {
-    name: string;
-    description: string;
-    tool_slug: string;
-    read_only: boolean;
-  }
-
-  interface ComposioToolkitCapabilitiesPayload {
-    toolkits: Record<string, ComposioToolkitCapability[]>;
-  }
-
   interface IntegrationStoreCatalogEntry {
     slug: string;
     tier: "hero" | "supported";
@@ -2264,6 +2263,9 @@ interface RuntimeNotificationListOptionsPayload {
       archiveBackgroundTask: (
         payload: ArchiveBackgroundTaskPayload
       ) => Promise<ArchiveBackgroundTaskResponsePayload>;
+      continueBackgroundTask: (
+        payload: ContinueBackgroundTaskPayload
+      ) => Promise<ContinueBackgroundTaskResponsePayload>;
       ensureMainSession: (workspaceId: string) => Promise<EnsureWorkspaceMainSessionResponsePayload>;
       listAgentSessions: (
         payload: string | ListAgentSessionsRequestPayload
@@ -2336,7 +2338,6 @@ interface RuntimeNotificationListOptionsPayload {
       ) => Promise<IntegrationMergeConnectionsResult>;
       deleteIntegrationBinding: (bindingId: string, workspaceId: string) => Promise<{ deleted: boolean }>;
       listConnectionWorkspaceUsage: () => Promise<ConnectionWorkspaceUsagePayload>;
-      listComposioToolkitCapabilities: () => Promise<ComposioToolkitCapabilitiesPayload>;
       listIntegrationStoreCatalog: () => Promise<IntegrationStoreCatalogPayload>;
       listAllWorkspaceIntegrationOverrides: () => Promise<AllWorkspaceIntegrationOverridesPayload>;
       listWorkspaceIntegrations: (workspaceId: string) => Promise<WorkspaceIntegrationsListResponsePayload>;

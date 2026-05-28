@@ -14,7 +14,7 @@ import { buildRunnerEnv } from "./runner-worker.js";
 import { captureRuntimeException } from "./runtime-sentry.js";
 
 export const SESSION_CHECKPOINT_JOB_TYPE = "session_checkpoint";
-const PI_COMPACTION_CONTEXT_RESERVE_RATIO = 0.7;
+const PI_COMPACTION_USAGE_THRESHOLD_RATIO = 0.7;
 const SESSION_CHECKPOINT_WAIT_POLL_INTERVAL_MS = 100;
 const DEFAULT_PRE_RUN_CONTEXT_WINDOW = 65_536;
 const ESTIMATED_BYTES_PER_TOKEN = 2;
@@ -490,10 +490,10 @@ export function sessionCheckpointThresholdTokens(
   if (!Number.isFinite(contextWindow) || contextWindow <= 0) {
     return null;
   }
-  const reserveTokens = Math.ceil(
-    contextWindow * PI_COMPACTION_CONTEXT_RESERVE_RATIO,
+  return Math.max(
+    0,
+    Math.floor(contextWindow * PI_COMPACTION_USAGE_THRESHOLD_RATIO),
   );
-  return Math.max(0, contextWindow - reserveTokens);
 }
 
 function recordSessionCheckpointResult(params: {

@@ -48,6 +48,13 @@ interface MockFetch {
 function mockFetch(handlers: {
   connections?: () => Response;
   execute?: () => Response;
+  /** Per-toolkit-slug tools-fetch handler. Returns a single Response shaped
+   *  like Composio's `/tools?toolkit_slug=...` payload. Used by every test
+   *  that needs `ensureRunning` to actually produce a non-empty catalog —
+   *  after the hand-curated hero tier was removed, ALL toolkits go through
+   *  the dynamic-discovery path, so any test that doesn't mock tools just
+   *  gets `skipped: no_tools_resolved`. */
+  tools?: (toolkitSlug: string) => Response;
 }): MockFetch {
   const calls: Array<{ url: string; method?: string }> = [];
   const handler: typeof fetch = async (input, init) => {
@@ -59,12 +66,75 @@ function mockFetch(handlers: {
     if (url.endsWith("/api/composio/execute") && handlers.execute) {
       return handlers.execute();
     }
+    const toolsMatch = url.match(/\/api\/composio\/tools\?toolkit_slug=([^&]+)/);
+    if (toolsMatch && handlers.tools) {
+      return handlers.tools(decodeURIComponent(toolsMatch[1]!));
+    }
     return new Response("not mocked", { status: 599 });
   };
   return { fetch: handler, calls };
 }
 
-test("ensureRunning bootstraps a host for the first ACTIVE Hero toolkit and writes the registry", async () => {
+// Sample tool entries shaped like Composio's `/tools?toolkit_slug=...`
+// response — enough to make `buildToolkitCatalogAsync` produce a non-
+// empty catalog so `ensureRunning` reaches its `started` branch. Each
+// helper includes at least one read-only entry that ranks ahead of a
+// write entry so the heuristic-pick is deterministic.
+function sampleGmailToolsResponse(): Response {
+  return jsonResponse({
+    tools: [
+      {
+        slug: "GMAIL_GET_PROFILE",
+        name: "Get profile",
+        description: "Read the authenticated Gmail user's profile.",
+        input_parameters: { type: "object", properties: {} },
+        tags: ["readOnlyHint"],
+        is_deprecated: false,
+      },
+      {
+        slug: "GMAIL_FETCH_EMAILS",
+        name: "Fetch emails",
+        description: "Read recent emails from the user's inbox.",
+        input_parameters: { type: "object", properties: {} },
+        tags: ["readOnlyHint"],
+        is_deprecated: false,
+      },
+      {
+        slug: "GMAIL_SEND_EMAIL",
+        name: "Send email",
+        description: "Send an email on behalf of the user.",
+        input_parameters: { type: "object", properties: {} },
+        tags: [],
+        is_deprecated: false,
+      },
+    ],
+  });
+}
+
+function sampleSlackToolsResponse(): Response {
+  return jsonResponse({
+    tools: [
+      {
+        slug: "SLACK_LIST_CHANNELS",
+        name: "List channels",
+        description: "List Slack channels the user can access.",
+        input_parameters: { type: "object", properties: {} },
+        tags: ["readOnlyHint"],
+        is_deprecated: false,
+      },
+      {
+        slug: "SLACK_SEND_MESSAGE",
+        name: "Send message",
+        description: "Send a message to a Slack channel.",
+        input_parameters: { type: "object", properties: {} },
+        tags: [],
+        is_deprecated: false,
+      },
+    ],
+  });
+}
+
+test("ensureRunning bootstraps a host for the first ACTIVE toolkit and writes the registry", async () => {
   const root = createTempRoot();
   try {
     makeWorkspace(root, "ws1");
@@ -76,6 +146,12 @@ test("ensureRunning bootstraps a host for the first ACTIVE Hero toolkit and writ
             { id: "ca_slack_active", status: "ACTIVE", toolkitSlug: "slack", userId: "u1" },
           ],
         }),
+      tools: (slug) =>
+        slug === "gmail"
+          ? sampleGmailToolsResponse()
+          : slug === "slack"
+            ? sampleSlackToolsResponse()
+            : jsonResponse({ tools: [] }),
     });
     const composio = new ComposioService({
       honoBaseUrl: "https://app.holaboss.test",
@@ -95,20 +171,24 @@ test("ensureRunning bootstraps a host for the first ACTIVE Hero toolkit and writ
       assert.equal(result.connected_account_id, "ca_gmail_active");
       assert.ok(
         (result.tool_names ?? []).includes("gmail_get_profile"),
-        "hero gmail tool should be present",
+        "gmail get_profile tool should be present after auto-discovery",
       );
       assert.match(result.url ?? "", /^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
 
-      // 1 for /connections + 1 for /tools?toolkit_slug=slack (slack is
-      // auto-discovered, gmail uses its hero entry and skips the fetch).
+      // /connections + one /tools per toolkit — both gmail and slack now
+      // go through auto-discovery (the hand-curated hero tier was removed).
       const urls = calls.map((c) => c.url);
       assert.ok(
         urls.includes("https://app.holaboss.test/api/composio/connections"),
         "connections endpoint should be hit",
       );
       assert.ok(
+        urls.some((u) => u.includes("/api/composio/tools?toolkit_slug=gmail")),
+        "tools endpoint should be hit for gmail",
+      );
+      assert.ok(
         urls.some((u) => u.includes("/api/composio/tools?toolkit_slug=slack")),
-        "tools endpoint should be hit for non-hero toolkit",
+        "tools endpoint should be hit for slack",
       );
 
       const running = manager.inspectRunning();
@@ -136,6 +216,9 @@ test("ensureRunning returns 'reused' on the second call and does not boot a seco
             { id: "ca_gmail", status: "ACTIVE", toolkitSlug: "gmail", userId: "u1" },
           ],
         });
+      }
+      if (url.includes("/api/composio/tools?toolkit_slug=gmail")) {
+        return sampleGmailToolsResponse();
       }
       return new Response("not mocked", { status: 599 });
     };
@@ -309,6 +392,9 @@ test("concurrent ensureRunning calls dedupe to one bootstrap (in-flight cache)",
           connections: [{ id: "ca_gmail", status: "ACTIVE", toolkitSlug: "gmail" }],
         });
       }
+      if (url.includes("/api/composio/tools?toolkit_slug=gmail")) {
+        return sampleGmailToolsResponse();
+      }
       return new Response("not mocked", { status: 599 });
     };
     const composio = new ComposioService({
@@ -346,6 +432,8 @@ test("stopAll closes every cached host and clears the cache", async () => {
         jsonResponse({
           connections: [{ id: "ca_gmail", status: "ACTIVE", toolkitSlug: "gmail" }],
         }),
+      tools: (slug) =>
+        slug === "gmail" ? sampleGmailToolsResponse() : jsonResponse({ tools: [] }),
     });
     const composio = new ComposioService({
       honoBaseUrl: "https://app.holaboss.test",
@@ -436,6 +524,8 @@ test('restart tears the host down and bootstraps a fresh one', async () => {
         jsonResponse({
           connections: [{ id: 'ca_gmail', status: 'ACTIVE', toolkitSlug: 'gmail' }],
         }),
+      tools: (slug) =>
+        slug === 'gmail' ? sampleGmailToolsResponse() : jsonResponse({ tools: [] }),
     });
     const composio = new ComposioService({
       honoBaseUrl: 'https://app.holaboss.test',

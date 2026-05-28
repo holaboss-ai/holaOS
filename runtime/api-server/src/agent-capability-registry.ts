@@ -1392,6 +1392,8 @@ export function renderCapabilityPolicyCorePromptSection(
   }
   if (normalizedSessionKind === "onboarding") {
     lines.push(
+      "For non-trivial tasks, slow down: inventory knowns, unknowns, and assumptions first, then confirm the unknowns that materially affect the next action before acting.",
+      "If the remaining uncertainty affects a high-stakes, destructive, externally visible, costly, or hard-to-reverse action, resolve it with a direct check or ask the user for confirmation instead of guessing.",
       "Use surfaced capabilities to inspect, route, or verify before making claims about workspace, app, browser, or runtime state whenever possible.",
       "If state-changing work happens in this run or through a delegated child, verify the result before claiming success or completion.",
       "Use coordination capabilities to track progress, consult available skills, route execution, or ask for clarification instead of keeping hidden state.",
@@ -1400,6 +1402,8 @@ export function renderCapabilityPolicyCorePromptSection(
     return lines.join("\n");
   }
   lines.push(
+    "For non-trivial tasks, slow down: inventory knowns, unknowns, and assumptions first, then confirm the unknowns that materially affect the next action before acting.",
+    "If the remaining uncertainty affects a high-stakes, destructive, externally visible, costly, or hard-to-reverse action, resolve it with a direct check or ask the user for confirmation instead of guessing.",
     "Use inspection capabilities to gather context before mutating workspace, app, browser, or runtime state whenever possible.",
     "After edits, shell commands, browser actions, MCP mutations, or runtime mutations, run a follow-up inspection or verification step before claiming success.",
     "Use coordination capabilities to track progress, consult available skills, or ask for clarification instead of keeping hidden state.",
@@ -1415,6 +1419,9 @@ export function renderCapabilityToolRoutingPromptSection(
   const normalizedSessionKind = normalizeOptionalToken(
     manifest.context.session_kind,
   );
+  const hasMemoryRetrieve = manifest.runtime_tools.some(
+    (capability) => capability.id === "memory_retrieve",
+  );
   const ensureHeading = () => {
     if (lines.length === 0) {
       lines.push("Capability routing addenda:");
@@ -1426,6 +1433,13 @@ export function renderCapabilityToolRoutingPromptSection(
     lines.push("Use `system_notification` only for lightweight reminders or notifications where the primary outcome is a short message rather than agent execution.");
     lines.push("When creating or updating cronjobs, put the executable task in `instruction` and keep `description` as a short display summary only.");
     lines.push("Do not repeat schedule wording such as 'every 5 minutes' inside the cronjob `instruction` unless the task itself genuinely requires saying that phrase.");
+  }
+  if (manifest.runtime_tools.some((capability) => capability.id === "holaboss_workspace_integrations_propose_connect")) {
+    ensureHeading();
+    lines.push("Integration routing: when the user references their OWN account on a known third-party service (their Twitter posts, their Gmail inbox, their GitHub repos, their Notion pages, their Slack channels, etc.) and the provider's `<toolkit>_<verb>` tools are NOT in your current tool list, call `holaboss_workspace_integrations_propose_connect` for that toolkit FIRST. The chat UI renders a one-click Connect card from the result.");
+    lines.push("Do NOT open a browser to scrape an unauthenticated public page, ask the user to paste their `@handle` so you can read public data, or fall back to a manual workaround when a Connect card is the actual answer. That undersells what the agent can do post-connection.");
+    lines.push("Browser fallback for a third-party service is appropriate only when the user explicitly asks for a browser-based action, when the provider has no integration in the workspace catalog, or when the integration is already connected and the specific page or interaction genuinely cannot be reached through its surfaced tools.");
+    lines.push("Scope-error recovery: when a Composio `<toolkit>_<verb>` tool returns `[composio_error:forbidden:<slug>]`, `[composio_error:permission_denied:<slug>]`, or `[composio_error:insufficient_scope:<slug>]`, the user's OAuth grant lacks a required scope (most often Google's granular consent screen left a box unchecked). Call `holaboss_workspace_integrations_propose_connect` for that slug with a `reason` mentioning the missing access — do NOT switch to browser, web search, or ask the user to paste data manually. The Reconnect card is the recovery path.");
   }
   if (manifest.runtime_tools.some((capability) => capability.id === "delegate_task")) {
     ensureHeading();
@@ -1449,7 +1463,24 @@ export function renderCapabilityToolRoutingPromptSection(
     ensureHeading();
     lines.push("Remote file transfer: prefer `download_url` when you already have a direct asset URL and need a saved workspace file instead of relying on browser-only downloads or ad hoc shell fetches.");
   }
-  if (manifest.mcp_tools.length > 0) {
+  if (hasMemoryRetrieve) {
+    ensureHeading();
+    lines.push(
+      "Memory-first routing: when `memory_retrieve` is surfaced, treat it as the first retrieval step for non-UI recall, triage, recent-activity, or `what should I know` questions unless the answer is already established by the current turn or a direct tool result in this run.",
+    );
+    lines.push(
+      "Do not skip `memory_retrieve` just because a browser surface is active, a relevant tab is already open, or a connected MCP/app surface looks partial.",
+    );
+    if (manifest.browser_tools.length > 0) {
+      lines.push(
+        "If browser tools are also available, browser remains a fallback UI surface for that order. Use browser first only for current page, current tab, or current browser UI state questions, or when UI interaction or visual verification is explicitly needed.",
+      );
+    }
+  }
+  if (
+    manifest.mcp_tools.length > 0 ||
+    (manifest.context.mcp_server_ids?.length ?? 0) > 0
+  ) {
     ensureHeading();
     if (normalizedSessionKind === "main_session") {
       lines.push(
@@ -1458,6 +1489,24 @@ export function renderCapabilityToolRoutingPromptSection(
     } else {
       lines.push(
         "MCP-first routing: when surfaced MCP/app tools match the target system or supplied URL, use them before opening the web app, web search, bash, or file inspection.",
+      );
+    }
+    if (manifest.mcp_tools.length === 0) {
+      lines.push(
+        "If only connected MCP server ids are listed, treat that as a signal that callable tools may be resolved dynamically by the runtime, not as a reason to fall back to browser or web.",
+      );
+    }
+    if (manifest.browser_tools.length > 0) {
+      lines.push(
+        "Do not treat browser as the default path for non-UI freshness checks in a connected system. For recent or important activity in that system, prefer the connected MCP/app route before browser when it can provide the live state directly.",
+      );
+    }
+    if (hasMemoryRetrieve) {
+      lines.push(
+        "If `memory_retrieve` is also surfaced, check it before the connected MCP/app route for non-UI recall or recent-activity questions unless current-turn context or a direct tool result already answers the question.",
+      );
+      lines.push(
+        "If the surfaced MCP/app coverage for that system is partial, do not compensate by jumping to browser first; check memory first, then use the direct connected tool or surface the remaining limitation.",
       );
     }
     lines.push(
@@ -1481,6 +1530,9 @@ export function renderCapabilityAvailabilityContextPromptSection(
   const normalizedSessionKind = normalizeOptionalToken(
     manifest.context.session_kind,
   );
+  const hasMemoryRetrieve = manifest.runtime_tools.some(
+    (capability) => capability.id === "memory_retrieve",
+  );
   const lines = [
     "Capability availability snapshot:",
     "Treat this as the currently surfaced capability set for this run. Availability may differ in later runs.",
@@ -1492,6 +1544,22 @@ export function renderCapabilityAvailabilityContextPromptSection(
     summarizeAvailability("Workspace commands", manifest.workspace_commands.length),
     summarizeAvailability("Workspace skills", manifest.workspace_skills.length),
   ];
+  if (hasMemoryRetrieve) {
+    lines.push("Workspace memory retrieval: available via `memory_retrieve`.");
+    lines.push(
+      "Default non-UI retrieval order for this run: current-turn context/direct tool result, then `memory_retrieve`, then the most direct connected MCP/app or other narrow authoritative source, and only then browser or web.",
+    );
+    if (manifest.browser_tools.length > 0) {
+      lines.push(
+        "Browser availability does not override that order. Use browser first only for current page, current tab, or current browser UI state questions.",
+      );
+    }
+    if (manifest.mcp_tools.length > 0 || (manifest.context.mcp_server_ids?.length ?? 0) > 0) {
+      lines.push(
+        "If the connected tool surface for a system is partial, do not jump to browser first. Check `memory_retrieve` before the direct connected route, then surface any remaining capability gap.",
+      );
+    }
+  }
   if (manifest.skills.length > 0) {
     lines.push("Workspace skill catalog (id — when to use):");
     for (const skill of manifest.skills) {

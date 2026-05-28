@@ -1,9 +1,10 @@
-import { access } from "node:fs/promises";
+import { access, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
 const root = process.cwd();
 const explicitBin = (process.env.HOLABOSS_PACKAGED_APP_BIN || "").trim();
+const outRoot = path.join(root, "out");
 
 const candidates = [
   explicitBin,
@@ -14,6 +15,37 @@ const candidates = [
   path.join(root, "out", "release", "mac", "Holaboss.app", "Contents", "MacOS", "Holaboss"),
   path.join(root, "out", "release", "win-unpacked", "Holaboss.exe")
 ].filter(Boolean);
+
+async function localReleaseCandidates() {
+  try {
+    const entries = await readdir(outRoot, { withFileTypes: true });
+    const releaseDirs = (
+      await Promise.all(
+        entries
+          .filter((entry) => entry.isDirectory() && entry.name.startsWith("release-local-"))
+          .map(async (entry) => {
+            const directoryPath = path.join(outRoot, entry.name);
+            const details = await stat(directoryPath);
+            return {
+              directoryPath,
+              mtimeMs: details.mtimeMs,
+            };
+          }),
+      )
+    ).sort((left, right) => right.mtimeMs - left.mtimeMs);
+
+    return releaseDirs.flatMap(({ directoryPath }) => [
+      path.join(directoryPath, "mac-arm64", "holaOS.app", "Contents", "MacOS", "holaOS"),
+      path.join(directoryPath, "mac", "holaOS.app", "Contents", "MacOS", "holaOS"),
+      path.join(directoryPath, "win-unpacked", "holaOS.exe"),
+      path.join(directoryPath, "mac-arm64", "Holaboss.app", "Contents", "MacOS", "Holaboss"),
+      path.join(directoryPath, "mac", "Holaboss.app", "Contents", "MacOS", "Holaboss"),
+      path.join(directoryPath, "win-unpacked", "Holaboss.exe"),
+    ]);
+  } catch {
+    return [];
+  }
+}
 
 async function firstExisting(paths) {
   for (const filePath of paths) {
@@ -27,7 +59,10 @@ async function firstExisting(paths) {
   return null;
 }
 
-const binaryPath = await firstExisting(candidates);
+const binaryPath = await firstExisting([
+  ...candidates,
+  ...(await localReleaseCandidates())
+]);
 
 if (!binaryPath) {
   console.error("No packaged app binary found.");

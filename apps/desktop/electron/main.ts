@@ -92,6 +92,7 @@ import {
   readdirSync,
   statSync,
   type FSWatcher,
+  unlinkSync,
   watch,
   writeFileSync,
 } from "node:fs";
@@ -404,7 +405,50 @@ function devLaunchContextPath(): string {
   return path.join(app.getPath("appData"), APP_DISPLAY_NAME, "dev-launch.json");
 }
 
+const DEFAULT_APP_PROTOCOL_FLAGS_WITH_SEPARATE_VALUE = new Set([
+  "--require",
+  "-r",
+]);
+
+function defaultAppLaunchTargetArg(): string | null {
+  for (let index = 1; index < process.argv.length; index += 1) {
+    const argument = process.argv[index]?.trim();
+    if (!argument) {
+      continue;
+    }
+    if (argument.startsWith("-")) {
+      if (
+        DEFAULT_APP_PROTOCOL_FLAGS_WITH_SEPARATE_VALUE.has(argument) &&
+        index + 1 < process.argv.length
+      ) {
+        index += 1;
+      }
+      continue;
+    }
+    if (maybeAuthCallbackUrl(argument)) {
+      continue;
+    }
+    return path.resolve(argument);
+  }
+  return null;
+}
+
+function clearStaleDevLaunchContext() {
+  if (defaultAppLaunchTargetArg()) {
+    return;
+  }
+  try {
+    unlinkSync(devLaunchContextPath());
+  } catch {
+    // Ignore missing or concurrently-removed files.
+  }
+}
+
 function loadRecoveredDevLaunchContext(): DevLaunchContext | null {
+  if (!defaultAppLaunchTargetArg()) {
+    return null;
+  }
+
   const hasAuthCallbackArgument = process.argv.some((value) =>
     maybeAuthCallbackUrl(value),
   );
@@ -432,6 +476,7 @@ function loadRecoveredDevLaunchContext(): DevLaunchContext | null {
   }
 }
 
+clearStaleDevLaunchContext();
 const recoveredDevLaunchContext = loadRecoveredDevLaunchContext();
 const RESOLVED_DEV_SERVER_URL =
   process.env.VITE_DEV_SERVER_URL?.trim() ||
@@ -1678,7 +1723,7 @@ function configureStableUserDataPath() {
 }
 
 function persistDevLaunchContext() {
-  if (!RESOLVED_DEV_SERVER_URL) {
+  if (!RESOLVED_DEV_SERVER_URL || !defaultAppLaunchTargetArg()) {
     return;
   }
 
@@ -9009,25 +9054,9 @@ function defaultAppProtocolClientArgs(): string[] {
     return [packageRoot];
   }
 
-  const flagsWithSeparateValue = new Set(["--require", "-r"]);
-  for (let index = 1; index < process.argv.length; index += 1) {
-    const argument = process.argv[index]?.trim();
-    if (!argument) {
-      continue;
-    }
-    if (argument.startsWith("-")) {
-      if (
-        flagsWithSeparateValue.has(argument) &&
-        index + 1 < process.argv.length
-      ) {
-        index += 1;
-      }
-      continue;
-    }
-    if (maybeAuthCallbackUrl(argument)) {
-      continue;
-    }
-    return [path.resolve(argument)];
+  const launchTargetArg = defaultAppLaunchTargetArg();
+  if (launchTargetArg) {
+    return [launchTargetArg];
   }
 
   const appPath = app.getAppPath().trim();
@@ -10009,6 +10038,36 @@ async function archiveBackgroundTask(
   );
 }
 
+async function continueBackgroundTask(
+  payload: ContinueBackgroundTaskPayload,
+): Promise<ContinueBackgroundTaskResponsePayload> {
+  if (!payload.workspaceId.trim()) {
+    throw new Error("workspaceId is required");
+  }
+  if (!payload.subagentId.trim()) {
+    throw new Error("subagentId is required");
+  }
+  if (!payload.ownerMainSessionId.trim()) {
+    throw new Error("ownerMainSessionId is required");
+  }
+  const instruction = payload.instruction.trim();
+  if (!instruction) {
+    throw new Error("instruction is required");
+  }
+  return requestWorkspaceRuntimeJson<ContinueBackgroundTaskResponsePayload>(
+    payload.workspaceId,
+    {
+      method: "POST",
+      path: `/api/v1/capabilities/runtime-tools/subagents/${encodeURIComponent(payload.subagentId)}/continue`,
+      payload: {
+        workspace_id: payload.workspaceId,
+        session_id: payload.ownerMainSessionId,
+        instruction,
+        title: payload.title ?? undefined,
+      },
+    },
+  );
+}
 async function listCronjobs(
   workspaceId: string,
   enabledOnly = false,
@@ -10577,23 +10636,6 @@ async function listAllWorkspaceIntegrationOverrides(): Promise<{
   }>({
     method: "GET",
     path: "/api/v1/integrations/all-workspace-overrides",
-  });
-}
-
-async function listComposioToolkitCapabilities(): Promise<{
-  toolkits: Record<
-    string,
-    Array<{ name: string; description: string; tool_slug: string; read_only: boolean }>
-  >;
-}> {
-  return requestRuntimeJson<{
-    toolkits: Record<
-      string,
-      Array<{ name: string; description: string; tool_slug: string; read_only: boolean }>
-    >;
-  }>({
-    method: "GET",
-    path: "/api/v1/integrations/composio-capabilities",
   });
 }
 
@@ -24117,6 +24159,12 @@ app.whenReady().then(async () => {
       archiveBackgroundTask(payload),
   );
   handleTrustedIpc(
+    "workspace:continueBackgroundTask",
+    ["main"],
+    async (_event, payload: ContinueBackgroundTaskPayload) =>
+      continueBackgroundTask(payload),
+  );
+  handleTrustedIpc(
     "workspace:listRuntimeStates",
     ["main"],
     async (_event, workspaceId: string) => listRuntimeStates(workspaceId),
@@ -24333,11 +24381,6 @@ app.whenReady().then(async () => {
     "workspace:listConnectionWorkspaceUsage",
     ["main"],
     async () => listConnectionWorkspaceUsage(),
-  );
-  handleTrustedIpc(
-    "workspace:listComposioToolkitCapabilities",
-    ["main"],
-    async () => listComposioToolkitCapabilities(),
   );
   handleTrustedIpc(
     "workspace:listIntegrationStoreCatalog",

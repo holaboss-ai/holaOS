@@ -14,13 +14,15 @@ import {
 } from "./workspace-bundle-paths.js";
 import {
   refreshMemoryIndexes,
+  waitForPendingInteractionEntityRebuilds,
   writeTurnDurableMemory,
   type TurnMemoryWritebackModelContext,
 } from "./turn-memory-writeback.js";
 
 const tempDirs: string[] = [];
 
-afterEach(() => {
+afterEach(async () => {
+  await waitForPendingInteractionEntityRebuilds();
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -147,6 +149,7 @@ function listActiveInteractionEntities(store: RuntimeStateStore, workspaceId: st
 async function withModelExtractionResponse(params: {
   memories: Array<Record<string, unknown>>;
   onRequest?: (body: string) => void;
+  waitForRebuilds?: boolean;
   run: (modelContext: TurnMemoryWritebackModelContext) => Promise<void>;
 }): Promise<void> {
   await withModelExtractionResponses({
@@ -167,6 +170,7 @@ async function withModelExtractionResponse(params: {
       },
     ],
     onRequest: params.onRequest,
+    waitForRebuilds: params.waitForRebuilds,
     run: params.run,
   });
 }
@@ -178,6 +182,7 @@ async function withModelExtractionResponses(params: {
     delayMs?: number;
   }>;
   onRequest?: (body: string, index: number) => void;
+  waitForRebuilds?: boolean;
   run: (modelContext: TurnMemoryWritebackModelContext) => Promise<void>;
 }): Promise<void> {
   const server = http.createServer((request, response) => {
@@ -227,6 +232,9 @@ async function withModelExtractionResponses(params: {
       instruction: "extract durable memory candidates",
     };
     await params.run(modelContext);
+    if (params.waitForRebuilds !== false) {
+      await waitForPendingInteractionEntityRebuilds({ workspaceId: "workspace-1" });
+    }
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
@@ -462,6 +470,82 @@ test("writeTurnDurableMemory waits for a full three-turn batch and does not repl
   assert.match(files[blockerLeaf.path], /Recurring deploy policy blocker/);
   assert.match(files[blockerLeaf.path], /blocked by workspace policy/i);
   assert.equal(interactionBatchCursor(store), "3");
+
+  store.close();
+});
+
+test("writeTurnDurableMemory schedules semantic rebuilds in the background after persisting leaves", async () => {
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-background-rebuild-");
+  seedWorkspace(store);
+  const [, , turnResult] = seedCompletedTurns({
+    store,
+    turns: [
+      {
+        userText: "Remember the release verification command.",
+        assistantText: "I will remember the release verification command.",
+      },
+      {
+        userText: "It should stay durable for future runs.",
+        assistantText: "Understood.",
+      },
+      {
+        userText: "For release verification, use `npm run test:ci`.",
+        assistantText: "Captured the release verification command.",
+      },
+    ],
+  });
+
+  await withModelExtractionResponse({
+    waitForRebuilds: false,
+    memories: [
+      {
+        scope: "workspace",
+        memory_type: "fact",
+        subject_key: "release-verification-command",
+        title: "Release verification command",
+        summary: "Use `npm run test:ci` to verify release changes in this workspace.",
+        tags: ["verification", "command"],
+        evidence: "The current turn explicitly instructs the agent to use `npm run test:ci` as durable release verification guidance.",
+        confidence: 0.97,
+      },
+    ],
+    run: async (modelContext) => {
+      await writeTurnDurableMemory({
+        store,
+        memoryService,
+        turnResult,
+        modelContext,
+      });
+    },
+  });
+
+  const immediateLeaves = listActiveInteractionLeaves(store, "workspace-1");
+  const immediateSummaries = listSummaryLikeSemanticInteractionNodes(store, "workspace-1");
+  const immediateFiles = snapshotMemoryFiles(workspaceRoot, "workspace-1");
+
+  assert.equal(interactionBatchCursor(store), "3");
+  assert.equal(immediateLeaves.length, 1);
+  assert.deepEqual(immediateSummaries, []);
+  assert.equal(
+    Object.keys(immediateFiles).some((filePath) => filePath.includes("/semantic/interaction/trees/")),
+    false,
+  );
+
+  await waitForPendingInteractionEntityRebuilds({ workspaceId: "workspace-1" });
+
+  const rebuiltSemanticNodes = store.listSemanticMemoryNodes({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:uncategorized",
+    nodeClass: "semantic",
+    status: "active",
+    limit: 10_000,
+    offset: 0,
+  });
+  const rebuiltFiles = snapshotMemoryFiles(workspaceRoot, "workspace-1");
+
+  assert.equal(rebuiltSemanticNodes.length, 1);
+  assert.ok(rebuiltFiles["workspace/workspace-1/semantic/interaction/trees/uncategorized/content.md"]);
 
   store.close();
 });
@@ -1368,6 +1452,139 @@ test("refreshMemoryIndexes rebuilds large interaction trees without truncation",
   assert.equal(restoredPaths.includes("workspace/workspace-1/semantic/interaction/trees/uncategorized/content.md"), true);
   assert.equal(restoredPaths.some((entry) => entry.includes("/slice-l1-")), true);
   assert.equal(restoredPaths.some((entry) => entry.includes("/slice-l3-")), true);
+
+  store.close();
+});
+
+test("refreshMemoryIndexes can target specific interaction entities", async () => {
+  const { store, memoryService, workspaceRoot } = makeRuntimeState("hb-turn-memory-targeted-index-refresh-");
+  seedWorkspace(store);
+
+  store.upsertInteractionEntity({
+    workspaceId: "workspace-1",
+    entityId: "interaction:customer:redwood-care",
+    entityType: "customer",
+    canonicalName: "Redwood Care",
+    slug: "customer-redwood-care",
+    summary: "Customer memory.",
+    aliases: [],
+    isSystem: false,
+    status: "active",
+  });
+  store.upsertInteractionEntity({
+    workspaceId: "workspace-1",
+    entityId: "interaction:workflow:deploy-procedure",
+    entityType: "workflow",
+    canonicalName: "Deploy procedure",
+    slug: "workflow-deploy-procedure",
+    summary: "Workflow memory.",
+    aliases: [],
+    isSystem: false,
+    status: "active",
+  });
+
+  const seedLeaf = async (params: {
+    entityId: string;
+    slug: string;
+    leafId: string;
+    title: string;
+    summary: string;
+  }) => {
+    const leafPath = `workspace/workspace-1/interaction/entities/${params.slug}/leaves/${params.leafId}.md`;
+    store.upsertInteractionLeaf({
+      workspaceId: "workspace-1",
+      leafId: params.leafId,
+      entityId: params.entityId,
+      subjectKey: `seed:${params.leafId}`,
+      path: leafPath,
+      title: params.title,
+      summary: params.summary,
+      fingerprint: `fingerprint-${params.leafId}`,
+      bodySha256: `sha-${params.leafId}`,
+      tags: ["seed"],
+      secondaryEntityIds: [],
+      sourceType: "manual",
+      sourceEventId: null,
+      sourceMessageId: null,
+      sourceTurnInputId: "input-seed",
+      admissionConfidence: 0.9,
+      entityConfidence: 0.9,
+      observedAt: "2026-04-09T10:00:00.000Z",
+      supersedesLeafId: null,
+      status: "active",
+    });
+    await memoryService.upsert({
+      workspace_id: "workspace-1",
+      path: leafPath,
+      content: `# ${params.title}\n\n${params.summary}\n`,
+      append: false,
+    });
+  };
+
+  await seedLeaf({
+    entityId: "interaction:customer:redwood-care",
+    slug: "customer-redwood-care",
+    leafId: "leaf-customer",
+    title: "Redwood escalation owner",
+    summary: "Route severe billing issues to Alicia Park.",
+  });
+  await seedLeaf({
+    entityId: "interaction:customer:redwood-care",
+    slug: "customer-redwood-care",
+    leafId: "leaf-customer-2",
+    title: "Redwood billing backup",
+    summary: "Escalate backup billing issues to Jordan Lee.",
+  });
+  await seedLeaf({
+    entityId: "interaction:workflow:deploy-procedure",
+    slug: "workflow-deploy-procedure",
+    leafId: "leaf-workflow",
+    title: "Deploy verification",
+    summary: "Run smoke tests before release.",
+  });
+
+  await refreshMemoryIndexes({
+    store,
+    memoryService,
+    workspaceId: "workspace-1",
+  });
+
+  const workspaceDir = workspaceMemoryDir(path.join(workspaceRoot, "workspace-1"));
+  const customerSummaryPath = path.join(
+    workspaceDir,
+    "semantic",
+    "interaction",
+    "trees",
+    "customer-redwood-care",
+    "content.md",
+  );
+  const workflowSummaryPath = path.join(
+    workspaceDir,
+    "semantic",
+    "interaction",
+    "trees",
+    "workflow-deploy-procedure",
+    "content.md",
+  );
+  assert.equal(fs.existsSync(customerSummaryPath), true);
+  assert.equal(fs.existsSync(workflowSummaryPath), true);
+
+  fs.rmSync(path.dirname(customerSummaryPath), { recursive: true, force: true });
+  fs.rmSync(path.dirname(workflowSummaryPath), { recursive: true, force: true });
+  assert.equal(fs.existsSync(customerSummaryPath), false);
+  assert.equal(fs.existsSync(workflowSummaryPath), false);
+
+  const restoredPaths = await refreshMemoryIndexes({
+    store,
+    memoryService,
+    workspaceId: "workspace-1",
+    entityIds: ["interaction:customer:redwood-care"],
+  });
+
+  assert.ok(restoredPaths.length > 0);
+  assert.ok(restoredPaths.every((entry) => entry.includes("customer-redwood-care")));
+  assert.equal(fs.existsSync(customerSummaryPath), true);
+  assert.equal(fs.existsSync(workflowSummaryPath), false);
 
   store.close();
 });

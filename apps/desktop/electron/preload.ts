@@ -1016,17 +1016,6 @@ interface ConnectionWorkspaceUsagePayload {
   usage: ConnectionWorkspaceUsageEntry[];
 }
 
-interface ComposioToolkitCapability {
-  name: string;
-  description: string;
-  tool_slug: string;
-  read_only: boolean;
-}
-
-interface ComposioToolkitCapabilitiesPayload {
-  toolkits: Record<string, ComposioToolkitCapability[]>;
-}
-
 interface IntegrationStoreCatalogEntry {
   slug: string;
   tier: "hero" | "supported";
@@ -1518,6 +1507,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("workspace:listBackgroundTasks", payload) as Promise<BackgroundTaskListResponsePayload>,
     archiveBackgroundTask: (payload: ArchiveBackgroundTaskPayload) =>
       ipcRenderer.invoke("workspace:archiveBackgroundTask", payload) as Promise<ArchiveBackgroundTaskResponsePayload>,
+    continueBackgroundTask: (payload: ContinueBackgroundTaskPayload) =>
+      ipcRenderer.invoke("workspace:continueBackgroundTask", payload) as Promise<ContinueBackgroundTaskResponsePayload>,
     ensureMainSession: (workspaceId: string) =>
       ipcRenderer.invoke("workspace:ensureMainSession", workspaceId) as Promise<EnsureWorkspaceMainSessionResponsePayload>,
     listAgentSessions: (payload: string | ListAgentSessionsRequestPayload) =>
@@ -1617,8 +1608,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("workspace:deleteIntegrationBinding", bindingId, workspaceId) as Promise<{ deleted: boolean }>,
     listConnectionWorkspaceUsage: () =>
       ipcRenderer.invoke("workspace:listConnectionWorkspaceUsage") as Promise<ConnectionWorkspaceUsagePayload>,
-    listComposioToolkitCapabilities: () =>
-      ipcRenderer.invoke("workspace:listComposioToolkitCapabilities") as Promise<ComposioToolkitCapabilitiesPayload>,
     listIntegrationStoreCatalog: () =>
       ipcRenderer.invoke("workspace:listIntegrationStoreCatalog") as Promise<IntegrationStoreCatalogPayload>,
     listAllWorkspaceIntegrationOverrides: () =>

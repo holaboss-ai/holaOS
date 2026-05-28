@@ -1,8 +1,9 @@
-import { Check, LoaderCircle, Plug } from "lucide-react";
+import { Check, LoaderCircle, Plug, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { rebindWorkspaceAppsForProvider } from "@/lib/rebindWorkspaceAppsForProvider";
+import { useIntegrationConnect } from "@/lib/useIntegrationConnect";
 
 export interface AssistantTurnProposedIntegration {
   toolkit_slug: string;
@@ -51,17 +52,32 @@ function IntegrationProposalCard({
   workspaceId: string | null;
   onAfterConnect?: (toolkitSlug: string) => void;
 }) {
-  const { composioToolkitsByProvider, connectIntegrationProvider } =
-    useWorkspaceDesktop();
+  const { composioToolkitsByProvider } = useWorkspaceDesktop();
   const slug = proposal.toolkit_slug.trim().toLowerCase();
   const toolkit = composioToolkitsByProvider[slug];
   const displayName = toolkit?.name ?? proposal.toolkit_slug;
   const logo = toolkit?.logo ?? `https://logos.composio.dev/api/${slug}`;
 
-  const [phase, setPhase] = useState<"idle" | "connecting" | "done" | "error">(
-    "idle",
-  );
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { status, connect, cancel } = useIntegrationConnect({
+    onDone: async (connectionId) => {
+      if (workspaceId) {
+        await rebindWorkspaceAppsForProvider({
+          workspaceId,
+          provider: slug,
+          connectionId,
+        });
+      }
+    },
+  });
+  // Cancelled state maps to idle for the UI — the user actively backed
+  // out, no need to render a "Cancelled" badge.
+  const phase = status.kind === "cancelled" ? "idle" : status.kind;
+  const errorMessage =
+    status.kind === "error"
+      ? status.error instanceof Error
+        ? status.error.message
+        : "Connection failed."
+      : null;
 
   // Local `phase` resets to "idle" on every mount, so the post-connect "done"
   // confirmation would vanish on app restart. Source the connected-state from
@@ -92,32 +108,15 @@ function IntegrationProposalCard({
   }, [slug]);
 
   const handleConnect = async () => {
-    if (!workspaceId) {
-      setErrorMessage("Open a workspace before connecting.");
-      setPhase("error");
-      return;
-    }
-    setPhase("connecting");
-    setErrorMessage(null);
-    try {
-      const { connectionId } = await connectIntegrationProvider({
-        provider: slug,
-        accountLabel: `${displayName} (Managed)`,
-      });
-      if (workspaceId && connectionId) {
-        await rebindWorkspaceAppsForProvider({
-          workspaceId,
-          provider: slug,
-          connectionId,
-        });
-      }
-      setPhase("done");
+    if (!workspaceId) return;
+    const outcome = await connect({ provider: slug, accountLabel: displayName });
+    if (outcome.kind === "done") {
       onAfterConnect?.(slug);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Connection failed.";
-      setErrorMessage(msg);
-      setPhase("error");
     }
+  };
+
+  const handleCancel = () => {
+    cancel();
   };
 
   // Wait for the readiness check before rendering, otherwise the Connect
@@ -196,23 +195,35 @@ function IntegrationProposalCard({
             </div>
           )}
         </div>
-        <Button
-          className="h-7 px-3 text-xs"
-          disabled={phase === "connecting" || !workspaceId}
-          onClick={() => void handleConnect()}
-          size="sm"
-          type="button"
-          variant="default"
-        >
-          {phase === "connecting" ? (
-            <>
-              <LoaderCircle className="mr-1 size-3 animate-spin" />
+        {phase === "connecting" ? (
+          <div className="flex shrink-0 items-center gap-1">
+            <div className="inline-flex h-7 items-center gap-1 px-2 text-xs text-muted-foreground">
+              <LoaderCircle className="size-3 animate-spin" />
               Connecting…
-            </>
-          ) : (
-            "Connect"
-          )}
-        </Button>
+            </div>
+            <Button
+              aria-label="Cancel connection"
+              className="h-7 w-7 p-0"
+              onClick={handleCancel}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              <X className="size-3.5" />
+            </Button>
+          </div>
+        ) : (
+          <Button
+            className="h-7 px-3 text-xs"
+            disabled={!workspaceId}
+            onClick={() => void handleConnect()}
+            size="sm"
+            type="button"
+            variant="default"
+          >
+            Connect
+          </Button>
+        )}
       </div>
       {errorMessage ? (
         <div className="rounded-md bg-destructive/10 px-2 py-1 text-[11px] text-destructive">

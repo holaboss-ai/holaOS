@@ -1,16 +1,13 @@
 import { Check, ChevronRight, CircleAlert, RotateCw } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { OAuthWaitIndicator } from "@/components/integration/OAuthWaitIndicator";
 import {
   type IntegrationErrorCopy,
   resolveIntegrationError,
 } from "@/lib/integrationErrorMessages";
 import { toolkitDisplayName } from "@/lib/toolkitDisplay";
+import { useIntegrationConnect } from "@/lib/useIntegrationConnect";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
-import {
-  IntegrationConnectCancelled,
-  useWorkspaceDesktop,
-} from "@/lib/workspaceDesktop";
 import { rebindWorkspaceAppsForProvider } from "@/lib/rebindWorkspaceAppsForProvider";
 
 export function HistoryRestoreSkeleton() {
@@ -155,38 +152,12 @@ function IntegrationErrorBannerBody({
     error: errorText,
   });
 
-  const { connectIntegrationProvider } = useWorkspaceDesktop();
   const { selectedWorkspaceId } = useWorkspaceSelection();
-  const [phase, setPhase] = useState<"idle" | "connecting" | "done" | "error">(
-    "idle",
-  );
   const [reconnectError, setReconnectError] = useState<IntegrationErrorCopy | null>(
     null,
   );
-  const abortRef = useRef<AbortController | null>(null);
-
-  useEffect(() => {
-    return () => {
-      abortRef.current?.abort();
-    };
-  }, []);
-
-  if (copy.action === "silent") return null;
-
-  const canReconnect = copy.action === "reconnect" && Boolean(parsed.slug);
-
-  const startReconnect = async () => {
-    if (!parsed.slug) return;
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setReconnectError(null);
-    setPhase("connecting");
-    try {
-      const { connectionId } = await connectIntegrationProvider({
-        provider: parsed.slug,
-        accountLabel: `${displayName} (Managed)`,
-        signal: controller.signal,
-      });
+  const { status, connect, cancel, reset } = useIntegrationConnect({
+    onDone: async (connectionId) => {
       // OAuth alone isn't enough: workspace apps capture HOLABOSS_APP_GRANT
       // at boot pointing at the OLD (now-expired) connection. The agent's
       // direct Composio path is restarted automatically via
@@ -194,33 +165,53 @@ function IntegrationErrorBannerBody({
       // bound to the previous connection keep using a dead grant until
       // someone rebinds them. Mirror what useIntegrationBinding does for
       // every app binding in this workspace that matches the failing slug.
-      if (selectedWorkspaceId && !controller.signal.aborted) {
+      if (selectedWorkspaceId && parsed.slug) {
         await rebindWorkspaceAppsForProvider({
           workspaceId: selectedWorkspaceId,
           provider: parsed.slug,
           connectionId,
         });
       }
-      setPhase("done");
-    } catch (err) {
-      if (err instanceof IntegrationConnectCancelled) {
-        setPhase("idle");
-        return;
-      }
-      const errorCopy = resolveIntegrationError({ provider: displayName, error: err });
+    },
+  });
+  // Connecting / done flow straight through. Error only renders when we've
+  // resolved a user-facing copy block — raw cancel / silent errors collapse
+  // back to idle so the row doesn't hold an empty error slot.
+  const phase: "idle" | "connecting" | "done" | "error" =
+    status.kind === "connecting"
+      ? "connecting"
+      : status.kind === "done"
+        ? "done"
+        : reconnectError
+          ? "error"
+          : "idle";
+
+  if (copy.action === "silent") return null;
+
+  const canReconnect = copy.action === "reconnect" && Boolean(parsed.slug);
+
+  const startReconnect = async () => {
+    if (!parsed.slug) return;
+    setReconnectError(null);
+    const outcome = await connect({
+      provider: parsed.slug,
+      accountLabel: displayName,
+    });
+    if (outcome.kind === "error") {
+      const errorCopy = resolveIntegrationError({
+        provider: displayName,
+        error: outcome.error,
+      });
       if (errorCopy.action === "silent") {
-        setPhase("idle");
+        reset();
         return;
       }
       setReconnectError(errorCopy);
-      setPhase("error");
-    } finally {
-      abortRef.current = null;
     }
   };
 
   const cancelReconnect = () => {
-    abortRef.current?.abort();
+    cancel();
   };
 
   if (phase === "done") {

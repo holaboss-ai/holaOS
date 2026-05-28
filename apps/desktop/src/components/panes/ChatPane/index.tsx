@@ -1087,6 +1087,7 @@ export function chatMessagesFromSessionState(params: {
   knownAssistantInputIds?: Set<string>;
   showExecutionInternals: boolean;
   showBootstrapPhaseTrace?: boolean;
+  showContextBudgetDiagnostics?: boolean;
 }): ChatMessage[] {
   const outputEventsByInputId = new Map<
     string,
@@ -1155,6 +1156,8 @@ export function chatMessagesFromSessionState(params: {
             outputEventsByInputId.get(inputId) ?? [],
             {
               showBootstrapPhaseTrace: params.showBootstrapPhaseTrace,
+              showContextBudgetDiagnostics:
+                params.showContextBudgetDiagnostics,
             },
           );
           const turnOutputs = sortOutputs(outputsByInputId.get(inputId) ?? []);
@@ -1198,13 +1201,40 @@ export function chatMessagesFromSessionState(params: {
         userInputId &&
         !assistantHistoryInputIds.has(userInputId)
       ) {
-        const syntheticAssistantMessage = syntheticAssistantMessageFromSessionTurn({
-          inputId: userInputId,
-          outputEvents: outputEventsByInputId.get(userInputId) ?? [],
-          outputs: outputsByInputId.get(userInputId) ?? [],
-          fallbackCreatedAt: nextMessage.createdAt,
-          showBootstrapPhaseTrace: params.showBootstrapPhaseTrace,
-        });
+        const restoredAssistantState = assistantHistoryStateFromOutputEvents(
+          outputEventsByInputId.get(userInputId) ?? [],
+          {
+            showBootstrapPhaseTrace: params.showBootstrapPhaseTrace,
+            showContextBudgetDiagnostics:
+              params.showContextBudgetDiagnostics,
+          },
+        );
+        const turnOutputs = sortOutputs(outputsByInputId.get(userInputId) ?? []);
+        const syntheticAssistantMessage: ChatMessage = {
+          id: `assistant-${userInputId}`,
+          role: "assistant",
+          text:
+            restoredAssistantState.segments ||
+            !restoredAssistantState.failureText
+              ? ""
+              : restoredAssistantState.failureText,
+          tone:
+            restoredAssistantState.segments ||
+            !restoredAssistantState.failureText
+              ? "default"
+              : "error",
+          createdAt:
+            restoredAssistantState.terminalCreatedAt || nextMessage.createdAt,
+          segments: restoredAssistantState.segments,
+          executionItems: restoredAssistantState.segments
+            ? undefined
+            : restoredAssistantState.executionItems,
+          outputs: turnOutputs.length > 0 ? turnOutputs : undefined,
+          backgroundTaskReferences:
+            restoredAssistantState.backgroundTaskReferences,
+          pendingIntegrations: restoredAssistantState.pendingIntegrations,
+          proposedIntegrations: restoredAssistantState.proposedIntegrations,
+        };
         if (
           hasRenderableAssistantTurn(syntheticAssistantMessage, {
             showExecutionInternals: params.showExecutionInternals,
@@ -2188,6 +2218,9 @@ export function phaseTraceStepFromEvent(
   eventType: string,
   payload: Record<string, unknown>,
   order: number,
+  options?: {
+    showContextBudgetDiagnostics?: boolean;
+  },
 ): ChatTraceStep | null {
   const phase = typeof payload.phase === "string" ? payload.phase.trim() : "";
   const instructionPreview =
@@ -2195,6 +2228,10 @@ export function phaseTraceStepFromEvent(
       ? payload.instruction_preview.trim()
       : "";
   const details: string[] = [];
+  const budgetDetails =
+    options?.showContextBudgetDiagnostics === true
+      ? contextBudgetDetails(payload)
+      : [];
 
   if (eventType === "run_claimed") {
     return {
@@ -2404,7 +2441,7 @@ export function phaseTraceStepFromEvent(
       status: "waiting",
       details: [
         "The agent needs a follow-up answer before it can continue.",
-        ...contextBudgetDetails(payload),
+        ...budgetDetails,
       ],
       order,
     };
@@ -2415,7 +2452,6 @@ export function phaseTraceStepFromEvent(
       typeof payload.status === "string"
         ? payload.status.trim().toLowerCase()
         : "";
-    const budgetDetails = contextBudgetDetails(payload);
     if (status === "waiting_user") {
       return {
         id: "phase:awaiting-user",
@@ -2455,7 +2491,7 @@ export function phaseTraceStepFromEvent(
   }
 
   if (eventType === "run_failed") {
-    details.push(...contextBudgetDetails(payload));
+    details.push(...budgetDetails);
     const errorText = runFailedDetail(payload);
     if (errorText) {
       details.push(`Error: ${summarizeUnknown(errorText, 120)}`);
@@ -2922,6 +2958,7 @@ function assistantHistoryStateFromOutputEvents(
   outputEvents: SessionOutputEventPayload[],
   options?: {
     showBootstrapPhaseTrace?: boolean;
+    showContextBudgetDiagnostics?: boolean;
   },
 ) {
   const orderedEvents = [...outputEvents].sort(
@@ -2985,6 +3022,10 @@ function assistantHistoryStateFromOutputEvents(
       event.event_type,
       eventPayload,
       event.sequence,
+      {
+        showContextBudgetDiagnostics:
+          options?.showContextBudgetDiagnostics,
+      },
     );
     if (phaseStep) {
       if (
@@ -4055,6 +4096,7 @@ export function ChatPane({
         shouldShowExecutionInternalsForSession(sessionId),
       showBootstrapPhaseTrace:
         shouldShowBootstrapPhaseTraceForSession(sessionId),
+      showContextBudgetDiagnostics: verboseTelemetryEnabled,
     });
   }
 
@@ -5743,6 +5785,9 @@ export function ChatPane({
           eventType,
           eventPayload,
           eventSequence,
+          {
+            showContextBudgetDiagnostics: verboseTelemetryEnabled,
+          },
         );
         if (phaseStep) {
           if (
@@ -6006,6 +6051,7 @@ export function ChatPane({
     onSyncFileDisplayFromAgentOperation,
     refreshWorkspaceData,
     selectedWorkspaceId,
+    verboseTelemetryEnabled,
   ]);
 
   useEffect(() => {
@@ -8448,7 +8494,7 @@ export function ChatPane({
         <div className="space-y-5 px-5 py-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              <div className="text-[10px] font-medium text-muted-foreground">
                 {`Question ${safeOnboardingQuestionSlideIndex + 1}/${alignmentQuestionCount} (${unansweredAlignmentQuestionCount} unanswered)`}
               </div>
               {activeAlignmentQuestion.title || alignmentQuestion?.title ? (
@@ -8488,7 +8534,7 @@ export function ChatPane({
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {option.recommended ? (
-                      <div className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-primary">
+                      <div className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
                         Recommended
                       </div>
                     ) : null}
@@ -8507,7 +8553,7 @@ export function ChatPane({
           </div>
           {activeAlignmentQuestion.allowFreeform ? (
             <div className="space-y-2">
-              <div className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              <div className="text-xs font-medium text-muted-foreground">
                 Natural language response
               </div>
               <textarea
@@ -8598,14 +8644,14 @@ export function ChatPane({
         <div className="space-y-4 px-5 py-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              <div className="text-[10px] font-medium text-muted-foreground">
                 Alignment report
               </div>
               <div className="mt-1 text-sm font-medium text-foreground">
                 Review before implementation starts
               </div>
             </div>
-            <div className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-primary">
+            <div className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary">
               Awaiting review
             </div>
           </div>
@@ -8613,6 +8659,7 @@ export function ChatPane({
             <SimpleMarkdown
               className="chat-markdown chat-assistant-markdown max-w-full text-foreground"
               onLinkClick={onOpenLinkInBrowser}
+              onLocalLinkClick={onOpenLocalLink}
             >
               {alignmentReportMarkdown}
             </SimpleMarkdown>
@@ -8626,7 +8673,7 @@ export function ChatPane({
                 <div className="space-y-3">
                   {alignmentReportDetails.map((entry) => (
                     <div key={entry.key}>
-                      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                      <div className="text-[11px] font-medium text-muted-foreground">
                         {entry.label}
                       </div>
                       <div className="mt-1 space-y-1 text-sm leading-6 text-muted-foreground">
@@ -8694,14 +8741,14 @@ export function ChatPane({
         <div className="space-y-4 px-5 py-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              <div className="text-[10px] font-medium text-muted-foreground">
                 Verification report
               </div>
               <div className="mt-1 text-sm font-medium text-foreground">
                 Review before final merge
               </div>
             </div>
-            <div className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-primary">
+            <div className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary">
               Awaiting acceptance
             </div>
           </div>
@@ -8709,6 +8756,7 @@ export function ChatPane({
             <SimpleMarkdown
               className="chat-markdown chat-assistant-markdown max-w-full text-foreground"
               onLinkClick={onOpenLinkInBrowser}
+              onLocalLinkClick={onOpenLocalLink}
             >
               {verificationReportMarkdown}
             </SimpleMarkdown>
@@ -8722,7 +8770,7 @@ export function ChatPane({
                 <div className="space-y-3">
                   {verificationReportDetails.map((entry) => (
                     <div key={entry.key}>
-                      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                      <div className="text-[11px] font-medium text-muted-foreground">
                         {entry.label}
                       </div>
                       <div className="mt-1 space-y-1 text-sm leading-6 text-muted-foreground">

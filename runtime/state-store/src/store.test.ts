@@ -3064,6 +3064,124 @@ test("memory embedding index supports vector replacement, search, and delete", (
   store.close();
 });
 
+test("node embedding vector indexes support interaction and integration top-k search", () => {
+  const root = makeTempDir("hb-state-store-node-vec-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  });
+
+  assert.equal(store.supportsVectorIndex(), true);
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+
+  const primaryVector = new Float32Array(1536).fill(0);
+  primaryVector[0] = 1;
+  const secondaryVector = new Float32Array(1536).fill(0);
+  secondaryVector[1] = 1;
+
+  store.upsertInteractionNodeEmbedding({
+    workspaceId: "workspace-1",
+    nodeKind: "summary",
+    nodeId: "semantic:interaction:vector-primary",
+    entityId: "interaction:workflow:vector-primary",
+    embeddingModel: "text-embedding-3-small",
+    contentFingerprint: "c".repeat(64),
+    dimensions: 1536,
+    vector: Array.from(primaryVector),
+  });
+  store.upsertInteractionNodeEmbedding({
+    workspaceId: "workspace-1",
+    nodeKind: "summary",
+    nodeId: "semantic:interaction:vector-secondary",
+    entityId: "interaction:workflow:vector-primary",
+    embeddingModel: "text-embedding-3-small",
+    contentFingerprint: "d".repeat(64),
+    dimensions: 1536,
+    vector: Array.from(secondaryVector),
+  });
+
+  const interactionResults = store.searchInteractionNodeEmbeddingsByVector({
+    workspaceId: "workspace-1",
+    embedding: primaryVector,
+    embeddingModel: "text-embedding-3-small",
+    limit: 2,
+    entityIds: ["interaction:workflow:vector-primary"],
+    nodeKinds: ["summary"],
+  });
+  assert.equal(interactionResults[0]?.nodeId, "semantic:interaction:vector-primary");
+
+  const treeId = "integration:github:vector-primary";
+  store.upsertIntegrationTree({
+    treeId,
+    provider: "github",
+    ownerUserId: "user-1",
+    accountKey: "vector-github",
+    accountLabel: "Vector GitHub",
+    slug: "github-vector-primary",
+    summary: "Vector GitHub memory.",
+    status: "active",
+  });
+  store.upsertIntegrationNodeEmbedding({
+    nodeKind: "summary",
+    nodeId: "semantic:integration:vector-primary",
+    treeId,
+    embeddingModel: "text-embedding-3-small",
+    contentFingerprint: "e".repeat(64),
+    dimensions: 1536,
+    vector: Array.from(primaryVector),
+  });
+  store.upsertIntegrationNodeEmbedding({
+    nodeKind: "summary",
+    nodeId: "semantic:integration:vector-secondary",
+    treeId,
+    embeddingModel: "text-embedding-3-small",
+    contentFingerprint: "f".repeat(64),
+    dimensions: 1536,
+    vector: Array.from(secondaryVector),
+  });
+
+  const integrationResults = store.searchIntegrationNodeEmbeddingsByVector({
+    embedding: primaryVector,
+    embeddingModel: "text-embedding-3-small",
+    limit: 2,
+    treeIds: [treeId],
+    nodeKinds: ["summary"],
+  });
+  assert.equal(integrationResults[0]?.nodeId, "semantic:integration:vector-primary");
+
+  const vecRowid = integrationResults[0]?.vecRowid ?? null;
+  store.deleteIntegrationTreeMemory({ treeId });
+  assert.equal(
+    store.searchIntegrationNodeEmbeddingsByVector({
+      embedding: primaryVector,
+      embeddingModel: "text-embedding-3-small",
+      limit: 2,
+      treeIds: [treeId],
+      nodeKinds: ["summary"],
+    }).length,
+    0,
+  );
+  if (vecRowid !== null) {
+    const db = new Database(store.controlPlaneDbPath, { readonly: true });
+    sqliteVec.load(db as unknown as { loadExtension(file: string, entrypoint?: string | undefined): void });
+    const remaining = Number(
+      (
+        db.prepare<[number], { count: number }>("SELECT COUNT(*) AS count FROM integration_node_embedding_vec WHERE vec_rowid = ?")
+          .get(vecRowid) as { count: number }
+      ).count,
+    );
+    db.close();
+    assert.equal(remaining, 0);
+  }
+
+  store.close();
+});
+
 test("app build status round trip supports upsert, lookup, and delete", () => {
   const root = makeTempDir("hb-state-store-");
   const store = new RuntimeStateStore({
@@ -4866,4 +4984,794 @@ test("semantic memory substrate round trips for interaction and integration cate
     [{ toNodeId: "integration-issues", relationType: "tracks", provider: "github" }],
   );
   reopened.close();
+});
+
+test("sync semantic memory substrate patches interaction scope without rewriting unchanged rows", () => {
+  const root = makeTempDir("hb-state-store-semantic-sync-interaction-");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceRoot = path.join(root, "workspace");
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Acme",
+    harness: "pi",
+    status: "active",
+  });
+
+  store.replaceSemanticMemoryTree({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodes: [
+      {
+        nodeId: "interaction-root",
+        nodeClass: "semantic",
+        nodeKind: "workflow",
+        path: "memory/interaction/release-playbook/content.md",
+        title: "Release playbook",
+        summary: "Root release workflow.",
+        bodySha256: "sha-root-v1",
+        childCount: 1,
+        metadata: { owner: "ops" },
+        createdAt: "2026-05-24T10:00:00.000Z",
+        updatedAt: "2026-05-24T10:00:00.000Z",
+      },
+      {
+        nodeId: "interaction-section",
+        nodeClass: "semantic",
+        nodeKind: "section",
+        path: "memory/interaction/release-playbook/checklist/content.md",
+        title: "Checklist",
+        summary: "Release checklist.",
+        bodySha256: "sha-section-v1",
+        childCount: 1,
+        isMaterialized: true,
+        metadata: { partition: "current" },
+        createdAt: "2026-05-24T10:01:00.000Z",
+        updatedAt: "2026-05-24T10:01:00.000Z",
+      },
+      {
+        nodeId: "interaction-leaf-1",
+        nodeClass: "leaf",
+        nodeKind: "leaf",
+        sourceLeafId: "leaf-release-1",
+        path: "memory/interaction/release-playbook/checklist/step-1.md",
+        title: "Run migration",
+        summary: "Apply the migration before restarting workers.",
+        bodySha256: "sha-leaf-1",
+        observedAt: "2026-05-24T09:59:00.000Z",
+        metadata: { source: "interaction_leaf" },
+        createdAt: "2026-05-24T10:02:00.000Z",
+        updatedAt: "2026-05-24T10:02:00.000Z",
+      },
+    ],
+    edges: [
+      {
+        parentNodeId: "interaction-root",
+        childNodeId: "interaction-section",
+        position: 1,
+        createdAt: "2026-05-24T10:03:00.000Z",
+      },
+      {
+        parentNodeId: "interaction-section",
+        childNodeId: "interaction-leaf-1",
+        position: 1,
+        createdAt: "2026-05-24T10:04:00.000Z",
+      },
+    ],
+  });
+  store.replaceSemanticMemorySearchDocs({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    docs: [
+      {
+        nodeId: "interaction-root",
+        nodeClass: "semantic",
+        nodeKind: "workflow",
+        path: "memory/interaction/release-playbook/content.md",
+        childCount: 1,
+        title: "Release playbook",
+        summary: "Root release workflow.",
+        bodyText: "Release playbook root body.",
+        excerpt: "Release playbook root body.",
+        updatedAt: "2026-05-24T10:05:00.000Z",
+      },
+      {
+        nodeId: "interaction-section",
+        nodeClass: "semantic",
+        nodeKind: "section",
+        path: "memory/interaction/release-playbook/checklist/content.md",
+        childCount: 1,
+        title: "Checklist",
+        summary: "Release checklist.",
+        bodyText: "Checklist body covering migration sequencing.",
+        excerpt: "Checklist body covering migration sequencing.",
+        updatedAt: "2026-05-24T10:06:00.000Z",
+      },
+      {
+        nodeId: "interaction-leaf-1",
+        nodeClass: "leaf",
+        nodeKind: "leaf",
+        path: "memory/interaction/release-playbook/checklist/step-1.md",
+        title: "Run migration",
+        summary: "Apply the migration before restarting workers.",
+        bodyText: "Run the migration and restart the workers after it finishes.",
+        excerpt: "Run the migration and restart the workers.",
+        observedAt: "2026-05-24T09:59:00.000Z",
+        updatedAt: "2026-05-24T10:07:00.000Z",
+      },
+    ],
+  });
+  store.replaceSemanticMemoryRelations({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    relations: [
+      {
+        fromNodeId: "interaction-root",
+        toNodeId: "interaction-leaf-1",
+        relationType: "references",
+        metadata: { note: "original critical step" },
+        createdAt: "2026-05-24T10:08:00.000Z",
+        updatedAt: "2026-05-24T10:08:00.000Z",
+      },
+    ],
+  });
+
+  const rootBefore = store.getSemanticMemoryNode({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-root",
+  });
+  const sectionBefore = store.getSemanticMemoryNode({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-section",
+  });
+  const rootDocBefore = store.getSemanticMemorySearchDoc({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-root",
+  });
+  const rootEdgeBefore = store.listSemanticMemoryChildren({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    parentNodeId: "interaction-root",
+  })[0];
+
+  assert.ok(rootBefore);
+  assert.ok(sectionBefore);
+  assert.ok(rootDocBefore);
+  assert.ok(rootEdgeBefore);
+
+  store.syncSemanticMemoryTree({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodes: [
+      {
+        nodeId: "interaction-root",
+        nodeClass: "semantic",
+        nodeKind: "workflow",
+        path: "memory/interaction/release-playbook/content.md",
+        title: "Release playbook",
+        summary: "Root release workflow.",
+        bodySha256: "sha-root-v1",
+        childCount: 1,
+        metadata: { owner: "ops" },
+        createdAt: "2099-01-01T00:00:00.000Z",
+        updatedAt: "2099-01-01T00:00:00.000Z",
+      },
+      {
+        nodeId: "interaction-section",
+        nodeClass: "semantic",
+        nodeKind: "section",
+        path: "memory/interaction/release-playbook/checklist/content.md",
+        title: "Checklist",
+        summary: "Release checklist and restart order.",
+        bodySha256: "sha-section-v2",
+        childCount: 1,
+        isMaterialized: true,
+        metadata: { partition: "current", owner: "release-eng" },
+        createdAt: "2099-01-01T00:00:00.000Z",
+        updatedAt: "2026-05-25T10:01:00.000Z",
+      },
+      {
+        nodeId: "interaction-leaf-2",
+        nodeClass: "leaf",
+        nodeKind: "leaf",
+        sourceLeafId: "leaf-release-2",
+        path: "memory/interaction/release-playbook/checklist/step-2.md",
+        title: "Warm caches",
+        summary: "Warm the cache after the rollout finishes.",
+        bodySha256: "sha-leaf-2",
+        observedAt: "2026-05-25T09:59:00.000Z",
+        metadata: { source: "interaction_leaf" },
+        createdAt: "2026-05-25T10:02:00.000Z",
+        updatedAt: "2026-05-25T10:02:00.000Z",
+      },
+    ],
+    edges: [
+      {
+        parentNodeId: "interaction-root",
+        childNodeId: "interaction-section",
+        position: 1,
+        createdAt: "2099-01-01T00:00:00.000Z",
+      },
+      {
+        parentNodeId: "interaction-section",
+        childNodeId: "interaction-leaf-2",
+        position: 1,
+        createdAt: "2026-05-25T10:03:00.000Z",
+      },
+    ],
+  });
+  store.syncSemanticMemorySearchDocs({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    docs: [
+      {
+        nodeId: "interaction-root",
+        nodeClass: "semantic",
+        nodeKind: "workflow",
+        path: "memory/interaction/release-playbook/content.md",
+        childCount: 1,
+        title: "Release playbook",
+        summary: "Root release workflow.",
+        bodyText: "Release playbook root body.",
+        excerpt: "Release playbook root body.",
+        updatedAt: "2099-01-01T00:00:00.000Z",
+      },
+      {
+        nodeId: "interaction-section",
+        nodeClass: "semantic",
+        nodeKind: "section",
+        path: "memory/interaction/release-playbook/checklist/content.md",
+        childCount: 1,
+        title: "Checklist",
+        summary: "Release checklist and restart order.",
+        bodyText: "Checklist body covering restart sequencing and cache warmup.",
+        excerpt: "Checklist body covering restart sequencing.",
+        updatedAt: "2026-05-25T10:04:00.000Z",
+      },
+      {
+        nodeId: "interaction-leaf-2",
+        nodeClass: "leaf",
+        nodeKind: "leaf",
+        path: "memory/interaction/release-playbook/checklist/step-2.md",
+        title: "Warm caches",
+        summary: "Warm the cache after the rollout finishes.",
+        bodyText: "Run the runbook cache warmer after the rollout settles.",
+        excerpt: "Run the runbook cache warmer.",
+        observedAt: "2026-05-25T09:59:00.000Z",
+        updatedAt: "2026-05-25T10:05:00.000Z",
+      },
+    ],
+  });
+  store.syncSemanticMemoryRelations({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    relations: [
+      {
+        fromNodeId: "interaction-root",
+        toNodeId: "interaction-leaf-2",
+        relationType: "references",
+        metadata: { note: "updated critical step" },
+        createdAt: "2026-05-25T10:06:00.000Z",
+        updatedAt: "2026-05-25T10:06:00.000Z",
+      },
+    ],
+  });
+
+  const rootAfter = store.getSemanticMemoryNode({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-root",
+  });
+  const sectionAfter = store.getSemanticMemoryNode({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-section",
+  });
+  const leaf1After = store.getSemanticMemoryNode({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-leaf-1",
+  });
+  const leaf2After = store.getSemanticMemoryNode({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-leaf-2",
+  });
+  const rootDocAfter = store.getSemanticMemorySearchDoc({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-root",
+  });
+  const sectionDocAfter = store.getSemanticMemorySearchDoc({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-section",
+  });
+  const leaf1DocAfter = store.getSemanticMemorySearchDoc({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-leaf-1",
+  });
+  const leaf2DocAfter = store.getSemanticMemorySearchDoc({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    nodeId: "interaction-leaf-2",
+  });
+  const rootEdgeAfter = store.listSemanticMemoryChildren({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    parentNodeId: "interaction-root",
+  });
+  const sectionEdgeAfter = store.listSemanticMemoryChildren({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    parentNodeId: "interaction-section",
+  });
+  const relationsAfter = store.listSemanticMemoryRelations({
+    category: "interaction",
+    workspaceId: "workspace-1",
+    treeId: "interaction:release-playbook",
+    fromNodeId: "interaction-root",
+  });
+
+  assert.ok(rootAfter);
+  assert.ok(sectionAfter);
+  assert.equal(leaf1After, null);
+  assert.ok(leaf2After);
+  assert.ok(rootDocAfter);
+  assert.ok(sectionDocAfter);
+  assert.equal(leaf1DocAfter, null);
+  assert.ok(leaf2DocAfter);
+  assert.equal(rootAfter.createdAt, rootBefore.createdAt);
+  assert.equal(rootAfter.updatedAt, rootBefore.updatedAt);
+  assert.equal(sectionAfter.createdAt, sectionBefore.createdAt);
+  assert.equal(sectionAfter.updatedAt, "2026-05-25T10:01:00.000Z");
+  assert.equal(sectionAfter.summary, "Release checklist and restart order.");
+  assert.deepEqual(sectionAfter.metadata, { partition: "current", owner: "release-eng" });
+  assert.equal(leaf2After.createdAt, "2026-05-25T10:02:00.000Z");
+  assert.equal(rootDocAfter.updatedAt, rootDocBefore.updatedAt);
+  assert.equal(sectionDocAfter.updatedAt, "2026-05-25T10:04:00.000Z");
+  assert.equal(leaf2DocAfter.updatedAt, "2026-05-25T10:05:00.000Z");
+  assert.equal(rootEdgeAfter.length, 1);
+  assert.equal(rootEdgeAfter[0]?.childNodeId, "interaction-section");
+  assert.equal(rootEdgeAfter[0]?.createdAt, rootEdgeBefore.createdAt);
+  assert.deepEqual(
+    sectionEdgeAfter.map((edge) => ({
+      childNodeId: edge.childNodeId,
+      createdAt: edge.createdAt,
+    })),
+    [{ childNodeId: "interaction-leaf-2", createdAt: "2026-05-25T10:03:00.000Z" }],
+  );
+  assert.deepEqual(
+    relationsAfter.map((relation) => ({
+      toNodeId: relation.toNodeId,
+      relationType: relation.relationType,
+      note: relation.metadata.note,
+      createdAt: relation.createdAt,
+    })),
+    [{
+      toNodeId: "interaction-leaf-2",
+      relationType: "references",
+      note: "updated critical step",
+      createdAt: "2026-05-25T10:06:00.000Z",
+    }],
+  );
+  assert.deepEqual(
+    store.searchSemanticMemorySearchDocs({
+      category: "interaction",
+      workspaceId: "workspace-1",
+      treeId: "interaction:release-playbook",
+      matchQuery: "runbook",
+    }).map((hit) => hit.nodeId),
+    ["interaction-leaf-2"],
+  );
+  assert.equal(
+    store.searchSemanticMemorySearchDocs({
+      category: "interaction",
+      workspaceId: "workspace-1",
+      treeId: "interaction:release-playbook",
+      matchQuery: "migration",
+    }).some((hit) => hit.nodeId === "interaction-leaf-1"),
+    false,
+  );
+
+  store.close();
+});
+
+test("sync semantic memory substrate patches integration scope without rewriting unchanged rows", () => {
+  const root = makeTempDir("hb-state-store-semantic-sync-integration-");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceRoot = path.join(root, "workspace");
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+
+  store.replaceSemanticMemoryTree({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodes: [
+      {
+        nodeId: "integration-root",
+        nodeClass: "semantic",
+        nodeKind: "repo",
+        path: "memory/integration/github/holaboss-ai-holaOS/content.md",
+        title: "holaboss-ai/holaOS",
+        summary: "Repository memory.",
+        bodySha256: "sha-integration-root-v1",
+        childCount: 1,
+        metadata: { provider: "github" },
+        createdAt: "2026-05-24T11:00:00.000Z",
+        updatedAt: "2026-05-24T11:00:00.000Z",
+      },
+      {
+        nodeId: "integration-issues",
+        nodeClass: "semantic",
+        nodeKind: "facet",
+        path: "memory/integration/github/holaboss-ai-holaOS/issues/content.md",
+        title: "Issues",
+        summary: "Open issues.",
+        bodySha256: "sha-integration-issues-v1",
+        childCount: 1,
+        createdAt: "2026-05-24T11:01:00.000Z",
+        updatedAt: "2026-05-24T11:01:00.000Z",
+      },
+      {
+        nodeId: "integration-issue-101",
+        nodeClass: "leaf",
+        nodeKind: "leaf",
+        sourceLeafId: "issue-101",
+        path: "memory/integration/github/holaboss-ai-holaOS/issues/101.md",
+        title: "Issue #101",
+        summary: "Fix layout mismatch.",
+        bodySha256: "sha-integration-leaf-101",
+        observedAt: "2026-05-24T10:59:00.000Z",
+        metadata: { source: "integration_leaf" },
+        createdAt: "2026-05-24T11:02:00.000Z",
+        updatedAt: "2026-05-24T11:02:00.000Z",
+      },
+    ],
+    edges: [
+      {
+        parentNodeId: "integration-root",
+        childNodeId: "integration-issues",
+        position: 1,
+        createdAt: "2026-05-24T11:03:00.000Z",
+      },
+      {
+        parentNodeId: "integration-issues",
+        childNodeId: "integration-issue-101",
+        position: 1,
+        createdAt: "2026-05-24T11:04:00.000Z",
+      },
+    ],
+  });
+  store.replaceSemanticMemorySearchDocs({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    docs: [
+      {
+        nodeId: "integration-root",
+        nodeClass: "semantic",
+        nodeKind: "repo",
+        path: "memory/integration/github/holaboss-ai-holaOS/content.md",
+        childCount: 1,
+        title: "holaboss-ai/holaOS",
+        summary: "Repository memory.",
+        bodyText: "Repository memory root body.",
+        excerpt: "Repository memory root body.",
+        updatedAt: "2026-05-24T11:05:00.000Z",
+      },
+      {
+        nodeId: "integration-issues",
+        nodeClass: "semantic",
+        nodeKind: "facet",
+        path: "memory/integration/github/holaboss-ai-holaOS/issues/content.md",
+        childCount: 1,
+        title: "Issues",
+        summary: "Open issues.",
+        bodyText: "Issue list body for layout bugs.",
+        excerpt: "Issue list body for layout bugs.",
+        updatedAt: "2026-05-24T11:06:00.000Z",
+      },
+      {
+        nodeId: "integration-issue-101",
+        nodeClass: "leaf",
+        nodeKind: "leaf",
+        path: "memory/integration/github/holaboss-ai-holaOS/issues/101.md",
+        title: "Issue #101",
+        summary: "Fix layout mismatch.",
+        bodyText: "Layout mismatch appears in the memory browser.",
+        excerpt: "Layout mismatch appears in the memory browser.",
+        observedAt: "2026-05-24T10:59:00.000Z",
+        updatedAt: "2026-05-24T11:07:00.000Z",
+      },
+    ],
+  });
+  store.replaceSemanticMemoryRelations({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    relations: [
+      {
+        fromNodeId: "integration-root",
+        toNodeId: "integration-issue-101",
+        relationType: "tracks",
+        metadata: { priority: "medium" },
+        createdAt: "2026-05-24T11:08:00.000Z",
+        updatedAt: "2026-05-24T11:08:00.000Z",
+      },
+    ],
+  });
+
+  const issuesBefore = store.getSemanticMemoryNode({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-issues",
+  });
+  const issuesDocBefore = store.getSemanticMemorySearchDoc({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-issues",
+  });
+  const rootEdgeBefore = store.listSemanticMemoryChildren({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    parentNodeId: "integration-root",
+  })[0];
+
+  assert.ok(issuesBefore);
+  assert.ok(issuesDocBefore);
+  assert.ok(rootEdgeBefore);
+
+  store.syncSemanticMemoryTree({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodes: [
+      {
+        nodeId: "integration-root",
+        nodeClass: "semantic",
+        nodeKind: "repo",
+        path: "memory/integration/github/holaboss-ai-holaOS/content.md",
+        title: "holaboss-ai/holaOS",
+        summary: "Repository memory with release issues.",
+        bodySha256: "sha-integration-root-v2",
+        childCount: 1,
+        metadata: { provider: "github", owner: "holaboss-ai" },
+        createdAt: "2099-01-01T00:00:00.000Z",
+        updatedAt: "2026-05-25T11:00:00.000Z",
+      },
+      {
+        nodeId: "integration-issues",
+        nodeClass: "semantic",
+        nodeKind: "facet",
+        path: "memory/integration/github/holaboss-ai-holaOS/issues/content.md",
+        title: "Issues",
+        summary: "Open issues.",
+        bodySha256: "sha-integration-issues-v1",
+        childCount: 1,
+        createdAt: "2099-01-01T00:00:00.000Z",
+        updatedAt: "2099-01-01T00:00:00.000Z",
+      },
+      {
+        nodeId: "integration-issue-202",
+        nodeClass: "leaf",
+        nodeKind: "leaf",
+        sourceLeafId: "issue-202",
+        path: "memory/integration/github/holaboss-ai-holaOS/issues/202.md",
+        title: "Issue #202",
+        summary: "Backfill release metrics after rollout.",
+        bodySha256: "sha-integration-leaf-202",
+        observedAt: "2026-05-25T10:59:00.000Z",
+        metadata: { source: "integration_leaf" },
+        createdAt: "2026-05-25T11:01:00.000Z",
+        updatedAt: "2026-05-25T11:01:00.000Z",
+      },
+    ],
+    edges: [
+      {
+        parentNodeId: "integration-root",
+        childNodeId: "integration-issues",
+        position: 1,
+        createdAt: "2099-01-01T00:00:00.000Z",
+      },
+      {
+        parentNodeId: "integration-issues",
+        childNodeId: "integration-issue-202",
+        position: 1,
+        createdAt: "2026-05-25T11:02:00.000Z",
+      },
+    ],
+  });
+  store.syncSemanticMemorySearchDocs({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    docs: [
+      {
+        nodeId: "integration-root",
+        nodeClass: "semantic",
+        nodeKind: "repo",
+        path: "memory/integration/github/holaboss-ai-holaOS/content.md",
+        childCount: 1,
+        title: "holaboss-ai/holaOS",
+        summary: "Repository memory with release issues.",
+        bodyText: "Repository memory root body with release issues.",
+        excerpt: "Repository memory root body with release issues.",
+        updatedAt: "2026-05-25T11:03:00.000Z",
+      },
+      {
+        nodeId: "integration-issues",
+        nodeClass: "semantic",
+        nodeKind: "facet",
+        path: "memory/integration/github/holaboss-ai-holaOS/issues/content.md",
+        childCount: 1,
+        title: "Issues",
+        summary: "Open issues.",
+        bodyText: "Issue list body for layout bugs.",
+        excerpt: "Issue list body for layout bugs.",
+        updatedAt: "2099-01-01T00:00:00.000Z",
+      },
+      {
+        nodeId: "integration-issue-202",
+        nodeClass: "leaf",
+        nodeKind: "leaf",
+        path: "memory/integration/github/holaboss-ai-holaOS/issues/202.md",
+        title: "Issue #202",
+        summary: "Backfill release metrics after rollout.",
+        bodyText: "Release metrics backfill should start after the rollout settles.",
+        excerpt: "Release metrics backfill should start after the rollout settles.",
+        observedAt: "2026-05-25T10:59:00.000Z",
+        updatedAt: "2026-05-25T11:04:00.000Z",
+      },
+    ],
+  });
+  store.syncSemanticMemoryRelations({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    relations: [
+      {
+        fromNodeId: "integration-root",
+        toNodeId: "integration-issue-202",
+        relationType: "tracks",
+        metadata: { priority: "high" },
+        createdAt: "2026-05-25T11:05:00.000Z",
+        updatedAt: "2026-05-25T11:05:00.000Z",
+      },
+    ],
+  });
+
+  const rootAfter = store.getSemanticMemoryNode({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-root",
+  });
+  const issuesAfter = store.getSemanticMemoryNode({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-issues",
+  });
+  const issue101After = store.getSemanticMemoryNode({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-issue-101",
+  });
+  const issue202After = store.getSemanticMemoryNode({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-issue-202",
+  });
+  const rootDocAfter = store.getSemanticMemorySearchDoc({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-root",
+  });
+  const issuesDocAfter = store.getSemanticMemorySearchDoc({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-issues",
+  });
+  const issue101DocAfter = store.getSemanticMemorySearchDoc({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-issue-101",
+  });
+  const issue202DocAfter = store.getSemanticMemorySearchDoc({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    nodeId: "integration-issue-202",
+  });
+  const rootEdgeAfter = store.listSemanticMemoryChildren({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    parentNodeId: "integration-root",
+  });
+  const issueEdgesAfter = store.listSemanticMemoryChildren({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    parentNodeId: "integration-issues",
+  });
+  const relationsAfter = store.listSemanticMemoryRelations({
+    category: "integration",
+    treeId: "integration:github:conn-1",
+    fromNodeId: "integration-root",
+  });
+
+  assert.ok(rootAfter);
+  assert.ok(issuesAfter);
+  assert.equal(issue101After, null);
+  assert.ok(issue202After);
+  assert.ok(rootDocAfter);
+  assert.ok(issuesDocAfter);
+  assert.equal(issue101DocAfter, null);
+  assert.ok(issue202DocAfter);
+  assert.equal(rootAfter.createdAt, "2026-05-24T11:00:00.000Z");
+  assert.equal(rootAfter.updatedAt, "2026-05-25T11:00:00.000Z");
+  assert.equal(issuesAfter.createdAt, issuesBefore.createdAt);
+  assert.equal(issuesAfter.updatedAt, issuesBefore.updatedAt);
+  assert.deepEqual(rootAfter.metadata, { provider: "github", owner: "holaboss-ai" });
+  assert.equal(issue202After.createdAt, "2026-05-25T11:01:00.000Z");
+  assert.equal(rootDocAfter.updatedAt, "2026-05-25T11:03:00.000Z");
+  assert.equal(issuesDocAfter.updatedAt, issuesDocBefore.updatedAt);
+  assert.equal(issue202DocAfter.updatedAt, "2026-05-25T11:04:00.000Z");
+  assert.equal(rootEdgeAfter[0]?.createdAt, rootEdgeBefore.createdAt);
+  assert.deepEqual(
+    issueEdgesAfter.map((edge) => ({
+      childNodeId: edge.childNodeId,
+      createdAt: edge.createdAt,
+    })),
+    [{ childNodeId: "integration-issue-202", createdAt: "2026-05-25T11:02:00.000Z" }],
+  );
+  assert.deepEqual(
+    relationsAfter.map((relation) => ({
+      toNodeId: relation.toNodeId,
+      relationType: relation.relationType,
+      priority: relation.metadata.priority,
+      createdAt: relation.createdAt,
+    })),
+    [{
+      toNodeId: "integration-issue-202",
+      relationType: "tracks",
+      priority: "high",
+      createdAt: "2026-05-25T11:05:00.000Z",
+    }],
+  );
+  assert.deepEqual(
+    store.searchSemanticMemorySearchDocs({
+      category: "integration",
+      treeId: "integration:github:conn-1",
+      matchQuery: "backfill",
+    }).map((hit) => hit.nodeId),
+    ["integration-issue-202"],
+  );
+  assert.equal(
+    store.searchSemanticMemorySearchDocs({
+      category: "integration",
+      treeId: "integration:github:conn-1",
+      matchQuery: "mismatch",
+    }).some((hit) => hit.nodeId === "integration-issue-101"),
+    false,
+  );
+
+  store.close();
 });

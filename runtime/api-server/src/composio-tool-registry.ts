@@ -142,51 +142,12 @@ async function findFreePort(): Promise<number> {
   });
 }
 
-type ToolkitToolDefinition = Omit<ComposioMcpToolEntry, "connected_account_id" | "toolkit_slug">;
-
-// Add a row here to expose a new Composio toolkit to the agent.
-// Each entry is one toolkit; `tools` lists the verbs we expose for it.
-// The internal catalog plan (docs/plans/2026-05-19-agent-direct-integration-tools.md §5.5)
-// will replace this with a generated table fed by the Composio /tools endpoint.
-const TOOLKIT_CATALOG: Record<string, { tools: ToolkitToolDefinition[] }> = {
-  gmail: {
-    tools: [
-      {
-        name: "gmail_get_profile",
-        description:
-          "Read the authenticated Gmail user's profile (email address, message count, thread count). Read-only.",
-        tool_slug: "GMAIL_GET_PROFILE",
-        input_schema: {
-          type: "object",
-          title: "GmailGetProfileRequest",
-          properties: {
-            user_id: {
-              type: "string",
-              default: "me",
-              description: "User identifier — 'me' for the authenticated user.",
-              examples: ["me", "user@example.com"],
-            },
-          },
-        },
-        annotations: { readOnlyHint: true },
-      },
-    ],
-  },
-};
-
-/** Hero toolkits — manually curated entries get priority. */
-export function listHeroToolkitSlugs(): string[] {
-  return Object.keys(TOOLKIT_CATALOG);
-}
-
-/** @deprecated — use hasHeroEntry / listHeroToolkitSlugs. Kept so the old
- *  manager / mcp call sites that filtered to hero-only keep working. */
-export function listSupportedToolkitSlugs(): string[] {
-  return Object.keys(TOOLKIT_CATALOG);
-}
-
-export function hasHeroEntry(toolkitSlug: string): boolean {
-  return Boolean(TOOLKIT_CATALOG[toolkitSlug]);
+// Hand-curated tier was removed — capabilities are auto-discovered at MCP
+// boot via Composio's /tools endpoint (see buildToolkitCatalogAsync below
+// + composio-mcp-manager). `hasHeroEntry` is kept as a no-op so the one
+// external caller (workspace-integrations.ts) doesn't need to know.
+export function hasHeroEntry(_toolkitSlug: string): boolean {
+  return false;
 }
 
 // Pick top-N tools from a Composio toolkit when we don't have a Hero entry.
@@ -225,11 +186,9 @@ export function toolkitNameFromSlug(slug: string): string {
 }
 
 /**
- * Build the MCP tool entries for `toolkitSlug` × `connectedAccountId`.
- * Falls back to a Composio-tool-catalog-driven heuristic when we don't
- * have a Hero entry, so every active connection has _something_ usable
- * by the agent. Caller must provide a tool fetcher (closure over
- * ComposioService) when dynamic discovery is needed.
+ * Build the MCP tool entries for `toolkitSlug` × `connectedAccountId` by
+ * fetching Composio's tool catalog for the toolkit and ranking via
+ * HEURISTIC_VERB_PATTERNS (reads first). Returns at most `topN`.
  */
 export async function buildToolkitCatalogAsync(
   toolkitSlug: string,
@@ -245,14 +204,6 @@ export async function buildToolkitCatalogAsync(
   >,
   options: { topN?: number } = {},
 ): Promise<ComposioMcpToolEntry[]> {
-  const hero = TOOLKIT_CATALOG[toolkitSlug];
-  if (hero) {
-    return hero.tools.map((tool) => ({
-      ...tool,
-      toolkit_slug: toolkitSlug,
-      connected_account_id: connectedAccountId,
-    }));
-  }
   let upstream: Awaited<ReturnType<typeof fetchTools>>;
   try {
     upstream = await fetchTools(toolkitSlug);
@@ -278,47 +229,6 @@ export async function buildToolkitCatalogAsync(
     connected_account_id: connectedAccountId,
     input_schema: tool.input_schema,
     annotations: tool.read_only ? { readOnlyHint: true } : undefined,
-  }));
-}
-
-export interface ToolkitCapabilityEntry {
-  name: string;
-  description: string;
-  tool_slug: string;
-  read_only: boolean;
-}
-
-export function listToolkitCapabilities(toolkitSlug: string): ToolkitCapabilityEntry[] {
-  const entry = TOOLKIT_CATALOG[toolkitSlug];
-  if (!entry) return [];
-  return entry.tools.map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    tool_slug: tool.tool_slug,
-    read_only: Boolean((tool.annotations as { readOnlyHint?: boolean } | undefined)?.readOnlyHint),
-  }));
-}
-
-export function listAllToolkitCapabilities(): Record<string, ToolkitCapabilityEntry[]> {
-  const result: Record<string, ToolkitCapabilityEntry[]> = {};
-  for (const slug of Object.keys(TOOLKIT_CATALOG)) {
-    result[slug] = listToolkitCapabilities(slug);
-  }
-  return result;
-}
-
-export function buildToolkitCatalog(
-  toolkitSlug: string,
-  connectedAccountId: string,
-): ComposioMcpToolEntry[] {
-  const entry = TOOLKIT_CATALOG[toolkitSlug];
-  if (!entry) {
-    return [];
-  }
-  return entry.tools.map((tool) => ({
-    ...tool,
-    toolkit_slug: toolkitSlug,
-    connected_account_id: connectedAccountId,
   }));
 }
 

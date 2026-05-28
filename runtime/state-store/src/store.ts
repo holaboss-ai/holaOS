@@ -598,6 +598,16 @@ export interface InteractionNodeEmbeddingRecord {
   updatedAt: string;
 }
 
+export interface InteractionNodeEmbeddingVectorSearchResult {
+  vecRowid: number;
+  distance: number;
+  workspaceId: string;
+  nodeKind: InteractionTreeChildKind;
+  nodeId: string;
+  entityId: string;
+  embeddingModel: string;
+}
+
 export interface IntegrationTreeRecord {
   treeId: string;
   provider: string;
@@ -651,6 +661,15 @@ export interface IntegrationNodeEmbeddingRecord {
   updatedAt: string;
 }
 
+export interface IntegrationNodeEmbeddingVectorSearchResult {
+  vecRowid: number;
+  distance: number;
+  nodeKind: InteractionTreeChildKind;
+  nodeId: string;
+  treeId: string;
+  embeddingModel: string;
+}
+
 export interface SemanticMemoryNodeRecord {
   workspaceId: string | null;
   category: SemanticMemoryCategory;
@@ -692,6 +711,28 @@ export interface SemanticMemoryRelationRecord {
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SemanticMemorySearchDocRecord {
+  workspaceId: string | null;
+  category: SemanticMemoryCategory;
+  treeId: string;
+  nodeId: string;
+  nodeClass: SemanticMemoryNodeClass;
+  nodeKind: string;
+  path: string;
+  childCount: number;
+  title: string;
+  summary: string;
+  bodyText: string;
+  excerpt: string | null;
+  observedAt: string | null;
+  status: MemoryNodeStatus;
+  updatedAt: string;
+}
+
+export interface SemanticMemorySearchHitRecord extends SemanticMemorySearchDocRecord {
+  bm25Score: number;
 }
 
 export interface OutputFolderRecord {
@@ -7104,6 +7145,13 @@ export class RuntimeStateStore {
     if (!record) {
       throw new Error("interaction embedding row not found after upsert");
     }
+    this.replaceInteractionNodeEmbeddingVector({
+      workspaceId: params.workspaceId,
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+      embedding: new Float32Array(params.vector),
+    });
     return record;
   }
 
@@ -7129,11 +7177,171 @@ export class RuntimeStateStore {
     return row ? this.rowToInteractionNodeEmbedding(row) : null;
   }
 
+  private interactionNodeEmbeddingRowid(params: {
+    workspaceId: string;
+    nodeKind: InteractionTreeChildKind;
+    nodeId: string;
+    embeddingModel: string;
+  }): number | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare<
+        [string, string, string, string],
+        { vec_rowid?: number | bigint | null }
+      >(
+        `
+          SELECT rowid AS vec_rowid
+          FROM interaction_node_embeddings
+          WHERE workspace_id = ?
+            AND node_kind = ?
+            AND node_id = ?
+            AND embedding_model = ?
+          LIMIT 1
+        `,
+      )
+      .get(params.workspaceId, params.nodeKind, params.nodeId, params.embeddingModel);
+    if (!row?.vec_rowid) {
+      return null;
+    }
+    return Number(row.vec_rowid);
+  }
+
+  replaceInteractionNodeEmbeddingVector(params: {
+    workspaceId: string;
+    nodeKind: InteractionTreeChildKind;
+    nodeId: string;
+    embeddingModel: string;
+    embedding: Float32Array;
+  }): void {
+    if (!this.#vectorIndexSupported || params.embedding.length !== 1536) {
+      return;
+    }
+    const record = this.getInteractionNodeEmbedding({
+      workspaceId: params.workspaceId,
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+    });
+    if (!record) {
+      return;
+    }
+    const vecRowid = this.interactionNodeEmbeddingRowid({
+      workspaceId: params.workspaceId,
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+    });
+    if (!Number.isFinite(vecRowid)) {
+      return;
+    }
+    const db = this.workspaceRuntimeDb(params.workspaceId);
+    db.prepare("DELETE FROM interaction_node_embedding_vec WHERE vec_rowid = ?").run(vecRowid);
+    db
+      .prepare(`
+        INSERT INTO interaction_node_embedding_vec (vec_rowid, embedding, entity_id, node_kind, embedding_model)
+        VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
+      `)
+      .run(
+        vecRowid,
+        params.embedding,
+        record.entityId,
+        record.nodeKind,
+        record.embeddingModel,
+      );
+  }
+
+  private backfillInteractionNodeEmbeddingVectors(params: {
+    workspaceId: string;
+    embeddingModel: string;
+    entityIds?: string[] | null;
+    nodeKinds?: InteractionTreeChildKind[] | null;
+  }): void {
+    if (!this.#vectorIndexSupported) {
+      return;
+    }
+    const normalizedEntityIds = params.entityIds
+      ? [...new Set(params.entityIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    const normalizedNodeKinds = params.nodeKinds
+      ? [...new Set(params.nodeKinds.map((value) => value.trim()).filter(Boolean) as InteractionTreeChildKind[])]
+      : null;
+    const db = this.workspaceRuntimeDb(params.workspaceId);
+    let query = `
+      SELECT rowid AS vec_rowid, vector_json, entity_id, node_kind, embedding_model
+      FROM interaction_node_embeddings
+      WHERE workspace_id = ?
+        AND embedding_model = ?
+        AND dimensions = 1536
+    `;
+    const values: Array<string | number> = [params.workspaceId, params.embeddingModel];
+    if (normalizedEntityIds && normalizedEntityIds.length > 0) {
+      query += ` AND entity_id IN (${normalizedEntityIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedEntityIds);
+    }
+    if (normalizedNodeKinds && normalizedNodeKinds.length > 0) {
+      query += ` AND node_kind IN (${normalizedNodeKinds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeKinds);
+    }
+    const sourceRows = db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+    if (sourceRows.length === 0) {
+      return;
+    }
+    const rowIds = sourceRows
+      .map((row) => Number(row.vec_rowid))
+      .filter((value) => Number.isFinite(value));
+    if (rowIds.length === 0) {
+      return;
+    }
+    const existingRowIds = new Set<number>(
+      (
+        db.prepare(`
+          SELECT vec_rowid
+          FROM interaction_node_embedding_vec
+          WHERE vec_rowid IN (${rowIds.map(() => "?").join(", ")})
+        `).all(...rowIds) as Array<{ vec_rowid: number | bigint }>
+      )
+        .map((row) => Number(row.vec_rowid))
+        .filter((value) => Number.isFinite(value)),
+    );
+    const insert = db.prepare(`
+      INSERT INTO interaction_node_embedding_vec (vec_rowid, embedding, entity_id, node_kind, embedding_model)
+      VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
+    `);
+    const insertMany = db.transaction((items: Array<Record<string, unknown>>) => {
+      for (const row of items) {
+        const vecRowid = Number(row.vec_rowid);
+        if (!Number.isFinite(vecRowid) || existingRowIds.has(vecRowid)) {
+          continue;
+        }
+        const vector = this.parseJsonList(row.vector_json)
+          .map((value) => (typeof value === "number" ? value : Number(value)))
+          .filter((value) => Number.isFinite(value));
+        if (vector.length !== 1536) {
+          continue;
+        }
+        insert.run(
+          vecRowid,
+          new Float32Array(vector),
+          String(row.entity_id),
+          String(row.node_kind),
+          String(row.embedding_model),
+        );
+      }
+    });
+    insertMany(sourceRows);
+  }
+
   listInteractionNodeEmbeddings(params: {
     workspaceId: string;
     entityId?: string | null;
     embeddingModel?: string | null;
+    nodeIds?: string[] | null;
   }): InteractionNodeEmbeddingRecord[] {
+    const normalizedNodeIds = params.nodeIds
+      ? [...new Set(params.nodeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    if (params.nodeIds && normalizedNodeIds && normalizedNodeIds.length === 0) {
+      return [];
+    }
     let query = `
       SELECT *
       FROM interaction_node_embeddings
@@ -7156,9 +7364,106 @@ export class RuntimeStateStore {
         values.push(params.embeddingModel);
       }
     }
+    if (normalizedNodeIds) {
+      query += ` AND node_id IN (${normalizedNodeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeIds);
+    }
     query += " ORDER BY updated_at DESC, created_at DESC, node_id ASC";
     const rows = this.workspaceRuntimeDb(params.workspaceId).prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToInteractionNodeEmbedding(row));
+  }
+
+  searchInteractionNodeEmbeddingsByVector(params: {
+    workspaceId: string;
+    embedding: Float32Array;
+    embeddingModel: string;
+    limit: number;
+    entityIds?: string[] | null;
+    nodeKinds?: InteractionTreeChildKind[] | null;
+  }): InteractionNodeEmbeddingVectorSearchResult[] {
+    if (!this.#vectorIndexSupported || params.embedding.length !== 1536) {
+      return [];
+    }
+    const normalizedLimit = Math.max(1, Math.trunc(params.limit));
+    const normalizedEntityIds = params.entityIds
+      ? [...new Set(params.entityIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    const normalizedNodeKinds = params.nodeKinds
+      ? [...new Set(params.nodeKinds.map((value) => value.trim()).filter(Boolean) as InteractionTreeChildKind[])]
+      : null;
+    this.backfillInteractionNodeEmbeddingVectors({
+      workspaceId: params.workspaceId,
+      embeddingModel: params.embeddingModel,
+      entityIds: normalizedEntityIds,
+      nodeKinds: normalizedNodeKinds,
+    });
+    let query = `
+      SELECT vec_rowid, distance
+      FROM interaction_node_embedding_vec
+      WHERE embedding MATCH ?
+        AND k = ?
+        AND embedding_model = ?
+    `;
+    const values: Array<string | number | Float32Array> = [params.embedding, normalizedLimit, params.embeddingModel];
+    if (normalizedEntityIds && normalizedEntityIds.length > 0) {
+      query += ` AND entity_id IN (${normalizedEntityIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedEntityIds);
+    }
+    if (normalizedNodeKinds && normalizedNodeKinds.length > 0) {
+      query += ` AND node_kind IN (${normalizedNodeKinds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeKinds);
+    }
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(query)
+      .all(...values) as Array<{ vec_rowid: number; distance: number }>;
+    return this.interactionEmbeddingVectorResultsForRows(params.workspaceId, rows);
+  }
+
+  private interactionEmbeddingVectorResultsForRows(
+    workspaceId: string,
+    rows: Array<{ vec_rowid: number; distance: number }>
+  ): InteractionNodeEmbeddingVectorSearchResult[] {
+    if (rows.length === 0) {
+      return [];
+    }
+    const rowIds = rows.map((row) => Number(row.vec_rowid)).filter((value) => Number.isFinite(value));
+    if (rowIds.length === 0) {
+      return [];
+    }
+    const db = this.workspaceRuntimeDb(workspaceId);
+    const mappingRows = db
+      .prepare(`
+        SELECT rowid AS vec_rowid, *
+        FROM interaction_node_embeddings
+        WHERE workspace_id = ?
+          AND rowid IN (${rowIds.map(() => "?").join(", ")})
+      `)
+      .all(workspaceId, ...rowIds) as Array<Record<string, unknown>>;
+    const byRowId = new Map<number, InteractionNodeEmbeddingRecord>();
+    for (const row of mappingRows) {
+      const vecRowid = Number(row.vec_rowid);
+      if (!Number.isFinite(vecRowid)) {
+        continue;
+      }
+      byRowId.set(vecRowid, this.rowToInteractionNodeEmbedding(row));
+    }
+    const results: InteractionNodeEmbeddingVectorSearchResult[] = [];
+    for (const row of rows) {
+      const mapping = byRowId.get(Number(row.vec_rowid));
+      if (!mapping) {
+        continue;
+      }
+      results.push({
+        vecRowid: Number(row.vec_rowid),
+        distance: Number(row.distance),
+        workspaceId: mapping.workspaceId,
+        nodeKind: mapping.nodeKind,
+        nodeId: mapping.nodeId,
+        entityId: mapping.entityId,
+        embeddingModel: mapping.embeddingModel,
+      });
+    }
+    return results;
   }
 
   upsertIntegrationTree(params: {
@@ -7741,6 +8046,969 @@ export class RuntimeStateStore {
     });
   }
 
+  syncSemanticMemoryTree(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId: string;
+    nodes: Array<{
+      nodeId: string;
+      nodeClass: SemanticMemoryNodeClass;
+      nodeKind: string;
+      sourceLeafId?: string | null;
+      path: string;
+      title: string;
+      summary: string;
+      bodySha256: string;
+      childCount?: number;
+      observedAt?: string | null;
+      status?: MemoryNodeStatus;
+      isMaterialized?: boolean;
+      metadata?: Record<string, unknown> | null;
+      createdAt?: string;
+      updatedAt?: string;
+    }>;
+    edges: Array<{
+      parentNodeId: string;
+      childNodeId: string;
+      position: number;
+      createdAt?: string;
+    }>;
+  }): SemanticMemoryNodeRecord[] {
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    const sync = scope.db.transaction(() => {
+      const now = utcNowIso();
+      const existingNodes = this.listSemanticMemoryNodes({
+        category: params.category,
+        workspaceId: scope.workspaceId,
+        treeId: params.treeId,
+        limit: 10_000,
+        offset: 0,
+      });
+      const existingNodesById = new Map(existingNodes.map((node) => [node.nodeId, node]));
+      const desiredNodeIds = new Set(params.nodes.map((node) => node.nodeId));
+      const upsertNode = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            INSERT INTO semantic_memory_nodes (
+              workspace_id,
+              category,
+              tree_id,
+              node_id,
+              node_class,
+              node_kind,
+              source_leaf_id,
+              path,
+              title,
+              summary,
+              body_sha256,
+              child_count,
+              observed_at,
+              status,
+              is_materialized,
+              metadata,
+              created_at,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workspace_id, category, tree_id, node_id) DO UPDATE SET
+              node_class = excluded.node_class,
+              node_kind = excluded.node_kind,
+              source_leaf_id = excluded.source_leaf_id,
+              path = excluded.path,
+              title = excluded.title,
+              summary = excluded.summary,
+              body_sha256 = excluded.body_sha256,
+              child_count = excluded.child_count,
+              observed_at = excluded.observed_at,
+              status = excluded.status,
+              is_materialized = excluded.is_materialized,
+              metadata = excluded.metadata,
+              updated_at = excluded.updated_at
+          `)
+        : scope.db.prepare(`
+            INSERT INTO semantic_memory_nodes (
+              category,
+              tree_id,
+              node_id,
+              node_class,
+              node_kind,
+              source_leaf_id,
+              path,
+              title,
+              summary,
+              body_sha256,
+              child_count,
+              observed_at,
+              status,
+              is_materialized,
+              metadata,
+              created_at,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(category, tree_id, node_id) DO UPDATE SET
+              node_class = excluded.node_class,
+              node_kind = excluded.node_kind,
+              source_leaf_id = excluded.source_leaf_id,
+              path = excluded.path,
+              title = excluded.title,
+              summary = excluded.summary,
+              body_sha256 = excluded.body_sha256,
+              child_count = excluded.child_count,
+              observed_at = excluded.observed_at,
+              status = excluded.status,
+              is_materialized = excluded.is_materialized,
+              metadata = excluded.metadata,
+              updated_at = excluded.updated_at
+          `);
+      for (const node of params.nodes) {
+        const existing = existingNodesById.get(node.nodeId) ?? null;
+        if (existing && this.semanticMemoryNodeMatches(existing, node)) {
+          continue;
+        }
+        const createdAt = existing?.createdAt ?? node.createdAt ?? now;
+        const updatedAt = node.updatedAt ?? now;
+        const metadataJson = JSON.stringify(node.metadata ?? {});
+        if (scope.workspaceId !== null) {
+          upsertNode.run(
+            scope.workspaceId,
+            params.category,
+            params.treeId,
+            node.nodeId,
+            node.nodeClass,
+            node.nodeKind,
+            node.sourceLeafId ?? null,
+            node.path,
+            node.title,
+            node.summary,
+            node.bodySha256,
+            node.childCount ?? 0,
+            node.observedAt ?? null,
+            node.status ?? "active",
+            node.isMaterialized ? 1 : 0,
+            metadataJson,
+            createdAt,
+            updatedAt,
+          );
+          continue;
+        }
+        upsertNode.run(
+          params.category,
+          params.treeId,
+          node.nodeId,
+          node.nodeClass,
+          node.nodeKind,
+          node.sourceLeafId ?? null,
+          node.path,
+          node.title,
+          node.summary,
+          node.bodySha256,
+          node.childCount ?? 0,
+          node.observedAt ?? null,
+          node.status ?? "active",
+          node.isMaterialized ? 1 : 0,
+          metadataJson,
+          createdAt,
+          updatedAt,
+        );
+      }
+
+      const existingEdges = this.listAllSemanticMemoryEdgesForTree({
+        category: params.category,
+        workspaceId: scope.workspaceId,
+        treeId: params.treeId,
+      });
+      const existingEdgesByParent = new Map<string, SemanticMemoryContainmentEdgeRecord[]>();
+      for (const edge of existingEdges) {
+        const bucket = existingEdgesByParent.get(edge.parentNodeId);
+        if (bucket) {
+          bucket.push(edge);
+        } else {
+          existingEdgesByParent.set(edge.parentNodeId, [edge]);
+        }
+      }
+      const desiredEdgesByParent = new Map<string, Array<{
+        parentNodeId: string;
+        childNodeId: string;
+        position: number;
+        createdAt?: string;
+      }>>();
+      for (const edge of params.edges) {
+        const bucket = desiredEdgesByParent.get(edge.parentNodeId);
+        if (bucket) {
+          bucket.push(edge);
+        } else {
+          desiredEdgesByParent.set(edge.parentNodeId, [edge]);
+        }
+      }
+      const deleteParentEdges = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            DELETE FROM semantic_memory_edges
+            WHERE workspace_id = ? AND category = ? AND tree_id = ? AND parent_node_id = ?
+          `)
+        : scope.db.prepare(`
+            DELETE FROM semantic_memory_edges
+            WHERE category = ? AND tree_id = ? AND parent_node_id = ?
+          `);
+      const insertEdge = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            INSERT INTO semantic_memory_edges (
+              workspace_id,
+              category,
+              tree_id,
+              parent_node_id,
+              child_node_id,
+              position,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `)
+        : scope.db.prepare(`
+            INSERT INTO semantic_memory_edges (
+              category,
+              tree_id,
+              parent_node_id,
+              child_node_id,
+              position,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+          `);
+      const parentIds = new Set([
+        ...existingEdgesByParent.keys(),
+        ...desiredEdgesByParent.keys(),
+      ]);
+      for (const parentNodeId of parentIds) {
+        const existingBucket = [...(existingEdgesByParent.get(parentNodeId) ?? [])]
+          .sort((left, right) => left.position - right.position || left.childNodeId.localeCompare(right.childNodeId));
+        const desiredBucket = [...(desiredEdgesByParent.get(parentNodeId) ?? [])]
+          .sort((left, right) => left.position - right.position || left.childNodeId.localeCompare(right.childNodeId));
+        if (this.semanticMemoryEdgesMatch(existingBucket, desiredBucket)) {
+          continue;
+        }
+        if (scope.workspaceId !== null) {
+          deleteParentEdges.run(scope.workspaceId, params.category, params.treeId, parentNodeId);
+        } else {
+          deleteParentEdges.run(params.category, params.treeId, parentNodeId);
+        }
+        for (const edge of desiredBucket) {
+          const existingEdge = existingBucket.find((candidate) => candidate.childNodeId === edge.childNodeId) ?? null;
+          const createdAt = existingEdge?.createdAt ?? edge.createdAt ?? now;
+          if (scope.workspaceId !== null) {
+            insertEdge.run(
+              scope.workspaceId,
+              params.category,
+              params.treeId,
+              edge.parentNodeId,
+              edge.childNodeId,
+              edge.position,
+              createdAt,
+            );
+            continue;
+          }
+          insertEdge.run(
+            params.category,
+            params.treeId,
+            edge.parentNodeId,
+            edge.childNodeId,
+            edge.position,
+            createdAt,
+          );
+        }
+      }
+
+      const deleteNode = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            DELETE FROM semantic_memory_nodes
+            WHERE workspace_id = ? AND category = ? AND tree_id = ? AND node_id = ?
+          `)
+        : scope.db.prepare(`
+            DELETE FROM semantic_memory_nodes
+            WHERE category = ? AND tree_id = ? AND node_id = ?
+          `);
+      for (const node of existingNodes) {
+        if (desiredNodeIds.has(node.nodeId)) {
+          continue;
+        }
+        if (scope.workspaceId !== null) {
+          deleteNode.run(scope.workspaceId, params.category, params.treeId, node.nodeId);
+        } else {
+          deleteNode.run(params.category, params.treeId, node.nodeId);
+        }
+      }
+    });
+    sync();
+    return this.listSemanticMemoryNodes({
+      category: params.category,
+      workspaceId: scope.workspaceId,
+      treeId: params.treeId,
+      status: "active",
+      limit: Math.max(200, params.nodes.length + 10),
+    });
+  }
+
+  replaceSemanticMemorySearchDocs(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId: string;
+    docs: Array<{
+      nodeId: string;
+      nodeClass: SemanticMemoryNodeClass;
+      nodeKind: string;
+      path: string;
+      childCount?: number;
+      title: string;
+      summary: string;
+      bodyText: string;
+      excerpt?: string | null;
+      observedAt?: string | null;
+      status?: MemoryNodeStatus;
+      updatedAt?: string;
+    }>;
+  }): SemanticMemorySearchDocRecord[] {
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    const replace = scope.db.transaction(() => {
+      const now = utcNowIso();
+      if (scope.workspaceId !== null) {
+        scope.db.prepare(`
+          DELETE FROM semantic_memory_search_docs
+          WHERE workspace_id = ? AND category = ? AND tree_id = ?
+        `).run(scope.workspaceId, params.category, params.treeId);
+        scope.db.prepare(`
+          DELETE FROM semantic_memory_search_fts
+          WHERE workspace_id = ? AND category = ? AND tree_id = ?
+        `).run(scope.workspaceId, params.category, params.treeId);
+
+        const insertDoc = scope.db.prepare(`
+          INSERT INTO semantic_memory_search_docs (
+            workspace_id,
+            category,
+            tree_id,
+            node_id,
+            node_class,
+            node_kind,
+            path,
+            child_count,
+            title,
+            summary,
+            body_text,
+            excerpt,
+            observed_at,
+            status,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const insertFts = scope.db.prepare(`
+          INSERT INTO semantic_memory_search_fts (
+            workspace_id,
+            category,
+            tree_id,
+            node_id,
+            node_class,
+            node_kind,
+            path,
+            child_count,
+            title,
+            summary,
+            body_text,
+            excerpt,
+            observed_at,
+            status,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const doc of params.docs) {
+          const updatedAt = doc.updatedAt ?? now;
+          const childCount = doc.childCount ?? 0;
+          const excerpt = doc.excerpt ?? null;
+          const observedAt = doc.observedAt ?? null;
+          const status = doc.status ?? "active";
+          insertDoc.run(
+            scope.workspaceId,
+            params.category,
+            params.treeId,
+            doc.nodeId,
+            doc.nodeClass,
+            doc.nodeKind,
+            doc.path,
+            childCount,
+            doc.title,
+            doc.summary,
+            doc.bodyText,
+            excerpt,
+            observedAt,
+            status,
+            updatedAt,
+          );
+          insertFts.run(
+            scope.workspaceId,
+            params.category,
+            params.treeId,
+            doc.nodeId,
+            doc.nodeClass,
+            doc.nodeKind,
+            doc.path,
+            childCount,
+            doc.title,
+            doc.summary,
+            doc.bodyText,
+            excerpt,
+            observedAt,
+            status,
+            updatedAt,
+          );
+        }
+        return;
+      }
+
+      scope.db.prepare(`
+        DELETE FROM semantic_memory_search_docs
+        WHERE category = ? AND tree_id = ?
+      `).run(params.category, params.treeId);
+      scope.db.prepare(`
+        DELETE FROM semantic_memory_search_fts
+        WHERE category = ? AND tree_id = ?
+      `).run(params.category, params.treeId);
+
+      const insertDoc = scope.db.prepare(`
+        INSERT INTO semantic_memory_search_docs (
+          category,
+          tree_id,
+          node_id,
+          node_class,
+          node_kind,
+          path,
+          child_count,
+          title,
+          summary,
+          body_text,
+          excerpt,
+          observed_at,
+          status,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const insertFts = scope.db.prepare(`
+        INSERT INTO semantic_memory_search_fts (
+          category,
+          tree_id,
+          node_id,
+          node_class,
+          node_kind,
+          path,
+          child_count,
+          title,
+          summary,
+          body_text,
+          excerpt,
+          observed_at,
+          status,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const doc of params.docs) {
+        const updatedAt = doc.updatedAt ?? now;
+        const childCount = doc.childCount ?? 0;
+        const excerpt = doc.excerpt ?? null;
+        const observedAt = doc.observedAt ?? null;
+        const status = doc.status ?? "active";
+        insertDoc.run(
+          params.category,
+          params.treeId,
+          doc.nodeId,
+          doc.nodeClass,
+          doc.nodeKind,
+          doc.path,
+          childCount,
+          doc.title,
+          doc.summary,
+          doc.bodyText,
+          excerpt,
+          observedAt,
+          status,
+          updatedAt,
+        );
+        insertFts.run(
+          params.category,
+          params.treeId,
+          doc.nodeId,
+          doc.nodeClass,
+          doc.nodeKind,
+          doc.path,
+          childCount,
+          doc.title,
+          doc.summary,
+          doc.bodyText,
+          excerpt,
+          observedAt,
+          status,
+          updatedAt,
+        );
+      }
+    });
+    replace();
+    return this.listSemanticMemorySearchDocs({
+      category: params.category,
+      workspaceId: scope.workspaceId,
+      treeId: params.treeId,
+      status: "active",
+      limit: Math.max(200, params.docs.length + 10),
+    });
+  }
+
+  syncSemanticMemorySearchDocs(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId: string;
+    docs: Array<{
+      nodeId: string;
+      nodeClass: SemanticMemoryNodeClass;
+      nodeKind: string;
+      path: string;
+      childCount?: number;
+      title: string;
+      summary: string;
+      bodyText: string;
+      excerpt?: string | null;
+      observedAt?: string | null;
+      status?: MemoryNodeStatus;
+      updatedAt?: string;
+    }>;
+  }): SemanticMemorySearchDocRecord[] {
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    const sync = scope.db.transaction(() => {
+      const now = utcNowIso();
+      const existingDocs = this.listSemanticMemorySearchDocs({
+        category: params.category,
+        workspaceId: scope.workspaceId,
+        treeId: params.treeId,
+        limit: 10_000,
+        offset: 0,
+      });
+      const existingDocsById = new Map(existingDocs.map((doc) => [doc.nodeId, doc]));
+      const desiredNodeIds = new Set(params.docs.map((doc) => doc.nodeId));
+      const upsertDoc = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            INSERT INTO semantic_memory_search_docs (
+              workspace_id,
+              category,
+              tree_id,
+              node_id,
+              node_class,
+              node_kind,
+              path,
+              child_count,
+              title,
+              summary,
+              body_text,
+              excerpt,
+              observed_at,
+              status,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workspace_id, category, tree_id, node_id) DO UPDATE SET
+              node_class = excluded.node_class,
+              node_kind = excluded.node_kind,
+              path = excluded.path,
+              child_count = excluded.child_count,
+              title = excluded.title,
+              summary = excluded.summary,
+              body_text = excluded.body_text,
+              excerpt = excluded.excerpt,
+              observed_at = excluded.observed_at,
+              status = excluded.status,
+              updated_at = excluded.updated_at
+          `)
+        : scope.db.prepare(`
+            INSERT INTO semantic_memory_search_docs (
+              category,
+              tree_id,
+              node_id,
+              node_class,
+              node_kind,
+              path,
+              child_count,
+              title,
+              summary,
+              body_text,
+              excerpt,
+              observed_at,
+              status,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(category, tree_id, node_id) DO UPDATE SET
+              node_class = excluded.node_class,
+              node_kind = excluded.node_kind,
+              path = excluded.path,
+              child_count = excluded.child_count,
+              title = excluded.title,
+              summary = excluded.summary,
+              body_text = excluded.body_text,
+              excerpt = excluded.excerpt,
+              observed_at = excluded.observed_at,
+              status = excluded.status,
+              updated_at = excluded.updated_at
+          `);
+      const deleteDoc = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            DELETE FROM semantic_memory_search_docs
+            WHERE workspace_id = ? AND category = ? AND tree_id = ? AND node_id = ?
+          `)
+        : scope.db.prepare(`
+            DELETE FROM semantic_memory_search_docs
+            WHERE category = ? AND tree_id = ? AND node_id = ?
+          `);
+      const deleteFtsByNode = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            DELETE FROM semantic_memory_search_fts
+            WHERE workspace_id = ? AND category = ? AND tree_id = ? AND node_id = ?
+          `)
+        : scope.db.prepare(`
+            DELETE FROM semantic_memory_search_fts
+            WHERE category = ? AND tree_id = ? AND node_id = ?
+          `);
+      const insertFts = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            INSERT INTO semantic_memory_search_fts (
+              workspace_id,
+              category,
+              tree_id,
+              node_id,
+              node_class,
+              node_kind,
+              path,
+              child_count,
+              title,
+              summary,
+              body_text,
+              excerpt,
+              observed_at,
+              status,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `)
+        : scope.db.prepare(`
+            INSERT INTO semantic_memory_search_fts (
+              category,
+              tree_id,
+              node_id,
+              node_class,
+              node_kind,
+              path,
+              child_count,
+              title,
+              summary,
+              body_text,
+              excerpt,
+              observed_at,
+              status,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+      for (const existing of existingDocs) {
+        if (desiredNodeIds.has(existing.nodeId)) {
+          continue;
+        }
+        if (scope.workspaceId !== null) {
+          deleteDoc.run(scope.workspaceId, params.category, params.treeId, existing.nodeId);
+          deleteFtsByNode.run(scope.workspaceId, params.category, params.treeId, existing.nodeId);
+        } else {
+          deleteDoc.run(params.category, params.treeId, existing.nodeId);
+          deleteFtsByNode.run(params.category, params.treeId, existing.nodeId);
+        }
+      }
+      for (const doc of params.docs) {
+        const existing = existingDocsById.get(doc.nodeId) ?? null;
+        if (existing && this.semanticMemorySearchDocMatches(existing, doc)) {
+          continue;
+        }
+        const updatedAt = doc.updatedAt ?? now;
+        const childCount = doc.childCount ?? 0;
+        const excerpt = doc.excerpt ?? null;
+        const observedAt = doc.observedAt ?? null;
+        const status = doc.status ?? "active";
+        if (scope.workspaceId !== null) {
+          upsertDoc.run(
+            scope.workspaceId,
+            params.category,
+            params.treeId,
+            doc.nodeId,
+            doc.nodeClass,
+            doc.nodeKind,
+            doc.path,
+            childCount,
+            doc.title,
+            doc.summary,
+            doc.bodyText,
+            excerpt,
+            observedAt,
+            status,
+            updatedAt,
+          );
+          deleteFtsByNode.run(scope.workspaceId, params.category, params.treeId, doc.nodeId);
+          insertFts.run(
+            scope.workspaceId,
+            params.category,
+            params.treeId,
+            doc.nodeId,
+            doc.nodeClass,
+            doc.nodeKind,
+            doc.path,
+            childCount,
+            doc.title,
+            doc.summary,
+            doc.bodyText,
+            excerpt,
+            observedAt,
+            status,
+            updatedAt,
+          );
+          continue;
+        }
+        upsertDoc.run(
+          params.category,
+          params.treeId,
+          doc.nodeId,
+          doc.nodeClass,
+          doc.nodeKind,
+          doc.path,
+          childCount,
+          doc.title,
+          doc.summary,
+          doc.bodyText,
+          excerpt,
+          observedAt,
+          status,
+          updatedAt,
+        );
+        deleteFtsByNode.run(params.category, params.treeId, doc.nodeId);
+        insertFts.run(
+          params.category,
+          params.treeId,
+          doc.nodeId,
+          doc.nodeClass,
+          doc.nodeKind,
+          doc.path,
+          childCount,
+          doc.title,
+          doc.summary,
+          doc.bodyText,
+          excerpt,
+          observedAt,
+          status,
+          updatedAt,
+        );
+      }
+    });
+    sync();
+    return this.listSemanticMemorySearchDocs({
+      category: params.category,
+      workspaceId: scope.workspaceId,
+      treeId: params.treeId,
+      status: "active",
+      limit: Math.max(200, params.docs.length + 10),
+    });
+  }
+
+  getSemanticMemorySearchDoc(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId: string;
+    nodeId: string;
+  }): SemanticMemorySearchDocRecord | null {
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    if (scope.workspaceId !== null) {
+      const row = scope.db
+        .prepare<[string, string, string, string], Record<string, unknown>>(
+          `
+            SELECT *
+            FROM semantic_memory_search_docs
+            WHERE workspace_id = ? AND category = ? AND tree_id = ? AND node_id = ?
+            LIMIT 1
+          `,
+        )
+        .get(scope.workspaceId, params.category, params.treeId, params.nodeId);
+      return row ? this.rowToSemanticMemorySearchDoc(row) : null;
+    }
+    const row = scope.db
+      .prepare<[string, string, string], Record<string, unknown>>(
+        `
+          SELECT *
+          FROM semantic_memory_search_docs
+          WHERE category = ? AND tree_id = ? AND node_id = ?
+          LIMIT 1
+        `,
+      )
+      .get(params.category, params.treeId, params.nodeId);
+    return row ? this.rowToSemanticMemorySearchDoc(row) : null;
+  }
+
+  listSemanticMemorySearchDocs(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId?: string | null;
+    treeIds?: string[] | null;
+    nodeId?: string | null;
+    nodeIds?: string[] | null;
+    nodeClass?: SemanticMemoryNodeClass | null;
+    nodeKind?: string | null;
+    status?: MemoryNodeStatus | null;
+    limit?: number;
+    offset?: number;
+  }): SemanticMemorySearchDocRecord[] {
+    const normalizedTreeIds = params.treeIds
+      ? [...new Set(params.treeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    const normalizedNodeIds = params.nodeIds
+      ? [...new Set(params.nodeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    if (params.treeIds && normalizedTreeIds && normalizedTreeIds.length === 0) {
+      return [];
+    }
+    if (params.nodeIds && normalizedNodeIds && normalizedNodeIds.length === 0) {
+      return [];
+    }
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    let query = `
+      SELECT *
+      FROM semantic_memory_search_docs
+      WHERE category = ?
+    `;
+    const values: Array<string | number> = [params.category];
+    if (scope.workspaceId !== null) {
+      query += " AND workspace_id = ?";
+      values.push(scope.workspaceId);
+    }
+    if (normalizedTreeIds) {
+      query += ` AND tree_id IN (${normalizedTreeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedTreeIds);
+    } else if (params.treeId !== undefined) {
+      if (params.treeId === null) {
+        query += " AND tree_id IS NULL";
+      } else {
+        query += " AND tree_id = ?";
+        values.push(params.treeId);
+      }
+    }
+    if (params.nodeId !== undefined) {
+      if (params.nodeId === null) {
+        query += " AND node_id IS NULL";
+      } else {
+        query += " AND node_id = ?";
+        values.push(params.nodeId);
+      }
+    } else if (normalizedNodeIds) {
+      query += ` AND node_id IN (${normalizedNodeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeIds);
+    }
+    if (params.nodeClass !== undefined) {
+      if (params.nodeClass === null) {
+        query += " AND node_class IS NULL";
+      } else {
+        query += " AND node_class = ?";
+        values.push(params.nodeClass);
+      }
+    }
+    if (params.nodeKind !== undefined) {
+      if (params.nodeKind === null) {
+        query += " AND node_kind IS NULL";
+      } else {
+        query += " AND node_kind = ?";
+        values.push(params.nodeKind);
+      }
+    }
+    if (params.status !== undefined) {
+      if (params.status === null) {
+        query += " AND status IS NULL";
+      } else {
+        query += " AND status = ?";
+        values.push(params.status);
+      }
+    }
+    query += `
+      ORDER BY updated_at DESC, path ASC, node_id ASC
+      LIMIT ? OFFSET ?
+    `;
+    values.push(params.limit ?? 500, params.offset ?? 0);
+    const rows = scope.db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToSemanticMemorySearchDoc(row));
+  }
+
+  searchSemanticMemorySearchDocs(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    matchQuery: string;
+    treeId?: string | null;
+    treeIds?: string[] | null;
+    nodeClass?: SemanticMemoryNodeClass | null;
+    nodeKind?: string | null;
+    status?: MemoryNodeStatus | null;
+    limit?: number;
+    offset?: number;
+  }): SemanticMemorySearchHitRecord[] {
+    const matchQuery = params.matchQuery.trim();
+    if (!matchQuery) {
+      return [];
+    }
+    const normalizedTreeIds = params.treeIds
+      ? [...new Set(params.treeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    if (params.treeIds && normalizedTreeIds && normalizedTreeIds.length === 0) {
+      return [];
+    }
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    let query = `
+      SELECT *,
+             bm25(semantic_memory_search_fts, 4.0, 2.0, 1.0) AS bm25_score
+      FROM semantic_memory_search_fts
+      WHERE semantic_memory_search_fts MATCH ?
+    `;
+    const values: Array<string | number> = [matchQuery];
+    if (scope.workspaceId !== null) {
+      query += " AND workspace_id = ?";
+      values.push(scope.workspaceId);
+    }
+    query += " AND category = ?";
+    values.push(params.category);
+    if (normalizedTreeIds) {
+      query += ` AND tree_id IN (${normalizedTreeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedTreeIds);
+    } else if (params.treeId !== undefined) {
+      if (params.treeId === null) {
+        query += " AND tree_id IS NULL";
+      } else {
+        query += " AND tree_id = ?";
+        values.push(params.treeId);
+      }
+    }
+    if (params.nodeClass !== undefined) {
+      if (params.nodeClass === null) {
+        query += " AND node_class IS NULL";
+      } else {
+        query += " AND node_class = ?";
+        values.push(params.nodeClass);
+      }
+    }
+    if (params.nodeKind !== undefined) {
+      if (params.nodeKind === null) {
+        query += " AND node_kind IS NULL";
+      } else {
+        query += " AND node_kind = ?";
+        values.push(params.nodeKind);
+      }
+    }
+    if (params.status !== undefined) {
+      if (params.status === null) {
+        query += " AND status IS NULL";
+      } else {
+        query += " AND status = ?";
+        values.push(params.status);
+      }
+    }
+    query += `
+      ORDER BY bm25_score ASC, updated_at DESC, path ASC, node_id ASC
+      LIMIT ? OFFSET ?
+    `;
+    values.push(params.limit ?? 100, params.offset ?? 0);
+    const rows = scope.db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToSemanticMemorySearchHit(row));
+  }
+
   getSemanticMemoryNode(params: {
     category: SemanticMemoryCategory;
     workspaceId?: string | null;
@@ -7991,6 +9259,145 @@ export class RuntimeStateStore {
     });
   }
 
+  syncSemanticMemoryRelations(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId: string;
+    relations: Array<{
+      fromNodeId: string;
+      toNodeId: string;
+      relationType: string;
+      metadata?: Record<string, unknown> | null;
+      createdAt?: string;
+      updatedAt?: string;
+    }>;
+  }): SemanticMemoryRelationRecord[] {
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    const sync = scope.db.transaction(() => {
+      const now = utcNowIso();
+      const existingRelations = this.listSemanticMemoryRelations({
+        category: params.category,
+        workspaceId: scope.workspaceId,
+        treeId: params.treeId,
+        limit: 10_000,
+        offset: 0,
+      });
+      const existingByKey = new Map(existingRelations.map((relation) => [
+        `${relation.fromNodeId}|${relation.toNodeId}|${relation.relationType}`,
+        relation,
+      ]));
+      const desiredKeys = new Set(
+        params.relations.map((relation) => `${relation.fromNodeId}|${relation.toNodeId}|${relation.relationType}`),
+      );
+      const deleteRelation = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            DELETE FROM semantic_memory_relations
+            WHERE workspace_id = ? AND category = ? AND tree_id = ? AND from_node_id = ? AND to_node_id = ? AND relation_type = ?
+          `)
+        : scope.db.prepare(`
+            DELETE FROM semantic_memory_relations
+            WHERE category = ? AND tree_id = ? AND from_node_id = ? AND to_node_id = ? AND relation_type = ?
+          `);
+      for (const existing of existingRelations) {
+        const key = `${existing.fromNodeId}|${existing.toNodeId}|${existing.relationType}`;
+        if (desiredKeys.has(key)) {
+          continue;
+        }
+        if (scope.workspaceId !== null) {
+          deleteRelation.run(
+            scope.workspaceId,
+            params.category,
+            params.treeId,
+            existing.fromNodeId,
+            existing.toNodeId,
+            existing.relationType,
+          );
+        } else {
+          deleteRelation.run(
+            params.category,
+            params.treeId,
+            existing.fromNodeId,
+            existing.toNodeId,
+            existing.relationType,
+          );
+        }
+      }
+      const upsertRelation = scope.workspaceId !== null
+        ? scope.db.prepare(`
+            INSERT INTO semantic_memory_relations (
+              workspace_id,
+              category,
+              tree_id,
+              from_node_id,
+              to_node_id,
+              relation_type,
+              metadata,
+              created_at,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(workspace_id, category, tree_id, from_node_id, to_node_id, relation_type) DO UPDATE SET
+              metadata = excluded.metadata,
+              updated_at = excluded.updated_at
+          `)
+        : scope.db.prepare(`
+            INSERT INTO semantic_memory_relations (
+              category,
+              tree_id,
+              from_node_id,
+              to_node_id,
+              relation_type,
+              metadata,
+              created_at,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(category, tree_id, from_node_id, to_node_id, relation_type) DO UPDATE SET
+              metadata = excluded.metadata,
+              updated_at = excluded.updated_at
+          `);
+      for (const relation of params.relations) {
+        const key = `${relation.fromNodeId}|${relation.toNodeId}|${relation.relationType}`;
+        const existing = existingByKey.get(key) ?? null;
+        if (existing && this.semanticMemoryRelationMatches(existing, relation)) {
+          continue;
+        }
+        const createdAt = existing?.createdAt ?? relation.createdAt ?? now;
+        const updatedAt = relation.updatedAt ?? now;
+        const metadataJson = JSON.stringify(relation.metadata ?? {});
+        if (scope.workspaceId !== null) {
+          upsertRelation.run(
+            scope.workspaceId,
+            params.category,
+            params.treeId,
+            relation.fromNodeId,
+            relation.toNodeId,
+            relation.relationType,
+            metadataJson,
+            createdAt,
+            updatedAt,
+          );
+          continue;
+        }
+        upsertRelation.run(
+          params.category,
+          params.treeId,
+          relation.fromNodeId,
+          relation.toNodeId,
+          relation.relationType,
+          metadataJson,
+          createdAt,
+          updatedAt,
+        );
+      }
+    });
+    sync();
+    return this.listSemanticMemoryRelations({
+      category: params.category,
+      workspaceId: scope.workspaceId,
+      treeId: params.treeId,
+      limit: Math.max(200, params.relations.length + 10),
+    });
+  }
+
   listSemanticMemoryRelations(params: {
     category: SemanticMemoryCategory;
     workspaceId?: string | null;
@@ -8053,6 +9460,7 @@ export class RuntimeStateStore {
     deletedSemanticNodes: number;
     deletedSemanticEdges: number;
     deletedSemanticRelations: number;
+    deletedSemanticSearchDocs: number;
     deletedEmbeddings: number;
   } {
     const db = this.controlPlaneDb();
@@ -8098,10 +9506,44 @@ export class RuntimeStateStore {
           )
           .get(params.treeId) as { count?: number } | undefined)?.count ?? 0,
       );
+      const deletedSemanticSearchDocs = Number(
+        (db
+          .prepare(
+            `
+              SELECT COUNT(*) AS count
+              FROM semantic_memory_search_docs
+              WHERE category = 'integration' AND tree_id = ?
+            `,
+          )
+          .get(params.treeId) as { count?: number } | undefined)?.count ?? 0,
+      );
+      const embeddingRowIds = (
+        db
+          .prepare<[string], { vec_rowid: number | bigint }>(
+            `
+              SELECT rowid AS vec_rowid
+              FROM integration_node_embeddings
+              WHERE tree_id = ?
+            `,
+          )
+          .all(params.treeId) as Array<{ vec_rowid: number | bigint }>
+      )
+        .map((row) => Number(row.vec_rowid))
+        .filter((value) => Number.isFinite(value));
 
       db.prepare(`
         DELETE FROM integration_node_embeddings
         WHERE tree_id = ?
+      `).run(params.treeId);
+      if (this.#vectorIndexSupported && embeddingRowIds.length > 0) {
+        db.prepare(`
+          DELETE FROM integration_node_embedding_vec
+          WHERE vec_rowid IN (${embeddingRowIds.map(() => "?").join(", ")})
+        `).run(...embeddingRowIds);
+      }
+      db.prepare(`
+        DELETE FROM semantic_memory_search_fts
+        WHERE category = 'integration' AND tree_id = ?
       `).run(params.treeId);
       db.prepare(`
         DELETE FROM semantic_memory_edges
@@ -8113,6 +9555,10 @@ export class RuntimeStateStore {
       `).run(params.treeId);
       db.prepare(`
         DELETE FROM semantic_memory_nodes
+        WHERE category = 'integration' AND tree_id = ?
+      `).run(params.treeId);
+      db.prepare(`
+        DELETE FROM semantic_memory_search_docs
         WHERE category = 'integration' AND tree_id = ?
       `).run(params.treeId);
       db.prepare(`
@@ -8129,12 +9575,14 @@ export class RuntimeStateStore {
           || deletedSemanticNodes > 0
           || deletedSemanticRelations > 0
           || deletedSemanticEdges > 0
+          || deletedSemanticSearchDocs > 0
           || deletedEmbeddings > 0,
         deletedTree,
         deletedLeaves,
         deletedSemanticNodes,
         deletedSemanticEdges,
         deletedSemanticRelations,
+        deletedSemanticSearchDocs,
         deletedEmbeddings,
       };
     });
@@ -8198,6 +9646,12 @@ export class RuntimeStateStore {
     if (!record) {
       throw new Error("integration embedding row not found after upsert");
     }
+    this.replaceIntegrationNodeEmbeddingVector({
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+      embedding: new Float32Array(params.vector),
+    });
     return record;
   }
 
@@ -8221,10 +9675,163 @@ export class RuntimeStateStore {
     return row ? this.rowToIntegrationNodeEmbedding(row) : null;
   }
 
+  private integrationNodeEmbeddingRowid(params: {
+    nodeKind: InteractionTreeChildKind;
+    nodeId: string;
+    embeddingModel: string;
+  }): number | null {
+    const row = this.controlPlaneDb()
+      .prepare<
+        [string, string, string],
+        { vec_rowid?: number | bigint | null }
+      >(
+        `
+          SELECT rowid AS vec_rowid
+          FROM integration_node_embeddings
+          WHERE node_kind = ?
+            AND node_id = ?
+            AND embedding_model = ?
+          LIMIT 1
+        `,
+      )
+      .get(params.nodeKind, params.nodeId, params.embeddingModel);
+    if (!row?.vec_rowid) {
+      return null;
+    }
+    return Number(row.vec_rowid);
+  }
+
+  replaceIntegrationNodeEmbeddingVector(params: {
+    nodeKind: InteractionTreeChildKind;
+    nodeId: string;
+    embeddingModel: string;
+    embedding: Float32Array;
+  }): void {
+    if (!this.#vectorIndexSupported || params.embedding.length !== 1536) {
+      return;
+    }
+    const record = this.getIntegrationNodeEmbedding({
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+    });
+    if (!record) {
+      return;
+    }
+    const vecRowid = this.integrationNodeEmbeddingRowid({
+      nodeKind: params.nodeKind,
+      nodeId: params.nodeId,
+      embeddingModel: params.embeddingModel,
+    });
+    if (!Number.isFinite(vecRowid)) {
+      return;
+    }
+    const db = this.controlPlaneDb();
+    db.prepare("DELETE FROM integration_node_embedding_vec WHERE vec_rowid = ?").run(vecRowid);
+    db
+      .prepare(`
+        INSERT INTO integration_node_embedding_vec (vec_rowid, embedding, tree_id, node_kind, embedding_model)
+        VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
+      `)
+      .run(
+        vecRowid,
+        params.embedding,
+        record.treeId,
+        record.nodeKind,
+        record.embeddingModel,
+      );
+  }
+
+  private backfillIntegrationNodeEmbeddingVectors(params: {
+    embeddingModel: string;
+    treeIds?: string[] | null;
+    nodeKinds?: InteractionTreeChildKind[] | null;
+  }): void {
+    if (!this.#vectorIndexSupported) {
+      return;
+    }
+    const normalizedTreeIds = params.treeIds
+      ? [...new Set(params.treeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    const normalizedNodeKinds = params.nodeKinds
+      ? [...new Set(params.nodeKinds.map((value) => value.trim()).filter(Boolean) as InteractionTreeChildKind[])]
+      : null;
+    const db = this.controlPlaneDb();
+    let query = `
+      SELECT rowid AS vec_rowid, vector_json, tree_id, node_kind, embedding_model
+      FROM integration_node_embeddings
+      WHERE embedding_model = ?
+        AND dimensions = 1536
+    `;
+    const values: Array<string | number> = [params.embeddingModel];
+    if (normalizedTreeIds && normalizedTreeIds.length > 0) {
+      query += ` AND tree_id IN (${normalizedTreeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedTreeIds);
+    }
+    if (normalizedNodeKinds && normalizedNodeKinds.length > 0) {
+      query += ` AND node_kind IN (${normalizedNodeKinds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeKinds);
+    }
+    const sourceRows = db.prepare(query).all(...values) as Array<Record<string, unknown>>;
+    if (sourceRows.length === 0) {
+      return;
+    }
+    const rowIds = sourceRows
+      .map((row) => Number(row.vec_rowid))
+      .filter((value) => Number.isFinite(value));
+    if (rowIds.length === 0) {
+      return;
+    }
+    const existingRowIds = new Set<number>(
+      (
+        db.prepare(`
+          SELECT vec_rowid
+          FROM integration_node_embedding_vec
+          WHERE vec_rowid IN (${rowIds.map(() => "?").join(", ")})
+        `).all(...rowIds) as Array<{ vec_rowid: number | bigint }>
+      )
+        .map((row) => Number(row.vec_rowid))
+        .filter((value) => Number.isFinite(value)),
+    );
+    const insert = db.prepare(`
+      INSERT INTO integration_node_embedding_vec (vec_rowid, embedding, tree_id, node_kind, embedding_model)
+      VALUES (CAST(? AS INTEGER), ?, ?, ?, ?)
+    `);
+    const insertMany = db.transaction((items: Array<Record<string, unknown>>) => {
+      for (const row of items) {
+        const vecRowid = Number(row.vec_rowid);
+        if (!Number.isFinite(vecRowid) || existingRowIds.has(vecRowid)) {
+          continue;
+        }
+        const vector = this.parseJsonList(row.vector_json)
+          .map((value) => (typeof value === "number" ? value : Number(value)))
+          .filter((value) => Number.isFinite(value));
+        if (vector.length !== 1536) {
+          continue;
+        }
+        insert.run(
+          vecRowid,
+          new Float32Array(vector),
+          String(row.tree_id),
+          String(row.node_kind),
+          String(row.embedding_model),
+        );
+      }
+    });
+    insertMany(sourceRows);
+  }
+
   listIntegrationNodeEmbeddings(params: {
     treeId?: string | null;
     embeddingModel?: string | null;
+    nodeIds?: string[] | null;
   } = {}): IntegrationNodeEmbeddingRecord[] {
+    const normalizedNodeIds = params.nodeIds
+      ? [...new Set(params.nodeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    if (params.nodeIds && normalizedNodeIds && normalizedNodeIds.length === 0) {
+      return [];
+    }
     let query = `
       SELECT *
       FROM integration_node_embeddings
@@ -8247,9 +9854,101 @@ export class RuntimeStateStore {
         values.push(params.embeddingModel);
       }
     }
+    if (normalizedNodeIds) {
+      query += ` AND node_id IN (${normalizedNodeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeIds);
+    }
     query += " ORDER BY updated_at DESC, created_at DESC, node_id ASC";
     const rows = this.controlPlaneDb().prepare(query).all(...values) as Array<Record<string, unknown>>;
     return rows.map((row) => this.rowToIntegrationNodeEmbedding(row));
+  }
+
+  searchIntegrationNodeEmbeddingsByVector(params: {
+    embedding: Float32Array;
+    embeddingModel: string;
+    limit: number;
+    treeIds?: string[] | null;
+    nodeKinds?: InteractionTreeChildKind[] | null;
+  }): IntegrationNodeEmbeddingVectorSearchResult[] {
+    if (!this.#vectorIndexSupported || params.embedding.length !== 1536) {
+      return [];
+    }
+    const normalizedLimit = Math.max(1, Math.trunc(params.limit));
+    const normalizedTreeIds = params.treeIds
+      ? [...new Set(params.treeIds.map((value) => value.trim()).filter(Boolean))]
+      : null;
+    const normalizedNodeKinds = params.nodeKinds
+      ? [...new Set(params.nodeKinds.map((value) => value.trim()).filter(Boolean) as InteractionTreeChildKind[])]
+      : null;
+    this.backfillIntegrationNodeEmbeddingVectors({
+      embeddingModel: params.embeddingModel,
+      treeIds: normalizedTreeIds,
+      nodeKinds: normalizedNodeKinds,
+    });
+    let query = `
+      SELECT vec_rowid, distance
+      FROM integration_node_embedding_vec
+      WHERE embedding MATCH ?
+        AND k = ?
+        AND embedding_model = ?
+    `;
+    const values: Array<string | number | Float32Array> = [params.embedding, normalizedLimit, params.embeddingModel];
+    if (normalizedTreeIds && normalizedTreeIds.length > 0) {
+      query += ` AND tree_id IN (${normalizedTreeIds.map(() => "?").join(", ")})`;
+      values.push(...normalizedTreeIds);
+    }
+    if (normalizedNodeKinds && normalizedNodeKinds.length > 0) {
+      query += ` AND node_kind IN (${normalizedNodeKinds.map(() => "?").join(", ")})`;
+      values.push(...normalizedNodeKinds);
+    }
+    const rows = this.controlPlaneDb()
+      .prepare(query)
+      .all(...values) as Array<{ vec_rowid: number; distance: number }>;
+    return this.integrationEmbeddingVectorResultsForRows(rows);
+  }
+
+  private integrationEmbeddingVectorResultsForRows(
+    rows: Array<{ vec_rowid: number; distance: number }>
+  ): IntegrationNodeEmbeddingVectorSearchResult[] {
+    if (rows.length === 0) {
+      return [];
+    }
+    const rowIds = rows.map((row) => Number(row.vec_rowid)).filter((value) => Number.isFinite(value));
+    if (rowIds.length === 0) {
+      return [];
+    }
+    const db = this.controlPlaneDb();
+    const mappingRows = db
+      .prepare(`
+        SELECT rowid AS vec_rowid, *
+        FROM integration_node_embeddings
+        WHERE rowid IN (${rowIds.map(() => "?").join(", ")})
+      `)
+      .all(...rowIds) as Array<Record<string, unknown>>;
+    const byRowId = new Map<number, IntegrationNodeEmbeddingRecord>();
+    for (const row of mappingRows) {
+      const vecRowid = Number(row.vec_rowid);
+      if (!Number.isFinite(vecRowid)) {
+        continue;
+      }
+      byRowId.set(vecRowid, this.rowToIntegrationNodeEmbedding(row));
+    }
+    const results: IntegrationNodeEmbeddingVectorSearchResult[] = [];
+    for (const row of rows) {
+      const mapping = byRowId.get(Number(row.vec_rowid));
+      if (!mapping) {
+        continue;
+      }
+      results.push({
+        vecRowid: Number(row.vec_rowid),
+        distance: Number(row.distance),
+        nodeKind: mapping.nodeKind,
+        nodeId: mapping.nodeId,
+        treeId: mapping.treeId,
+        embeddingModel: mapping.embeddingModel,
+      });
+    }
+    return results;
   }
 
   getMemoryEmbeddingIndexByMemoryId(params: {
@@ -10970,6 +12669,18 @@ export class RuntimeStateStore {
     this.ensureMemoryEmbeddingIndexSchema(db);
     this.ensureIntegrationLeavesTableSchema(db);
     this.ensureSemanticMemoryTableSchema({ db, workspaceScoped: false });
+    this.ensureSemanticMemorySearchTableSchema({ db, workspaceScoped: false });
+    if (this.#vectorIndexSupported) {
+      db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS integration_node_embedding_vec USING vec0(
+            vec_rowid INTEGER PRIMARY KEY,
+            embedding float[1536],
+            tree_id TEXT,
+            node_kind TEXT,
+            embedding_model TEXT
+        );
+      `);
+    }
     this.migrateIntegrationConnectionIdentityColumns(db);
     this.migrateAppCatalogProviderColumns(db);
   }
@@ -11720,6 +13431,19 @@ export class RuntimeStateStore {
     this.ensureConversationBindingsTableSchema(db);
     this.ensureSemanticMemoryTableSchema({ db, workspaceScoped: true });
     this.migrateLegacySessionKinds(db);
+    this.ensureSemanticMemorySearchTableSchema({ db, workspaceScoped: true });
+    if (this.#vectorIndexSupported) {
+      db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS interaction_node_embedding_vec USING vec0(
+            vec_rowid INTEGER PRIMARY KEY,
+            embedding float[1536],
+            entity_id TEXT,
+            node_kind TEXT,
+            embedding_model TEXT
+        );
+      `);
+    }
+    this.migrateLegacyMainSessionLabels(db);
     this.ensureSubagentRunsTableSchema(db);
     this.ensureSessionRuntimeStateTableSchema(db);
     this.ensureTurnArtifactsSchema(db);
@@ -11885,6 +13609,61 @@ export class RuntimeStateStore {
 
       CREATE INDEX IF NOT EXISTS idx_semantic_memory_relations_tree_from_type
           ON semantic_memory_relations (${workspaceIdPrefix}category, tree_id, from_node_id, relation_type, updated_at DESC);
+    `);
+  }
+
+  private ensureSemanticMemorySearchTableSchema(params: {
+    db: Database.Database;
+    workspaceScoped: boolean;
+  }): void {
+    const prefix = params.workspaceScoped
+      ? `
+          workspace_id TEXT NOT NULL,
+      `
+      : "";
+    const workspaceIdPrefix = params.workspaceScoped ? "workspace_id, " : "";
+    params.db.exec(`
+      CREATE TABLE IF NOT EXISTS semantic_memory_search_docs (
+          ${prefix}category TEXT NOT NULL,
+          tree_id TEXT NOT NULL,
+          node_id TEXT NOT NULL,
+          node_class TEXT NOT NULL,
+          node_kind TEXT NOT NULL,
+          path TEXT NOT NULL,
+          child_count INTEGER NOT NULL DEFAULT 0,
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          body_text TEXT NOT NULL,
+          excerpt TEXT,
+          observed_at TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (${workspaceIdPrefix}category, tree_id, node_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_semantic_memory_search_docs_tree_status
+          ON semantic_memory_search_docs (${workspaceIdPrefix}category, tree_id, status, updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_semantic_memory_search_docs_tree_kind
+          ON semantic_memory_search_docs (${workspaceIdPrefix}category, tree_id, node_class, node_kind, updated_at DESC);
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS semantic_memory_search_fts USING fts5(
+          ${params.workspaceScoped ? "workspace_id UNINDEXED,\n" : ""}category UNINDEXED,
+          tree_id UNINDEXED,
+          node_id UNINDEXED,
+          node_class UNINDEXED,
+          node_kind UNINDEXED,
+          path UNINDEXED,
+          child_count UNINDEXED,
+          title,
+          summary,
+          body_text,
+          excerpt UNINDEXED,
+          observed_at UNINDEXED,
+          status UNINDEXED,
+          updated_at UNINDEXED,
+          tokenize = 'unicode61 remove_diacritics 2'
+      );
     `);
   }
 
@@ -13757,6 +15536,123 @@ export class RuntimeStateStore {
     };
   }
 
+  private listAllSemanticMemoryEdgesForTree(params: {
+    category: SemanticMemoryCategory;
+    workspaceId?: string | null;
+    treeId: string;
+  }): SemanticMemoryContainmentEdgeRecord[] {
+    const scope = this.resolveSemanticMemoryScope(params.category, params.workspaceId ?? null);
+    if (scope.workspaceId !== null) {
+      const rows = scope.db
+        .prepare<[string, string, string], Record<string, unknown>>(
+          `
+            SELECT *
+            FROM semantic_memory_edges
+            WHERE workspace_id = ? AND category = ? AND tree_id = ?
+            ORDER BY parent_node_id ASC, position ASC, child_node_id ASC
+          `,
+        )
+        .all(scope.workspaceId, params.category, params.treeId) as Array<Record<string, unknown>>;
+      return rows.map((row) => this.rowToSemanticMemoryContainmentEdge(row));
+    }
+    const rows = scope.db
+      .prepare<[string, string], Record<string, unknown>>(
+        `
+          SELECT *
+          FROM semantic_memory_edges
+          WHERE category = ? AND tree_id = ?
+          ORDER BY parent_node_id ASC, position ASC, child_node_id ASC
+        `,
+      )
+      .all(params.category, params.treeId) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToSemanticMemoryContainmentEdge(row));
+  }
+
+  private semanticMemoryNodeMatches(
+    existing: SemanticMemoryNodeRecord,
+    desired: {
+      nodeClass: SemanticMemoryNodeClass;
+      nodeKind: string;
+      sourceLeafId?: string | null;
+      path: string;
+      title: string;
+      summary: string;
+      bodySha256: string;
+      childCount?: number;
+      observedAt?: string | null;
+      status?: MemoryNodeStatus;
+      isMaterialized?: boolean;
+      metadata?: Record<string, unknown> | null;
+    },
+  ): boolean {
+    return existing.nodeClass === desired.nodeClass
+      && existing.nodeKind === desired.nodeKind
+      && existing.sourceLeafId === (desired.sourceLeafId ?? null)
+      && existing.path === desired.path
+      && existing.title === desired.title
+      && existing.summary === desired.summary
+      && existing.bodySha256 === desired.bodySha256
+      && existing.childCount === (desired.childCount ?? 0)
+      && existing.observedAt === (desired.observedAt ?? null)
+      && existing.status === (desired.status ?? "active")
+      && existing.isMaterialized === Boolean(desired.isMaterialized)
+      && JSON.stringify(existing.metadata ?? {}) === JSON.stringify(desired.metadata ?? {});
+  }
+
+  private semanticMemoryEdgesMatch(
+    existing: SemanticMemoryContainmentEdgeRecord[],
+    desired: Array<{ childNodeId: string; position: number }>
+  ): boolean {
+    if (existing.length !== desired.length) {
+      return false;
+    }
+    for (let index = 0; index < existing.length; index += 1) {
+      if (existing[index]?.childNodeId !== desired[index]?.childNodeId) {
+        return false;
+      }
+      if (existing[index]?.position !== desired[index]?.position) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private semanticMemorySearchDocMatches(
+    existing: SemanticMemorySearchDocRecord,
+    desired: {
+      nodeClass: SemanticMemoryNodeClass;
+      nodeKind: string;
+      path: string;
+      childCount?: number;
+      title: string;
+      summary: string;
+      bodyText: string;
+      excerpt?: string | null;
+      observedAt?: string | null;
+      status?: MemoryNodeStatus;
+    },
+  ): boolean {
+    return existing.nodeClass === desired.nodeClass
+      && existing.nodeKind === desired.nodeKind
+      && existing.path === desired.path
+      && existing.childCount === (desired.childCount ?? 0)
+      && existing.title === desired.title
+      && existing.summary === desired.summary
+      && existing.bodyText === desired.bodyText
+      && existing.excerpt === (desired.excerpt ?? null)
+      && existing.observedAt === (desired.observedAt ?? null)
+      && existing.status === (desired.status ?? "active");
+  }
+
+  private semanticMemoryRelationMatches(
+    existing: SemanticMemoryRelationRecord,
+    desired: {
+      metadata?: Record<string, unknown> | null;
+    },
+  ): boolean {
+    return JSON.stringify(existing.metadata ?? {}) === JSON.stringify(desired.metadata ?? {});
+  }
+
   private rowToSemanticMemoryNode(row: Record<string, unknown>): SemanticMemoryNodeRecord {
     return {
       workspaceId: row.workspace_id == null ? null : String(row.workspace_id),
@@ -13777,6 +15673,37 @@ export class RuntimeStateStore {
       metadata: this.parseJsonDict(row.metadata),
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
+    };
+  }
+
+  private rowToSemanticMemorySearchDoc(
+    row: Record<string, unknown>,
+  ): SemanticMemorySearchDocRecord {
+    return {
+      workspaceId: row.workspace_id == null ? null : String(row.workspace_id),
+      category: String(row.category) as SemanticMemoryCategory,
+      treeId: String(row.tree_id),
+      nodeId: String(row.node_id),
+      nodeClass: String(row.node_class) as SemanticMemoryNodeClass,
+      nodeKind: String(row.node_kind),
+      path: String(row.path),
+      childCount: Number(row.child_count ?? 0),
+      title: String(row.title),
+      summary: String(row.summary),
+      bodyText: String(row.body_text ?? ""),
+      excerpt: row.excerpt == null ? null : String(row.excerpt),
+      observedAt: row.observed_at == null ? null : String(row.observed_at),
+      status: String(row.status) as MemoryNodeStatus,
+      updatedAt: String(row.updated_at),
+    };
+  }
+
+  private rowToSemanticMemorySearchHit(
+    row: Record<string, unknown>,
+  ): SemanticMemorySearchHitRecord {
+    return {
+      ...this.rowToSemanticMemorySearchDoc(row),
+      bm25Score: Number(row.bm25_score),
     };
   }
 

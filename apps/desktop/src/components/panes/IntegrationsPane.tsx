@@ -26,18 +26,10 @@ import {
   SettingsCard,
   SettingsSection,
 } from "@/components/settings";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { accountDisplayLabel } from "@/lib/integrationDisplay";
+import { brandLogoOverride } from "@/lib/integrationLogo";
 import { rebindWorkspaceAppsForProvider } from "@/lib/rebindWorkspaceAppsForProvider";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import {
@@ -100,6 +92,16 @@ const CONTEXT_FETCH_SUPPORTED_PROVIDERS = new Set([
   "github",
   "notion",
   "slack",
+  "outlook",
+  "googlecalendar",
+  "googledrive",
+  "twitter",
+  "googlesheets",
+  "googledocs",
+  "hubspot",
+  "linear",
+  "jira",
+  "linkedin",
 ]);
 const CONTEXT_FETCH_TERMINAL_STATUSES = new Set([
   "completed",
@@ -166,20 +168,6 @@ function composioFallbackLogo(slug: string): string | null {
     return null;
   }
   return `https://logos.composio.dev/api/${cleaned}`;
-}
-
-// Composio's logo CDN returns wide wordmark SVGs (and sometimes a pure
-// white fill) for a handful of providers, so the square thumbnail in
-// the integrations grid renders as a sliver-in-a-banner or invisibly
-// white-on-white. Simple Icons publishes a square monochrome SVG per
-// brand at a stable unpkg URL — short-circuit just those slugs.
-const BRAND_LOGO_OVERRIDES: Record<string, string> = {
-  github: "https://unpkg.com/simple-icons@16.20.0/icons/github.svg",
-  linear: "https://unpkg.com/simple-icons@16.20.0/icons/linear.svg",
-};
-
-function brandLogoOverride(slug: string): string | null {
-  return BRAND_LOGO_OVERRIDES[slug.trim().toLowerCase()] ?? null;
 }
 
 function mergeIntegrationCards(
@@ -288,9 +276,18 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
   const [workspaceUsageByConnection, setWorkspaceUsageByConnection] = useState<
     Map<string, ConnectionWorkspaceUsageEntry["workspaces"]>
   >(new Map());
-  const [capabilitiesByToolkit, setCapabilitiesByToolkit] = useState<
-    Record<string, ComposioToolkitCapability[]>
-  >({});
+  // workspace-default account per (provider slug, workspace id). Drives the
+  // "Default here" inline chip on connection rows and the Manage-expand
+  // dropdown that lets users pick which account each workspace defaults to.
+  // Nested map shape: providerSlug → workspaceId → connectionId.
+  const [defaultsByProvider, setDefaultsByProvider] = useState<
+    Map<string, Map<string, string>>
+  >(new Map());
+  // Connection id currently being mutated to a different default — used
+  // to disable the dropdown row while the PUT is in flight.
+  const [mutatingDefaultKey, setMutatingDefaultKey] = useState<string | null>(
+    null,
+  );
   const [storeCatalog, setStoreCatalog] = useState<
     Map<string, IntegrationStoreCatalogEntry>
   >(new Map());
@@ -312,7 +309,6 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
         connectionResult,
         toolkitResult,
         usageResult,
-        capabilitiesResult,
         storeCatalogResult,
         overridesResult,
       ] = await Promise.all([
@@ -324,9 +320,6 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
         window.electronAPI.workspace
           .listConnectionWorkspaceUsage()
           .catch(() => ({ usage: [] as ConnectionWorkspaceUsageEntry[] })),
-        window.electronAPI.workspace
-          .listComposioToolkitCapabilities()
-          .catch(() => ({ toolkits: {} as Record<string, ComposioToolkitCapability[]> })),
         window.electronAPI.workspace
           .listIntegrationStoreCatalog()
           .catch(() => ({ entries: [] as IntegrationStoreCatalogEntry[] })),
@@ -345,7 +338,6 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
         usageMap.set(entry.connection_id, entry.workspaces);
       }
       setWorkspaceUsageByConnection(usageMap);
-      setCapabilitiesByToolkit(capabilitiesResult.toolkits ?? {});
       const storeMap = new Map<string, IntegrationStoreCatalogEntry>();
       for (const entry of storeCatalogResult.entries) {
         storeMap.set(entry.slug.trim().toLowerCase(), entry);
@@ -377,6 +369,112 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
   useEffect(() => {
     void loadData();
   }, [isSignedIn, loadData]);
+
+  // Fetch each (workspace × provider-with-connections) default-account
+  // mapping. Runs whenever workspaces or connections shift. Keyed off
+  // connection ids so reordering or unchanged connection lists don't refetch.
+  const connectionIdsKey = useMemo(
+    () => connections.map((c) => c.connection_id).sort().join("|"),
+    [connections],
+  );
+  const workspaceIdsKey = useMemo(
+    () => workspaces.map((w) => w.id).sort().join("|"),
+    [workspaces],
+  );
+  useEffect(() => {
+    if (workspaces.length === 0 || connections.length === 0) {
+      setDefaultsByProvider(new Map());
+      return;
+    }
+    const distinctProviders = Array.from(
+      new Set(connections.map((c) => c.provider_id)),
+    );
+    const pairs: Array<{ wsId: string; provider: string }> = [];
+    for (const ws of workspaces) {
+      for (const provider of distinctProviders) {
+        pairs.push({ wsId: ws.id, provider });
+      }
+    }
+    let cancelled = false;
+    void Promise.all(
+      pairs.map((pair) =>
+        window.electronAPI.workspace
+          .getWorkspaceDefaultAccount(pair.wsId, pair.provider)
+          .then((res) => ({
+            ...pair,
+            connectionId: res.connection_id,
+          }))
+          .catch(() => ({
+            ...pair,
+            connectionId: null as string | null,
+          })),
+      ),
+    ).then((results) => {
+      if (cancelled) return;
+      const map = new Map<string, Map<string, string>>();
+      for (const r of results) {
+        if (!r.connectionId) continue;
+        let inner = map.get(r.provider);
+        if (!inner) {
+          inner = new Map();
+          map.set(r.provider, inner);
+        }
+        inner.set(r.wsId, r.connectionId);
+      }
+      setDefaultsByProvider(map);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // workspaceIdsKey + connectionIdsKey collapse identity-stable arrays into
+    // strings so this only re-runs on real membership change.
+  }, [workspaceIdsKey, connectionIdsKey, workspaces, connections]);
+
+  const handleSetWorkspaceDefault = useCallback(
+    async (
+      workspaceId: string,
+      providerId: string,
+      connectionId: string,
+    ) => {
+      const key = `${workspaceId}:${providerId}`;
+      setMutatingDefaultKey(key);
+      // Optimistic: snap the controlled <select> to the new value
+      // immediately, otherwise it would visibly bounce back during the
+      // in-flight PUT.
+      let previousDefault: string | undefined;
+      setDefaultsByProvider((prev) => {
+        const next = new Map(prev);
+        const inner = new Map(next.get(providerId) ?? new Map());
+        previousDefault = inner.get(workspaceId);
+        inner.set(workspaceId, connectionId);
+        next.set(providerId, inner);
+        return next;
+      });
+      try {
+        await window.electronAPI.workspace.setWorkspaceDefaultAccount(
+          workspaceId,
+          providerId,
+          connectionId,
+        );
+      } catch (error) {
+        setDefaultsByProvider((prev) => {
+          const next = new Map(prev);
+          const inner = new Map(next.get(providerId) ?? new Map());
+          if (previousDefault) {
+            inner.set(workspaceId, previousDefault);
+          } else {
+            inner.delete(workspaceId);
+          }
+          next.set(providerId, inner);
+          return next;
+        });
+        setStatusMessage(normalizeErrorMessage(error));
+      } finally {
+        setMutatingDefaultKey(null);
+      }
+    },
+    [],
+  );
 
   const runningContextFetchConnectionIds = useMemo(
     () =>
@@ -752,7 +850,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
           connected_account_id: connectedAccountId,
           provider: integration.providerId,
           owner_user_id: userId,
-          account_label: `${integration.name} (Managed)`,
+          account_label: integration.name,
         });
         // Layer-2 auto-default: when the user explicitly connects an
         // account from Settings AND the selected workspace has no
@@ -1292,12 +1390,23 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                 contextFetchStatusByConnectionId={
                   contextFetchStatusByConnectionId
                 }
-                toolkitCapabilities={capabilitiesByToolkit[integration.providerId] ?? []}
                 toolkitOverrides={
                   overridesByToolkit.get(integration.providerId) ?? new Map()
                 }
                 workspaceUsageByConnection={workspaceUsageByConnection}
                 workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
+                defaultsByWorkspace={
+                  defaultsByProvider.get(integration.providerId) ?? new Map()
+                }
+                selectedWorkspaceId={selectedWorkspaceId}
+                mutatingDefaultKey={mutatingDefaultKey}
+                onSetWorkspaceDefault={(workspaceId, connectionId) =>
+                  void handleSetWorkspaceDefault(
+                    workspaceId,
+                    integration.providerId,
+                    connectionId,
+                  )
+                }
               />
             ))}
           </div>
@@ -1510,12 +1619,23 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
                   contextFetchStatusByConnectionId={
                     contextFetchStatusByConnectionId
                   }
-                  toolkitCapabilities={capabilitiesByToolkit[integration.providerId] ?? []}
                   toolkitOverrides={
                     overridesByToolkit.get(integration.providerId) ?? new Map()
                   }
                   workspaceUsageByConnection={workspaceUsageByConnection}
                   workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
+                  defaultsByWorkspace={
+                    defaultsByProvider.get(integration.providerId) ?? new Map()
+                  }
+                  selectedWorkspaceId={selectedWorkspaceId}
+                  mutatingDefaultKey={mutatingDefaultKey}
+                  onSetWorkspaceDefault={(workspaceId, connectionId) =>
+                    void handleSetWorkspaceDefault(
+                      workspaceId,
+                      integration.providerId,
+                      connectionId,
+                    )
+                  }
                 />
               ))}
             </div>
@@ -1609,10 +1729,6 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
           open={Boolean(pendingMemoryClear)}
           title="Clear this account's memory?"
         />
-        <ComposioRuntimeDebugRow
-          capabilitiesByToolkit={capabilitiesByToolkit}
-          connections={connections}
-        />
       </div>
     );
   }
@@ -1665,13 +1781,16 @@ function ConnectedProviderCard({
   metadata,
   compact,
   workspaceUsageByConnection,
-  toolkitCapabilities,
   workspaces,
   toolkitOverrides,
   expanded,
   onToggleExpanded,
   onSetWorkspaceEnabled,
   mutatingOverrideKey,
+  defaultsByWorkspace,
+  selectedWorkspaceId,
+  mutatingDefaultKey,
+  onSetWorkspaceDefault,
 }: {
   integration: IntegrationCard;
   connections: IntegrationConnectionPayload[];
@@ -1701,13 +1820,20 @@ function ConnectedProviderCard({
   metadata: Map<string, ComposioAccountStatus>;
   compact: boolean;
   workspaceUsageByConnection: Map<string, ConnectionWorkspaceUsageEntry["workspaces"]>;
-  toolkitCapabilities: ComposioToolkitCapability[];
   workspaces: WorkspaceSummary[];
   toolkitOverrides: Map<string, WorkspaceOverrideDescriptor>;
   expanded: boolean;
   onToggleExpanded: () => void;
   onSetWorkspaceEnabled: (workspaceId: string, enabled: boolean) => void;
   mutatingOverrideKey: string | null;
+  /** Map of workspaceId → default connectionId for THIS provider. */
+  defaultsByWorkspace: Map<string, string>;
+  /** Currently focused workspace — drives the inline "Default here" chip
+   *  on the connection row. */
+  selectedWorkspaceId: string | null;
+  /** Key `${workspaceId}:${providerId}` currently being mutated. */
+  mutatingDefaultKey: string | null;
+  onSetWorkspaceDefault: (workspaceId: string, connectionId: string) => void;
 }) {
   const containerClass = compact
     ? "flex flex-col gap-1 rounded-xl bg-card px-3 py-2.5 ring-1 ring-border"
@@ -1790,6 +1916,9 @@ function ConnectedProviderCard({
             : 0;
           const usage = workspaceUsageByConnection.get(conn.connection_id) ?? [];
           const workspaceCount = new Set(usage.map((u) => u.workspace_id)).size;
+          const isDefaultHere =
+            selectedWorkspaceId != null &&
+            defaultsByWorkspace.get(selectedWorkspaceId) === conn.connection_id;
           const flashRejected =
             flashRejectedConnectionId === conn.connection_id;
           return (
@@ -1829,6 +1958,14 @@ function ConnectedProviderCard({
                 <span className="min-w-0 flex-1 truncate text-xs text-foreground">
                   {label}
                 </span>
+                {isDefaultHere ? (
+                  <span
+                    className="shrink-0 rounded-sm bg-foreground/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-foreground"
+                    title="Default account for the currently-selected workspace"
+                  >
+                    Default here
+                  </span>
+                ) : null}
                 {workspaceCount > 0 ? (
                   <span className="shrink-0 text-[10px] text-muted-foreground">
                     {workspaceCount === 1
@@ -1926,7 +2063,7 @@ function ConnectedProviderCard({
                       {contextFetchStatus.current_chunk_label ||
                         contextFetchDisplayMessage(contextFetchStatus)}
                     </p>
-                    <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                    <span className="shrink-0 text-[10px] font-medium text-muted-foreground">
                       {contextFetchStatus.status}
                     </span>
                   </div>
@@ -1959,7 +2096,6 @@ function ConnectedProviderCard({
           );
         })}
         <WorkspaceScopeSection
-          capabilities={toolkitCapabilities}
           expanded={expanded}
           mutatingOverrideKey={mutatingOverrideKey}
           onSetWorkspaceEnabled={onSetWorkspaceEnabled}
@@ -1967,6 +2103,11 @@ function ConnectedProviderCard({
           toolkitOverrides={toolkitOverrides}
           toolkitSlug={integration.providerId}
           workspaces={workspaces}
+          connections={connections}
+          metadata={metadata}
+          defaultsByWorkspace={defaultsByWorkspace}
+          mutatingDefaultKey={mutatingDefaultKey}
+          onSetWorkspaceDefault={onSetWorkspaceDefault}
         />
       </div>
     </div>
@@ -1977,20 +2118,29 @@ function WorkspaceScopeSection({
   workspaces,
   toolkitOverrides,
   toolkitSlug,
-  capabilities,
   expanded,
   onToggleExpanded,
   onSetWorkspaceEnabled,
   mutatingOverrideKey,
+  connections,
+  metadata,
+  defaultsByWorkspace,
+  mutatingDefaultKey,
+  onSetWorkspaceDefault,
 }: {
   workspaces: WorkspaceSummary[];
   toolkitOverrides: Map<string, WorkspaceOverrideDescriptor>;
   toolkitSlug: string;
-  capabilities: ComposioToolkitCapability[];
   expanded: boolean;
   onToggleExpanded: () => void;
   onSetWorkspaceEnabled: (workspaceId: string, enabled: boolean) => void;
   mutatingOverrideKey: string | null;
+  connections: IntegrationConnectionPayload[];
+  metadata: Map<string, ComposioAccountStatus>;
+  /** Map of workspaceId → default connectionId for this provider. */
+  defaultsByWorkspace: Map<string, string>;
+  mutatingDefaultKey: string | null;
+  onSetWorkspaceDefault: (workspaceId: string, connectionId: string) => void;
 }) {
   const disabledWorkspaceIds: string[] = [];
   for (const ws of workspaces) {
@@ -2007,7 +2157,6 @@ function WorkspaceScopeSection({
       : disabledNames.length === workspaces.length
         ? "Disabled in all workspaces"
         : `Disabled in: ${disabledNames.join(", ")}`;
-  const toolCount = capabilities.length;
   return (
     <div className="mt-1 border-border border-t pt-2">
       <button
@@ -2016,12 +2165,7 @@ function WorkspaceScopeSection({
         onClick={onToggleExpanded}
         type="button"
       >
-        <span className="truncate text-left">
-          {summary}
-          {toolCount > 0
-            ? ` · ${toolCount} agent ${toolCount === 1 ? "tool" : "tools"}`
-            : ""}
-        </span>
+        <span className="truncate text-left">{summary}</span>
         <span className="shrink-0">{expanded ? "Hide" : "Manage"}</span>
       </button>
       {expanded ? (
@@ -2037,14 +2181,60 @@ function WorkspaceScopeSection({
                 const enabled = override?.state !== "disabled";
                 const key = `${ws.id}:${toolkitSlug}`;
                 const mutating = mutatingOverrideKey === key;
+                const defaultConnectionId = defaultsByWorkspace.get(ws.id) ?? "";
+                const defaultMutating =
+                  mutatingDefaultKey === `${ws.id}:${toolkitSlug}`;
+                // Hide the default picker when there's nothing to pick
+                // (zero or one connection) — the implicit default is
+                // unambiguous in that case.
+                const showDefaultPicker = enabled && connections.length > 1;
                 return (
                   <li
                     className="flex items-center justify-between gap-3 rounded-md bg-muted/40 px-2.5 py-1.5"
                     key={ws.id}
                   >
-                    <span className="truncate text-xs text-foreground">
+                    <span className="min-w-0 flex-1 truncate text-xs text-foreground">
                       {ws.name || ws.id}
                     </span>
+                    {showDefaultPicker ? (
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {defaultMutating ? (
+                          <Loader2 className="size-3 animate-spin text-muted-foreground" />
+                        ) : null}
+                        <select
+                          aria-label={`Default account for ${ws.name || ws.id}`}
+                          className="max-w-[160px] cursor-pointer truncate rounded-sm border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground outline-none focus:ring-1 focus:ring-ring"
+                          disabled={defaultMutating}
+                          onChange={(e) => {
+                            const nextId = e.currentTarget.value;
+                            if (!nextId || nextId === defaultConnectionId)
+                              return;
+                            onSetWorkspaceDefault(ws.id, nextId);
+                          }}
+                          value={defaultConnectionId}
+                        >
+                          {defaultConnectionId ? null : (
+                            <option value="">Auto (first available)</option>
+                          )}
+                          {connections.map((conn, connIndex) => {
+                            const m = metadata.get(conn.connection_id);
+                            const optLabel = accountDisplayLabel(
+                              conn,
+                              m,
+                              connIndex,
+                            );
+                            return (
+                              <option
+                                key={conn.connection_id}
+                                value={conn.connection_id}
+                              >
+                                {optLabel}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+                    ) : null}
                     <label className="flex shrink-0 cursor-pointer items-center gap-2 text-[10px] text-muted-foreground">
                       {mutating ? (
                         <Loader2 className="size-3 animate-spin" />
@@ -2064,218 +2254,9 @@ function WorkspaceScopeSection({
               })}
             </ul>
           )}
-
-          {capabilities.length > 0 ? (
-            <div>
-              <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Agent can
-              </div>
-              <ul className="mt-1.5 space-y-1">
-                {capabilities.map((cap) => (
-                  <li className="text-[11px]" key={cap.tool_slug}>
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-medium text-foreground">{cap.name}</span>
-                      {cap.read_only ? (
-                        <Badge
-                          className="border-border bg-background/60 text-[9px] text-muted-foreground"
-                          variant="outline"
-                        >
-                          read-only
-                        </Badge>
-                      ) : null}
-                    </div>
-                    <div className="text-[11px] leading-5 text-muted-foreground">
-                      {cap.description}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
         </div>
       ) : null}
     </div>
   );
 }
 
-// Temporary diagnostic — hits runtime POST /api/v1/debug/composio-
-// runtime-test, which uses ComposioApiClient end-to-end (env-injected
-// HOLABOSS_AUTH_BEARER_TOKEN → Hono /internal/tools/execute → Composio).
-// Exposes a one-click "fetch 5 Gmail messages via runtime" probe so we
-// can confirm the full server-side path is alive before any product
-// feature lands. Editable provider + tool slug + args via small inputs;
-// defaults are the canonical Gmail fetch case. Safe to delete alongside
-// the runtime endpoint once a real consumer is in product.
-function ComposioRuntimeDebugRow({
-  connections,
-  capabilitiesByToolkit,
-}: {
-  connections: IntegrationConnectionPayload[];
-  capabilitiesByToolkit: Record<string, ComposioToolkitCapability[]>;
-}) {
-  const [providerSlug, setProviderSlug] = useState("gmail");
-  const [toolSlug, setToolSlug] = useState("GMAIL_FETCH_EMAILS");
-  const [argsText, setArgsText] = useState(
-    JSON.stringify({ max_results: 5 }, null, 2),
-  );
-
-  // One preset per connected provider whose toolkit catalog has at
-  // least one capability. Picking a preset fills all three inputs
-  // together so we never end up with e.g. linkedin + GMAIL_FETCH_EMAILS,
-  // which is the failure mode that made every non-gmail probe error.
-  const presets = useMemo(() => {
-    const seen = new Set<string>();
-    const list: {
-      providerSlug: string;
-      label: string;
-      toolSlug: string;
-      args: string;
-    }[] = [];
-    for (const c of connections) {
-      const slug = c.provider_id.trim().toLowerCase();
-      if (!slug || seen.has(slug)) continue;
-      seen.add(slug);
-      const caps = capabilitiesByToolkit[slug] ?? [];
-      const preferred = caps.find((cap) => cap.read_only) ?? caps[0];
-      if (!preferred) continue;
-      list.push({
-        providerSlug: slug,
-        label: `${slug} — ${preferred.tool_slug}`,
-        toolSlug: preferred.tool_slug,
-        args: slug === "gmail" ? JSON.stringify({ max_results: 5 }, null, 2) : "{}",
-      });
-    }
-    return list;
-  }, [connections, capabilitiesByToolkit]);
-
-  function applyPreset(value: string | null) {
-    if (!value) return;
-    const preset = presets.find((p) => p.providerSlug === value);
-    if (!preset) return;
-    setProviderSlug(preset.providerSlug);
-    setToolSlug(preset.toolSlug);
-    setArgsText(preset.args);
-  }
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<unknown>(null);
-  const [errorMessage, setErrorMessage] = useState("");
-
-  async function handleRun() {
-    setBusy(true);
-    setErrorMessage("");
-    setResult(null);
-    let parsedArgs: Record<string, unknown> = {};
-    try {
-      const raw = argsText.trim();
-      parsedArgs = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-    } catch (parseError) {
-      setBusy(false);
-      setErrorMessage(
-        `arguments must be valid JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
-      );
-      return;
-    }
-    try {
-      const response = await window.electronAPI.workspace.debugComposioRuntimeTest(
-        {
-          providerSlug: providerSlug.trim() || undefined,
-          toolSlug: toolSlug.trim() || undefined,
-          arguments: parsedArgs,
-        },
-      );
-      setResult(response);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-3 text-xs">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="font-medium text-foreground">
-            Debug — runtime → Composio via ComposioApiClient
-          </div>
-          <div className="text-muted-foreground">
-            Hits <code>POST /api/v1/debug/composio-runtime-test</code> on
-            the embedded runtime. Exercises the full path: env-injected
-            bearer token → ComposioApiClient → Hono{" "}
-            <code>/internal/tools/execute</code> → Composio. Defaults
-            fetch your 5 most recent Gmail messages.
-          </div>
-        </div>
-        <Button
-          className="h-7 px-3 text-xs"
-          disabled={busy}
-          onClick={() => void handleRun()}
-          size="sm"
-          type="button"
-          variant="outline"
-        >
-          {busy ? "Running…" : "Run probe"}
-        </Button>
-      </div>
-      {presets.length > 0 ? (
-        <label className="mt-3 flex flex-col gap-1">
-          <span className="text-[11px] text-muted-foreground">
-            preset (connected provider → first cataloged tool)
-          </span>
-          <Select onValueChange={applyPreset} value={providerSlug}>
-            <SelectTrigger className="h-7 text-xs">
-              <SelectValue placeholder="Pick a connected provider…" />
-            </SelectTrigger>
-            <SelectContent>
-              {presets.map((preset) => (
-                <SelectItem key={preset.providerSlug} value={preset.providerSlug}>
-                  {preset.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
-      ) : null}
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <label className="flex flex-col gap-1">
-          <span className="text-[11px] text-muted-foreground">
-            provider_slug
-          </span>
-          <Input
-            className="h-7 text-xs"
-            onChange={(e) => setProviderSlug(e.target.value)}
-            value={providerSlug}
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[11px] text-muted-foreground">tool_slug</span>
-          <Input
-            className="h-7 text-xs"
-            onChange={(e) => setToolSlug(e.target.value)}
-            value={toolSlug}
-          />
-        </label>
-      </div>
-      <label className="mt-2 flex flex-col gap-1">
-        <span className="text-[11px] text-muted-foreground">
-          arguments (JSON)
-        </span>
-        <textarea
-          className="h-20 w-full resize-y rounded-md border border-border bg-background px-2 py-1 font-mono text-[11px] leading-4 text-foreground focus:outline-none"
-          onChange={(e) => setArgsText(e.target.value)}
-          value={argsText}
-        />
-      </label>
-      {errorMessage ? (
-        <div className="mt-3 rounded-md bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
-          {errorMessage}
-        </div>
-      ) : null}
-      {result !== null ? (
-        <pre className="mt-3 max-h-80 w-full max-w-full overflow-auto whitespace-pre-wrap break-all rounded-md bg-background px-2 py-1.5 text-[11px] leading-5 text-foreground">
-          {JSON.stringify(result, null, 2)}
-        </pre>
-      ) : null}
-    </div>
-  );
-}

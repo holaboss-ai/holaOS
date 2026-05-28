@@ -755,8 +755,8 @@ test("runtime queue worker does not recover a claimed input from another worker 
   store.close();
 });
 
-test("runtime queue worker aborts an active run when recovering an expired claim", async () => {
-  const root = makeTempDir("hb-runtime-queue-worker-expired-abort-");
+test("runtime queue worker renews an expired claim for its own active run", async () => {
+  const root = makeTempDir("hb-runtime-queue-worker-expired-renew-");
   const store = new RuntimeStateStore({
     dbPath: path.join(root, "runtime.db"),
     workspaceRoot: path.join(root, "workspace")
@@ -772,10 +772,14 @@ test("runtime queue worker aborts an active run when recovering an expired claim
     sessionId: "session-main",
     payload: { text: "stale" }
   });
+  const ownerId = "worker-local";
+  const release = deferred<void>();
   const started = deferred<void>();
+  const finished = deferred<void>();
   let abortReason: unknown = null;
   const worker = new RuntimeQueueWorker({
     store,
+    claimedBy: ownerId,
     executeClaimedInput: async (_record, options = {}) => {
       started.resolve();
       await new Promise<void>((resolve) => {
@@ -792,7 +796,30 @@ test("runtime queue worker aborts an active run when recovering an expired claim
           },
           { once: true },
         );
+        void release.promise.then(resolve);
       });
+      if (!options.signal?.aborted) {
+        store.updateInput({
+          workspaceId: queued.workspaceId,
+          inputId: queued.inputId,
+          fields: {
+            status: "DONE",
+            claimedBy: null,
+            claimedUntil: null,
+          },
+        });
+        store.updateRuntimeState({
+          workspaceId: queued.workspaceId,
+          sessionId: queued.sessionId,
+          status: "IDLE",
+          currentInputId: null,
+          currentWorkerId: null,
+          leaseUntil: null,
+          heartbeatAt: null,
+          lastError: null,
+        });
+      }
+      finished.resolve();
     }
   });
 
@@ -808,14 +835,13 @@ test("runtime queue worker aborts an active run when recovering an expired claim
     sessionId: "session-main",
     status: "BUSY",
     currentInputId: queued.inputId,
-    currentWorkerId: "sandbox-agent-ts-worker",
+    currentWorkerId: ownerId,
     leaseUntil: "2000-01-01T00:00:00.000Z",
     heartbeatAt: "2000-01-01T00:00:00.000Z",
     lastError: null
   });
 
   const secondProcessed = await worker.processAvailableInputsOnce();
-  await worker.close();
 
   const updated = store.getInput({ workspaceId: queued.workspaceId, inputId: queued.inputId });
   const runtimeState = store.getRuntimeState({
@@ -828,14 +854,28 @@ test("runtime queue worker aborts an active run when recovering an expired claim
     inputId: queued.inputId
   });
 
-  assert.equal(secondProcessed, 1);
-  assert.equal(abortReason, "claim_expired");
+  assert.equal(secondProcessed, 0);
+  assert.equal(abortReason, null);
   assert.ok(updated);
-  assert.equal(updated.status, "FAILED");
+  assert.equal(updated.status, "CLAIMED");
+  assert.ok(updated.claimedUntil);
+  assert.ok(Date.parse(updated.claimedUntil) > Date.now());
   assert.ok(runtimeState);
-  assert.equal(runtimeState.status, "ERROR");
-  assert.equal(events.at(-1)?.eventType, "run_failed");
+  assert.equal(runtimeState.status, "BUSY");
+  assert.equal(runtimeState.currentInputId, queued.inputId);
+  assert.equal(runtimeState.currentWorkerId, ownerId);
+  assert.ok(runtimeState.leaseUntil);
+  assert.ok(Date.parse(runtimeState.leaseUntil ?? "") > Date.now());
+  assert.ok(runtimeState.heartbeatAt);
+  assert.ok(
+    Date.parse(runtimeState.heartbeatAt ?? "") >
+      Date.parse("2000-01-01T00:00:00.000Z"),
+  );
+  assert.equal(events.length, 0);
 
+  release.resolve();
+  await finished.promise;
+  await worker.close();
   store.close();
 });
 

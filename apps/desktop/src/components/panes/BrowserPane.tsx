@@ -509,7 +509,7 @@ export function BrowserPane({
           }}
           className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1 text-left text-muted-foreground transition-colors hover:bg-accent hover:text-foreground ${
             depth === 0
-              ? "text-[10px] font-medium uppercase tracking-[0.08em]"
+              ? "text-[10px] font-medium"
               : "text-xs"
           }`}
           style={depth > 0 ? { paddingLeft: `${10 + depth * 14}px` } : undefined}
@@ -1080,7 +1080,7 @@ export function BrowserPane({
                     sideOffset={6}
                     className="max-h-80 w-80 gap-0 overflow-y-auto p-1"
                   >
-                    <div className="px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                    <div className="px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
                       Imported folders
                     </div>
                     {bookmarkTree.folders.map((folder) => renderBookmarkFolder(folder))}

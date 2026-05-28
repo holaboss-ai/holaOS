@@ -238,6 +238,21 @@ jobs:
             exit 1
           fi
 
+  release-linux-runtime:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: ensure-release
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-linux-runtime.yml
+    with:
+      ref: ${{ needs.ensure-release.outputs.release_ref }}
+      release_tag: ${{ needs.ensure-release.outputs.release_tag }}
+      release_title: ${{ needs.ensure-release.outputs.release_title }}
+      prerelease: ${{ inputs.prerelease }}
+      release_channel: ${{ needs.ensure-release.outputs.release_channel }}
+      artifact_only: true
+    secrets: inherit
+
   release-macos-desktop:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     needs: ensure-release
@@ -882,11 +897,13 @@ jobs:
         always() &&
         github.event_name == 'workflow_dispatch' &&
         needs.ensure-release.result == 'success' &&
+        needs.release-linux-runtime.result == 'success' &&
         needs.release-macos-desktop.result == 'success' &&
         needs.release-windows-desktop.result == 'success'
       }}
     needs:
       - ensure-release
+      - release-linux-runtime
       - release-macos-desktop
       - release-windows-desktop
     permissions:
@@ -903,6 +920,12 @@ jobs:
       SOURCE_GH_REPO: ${{ github.repository }}
       RELEASE_GH_REPO: holaboss-ai/holaOS-releases
     steps:
+      - name: Download Linux runtime release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: holaboss-runtime-linux-${{ inputs.release_tag }}
+          path: release-assets/linux-runtime
+
       - name: Download macOS desktop release artifacts
         uses: actions/download-artifact@v8
         with:
@@ -950,6 +973,21 @@ jobs:
             "${notes_path}"
           rm -f "${notes_path}.bak"
 
+          linux_runtime_dir="release-assets/linux-runtime"
+          linux_runtime_asset="${linux_runtime_dir}/holaboss-runtime-linux-x64.tar.gz"
+          linux_runtime_checksum_asset="${linux_runtime_dir}/holaboss-runtime-linux-x64.tar.gz.sha256"
+          linux_runtime_manifest_asset="${linux_runtime_dir}/holaboss-runtime-linux-x64.json"
+          for linux_asset in \
+            "${linux_runtime_asset}" \
+            "${linux_runtime_checksum_asset}" \
+            "${linux_runtime_manifest_asset}"; do
+            if [ ! -f "${linux_asset}" ]; then
+              echo "missing Linux runtime release asset: ${linux_asset}" >&2
+              find "${linux_runtime_dir}" -maxdepth 2 -type f -print >&2 || true
+              exit 1
+            fi
+          done
+
           mac_dmg_asset="release-assets/macos-desktop/holaOS-macos-arm64.dmg"
           mac_zip_asset="$(find release-assets/macos-desktop -maxdepth 1 -name 'holaOS-*-arm64-mac.zip' -print -quit)"
           if [ ! -f "${mac_dmg_asset}" ]; then
@@ -962,6 +1000,9 @@ jobs:
           fi
 
           upload_paths=(
+            "${linux_runtime_asset}"
+            "${linux_runtime_checksum_asset}"
+            "${linux_runtime_manifest_asset}"
             "${mac_dmg_asset}"
             "${mac_zip_asset}"
           )

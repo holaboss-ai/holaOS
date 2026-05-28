@@ -33,7 +33,7 @@ export function PresentationPreview({
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
         {slides.map((slide) => (
           <section key={`${name}-slide-${slide.index}`} className="space-y-2">
-            <div className="flex items-center justify-between px-1 text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+            <div className="flex items-center justify-between px-1 text-[11px] text-muted-foreground">
               <span>{name}</span>
               <span>Slide {slide.index}</span>
             </div>

@@ -273,7 +273,7 @@ export function SpaceBrowserExplorerPane({
           className={cn(
             "flex w-full items-center gap-2 rounded-md px-2.5 py-1 text-left text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
             depth === 0
-              ? "text-[10px] font-medium uppercase tracking-[0.08em]"
+              ? "text-[10px] font-medium"
               : "text-xs",
           )}
           style={depth > 0 ? { paddingLeft: `${10 + depth * 14}px` } : undefined}
@@ -396,14 +396,14 @@ export function SpaceBrowserExplorerPane({
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {hasBookmarks ? (
           <div className="mb-3 space-y-0.5">
-            <div className="px-2.5 pb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            <div className="px-2.5 pb-1 text-[10px] font-medium text-muted-foreground">
               Bookmarks
             </div>
             {bookmarkTree.folders.map((folder) => renderBookmarkFolder(folder))}
             {bookmarkTree.rootBookmarks.length > 0 ? (
               bookmarkTree.folders.length > 0 ? (
                 <div className="pt-1">
-                  <div className="px-2.5 pb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                  <div className="px-2.5 pb-1 text-[10px] font-medium text-muted-foreground">
                     Saved
                   </div>
                   {bookmarkTree.rootBookmarks.map((bookmark) =>

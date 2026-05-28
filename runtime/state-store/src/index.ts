@@ -44,6 +44,8 @@ export {
   type SemanticMemoryNodeClass,
   type SemanticMemoryNodeRecord,
   type SemanticMemoryRelationRecord,
+  type SemanticMemorySearchDocRecord,
+  type SemanticMemorySearchHitRecord,
   type MemoryNodeKind,
   type MemoryNodeStatus,
   type MemoryUpdateProposalKind,

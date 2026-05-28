@@ -142,6 +142,25 @@ Retrieval should not depend on generated `MEMORY.md` files.
 
 The runtime should retrieve through tree-aware database queries and then hydrate full markdown bodies from disk when needed.
 
+### 8. Agent retrieval should be reasoning-first
+
+The primary agent retrieval boundary should not be shaped like a tree browser.
+
+The durable memory system should expose:
+
+- `memory_retrieve` as a reasoning-oriented context-resolution tool
+- `memory_browse` as an optional browse-oriented inspection tool for debugging, UI, or explicit navigation
+
+The default agent retrieval path should return:
+
+- retrieval intent
+- structured retrieval pack
+- supporting evidence
+- unresolved gaps
+- recommended next verification source
+
+The agent should resume planning from that retrieval result rather than post-processing a raw search-hit list.
+
 ## Core model
 
 ### Memory root and tree categories
@@ -163,6 +182,25 @@ Examples:
 - `integration/github:repo-holaos-oss`
 
 This hierarchy is organizational and should be understood separately from the summary hierarchy inside a tree.
+
+### Retrieval product contract
+
+The storage model is tree-native, but the primary agent-facing retrieval contract should be problem-solving-oriented.
+
+The intended retrieval flow is:
+
+`query -> intent classification -> hybrid candidate retrieval -> rerank -> retrieval pack -> agent reasoning -> optional live verification`
+
+The key product rule is:
+
+- keep tree structure in storage
+- do not force the agent-facing retrieval contract to mirror tree navigation primitives
+
+So:
+
+- tree ownership, semantic nodes, and leaves remain the durable substrate
+- retrieval can cut across trees and layers as needed
+- browse/navigation concerns should not shape the primary retrieval tool contract
 
 ### Tree structure
 

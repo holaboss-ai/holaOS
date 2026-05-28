@@ -47,9 +47,9 @@ function firstExistingPath(paths) {
 
 function runtimeNodeCandidates(bundleRoot) {
   return [
+    path.join(bundleRoot, "node-runtime", "bin", "node.exe"),
     path.join(bundleRoot, "node-runtime", "node_modules", ".bin", "node.exe"),
-    path.join(bundleRoot, "node-runtime", "node_modules", "node", "bin", "node.exe"),
-    path.join(bundleRoot, "node-runtime", "node_modules", ".bin", "node")
+    path.join(bundleRoot, "node-runtime", "node_modules", "node", "bin", "node.exe")
   ];
 }
 
