@@ -12964,9 +12964,6 @@ export class RuntimeStateStore {
           archived_at TEXT
       );
 
-      CREATE INDEX IF NOT EXISTS idx_teammates_workspace_status_updated
-          ON teammates (workspace_id, status, updated_at DESC, created_at DESC);
-
       CREATE TABLE IF NOT EXISTS subagent_runs (
           subagent_id TEXT PRIMARY KEY,
           workspace_id TEXT NOT NULL,
@@ -13931,6 +13928,10 @@ export class RuntimeStateStore {
       SET archived_at = NULL
       WHERE teammate_id = ?
     `).run(GENERAL_TEAMMATE_ID);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_teammates_workspace_status_updated
+          ON teammates (workspace_id, status, updated_at DESC, created_at DESC);
+    `);
   }
 
   private migrateTeammateCapabilityProfiles(db: Database.Database): void {

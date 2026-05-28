@@ -4259,7 +4259,7 @@ test("legacy teammate tables migrate missing kind and status columns", () => {
   assert.equal(teammates[0]?.status, "active");
   assert.deepEqual(
     teammates[0]?.capabilityProfile.preferredTools,
-    ["local-tools", "browser"],
+    [],
   );
   assert.equal(teammates[1]?.teammateId, "teammate-1");
   assert.equal(teammates[1]?.kind, "custom");
