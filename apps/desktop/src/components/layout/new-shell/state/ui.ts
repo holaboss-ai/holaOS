@@ -74,6 +74,23 @@ export const focusModeAtom = atomWithStorage(
 );
 
 /**
+ * Per-workspace "main view" preference chosen at workspace-creation time.
+ *  - "workspace" (default) → split layout: tabs + chat side by side.
+ *  - "chat"               → chat fills the canvas; the welcome surface
+ *                            takes over the middle when tabs are empty.
+ *
+ * Keyed by workspaceId so each workspace can remember its own choice.
+ * NewAppShell seeds focusModeAtom from this map on workspace activation,
+ * so the preference acts as the initial state but the in-session focus
+ * toggle still wins until the user navigates away and back.
+ */
+export type WorkspaceMainViewMode = "workspace" | "chat";
+
+export const workspaceMainViewModeMapAtom = atomWithStorage<
+  Record<string, WorkspaceMainViewMode>
+>("holaboss-new-shell-workspace-main-view-v1", {});
+
+/**
  * Chat panel width in split mode (canvas modes ignore this and flex-1
  * across the middle). Resizable via the left-edge drag handle on the
  * chat panel. Clamped to [CHAT_PANEL_MIN_WIDTH, CHAT_PANEL_MAX_WIDTH] at

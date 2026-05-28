@@ -1,4 +1,10 @@
-import { Folder, FolderOpen, X } from "lucide-react";
+import {
+  Folder,
+  FolderOpen,
+  LayoutPanelLeft,
+  MessageSquare,
+  X,
+} from "lucide-react";
 import { useEffect, useLayoutEffect, useState } from "react";
 import { firstWorkspacePaneSectionClassName } from "@/components/layout/firstWorkspacePaneLayout";
 import { Button } from "@/components/ui/button";
@@ -17,6 +23,7 @@ import {
 } from "./WorkspaceWizardLayout";
 
 type FolderChoice = "default" | "custom";
+type MainViewMode = "workspace" | "chat";
 
 interface FirstWorkspacePaneProps {
   variant?: "full" | "panel";
@@ -26,8 +33,9 @@ interface FirstWorkspacePaneProps {
 const STEP_INDEX: Record<SimpleStep, number> = {
   name: 1,
   folder: 2,
+  layout: 3,
 };
-const TOTAL_STEPS = 2;
+const TOTAL_STEPS = 3;
 
 /**
  * Simplified workspace creation: name → folder choice → create. Sign-in is
@@ -72,6 +80,7 @@ export function FirstWorkspacePane({
   const [folderChoice, setFolderChoice] = useState<FolderChoice>(() =>
     selectedWorkspaceFolder?.rootPath ? "custom" : "default",
   );
+  const [mainViewMode, setMainViewMode] = useState<MainViewMode>("workspace");
 
   // Pin defaults on mount so any prior session's marketplace/copy state can't
   // leak into the create call. Use plain "empty" — "empty_onboarding" triggers
@@ -113,6 +122,13 @@ export function FirstWorkspacePane({
     }
   }
 
+  function handleContinueFromFolder() {
+    if (folderDisabled) {
+      return;
+    }
+    setStep("layout");
+  }
+
   function handleCreateWorkspace() {
     if (createDisabled) {
       return;
@@ -120,11 +136,16 @@ export function FirstWorkspacePane({
     trackUmamiEvent("first_workspace_create_started", {
       folder_choice: folderChoice,
       onboarding_mode: "start",
+      main_view_mode: mainViewMode,
     });
-    void createWorkspace({ workspaceOnboardingMode: "start" }).then(() => {
+    void createWorkspace({
+      workspaceOnboardingMode: "start",
+      mainViewMode,
+    }).then(() => {
       trackUmamiEvent("first_workspace_created", {
         folder_choice: folderChoice,
         onboarding_mode: "start",
+        main_view_mode: mainViewMode,
       });
       if (isPanelVariant) {
         onClose?.();
@@ -132,11 +153,16 @@ export function FirstWorkspacePane({
     });
   }
 
-  const createDisabled =
+  const folderDisabled =
     !trimmedName || (folderChoice === "custom" && !customPath);
+  const createDisabled = folderDisabled;
 
   const shellOnBack =
-    step === "folder" ? () => setStep("name") : undefined;
+    step === "folder"
+      ? () => setStep("name")
+      : step === "layout"
+        ? () => setStep("folder")
+        : undefined;
   const showCloseButton = isPanelVariant && step === "name";
 
   const innerContent = isCreatingWorkspace ? (
@@ -198,9 +224,9 @@ export function FirstWorkspacePane({
             description="Files run locally on this machine. Use the default location or pick a folder you control."
             errorMessage={workspaceErrorMessage || null}
             primary={{
-              label: "Create workspace",
-              onClick: handleCreateWorkspace,
-              disabled: createDisabled,
+              label: "Continue",
+              onClick: handleContinueFromFolder,
+              disabled: folderDisabled,
             }}
             secondary={{
               label: "Back",
@@ -264,6 +290,41 @@ export function FirstWorkspacePane({
                   </Button>
                 )
               ) : null}
+            </div>
+          </WorkspaceWizardLayout>
+        ) : step === "layout" ? (
+          <WorkspaceWizardLayout
+            description="Pick how this workspace opens. You can switch later from the focus toggle in the chat panel."
+            errorMessage={workspaceErrorMessage || null}
+            primary={{
+              label: "Create workspace",
+              onClick: handleCreateWorkspace,
+              disabled: createDisabled,
+            }}
+            secondary={{
+              label: "Back",
+              onClick: () => setStep("folder"),
+            }}
+            stepIndex={STEP_INDEX.layout}
+            stepTotal={TOTAL_STEPS}
+            title="How do you want to start?"
+            width="md"
+          >
+            <div className="space-y-3">
+              <FolderOption
+                active={mainViewMode === "workspace"}
+                description="Tabs and chat side by side. The default workspace layout."
+                icon={<LayoutPanelLeft />}
+                onSelect={() => setMainViewMode("workspace")}
+                title="Workspace"
+              />
+              <FolderOption
+                active={mainViewMode === "chat"}
+                description="Chat fills the canvas. Tabs stay one shortcut away."
+                icon={<MessageSquare />}
+                onSelect={() => setMainViewMode("chat")}
+                title="Chat first"
+              />
             </div>
           </WorkspaceWizardLayout>
         ) : null}
