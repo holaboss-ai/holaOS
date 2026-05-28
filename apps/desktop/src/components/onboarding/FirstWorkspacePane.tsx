@@ -1,10 +1,4 @@
-import {
-  Folder,
-  FolderOpen,
-  LayoutPanelLeft,
-  MessageSquare,
-  X,
-} from "lucide-react";
+import { Folder, FolderOpen, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useState } from "react";
 import { firstWorkspacePaneSectionClassName } from "@/components/layout/firstWorkspacePaneLayout";
 import { Button } from "@/components/ui/button";
@@ -294,7 +288,7 @@ export function FirstWorkspacePane({
           </WorkspaceWizardLayout>
         ) : step === "layout" ? (
           <WorkspaceWizardLayout
-            description="Pick how this workspace opens. You can switch later from the focus toggle in the chat panel."
+            description="How you'll work in this workspace. You can still toggle focus on the fly later."
             errorMessage={workspaceErrorMessage || null}
             primary={{
               label: "Create workspace",
@@ -307,23 +301,23 @@ export function FirstWorkspacePane({
             }}
             stepIndex={STEP_INDEX.layout}
             stepTotal={TOTAL_STEPS}
-            title="How do you want to start?"
+            title="Pick your work mode"
             width="md"
           >
-            <div className="space-y-3">
-              <FolderOption
+            <div className="grid grid-cols-2 gap-3">
+              <WorkModeOption
                 active={mainViewMode === "workspace"}
-                description="Tabs and chat side by side. The default workspace layout."
-                icon={<LayoutPanelLeft />}
+                description="Tabs and chat side by side."
                 onSelect={() => setMainViewMode("workspace")}
-                title="Workspace"
+                preview={<WorkspaceModePreview />}
+                title="Workspace mode"
               />
-              <FolderOption
+              <WorkModeOption
                 active={mainViewMode === "chat"}
-                description="Chat fills the canvas. Tabs stay one shortcut away."
-                icon={<MessageSquare />}
+                description="Chat fills the canvas, tabs tucked away."
                 onSelect={() => setMainViewMode("chat")}
-                title="Chat first"
+                preview={<ChatModePreview />}
+                title="Chat mode"
               />
             </div>
           </WorkspaceWizardLayout>
@@ -392,5 +386,151 @@ function FolderOption({
         </span>
       </span>
     </button>
+  );
+}
+
+interface WorkModeOptionProps {
+  active: boolean;
+  title: string;
+  description: string;
+  preview: React.ReactNode;
+  onSelect: () => void;
+}
+
+function WorkModeOption({
+  active,
+  title,
+  description,
+  preview,
+  onSelect,
+}: WorkModeOptionProps) {
+  return (
+    <button
+      aria-pressed={active}
+      className={cn(
+        "group flex flex-col gap-3 rounded-xl border p-3 text-left transition-colors",
+        active
+          ? "border-foreground/25 bg-background text-foreground shadow-2xs"
+          : "border-transparent bg-fg-2 text-muted-foreground hover:bg-fg-4 hover:text-foreground",
+      )}
+      onClick={onSelect}
+      type="button"
+    >
+      <div
+        className={cn(
+          "aspect-[8/5] w-full overflow-hidden rounded-lg transition-colors",
+          active ? "bg-fg-2" : "bg-background",
+        )}
+      >
+        {preview}
+      </div>
+      <div>
+        <div className="text-sm font-medium text-foreground">{title}</div>
+        <div className="mt-0.5 text-xs text-muted-foreground">{description}</div>
+      </div>
+    </button>
+  );
+}
+
+// Both previews share the same outer frame + sidebar so the eye reads the
+// difference inside the canvas, not in surrounding chrome. currentColor
+// keeps them theme-aware without bringing in design tokens.
+function WorkspaceModePreview() {
+  return (
+    <svg
+      viewBox="0 0 96 60"
+      className="size-full"
+      aria-hidden="true"
+      preserveAspectRatio="xMidYMid meet"
+    >
+      {/* Outer frame */}
+      <rect
+        x="0.5"
+        y="0.5"
+        width="95"
+        height="59"
+        rx="3"
+        fill="none"
+        stroke="currentColor"
+        strokeOpacity="0.28"
+      />
+      {/* Sidebar */}
+      <rect x="1" y="1" width="8" height="58" fill="currentColor" fillOpacity="0.08" />
+      <line x1="9" y1="1" x2="9" y2="59" stroke="currentColor" strokeOpacity="0.18" />
+      {/* Tab strip */}
+      <rect x="9" y="1" width="50" height="6" fill="currentColor" fillOpacity="0.05" />
+      <rect x="12" y="2.5" width="9" height="3" rx="0.6" fill="currentColor" fillOpacity="0.30" />
+      <rect x="23" y="2.5" width="9" height="3" rx="0.6" fill="currentColor" fillOpacity="0.16" />
+      <rect x="34" y="2.5" width="9" height="3" rx="0.6" fill="currentColor" fillOpacity="0.16" />
+      <line x1="9" y1="7" x2="59" y2="7" stroke="currentColor" strokeOpacity="0.18" />
+      {/* Center content */}
+      <rect x="12" y="11" width="34" height="2.4" rx="0.6" fill="currentColor" fillOpacity="0.22" />
+      <rect x="12" y="16" width="42" height="1.8" rx="0.6" fill="currentColor" fillOpacity="0.12" />
+      <rect x="12" y="20" width="38" height="1.8" rx="0.6" fill="currentColor" fillOpacity="0.12" />
+      <rect x="12" y="24" width="40" height="1.8" rx="0.6" fill="currentColor" fillOpacity="0.12" />
+      <rect x="12" y="28" width="32" height="1.8" rx="0.6" fill="currentColor" fillOpacity="0.12" />
+      {/* Chat divider */}
+      <line x1="59" y1="1" x2="59" y2="59" stroke="currentColor" strokeOpacity="0.18" />
+      {/* Chat rail */}
+      <rect x="59" y="1" width="36" height="58" fill="currentColor" fillOpacity="0.04" />
+      <rect x="62" y="36" width="24" height="3" rx="1.5" fill="currentColor" fillOpacity="0.20" />
+      <rect x="62" y="42" width="20" height="2.6" rx="1.3" fill="currentColor" fillOpacity="0.14" />
+      <rect
+        x="62"
+        y="51"
+        width="30"
+        height="5"
+        rx="1.25"
+        fill="none"
+        stroke="currentColor"
+        strokeOpacity="0.28"
+      />
+    </svg>
+  );
+}
+
+function ChatModePreview() {
+  return (
+    <svg
+      viewBox="0 0 96 60"
+      className="size-full"
+      aria-hidden="true"
+      preserveAspectRatio="xMidYMid meet"
+    >
+      {/* Outer frame */}
+      <rect
+        x="0.5"
+        y="0.5"
+        width="95"
+        height="59"
+        rx="3"
+        fill="none"
+        stroke="currentColor"
+        strokeOpacity="0.28"
+      />
+      {/* Sidebar */}
+      <rect x="1" y="1" width="8" height="58" fill="currentColor" fillOpacity="0.08" />
+      <line x1="9" y1="1" x2="9" y2="59" stroke="currentColor" strokeOpacity="0.18" />
+      {/* Tabs-hidden pill (chip-style indicator) */}
+      <rect x="13" y="3" width="14" height="3.5" rx="1.75" fill="currentColor" fillOpacity="0.12" />
+      {/* Chat canvas */}
+      <rect x="9" y="1" width="86" height="58" fill="currentColor" fillOpacity="0.03" />
+      {/* Centered chat content */}
+      <rect x="20" y="22" width="48" height="3" rx="1.5" fill="currentColor" fillOpacity="0.22" />
+      <rect x="20" y="28" width="40" height="2.6" rx="1.3" fill="currentColor" fillOpacity="0.14" />
+      <rect x="36" y="34" width="44" height="2.6" rx="1.3" fill="currentColor" fillOpacity="0.14" />
+      <rect x="20" y="40" width="52" height="2.6" rx="1.3" fill="currentColor" fillOpacity="0.14" />
+      {/* Composer */}
+      <rect
+        x="20"
+        y="51"
+        width="60"
+        height="5.4"
+        rx="1.35"
+        fill="none"
+        stroke="currentColor"
+        strokeOpacity="0.28"
+      />
+    </svg>
   );
 }
