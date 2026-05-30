@@ -2,11 +2,16 @@ import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { Copy, Minus, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { FirstWorkspacePane } from "@/components/onboarding/FirstWorkspacePane";
+import { WorkspaceControlCenter } from "@/components/layout/WorkspaceControlCenter";
 import { useWorkspaceBrowser } from "@/components/panes/useWorkspaceBrowser";
 import { PublishScreen } from "@/components/publish/PublishScreen";
 import { WorkspaceOnboardingSurface } from "@/features/workspace-onboarding/WorkspaceOnboardingSurface";
 import { DesktopBillingProvider } from "@/lib/billing/useDesktopBilling";
-import { StoplightProvider } from "@/lib/StoplightContext";
+import { useControlCenterCardSignals } from "@/lib/controlCenterLifecycle";
+import {
+  STOPLIGHT_PAD_PX,
+  StoplightProvider,
+} from "@/lib/StoplightContext";
 import { cn } from "@/lib/utils";
 import {
   useWorkspaceDesktop,
@@ -29,6 +34,7 @@ import {
   internalTabsAtom,
 } from "./state/internalTabs";
 import {
+  controlCenterOpenAtom,
   createWorkspaceOpenAtom,
   focusModeAtom,
   newTabOpenAtom,
@@ -58,12 +64,16 @@ function NewAppShellContent() {
   const setNewTabOpen = useSetAtom(newTabOpenAtom);
   const setSearchOpen = useSetAtom(searchOpenAtom);
   const setSidebarCollapsed = useSetAtom(sidebarCollapsedAtom);
-  const { selectedWorkspaceId } = useWorkspaceSelection();
+  const { selectedWorkspaceId, setSelectedWorkspaceId } =
+    useWorkspaceSelection();
   const { onboardingModeActive, workspaces, hasHydratedWorkspaceList } =
     useWorkspaceDesktop();
   const [publishOpen, setPublishOpen] = useAtom(publishOpenAtom);
   const createWorkspaceOpen = useAtomValue(createWorkspaceOpenAtom);
   const setCreateWorkspaceOpen = useSetAtom(createWorkspaceOpenAtom);
+  const [controlCenterOpen, setControlCenterOpen] = useAtom(
+    controlCenterOpenAtom,
+  );
   const hasWorkspaces = workspaces.length > 0;
   const layout = useChatLayout();
   const [focusMode, setFocusMode] = useAtom(focusModeAtom);
@@ -135,11 +145,26 @@ function NewAppShellContent() {
       } else if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
         e.preventDefault();
         setSidebarCollapsed((prev) => !prev);
+      } else if ((e.metaKey || e.ctrlKey) && e.key === "0") {
+        e.preventDefault();
+        setControlCenterOpen((prev) => !prev);
+      } else if (e.key === "Escape") {
+        // Only swallow Escape when CC is open; other consumers (composers,
+        // dialogs) keep their own ESC handling intact.
+        setControlCenterOpen((prev) => {
+          if (prev) return false;
+          return prev;
+        });
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [setNewTabOpen, setSearchOpen, setSidebarCollapsed]);
+  }, [
+    setNewTabOpen,
+    setSearchOpen,
+    setSidebarCollapsed,
+    setControlCenterOpen,
+  ]);
 
   if (hasHydratedWorkspaceList && !hasWorkspaces) {
     return (
@@ -150,14 +175,30 @@ function NewAppShellContent() {
   }
 
   const showMiddle = layout === "split";
+  const showControlCenter = controlCenterOpen;
 
   return (
     <div className="relative flex h-screen w-screen overflow-hidden text-foreground antialiased">
-      <Sidebar />
+      {showControlCenter ? null : <Sidebar />}
       {onboardingModeActive ? (
         <div className="flex min-w-0 flex-1 flex-col bg-background">
           <ExperimentalWorkspaceOnboardingTakeover />
         </div>
+      ) : showControlCenter ? (
+        <ControlCenterTakeover
+          workspaces={workspaces}
+          selectedWorkspaceId={selectedWorkspaceId}
+          onClose={() => setControlCenterOpen(false)}
+          onSelectWorkspace={(id) => setSelectedWorkspaceId(id)}
+          onEnterWorkspace={(id) => {
+            setSelectedWorkspaceId(id);
+            setControlCenterOpen(false);
+          }}
+          onCreateWorkspace={() => {
+            setControlCenterOpen(false);
+            setCreateWorkspaceOpen(true);
+          }}
+        />
       ) : (
         <>
           <div
@@ -285,5 +326,80 @@ function ExperimentalWorkspaceOnboardingTakeover() {
         <WorkspaceOnboardingSurface />
       </div>
     </section>
+  );
+}
+
+// Wraps WorkspaceControlCenter for the new shell. Drag-reorder, density,
+// and completion highlights are deferred to a follow-up that lifts those
+// state slices out of legacy AppShell into shared atoms/hooks.
+function ControlCenterTakeover(props: {
+  workspaces: WorkspaceRecordPayload[];
+  selectedWorkspaceId: string | null;
+  onClose: () => void;
+  onSelectWorkspace: (workspaceId: string) => void;
+  onEnterWorkspace: (workspaceId: string) => void;
+  onCreateWorkspace: () => void;
+}) {
+  const visibleWorkspaceIdsRef = useRef<string[]>([]);
+  const cardSignals = useControlCenterCardSignals(
+    visibleWorkspaceIdsRef.current,
+    true,
+  );
+
+  // macOS traffic lights sit at fixed window coords (x:14 y:16); we'd
+  // overlap them if we pinned the close button to the actual top-left.
+  // Reserve their footprint with the shared STOPLIGHT_PAD_PX so the X
+  // lands just past the rightmost stoplight glyph. Other platforms get a
+  // tight inset.
+  const platform = window.electronAPI?.platform ?? "";
+  const isMac = platform === "darwin";
+  const headerLeftPad = isMac ? STOPLIGHT_PAD_PX : 12;
+
+  return (
+    <div className="flex min-w-0 flex-1 flex-col bg-background">
+      {/* Drag handle + close. CC takes over the whole right side, so this
+          replaces TopChrome as the window-drag region — without it the
+          frameless window can't be moved while CC is open. */}
+      <div
+        className="window-drag flex h-10 shrink-0 items-center pr-2"
+        style={{ paddingLeft: headerLeftPad }}
+      >
+        <button
+          type="button"
+          aria-label="Close all workspaces"
+          title="Close (Esc / ⌘0)"
+          onClick={props.onClose}
+          className="window-no-drag grid size-7 place-items-center rounded-md text-foreground/55 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+        >
+          <X className="size-3.5" />
+        </button>
+      </div>
+      <WorkspaceControlCenter
+        workspaces={props.workspaces}
+        selectedWorkspaceId={props.selectedWorkspaceId}
+        cardsPerRow={3}
+        orderedWorkspaceIds={[]}
+        highlightedWorkspaceIds={[]}
+        cardSignals={cardSignals}
+        onOpenWorkspaceRunningTasks={props.onEnterWorkspace}
+        onOpenWorkspaceAppsExplorer={props.onEnterWorkspace}
+        onSelectWorkspace={props.onSelectWorkspace}
+        onEnterWorkspace={props.onEnterWorkspace}
+        onOpenOutput={(workspaceId) => props.onEnterWorkspace(workspaceId)}
+        onWorkspaceOrderChange={() => {
+          /* drag reorder deferred to a follow-up */
+        }}
+        onVisibleWorkspaceIdsChange={(ids) => {
+          visibleWorkspaceIdsRef.current = ids;
+        }}
+        onCardComposerSubmit={() => {
+          /* highlight suppression handled by AppShell; no-op here */
+        }}
+        onWorkspaceCompletion={() => {
+          /* completion highlights deferred to a follow-up */
+        }}
+        onCreateWorkspace={props.onCreateWorkspace}
+      />
+    </div>
   );
 }

@@ -67,6 +67,20 @@ interface RunningSubTaskPreview {
 const SUB_TASK_PREVIEW_HISTORY_LIMIT = 6;
 const SUB_TASK_PREVIEW_TEXT_LIMIT = 160;
 
+interface WorkspaceCardSnapshot {
+  mainSession: AgentSessionRecordPayload | null;
+  messages: PreviewChatMessage[];
+  runtimeState: SessionRuntimeRecordPayload | null;
+  runtimeCardState: RuntimeCardState;
+  runningSubTasks: RunningSubTaskPreview[];
+}
+
+// Module-level cache so each WorkspaceCard can rehydrate instantly when the
+// Control Center re-opens. Keeps last-seen snapshot per workspace across
+// mounts; without this, every CC reopen flashes a loading spinner before
+// the same content paints in. Cache size is bounded by the workspace count.
+const workspaceCardSnapshotCache = new Map<string, WorkspaceCardSnapshot>();
+
 interface WorkspaceControlCenterProps {
   workspaces: WorkspaceRecordPayload[];
   selectedWorkspaceId: string | null;
@@ -447,16 +461,22 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
 }: WorkspaceCardProps) {
   const workspaceId = workspace.id;
   const workspaceFallbackActivityAt = fallbackWorkspaceActivityAt(workspace);
+  const cachedSnapshot = workspaceCardSnapshotCache.get(workspaceId) ?? null;
   const [mainSession, setMainSession] = useState<AgentSessionRecordPayload | null>(
-    null,
+    () => cachedSnapshot?.mainSession ?? null,
   );
-  const [messages, setMessages] = useState<PreviewChatMessage[]>([]);
+  const [messages, setMessages] = useState<PreviewChatMessage[]>(
+    () => cachedSnapshot?.messages ?? [],
+  );
   const [runtimeState, setRuntimeState] =
-    useState<SessionRuntimeRecordPayload | null>(null);
-  const [runtimeCardState, setRuntimeCardState] =
-    useState<RuntimeCardState>("idle");
+    useState<SessionRuntimeRecordPayload | null>(
+      () => cachedSnapshot?.runtimeState ?? null,
+    );
+  const [runtimeCardState, setRuntimeCardState] = useState<RuntimeCardState>(
+    () => cachedSnapshot?.runtimeCardState ?? "idle",
+  );
   const [errorMessage, setErrorMessage] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(() => cachedSnapshot === null);
   const [isResponding, setIsResponding] = useState(false);
   const [liveAssistantText, setLiveAssistantText] = useState("");
   const [liveAgentStatus, setLiveAgentStatus] = useState("");
@@ -468,7 +488,7 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
   >([]);
   const [runningSubTasks, setRunningSubTasks] = useState<
     RunningSubTaskPreview[]
-  >([]);
+  >(() => cachedSnapshot?.runningSubTasks ?? []);
   const previewScrollerRef = useRef<HTMLDivElement | null>(null);
   const messagesRef = useRef<PreviewChatMessage[]>([]);
   const shouldStickToBottomRef = useRef(true);
@@ -764,6 +784,13 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
       setRuntimeState(nextRuntimeState);
       setRuntimeCardState(nextRuntimeCardState);
       setRunningSubTasks(nextSubTaskPreviews);
+      workspaceCardSnapshotCache.set(workspaceId, {
+        mainSession: session,
+        messages: nextRenderedMessages,
+        runtimeState: nextRuntimeState,
+        runtimeCardState: nextRuntimeCardState,
+        runningSubTasks: nextSubTaskPreviews,
+      });
       setIsResponding(
         nextRuntimeCardState === "queued" || nextRuntimeCardState === "working",
       );
@@ -820,7 +847,11 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
 
   useEffect(() => {
     disposedRef.current = false;
-    void refreshSnapshot({ attachStream: true, showLoading: true }).catch(
+    // Skip the loading spinner when we already have a cached snapshot for
+    // this workspace — the cached data is on screen, the background refresh
+    // will just replace it when it lands.
+    const showLoading = !workspaceCardSnapshotCache.has(workspaceId);
+    void refreshSnapshot({ attachStream: true, showLoading }).catch(
       (error) => {
         if (disposedRef.current) {
           return;
@@ -839,7 +870,12 @@ const WorkspaceControlCenterCard = memo(function WorkspaceControlCenterCard({
       clearScheduledTerminalRefreshes();
       void closeActiveStream("control_center_card_unmounted");
     };
-  }, [clearScheduledTerminalRefreshes, closeActiveStream, refreshSnapshot]);
+  }, [
+    clearScheduledTerminalRefreshes,
+    closeActiveStream,
+    refreshSnapshot,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     messagesRef.current = messages;
