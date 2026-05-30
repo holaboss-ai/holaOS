@@ -98,6 +98,26 @@ function sanitizeDeliverableArray(value: unknown): Array<Record<string, unknown>
     .filter((entry): entry is Record<string, unknown> => Boolean(entry));
 }
 
+function sanitizeEditedFiles(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const editedFiles: string[] = [];
+  for (const entry of value) {
+    const filePath = optionalString(entry);
+    if (!filePath || seen.has(filePath)) {
+      continue;
+    }
+    seen.add(filePath);
+    editedFiles.push(filePath);
+    if (editedFiles.length >= 20) {
+      break;
+    }
+  }
+  return editedFiles;
+}
+
 function sanitizeBackgroundEventPayloadForPrompt(
   payload: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -108,6 +128,7 @@ function sanitizeBackgroundEventPayloadForPrompt(
   const partialDeliverables = sanitizeDeliverableArray(
     payload.partial_deliverables,
   );
+  const editedFiles = sanitizeEditedFiles(payload.edited_files);
 
   for (const key of [
     "source_type",
@@ -162,6 +183,9 @@ function sanitizeBackgroundEventPayloadForPrompt(
   }
   if (partialDeliverables.length > 0) {
     sanitized.partial_deliverables = partialDeliverables;
+  }
+  if (editedFiles.length > 0) {
+    sanitized.edited_files = editedFiles;
   }
 
   return sanitized;

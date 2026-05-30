@@ -118,10 +118,6 @@ function isFailedTurn(status: string): boolean {
   return normalized === "failed" || normalized === "error";
 }
 
-function isTerminalTurn(status: string): boolean {
-  return isSuccessfulTurn(status) || isFailedTurn(status);
-}
-
 function formatCompactNumber(value: number): string {
   if (value === 0) {
     return "0";
@@ -371,8 +367,6 @@ export function WorkspaceDashboardPane({
     let inputTokens = 0;
     let outputTokens = 0;
     let totalTokens = 0;
-    let successfulRuns = 0;
-    let failedRuns = 0;
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
     for (const issue of visibleIssues) {
@@ -409,14 +403,7 @@ export function WorkspaceDashboardPane({
       inputTokens += directInput;
       outputTokens += directOutput;
       totalTokens += directTotal > 0 ? directTotal : directInput + directOutput;
-      if (isSuccessfulTurn(result.status)) {
-        successfulRuns += 1;
-      } else if (isFailedTurn(result.status)) {
-        failedRuns += 1;
-      }
     }
-
-    const terminalRuns = successfulRuns + failedRuns;
 
     return {
       totalIssues: visibleIssues.length,
@@ -432,13 +419,6 @@ export function WorkspaceDashboardPane({
       inputTokens,
       outputTokens,
       totalTokens,
-      successfulRuns,
-      failedRuns,
-      terminalRuns,
-      successRate:
-        terminalRuns > 0
-          ? Math.round((successfulRuns / terminalRuns) * 100)
-          : 0,
     };
   }, [recentIssueTurnResults, teammates.length, visibleIssues]);
 
@@ -447,24 +427,6 @@ export function WorkspaceDashboardPane({
       buildDailyBars(recentIssueTurnResults, {
         valueForDay: (items) => items.length,
         color: "bg-emerald-400/85",
-      }),
-    [recentIssueTurnResults],
-  );
-
-  const successRateBars = useMemo(
-    () =>
-      buildDailyBars(recentIssueTurnResults, {
-        valueForDay: (items) => {
-          const terminal = items.filter((item) => isTerminalTurn(item.status));
-          if (terminal.length === 0) {
-            return 0;
-          }
-          const successful = terminal.filter((item) =>
-            isSuccessfulTurn(item.status),
-          ).length;
-          return Math.round((successful / terminal.length) * 100);
-        },
-        color: "bg-cyan-400/85",
       }),
     [recentIssueTurnResults],
   );
@@ -607,7 +569,7 @@ export function WorkspaceDashboardPane({
               <MetricCard
                 label="Tasks In Progress"
                 value={summary.inProgressCount}
-                detail={`${summary.blockedCount} blocked, ${summary.reviewCount} in review`}
+                detail={`${summary.blockedCount} blocked, ${summary.todoAssignedCount + summary.todoIdleCount} todo`}
               />
               <MetricCard
                 label="Token Consumption"
@@ -615,14 +577,17 @@ export function WorkspaceDashboardPane({
                 detail={`${formatCompactNumber(summary.inputTokens)} in / ${formatCompactNumber(summary.outputTokens)} out · last 14 days`}
               />
               <MetricCard
-                label="Success Rate"
-                value={`${summary.successRate}%`}
-                detail={`${summary.successfulRuns}/${summary.terminalRuns || 0} terminal runs · last 14 days`}
-                tone="success"
+                label="Waiting for Review"
+                value={summary.reviewCount}
+                detail={
+                  summary.reviewCount === 0
+                    ? "Nothing waiting right now"
+                    : `${summary.reviewCount} task${summary.reviewCount === 1 ? "" : "s"} need review`
+                }
               />
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-4">
+            <div className="grid gap-4 xl:grid-cols-3">
               <MiniBarChartCard
                 title="Run Activity"
                 subtitle="Last 14 days"
@@ -648,13 +613,6 @@ export function WorkspaceDashboardPane({
                   label: issueStatusLabel(status),
                   color: statusBars[index]?.color ?? "bg-slate-400/85",
                 }))}
-              />
-              <MiniBarChartCard
-                title="Success Rate"
-                subtitle="Last 14 days"
-                bars={successRateBars}
-                legend={[{ label: "Daily completion rate", color: "bg-cyan-400/85" }]}
-                valueSuffix="%"
               />
             </div>
 

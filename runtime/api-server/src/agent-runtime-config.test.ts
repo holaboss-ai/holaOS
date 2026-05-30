@@ -240,6 +240,7 @@ test("projectAgentRuntimeConfig returns ordered prompt layers and renders system
     assert.deepEqual(result.capability_manifest?.context, {
       harness_id: "pi",
       session_kind: "subagent",
+      onboarding_state: null,
       browser_tools_available: false,
       browser_tool_ids: [],
       runtime_tool_ids: [],
@@ -417,6 +418,7 @@ test("projectAgentRuntimeConfig includes current user context as a context messa
       current_user_context: {
         profile_id: "default",
         name: "Jeffrey",
+        timezone: "America/Los_Angeles",
         name_source: "manual",
       },
       selected_model: null,
@@ -470,6 +472,10 @@ test("projectAgentRuntimeConfig includes current user context as a context messa
       result.context_messages?.join("\n\n") ?? "",
       /The current operator name is `Jeffrey`\./,
     );
+    assert.match(
+      result.context_messages?.join("\n\n") ?? "",
+      /The current operator timezone is `America\/Los_Angeles`\./,
+    );
   } finally {
     delete process.env.HOLABOSS_MODEL_PROXY_BASE_URL;
   }
@@ -503,7 +509,6 @@ test("projectAgentRuntimeConfig includes teammate routing context as a context m
             summary:
               "Fallback executor for general implementation and research work.",
             capabilities: ["generalist", "implementation", "research"],
-            preferred_tools: [],
             skills: [],
             skill_names: [],
           },
@@ -515,7 +520,6 @@ test("projectAgentRuntimeConfig includes teammate routing context as a context m
             summary:
               "Best for React dashboard implementation and UI refactors.",
             capabilities: ["frontend", "react", "dashboard"],
-            preferred_tools: ["edit", "bash"],
             skills: [
               {
                 name: "Dashboard UI",
@@ -735,6 +739,7 @@ test("projectAgentRuntimeConfig strips direct MCP access from workspace sessions
     assert.deepEqual(result.capability_manifest?.context, {
       harness_id: "pi",
       session_kind: "main_session",
+      onboarding_state: null,
       browser_tools_available: false,
       browser_tool_ids: [],
       runtime_tool_ids: [],
@@ -849,6 +854,7 @@ test("projectAgentRuntimeConfig includes operator surface context as a context m
     assert.deepEqual(result.capability_manifest?.context, {
       harness_id: "pi",
       session_kind: "main_session",
+      onboarding_state: null,
       browser_tools_available: false,
       browser_tool_ids: [],
       runtime_tool_ids: [],

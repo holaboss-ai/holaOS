@@ -11,15 +11,15 @@ It's built for work that doesn't fit in a single prompt. Drafting a week of Link
 
 ## The mental model
 
-**Workspace** — the unit of organization. Each workspace is self-contained: its own agent identity, its own memory, its own installed apps and skills. You'd create one workspace for your LinkedIn presence, a separate one for inbox triage, and another for competitive research. They don't share state.
+**Workspace** — the unit of organization. Each workspace has its own agent identity, workspace-scoped memory, and installed apps and skills. You'd create one workspace for your LinkedIn presence, a separate one for inbox triage, and another for competitive research. Day-to-day run context stays anchored to the open workspace, though some account-level surfaces such as profile memory or reusable integration connections can be shared intentionally.
 
 **Agent** — the entity doing the work inside a workspace. Between sessions, the agent retains memory of prior runs, past decisions, and accumulated context. Its standing behavior is defined by an `AGENTS.md` file in the workspace — you can read and edit that file directly. The agent reads it at the start of every run.
 
-**Apps and Skills** — how the agent's capabilities are extended. Apps are platform integrations — LinkedIn, Gmail, Reddit, GitHub, Sheets, and others — that give the agent real actions on real platforms. Skills are markdown instruction packs (`SKILL.md` files) the agent loads when relevant, encoding reusable patterns like how to write in your voice or how to structure a weekly report. You install Apps from the marketplace at `/apps`; Skills can be installed from `/skills` or authored directly inside the workspace.
+**Apps and Skills** — how the agent's capabilities are extended. Apps are runtime-managed capability packages — often platform integrations, but also local tools, app UI, or background jobs — that give the agent durable actions inside the workspace. Skills are markdown instruction packs (`SKILL.md` files) the agent loads when relevant, encoding reusable patterns like how to write in your voice or how to structure a weekly report. Apps and published Skills can come from Marketplace, and Skills can also be authored directly inside the workspace.
 
 Two more pieces worth knowing before you go deeper:
 
-**Automations** let a workspace run on a schedule or in response to an event, without you typing a message. The agent wakes up, does the work, and accumulates outputs over time.
+**Automations** let a workspace run on a schedule without you typing a message. The agent wakes up, does the work, and accumulates outputs over time.
 
 **Templates** are workspaces others have built, iterated on, and published. Instead of starting from blank, you fork a template and adapt it — the agent identity, installed apps, and standing instructions come pre-configured.
 

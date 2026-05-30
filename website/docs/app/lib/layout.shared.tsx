@@ -68,7 +68,6 @@ export function baseOptions(): BaseLayoutProps {
           </a>
         </span>
       ),
-      mode: 'top',
     },
     links: PRIMARY_NAV,
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,

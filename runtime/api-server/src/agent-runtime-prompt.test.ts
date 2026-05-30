@@ -907,17 +907,15 @@ test("composeAgentPrompt keeps onboarding sessions free of subagent delegation d
   assert.doesNotMatch(prompt.systemPrompt, /Subagents are backstage executors\./);
 });
 
-test("composeAgentPrompt gives workspace onboarding its own design-lab prompt", () => {
+test("composeAgentPrompt gives workspace onboarding its own controller prompt", () => {
   const capabilityManifest = buildAgentCapabilityManifest({
     defaultTools: ["read", "edit", "bash"],
     extraTools: [
-      "holaboss_delegate_task",
       "holaboss_create_alignment_question",
       "holaboss_create_alignment_report",
       "holaboss_create_verification_report",
     ],
     runtimeToolIds: [
-      "holaboss_delegate_task",
       "holaboss_create_alignment_question",
       "holaboss_create_alignment_report",
       "holaboss_create_verification_report",
@@ -930,7 +928,6 @@ test("composeAgentPrompt gives workspace onboarding its own design-lab prompt", 
   const prompt = composeAgentPrompt("You are concise.", {
     defaultTools: ["read", "edit", "bash"],
     extraTools: [
-      "holaboss_delegate_task",
       "holaboss_create_alignment_question",
       "holaboss_create_alignment_report",
       "holaboss_create_verification_report",
@@ -943,31 +940,43 @@ test("composeAgentPrompt gives workspace onboarding its own design-lab prompt", 
     capabilityManifest,
   });
 
-  assert.match(prompt.systemPrompt, /workspace onboarding design lab controller/);
-  assert.match(prompt.systemPrompt, /user-facing architect and builder/);
-  assert.match(prompt.systemPrompt, /cronjobs or recurring work/);
-  assert.match(prompt.systemPrompt, /small app builds or slices to implement/);
-  assert.match(prompt.systemPrompt, /workspace file and folder organization/);
-  assert.match(prompt.systemPrompt, /skills or repeatable workflows/);
-  assert.match(prompt.systemPrompt, /AI manager personality and behavior/);
+  assert.match(prompt.systemPrompt, /workspace onboarding controller/);
+  assert.match(prompt.systemPrompt, /user-facing architect and implementation orchestrator/);
+  assert.match(prompt.systemPrompt, /user's intended outcome/);
+  assert.match(prompt.systemPrompt, /real work context and systems involved/);
+  assert.match(prompt.systemPrompt, /integrations required to understand or act on that work/);
+  assert.match(prompt.systemPrompt, /teammates to create and how each should behave/);
+  assert.match(prompt.systemPrompt, /workspace rules that belong in `AGENTS\.md`/);
+  assert.match(prompt.systemPrompt, /teammate-owned cronjobs/);
   assert.match(prompt.systemPrompt, /gated design process/);
   assert.match(prompt.systemPrompt, /converse with the user/);
   assert.match(prompt.systemPrompt, /converge those requirements into a concrete design report/);
   assert.match(prompt.systemPrompt, /wait for user confirmation/);
-  assert.match(prompt.systemPrompt, /Delegate implementation to subagents only after the user confirms the design report/);
+  assert.match(prompt.systemPrompt, /treat implementation as a coordinated execution phase/);
+  assert.match(prompt.systemPrompt, /route teammate provisioning to HR/);
+  assert.match(prompt.systemPrompt, /app creation or migration work to App Builder/);
+  assert.match(prompt.systemPrompt, /remaining generic workspace execution to General/);
   assert.match(prompt.systemPrompt, /Keep the onboarding thread conversational and uncluttered/);
   assert.match(prompt.systemPrompt, /holaboss_create_alignment_question/);
   assert.match(prompt.systemPrompt, /closed choices/);
   assert.match(prompt.systemPrompt, /inline answer card/);
+  assert.match(prompt.systemPrompt, /Ground the alignment design in the user's actual work context/);
   assert.match(prompt.systemPrompt, /non-empty `summary` and `markdown` fields/);
-  assert.match(prompt.systemPrompt, /`workspace_structure`, `app_builds`, `skills`, `cronjobs`, `ai_manager_behavior`, `open_questions`, and `implementation_notes`/);
-  assert.match(prompt.systemPrompt, /thin first pass instead of a full product spec/);
-  assert.match(prompt.systemPrompt, /waiting for implementation results before moving to verification/);
+  assert.match(prompt.systemPrompt, /`user_intent`, `work_context`, `research_basis`, `integrations`, `teammates`, `workspace_rules`, `workspace_structure`, `apps`, `cronjobs`, `open_questions`, and `implementation_notes`/);
+  assert.match(prompt.systemPrompt, /Cronjobs should name an owner teammate/);
+  assert.match(prompt.systemPrompt, /focused first pass instead of a full product spec/);
+  assert.match(prompt.systemPrompt, /source of truth/);
+  assert.match(prompt.systemPrompt, /route teammate creation and teammate-local skills to HR/);
+  assert.match(prompt.systemPrompt, /route app creation, migration, and polish work to App Builder/);
+  assert.match(prompt.systemPrompt, /Every implementation task brief should quote the relevant part of the approved alignment report/);
+  assert.match(prompt.systemPrompt, /Stay responsible for sequencing, dependency management, blocker resolution with the user, and final verification/);
+  assert.match(prompt.systemPrompt, /finishing the implementation work before moving to verification/);
   assert.match(prompt.systemPrompt, /verification report/);
   assert.match(prompt.systemPrompt, /including a concise human-readable `markdown` body/);
   assert.match(prompt.systemPrompt, /verified implementation/);
   assert.match(prompt.systemPrompt, /alignment review card/);
   assert.match(prompt.systemPrompt, /verification review card/);
+  assert.doesNotMatch(prompt.systemPrompt, /Delegate implementation to subagents/);
   assert.doesNotMatch(prompt.systemPrompt, /holaboss_approve_alignment/);
   assert.doesNotMatch(prompt.systemPrompt, /holaboss_onboarding_complete/);
   assert.doesNotMatch(prompt.systemPrompt, /This is an onboarding session\./);
@@ -1000,7 +1009,7 @@ test("composeAgentPrompt gives meeting mode its own critique-lab prompt", () => 
   assert.match(prompt.systemPrompt, /concrete backlog first/);
   assert.match(prompt.systemPrompt, /confirms priorities/);
   assert.match(prompt.systemPrompt, /explicit user acceptance before merging/);
-  assert.doesNotMatch(prompt.systemPrompt, /workspace onboarding design lab controller/);
+  assert.doesNotMatch(prompt.systemPrompt, /workspace onboarding controller/);
 });
 
 test("composeBaseAgentPrompt includes shared todo continuity policy when todo tools are available", () => {
@@ -1225,6 +1234,7 @@ test("composeBaseAgentPrompt includes current user context when provided", () =>
     currentUserContext: {
       profile_id: "default",
       name: "Jeffrey",
+      timezone: "America/Los_Angeles",
       name_source: "manual",
     },
   });
@@ -1242,6 +1252,8 @@ test("composeBaseAgentPrompt includes current user context when provided", () =>
   assert.doesNotMatch(prompt.systemPrompt, /Current user context:/);
   assert.match(prompt.contextMessages.join("\n\n"), /Current user context:/);
   assert.match(prompt.contextMessages.join("\n\n"), /The current operator name is `Jeffrey`\./);
+  assert.match(prompt.contextMessages.join("\n\n"), /The current operator timezone is `America\/Los_Angeles`\./);
+  assert.match(prompt.contextMessages.join("\n\n"), /Interpret relative dates and times such as `today`, `tomorrow`/);
   assert.doesNotMatch(prompt.contextMessages.join("\n\n"), /Runtime profile id:/);
   assert.doesNotMatch(prompt.contextMessages.join("\n\n"), /Name source:/);
 });
@@ -1263,7 +1275,16 @@ test("composeBaseAgentPrompt includes teammate routing context when provided", (
           status: "active",
           summary: "Fallback executor for general implementation and research work.",
           capabilities: ["generalist", "implementation", "research"],
-          preferred_tools: [],
+          skills: [],
+          skill_names: [],
+        },
+        {
+          teammate_id: "hr",
+          name: "HR",
+          kind: "system",
+          status: "active",
+          summary: "Roster manager for teammate design, teammate creation, skills bootstrap, and integration readiness.",
+          capabilities: ["teammates", "roster", "hiring", "skills", "bootstrap", "integrations"],
           skills: [],
           skill_names: [],
         },
@@ -1274,7 +1295,6 @@ test("composeBaseAgentPrompt includes teammate routing context when provided", (
           status: "active",
           summary: "Best for React dashboard implementation and UI refactors.",
           capabilities: ["frontend", "react", "dashboard", "ui"],
-          preferred_tools: ["edit", "bash"],
           skills: [
             {
               name: "Dashboard UI",
@@ -1300,10 +1320,14 @@ test("composeBaseAgentPrompt includes teammate routing context when provided", (
   assert.doesNotMatch(prompt.systemPrompt, /Teammate routing roster:/);
   assert.match(prompt.contextMessages.join("\n\n"), /Teammate routing roster:/);
   assert.match(prompt.contextMessages.join("\n\n"), /Fall back to `General` when no custom teammate is a clear fit\./);
-  assert.match(prompt.contextMessages.join("\n\n"), /load the `create-teammate` skill via the `skill` tool before creating anyone/i);
+  assert.match(prompt.contextMessages.join("\n\n"), /always pass an explicit `teammate_id`/i);
+  assert.match(prompt.contextMessages.join("\n\n"), /Prefer `HR` for teammate creation, teammate reshaping, roster design, and teammate bootstrap work when that teammate is available\./);
+  assert.match(prompt.contextMessages.join("\n\n"), /delegate that work to `HR` instead of trying to perform teammate bootstrap directly in the front session/i);
   assert.match(prompt.contextMessages.join("\n\n"), /Do not create a teammate until the stable remit is understood/i);
   assert.match(prompt.contextMessages.join("\n\n"), /ask for the concrete missing remit details before calling teammate-creation tools/i);
-  assert.match(prompt.contextMessages.join("\n\n"), /`Frontend` \[custom\/active\]: Best for React dashboard implementation and UI refactors\./);
+  assert.match(prompt.contextMessages.join("\n\n"), /identify required integrations, ask the user to connect missing prerequisites, and create teammate-local skills/i);
+  assert.match(prompt.contextMessages.join("\n\n"), /`HR` \(id: `hr`\) \[system\/active\]: Roster manager for teammate design, teammate creation, skills bootstrap, and integration readiness\./);
+  assert.match(prompt.contextMessages.join("\n\n"), /`Frontend` \(id: `frontend`\) \[custom\/active\]: Best for React dashboard implementation and UI refactors\./);
   assert.match(prompt.contextMessages.join("\n\n"), /Capability tags: `frontend`, `react`, `dashboard`, `ui`\./);
   assert.match(
     prompt.contextMessages.join("\n\n"),

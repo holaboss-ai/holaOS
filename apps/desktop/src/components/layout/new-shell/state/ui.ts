@@ -133,7 +133,8 @@ export const chatPanelViewAtom = atom<ChatPanelView>("chat");
 /**
  * Prefill request driven from outside the chat panel (e.g. the Automations
  * "New schedule" button). ChatPanel watches this atom and threads it to
- * ChatPane as `composerPrefillRequest` + a "draft" session open request.
+ * ChatPane as `composerPrefillRequest`, optionally pairing it with a fresh
+ * draft-session open request when the caller wants a clean composer.
  * Bumping `requestKey` re-triggers the prefill even when the text matches
  * a previous request.
  */
@@ -141,6 +142,7 @@ export interface ChatComposerPrefill {
   text: string;
   requestKey: number;
   mode?: "replace" | "append";
+  sessionMode?: "preserve" | "draft";
 }
 export const chatComposerPrefillAtom = atom<ChatComposerPrefill | null>(null);
 

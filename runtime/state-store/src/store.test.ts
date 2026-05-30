@@ -1571,20 +1571,26 @@ test("runtime user profile round trip preserves manual value and auth fallback o
 
   const fallback = store.applyRuntimeUserProfileAuthFallback({
     name: "Jeffrey",
+    timezone: "America/Los_Angeles",
   });
   const updated = store.upsertRuntimeUserProfile({
     name: "Jeff",
+    timezone: "America/New_York",
     nameSource: "manual",
   });
   const preserved = store.applyRuntimeUserProfileAuthFallback({
     name: "Ignored Auth Name",
+    timezone: "Europe/London",
   });
 
   assert.equal(fallback?.name, "Jeffrey");
+  assert.equal(fallback?.timezone, "America/Los_Angeles");
   assert.equal(fallback?.nameSource, "auth_fallback");
   assert.equal(updated.name, "Jeff");
+  assert.equal(updated.timezone, "America/New_York");
   assert.equal(updated.nameSource, "manual");
   assert.equal(preserved?.name, "Jeff");
+  assert.equal(preserved?.timezone, "America/New_York");
   assert.equal(preserved?.nameSource, "manual");
   assert.deepEqual(store.getRuntimeUserProfile(), preserved);
 
@@ -4007,7 +4013,17 @@ test("issues round trip creates persistent sessions with a workspace-derived pre
     title: "Instrument homepage metrics",
     status: "backlog",
   });
+  const child = store.createIssue({
+    workspaceId: "workspace-1",
+    parentIssueId: first.issueId,
+    title: "Implement KPI strip",
+    status: "todo",
+  });
   const listed = store.listIssues({ workspaceId: "workspace-1" });
+  const children = store.listIssues({
+    workspaceId: "workspace-1",
+    parentIssueId: first.issueId,
+  });
   const fetchedBySession = store.getIssueBySessionId({
     workspaceId: "workspace-1",
     sessionId: first.sessionId,
@@ -4033,12 +4049,25 @@ test("issues round trip creates persistent sessions with a workspace-derived pre
   assert.equal(first.attachments.length, 1);
   assert.equal(second.issueId, "ISS-2");
   assert.equal(second.issueNumber, 2);
-  assert.equal(listed.length, 2);
+  assert.equal(child.parentIssueId, first.issueId);
+  assert.equal(listed.length, 3);
+  assert.deepEqual(children.map((issue) => issue.issueId), [child.issueId]);
   assert.equal(fetchedBySession?.issueId, first.issueId);
   assert.equal(updated?.status, "done");
   assert.equal(updated?.priority, "critical");
   assert.ok(updated?.completedAt);
   assert.equal(updatedSession?.title, "Implement workspace dashboard");
+  assert.throws(
+    () =>
+      store.updateIssue({
+        workspaceId: "workspace-1",
+        issueId: first.issueId,
+        fields: {
+          parentIssueId: child.issueId,
+        },
+      }),
+    /cycles/,
+  );
   store.close();
 });
 
@@ -4125,7 +4154,6 @@ test("teammate capability profiles persist and update cleanly", () => {
     capabilityProfile: {
       summary: "Best for live research, comparisons, and vendor analysis.",
       capabilities: ["research", "comparison", "vendors"],
-      preferredTools: ["web_search", "browser_get_state"],
     },
   });
   const updated = store.updateTeammate({
@@ -4135,7 +4163,6 @@ test("teammate capability profiles persist and update cleanly", () => {
       capabilityProfile: {
         summary: "Best for live research, vendor analysis, and sourcing.",
         capabilities: ["research", "vendors", "sourcing"],
-        preferredTools: ["web_search"],
       },
     },
   });
@@ -4157,10 +4184,6 @@ test("teammate capability profiles persist and update cleanly", () => {
     "comparison",
     "vendors",
   ]);
-  assert.deepEqual(teammate.capabilityProfile.preferredTools, [
-    "web_search",
-    "browser_get_state",
-  ]);
   assert.equal(
     updated?.capabilityProfile.summary,
     "Best for live research, vendor analysis, and sourcing.",
@@ -4170,7 +4193,21 @@ test("teammate capability profiles persist and update cleanly", () => {
     "vendors",
     "sourcing",
   ]);
-  assert.deepEqual(updated?.capabilityProfile.preferredTools, ["web_search"]);
+  const hr = store.ensureHrTeammate("workspace-1");
+  const appBuilder = store.ensureAppBuilderTeammate("workspace-1");
+  assert.match(hr.capabilityProfile.summary ?? "", /Roster manager/i);
+  assert.match(hr.instructions ?? "", /Load and follow the `create-teammate` skill/i);
+  assert.match(appBuilder.capabilityProfile.summary ?? "", /Specialist builder for holaOS apps/i);
+  assert.match(appBuilder.instructions ?? "", /Use the `app-builder-sdk` skill/i);
+  assert.deepEqual(appBuilder.capabilityProfile.capabilities, [
+    "apps",
+    "dashboards",
+    "ui",
+    "sdk",
+    "implementation",
+    "lifecycle",
+    "polish",
+  ]);
   store.close();
 });
 
@@ -4253,17 +4290,19 @@ test("legacy teammate tables migrate missing kind and status columns", () => {
     includeArchived: true,
   });
 
-  assert.equal(teammates.length, 2);
+  assert.equal(teammates.length, 4);
   assert.equal(teammates[0]?.teammateId, "general");
   assert.equal(teammates[0]?.kind, "system");
   assert.equal(teammates[0]?.status, "active");
-  assert.deepEqual(
-    teammates[0]?.capabilityProfile.preferredTools,
-    [],
-  );
-  assert.equal(teammates[1]?.teammateId, "teammate-1");
-  assert.equal(teammates[1]?.kind, "custom");
+  assert.equal(teammates[1]?.teammateId, "hr");
+  assert.equal(teammates[1]?.kind, "system");
   assert.equal(teammates[1]?.status, "active");
+  assert.equal(teammates[2]?.teammateId, "app_builder");
+  assert.equal(teammates[2]?.kind, "system");
+  assert.equal(teammates[2]?.status, "active");
+  assert.equal(teammates[3]?.teammateId, "teammate-1");
+  assert.equal(teammates[3]?.kind, "custom");
+  assert.equal(teammates[3]?.status, "active");
 
   const migratedDb = new Database(runtimeDbPath, { readonly: true });
   const teammateColumns = new Set<string>(
@@ -4288,7 +4327,7 @@ test("legacy teammate tables migrate missing kind and status columns", () => {
   assert.ok(generalRow);
   assert.equal(generalRow.kind, "system");
   assert.equal(generalRow.status, "active");
-  assert.match(generalRow.capability_profile_json, /preferredTools/i);
+  assert.doesNotMatch(generalRow.capability_profile_json, /preferredTools/i);
   reopened.close();
 });
 

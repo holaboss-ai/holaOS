@@ -162,6 +162,22 @@ function cronjobsListPath(toolParams: unknown): string {
   return suffix ? `${RUNTIME_TOOLS_CRONJOBS_PATH}?${suffix}` : RUNTIME_TOOLS_CRONJOBS_PATH;
 }
 
+function teammatesListPath(toolParams: unknown): string {
+  const params = isRecord(toolParams) ? toolParams : {};
+  const query = new URLSearchParams();
+  if (typeof params.include_archived === "boolean") {
+    query.set("include_archived", params.include_archived ? "1" : "0");
+  }
+  if (typeof params.limit === "number" && Number.isFinite(params.limit)) {
+    query.set("limit", String(Math.trunc(params.limit)));
+  }
+  if (typeof params.offset === "number" && Number.isFinite(params.offset)) {
+    query.set("offset", String(Math.trunc(params.offset)));
+  }
+  const suffix = query.toString();
+  return suffix ? `${RUNTIME_TOOLS_TEAMMATES_PATH}?${suffix}` : RUNTIME_TOOLS_TEAMMATES_PATH;
+}
+
 function createCronjobBody(toolParams: unknown): Record<string, unknown> {
   const params = isRecord(toolParams) ? toolParams : {};
   const delivery = buildDeliveryPayload(params);
@@ -190,13 +206,6 @@ function createTeammateBody(toolParams: unknown): Record<string, unknown> {
           ? {
               capabilities: optionalStringArray(
                 params.capability_profile.capabilities,
-              ),
-            }
-          : {}),
-        ...(optionalStringArray(params.capability_profile.preferred_tools)
-          ? {
-              preferred_tools: optionalStringArray(
-                params.capability_profile.preferred_tools,
               ),
             }
           : {}),
@@ -285,7 +294,12 @@ function createImageGenerationBody(toolParams: unknown): Record<string, unknown>
 function normalizeDelegateTask(taskParams: unknown): Record<string, unknown> {
   const params = isRecord(taskParams) ? taskParams : {};
   const goal = optionalString(params.goal);
+  const teammateId = optionalString(params.teammate_id);
   return {
+    ...(teammateId ? { teammate_id: teammateId } : {}),
+    ...(optionalString(params.parent_task_id)
+      ? { parent_task_id: optionalString(params.parent_task_id) }
+      : {}),
     ...(optionalString(params.title) ? { title: optionalString(params.title) } : {}),
     ...(goal ? { goal } : {}),
     ...(optionalString(params.context) ? { context: optionalString(params.context) } : {}),
@@ -301,7 +315,9 @@ function normalizeDelegateTask(taskParams: unknown): Record<string, unknown> {
 function createDelegateTaskBody(toolParams: unknown): Record<string, unknown> {
   const params = isRecord(toolParams) ? toolParams : {};
   const normalizedTasks = Array.isArray(params.tasks)
-    ? params.tasks.map((task) => normalizeDelegateTask(task)).filter((task) => typeof task.goal === "string")
+    ? params.tasks
+        .map((task) => normalizeDelegateTask(task))
+        .filter((task) => typeof task.goal === "string")
     : [];
   if (normalizedTasks.length > 0) {
     return { tasks: normalizedTasks };
@@ -344,6 +360,17 @@ function listTasksPath(toolParams: unknown): string {
 function createRerunTaskBody(toolParams: unknown): Record<string, unknown> {
   const params = isRecord(toolParams) ? toolParams : {};
   return {
+    ...(optionalString(params.model) ? { model: optionalString(params.model) } : {}),
+    ...(typeof params.priority === "number" && Number.isFinite(params.priority)
+      ? { priority: Math.trunc(params.priority) }
+      : {}),
+  };
+}
+
+function createReplyTaskBody(toolParams: unknown): Record<string, unknown> {
+  const params = isRecord(toolParams) ? toolParams : {};
+  return {
+    text: String(params.text ?? ""),
     ...(optionalString(params.model) ? { model: optionalString(params.model) } : {}),
     ...(typeof params.priority === "number" && Number.isFinite(params.priority)
       ? { priority: Math.trunc(params.priority) }
@@ -723,6 +750,8 @@ function requestPlan(
     }
     case "cronjobs_list":
       return { method: "GET", requestPath: cronjobsListPath(toolParams) };
+    case "teammates_list":
+      return { method: "GET", requestPath: teammatesListPath(toolParams) };
     case "cronjobs_create":
       return { method: "POST", requestPath: RUNTIME_TOOLS_CRONJOBS_PATH, body: createCronjobBody(toolParams) };
     case "teammates_create":
@@ -770,6 +799,12 @@ function requestPlan(
       return {
         method: "GET",
         requestPath: listTasksPath(toolParams),
+      };
+    case "reply_task":
+      return {
+        method: "POST",
+        requestPath: `${taskPath(isRecord(toolParams) ? toolParams.task_id : undefined)}/reply`,
+        body: createReplyTaskBody(toolParams),
       };
     case "cancel_task":
       return {

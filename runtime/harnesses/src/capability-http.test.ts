@@ -105,6 +105,7 @@ test("runtime delegate-task client forwards use_user_browser_surface when explic
     selectedModel: "openai/gpt-5.4",
     toolId: "delegate_task",
     toolParams: {
+      teammate_id: "general",
       goal: "Inspect the current tab",
       tools: ["browser"],
       use_user_browser_surface: true,
@@ -115,6 +116,7 @@ test("runtime delegate-task client forwards use_user_browser_surface when explic
   assert.deepEqual(capturedBody, {
     tasks: [
       {
+        teammate_id: "general",
         goal: "Inspect the current tab",
         tools: ["browser"],
         use_user_browser_surface: true,

@@ -97,6 +97,8 @@ import {
   resolveExplorerAttachmentKind,
 } from "@/lib/attachmentDrag";
 import { getExplorerAttachmentClipboardEntry } from "@/lib/appClipboard";
+import { useAtomValue } from "jotai";
+import { recentFilesAtom } from "@/components/layout/new-shell/state/recentFiles";
 import { CHAT_LAYOUT, chatScrollMaskImage } from "@/lib/chatLayout";
 import { ProviderBrandIcon } from "@/lib/providerBrandIcon";
 import { trackUmamiEvent } from "@/lib/analytics/umami";
@@ -329,6 +331,25 @@ function normalizeErrorMessage(error: unknown) {
 }
 
 const ONBOARDING_REPORT_FIELD_LABELS: Record<string, string> = {
+  user_intent: "User intent",
+  work_context: "Work context",
+  research_basis: "Research basis",
+  integrations: "Integrations",
+  teammates: "Teammates",
+  workspace_rules: "Workspace rules",
+  agents_md_sections: "AGENTS.md sections",
+  current_workflows: "Current workflows",
+  existing_systems: "Existing systems",
+  system_prompt: "System prompt",
+  jobs_to_be_done: "Jobs to be done",
+  context_unlocked: "Context unlocked",
+  actions_unlocked: "Actions unlocked",
+  consumed_by_teammates: "Used by teammates",
+  data_dependencies: "Data dependencies",
+  owner_teammate_id: "Owner teammate",
+  review_policy: "Review policy",
+  failure_policy: "Failure policy",
+  apps: "Apps",
   app_builds: "App builds",
   cronjobs: "Cronjobs",
   workspace_structure: "Workspace structure",
@@ -358,8 +379,21 @@ const ONBOARDING_REPORT_SUMMARY_KEYS = [
   "title",
   "name",
   "label",
+  "integration_id",
+  "teammate_id",
+  "system_id",
+  "app_id",
+  "job_id",
+  "section",
   "summary",
   "description",
+  "problem_statement",
+  "desired_outcome",
+  "finding",
+  "implication",
+  "mission",
+  "remit",
+  "rationale",
   "cron",
   "path",
   "goal",
@@ -375,6 +409,8 @@ const ONBOARDING_REPORT_MARKDOWN_KEYS = [
   "body_markdown",
 ] as const;
 const ONBOARDING_REPORT_HIDDEN_DETAIL_KEYS = new Set<string>([
+  "report_type",
+  "schema_version",
   "summary",
   "requested_by",
   ...ONBOARDING_REPORT_MARKDOWN_KEYS,
@@ -1927,6 +1963,62 @@ function normalizeWorkspaceFileSyncPath(value: unknown): string | null {
   return normalized;
 }
 
+const HASHLINE_SECTION_HEADER_PATTERN = /^¶(.+?)(?:#([0-9A-Fa-f]{3}))?$/;
+
+function hashlineSectionPathsFromEditInput(input: string): string[] {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  for (const rawLine of input.split(/\r?\n/)) {
+    const match = HASHLINE_SECTION_HEADER_PATTERN.exec(rawLine.trim());
+    if (!match) {
+      continue;
+    }
+    const rawPath = (match[1] ?? "").trim();
+    if (!rawPath) {
+      continue;
+    }
+    const unquotedPath =
+      rawPath.length >= 2 &&
+      ((rawPath.startsWith("\"") && rawPath.endsWith("\"")) ||
+        (rawPath.startsWith("'") && rawPath.endsWith("'")))
+        ? rawPath.slice(1, -1)
+        : rawPath;
+    const normalizedPath = normalizeWorkspaceFileSyncPath(unquotedPath);
+    if (!normalizedPath || seen.has(normalizedPath)) {
+      continue;
+    }
+    seen.add(normalizedPath);
+    paths.push(normalizedPath);
+  }
+  return paths;
+}
+
+function hashlineEditSyncTargetFromToolArgs(value: unknown): string | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const input =
+    typeof value.input === "string"
+      ? value.input
+      : typeof value._input === "string"
+        ? value._input
+        : "";
+  return hashlineSectionPathsFromEditInput(input)[0] ?? null;
+}
+
+function summarizeWorkspacePathList(paths: string[]): string {
+  if (paths.length === 0) {
+    return "";
+  }
+  if (paths.length === 1) {
+    return `File: ${paths[0]}`;
+  }
+  const preview = paths.slice(0, 3).join(", ");
+  return paths.length > 3
+    ? `Files: ${preview}, +${paths.length - 3} more`
+    : `Files: ${preview}`;
+}
+
 function syncableWorkspacePathFromRecord(
   value: unknown,
   preferredKeys: string[],
@@ -2011,19 +2103,113 @@ function fileDisplaySyncTargetFromToolPayload(
     if (phase !== "started" && phase !== "completed") {
       return null;
     }
-    return syncableWorkspacePathFromRecord(payload.tool_args, [
-      "file_path",
-      "path",
-      "target_path",
-      "target",
-      "filename",
-      "file",
-    ]);
+    return (
+      syncableWorkspacePathFromRecord(payload.tool_args, [
+        "file_path",
+        "path",
+        "target_path",
+        "target",
+        "filename",
+        "file",
+      ]) ?? hashlineEditSyncTargetFromToolArgs(payload.tool_args)
+    );
   }
 
   return null;
 }
 
+function editToolWorkspacePathsFromPayload(
+  payload: Record<string, unknown>,
+): string[] {
+  const toolArgs = isRecord(payload.tool_args) ? payload.tool_args : null;
+  const directPath = syncableWorkspacePathFromRecord(toolArgs, [
+    "file_path",
+    "path",
+    "target_path",
+    "target",
+    "filename",
+    "file",
+  ]);
+  if (directPath) {
+    return [directPath];
+  }
+  const hashlinePath = hashlineEditSyncTargetFromToolArgs(toolArgs);
+  return hashlinePath ? [hashlinePath] : [];
+}
+
+function extractToolTraceArgsSummary(
+  toolName: string,
+  payload: Record<string, unknown>,
+): string {
+  if (toolName.toLowerCase() === "edit") {
+    const editPaths = editToolWorkspacePathsFromPayload(payload);
+    const pathSummary = summarizeWorkspacePathList(editPaths);
+    if (pathSummary) {
+      return pathSummary;
+    }
+  }
+  return summarizeUnknown(payload.tool_args);
+}
+
+function toolTraceStepFromPayload(
+  payload: Record<string, unknown>,
+  order: number,
+): ChatTraceStep | null {
+  const stepId = toolTraceStepId(payload);
+  const toolName =
+    typeof payload.tool_name === "string" ? payload.tool_name.trim() : "";
+  const toolId =
+    typeof payload.tool_id === "string" ? payload.tool_id.trim() : "";
+  const phase =
+    typeof payload.phase === "string" ? payload.phase.trim().toLowerCase() : "";
+  const label = startCase(toolName || toolId);
+  if (!stepId || !label) {
+    return null;
+  }
+
+  const isError = payload.error === true || phase === "error";
+  const details: string[] = [];
+  const argsSummary = extractToolTraceArgsSummary(toolName, payload);
+  const resultSummary = summarizeUnknown(payload.result);
+  const errorSummary = summarizeUnknown(payload.error);
+  const toolErrorText = extractToolErrorText(payload);
+
+  if (phase === "started") {
+    if (argsSummary) {
+      details.push(argsSummary);
+    }
+  } else if (TOOL_TRACE_TERMINAL_PHASES.has(phase)) {
+    if (isError && toolErrorText) {
+      details.push(toolErrorText);
+    } else if (isError) {
+      if (errorSummary && errorSummary !== "true" && errorSummary !== "false") {
+        details.push(errorSummary);
+      } else {
+        details.push("Error");
+      }
+    } else if (argsSummary) {
+      details.push(argsSummary);
+    }
+    if (!isError && resultSummary) {
+      details.push(resultSummary);
+    }
+  } else if (argsSummary) {
+    details.push(argsSummary);
+  }
+
+  return {
+    id: stepId,
+    kind: "tool",
+    title: label,
+    status: isError
+      ? "error"
+      : TOOL_TRACE_TERMINAL_PHASES.has(phase)
+        ? "completed"
+        : "running",
+    details,
+    order,
+  };
+}
 function extractMcpErrorText(result: unknown): string {
   if (!isRecord(result) || result.isError !== true) {
     return "";
@@ -2088,66 +2274,6 @@ function extractToolErrorText(payload: Record<string, unknown>): string {
   }
 
   return "";
-}
-
-function toolTraceStepFromPayload(
-  payload: Record<string, unknown>,
-  order: number,
-): ChatTraceStep | null {
-  const stepId = toolTraceStepId(payload);
-  const toolName =
-    typeof payload.tool_name === "string" ? payload.tool_name.trim() : "";
-  const toolId =
-    typeof payload.tool_id === "string" ? payload.tool_id.trim() : "";
-  const phase =
-    typeof payload.phase === "string" ? payload.phase.trim().toLowerCase() : "";
-  const label = startCase(toolName || toolId);
-  if (!stepId || !label) {
-    return null;
-  }
-
-  const isError = payload.error === true || phase === "error";
-  const details: string[] = [];
-  const argsSummary = summarizeUnknown(payload.tool_args);
-  const resultSummary = summarizeUnknown(payload.result);
-  const errorSummary = summarizeUnknown(payload.error);
-  const toolErrorText = extractToolErrorText(payload);
-
-  if (phase === "started") {
-    if (argsSummary) {
-      details.push(argsSummary);
-    }
-  } else if (TOOL_TRACE_TERMINAL_PHASES.has(phase)) {
-    if (isError && toolErrorText) {
-      details.push(toolErrorText);
-    } else if (isError) {
-      if (errorSummary && errorSummary !== "true" && errorSummary !== "false") {
-        details.push(errorSummary);
-      } else {
-        details.push("Error");
-      }
-    } else if (argsSummary) {
-      details.push(argsSummary);
-    }
-    if (!isError && resultSummary) {
-      details.push(resultSummary);
-    }
-  } else if (argsSummary) {
-    details.push(argsSummary);
-  }
-
-  return {
-    id: stepId,
-    kind: "tool",
-    title: label,
-    status: isError
-      ? "error"
-      : TOOL_TRACE_TERMINAL_PHASES.has(phase)
-        ? "completed"
-        : "running",
-    details,
-    order,
-  };
 }
 
 export function toolTraceStepFromEvent(
@@ -3415,6 +3541,62 @@ export function ChatPane({
     };
   }, [selectedWorkspace?.id]);
 
+  // Recent file opens (renderer-side log persisted by file tabs). Drives
+  // the "recent" boost in the @ picker below — recently-opened files
+  // float to the top so users don't have to scroll past the alphabetical
+  // workspace tree to re-mention a file they just had open.
+  const allRecentFiles = useAtomValue(recentFilesAtom);
+  // Recent files as WorkspaceFileEntry-shaped rows, in most-recent-first
+  // order. Prefer the rich entry from the bounded workspace walk when
+  // available; otherwise synthesize one from filePath + label so files
+  // that listWorkspaceFiles skips (dotdirs like .holaboss, paths deeper
+  // than maxDepth=4, anything past the maxFiles=500 cap) still surface
+  // in the @ picker instead of vanishing silently.
+  const recentFileEntriesForWorkspace = useMemo<WorkspaceFileEntry[]>(() => {
+    const workspaceId = selectedWorkspace?.id ?? null;
+    if (!workspaceId) return [];
+
+    const byAbsolutePath = new Map<string, WorkspaceFileEntry>();
+    for (const entry of workspaceFiles) {
+      byAbsolutePath.set(entry.absolutePath, entry);
+    }
+
+    const rawWorkspacePath = selectedWorkspace?.workspace_path?.trim() ?? "";
+    const workspacePathPrefix = rawWorkspacePath
+      ? `${rawWorkspacePath.replace(/[\\/]+$/, "")}/`
+      : "";
+
+    const entries: WorkspaceFileEntry[] = [];
+    const seenAbsolutePaths = new Set<string>();
+    for (const recent of allRecentFiles) {
+      if (recent.workspaceId !== workspaceId) continue;
+      if (!recent.filePath || seenAbsolutePaths.has(recent.filePath)) continue;
+      seenAbsolutePaths.add(recent.filePath);
+
+      const fromWalk = byAbsolutePath.get(recent.filePath);
+      if (fromWalk) {
+        entries.push(fromWalk);
+        continue;
+      }
+      const relativePath =
+        workspacePathPrefix && recent.filePath.startsWith(workspacePathPrefix)
+          ? recent.filePath.slice(workspacePathPrefix.length)
+          : recent.label;
+      if (!relativePath) continue;
+      entries.push({
+        name: recent.label,
+        relativePath,
+        absolutePath: recent.filePath,
+      });
+    }
+    return entries;
+  }, [
+    allRecentFiles,
+    selectedWorkspace?.id,
+    selectedWorkspace?.workspace_path,
+    workspaceFiles,
+  ]);
+
   // `@` references content WITHIN the current workspace — files at
   // any depth + installed apps. Future kinds (sessions, memories,
   // skills) plug into the same array. Cross-workspace navigation is
@@ -3422,8 +3604,9 @@ export function ChatPane({
   const composerMentionableItems = useMemo<ChatComposerMentionItem[]>(() => {
     const items: ChatComposerMentionItem[] = [];
 
-    // Files first — typically the more frequent reference target.
-    for (const entry of workspaceFiles) {
+    const fileEntryToItem = (
+      entry: WorkspaceFileEntry,
+    ): ChatComposerMentionItem | null => {
       // Slugify each path segment so the inserted token round-trips
       // through findActiveMentionRange. Unicode letters / digits are
       // preserved so CJK-named files (e.g. `产品方案.md`) survive
@@ -3438,14 +3621,35 @@ export function ChatPane({
         )
         .filter(Boolean)
         .join("/");
-      if (!handle) continue;
-      items.push({
+      if (!handle) return null;
+      return {
         id: `file:${entry.relativePath}`,
         handle,
         label: entry.relativePath,
         kindIcon: <FileIcon className="size-3.5" />,
         keywords: [entry.name, entry.relativePath, handle],
-      });
+      };
+    };
+
+    // Recent files first, in most-recent-first order — when the user
+    // types `@` with no query, this is what shows up at the top. The
+    // dedupe set guards against duplicate items when we fall through
+    // to the alphabetical workspace listing below.
+    const emittedRelativePaths = new Set<string>();
+    for (const entry of recentFileEntriesForWorkspace) {
+      const item = fileEntryToItem(entry);
+      if (!item) continue;
+      items.push(item);
+      emittedRelativePaths.add(entry.relativePath);
+    }
+
+    // Remaining files — alphabetical (as listWorkspaceFiles sorts), skip
+    // anything already emitted via the recents boost.
+    for (const entry of workspaceFiles) {
+      if (emittedRelativePaths.has(entry.relativePath)) continue;
+      const item = fileEntryToItem(entry);
+      if (!item) continue;
+      items.push(item);
     }
 
     // Apps next.
@@ -3463,7 +3667,7 @@ export function ChatPane({
     }
 
     return items;
-  }, [installedApps, workspaceFiles]);
+  }, [installedApps, recentFileEntriesForWorkspace, workspaceFiles]);
 
   // handle → workspace-file entry map. Built from the same slug logic
   // as composerMentionableItems above so a `@<handle>` typed by the
@@ -3473,8 +3677,8 @@ export function ChatPane({
   // not be picked up by file-read tools.
   const mentionableFilesByHandle = useMemo(() => {
     const byHandle = new Map<string, WorkspaceFileEntry>();
-    for (const entry of workspaceFiles) {
-      const handle = entry.relativePath
+    const slugifyEntry = (entry: WorkspaceFileEntry) =>
+      entry.relativePath
         .split("/")
         .map((segment) =>
           segment
@@ -3484,11 +3688,21 @@ export function ChatPane({
         )
         .filter(Boolean)
         .join("/");
+    for (const entry of workspaceFiles) {
+      const handle = slugifyEntry(entry);
       if (!handle) continue;
       byHandle.set(handle, entry);
     }
+    // Synthesized recent entries (those not in the bounded walk) also
+    // need a handle so `@<file>` send-time staging can resolve them.
+    for (const entry of recentFileEntriesForWorkspace) {
+      const handle = slugifyEntry(entry);
+      if (!handle) continue;
+      if (byHandle.has(handle)) continue;
+      byHandle.set(handle, entry);
+    }
     return byHandle;
-  }, [workspaceFiles]);
+  }, [recentFileEntriesForWorkspace, workspaceFiles]);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionOutputs, setSessionOutputs] = useState<
@@ -8744,7 +8958,7 @@ export function ChatPane({
                 Verification report
               </div>
               <div className="mt-1 text-sm font-medium text-foreground">
-                Review before final merge
+                Review before finishing onboarding
               </div>
             </div>
             <div className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary">
@@ -8763,7 +8977,7 @@ export function ChatPane({
             <>
               <div className="text-sm leading-6 text-foreground">
                 {verificationReportSummary ||
-                  "Implementation is complete. Review the verification report before merging the lab."}
+                  "Implementation is complete. Review the verification report before finishing onboarding."}
               </div>
               {verificationReportDetails.length > 0 ? (
                 <div className="space-y-3">

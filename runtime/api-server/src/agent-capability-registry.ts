@@ -82,6 +82,7 @@ export interface AgentCapabilityAuthorityBoundary {
 export interface AgentCapabilityPolicyContext {
   harness_id: string | null;
   session_kind: string | null;
+  onboarding_state?: string | null;
   browser_tools_available: boolean | null;
   browser_tool_ids: string[];
   runtime_tool_ids: string[];
@@ -164,6 +165,7 @@ export interface AgentCapabilityManifest {
 export interface BuildAgentCapabilityManifestParams {
   harnessId?: string | null;
   sessionKind?: string | null;
+  onboardingState?: string | null;
   browserToolsAvailable?: boolean | null;
   browserToolIds?: string[] | null;
   runtimeToolIds?: string[] | null;
@@ -182,6 +184,35 @@ interface CapabilityAvailabilityRules {
   sessionKinds?: string[];
   excludedSessionKinds?: string[];
 }
+
+const WORKSPACE_ONBOARDING_IMPLEMENTATION_ONLY_TOOL_IDS = new Set([
+  "delegate_task",
+  "get_task",
+  "list_tasks",
+  "reply_task",
+  "cancel_task",
+  "rerun_task",
+  "cronjobs_list",
+  "cronjobs_create",
+  "cronjobs_get",
+  "cronjobs_update",
+  "cronjobs_delete",
+  "image_generate",
+  "download_url",
+  "write_report",
+  "terminal_sessions_list",
+  "terminal_session_start",
+  "terminal_session_get",
+  "terminal_session_read",
+  "terminal_session_wait",
+  "terminal_session_send_input",
+  "terminal_session_signal",
+  "terminal_session_close",
+  "workspace_data_list_tables",
+  "workspace_data_describe_table",
+  "workspace_data_sample_rows",
+  "workspace_data_query",
+]);
 
 type ToolCapabilityDefinition = {
   kind: Exclude<AgentCapabilityKind, "mcp_tool" | "skill" | "workspace_command">;
@@ -334,11 +365,17 @@ const BUILTIN_CAPABILITY_DEFINITIONS: Record<string, ToolCapabilityDefinition> =
     title: "Bash",
     description: "Run shell commands that may inspect or mutate workspace state.",
   },
+  ripgrep: {
+    kind: "builtin_tool",
+    policy: "inspect",
+    title: "Ripgrep",
+    description: "Search workspace file contents by pattern using ripgrep (rg).",
+  },
   grep: {
     kind: "builtin_tool",
     policy: "inspect",
-    title: "Grep",
-    description: "Search workspace file contents by pattern.",
+    title: "Ripgrep",
+    description: "Legacy alias for ripgrep (rg) pattern search.",
   },
   glob: {
     kind: "builtin_tool",
@@ -464,6 +501,7 @@ function customCapabilityDefinition(toolName: string): ToolCapabilityDefinition 
   const normalized = normalizedToken(toolName);
   const inspectPrefixes = [
     "read",
+    "ripgrep",
     "grep",
     "glob",
     "list",
@@ -543,10 +581,24 @@ export function callableToolNameFromMcpServerAndTool(serverId: string, toolName:
 }
 
 function definitionAllowedInContext(
+  toolId: string,
   availability: CapabilityAvailabilityRules | undefined,
   context: AgentCapabilityPolicyContext
 ): { allowed: boolean; reason: string | null } {
   if (!availability) {
+    const normalizedSessionKind = canonicalSessionKind(context.session_kind);
+    if (
+      normalizedSessionKind === "workspace_onboarding" &&
+      WORKSPACE_ONBOARDING_IMPLEMENTATION_ONLY_TOOL_IDS.has(
+        normalizedToken(toolId),
+      ) &&
+      normalizeOptionalToken(context.onboarding_state) !== "implementing"
+    ) {
+      return {
+        allowed: false,
+        reason: "onboarding_state_not_allowed",
+      };
+    }
     return { allowed: true, reason: null };
   }
 
@@ -652,7 +704,13 @@ function executionSemanticsForDescriptor(params: {
       requires_user_confirmation: true,
     };
   }
-  if (normalizedId === "read" || normalizedId === "grep" || normalizedId === "glob" || normalizedId === "list") {
+  if (
+    normalizedId === "read" ||
+    normalizedId === "ripgrep" ||
+    normalizedId === "grep" ||
+    normalizedId === "glob" ||
+    normalizedId === "list"
+  ) {
     return {
       concurrency: "parallel_safe",
       requires_runtime_service: false,
@@ -736,7 +794,14 @@ function authorityBoundaryForDescriptor(params: {
       runtime_state: false,
     };
   }
-  if (normalizedId === "read" || normalizedId === "edit" || normalizedId === "grep" || normalizedId === "glob" || normalizedId === "list") {
+  if (
+    normalizedId === "read" ||
+    normalizedId === "edit" ||
+    normalizedId === "ripgrep" ||
+    normalizedId === "grep" ||
+    normalizedId === "glob" ||
+    normalizedId === "list"
+  ) {
     return {
       filesystem: true,
       shell: false,
@@ -927,6 +992,7 @@ function buildPolicyContext(
   const context: AgentCapabilityPolicyContext = {
     harness_id: (params.harnessId ?? "").trim() || null,
     session_kind: canonicalSessionKind(params.sessionKind),
+    onboarding_state: normalizeOptionalToken(params.onboardingState) || null,
     browser_tools_available:
       typeof params.browserToolsAvailable === "boolean" ? params.browserToolsAvailable : null,
     browser_tool_ids: browserToolIds,
@@ -1132,7 +1198,11 @@ export function evaluateAgentCapabilities(
   const evaluatedCapabilities = sortEvaluatedCapabilities(
     registry.descriptors.map((descriptor) => {
       const callable = descriptor.callable_spec !== null;
-      const permissionCheck = definitionAllowedInContext(descriptor.availability, registry.context);
+      const permissionCheck = definitionAllowedInContext(
+        descriptor.id,
+        descriptor.availability,
+        registry.context,
+      );
       const callCheck =
         callable && permissionCheck.allowed
           ? evaluateCallAllowance(descriptor, registry.context)
@@ -1452,6 +1522,12 @@ export function renderCapabilityToolRoutingPromptSection(
     lines.push("If an earlier turn said a tool was unavailable or unsupported, but the current surfaced capability set now includes it, trust the current run and retry the tool when it is the right path.");
     lines.push("Only surface a hard capability limitation to the user when neither the current run nor delegated subagents can actually carry out the request.");
     lines.push("Do not simulate waiting on a delegated task by repeatedly calling `get_task` or `list_tasks` in the same turn after you just spawned it.");
+  }
+  if (manifest.runtime_tools.some((capability) => capability.id === "reply_task")) {
+    ensureHeading();
+    lines.push("Blocked-task continuation: when a delegated task is waiting on user input and the user is answering that task's question, use `reply_task` to send the answer back into the existing task thread.");
+    lines.push("Do not treat the user's answer to a blocked delegated task as a brand-new independent request if the existing task should continue.");
+    lines.push("Use `reply_task` for that continuation, not `rerun_task`, unless the user explicitly wants a full retry from the saved brief.");
   }
   if (manifest.runtime_tools.some((capability) => capability.id === "terminal_session_start")) {
     ensureHeading();

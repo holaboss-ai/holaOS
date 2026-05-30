@@ -1296,6 +1296,18 @@ test("chat pane syncs the shared file display from live file-oriented tool calls
   );
   assert.match(
     source,
+    /const HASHLINE_SECTION_HEADER_PATTERN = \/\^¶\(\.\+\?\)\(\?:#\(\[0-9A-Fa-f\]\{3\}\)\)\?\$\/;/,
+  );
+  assert.match(
+    source,
+    /function hashlineSectionPathsFromEditInput\(input: string\): string\[] \{/,
+  );
+  assert.match(
+    source,
+    /function hashlineEditSyncTargetFromToolArgs\(value: unknown\): string \| null \{/,
+  );
+  assert.match(
+    source,
     /const lastSyncedAgentOperationFileKeyRef = useRef\(""\);/,
   );
   assert.match(
@@ -1308,6 +1320,9 @@ test("chat pane syncs the shared file display from live file-oriented tool calls
   );
   assert.doesNotMatch(source, /toolName === "read" \|\| toolName === "edit"/);
   assert.match(source, /if \(toolName === "edit"\) \{/);
+  assert.match(source, /hashlineEditSyncTargetFromToolArgs\(payload\.tool_args\)/);
+  assert.match(source, /const argsSummary = extractToolTraceArgsSummary\(toolName, payload\);/);
+  assert.match(source, /File: /);
   assert.match(
     source,
     /if \(eventType === "tool_call"\) \{\s*const fileDisplayTarget =\s*fileDisplaySyncTargetFromToolPayload\(eventPayload\);[\s\S]*if \(fileDisplayTarget && !activeSessionReadOnlyRef\.current\) \{/,

@@ -31,7 +31,6 @@ function teammate(overrides: Partial<TeammateRecord> = {}): TeammateRecord {
     capabilityProfile: {
       summary: null,
       capabilities: [],
-      preferredTools: [],
     },
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -98,7 +97,6 @@ test("selectDelegatedTaskTeammateByCapability scores teammate-local filesystem s
     capabilityProfile: {
       summary: null,
       capabilities: [],
-      preferredTools: [],
     },
   });
   writeTeammateSkills({
@@ -126,4 +124,38 @@ test("selectDelegatedTaskTeammateByCapability scores teammate-local filesystem s
   });
 
   assert.equal(selected.teammateId, "frontend");
+});
+
+test("selectDelegatedTaskTeammateByCapability prefers App Builder for app-domain work over General fallback", () => {
+  const general = teammate({
+    teammateId: "general",
+    name: "General",
+    kind: "system",
+    capabilityProfile: {
+      summary: "Fallback executor for non-app implementation and research.",
+      capabilities: ["generalist", "implementation", "research", "fallback"],
+    },
+  });
+  const appBuilder = teammate({
+    teammateId: "app_builder",
+    name: "App Builder",
+    kind: "system",
+    capabilityProfile: {
+      summary: "Specialist builder for holaOS apps, dashboard surfaces, runtime wiring, and polish.",
+      capabilities: ["apps", "dashboards", "ui", "sdk", "implementation", "lifecycle", "polish"],
+    },
+  });
+
+  const selected = selectDelegatedTaskTeammateByCapability({
+    general,
+    teammates: [general, appBuilder],
+    query: {
+      title: "Build a client dashboard app",
+      goal: "Create and register a managed workspace app, then build and verify it.",
+      context: "This needs workspace_apps_scaffold and workspace_apps_build.",
+      tools: ["workspace_apps_scaffold", "workspace_apps_build"],
+    },
+  });
+
+  assert.equal(selected.teammateId, "app_builder");
 });

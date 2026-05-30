@@ -20,6 +20,8 @@
 
 import type { TransportFn } from "../bridge.ts"
 
+type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+
 export interface RuntimeBrokerOpts {
   /** Provider id (e.g. "slack", "twitter"). Required — broker uses it to
    *  look up the integration binding for the grant's workspace+app. */
@@ -28,7 +30,7 @@ export interface RuntimeBrokerOpts {
   brokerUrl?: string
   /** App grant token. Defaults to HOLABOSS_APP_GRANT env. */
   grant?: string
-  fetchImpl?: typeof fetch
+  fetchImpl?: FetchLike
 }
 
 export function createRuntimeBrokerTransport(opts: RuntimeBrokerOpts): TransportFn {

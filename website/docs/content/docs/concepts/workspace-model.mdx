@@ -1,6 +1,6 @@
 ---
 title: Workspace Model
-description: The workspace filesystem layout and the split between authored state, runtime-owned state, and durable memory.
+description: The workspace filesystem layout and the split between authored state, runtime-owned state, continuity, and durable memory forests.
 ---
 
 Workspaces live under the runtime OS root. In desktop mode that root comes from the local host data directory. In standalone runtime deployments it defaults to `/holaboss`.
@@ -124,9 +124,12 @@ Workspaces live under the runtime OS root. In desktop mode that root comes from 
                   },
                   {
                     name: "memory/",
-                    meta: "Workspace-scoped markdown memory",
+                    meta: "Workspace-scoped memory and continuity",
                     children: [
-                      { name: "MEMORY.md", meta: "Workspace memory index" },
+                      {
+                        name: "MEMORY.md",
+                        meta: "Workspace recall manifest · compatibility surface",
+                      },
                       {
                         name: "runtime/",
                         meta: "Resume-only continuity",
@@ -152,13 +155,37 @@ Workspaces live under the runtime OS root. In desktop mode that root comes from 
                         ],
                       },
                       {
-                        name: "knowledge/",
-                        meta: "Durable recalled memory",
+                        name: "interaction/",
+                        meta: "Durable interaction leaves",
                         children: [
-                          { name: "facts/", meta: "Stable workspace facts" },
-                          { name: "procedures/", meta: "Reusable workflows" },
-                          { name: "blockers/", meta: "Longer-lived blockers" },
-                          { name: "reference/", meta: "Reference material" },
+                          {
+                            name: "entities/",
+                            meta: "Per-entity leaf and summary storage",
+                            children: [
+                              {
+                                name: "<entity-slug>/",
+                                children: [
+                                  { name: "leaves/", meta: "Durable markdown leaves" },
+                                  { name: "summaries/", meta: "Materialized summaries" },
+                                ],
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                      {
+                        name: "semantic/",
+                        meta: "Semantic markdown tree projection",
+                        children: [
+                          {
+                            name: "interaction/",
+                            children: [
+                              {
+                                name: "trees/",
+                                meta: "Browsable interaction forest",
+                              },
+                            ],
+                          },
                         ],
                       },
                     ],
@@ -173,20 +200,39 @@ Workspaces live under the runtime OS root. In desktop mode that root comes from 
         name: "memory/",
         accent: "context",
         children: [
-          { name: "MEMORY.md", meta: "Memory system root" },
+          { name: "MEMORY.md", meta: "Global recall manifest · compatibility surface" },
+          {
+            name: "integration/",
+            meta: "Primary global integration evidence leaves",
+            children: [
+              { name: "trees/", meta: "Per-account or per-connection leaves" },
+            ],
+          },
+          {
+            name: "semantic/",
+            meta: "Global semantic memory trees",
+            children: [
+              {
+                name: "integration/",
+                children: [
+                  { name: "trees/", meta: "Browsable integration forest" },
+                ],
+              },
+            ],
+          },
           {
             name: "preference/",
-            meta: "Durable user preferences",
+            meta: "Secondary user-memory docs",
             children: [
-              { name: "MEMORY.md", meta: "Preference memory index" },
+              { name: "MEMORY.md", meta: "Preference recall manifest" },
               { name: "*.md", meta: "Preference documents" },
             ],
           },
           {
             name: "identity/",
-            meta: "Durable user identity",
+            meta: "Optional secondary identity docs",
             children: [
-              { name: "MEMORY.md", meta: "Identity memory index" },
+              { name: "MEMORY.md", meta: "Identity recall manifest" },
               { name: "*.md", meta: "Identity documents" },
             ],
           },
@@ -275,7 +321,7 @@ If you are changing app behavior, continue into [App Anatomy](/docs/build/apps/a
 - `.holaboss/state/`
   - workspace identity marker, persisted harness-session mapping, shared workspace SQLite, MCP sidecar state, todos, scratchpads, and archived session exports
 - `.holaboss/memory/`
-  - workspace-scoped runtime projections plus durable workspace knowledge
+  - workspace-scoped runtime continuity plus durable interaction memory
 - `.holaboss/input-attachments/`
   - staged attachment batches referenced by in-flight runs
 
@@ -289,20 +335,44 @@ If you are changing app behavior, continue into [App Anatomy](/docs/build/apps/a
 
 ### `<workspace-id>/.holaboss/state/runtime.db`
 
-`<workspace-id>/.holaboss/state/runtime.db` is the durable runtime execution database for one workspace. It keeps sessions, bindings, queue state, turn results, request snapshots, output folders, app runtime state, cronjobs, runtime notifications, task proposals, evolve skill candidates, memory update proposals, and workspace-scoped memory catalog metadata. The workspace identity file still lives alongside it at `<workspace-id>/.holaboss/state/workspace_id` as the on-disk marker for workspace discovery and migration.
+`<workspace-id>/.holaboss/state/runtime.db` is the durable runtime execution database for one workspace. It keeps sessions, bindings, queue state, turn results, request snapshots, output folders, app runtime state, cronjobs, runtime notifications, task proposals, evolve skill candidates, memory update proposals, and workspace-scoped memory metadata such as interaction entities, leaves, semantic nodes, and search docs. The workspace identity file still lives alongside it at `<workspace-id>/.holaboss/state/workspace_id` as the on-disk marker for workspace discovery and migration.
+
+### `<workspace-id>/.holaboss/memory/`
+
+`<workspace-id>/.holaboss/memory/` is where workspace-local markdown memory now lives. It contains three different kinds of surfaces:
+
+- `runtime/`
+  - runtime-generated continuity projections such as `latest-turn.md`, `recent-turns/`, `session-state/`, `session-memory/`, and blocker snapshots
+- `interaction/`
+  - durable markdown leaves and materialized summary files written from completed runs
+- `semantic/interaction/trees/`
+  - semantic markdown tree projections rebuilt from the interaction leaves for browsing and recall
+
+The important boundary is that `runtime/` is resume state, while `interaction/` and `semantic/interaction/trees/` are durable recall memory.
 
 ### `memory/`
 
-`memory/` is still OS-global, but it is now profile-global rather than workspace-global. It holds:
+`memory/` is still OS-global, but it is now the configured global memory root rather than the old workspace-local knowledge surface. Its primary durable surface is the global integration forest. It also still carries secondary compatibility and user-memory docs.
 
+- `integration/trees/`
+  - durable integration evidence leaves
+- `semantic/integration/trees/`
+  - semantic integration tree projections for browsing and recall
 - `MEMORY.md`
-  - the global memory index
+  - the global recall manifest and compatibility index
 - `preference/`
-  - durable user preference memory
+  - secondary durable user-preference docs written from accepted user-memory proposals
 - `identity/`
-  - durable user identity memory
+  - optional secondary durable user-identity docs
 
-Workspace-scoped markdown memory now lives inside each workspace at `<workspace-id>/.holaboss/memory/`.
+Workspace-scoped markdown memory lives inside each workspace at `<workspace-id>/.holaboss/memory/`, while integration memory and profile-global memory live under the shared `memory/` root.
+
+The memory browser turns those physical and namespaced files into two main forests:
+
+- `interaction/trees/...`
+  - the workspace interaction forest
+- `integration/trees/...`
+  - the visible integration forest
 
 ## What the runtime compiles per run
 

@@ -17,13 +17,27 @@ export interface TeammateRoutingRosterEntry {
   status: string;
   summary: string | null;
   capabilities: string[];
-  preferred_tools: string[];
   skills: Array<{
     name: string;
     description: string | null;
   }>;
   skill_names: string[];
 }
+
+const APP_DOMAIN_QUERY_PATTERN =
+  /\b(app|apps|dashboard|dashboards|ui|frontend|client|surface|internal tool|integration module|polish|workspace_apps_[a-z_]+)\b/i;
+const APP_DOMAIN_CAPABILITY_TOKENS = new Set([
+  "app",
+  "apps",
+  "dashboard",
+  "dashboards",
+  "ui",
+  "frontend",
+  "client",
+  "sdk",
+  "polish",
+  "lifecycle",
+]);
 
 function nonEmptyText(value: string | null | undefined): string {
   return (value ?? "").trim();
@@ -140,7 +154,6 @@ export function buildTeammateRoutingRosterEntry(
     status: teammate.status,
     summary: fallbackCapabilitySummaryWithSkills({ teammate, skills }),
     capabilities,
-    preferred_tools: uniqueStringsInOrder(teammate.capabilityProfile.preferredTools),
     skills: skillMetadata,
     skill_names: uniqueStringsInOrder(skillMetadata.map((skill) => skill.name)),
   };
@@ -156,7 +169,6 @@ function teammateRoutingCorpusTokens(
     ...routingTokens(teammate.name),
     ...routingTokens(entry.summary),
     ...entry.capabilities.flatMap((value) => routingTokens(value)),
-    ...entry.preferred_tools.flatMap((value) => routingTokens(value)),
     ...entry.skills.flatMap((skill) => [
       ...routingTokens(skill.name),
       ...routingTokens(skill.description),
@@ -167,6 +179,37 @@ function teammateRoutingCorpusTokens(
       ...routingTokens(skill.content),
     ]),
   ]);
+}
+
+function queryTargetsAppDomain(params: {
+  queryText: string;
+  queryTools: string[];
+}): boolean {
+  return (
+    APP_DOMAIN_QUERY_PATTERN.test(params.queryText) ||
+    params.queryTools.some((tool) => tool.startsWith("workspace_apps_"))
+  );
+}
+
+function teammateOwnsAppDomain(
+  teammate: TeammateRecord,
+  entry: TeammateRoutingRosterEntry,
+): boolean {
+  if (teammate.teammateId === "app_builder") {
+    return true;
+  }
+  const teammateTokens = new Set([
+    ...routingTokens(teammate.teammateId),
+    ...routingTokens(teammate.name),
+    ...routingTokens(entry.summary),
+    ...entry.capabilities.flatMap((value) => routingTokens(value)),
+  ]);
+  for (const token of APP_DOMAIN_CAPABILITY_TOKENS) {
+    if (teammateTokens.has(token)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function selectDelegatedTaskTeammateByCapability(params: {
@@ -194,6 +237,10 @@ export function selectDelegatedTaskTeammateByCapability(params: {
   ]
     .join("\n")
     .toLowerCase();
+  const appDomainQuery = queryTargetsAppDomain({
+    queryText,
+    queryTools,
+  });
 
   let bestTeammate = params.general;
   let bestScore = 0;
@@ -217,18 +264,9 @@ export function selectDelegatedTaskTeammateByCapability(params: {
       score += 8;
     }
 
-    const preferredTools = new Set(entry.preferred_tools.map((value) => value.toLowerCase()));
-    for (const tool of queryTools) {
-      const normalizedTool = tool.toLowerCase();
-      if (preferredTools.has(normalizedTool)) {
-        score += 10;
-      }
-    }
-
-    const capabilityTokens = new Set([
-      ...entry.capabilities.flatMap((value) => routingTokens(value)),
-      ...entry.preferred_tools.flatMap((value) => routingTokens(value)),
-    ]);
+    const capabilityTokens = new Set(
+      entry.capabilities.flatMap((value) => routingTokens(value)),
+    );
     const summaryTokens = new Set(routingTokens(entry.summary));
     for (const token of queryTokens) {
       if (capabilityTokens.has(token)) {
@@ -242,6 +280,10 @@ export function selectDelegatedTaskTeammateByCapability(params: {
       if (corpusTokens.has(token)) {
         score += 1;
       }
+    }
+
+    if (appDomainQuery && teammateOwnsAppDomain(teammate, entry)) {
+      score += queryTools.some((tool) => tool.startsWith("workspace_apps_")) ? 10 : 6;
     }
 
     if (score > bestScore) {

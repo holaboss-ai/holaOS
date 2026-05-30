@@ -116,6 +116,21 @@ describe("SqliteStateBackend — implements StateBackend with persistence", () =
     pinterest.close()
   })
 
+  test("IDENTIFIERS: hyphenated app ids create and query tables safely", () => {
+    const backend = new SqliteStateBackend({ dbPath, appId: "x-engagement-digest" })
+
+    const row = backend.insertRow("digest", { title: "Weekly summary" }, "draft")
+    backend.updateRow(row.id, { status: "published", externalId: "digest_42" })
+
+    const persisted = backend.getRow(row.id)
+    expect(persisted).toBeDefined()
+    expect(persisted!.status).toBe("published")
+    expect(persisted!.externalId).toBe("digest_42")
+    expect((persisted!.data as any).title).toBe("Weekly summary")
+
+    backend.close()
+  })
+
   test("INTEGRATION: a full Pinterest app with SqliteStateBackend runs end-to-end", async () => {
     const sqlite = new SqliteStateBackend({ dbPath, appId: "pinterest" })
     const { app } = buildPinterestApp({ backend: sqlite }) as unknown as { app: AppHandleInternal }
@@ -152,4 +167,3 @@ describe("SqliteStateBackend — implements StateBackend with persistence", () =
     sqlite.close()
   })
 })
-

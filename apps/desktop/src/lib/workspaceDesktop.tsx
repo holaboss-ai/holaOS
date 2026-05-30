@@ -15,7 +15,7 @@ import { type AuthSession, useDesktopAuthSession } from "@/lib/auth/authClient";
 import { loadWorkspaceOnboardingPreference } from "@/features/workspace-onboarding/preferences";
 import { hydrateInstalledWorkspaceApps, type WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
-import { workspaceMainViewModeMapAtom } from "@/components/layout/new-shell/state/ui";
+import { focusModeAtom, workspaceMainViewModeMapAtom } from "@/components/layout/new-shell/state/ui";
 import { useSetAtom } from "jotai";
 import { toolkitDisplayName } from "@/lib/toolkitDisplay";
 
@@ -431,6 +431,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
   const appInstallConnectControllerRef = useRef<AbortController | null>(null);
   const [firstWorkspaceStep, setFirstWorkspaceStep] = useState<FirstWorkspaceStep>("name");
   const setWorkspaceMainViewMap = useSetAtom(workspaceMainViewModeMapAtom);
+  const setFocusMode = useSetAtom(focusModeAtom);
   // Composio toolkit metadata (name + logo + categories) keyed by toolkit
   // slug. Single source of truth for app display name + icon across the
   // shell — both the marketplace gallery and the workspace sidebar look
@@ -938,15 +939,17 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       upsertWorkspaceRecord(response.workspace);
       const createdWorkspaceId = response.workspace.id;
       setSelectedWorkspaceId(createdWorkspaceId);
-      // Persist the user's main-view choice keyed by the new workspace id so
-      // NewAppShell can seed the layout when activating this workspace, both
-      // on first entry and on every subsequent switch.
+      // Persist the choice keyed by workspace id so subsequent switches
+      // re-seed correctly, and apply focusMode synchronously — the seeding
+      // effect locks "seeded" on the render where selectedWorkspaceId flips
+      // and would miss this map write if it landed in a later render.
       if (options.mainViewMode && createdWorkspaceId) {
         const chosen = options.mainViewMode;
         setWorkspaceMainViewMap((prev) => ({
           ...prev,
           [createdWorkspaceId]: chosen,
         }));
+        setFocusMode(chosen === "chat");
       }
 
       let postCreateWarning = "";

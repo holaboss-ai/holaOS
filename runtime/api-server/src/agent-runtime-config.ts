@@ -39,6 +39,7 @@ export interface AgentRuntimeConfigCliRequest {
   workspace_id: string;
   input_id: string;
   session_kind?: string | null;
+  onboarding_state?: string | null;
   harness_id?: string | null;
   browser_tools_available?: boolean | null;
   browser_tool_ids?: string[] | null;
@@ -1540,6 +1541,7 @@ export function projectAgentRuntimeConfig(
   const capabilityManifest = buildAgentCapabilityManifest({
     harnessId: request.harness_id ?? null,
     sessionKind: request.session_kind ?? null,
+    onboardingState: request.onboarding_state ?? null,
     browserToolsAvailable:
       typeof request.browser_tools_available === "boolean"
         ? request.browser_tools_available

@@ -7,7 +7,7 @@ import { Cards, Card } from 'fumadocs-ui/components/card';
 
 <p className="eyebrow">For developers</p>
 
-Apps are the component layer Templates are built from. A Template bundles one or more Apps; an App is a self-contained TypeScript module that provides a capability — a web UI, an MCP tool surface, local SQLite state, and a lifecycle the runtime manages.
+Apps are the component layer Templates are built from. A Template can depend on one or more Apps; an App is an installable capability module that provides a web UI, an MCP tool surface, local state, and a lifecycle the runtime manages.
 
 If you're here to build and publish a Template — not a platform capability — start at **[Templates](/docs/build/templates)** instead. You probably don't need this section.
 
@@ -16,6 +16,8 @@ If you want to extend the platform with a new capability (a new integration, a c
 ## Quick start
 
 Create a workspace-local App and get the runtime to pick it up.
+
+In desktop dev, use the embedded runtime port you actually launched. If you want deterministic local curl commands, start desktop with `export HOLABOSS_RUNTIME_API_PORT=39160` before `npm run desktop:dev`; otherwise use `bash apps/desktop/scripts/check-runtime-status.sh` and substitute the printed port below as `RUNTIME_PORT`.
 
 ### 1. Lay out the folders
 
@@ -86,16 +88,16 @@ Duplicate `app_id` values fail compilation.
 
 ```bash title="terminal"
 # Run lifecycle.setup
-curl -X POST http://127.0.0.1:5160/api/v1/apps/my_app/setup
+curl -X POST http://127.0.0.1:${RUNTIME_PORT}/api/v1/apps/my_app/setup
 
 # Run lifecycle.start
-curl -X POST http://127.0.0.1:5160/api/v1/apps/my_app/start
+curl -X POST http://127.0.0.1:${RUNTIME_PORT}/api/v1/apps/my_app/start
 
 # Poll build status
-curl http://127.0.0.1:5160/api/v1/apps/my_app/build-status
+curl http://127.0.0.1:${RUNTIME_PORT}/api/v1/apps/my_app/build-status
 
 # See the resolved port map
-curl http://127.0.0.1:5160/api/v1/apps/ports
+curl http://127.0.0.1:${RUNTIME_PORT}/api/v1/apps/ports
 ```
 
 When `mcp.tools: [create_record]` is declared, the runtime reconciles `workspace.yaml` so the allowlisted tool id becomes `my_app.create_record`.
@@ -112,7 +114,7 @@ The runtime probes these surfaces; any failure keeps the app from being marked h
 If setup fails, pull the latest diagnostics:
 
 ```bash title="terminal"
-curl 'http://127.0.0.1:5160/api/v1/apps/my_app/setup-log?workspace_id=workspace-1'
+curl "http://127.0.0.1:${RUNTIME_PORT}/api/v1/apps/my_app/setup-log?workspace_id=workspace-1"
 ```
 
 ## Runtime endpoints you'll use
@@ -141,5 +143,5 @@ curl 'http://127.0.0.1:5160/api/v1/apps/my_app/setup-log?workspace_id=workspace-
 
 ## Related
 
-- **[Templates](/docs/build/templates)** — the creator-facing guide. An App on its own doesn't do much; it's shipped as part of a Template.
+- **[Templates](/docs/build/templates)** — the creator-facing guide. An App on its own doesn't do much; it's usually selected as part of a Template or workspace.
 - **[Contribute](/docs/contribute)** — contributing to the holaOS runtime, desktop, and harness themselves.

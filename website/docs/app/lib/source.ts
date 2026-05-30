@@ -1,4 +1,4 @@
-import { loader, type InferPageType } from 'fumadocs-core/source';
+import { loader } from 'fumadocs-core/source';
 import { lucideIconsPlugin } from 'fumadocs-core/source/plugins/lucide-icons';
 import { docs } from 'collections/server';
 import { docsContentRoute, docsRoute } from './shared';
@@ -9,7 +9,14 @@ export const source = loader({
   plugins: [lucideIconsPlugin()],
 });
 
-export function getPageMarkdownUrl(page: InferPageType<typeof source>) {
+type SourcePage = NonNullable<ReturnType<typeof source.getPage>>;
+type SourcePageWithText = SourcePage & {
+  data: SourcePage["data"] & {
+    getText(type: "raw" | "processed"): Promise<string>;
+  };
+};
+
+export function getPageMarkdownUrl(page: SourcePage) {
   const segments = [...page.slugs, 'content.md'];
 
   return {
@@ -18,8 +25,10 @@ export function getPageMarkdownUrl(page: InferPageType<typeof source>) {
   };
 }
 
-export async function getLLMText(page: InferPageType<typeof source>) {
-  const processed = await page.data.getText('processed');
+export async function getLLMText(page: SourcePage) {
+  // The generated loader type currently drops fumadocs-mdx's runtime
+  // getText() helper even though includeProcessedMarkdown is enabled.
+  const processed = await (page as SourcePageWithText).data.getText('processed');
 
   return `# ${page.data.title} (${page.url})
 

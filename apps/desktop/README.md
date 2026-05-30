@@ -209,6 +209,8 @@ On pull requests and pushes to `main`, `CI` runs the normal validation jobs only
 - builds the signed and notarized macOS app, then uploads the DMG, ZIP, blockmaps, and `latest-mac.yml`
 - builds the signed Windows NSIS installer, then uploads the installer, blockmap, and channel manifest
 
+There is also a separate `.github/workflows/publish-macos-intel-desktop.yml` workflow for Intel macOS (`x64`) builds. It publishes a notarized `holaOS-macos-x64.dmg` to `holaboss-ai/holaOS-releases`, but intentionally disables in-app auto-update and does not publish `latest-mac.yml` / `beta-mac.yml` for that build. Apple Silicon remains the only macOS updater track in the shared release repo.
+
 Release channel policy:
 - the Linux runtime bundle is published separately for Sprite-backed sandbox consumers
 - desktop releases still do not attach standalone runtime tarballs to `holaboss-ai/holaOS-releases`

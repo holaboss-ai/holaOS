@@ -5,6 +5,8 @@ description: What counts as durable memory, which files own it, and how the runt
 
 Durable memory is the part of the system that should survive beyond one run and be recallable later without replaying the entire session.
 
+In the current design, durable memory is markdown-first and tree-based. The runtime does not treat raw transcripts or `turn_results` as durable memory.
+
 ## Durable vs volatile
 
 The runtime memory model is intentionally split:
@@ -15,11 +17,25 @@ The runtime memory model is intentionally split:
 | `<workspace-id>/.holaboss/state/runtime.db` | workspace execution truth, workspace-scoped memory metadata, pending proposals | yes |
 | `<workspace-id>/.holaboss/memory/runtime/` | latest-turn projections, blockers, recent-turn snapshots | no |
 | `<workspace-id>/.holaboss/memory/runtime/session-memory/` | resume-friendly continuity snapshots | semi-volatile |
-| `<workspace-id>/.holaboss/memory/knowledge/` | workspace facts, procedures, blockers, reference memories | yes |
-| `memory/preference/` | user preferences | yes |
-| `memory/identity/` | user identity memory | yes |
+| `<workspace-id>/.holaboss/memory/interaction/` | workspace-local durable interaction leaves and summaries | yes |
+| `<workspace-id>/.holaboss/memory/semantic/interaction/trees/` | workspace-local semantic tree markdown for recall and browsing | yes |
+| `memory/integration/trees/` | global durable integration evidence leaves | yes |
+| `memory/semantic/integration/trees/` | global semantic tree markdown for integration recall | yes |
+| `memory/preference/` plus optional `memory/identity/` | secondary user-memory docs outside the main forests | yes |
 
 Runtime files under `runtime/` are for inspection and restoration. They are not treated as durable knowledge.
+
+## Canonical vs derived
+
+The most important boundary is between canonical content and derived retrieval state:
+
+| Surface | Role |
+| --- | --- |
+| markdown files | canonical durable memory content |
+| interaction or integration entities, leaf rows, semantic node rows, search docs | runtime-owned indexes over the markdown |
+| embeddings and vector search rows | optional derived acceleration for retrieval |
+
+If the markdown and the index disagree, the markdown is the durable source of truth and the runtime rebuilds the derived state from it.
 
 ## Durable memory types
 
@@ -40,6 +56,79 @@ The durable memory catalog and recall governance currently support these classes
 
 Current automatic writeback is intentionally conservative. The evolve phase promotes workspace facts, procedures, and repeated permission blockers when they are explicit enough to survive beyond a single turn, and it keeps transient runtime state out of durable knowledge. User preference memory and runtime-profile updates come from accepted user-memory proposals, not from the queued evolve extraction pass.
 
+## Durable memory surfaces
+
+### Workspace interaction forest
+
+Interaction memory is workspace-local. It is built from conversation-derived leaves and materialized into a semantic markdown tree.
+
+Typical physical paths:
+
+- `<workspace-id>/.holaboss/memory/interaction/entities/<entity-slug>/leaves/<leaf-id>.md`
+- `<workspace-id>/.holaboss/memory/interaction/entities/<entity-slug>/summaries/L<level>/<node-id>.md`
+- `<workspace-id>/.holaboss/memory/semantic/interaction/trees/<entity-slug>/content.md`
+
+The memory namespace for those same files is:
+
+- `workspace/<workspace-id>/interaction/entities/...`
+- `workspace/<workspace-id>/semantic/interaction/trees/...`
+
+The memory browser projects that semantic tree as a browsable `interaction/trees/...` view.
+
+The same semantic tree is also exposed as a graph. In that graph, the workspace appears as the root of an interaction forest, with entity trees below it and summary or leaf nodes beneath those.
+
+### Global integration forest
+
+Integration memory is global to the configured memory root rather than stored inside one workspace’s `.holaboss/` folder. It is also tree-based.
+
+Typical physical paths:
+
+- `memory/integration/trees/<tree-slug>/...`
+- `memory/semantic/integration/trees/<tree-slug>/content.md`
+
+Provider-specific builders shape those trees differently for Gmail, Notion, GitHub, Slack, calendars, drives, and other integrations, but the storage model is the same: markdown evidence plus derived semantic structure.
+
+The memory browser projects that semantic tree as `integration/trees/...`.
+
+The corresponding graph view is a global account forest rooted at `Integrations`, with one semantic tree per visible account or connection.
+
+### Secondary user-memory docs
+
+Accepted user-memory proposals currently write durable preference markdown such as:
+
+- `memory/preference/response-style.md`
+- `memory/preference/file-delivery.md`
+
+`memory/identity/` remains the supported profile-global durable namespace for identity-style memory when that memory exists.
+
+These files are separate from both the interaction forest and the integration forest. They are also separate from the canonical runtime profile in `state/control-plane.db`. The database owns live profile state; markdown preference and identity files own long-lived recallable memory when the user explicitly accepts it.
+
+## Why the tree shape matters
+
+The current memory model is intentionally tree-shaped instead of flat:
+
+- humans can browse it as markdown without needing a custom client
+- the runtime can rebuild semantic structure deterministically from the same files
+- retrieval can return summaries, leaves, and neighboring context instead of only one isolated match
+- integration memory and interaction memory can use the same retrieval model even though they come from different write paths
+
+This is why the docs should talk about forests, trees, summaries, leaves, and rebuilds rather than only about folders or indexes.
+
+## Interaction memory vs integration memory
+
+These two durable surfaces are related but they are not written the same way:
+
+- interaction memory
+  - produced from completed runs
+  - written as durable leaves after background writeback
+  - rebuilt into semantic trees per interaction entity
+- integration memory
+  - produced from integration fetch and sync flows
+  - written as evidence leaves under the global memory root
+  - rebuilt into provider-specific semantic trees per integration account or connection
+
+That separation matters because integration memory can be refreshed from external systems without going through the post-run interaction writeback path.
+
 ## What makes memory durable
 
 In `holaOS`, something should become durable memory only when it meets most of these standards:
@@ -58,35 +147,6 @@ Things usually do not qualify when they are just execution residue:
 
 That is why durable memory is intentionally smaller and more opinionated than session continuity. It is meant to capture what should remain true or useful later, not everything that happened.
 
-## How durable memory is written
-
-There are currently two durable write paths:
-
-- background evolve writeback
-  - writes workspace durable memory under `.holaboss/memory/knowledge/`
-  - updates the durable memory catalog in the workspace runtime DB or `state/control-plane.db`, depending on scope
-  - refreshes the workspace-local `MEMORY.md` plus the root `MEMORY.md` when indexed scopes change
-- accepted user-memory proposals
-  - capture explicit user preferences from input
-  - persist accepted preference memory into markdown under `memory/preference/`
-  - update the canonical runtime profile in `state/control-plane.db` for accepted profile proposals
-  - refresh durable markdown indexes for accepted preference-memory writes
-
-## What lives where
-
-Use these rules of thumb when reasoning about durable state:
-
-- `AGENTS.md`
-  - human-authored workspace policy and operating instructions
-- `<workspace-id>/.holaboss/memory/knowledge/`
-  - durable workspace memory that may be recalled in later runs
-- `memory/preference/`
-  - durable user preference memory
-- `memory/identity/`
-  - durable user identity facts beyond the canonical runtime profile
-
-If it should be recalled later without replaying the full session, it belongs in durable memory. If it is a standing workspace rule, it belongs in `AGENTS.md`. If it is only a runtime profile field such as the canonical user name, it stays in `state/control-plane.db` until a separate path promotes related durable identity memory.
-
 ## Namespace boundaries
 
 Memory paths are memory-root-relative. The runtime rejects:
@@ -97,8 +157,10 @@ Memory paths are memory-root-relative. The runtime rejects:
 
 The current namespace model allows:
 
-- root index: `MEMORY.md`
+- compatibility root index: `MEMORY.md`
 - workspace scope: `workspace/<workspace-id>/*`
-- user/global scopes such as `preference/*` and `identity/*`
+- secondary user-memory scopes such as `preference/*` and `identity/*`
 
 Cross-workspace access is blocked. The runtime only allows `MEMORY.md`, `workspace/<workspace-id>/*`, `preference/*`, and `identity/*`, rejects absolute paths and `..` traversal, and prevents writes that escape the configured memory root.
+
+`MEMORY.md` still exists as a root or scoped index surface for inspection and compatibility, but it is secondary. The primary durable memory model is the markdown tree and its evidence leaves.

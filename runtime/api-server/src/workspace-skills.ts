@@ -37,6 +37,12 @@ export interface WorkspaceSkillInvocationResult {
   args: string | null;
 }
 
+const EMBEDDED_SKILL_OWNER_TEAMMATE_IDS = new Map<string, string>([
+  ["create-teammate", "hr"],
+  ["app-builder-sdk", "app_builder"],
+  ["build-dashboard", "app_builder"],
+]);
+
 const EMBEDDED_SKILLS_DIR_ENV = "HOLABOSS_EMBEDDED_SKILLS_DIR";
 const WORKSPACE_SKILLS_RELATIVE_PATH = "skills";
 const WORKSPACE_TEAMMATES_RELATIVE_PATH = "teammates";
@@ -483,6 +489,23 @@ export function resolveWorkspaceSkills(
       return normalizedSkillId ? resolvedById.get(normalizedSkillId) ?? null : null;
     })
     .filter((skill): skill is ResolvedWorkspaceSkill => Boolean(skill));
+}
+
+export function projectSessionVisibleWorkspaceSkills(params: {
+  workspaceSkills: ResolvedWorkspaceSkill[];
+  teammateId?: string | null;
+}): ResolvedWorkspaceSkill[] {
+  const teammateId = normalizeSkillId(params.teammateId);
+  return params.workspaceSkills.filter((skill) => {
+    if (skill.origin === "embedded") {
+      const ownerTeammateId =
+        EMBEDDED_SKILL_OWNER_TEAMMATE_IDS.get(skill.skill_id) ?? null;
+      if (ownerTeammateId) {
+        return teammateId === ownerTeammateId;
+      }
+    }
+    return true;
+  });
 }
 
 export function resolveWorkspaceSkillByLookupToken(params: {

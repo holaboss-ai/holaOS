@@ -1599,6 +1599,100 @@ test("claimed input writes completed subagent results and queues a background up
   store.close();
 });
 
+test("claimed input summarizes hashline edit-only subagent runs with edited file paths", async () => {
+  const store = makeStore("hb-claimed-input-subagent-edit-summary-");
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const { queued, run } = createSubagentRunFixture({
+    store,
+    workspaceId: workspace.id,
+    title: "Patch the desktop shell",
+    goal: "Update the desktop shell file",
+  });
+
+  await processClaimedInput({
+    store,
+    record: queued,
+    executeRunnerRequestFn: async (payload, options = {}) => {
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 1,
+        event_type: "run_started",
+        payload: {},
+      });
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 2,
+        event_type: "tool_call",
+        payload: {
+          phase: "completed",
+          tool_name: "edit",
+          call_id: "call-edit-1",
+          error: false,
+          tool_args: {
+            input: [
+              "¶apps/desktop/src/App.tsx#0AD",
+              "10 10",
+              "+const updated = true;",
+            ].join("\n"),
+          },
+          result: {
+            content: [
+              {
+                type: "text",
+                text: "Updated apps/desktop/src/App.tsx.\nNext snapshot: ¶apps/desktop/src/App.tsx#08A",
+              },
+            ],
+          },
+        },
+      });
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 3,
+        event_type: "run_completed",
+        payload: { status: "ok" },
+      });
+      return {
+        events: [],
+        skippedLines: [],
+        stderr: "",
+        returnCode: 0,
+        sawTerminal: true,
+      };
+    },
+  });
+
+  const updatedRun = store.getSubagentRun({
+    workspaceId: run.workspaceId,
+    subagentId: run.subagentId,
+  });
+  const queuedEvents = store.listPendingMainSessionEvents({
+    workspaceId: workspace.id,
+    ownerMainSessionId: "session-main",
+  });
+  const turnResult = turnResultForInput(store, queued);
+  const editedFiles = Array.isArray(turnResult?.toolUsageSummary.edited_files)
+    ? turnResult?.toolUsageSummary.edited_files
+    : [];
+
+  assert.equal(editedFiles[0], "apps/desktop/src/App.tsx");
+  assert.equal(updatedRun?.summary, "Updated apps/desktop/src/App.tsx.");
+  assert.equal(updatedRun?.resultPayload?.summary, "Updated apps/desktop/src/App.tsx.");
+  assert.equal(queuedEvents[0]?.payload.summary, "Updated apps/desktop/src/App.tsx.");
+  assert.deepEqual(queuedEvents[0]?.payload.edited_files, [
+    "apps/desktop/src/App.tsx",
+  ]);
+
+  store.close();
+});
+
 test("claimed input preserves subagent pending integration workspace ids for lifecycle payloads", async () => {
   const store = makeStore("hb-claimed-input-subagent-pending-integrations-");
   const workspace = store.createWorkspace({
@@ -4787,6 +4881,99 @@ test("claimed issue bootstrap input ignores inline teammate skill blobs when no 
     /Teammate instructions:\nOwn implementation tasks\./,
   );
   assert.doesNotMatch(capturedInstruction, /Teammate skills:/);
+
+  store.close();
+});
+
+test("claimed issue bootstrap input prefers the assigned issue teammate over stale context teammate_id", async () => {
+  const store = makeStore("hb-claimed-input-issue-bootstrap-stale-teammate-");
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const recruiter = store.createTeammate({
+    workspaceId: workspace.id,
+    name: "Recruiter",
+    instructions: "Own hiring tasks.",
+  });
+  const appBuilder = store.createTeammate({
+    workspaceId: workspace.id,
+    name: "App Builder Shadow",
+    instructions: "Own app tasks.",
+  });
+  writeWorkspaceSkill(
+    store.workspaceDir(workspace.id),
+    path.join("teammates", recruiter.teammateId, "skills"),
+    "candidate-playbook",
+    "Candidate playbook",
+    "# Candidate Playbook\nReview role requirements first.\n",
+  );
+  writeWorkspaceSkill(
+    store.workspaceDir(workspace.id),
+    path.join("teammates", appBuilder.teammateId, "skills"),
+    "app-playbook",
+    "App playbook",
+    "# App Playbook\nDo not use this for hiring.\n",
+  );
+  const issue = store.createIssue({
+    workspaceId: workspace.id,
+    sessionId: "session-issue-1",
+    title: "Create teammate",
+    description: "Bootstrap a new teammate.",
+    status: "todo",
+    assigneeTeammateId: recruiter.teammateId,
+    createdBy: "workspace_user",
+  });
+  const queued = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: issue.sessionId,
+    payload: {
+      text: "Bootstrap a new teammate.",
+      context: {
+        source: "issue_bootstrap",
+        issue_id: issue.issueId,
+        teammate_id: appBuilder.teammateId,
+      },
+    },
+  });
+
+  let capturedInstruction = "";
+  await processClaimedInput({
+    store,
+    record: queued,
+    executeRunnerRequestFn: async (payload, options = {}) => {
+      capturedInstruction = String(payload.instruction ?? "");
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 1,
+        event_type: "run_started",
+        payload: { instruction_preview: capturedInstruction.slice(0, 120) },
+      });
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 2,
+        event_type: "run_completed",
+        payload: { status: "ok" },
+      });
+      return {
+        events: [],
+        skippedLines: [],
+        stderr: "",
+        returnCode: 0,
+        sawTerminal: true,
+      };
+    },
+  });
+
+  assert.match(capturedInstruction, /Assigned teammate: Recruiter/);
+  assert.match(capturedInstruction, /Teammate instructions:\nOwn hiring tasks\./);
+  assert.match(capturedInstruction, /Candidate Playbook/);
+  assert.doesNotMatch(capturedInstruction, /Assigned teammate: App Builder Shadow/);
+  assert.doesNotMatch(capturedInstruction, /Do not use this for hiring\./);
 
   store.close();
 });

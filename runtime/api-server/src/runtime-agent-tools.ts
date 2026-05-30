@@ -31,7 +31,11 @@ import {
 
 import { RUNTIME_AGENT_TOOL_DEFINITIONS as RUNTIME_AGENT_TOOL_BASE_DEFINITIONS } from "../../harnesses/src/runtime-agent-tools.js";
 import { buildAppSetupEnv } from "./app-setup-env.js";
-import { cronjobNextRunAt } from "./cron-worker.js";
+import {
+  cronjobMetadataWithResolvedTimezone,
+  cronjobNextRunAt,
+  runtimeUserTimezone,
+} from "./cron-worker.js";
 import { ensureWorkspaceDataDb } from "./ts-runner-session-state.js";
 import { generateWorkspaceImage } from "./image-generation.js";
 import { searchPublicWeb } from "./native-web-search.js";
@@ -59,7 +63,11 @@ import type { MemoryRetrievalPolicy } from "./memory-hybrid-retrieval.js";
 import { retrieveWorkspaceMemory, type WorkspaceMemoryCategory } from "./workspace-memory.js";
 import type { ComposioMcpManager } from "./composio-mcp-manager.js";
 import { getStoreCatalogEntry } from "./integration-store-catalog.js";
-import { invokeWorkspaceSkill, resolveWorkspaceSkills } from "./workspace-skills.js";
+import {
+  invokeWorkspaceSkill,
+  projectSessionVisibleWorkspaceSkills,
+  resolveWorkspaceSkills,
+} from "./workspace-skills.js";
 import {
   listWorkspaceApplicationPorts,
   listWorkspaceApplications,
@@ -86,7 +94,6 @@ import {
   parseOnboardingAlignmentReport,
   sanitizeOnboardingAlignmentReport,
 } from "../../../shared/onboarding-contract.js";
-import { selectDelegatedTaskTeammateByCapability } from "./teammate-routing.js";
 import { preferredCoordinatorSessionId } from "./coordinator-session-routing.js";
 import {
   createTeammateIdForFilesystem,
@@ -364,8 +371,17 @@ export interface RuntimeAgentToolsCreateCronjobParams {
   holabossUserId?: string | null;
 }
 
+export interface RuntimeAgentToolsListTeammatesParams {
+  workspaceId: string;
+  sessionId?: string | null;
+  includeArchived?: boolean | null;
+  limit?: number | null;
+  offset?: number | null;
+}
+
 export interface RuntimeAgentToolsCreateTeammateParams {
   workspaceId: string;
+  sessionId?: string | null;
   teammateId?: string | null;
   name: string;
   instructions?: string | null;
@@ -374,6 +390,7 @@ export interface RuntimeAgentToolsCreateTeammateParams {
 
 export interface RuntimeAgentToolsCreateTeammateSkillParams {
   workspaceId: string;
+  sessionId?: string | null;
   teammateId: string;
   skill: TeammateSkillInput;
 }
@@ -398,6 +415,8 @@ export interface RuntimeAgentToolsUpdateCronjobParams {
 }
 
 export interface RuntimeAgentToolsDelegateTaskItem {
+  teammateId?: string | null;
+  parentTaskId?: string | null;
   title?: string | null;
   goal: string;
   context?: string | null;
@@ -429,6 +448,15 @@ export interface RuntimeAgentToolsListTasksParams {
   inputId?: string | null;
   statuses?: string[] | null;
   limit?: number | null;
+}
+
+export interface RuntimeAgentToolsReplyTaskParams {
+  workspaceId: string;
+  taskId: string;
+  text: string;
+  selectedModel?: string | null;
+  model?: string | null;
+  priority?: number | null;
 }
 
 export interface RuntimeAgentToolsCancelTaskParams {
@@ -576,6 +604,7 @@ export interface RuntimeAgentToolsListDataTablesParams {
 
 export interface RuntimeAgentToolsScaffoldWorkspaceAppParams {
   workspaceId: string;
+  sessionId?: string | null;
   appId: string;
   name?: string | null;
   overwrite?: boolean;
@@ -583,12 +612,14 @@ export interface RuntimeAgentToolsScaffoldWorkspaceAppParams {
 
 export interface RuntimeAgentToolsRegisterWorkspaceAppParams {
   workspaceId: string;
+  sessionId?: string | null;
   appId: string;
   configPath?: string | null;
 }
 
 export interface RuntimeAgentToolsBuildWorkspaceAppParams {
   workspaceId: string;
+  sessionId?: string | null;
   appId: string;
   timeoutMs?: number | null;
 }
@@ -605,6 +636,7 @@ export interface RuntimeAgentToolsEnsureWorkspaceAppsRunningParams {
 
 export interface RuntimeAgentToolsRestartWorkspaceAppParams {
   workspaceId: string;
+  sessionId?: string | null;
   appId: string;
 }
 
@@ -621,6 +653,7 @@ export interface RuntimeAgentToolsInstallWorkspaceAppParams {
 
 export interface RuntimeAgentToolsRestartAndWaitWorkspaceAppReadyParams {
   workspaceId: string;
+  sessionId?: string | null;
   appId: string;
   timeoutMs?: number | null;
   pollIntervalMs?: number | null;
@@ -628,6 +661,7 @@ export interface RuntimeAgentToolsRestartAndWaitWorkspaceAppReadyParams {
 
 export interface RuntimeAgentToolsWaitUntilWorkspaceAppReadyParams {
   workspaceId: string;
+  sessionId?: string | null;
   appId: string;
   timeoutMs?: number | null;
   pollIntervalMs?: number | null;
@@ -635,16 +669,19 @@ export interface RuntimeAgentToolsWaitUntilWorkspaceAppReadyParams {
 
 export interface RuntimeAgentToolsGetWorkspaceAppStatusParams {
   workspaceId: string;
+  sessionId?: string | null;
   appId?: string | null;
 }
 
 export interface RuntimeAgentToolsGetWorkspaceAppPortsParams {
   workspaceId: string;
+  sessionId?: string | null;
   appId?: string | null;
 }
 
 export interface RuntimeAgentToolsProbeWorkspaceAppEndpointsParams {
   workspaceId: string;
+  sessionId?: string | null;
   appId: string;
   checks?: string[] | null;
   timeoutMs?: number | null;
@@ -1227,6 +1264,12 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS: RuntimeAgentToolDefinition[] = [
     description: runtimeToolBaseDefinition("cronjobs_create").description
   },
   {
+    id: runtimeToolBaseDefinition("teammates_list").id,
+    method: "GET",
+    path: "/api/v1/capabilities/runtime-tools/teammates",
+    description: runtimeToolBaseDefinition("teammates_list").description
+  },
+  {
     id: runtimeToolBaseDefinition("teammates_create").id,
     method: "POST",
     path: "/api/v1/capabilities/runtime-tools/teammates",
@@ -1273,6 +1316,12 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS: RuntimeAgentToolDefinition[] = [
     method: "GET",
     path: "/api/v1/capabilities/runtime-tools/tasks",
     description: runtimeToolBaseDefinition("list_tasks").description
+  },
+  {
+    id: runtimeToolBaseDefinition("reply_task").id,
+    method: "POST",
+    path: "/api/v1/capabilities/runtime-tools/tasks/:taskId/reply",
+    description: runtimeToolBaseDefinition("reply_task").description
   },
   {
     id: runtimeToolBaseDefinition("cancel_task").id,
@@ -2428,6 +2477,7 @@ function metadataWithCronjobDefaults(params: {
   holabossUserId: string | null | undefined;
   selectedModel?: string | null | undefined;
   sourceSessionId?: string | null | undefined;
+  fallbackTimezone?: string | null | undefined;
 }
 ): JsonObject {
   const nextMetadata: JsonObject = { ...((params.metadata ?? {}) as JsonObject) };
@@ -2440,7 +2490,10 @@ function metadataWithCronjobDefaults(params: {
   if (sourceSessionId && typeof nextMetadata.source_session_id !== "string") {
     nextMetadata.source_session_id = sourceSessionId;
   }
-  return nextMetadata;
+  return cronjobMetadataWithResolvedTimezone(
+    nextMetadata,
+    params.fallbackTimezone,
+  ) as JsonObject;
 }
 
 function resolvedInstructionForCronjobUpdate(params: {
@@ -2741,7 +2794,6 @@ function teammateCapabilityProfilePayload(
   return {
     summary: record.summary,
     capabilities: [...record.capabilities],
-    preferred_tools: [...record.preferredTools],
   };
 }
 
@@ -2814,6 +2866,7 @@ function issueAttachmentPayload(record: IssueAttachmentRecord): JsonObject {
 
 function subagentRunPayload(state: SyncedSubagentRunState): JsonObject {
   return {
+    task_id: state.run.issueId,
     subagent_id: state.run.subagentId,
     workspace_id: state.run.workspaceId,
     parent_session_id: state.run.parentSessionId,
@@ -2854,16 +2907,26 @@ function subagentRunPayload(state: SyncedSubagentRunState): JsonObject {
   };
 }
 
+function delegatedTaskManagerPayload(state: SyncedSubagentRunState): JsonObject {
+  const payload = subagentRunPayload(state) as Record<string, JsonValue>;
+  const { subagent_id: _subagentId, ...managerPayload } = payload;
+  return managerPayload;
+}
+
 function taskPayload(params: {
   issue: IssueRecord;
   activeState?: SyncedSubagentRunState | null;
   latestState?: SyncedSubagentRunState | null;
+  childTaskIds?: string[] | null;
 }): JsonObject {
+  const childTaskIds = params.childTaskIds ?? [];
   return {
     task_id: params.issue.issueId,
+    issue_id: params.issue.issueId,
     workspace_id: params.issue.workspaceId,
     task_number: params.issue.issueNumber,
     session_id: params.issue.sessionId,
+    parent_task_id: params.issue.parentIssueId,
     title: params.issue.title,
     description: params.issue.description,
     status: params.issue.status,
@@ -2877,6 +2940,8 @@ function taskPayload(params: {
     created_at: params.issue.createdAt,
     updated_at: params.issue.updatedAt,
     completed_at: params.issue.completedAt,
+    child_task_count: childTaskIds.length,
+    child_task_ids: childTaskIds,
     active_run: params.activeState ? subagentRunPayload(params.activeState) : null,
     latest_run: params.latestState ? subagentRunPayload(params.latestState) : null,
   };
@@ -3068,7 +3133,7 @@ export class RuntimeAgentToolsService {
     workspaceId: string;
     question: Record<string, unknown>;
   }): JsonObject {
-    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    const scope = this.requireOnboardingFlowScope(params.workspaceId);
     this.requireOnboardingState(scope.source, [ONBOARDING_ALIGNMENT_STATE]);
     let question: OnboardingAlignmentQuestion;
     try {
@@ -3085,9 +3150,9 @@ export class RuntimeAgentToolsService {
     });
     return {
       ...onboardingPayload(source),
-      lab_workspace_id: scope.lab.id,
-      lab_purpose: scope.lab.labPurpose,
-      lab_status: scope.lab.labStatus,
+      lab_workspace_id: scope.lab?.id ?? null,
+      lab_purpose: scope.lab?.labPurpose ?? null,
+      lab_status: scope.lab?.labStatus ?? null,
     };
   }
 
@@ -3100,7 +3165,8 @@ export class RuntimeAgentToolsService {
     notes?: string | null;
     answers?: OnboardingAlignmentQuestionAnswer[] | null;
   }): JsonObject {
-    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    const scope = this.requireOnboardingFlowScope(params.workspaceId);
+    const sessionWorkspaceId = this.onboardingFlowWorkspaceId(scope);
     this.requireOnboardingState(scope.source, [ONBOARDING_ALIGNMENT_STATE]);
     const question = parseStoredAlignmentQuestion(
       scope.source.onboardingAlignmentQuestion,
@@ -3130,14 +3196,14 @@ export class RuntimeAgentToolsService {
     }
     if (
       !this.store.getSession({
-        workspaceId: scope.lab.id,
+        workspaceId: sessionWorkspaceId,
         sessionId,
       })
     ) {
       throw new RuntimeAgentToolsServiceError(
         409,
         "onboarding_session_not_found",
-        "onboarding session could not be found in the active lab",
+        "onboarding session could not be found in the active onboarding workspace",
       );
     }
     const normalizedAnswers =
@@ -3222,12 +3288,12 @@ export class RuntimeAgentToolsService {
     }
     const queuedText = answerLines.map((entry) => entry.text).join("\n\n");
     this.store.ensureRuntimeState({
-      workspaceId: scope.lab.id,
+      workspaceId: sessionWorkspaceId,
       sessionId,
       status: "QUEUED",
     });
     const input = this.store.enqueueInput({
-      workspaceId: scope.lab.id,
+      workspaceId: sessionWorkspaceId,
       sessionId,
       payload: {
         text: queuedText,
@@ -3243,7 +3309,7 @@ export class RuntimeAgentToolsService {
       },
     });
     this.store.updateRuntimeState({
-      workspaceId: scope.lab.id,
+      workspaceId: sessionWorkspaceId,
       sessionId,
       status: "QUEUED",
       currentInputId: input.inputId,
@@ -3258,9 +3324,9 @@ export class RuntimeAgentToolsService {
     this.options.queueWorker?.wake();
     return {
       ...onboardingPayload(source),
-      lab_workspace_id: scope.lab.id,
-      lab_purpose: scope.lab.labPurpose,
-      lab_status: scope.lab.labStatus,
+      lab_workspace_id: scope.lab?.id ?? null,
+      lab_purpose: scope.lab?.labPurpose ?? null,
+      lab_status: scope.lab?.labStatus ?? null,
     };
   }
 
@@ -3268,7 +3334,7 @@ export class RuntimeAgentToolsService {
     workspaceId: string;
     report: Record<string, unknown>;
   }): JsonObject {
-    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    const scope = this.requireOnboardingFlowScope(params.workspaceId);
     this.requireOnboardingState(scope.source, [ONBOARDING_ALIGNMENT_STATE]);
     let report;
     try {
@@ -3289,14 +3355,14 @@ export class RuntimeAgentToolsService {
     });
     return {
       ...onboardingPayload(source),
-      lab_workspace_id: scope.lab.id,
-      lab_purpose: scope.lab.labPurpose,
-      lab_status: scope.lab.labStatus,
+      lab_workspace_id: scope.lab?.id ?? null,
+      lab_purpose: scope.lab?.labPurpose ?? null,
+      lab_status: scope.lab?.labStatus ?? null,
     };
   }
 
   approveAlignment(params: { workspaceId: string }): JsonObject {
-    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    const scope = this.requireOnboardingFlowScope(params.workspaceId);
     this.requireOnboardingState(scope.source, [
       ONBOARDING_AWAITING_ALIGNMENT_APPROVAL_STATE,
     ]);
@@ -3307,14 +3373,14 @@ export class RuntimeAgentToolsService {
     });
     return {
       ...onboardingPayload(source),
-      lab_workspace_id: scope.lab.id,
-      lab_purpose: scope.lab.labPurpose,
-      lab_status: scope.lab.labStatus,
+      lab_workspace_id: scope.lab?.id ?? null,
+      lab_purpose: scope.lab?.labPurpose ?? null,
+      lab_status: scope.lab?.labStatus ?? null,
     };
   }
 
   requestAlignmentRevision(params: { workspaceId: string }): JsonObject {
-    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    const scope = this.requireOnboardingFlowScope(params.workspaceId);
     this.requireOnboardingState(scope.source, [
       ONBOARDING_AWAITING_ALIGNMENT_APPROVAL_STATE,
     ]);
@@ -3324,9 +3390,9 @@ export class RuntimeAgentToolsService {
     });
     return {
       ...onboardingPayload(source),
-      lab_workspace_id: scope.lab.id,
-      lab_purpose: scope.lab.labPurpose,
-      lab_status: scope.lab.labStatus,
+      lab_workspace_id: scope.lab?.id ?? null,
+      lab_purpose: scope.lab?.labPurpose ?? null,
+      lab_status: scope.lab?.labStatus ?? null,
     };
   }
 
@@ -3334,7 +3400,7 @@ export class RuntimeAgentToolsService {
     workspaceId: string;
     report: Record<string, unknown>;
   }): JsonObject {
-    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    const scope = this.requireOnboardingFlowScope(params.workspaceId);
     this.requireOnboardingState(scope.source, [ONBOARDING_IMPLEMENTING_STATE]);
     if (Object.keys(params.report).length === 0) {
       throw new RuntimeAgentToolsServiceError(
@@ -3351,14 +3417,14 @@ export class RuntimeAgentToolsService {
     });
     return {
       ...onboardingPayload(source),
-      lab_workspace_id: scope.lab.id,
-      lab_purpose: scope.lab.labPurpose,
-      lab_status: scope.lab.labStatus,
+      lab_workspace_id: scope.lab?.id ?? null,
+      lab_purpose: scope.lab?.labPurpose ?? null,
+      lab_status: scope.lab?.labStatus ?? null,
     };
   }
 
   requestVerificationRevision(params: { workspaceId: string }): JsonObject {
-    const scope = this.requireActiveOnboardingLab(params.workspaceId);
+    const scope = this.requireOnboardingFlowScope(params.workspaceId);
     this.requireOnboardingState(scope.source, [
       ONBOARDING_AWAITING_VERIFICATION_ACCEPTANCE_STATE,
     ]);
@@ -3369,9 +3435,9 @@ export class RuntimeAgentToolsService {
     });
     return {
       ...onboardingPayload(source),
-      lab_workspace_id: scope.lab.id,
-      lab_purpose: scope.lab.labPurpose,
-      lab_status: scope.lab.labStatus,
+      lab_workspace_id: scope.lab?.id ?? null,
+      lab_purpose: scope.lab?.labPurpose ?? null,
+      lab_status: scope.lab?.labStatus ?? null,
     };
   }
 
@@ -3515,6 +3581,7 @@ export class RuntimeAgentToolsService {
       throw new RuntimeAgentToolsServiceError(400, "cronjob_teammate_required", "teammate_id is required");
     }
     const isDraftLab = workspace.workspaceRole === "draft_lab";
+    const effectiveTimezone = runtimeUserTimezone(this.store);
     const requestedEnabled = params.enabled !== false;
     // Cronjobs inside a draft lab are design context only — the lab is a
     // throwaway scratch space, so its cronjobs must not actually fire.
@@ -3523,12 +3590,13 @@ export class RuntimeAgentToolsService {
     const effectiveEnabled = isDraftLab ? false : requestedEnabled;
     const effectiveNextRunAt = isDraftLab
       ? null
-      : cronjobNextRunAt(cron, new Date());
+      : cronjobNextRunAt(cron, new Date(), effectiveTimezone);
     const baseMetadata = metadataWithCronjobDefaults({
       metadata: params.metadata,
       holabossUserId: params.holabossUserId,
       selectedModel: params.selectedModel,
       sourceSessionId: params.sessionId,
+      fallbackTimezone: effectiveTimezone,
     });
     const metadata: JsonObject = isDraftLab
       ? {
@@ -3557,8 +3625,124 @@ export class RuntimeAgentToolsService {
     return cronjobPayload(created);
   }
 
+  private requireHrTeammateRuntimeToolSession(params: {
+    workspaceId: string;
+    sessionId?: string | null;
+    toolId: "teammates_list" | "teammates_create" | "teammate_skills_create";
+  }): void {
+    const sessionId = normalizedString(params.sessionId);
+    if (!sessionId) {
+      throw new RuntimeAgentToolsServiceError(
+        403,
+        "hr_teammate_required",
+        `${params.toolId} is only available to the HR teammate`,
+      );
+    }
+    const issue = this.store.getIssueBySessionId({
+      workspaceId: params.workspaceId,
+      sessionId,
+    });
+    const subagentRun =
+      !issue
+        ? this.store.getSubagentRunByChildSession({
+            workspaceId: params.workspaceId,
+            childSessionId: sessionId,
+          })
+        : null;
+    const teammateId =
+      normalizedString(issue?.assigneeTeammateId) ??
+      normalizedString(subagentRun?.teammateId) ??
+      null;
+    if (teammateId !== "hr") {
+      throw new RuntimeAgentToolsServiceError(
+        403,
+        "hr_teammate_required",
+        `${params.toolId} is only available to the HR teammate`,
+      );
+    }
+  }
+
+  private requireAppBuilderRuntimeToolSession(params: {
+    workspaceId: string;
+    sessionId?: string | null;
+    toolId:
+      | "workspace_apps_scaffold"
+      | "workspace_apps_register"
+      | "workspace_apps_build"
+      | "workspace_apps_ensure_running"
+      | "workspace_apps_restart"
+      | "workspace_apps_restart_and_wait_ready"
+      | "workspace_apps_wait_until_ready"
+      | "workspace_apps_get_status"
+      | "workspace_apps_get_ports"
+      | "workspace_apps_probe_endpoints";
+  }): void {
+    const sessionId = normalizedString(params.sessionId);
+    if (!sessionId) {
+      return;
+    }
+    const issue = this.store.getIssueBySessionId({
+      workspaceId: params.workspaceId,
+      sessionId,
+    });
+    const subagentRun =
+      !issue
+        ? this.store.getSubagentRunByChildSession({
+            workspaceId: params.workspaceId,
+            childSessionId: sessionId,
+          })
+        : null;
+    const teammateId =
+      normalizedString(issue?.assigneeTeammateId) ??
+      normalizedString(subagentRun?.teammateId) ??
+      null;
+    if (teammateId !== "app_builder") {
+      throw new RuntimeAgentToolsServiceError(
+        403,
+        "app_builder_teammate_required",
+        `${params.toolId} is only available to the App Builder teammate`,
+      );
+    }
+  }
+
+  listTeammates(params: RuntimeAgentToolsListTeammatesParams): JsonObject {
+    this.requireWorkspace(params.workspaceId);
+    this.requireHrTeammateRuntimeToolSession({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+      toolId: "teammates_list",
+    });
+    const workspaceDir = this.store.workspaceDir(params.workspaceId);
+    const limit =
+      typeof params.limit === "number" && Number.isFinite(params.limit)
+        ? Math.max(1, Math.min(1000, Math.trunc(params.limit)))
+        : undefined;
+    const offset =
+      typeof params.offset === "number" && Number.isFinite(params.offset)
+        ? Math.max(0, Math.trunc(params.offset))
+        : undefined;
+    const teammates = this.store
+      .listTeammates({
+        workspaceId: params.workspaceId,
+        includeArchived: params.includeArchived === true,
+        limit,
+        offset,
+      })
+      .map((record) => teammatePayload(record, workspaceDir));
+    return {
+      teammates,
+      count: teammates.length,
+      tool_id: "teammates_list",
+    };
+  }
+
   createTeammate(params: RuntimeAgentToolsCreateTeammateParams): JsonObject {
     this.requireWorkspace(params.workspaceId);
+    this.requireHrTeammateRuntimeToolSession({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+      toolId: "teammates_create",
+    });
     const name = normalizedString(params.name);
     if (!name) {
       throw new RuntimeAgentToolsServiceError(
@@ -3585,6 +3769,11 @@ export class RuntimeAgentToolsService {
 
   createTeammateSkill(params: RuntimeAgentToolsCreateTeammateSkillParams): JsonObject {
     this.requireWorkspace(params.workspaceId);
+    this.requireHrTeammateRuntimeToolSession({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+      toolId: "teammate_skills_create",
+    });
     const teammateId = normalizedString(params.teammateId);
     if (!teammateId) {
       throw new RuntimeAgentToolsServiceError(
@@ -3644,6 +3833,7 @@ export class RuntimeAgentToolsService {
       throw new RuntimeAgentToolsServiceError(400, "cronjob_teammate_required", "teammate_id is required");
     }
     const isDraftLab = workspace.workspaceRole === "draft_lab";
+    const effectiveTimezone = runtimeUserTimezone(this.store);
     const effectiveEnabled =
       params.enabled === undefined
         ? undefined
@@ -3652,10 +3842,14 @@ export class RuntimeAgentToolsService {
           : params.enabled;
     const baseMetadata =
       params.metadata === undefined
-        ? undefined
+        ? (cronjobMetadataWithResolvedTimezone(
+            existing.metadata,
+            effectiveTimezone,
+          ) as JsonObject)
         : metadataWithCronjobDefaults({
             metadata: params.metadata,
             holabossUserId: null,
+            fallbackTimezone: effectiveTimezone,
           });
     let effectiveMetadata = baseMetadata;
     if (isDraftLab && params.enabled !== undefined) {
@@ -3673,7 +3867,7 @@ export class RuntimeAgentToolsService {
         ? undefined
         : isDraftLab
           ? null
-          : cronjobNextRunAt(cron, new Date());
+          : cronjobNextRunAt(cron, new Date(), effectiveTimezone);
     const updated = this.store.updateCronjob({
       workspaceId,
       jobId: params.jobId,
@@ -3719,6 +3913,8 @@ export class RuntimeAgentToolsService {
     const parentInputId = normalizedString(params.inputId) || null;
     const requestedTasks = params.tasks
       .map((task) => ({
+        teammateId: normalizedString(task.teammateId),
+        parentTaskId: normalizedString(task.parentTaskId),
         title: normalizedString(task.title),
         goal: normalizedString(task.goal),
         context: normalizedString(task.context),
@@ -3742,6 +3938,13 @@ export class RuntimeAgentToolsService {
     const createdRuns: SyncedSubagentRunState[] = [];
     for (const task of requestedTasks) {
       const title = normalizedSubagentTaskTitle(task.title, task.goal);
+      if (!task.teammateId) {
+        throw new RuntimeAgentToolsServiceError(
+          400,
+          "teammate_id_required",
+          "teammate_id is required for delegated tasks",
+        );
+      }
       const requestedModel = task.model || null;
       const parentInput = parentInputId
         ? this.store.getInput({
@@ -3763,12 +3966,13 @@ export class RuntimeAgentToolsService {
         tools: task.tools,
         timeoutMs: task.timeoutMs,
       });
-      const assignee = this.selectDelegatedTaskTeammate({
+      const assignee = this.requireActiveTeammate({
         workspaceId: params.workspaceId,
-        title,
-        goal: task.goal,
-        context: task.context || null,
-        tools: task.tools,
+        teammateId: task.teammateId,
+        missingCode: "teammate_not_found",
+        inactiveCode: "teammate_inactive",
+        inactiveMessage:
+          "teammate must be active before it can receive delegated tasks",
       });
       const forwardedAttachments = attachmentsFromInputPayload(parentInput?.payload.attachments);
       const forwardedImageUrls = normalizedStringList(parentInput?.payload.image_urls);
@@ -3779,6 +3983,7 @@ export class RuntimeAgentToolsService {
       );
       const issue = this.store.createIssue({
         workspaceId: params.workspaceId,
+        parentIssueId: task.parentTaskId || null,
         title,
         description: delegatedIssueDescription(task),
         status: "todo",
@@ -3898,7 +4103,7 @@ export class RuntimeAgentToolsService {
 
     this.options.queueWorker?.wake();
     return {
-      tasks: createdRuns.map((run) => subagentRunPayload(run)),
+      tasks: createdRuns.map((run) => delegatedTaskManagerPayload(run)),
       count: createdRuns.length,
     };
   }
@@ -4344,6 +4549,13 @@ export class RuntimeAgentToolsService {
       workspaceId: params.workspaceId,
       taskId: params.taskId,
     });
+    const childTaskIds = this.store
+      .listIssues({
+        workspaceId: params.workspaceId,
+        parentIssueId: issue.issueId,
+        limit: 1000,
+      })
+      .map((childIssue) => childIssue.issueId);
     const states = this.taskRunStatesForIssue(issue);
     this.assertSameTurnDelegationPollingAllowed({
       workspaceId: params.workspaceId,
@@ -4354,6 +4566,7 @@ export class RuntimeAgentToolsService {
     });
     return taskPayload({
       issue,
+      childTaskIds,
       activeState: states.activeState,
       latestState: states.latestState,
     });
@@ -4374,10 +4587,18 @@ export class RuntimeAgentToolsService {
     const payloads: JsonObject[] = [];
     const pollingStates: SyncedSubagentRunState[] = [];
     for (const issue of issues) {
+      const childTaskIds = this.store
+        .listIssues({
+          workspaceId: params.workspaceId,
+          parentIssueId: issue.issueId,
+          limit: 1000,
+        })
+        .map((childIssue) => childIssue.issueId);
       const states = this.taskRunStatesForIssue(issue);
       payloads.push(
         taskPayload({
           issue,
+          childTaskIds,
           activeState: states.activeState,
           latestState: states.latestState,
         }),
@@ -4395,6 +4616,25 @@ export class RuntimeAgentToolsService {
       tasks: payloads,
       count: payloads.length,
     };
+  }
+
+  replyTask(params: RuntimeAgentToolsReplyTaskParams): JsonObject {
+    this.requireWorkspace(params.workspaceId);
+    const reply = this.queueIssueReply({
+      workspaceId: params.workspaceId,
+      issueId: params.taskId,
+      text: params.text,
+      selectedModel: params.selectedModel ?? null,
+      model: params.model ?? null,
+      priority:
+        typeof params.priority === "number" && Number.isFinite(params.priority)
+          ? Math.trunc(params.priority)
+          : null,
+    });
+    return taskPayload({
+      issue: reply.issue,
+      latestState: reply.run,
+    });
   }
 
   async cancelTask(params: RuntimeAgentToolsCancelTaskParams): Promise<JsonObject> {
@@ -5311,7 +5551,10 @@ export class RuntimeAgentToolsService {
       const result = invokeWorkspaceSkill({
         requestedName: params.requestedName,
         args: params.args,
-        workspaceSkills: resolveWorkspaceSkills(workspaceDir, { teammateId }),
+        workspaceSkills: projectSessionVisibleWorkspaceSkills({
+          workspaceSkills: resolveWorkspaceSkills(workspaceDir, { teammateId }),
+          teammateId,
+        }),
       });
       return {
         text: result.text,
@@ -5769,6 +6012,16 @@ export class RuntimeAgentToolsService {
       throw new RuntimeAgentToolsServiceError(404, "session_not_found", "session not found");
     }
     const kind = normalizedString(session.kind);
+    if (kind === "workspace_onboarding") {
+      const workspace = this.requireWorkspace(workspaceId);
+      if (effectiveOnboardingState(workspace) !== ONBOARDING_IMPLEMENTING_STATE) {
+        throw new RuntimeAgentToolsServiceError(
+          403,
+          "onboarding_delegation_forbidden",
+          "workspace onboarding can delegate tasks only during implementing",
+        );
+      }
+    }
     if (kind === "subagent" || kind === "cronjob") {
       throw new RuntimeAgentToolsServiceError(
         403,
@@ -5838,29 +6091,34 @@ export class RuntimeAgentToolsService {
     });
   }
 
-  private selectDelegatedTaskTeammate(params: {
+  private requireActiveTeammate(params: {
     workspaceId: string;
-    title: string;
-    goal: string;
-    context?: string | null;
-    tools?: string[] | null;
+    teammateId: string;
+    missingCode?: string;
+    inactiveCode?: string;
+    inactiveMessage?: string;
   }): TeammateRecord {
-    const general = this.store.ensureGeneralTeammate(params.workspaceId);
-    const teammates = this.store.listTeammates({
+    const teammate = this.store.getTeammate({
       workspaceId: params.workspaceId,
+      teammateId: params.teammateId,
+      includeArchived: true,
     });
-    const workspaceDir = this.store.workspaceDir(params.workspaceId);
-    return selectDelegatedTaskTeammateByCapability({
-      general,
-      teammates,
-      workspaceDir,
-      query: {
-        title: params.title,
-        goal: params.goal,
-        context: params.context ?? null,
-        tools: normalizedStringList(params.tools),
-      },
-    });
+    if (!teammate) {
+      throw new RuntimeAgentToolsServiceError(
+        404,
+        params.missingCode ?? "teammate_not_found",
+        "teammate not found",
+      );
+    }
+    if (teammate.status !== "active") {
+      throw new RuntimeAgentToolsServiceError(
+        409,
+        params.inactiveCode ?? "teammate_inactive",
+        params.inactiveMessage ??
+          "teammate must be active before it can receive delegated tasks",
+      );
+    }
+    return teammate;
   }
 
   private issueBlockerReasonFromState(state: SyncedSubagentRunState): string | null {
@@ -6206,19 +6464,27 @@ export class RuntimeAgentToolsService {
     return { source: workspace, lab: null };
   }
 
-  private requireActiveOnboardingLab(workspaceId: string): {
+  private requireOnboardingFlowScope(workspaceId: string): {
     source: WorkspaceRecord;
-    lab: WorkspaceRecord;
+    lab: WorkspaceRecord | null;
   } {
     const scope = this.resolveOnboardingFlowScope(workspaceId);
-    if (!scope.lab) {
+    const onboardingSessionId = normalizedString(scope.source.onboardingSessionId);
+    if (!scope.lab && !onboardingSessionId) {
       throw new RuntimeAgentToolsServiceError(
         409,
-        "onboarding_lab_not_active",
-        "active workspace onboarding lab not found",
+        "onboarding_session_not_active",
+        "active workspace onboarding session not found",
       );
     }
-    return { source: scope.source, lab: scope.lab };
+    return scope;
+  }
+
+  private onboardingFlowWorkspaceId(scope: {
+    source: WorkspaceRecord;
+    lab: WorkspaceRecord | null;
+  }): string {
+    return scope.lab?.id ?? scope.source.id;
   }
 
   private requireOnboardingState(
@@ -6684,6 +6950,11 @@ export class RuntimeAgentToolsService {
     params: RuntimeAgentToolsScaffoldWorkspaceAppParams,
   ): Promise<JsonObject> {
     this.requireWorkspace(params.workspaceId);
+    this.requireAppBuilderRuntimeToolSession({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+      toolId: "workspace_apps_scaffold",
+    });
     const appId = sanitizeWorkspaceAppId(params.appId);
     const name =
       normalizedString(params.name) || humanizeWorkspaceAppName(appId) || appId;
@@ -6755,6 +7026,11 @@ export class RuntimeAgentToolsService {
     params: RuntimeAgentToolsRegisterWorkspaceAppParams,
   ): Promise<JsonObject> {
     this.requireWorkspace(params.workspaceId);
+    this.requireAppBuilderRuntimeToolSession({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+      toolId: "workspace_apps_register",
+    });
     const appId = sanitizeWorkspaceAppId(params.appId);
     const workspaceDir = path.join(this.options.workspaceRoot, params.workspaceId);
     const configPath =
@@ -6864,6 +7140,11 @@ export class RuntimeAgentToolsService {
     params: RuntimeAgentToolsBuildWorkspaceAppParams,
   ): Promise<JsonObject> {
     this.requireWorkspace(params.workspaceId);
+    this.requireAppBuilderRuntimeToolSession({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+      toolId: "workspace_apps_build",
+    });
     const appId = sanitizeWorkspaceAppId(params.appId);
     this.requireRegisteredWorkspaceApp({ workspaceId: params.workspaceId, appId });
     const workspaceDir = path.join(this.options.workspaceRoot, params.workspaceId);
@@ -6948,6 +7229,11 @@ export class RuntimeAgentToolsService {
   getWorkspaceAppStatus(
     params: RuntimeAgentToolsGetWorkspaceAppStatusParams,
   ): JsonObject {
+    this.requireAppBuilderRuntimeToolSession({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+      toolId: "workspace_apps_get_status",
+    });
     const appId = normalizedString(params.appId);
     if (appId) {
       const entry = this.requireRegisteredWorkspaceApp({
@@ -6990,6 +7276,11 @@ export class RuntimeAgentToolsService {
     params: RuntimeAgentToolsGetWorkspaceAppPortsParams,
   ): JsonObject {
     this.requireWorkspace(params.workspaceId);
+    this.requireAppBuilderRuntimeToolSession({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+      toolId: "workspace_apps_get_ports",
+    });
     const workspaceDir = path.join(this.options.workspaceRoot, params.workspaceId);
     const portsByApp = listWorkspaceApplicationPorts(workspaceDir, {
       store: this.store,
@@ -7025,6 +7316,11 @@ export class RuntimeAgentToolsService {
     params: RuntimeAgentToolsEnsureWorkspaceAppsRunningParams,
   ): Promise<JsonObject> {
     this.requireWorkspace(params.workspaceId);
+    this.requireAppBuilderRuntimeToolSession({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+      toolId: "workspace_apps_ensure_running",
+    });
     const lifecycle = this.requireWorkspaceAppLifecycle();
     const requestedAppIds = normalizedStringList(params.appIds);
     const targetAppIds =
@@ -7440,6 +7736,11 @@ export class RuntimeAgentToolsService {
     params: RuntimeAgentToolsRestartWorkspaceAppParams,
   ): Promise<JsonObject> {
     this.requireWorkspace(params.workspaceId);
+    this.requireAppBuilderRuntimeToolSession({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+      toolId: "workspace_apps_restart",
+    });
     const lifecycle = this.requireWorkspaceAppLifecycle();
     const appId = sanitizeWorkspaceAppId(params.appId);
     this.requireRegisteredWorkspaceApp({ workspaceId: params.workspaceId, appId });
@@ -7473,13 +7774,20 @@ export class RuntimeAgentToolsService {
   async restartAndWaitUntilWorkspaceAppReady(
     params: RuntimeAgentToolsRestartAndWaitWorkspaceAppReadyParams,
   ): Promise<JsonObject> {
+    this.requireAppBuilderRuntimeToolSession({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+      toolId: "workspace_apps_restart_and_wait_ready",
+    });
     const appId = sanitizeWorkspaceAppId(params.appId);
     await this.restartWorkspaceApp({
       workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
       appId,
     });
     const waited = await this.waitUntilWorkspaceAppReady({
       workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
       appId,
       timeoutMs: params.timeoutMs,
       pollIntervalMs: params.pollIntervalMs,
@@ -7493,6 +7801,11 @@ export class RuntimeAgentToolsService {
   async waitUntilWorkspaceAppReady(
     params: RuntimeAgentToolsWaitUntilWorkspaceAppReadyParams,
   ): Promise<JsonObject> {
+    this.requireAppBuilderRuntimeToolSession({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+      toolId: "workspace_apps_wait_until_ready",
+    });
     const appId = sanitizeWorkspaceAppId(params.appId);
     this.requireRegisteredWorkspaceApp({ workspaceId: params.workspaceId, appId });
     const timeoutMs = normalizedInteger(params.timeoutMs ?? 60_000, 60_000, 1, 300_000);
@@ -7546,6 +7859,11 @@ export class RuntimeAgentToolsService {
     params: RuntimeAgentToolsProbeWorkspaceAppEndpointsParams,
   ): Promise<JsonObject> {
     this.requireWorkspace(params.workspaceId);
+    this.requireAppBuilderRuntimeToolSession({
+      workspaceId: params.workspaceId,
+      sessionId: params.sessionId,
+      toolId: "workspace_apps_probe_endpoints",
+    });
     const appId = sanitizeWorkspaceAppId(params.appId);
     this.requireRegisteredWorkspaceApp({ workspaceId: params.workspaceId, appId });
     const requestedChecks = normalizedStringList(params.checks);

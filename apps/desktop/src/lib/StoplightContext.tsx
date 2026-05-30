@@ -26,7 +26,13 @@
  *   }
  */
 
-import { createContext, useContext, type ReactNode } from "react"
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react"
 
 /**
  * Pixels to reserve at the left edge for macOS traffic lights.
@@ -52,13 +58,39 @@ export function StoplightProvider({ value, children }: StoplightProviderProps) {
   )
 }
 
+// macOS hides the stoplights entirely while the window is fullscreen,
+// so the gutter we'd otherwise reserve becomes wasted real estate.
+function useIsMacFullscreen(): boolean {
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  useEffect(() => {
+    const ui = window.electronAPI?.ui
+    if (!ui?.onWindowStateChange) return
+    let mounted = true
+    void ui.getWindowState().then((state) => {
+      if (mounted) setIsFullscreen(state.isFullScreen)
+    })
+    const unsubscribe = ui.onWindowStateChange((state) => {
+      if (mounted) setIsFullscreen(state.isFullScreen)
+    })
+    return () => {
+      mounted = false
+      unsubscribe()
+    }
+  }, [])
+  return isFullscreen
+}
+
 /**
  * Returns true when the current subtree should reserve space for
  * macOS traffic lights. False on non-macOS platforms regardless of
- * provider value, so call sites don't need to platform-check.
+ * provider value, so call sites don't need to platform-check. Also
+ * false in fullscreen — the stoplights are hidden there, so the
+ * gutter would be empty space pushing content off-center.
  */
 export function useStoplightCompensation(): boolean {
   const flag = useContext(StoplightContext)
+  const isFullscreen = useIsMacFullscreen()
   if (!flag) return false
-  return window.electronAPI?.platform === "darwin"
+  if (window.electronAPI?.platform !== "darwin") return false
+  return !isFullscreen
 }

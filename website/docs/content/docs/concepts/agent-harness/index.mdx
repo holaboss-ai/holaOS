@@ -55,7 +55,7 @@ The runtime prepares a harness request that includes:
 - the composed system prompt and runtime context messages
 - workspace skill manifests and any quoted skill blocks prepared from the instruction
 - resolved MCP servers and allowlisted MCP tool refs
-- browser capability state for workspace sessions
+- browser bridge state when the selected session kind is allowed to use browser tools
 - a workspace configuration checksum and run lifecycle metadata
 
 The harness receives a reduced execution package, not the whole raw system.
@@ -80,6 +80,17 @@ The current host does more than pass attachment file paths through blindly. It s
 - when inline extraction is not possible, staged attachment files still remain available in the workspace input batch
 
 That is part of the runtime-to-host boundary, not an ad hoc executor detail.
+
+## Browser tool availability
+
+Browser capability is also runtime-shaped, not host-invented.
+
+In the current `pi` path, direct browser tools are generally surfaced to delegated `subagent` runs when the desktop browser bridge is available. The front `main_session` path usually routes browser-heavy work through delegation instead of exposing the full browser tool surface directly.
+
+So there are two separate truths:
+
+- the runtime may still carry browser bridge context in the prepared request
+- the actual browser tool surface is session-kind dependent and currently enabled for delegated executor sessions
 
 ## Current harness path
 

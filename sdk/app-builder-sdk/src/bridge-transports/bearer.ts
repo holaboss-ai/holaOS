@@ -16,12 +16,14 @@
 
 import type { TransportFn } from "../bridge.ts"
 
+type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+
 export interface BearerTokenOpts {
   /** Either a static token or a function that returns a currently-valid token. */
   accessToken: string | (() => string | Promise<string>)
   /** Extra headers to merge into every request (e.g. User-Agent). */
   defaultHeaders?: Record<string, string>
-  fetchImpl?: typeof fetch
+  fetchImpl?: FetchLike
 }
 
 export function createBearerTokenTransport(opts: BearerTokenOpts): TransportFn {

@@ -9,12 +9,12 @@ If you hit something that is not covered here, we always welcome issues. Real se
 
 ## First triage commands
 
-For the desktop dev loop:
+For the desktop dev loop, first resolve the embedded runtime port. If you want deterministic local curls, launch `desktop:dev` with `export HOLABOSS_RUNTIME_API_PORT=39160`; otherwise run the helper below and substitute the printed value as `RUNTIME_PORT`.
 
 ```bash
 npm run desktop:typecheck
-curl http://127.0.0.1:5160/healthz
-bash desktop/scripts/check-runtime-status.sh
+bash apps/desktop/scripts/check-runtime-status.sh
+curl http://127.0.0.1:$RUNTIME_PORT/healthz
 ```
 
 For a packaged or standalone runtime, use the port you actually bound, usually `8080`.
@@ -23,34 +23,35 @@ For a packaged or standalone runtime, use the port you actually bound, usually `
 
 Most early failures happen in the desktop `predev` hook, before the app window exists.
 
-- Verify that Node.js `24+` is installed.
-- Re-run `npm run desktop:install` if the desktop dependency tree is incomplete.
-- Check `desktop/.env`. `desktop/scripts/validate-dev-env.mjs` requires at least one configured remote base URL such as `HOLABOSS_BACKEND_BASE_URL`, `HOLABOSS_PROACTIVE_URL`, `HOLABOSS_CLI_PROACTIVE_URL`, or `HOLABOSS_DESKTOP_CONTROL_PLANE_BASE_URL`.
-- If the failure happens during native module rebuild, re-run `npm run desktop:install` and then `npm run desktop:typecheck`.
+- Verify that Node.js `24+` and `bun` are installed.
+- Re-run `bun install` if the desktop dependency tree is incomplete. The root `npm run desktop:install` wrapper resolves to the same Bun install step.
+- Check `apps/desktop/.env`. `apps/desktop/scripts/validate-dev-env.mjs` requires at least one configured remote base URL such as `HOLABOSS_BACKEND_BASE_URL`, `HOLABOSS_PROACTIVE_URL`, `HOLABOSS_CLI_PROACTIVE_URL`, or `HOLABOSS_DESKTOP_CONTROL_PLANE_BASE_URL`.
+- If the failure happens during native module rebuild, re-run `bun install` and then `npm run desktop:typecheck`.
 
 ## The embedded runtime does not pass health checks
 
-In desktop dev, the embedded runtime is supposed to come up on `127.0.0.1:5160`, not `8080` or `3060`.
+In desktop dev, the embedded runtime binds to `127.0.0.1:<derived-port>`, not a fixed `5160`. `apps/desktop/electron/main.ts` resolves that port from `HOLABOSS_RUNTIME_API_PORT` or, when unset, from a hash of the Electron `userData` path. Port `5060` is rejected.
 
-- Check `curl http://127.0.0.1:5160/healthz`.
+- Run `bash apps/desktop/scripts/check-runtime-status.sh` and use the printed `runtime port` for the curls on this page.
+- Check `curl http://127.0.0.1:$RUNTIME_PORT/healthz`.
 - Inspect `runtime.log` under the Electron `userData` directory.
 - Inspect the embedded sandbox root under `sandbox-host/`, especially `sandbox-host/state/runtime-config.json`, `sandbox-host/state/host-state.db`, and `sandbox-host/state/control-plane.db`.
-- If you set a custom user-data path, make sure you are looking in `HOLABOSS_DESKTOP_USER_DATA_PATH`. Otherwise dev resolves `HOLABOSS_DESKTOP_USER_DATA_DIR` from the shell or `desktop/.env`, and if that is unset it falls back to `holaboss-local-dev`.
-- The desktop code pins `5160` because Node's fetch stack blocks `5060` as a bad port.
+- If you set a custom user-data path, make sure you are looking in `HOLABOSS_DESKTOP_USER_DATA_PATH`. Otherwise dev resolves `HOLABOSS_DESKTOP_USER_DATA_DIR` from the shell or `apps/desktop/.env`, and if that is unset it falls back to `holaboss-local-dev`.
+- If you want a stable debug port, launch desktop with `HOLABOSS_RUNTIME_API_PORT=39160`.
 
 ## The runtime bundle is stale
 
-The desktop dev loop only uses the staged bundle under `desktop/out/runtime-<platform>`.
+The desktop dev loop only uses the staged bundle under `apps/desktop/out/runtime-<platform>`.
 
 - rerun `npm run desktop:prepare-runtime:local`
-- verify that `desktop/out/runtime-<platform>/package-metadata.json` exists
+- verify that `apps/desktop/out/runtime-<platform>/package-metadata.json` exists
 - verify that the staged bundle contains `bin/sandbox-runtime`, `runtime/metadata.json`, and `runtime/api-server/dist/index.mjs`
-- remember that `desktop/scripts/watch-runtime-bundle.mjs` only rebuilds when source inputs listed in `desktop/scripts/runtime-bundle-state.mjs` change
+- remember that `apps/desktop/scripts/watch-runtime-bundle.mjs` only rebuilds when source inputs listed in `apps/desktop/scripts/runtime-bundle-state.mjs` change
 
-If you want to throw away the staged bundle entirely, delete `desktop/out/runtime-<platform>` and rerun the staging command.
+If you want to throw away the staged bundle entirely, delete `apps/desktop/out/runtime-<platform>` and rerun the staging command.
 
 ```bash
-rm -rf desktop/out/runtime-<platform>
+rm -rf apps/desktop/out/runtime-<platform>
 npm run desktop:prepare-runtime:local
 ```
 
@@ -58,11 +59,11 @@ npm run desktop:prepare-runtime:local
 
 The launch mode controls the default port:
 
-- embedded desktop runtime: `5160`
-- packaged launcher: `8080`
-- raw `runtime/api-server/dist/index.mjs`: `3060`
+- embedded desktop runtime: derived `127.0.0.1:<runtime-port>` from `HOLABOSS_RUNTIME_API_PORT` or the resolved `userData` path
+- packaged launcher: `8080` unless `SANDBOX_RUNTIME_API_PORT` or `SANDBOX_AGENT_BIND_PORT` overrides it
+- raw `runtime/api-server/dist/index.mjs`: `3060` unless `SANDBOX_RUNTIME_API_PORT`, `SANDBOX_AGENT_BIND_PORT`, or `PORT` overrides it
 
-If you override `SANDBOX_AGENT_BIND_PORT`, check that port instead. Do not debug route behavior against the wrong launch mode.
+Do not debug route behavior against the wrong launch mode.
 
 ## Model configuration looks correct but requests still fail
 
@@ -105,7 +106,7 @@ When setup still fails, inspect the per-app setup logs first:
 
 ```bash
 curl \
-  'http://127.0.0.1:5160/api/v1/apps/my_app/setup-log?workspace_id=workspace-1'
+  "http://127.0.0.1:${RUNTIME_PORT}/api/v1/apps/my_app/setup-log?workspace_id=workspace-1"
 ```
 
 This returns the tail of `<workspace>/apps/my_app/.holaboss/logs/setup.latest.log` and recent lifecycle events from `events.ndjson`.
@@ -121,11 +122,11 @@ If first-workspace onboarding appears stuck around template apply, runtime recor
 The browser tool surface is not always available.
 
 - Confirm that runtime config enables the desktop browser capability and includes both the browser URL and auth token.
-- Confirm that you are running a `workspace_session`. The harness registry only stages browser tools for workspace sessions.
+- Confirm that the browser work is happening in a delegated `subagent` run. In the current `pi` path, browser tools are surfaced there, while the front session usually routes browser-heavy work through delegation.
 - If the runtime reports browser unavailable, inspect `runtime-config.json` and `/api/v1/runtime/status` before you patch the harness.
 
 ```bash
-curl http://127.0.0.1:5160/api/v1/runtime/status | jq .
+curl http://127.0.0.1:${RUNTIME_PORT}/api/v1/runtime/status | jq .
 ```
 
 ## The runtime starts but workspace data looks wrong
@@ -136,8 +137,8 @@ Check these files first:
 - `AGENTS.md`
 - `apps/<app-id>/app.runtime.yaml`
 - `.holaboss/`
-- `state/host-state.db`
-- `state/control-plane.db`
+- `<userData>/sandbox-host/state/host-state.db`
+- `<userData>/sandbox-host/state/control-plane.db`
 - `.holaboss/state/runtime.db`
 
 If the workspace files are valid but the runtime still behaves unexpectedly, compare the current bundle against the source revision you used to stage it.

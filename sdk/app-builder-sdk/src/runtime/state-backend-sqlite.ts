@@ -177,7 +177,17 @@ export class SqliteStateBackend implements StateBackend {
 
   // ─── private ──────────────────────────────────────────────────────────────
 
-  private t(suffix: string) { return `${this.appId}__${suffix}` }
+  private quoteIdentifier(name: string): string {
+    return `"${name.replaceAll("\"", "\"\"")}"`
+  }
+
+  private t(suffix: string): string {
+    return this.quoteIdentifier(`${this.appId}__${suffix}`)
+  }
+
+  private i(name: string): string {
+    return this.quoteIdentifier(`idx_${this.appId}__${name}`)
+  }
 
   private createTables(): void {
     const rows = this.t("rows")
@@ -199,7 +209,7 @@ export class SqliteStateBackend implements StateBackend {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_${rows}_resource ON ${rows}(resource);
+      CREATE INDEX IF NOT EXISTS ${this.i("rows_resource")} ON ${rows}(resource);
 
       CREATE TABLE IF NOT EXISTS ${audit} (
         rowid INTEGER PRIMARY KEY AUTOINCREMENT,

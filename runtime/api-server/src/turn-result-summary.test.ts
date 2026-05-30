@@ -105,3 +105,19 @@ test("compactTurnSummary includes failed browser-heavy runs when no assistant te
     "Browser-heavy run failed after 1 browser call, 1 wait with stop reason timeout.",
   );
 });
+
+test("compactTurnSummary surfaces edited files when a run completed without assistant text", () => {
+  const summary = compactTurnSummary(
+    makeTurnResult({
+      toolUsageSummary: {
+        total_calls: 1,
+        completed_calls: 1,
+        failed_calls: 0,
+        tool_names: ["edit"],
+        tool_ids: ["edit"],
+        edited_files: ["apps/desktop/src/App.tsx"],
+      },
+    }),
+  );
+  assert.equal(summary, "Updated apps/desktop/src/App.tsx.");
+});

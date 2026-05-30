@@ -364,6 +364,11 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
                                 <div className="mt-2 line-clamp-1 text-[15px] font-semibold leading-5 text-foreground">
                                   {issue.title || "Untitled issue"}
                                 </div>
+                                {issue.parent_issue_id ? (
+                                  <div className="mt-1 text-[11px] uppercase tracking-[0.14em] text-foreground/38">
+                                    Sub-issue of {issue.parent_issue_id}
+                                  </div>
+                                ) : null}
                                 {issue.description ? (
                                   <div className="mt-1.5 line-clamp-1 text-[13px] leading-5 text-foreground/52">
                                     {issue.description}

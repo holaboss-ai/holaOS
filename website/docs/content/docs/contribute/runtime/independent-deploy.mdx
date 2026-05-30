@@ -79,12 +79,19 @@ $HB_SANDBOX_ROOT/
     <workspace-id>/
       .holaboss/
         memory/
+          interaction/
+          semantic/
+            interaction/
+              trees/
+          runtime/
         state/
           runtime.db
   memory/
-    MEMORY.md
-    preference/
-    identity/
+    integration/
+      trees/
+    semantic/
+      integration/
+        trees/
   state/
     host-state.db
     control-plane.db
@@ -220,7 +227,9 @@ Independent deploy does not change the runtime contract:
 - each workspace still keeps execution truth in `<workspace-id>/.holaboss/state/runtime.db`
 - `state/host-state.db` now keeps sandbox-global host/bootstrap state
 - `state/control-plane.db` keeps workspace registry, runtime profiles, and integration metadata
-- `memory/` still holds the profile-global memory surfaces, while workspace-scoped memory lives under each workspace's `.holaboss/memory/`
+- profile-global tree-based integration memory still lives under `memory/integration/trees/`, with derived semantic indexes under `memory/semantic/integration/trees/`
+- workspace-scoped interaction memory still lives under each workspace's `.holaboss/memory/interaction/`, with derived semantic trees under `.holaboss/memory/semantic/interaction/trees/`
+- runtime continuity state remains separate from durable memory under each workspace's `.holaboss/memory/runtime/`
 - app manifests still drive app lifecycle
 
 The main difference is deployment responsibility. Instead of being launched by the desktop app, the runtime is started directly on the machine that will host workspaces.

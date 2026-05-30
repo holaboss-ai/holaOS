@@ -1228,6 +1228,7 @@ test("runTsRunnerCli loads current user context from the runtime profile", async
   store.upsertRuntimeUserProfile({
     name: "Jeffrey",
     nameSource: "manual",
+    timezone: "America/Los_Angeles",
   });
   store.close();
 
@@ -1298,6 +1299,7 @@ test("runTsRunnerCli loads current user context from the runtime profile", async
     {
       profile_id: "default",
       name: "Jeffrey",
+      timezone: "America/Los_Angeles",
       name_source: "manual",
     },
   );
@@ -1397,6 +1399,207 @@ test("runTsRunnerCli strips subagent orchestration tools from onboarding session
   );
 });
 
+test("runTsRunnerCli keeps workspace-onboarding alignment free of implementation-only tools", async () => {
+  setTempSandboxRoot("hb-ts-runner-workspace-onboarding-aligning-");
+  let capturedProjectRequest: AgentRuntimeConfigCliRequest | null = null;
+
+  const exitCode = await runTsRunnerCli(
+    [
+      "--request-base64",
+      encodeRequest({
+        ...baseRequest(),
+        session_kind: "workspace_onboarding",
+        context: {
+          onboarding_state: "aligning",
+        },
+      }),
+    ],
+    {
+      deps: {
+        ...testDeps({
+          pluginOverrides: {
+            stageBrowserTools: () => ({
+              changed: false,
+              toolIds: ["browser_get_state"],
+            }),
+            stageRuntimeTools: () => ({
+              changed: false,
+              toolIds: [
+                "delegate_task",
+                "cronjobs_create",
+                "image_generate",
+                "download_url",
+                "write_report",
+                "terminal_sessions_list",
+                "terminal_session_start",
+                "workspace_data_query",
+                "onboarding_status",
+                "holaboss_create_alignment_report",
+                "teammates_create",
+              ],
+            }),
+          },
+        }),
+        projectAgentRuntimeConfig: (request) => {
+          capturedProjectRequest = request;
+          return {
+            provider_id: "openai",
+            model_id: "gpt-5.4",
+            mode: "code",
+            system_prompt: "You are concise.",
+            model_client: {
+              model_proxy_provider: "openai_compatible",
+              api_key: "token",
+              base_url: "http://127.0.0.1:4000/openai/v1",
+              default_headers: { "X-Test": "1" },
+            },
+            tools: { read: true },
+            workspace_tool_ids: [],
+            workspace_skill_ids: [],
+            output_schema_member_id: null,
+            output_format: null,
+            workspace_config_checksum: "checksum-1",
+          };
+        },
+      },
+      io: {
+        stdout: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+        stderr: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+      },
+    },
+  );
+
+  assert.equal(exitCode, 0);
+  assert.ok(capturedProjectRequest);
+  const runtimeConfigRequest = capturedProjectRequest as AgentRuntimeConfigCliRequest;
+  assert.equal(runtimeConfigRequest.session_kind, "workspace_onboarding");
+  assert.equal(runtimeConfigRequest.onboarding_state, "aligning");
+  assert.deepEqual(runtimeConfigRequest.runtime_tool_ids, [
+    "onboarding_status",
+    "holaboss_create_alignment_report",
+  ]);
+  assert.equal(
+    "delegated_session_kind" in (capturedProjectRequest as Record<string, unknown>),
+    false,
+  );
+});
+
+test("runTsRunnerCli exposes implementation-only tools for workspace-onboarding implementation", async () => {
+  setTempSandboxRoot("hb-ts-runner-workspace-onboarding-implementing-");
+  let capturedProjectRequest: AgentRuntimeConfigCliRequest | null = null;
+
+  const exitCode = await runTsRunnerCli(
+    [
+      "--request-base64",
+      encodeRequest({
+        ...baseRequest(),
+        session_kind: "workspace_onboarding",
+        context: {
+          onboarding_state: "implementing",
+        },
+      }),
+    ],
+    {
+      deps: {
+        ...testDeps({
+          pluginOverrides: {
+            stageBrowserTools: () => ({
+              changed: false,
+              toolIds: ["browser_get_state"],
+            }),
+            stageRuntimeTools: () => ({
+              changed: false,
+              toolIds: [
+                "delegate_task",
+                "get_task",
+                "list_tasks",
+                "reply_task",
+                "cancel_task",
+                "rerun_task",
+                "cronjobs_create",
+                "image_generate",
+                "download_url",
+                "write_report",
+                "terminal_sessions_list",
+                "terminal_session_start",
+                "workspace_data_query",
+                "onboarding_status",
+                "holaboss_create_verification_report",
+                "teammates_create",
+              ],
+            }),
+          },
+        }),
+        projectAgentRuntimeConfig: (request) => {
+          capturedProjectRequest = request;
+          return {
+            provider_id: "openai",
+            model_id: "gpt-5.4",
+            mode: "code",
+            system_prompt: "You are concise.",
+            model_client: {
+              model_proxy_provider: "openai_compatible",
+              api_key: "token",
+              base_url: "http://127.0.0.1:4000/openai/v1",
+              default_headers: { "X-Test": "1" },
+            },
+            tools: { read: true },
+            workspace_tool_ids: [],
+            workspace_skill_ids: [],
+            output_schema_member_id: null,
+            output_format: null,
+            workspace_config_checksum: "checksum-1",
+          };
+        },
+      },
+      io: {
+        stdout: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+        stderr: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+      },
+    },
+  );
+
+  assert.equal(exitCode, 0);
+  assert.ok(capturedProjectRequest);
+  const runtimeConfigRequest = capturedProjectRequest as AgentRuntimeConfigCliRequest;
+  assert.equal(runtimeConfigRequest.session_kind, "workspace_onboarding");
+  assert.equal(runtimeConfigRequest.onboarding_state, "implementing");
+  assert.deepEqual(runtimeConfigRequest.runtime_tool_ids, [
+    "delegate_task",
+    "get_task",
+    "list_tasks",
+    "reply_task",
+    "cancel_task",
+    "rerun_task",
+    "cronjobs_create",
+    "image_generate",
+    "download_url",
+    "write_report",
+    "terminal_sessions_list",
+    "terminal_session_start",
+    "workspace_data_query",
+    "onboarding_status",
+    "holaboss_create_verification_report",
+  ]);
+  assert.equal(runtimeConfigRequest.delegated_session_kind, "subagent");
+});
+
 test("runTsRunnerCli keeps main workspace sessions on a coordinator surface", async () => {
   setTempSandboxRoot("hb-ts-runner-runtime-tools-");
   let capturedProjectRequest: AgentRuntimeConfigCliRequest | null = null;
@@ -1479,8 +1682,6 @@ test("runTsRunnerCli keeps main workspace sessions on a coordinator surface", as
   assert.deepEqual(
     (capturedProjectRequest as { runtime_tool_ids: string[] }).runtime_tool_ids,
     [
-      "teammates_create",
-      "teammate_skills_create",
       "workspace_integrations_list_catalog",
       "holaboss_workspace_integrations_propose_connect",
       "holaboss_workspace_integrations_set_default_account",
@@ -1490,7 +1691,7 @@ test("runTsRunnerCli keeps main workspace sessions on a coordinator surface", as
     (capturedProjectRequest as { default_tools: string[] }).default_tools,
     [
       "read",
-      "grep",
+      "ripgrep",
       "glob",
       "list",
       "question",
@@ -1504,8 +1705,6 @@ test("runTsRunnerCli keeps main workspace sessions on a coordinator surface", as
   assert.deepEqual(
     (capturedProjectRequest as { extra_tools: string[] }).extra_tools,
     [
-      "teammates_create",
-      "teammate_skills_create",
       "workspace_integrations_list_catalog",
       "holaboss_workspace_integrations_propose_connect",
       "holaboss_workspace_integrations_set_default_account",
@@ -1545,7 +1744,7 @@ test("runTsRunnerCli keeps main workspace sessions on a coordinator surface", as
       "read",
       "edit",
       "bash",
-      "grep",
+      "ripgrep",
       "glob",
       "list",
       "question",
@@ -4044,7 +4243,7 @@ test("runTsRunnerCli stages browser tools for subagent executor sessions and str
       "read",
       "edit",
       "bash",
-      "grep",
+      "ripgrep",
       "glob",
       "list",
       "question",
@@ -4056,6 +4255,245 @@ test("runTsRunnerCli stages browser tools for subagent executor sessions and str
   assert.deepEqual(
     (capturedProjectRequest as { extra_tools: string[] }).extra_tools,
     ["web_search", "browser_get_state"],
+  );
+});
+
+test("runTsRunnerCli exposes teammate bootstrap runtime tools only to the HR subagent", async () => {
+  setTempSandboxRoot("hb-ts-runner-hr-runtime-tools-");
+  let capturedProjectRequest: Record<string, unknown> | null = null;
+
+  const exitCode = await runTsRunnerCli(
+    [
+      "--request-base64",
+      encodeRequest({
+        ...baseRequest(),
+        session_kind: "subagent",
+        context: {
+          teammate_id: "hr",
+        },
+      }),
+    ],
+    {
+      deps: {
+        ...testDeps({
+          pluginOverrides: {
+            stageBrowserTools: ({ sessionKind }) => ({
+              changed: false,
+              toolIds:
+                sessionKind === "subagent"
+                  ? ["browser_get_state"]
+                  : [],
+            }),
+            stageRuntimeTools: () => ({
+              changed: false,
+              toolIds: [
+                "cronjobs_create",
+                "delegate_task",
+                "teammates_list",
+                "teammates_create",
+                "teammate_skills_create",
+              ],
+            }),
+          },
+        }),
+        projectAgentRuntimeConfig: (request) => {
+          capturedProjectRequest = request as unknown as Record<string, unknown>;
+          return {
+            provider_id: "openai",
+            model_id: "gpt-5.4",
+            mode: "code",
+            system_prompt: "You are concise.",
+            model_client: {
+              model_proxy_provider: "openai_compatible",
+              api_key: "token",
+              base_url: "http://127.0.0.1:4000/openai/v1",
+              default_headers: { "X-Test": "1" },
+            },
+            tools: { read: true },
+            workspace_tool_ids: [],
+            workspace_skill_ids: [],
+            output_schema_member_id: null,
+            output_format: null,
+            workspace_config_checksum: "checksum-1",
+          };
+        },
+      },
+      io: {
+        stdout: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+        stderr: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+      },
+    },
+  );
+
+  assert.equal(exitCode, 0);
+  assert.ok(capturedProjectRequest);
+  assert.deepEqual(
+    (capturedProjectRequest as { runtime_tool_ids: string[] }).runtime_tool_ids,
+    ["teammates_list", "teammates_create", "teammate_skills_create"],
+  );
+});
+
+test("runTsRunnerCli exposes workspace app runtime tools only to the App Builder subagent", async () => {
+  setTempSandboxRoot("hb-ts-runner-app-builder-runtime-tools-");
+  let capturedProjectRequest: Record<string, unknown> | null = null;
+
+  const exitCode = await runTsRunnerCli(
+    [
+      "--request-base64",
+      encodeRequest({
+        ...baseRequest(),
+        session_kind: "subagent",
+        context: {
+          teammate_id: "app_builder",
+        },
+      }),
+    ],
+    {
+      deps: {
+        ...testDeps({
+          pluginOverrides: {
+            stageRuntimeTools: () => ({
+              changed: false,
+              toolIds: [
+                "workspace_apps_scaffold",
+                "workspace_apps_build",
+                "workspace_apps_restart_and_wait_ready",
+                "workspace_apps_probe_endpoints",
+                "cronjobs_create",
+              ],
+            }),
+          },
+        }),
+        projectAgentRuntimeConfig: (request) => {
+          capturedProjectRequest = request as unknown as Record<string, unknown>;
+          return {
+            provider_id: "openai",
+            model_id: "gpt-5.4",
+            mode: "code",
+            system_prompt: "You are concise.",
+            model_client: {
+              model_proxy_provider: "openai_compatible",
+              api_key: "token",
+              base_url: "http://127.0.0.1:4000/openai/v1",
+              default_headers: { "X-Test": "1" },
+            },
+            tools: { read: true },
+            workspace_tool_ids: [],
+            workspace_skill_ids: [],
+            output_schema_member_id: null,
+            output_format: null,
+            workspace_config_checksum: "checksum-1",
+          };
+        },
+      },
+      io: {
+        stdout: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+        stderr: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+      },
+    },
+  );
+
+  assert.equal(exitCode, 0);
+  assert.ok(capturedProjectRequest);
+  assert.deepEqual(
+    (capturedProjectRequest as { runtime_tool_ids: string[] }).runtime_tool_ids,
+    [
+      "workspace_apps_scaffold",
+      "workspace_apps_build",
+      "workspace_apps_restart_and_wait_ready",
+      "workspace_apps_probe_endpoints",
+    ],
+  );
+});
+
+test("runTsRunnerCli prunes workspace app runtime tools from non-App-Builder subagents", async () => {
+  setTempSandboxRoot("hb-ts-runner-general-no-app-runtime-tools-");
+  let capturedProjectRequest: Record<string, unknown> | null = null;
+
+  const exitCode = await runTsRunnerCli(
+    [
+      "--request-base64",
+      encodeRequest({
+        ...baseRequest(),
+        session_kind: "subagent",
+        context: {
+          teammate_id: "general",
+        },
+      }),
+    ],
+    {
+      deps: {
+        ...testDeps({
+          pluginOverrides: {
+            stageRuntimeTools: () => ({
+              changed: false,
+              toolIds: [
+                "workspace_apps_scaffold",
+                "workspace_apps_build",
+                "workspace_apps_probe_endpoints",
+                "cronjobs_create",
+              ],
+            }),
+          },
+        }),
+        projectAgentRuntimeConfig: (request) => {
+          capturedProjectRequest = request as unknown as Record<string, unknown>;
+          return {
+            provider_id: "openai",
+            model_id: "gpt-5.4",
+            mode: "code",
+            system_prompt: "You are concise.",
+            model_client: {
+              model_proxy_provider: "openai_compatible",
+              api_key: "token",
+              base_url: "http://127.0.0.1:4000/openai/v1",
+              default_headers: { "X-Test": "1" },
+            },
+            tools: { read: true },
+            workspace_tool_ids: [],
+            workspace_skill_ids: [],
+            output_schema_member_id: null,
+            output_format: null,
+            workspace_config_checksum: "checksum-1",
+          };
+        },
+      },
+      io: {
+        stdout: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+        stderr: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+      },
+    },
+  );
+
+  assert.equal(exitCode, 0);
+  assert.ok(capturedProjectRequest);
+  assert.deepEqual(
+    (capturedProjectRequest as { runtime_tool_ids: string[] }).runtime_tool_ids,
+    [],
   );
 });
 
@@ -4443,47 +4881,34 @@ test("runTsRunnerCli resolves workspace skill ids and source directories for the
     (capturedProjectRequest as { harness_id: string | null }).harness_id,
     "pi",
   );
-  assert.deepEqual(
+  assert.ok(
     (capturedProjectRequest as { workspace_skill_ids: string[] })
-      .workspace_skill_ids,
-    [
-      "app-builder-sdk",
-      "browser-core-efficient",
-      "browser-qa",
-      "build-dashboard",
-      "create-teammate",
-      "frontend-design",
-      "interface-design",
-      "mcp-configurator",
-      "skill-creator",
-      "skill-installer",
-      "alpha",
-    ],
+      .workspace_skill_ids.includes("alpha"),
+  );
+  assert.ok(
+    !(capturedProjectRequest as { workspace_skill_ids: string[] })
+      .workspace_skill_ids.includes("create-teammate"),
   );
   assert.ok(capturedHarnessRequest);
   assert.equal(
     (capturedHarnessRequest as { instruction: string }).instruction,
     ["/alpha", "", "Draft the follow-up email."].join("\n"),
   );
-  assert.deepEqual(
+  assert.ok(
     (
       capturedHarnessRequest as {
         workspace_skill_dirs: string[];
       }
-    ).workspace_skill_dirs.map((skillDir) => path.basename(skillDir)),
-    [
-      "app-builder-sdk",
-      "browser-core-efficient",
-      "browser-qa",
-      "build-dashboard",
-      "create-teammate",
-      "frontend-design",
-      "interface-design",
-      "mcp-configurator",
-      "skill-creator",
-      "skill-installer",
-      "alpha",
-    ],
+    ).workspace_skill_dirs.some((skillDir) => path.basename(skillDir) === "alpha"),
+  );
+  assert.ok(
+    !(
+      capturedHarnessRequest as {
+        workspace_skill_dirs: string[];
+      }
+    ).workspace_skill_dirs.some(
+      (skillDir) => path.basename(skillDir) === "create-teammate",
+    ),
   );
 });
 
@@ -4586,22 +5011,267 @@ test("runTsRunnerCli includes teammate-local skills for assigned subagent runs",
 
   assert.equal(exitCode, 0);
   assert.ok(capturedProjectRequest);
-  assert.deepEqual(
+  assert.ok(
     (capturedProjectRequest as { workspace_skill_ids: string[] })
-      .workspace_skill_ids,
+      .workspace_skill_ids.includes("frontend-playbook"),
+  );
+  assert.ok(
+    !(capturedProjectRequest as { workspace_skill_ids: string[] })
+      .workspace_skill_ids.includes("create-teammate"),
+  );
+  assert.ok(capturedHarnessRequest);
+  assert.ok(
+    (
+      capturedHarnessRequest as {
+        workspace_skill_dirs: string[];
+      }
+    ).workspace_skill_dirs.some((skillDir) => path.basename(skillDir) === "frontend-playbook"),
+  );
+  assert.ok(
+    !(
+      capturedHarnessRequest as {
+        workspace_skill_dirs: string[];
+      }
+    ).workspace_skill_dirs.some(
+      (skillDir) => path.basename(skillDir) === "create-teammate",
+    ),
+  );
+});
+
+test("runTsRunnerCli resolves HR-owned embedded skills from the assigned issue even when context teammate_id is stale", async () => {
+  const sandboxRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "hb-ts-runner-hr-issue-skills-"),
+  );
+  const embeddedSkillsRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "hb-ts-runner-hr-embedded-"),
+  );
+  process.env.HB_SANDBOX_ROOT = sandboxRoot;
+  process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = embeddedSkillsRoot;
+  for (const skillId of [
+    "create-teammate",
+    "app-builder-sdk",
+    "build-dashboard",
+    "skill-creator",
+  ]) {
+    const skillDir = path.join(embeddedSkillsRoot, skillId);
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      `---\nname: ${skillId}\ndescription: ${skillId}\n---\n# ${skillId}\n`,
+      "utf8",
+    );
+  }
+
+  const workspaceRoot = path.join(sandboxRoot, "workspace");
+  const store = new RuntimeStateStore({
+    workspaceRoot,
+    sandboxRoot,
+    dbPath: path.join(sandboxRoot, "state", "host-state.db"),
+  });
+  const workspace = store.createWorkspace({
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const hr = store.ensureHrTeammate(workspace.id);
+  store.ensureAppBuilderTeammate(workspace.id);
+  const issue = store.createIssue({
+    workspaceId: workspace.id,
+    sessionId: "session-issue-hr",
+    title: "Create teammate",
+    description: "Bootstrap a new teammate.",
+    status: "todo",
+    assigneeTeammateId: hr.teammateId,
+    createdBy: "workspace_user",
+  });
+
+  let capturedProjectRequest: Record<string, unknown> | null = null;
+  let capturedHarnessRequest: Record<string, unknown> | null = null;
+
+  try {
+    const exitCode = await runTsRunnerCli(
+      [
+        "--request-base64",
+        encodeRequest({
+          ...baseRequest(),
+          session_id: issue.sessionId,
+          session_kind: "subagent",
+          context: {
+            issue_id: issue.issueId,
+            teammate_id: "app_builder",
+            _sandbox_runtime_exec_v1: {
+              harness: "pi",
+            },
+          },
+        }),
+      ],
+      {
+        deps: {
+          ...testDeps(),
+          projectAgentRuntimeConfig: (request) => {
+            capturedProjectRequest = request as unknown as Record<string, unknown>;
+            return {
+              provider_id: "openai",
+              model_id: "gpt-5.4",
+              mode: "code",
+              system_prompt: "You are concise.",
+              model_client: {
+                model_proxy_provider: "openai_compatible",
+                api_key: "token",
+                base_url: "http://127.0.0.1:4000/openai/v1",
+                default_headers: { "X-Test": "1" },
+              },
+              tools: { read: true, skill: true },
+              workspace_tool_ids: [],
+              workspace_skill_ids: [
+                "create-teammate",
+                "app-builder-sdk",
+                "build-dashboard",
+                "skill-creator",
+              ],
+              output_schema_member_id: null,
+              output_format: null,
+              workspace_config_checksum: "checksum-1",
+            };
+          },
+          runHarnessHost: async ({ requestPayload }) => {
+            capturedHarnessRequest = requestPayload;
+            return {
+              exitCode: 0,
+              stderr: "",
+              sawEvent: false,
+              terminalEmitted: false,
+              lastSequence: 0,
+            };
+          },
+        },
+        io: {
+          stdout: {
+            write() {
+              return true;
+            },
+          } as unknown as NodeJS.WritableStream,
+          stderr: {
+            write() {
+              return true;
+            },
+          } as unknown as NodeJS.WritableStream,
+        },
+      },
+    );
+
+    assert.equal(exitCode, 0);
+    assert.ok(capturedProjectRequest);
+    assert.deepEqual(
+      (capturedProjectRequest as { workspace_skill_ids: string[] }).workspace_skill_ids,
+      ["create-teammate", "skill-creator"],
+    );
+    assert.ok(capturedHarnessRequest);
+    assert.deepEqual(
+      (
+        capturedHarnessRequest as {
+          workspace_skill_dirs: string[];
+        }
+      ).workspace_skill_dirs.map((skillDir) => path.basename(skillDir)).sort(),
+      ["create-teammate", "skill-creator"],
+    );
+  } finally {
+    store.close();
+  }
+});
+
+test("runTsRunnerCli includes App Builder embedded skills only for the App Builder subagent", async () => {
+  const sandboxRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "hb-ts-runner-app-builder-skills-"),
+  );
+  const embeddedSkillsRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "hb-ts-runner-app-builder-embedded-"),
+  );
+  process.env.HB_SANDBOX_ROOT = sandboxRoot;
+  process.env.HOLABOSS_EMBEDDED_SKILLS_DIR = embeddedSkillsRoot;
+  for (const skillId of ["app-builder-sdk", "build-dashboard", "skill-creator"]) {
+    const skillDir = path.join(embeddedSkillsRoot, skillId);
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      `---\nname: ${skillId}\ndescription: ${skillId}\n---\n# ${skillId}\n`,
+      "utf8",
+    );
+  }
+
+  let capturedProjectRequest: Record<string, unknown> | null = null;
+  let capturedHarnessRequest: Record<string, unknown> | null = null;
+
+  const exitCode = await runTsRunnerCli(
     [
-      "app-builder-sdk",
-      "browser-core-efficient",
-      "browser-qa",
-      "build-dashboard",
-      "create-teammate",
-      "frontend-design",
-      "interface-design",
-      "mcp-configurator",
-      "skill-creator",
-      "skill-installer",
-      "frontend-playbook",
+      "--request-base64",
+      encodeRequest({
+        ...baseRequest(),
+        session_kind: "subagent",
+        context: {
+          teammate_id: "app_builder",
+          _sandbox_runtime_exec_v1: {
+            harness: "pi",
+          },
+        },
+      }),
     ],
+    {
+      deps: {
+        ...testDeps(),
+        projectAgentRuntimeConfig: (request) => {
+          capturedProjectRequest = request as unknown as Record<string, unknown>;
+          return {
+            provider_id: "openai",
+            model_id: "gpt-5.4",
+            mode: "code",
+            system_prompt: "You are concise.",
+            model_client: {
+              model_proxy_provider: "openai_compatible",
+              api_key: "token",
+              base_url: "http://127.0.0.1:4000/openai/v1",
+              default_headers: { "X-Test": "1" },
+            },
+            tools: { read: true, skill: true },
+            workspace_tool_ids: [],
+            workspace_skill_ids: ["app-builder-sdk", "build-dashboard", "skill-creator"],
+            output_schema_member_id: null,
+            output_format: null,
+            workspace_config_checksum: "checksum-1",
+          };
+        },
+        runHarnessHost: async ({ requestPayload }) => {
+          capturedHarnessRequest = requestPayload;
+          return {
+            exitCode: 0,
+            stderr: "",
+            sawEvent: false,
+            terminalEmitted: false,
+            lastSequence: 0,
+          };
+        },
+      },
+      io: {
+        stdout: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+        stderr: {
+          write() {
+            return true;
+          },
+        } as unknown as NodeJS.WritableStream,
+      },
+    },
+  );
+
+  assert.equal(exitCode, 0);
+  assert.ok(capturedProjectRequest);
+  assert.deepEqual(
+    (capturedProjectRequest as { workspace_skill_ids: string[] }).workspace_skill_ids,
+    ["app-builder-sdk", "build-dashboard", "skill-creator"],
   );
   assert.ok(capturedHarnessRequest);
   assert.deepEqual(
@@ -4609,20 +5279,8 @@ test("runTsRunnerCli includes teammate-local skills for assigned subagent runs",
       capturedHarnessRequest as {
         workspace_skill_dirs: string[];
       }
-    ).workspace_skill_dirs.map((skillDir) => path.basename(skillDir)),
-    [
-      "app-builder-sdk",
-      "browser-core-efficient",
-      "browser-qa",
-      "build-dashboard",
-      "create-teammate",
-      "frontend-design",
-      "interface-design",
-      "mcp-configurator",
-      "skill-creator",
-      "skill-installer",
-      "frontend-playbook",
-    ],
+    ).workspace_skill_dirs.map((skillDir) => path.basename(skillDir)).sort(),
+    ["app-builder-sdk", "build-dashboard", "skill-creator"],
   );
 });
 

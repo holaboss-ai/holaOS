@@ -21,10 +21,12 @@ test("control-plane-owned state module owns local workspace registry and runtime
   assert.match(source, /export interface LocalRuntimeUserProfileStore \{/);
   assert.match(source, /getProfile\(\): Promise<RuntimeUserProfileRecord>/);
   assert.match(source, /setProfile\(payload: RuntimeUserProfileUpdate\): Promise<RuntimeUserProfileRecord>/);
+  assert.match(source, /timezone: string \| null/);
   assert.match(source, /applyAuthFallback\(/);
   assert.match(source, /export function createLocalRuntimeUserProfileStore\(/);
   assert.match(source, /controlPlaneDatabasePath: \(\) => string/);
   assert.match(source, /SELECT \* FROM runtime_user_profiles WHERE profile_id = \? LIMIT 1/);
+  assert.match(source, /CREATE TABLE IF NOT EXISTS runtime_user_profiles \([\s\S]*timezone TEXT,/);
   assert.match(source, /CREATE TABLE IF NOT EXISTS integration_connections/);
   assert.match(source, /CREATE TABLE IF NOT EXISTS integration_bindings/);
   assert.match(source, /CREATE TABLE IF NOT EXISTS oauth_app_configs/);
@@ -65,7 +67,7 @@ test("electron main delegates control-plane-owned metadata through the local sta
   assert.match(source, /HOLABOSS_CONTROL_PLANE_DB_PATH: controlPlaneDatabasePath\(\),/);
   assert.match(source, /return localRuntimeUserProfileStore\.getProfile\(\);/);
   assert.match(source, /return localRuntimeUserProfileStore\.setProfile\(payload\);/);
-  assert.match(source, /return localRuntimeUserProfileStore\.applyAuthFallback\(name, profileId\);/);
+  assert.match(source, /return localRuntimeUserProfileStore\.applyAuthFallback\(name, profileId, timezone\);/);
   assert.match(source, /return localWorkspaceRegistry\.getWorkspaceRecord\(workspaceId\);/);
   assert.match(source, /return localWorkspaceRegistry\.listCachedWorkspaces\(\);/);
   assert.match(source, /return localIntegrationMetadataStore\.listConnections\(params\);/);

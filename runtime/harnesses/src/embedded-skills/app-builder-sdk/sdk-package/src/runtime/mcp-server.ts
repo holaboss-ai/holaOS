@@ -172,9 +172,18 @@ function escapeHtml(s: string): string {
 
 function registerTools(mcp: McpServer, app: AppHandleInternal, bridge: BridgeClient): void {
   const appId = app.config.id
+  const registerTool = mcp.registerTool.bind(mcp) as (
+    name: string,
+    config: {
+      title?: string
+      description?: string
+      inputSchema?: ZodRawShape
+    },
+    cb: (...args: any[]) => Promise<unknown>,
+  ) => void
 
   // Connection — probe provider.whoamiPath via bridge.
-  mcp.registerTool(
+  registerTool(
     `${appId}_connection_status`,
     {
       title: "Connection status",
@@ -189,7 +198,7 @@ function registerTools(mcp: McpServer, app: AppHandleInternal, bridge: BridgeCli
     const inputShapeForCreate = extractShape(resource.schema)
 
     if (resource.def.refreshEvery && resource.def.fetch) {
-      mcp.registerTool(
+      registerTool(
         `${appId}_refresh_${plural(resourceName)}`,
         {
           title: `Refresh ${resourceName} cache`,
@@ -200,7 +209,7 @@ function registerTools(mcp: McpServer, app: AppHandleInternal, bridge: BridgeCli
       )
     }
 
-    mcp.registerTool(
+    registerTool(
       `${appId}_create_${resourceName}`,
       {
         title: `Create ${resourceName} draft`,
@@ -214,7 +223,7 @@ function registerTools(mcp: McpServer, app: AppHandleInternal, bridge: BridgeCli
       },
     )
 
-    mcp.registerTool(
+    registerTool(
       `${appId}_list_${plural(resourceName)}`,
       {
         title: `List ${resourceName} rows`,
@@ -227,7 +236,7 @@ function registerTools(mcp: McpServer, app: AppHandleInternal, bridge: BridgeCli
       },
     )
 
-    mcp.registerTool(
+    registerTool(
       `${appId}_get_${resourceName}`,
       {
         title: `Get ${resourceName} by id`,
@@ -251,7 +260,7 @@ function registerTools(mcp: McpServer, app: AppHandleInternal, bridge: BridgeCli
     const extraShape = extractShape(reg.def.schema)
     const inputShape: ZodRawShape = { [rowIdKey]: z.string(), ...extraShape }
 
-    mcp.registerTool(
+    registerTool(
       toolName,
       {
         title: `${reg.name} ${reg.resource.name}`,
@@ -278,7 +287,7 @@ function registerTools(mcp: McpServer, app: AppHandleInternal, bridge: BridgeCli
       const reverseToolName = reg.def.toolName
         ? `${reg.def.toolName}_reverse`
         : `${appId}_cancel_${reg.name}_${reg.resource.name}`
-      mcp.registerTool(
+      registerTool(
         reverseToolName,
         {
           title: `Cancel ${reg.name} ${reg.resource.name}`,
@@ -301,7 +310,7 @@ function registerTools(mcp: McpServer, app: AppHandleInternal, bridge: BridgeCli
   }
 
   // Snapshot
-  mcp.registerTool(
+  registerTool(
     `${appId}_snapshot`,
     {
       title: `${appId} snapshot`,
@@ -313,7 +322,7 @@ function registerTools(mcp: McpServer, app: AppHandleInternal, bridge: BridgeCli
 
   // Sync status — read last sync.start/sync.end from audit + record count.
   for (const sync of app._syncs) {
-    mcp.registerTool(
+    registerTool(
       `${appId}_${sync.name}_sync_status`,
       {
         title: `${sync.name} sync status`,

@@ -53,6 +53,7 @@ export type RuntimeUserProfileNameSource = "manual" | "agent" | "authFallback"
 export interface RuntimeUserProfileRecord {
   profileId: string
   name: string | null
+  timezone: string | null
   nameSource: RuntimeUserProfileNameSource | null
   createdAt: string | null
   updatedAt: string | null
@@ -61,6 +62,7 @@ export interface RuntimeUserProfileRecord {
 export interface RuntimeUserProfileUpdate {
   profileId?: string | null
   name?: string | null
+  timezone?: string | null
   nameSource?: RuntimeUserProfileNameSource | null
 }
 
@@ -70,6 +72,7 @@ export interface LocalRuntimeUserProfileStore {
   applyAuthFallback(
     name: string,
     profileId?: string,
+    timezone?: string | null,
   ): Promise<RuntimeUserProfileRecord>
 }
 
@@ -305,6 +308,7 @@ function ensureControlPlaneDatabaseSchema(database: Database.Database): void {
     CREATE TABLE IF NOT EXISTS runtime_user_profiles (
       profile_id TEXT PRIMARY KEY,
       name TEXT,
+      timezone TEXT,
       name_source TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -383,6 +387,15 @@ function ensureControlPlaneDatabaseSchema(database: Database.Database): void {
       updated_at TEXT NOT NULL
     );
   `)
+  const runtimeUserProfileColumns = new Set(
+    (database
+      .prepare("PRAGMA table_info(runtime_user_profiles)")
+      .all() as Array<{ name: string }>)
+      .map((row) => row.name),
+  )
+  if (!runtimeUserProfileColumns.has("timezone")) {
+    database.exec("ALTER TABLE runtime_user_profiles ADD COLUMN timezone TEXT")
+  }
 
   const integrationConnectionColumns = new Set(
     (database
@@ -578,6 +591,10 @@ function mapRuntimeUserProfileRow(
         : profileId,
     name:
       typeof row?.name === "string" && row.name.trim() ? row.name : null,
+    timezone:
+      typeof row?.timezone === "string" && row.timezone.trim()
+        ? row.timezone
+        : null,
     nameSource: runtimeUserProfileNameSourceFromStored(row?.name_source),
     createdAt:
       typeof row?.created_at === "string" && row.created_at.trim()
@@ -786,15 +803,17 @@ export function bootstrapLocalControlPlaneDatabase(
           INSERT OR IGNORE INTO runtime_user_profiles (
             profile_id,
             name,
+            timezone,
             name_source,
             created_at,
             updated_at
-          ) VALUES (?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?)
         `)
         for (const row of rows) {
           insert.run(
             row.profile_id,
             row.name ?? null,
+            row.timezone ?? null,
             row.name_source ?? null,
             row.created_at,
             row.updated_at,
@@ -1297,7 +1316,10 @@ export function createLocalRuntimeUserProfileStore(
       const createdAt = existing.createdAt ?? now
       const normalizedName =
         typeof payload.name === "string" ? payload.name.trim() : ""
+      const normalizedTimezone =
+        typeof payload.timezone === "string" ? payload.timezone.trim() : ""
       const resolvedName = normalizedName || null
+      const resolvedTimezone = normalizedTimezone || null
       const resolvedNameSource = resolvedName
         ? (payload.nameSource ?? existing.nameSource ?? "manual")
         : null
@@ -1309,18 +1331,21 @@ export function createLocalRuntimeUserProfileStore(
             INSERT INTO runtime_user_profiles (
               profile_id,
               name,
+              timezone,
               name_source,
               created_at,
               updated_at
-            ) VALUES (?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(profile_id) DO UPDATE SET
               name = excluded.name,
+              timezone = excluded.timezone,
               name_source = excluded.name_source,
               updated_at = excluded.updated_at
           `)
           .run(
             profileId,
             resolvedName,
+            resolvedTimezone,
             runtimeUserProfileNameSourceToStored(resolvedNameSource) ?? null,
             createdAt,
             now,
@@ -1334,19 +1359,23 @@ export function createLocalRuntimeUserProfileStore(
     async applyAuthFallback(
       name: string,
       profileId = "default",
+      timezone?: string | null,
     ): Promise<RuntimeUserProfileRecord> {
       const normalizedName = name.trim()
-      if (!normalizedName) {
-        return getProfileRecord(profileId)
-      }
       const existing = getProfileRecord(profileId)
-      if (existing.name?.trim()) {
+      const normalizedTimezone =
+        typeof timezone === "string" ? timezone.trim() : ""
+      const shouldFillName = normalizedName.length > 0 && !existing.name?.trim()
+      const shouldFillTimezone =
+        normalizedTimezone.length > 0 && !existing.timezone?.trim()
+      if (!shouldFillName && !shouldFillTimezone) {
         return existing
       }
       return this.setProfile({
         profileId,
-        name: normalizedName,
-        nameSource: "authFallback",
+        name: shouldFillName ? normalizedName : existing.name,
+        timezone: shouldFillTimezone ? normalizedTimezone : existing.timezone,
+        nameSource: shouldFillName ? "authFallback" : existing.nameSource,
       })
     },
   }

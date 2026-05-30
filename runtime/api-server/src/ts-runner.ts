@@ -67,6 +67,7 @@ import {
 } from "./ts-runner-session-state.js";
 import {
   prepareInstructionWithQuotedWorkspaceSkills,
+  projectSessionVisibleWorkspaceSkills,
   resolveWorkspaceSkills,
 } from "./workspace-skills.js";
 import { resolveProductRuntimeConfig } from "./runtime-config.js";
@@ -99,9 +100,10 @@ const DEFAULT_SESSION_MODE = "code";
 const DEFAULT_PROVIDER_ID = "openai";
 const WORKSPACE_MCP_READY_TIMEOUT_S = 10;
 const RECALLED_MEMORY_PREFETCH_WAIT_MS = 150;
+const WORKSPACE_ONBOARDING_IMPLEMENTING_STATE = "implementing";
 const MAIN_SESSION_DEFAULT_TOOLS = [
   "read",
-  "grep",
+  "ripgrep",
   "glob",
   "list",
   "question",
@@ -109,7 +111,7 @@ const MAIN_SESSION_DEFAULT_TOOLS = [
 ];
 const ONBOARDING_DEFAULT_TOOLS = [
   "read",
-  "grep",
+  "ripgrep",
   "glob",
   "list",
   "question",
@@ -119,7 +121,7 @@ const SUBAGENT_DEFAULT_TOOLS = [
   "read",
   "edit",
   "bash",
-  "grep",
+  "ripgrep",
   "glob",
   "list",
   "question",
@@ -131,8 +133,32 @@ const SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS = new Set([
   "delegate_task",
   "get_task",
   "list_tasks",
+  "reply_task",
   "cancel_task",
   "rerun_task",
+]);
+const WORKSPACE_ONBOARDING_IMPLEMENTATION_ONLY_RUNTIME_TOOL_IDS = new Set([
+  ...SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS,
+  "cronjobs_list",
+  "cronjobs_create",
+  "cronjobs_get",
+  "cronjobs_update",
+  "cronjobs_delete",
+  "image_generate",
+  "download_url",
+  "write_report",
+  "terminal_sessions_list",
+  "terminal_session_start",
+  "terminal_session_get",
+  "terminal_session_read",
+  "terminal_session_wait",
+  "terminal_session_send_input",
+  "terminal_session_signal",
+  "terminal_session_close",
+  "workspace_data_list_tables",
+  "workspace_data_describe_table",
+  "workspace_data_sample_rows",
+  "workspace_data_query",
 ]);
 const SUBAGENT_BLOCKED_RUNTIME_TOOL_IDS = new Set([
   "onboarding_status",
@@ -145,8 +171,26 @@ const SUBAGENT_BLOCKED_RUNTIME_TOOL_IDS = new Set([
   "cronjobs_get",
   "cronjobs_update",
   "cronjobs_delete",
+  "teammates_list",
   "teammates_create",
   "teammate_skills_create",
+]);
+const HR_ONLY_RUNTIME_TOOL_IDS = new Set([
+  "teammates_list",
+  "teammates_create",
+  "teammate_skills_create",
+]);
+const APP_BUILDER_ONLY_RUNTIME_TOOL_IDS = new Set([
+  "workspace_apps_scaffold",
+  "workspace_apps_register",
+  "workspace_apps_build",
+  "workspace_apps_ensure_running",
+  "workspace_apps_restart",
+  "workspace_apps_restart_and_wait_ready",
+  "workspace_apps_wait_until_ready",
+  "workspace_apps_get_status",
+  "workspace_apps_get_ports",
+  "workspace_apps_probe_endpoints",
 ]);
 const MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS = new Set([
   "update_workspace_instructions",
@@ -155,6 +199,7 @@ const MAIN_SESSION_RUNTIME_TOOL_IDS = new Set([
   "delegate_task",
   "get_task",
   "list_tasks",
+  "reply_task",
   "cancel_task",
   "rerun_task",
   "update_workspace_instructions",
@@ -163,8 +208,6 @@ const MAIN_SESSION_RUNTIME_TOOL_IDS = new Set([
   "cronjobs_get",
   "cronjobs_update",
   "cronjobs_delete",
-  "teammates_create",
-  "teammate_skills_create",
   "workspace_integrations_list_catalog",
   "holaboss_workspace_integrations_propose_connect",
   "holaboss_workspace_integrations_set_default_account",
@@ -651,11 +694,20 @@ function loadCurrentUserContext(params: {
   workspaceRoot: string;
   logger?: LoggerLike;
 }): AgentCurrentUserContext | null {
+  const resolvedLocalTimezone = (() => {
+    try {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone?.trim();
+      return timezone || null;
+    } catch {
+      return null;
+    }
+  })();
   const sandboxRoot = path.dirname(params.workspaceRoot);
   const dbPath = defaultHostStateDbPathForSandbox(sandboxRoot);
   const defaultContext: AgentCurrentUserContext = {
     profile_id: "default",
     name: null,
+    timezone: resolvedLocalTimezone,
     name_source: null,
   };
   if (!fs.existsSync(dbPath)) {
@@ -674,6 +726,7 @@ function loadCurrentUserContext(params: {
     return {
       profile_id: profile.profileId,
       name: profile.name,
+      timezone: profile.timezone ?? resolvedLocalTimezone,
       name_source: profile.nameSource,
     };
   } catch (error) {
@@ -1149,9 +1202,58 @@ function isFrontSessionKind(value: string | null | undefined): boolean {
   return normalized === "main_session" || normalized === "onboarding";
 }
 
-function isDelegatingFrontSessionKind(value: string | null | undefined): boolean {
-  const normalized = normalizedSessionKindValue(value);
-  return normalized === "main_session";
+function normalizedOnboardingStateValue(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function requestOnboardingState(
+  request: Pick<TsRunnerRequest, "context">,
+): string | null {
+  const state = normalizedOnboardingStateValue(request.context.onboarding_state);
+  return state || null;
+}
+
+function workspaceOnboardingDelegationAllowed(params: {
+  sessionKind: string | null | undefined;
+  onboardingState?: string | null;
+}): boolean {
+  return (
+    normalizedSessionKindValue(params.sessionKind) === "workspace_onboarding" &&
+    normalizedOnboardingStateValue(params.onboardingState) ===
+      WORKSPACE_ONBOARDING_IMPLEMENTING_STATE
+  );
+}
+
+function isDelegatingFrontSessionKind(params: {
+  sessionKind: string | null | undefined;
+  onboardingState?: string | null;
+}): boolean {
+  const normalized = normalizedSessionKindValue(params.sessionKind);
+  return normalized === "main_session" || workspaceOnboardingDelegationAllowed(params);
+}
+
+function normalizedTeammateIdValue(value: string | null | undefined): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function hrOnlyRuntimeToolsAllowed(params: {
+  sessionKind: string | null | undefined;
+  teammateId?: string | null;
+}): boolean {
+  return (
+    normalizedSessionKindValue(params.sessionKind) === "subagent" &&
+    normalizedTeammateIdValue(params.teammateId) === "hr"
+  );
+}
+
+function appBuilderOnlyRuntimeToolsAllowed(params: {
+  sessionKind: string | null | undefined;
+  teammateId?: string | null;
+}): boolean {
+  return (
+    normalizedSessionKindValue(params.sessionKind) === "subagent" &&
+    normalizedTeammateIdValue(params.teammateId) === "app_builder"
+  );
 }
 
 function defaultToolsForSessionKind(
@@ -1175,43 +1277,79 @@ function projectBrowserToolIdsForSession(params: {
 
 function projectRuntimeToolIdsForSession(params: {
   sessionKind: string | null | undefined;
+  onboardingState?: string | null;
   runtimeToolIds: string[];
+  teammateId?: string | null;
 }): string[] {
   const normalized = normalizedSessionKindValue(params.sessionKind);
+  const allowHrOnly = hrOnlyRuntimeToolsAllowed(params);
+  const allowAppBuilderOnly = appBuilderOnlyRuntimeToolsAllowed(params);
   if (isFrontSessionKind(normalized)) {
     const allowed =
       normalized === "onboarding"
         ? ONBOARDING_SESSION_RUNTIME_TOOL_IDS
         : MAIN_SESSION_RUNTIME_TOOL_IDS;
-    return params.runtimeToolIds.filter((toolId) => allowed.has(toolId));
+    return params.runtimeToolIds.filter(
+      (toolId) =>
+        allowed.has(toolId) &&
+        !HR_ONLY_RUNTIME_TOOL_IDS.has(toolId) &&
+        !APP_BUILDER_ONLY_RUNTIME_TOOL_IDS.has(toolId),
+    );
   }
   if (normalized === "subagent") {
     return params.runtimeToolIds.filter(
       (toolId) =>
         !SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS.has(toolId) &&
         !MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS.has(toolId) &&
-        !SUBAGENT_BLOCKED_RUNTIME_TOOL_IDS.has(toolId),
+        (!APP_BUILDER_ONLY_RUNTIME_TOOL_IDS.has(toolId) ||
+          allowAppBuilderOnly) &&
+        (!SUBAGENT_BLOCKED_RUNTIME_TOOL_IDS.has(toolId) ||
+          (allowHrOnly && HR_ONLY_RUNTIME_TOOL_IDS.has(toolId))),
+    );
+  }
+  if (normalized === "workspace_onboarding") {
+    const allowImplementationTools = workspaceOnboardingDelegationAllowed(params);
+    return params.runtimeToolIds.filter(
+      (toolId) =>
+        !MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS.has(toolId) &&
+        !HR_ONLY_RUNTIME_TOOL_IDS.has(toolId) &&
+        !APP_BUILDER_ONLY_RUNTIME_TOOL_IDS.has(toolId) &&
+        (!WORKSPACE_ONBOARDING_IMPLEMENTATION_ONLY_RUNTIME_TOOL_IDS.has(
+          toolId,
+        ) ||
+          allowImplementationTools),
     );
   }
   return params.runtimeToolIds.filter(
     (toolId) =>
       !SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS.has(toolId) &&
-      !MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS.has(toolId),
+      !MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS.has(toolId) &&
+      !APP_BUILDER_ONLY_RUNTIME_TOOL_IDS.has(toolId) &&
+      !HR_ONLY_RUNTIME_TOOL_IDS.has(toolId),
   );
 }
 
 function projectExtraToolIdsForSession(params: {
   harnessId: string | null | undefined;
   sessionKind: string | null | undefined;
+  onboardingState?: string | null;
   extraToolIds: string[];
+  teammateId?: string | null;
 }): string[] {
   const normalized = normalizedSessionKindValue(params.sessionKind);
+  const allowHrOnly = hrOnlyRuntimeToolsAllowed(params);
+  const allowAppBuilderOnly = appBuilderOnlyRuntimeToolsAllowed(params);
   if (isFrontSessionKind(normalized)) {
     const allowed =
       normalized === "onboarding"
         ? ONBOARDING_SESSION_RUNTIME_TOOL_IDS
         : MAIN_SESSION_RUNTIME_TOOL_IDS;
-    return params.extraToolIds.filter((toolId) => allowed.has(toolId));
+    return params.extraToolIds.filter(
+      (toolId) =>
+        allowed.has(toolId) &&
+        !HR_ONLY_RUNTIME_TOOL_IDS.has(toolId) &&
+        !APP_BUILDER_ONLY_RUNTIME_TOOL_IDS.has(toolId),
+    );
   }
   if (normalized === "subagent") {
     return Array.from(
@@ -1221,7 +1359,28 @@ function projectExtraToolIdsForSession(params: {
           (toolId) =>
             !SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS.has(toolId) &&
             !MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS.has(toolId) &&
-            !SUBAGENT_BLOCKED_RUNTIME_TOOL_IDS.has(toolId),
+            (!APP_BUILDER_ONLY_RUNTIME_TOOL_IDS.has(toolId) ||
+              allowAppBuilderOnly) &&
+            (!SUBAGENT_BLOCKED_RUNTIME_TOOL_IDS.has(toolId) ||
+              (allowHrOnly && HR_ONLY_RUNTIME_TOOL_IDS.has(toolId))),
+        ),
+      ]),
+    );
+  }
+  if (normalized === "workspace_onboarding") {
+    const allowImplementationTools = workspaceOnboardingDelegationAllowed(params);
+    return Array.from(
+      new Set([
+        ...defaultExtraTools(params.harnessId),
+        ...params.extraToolIds.filter(
+          (toolId) =>
+            !MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS.has(toolId) &&
+            !HR_ONLY_RUNTIME_TOOL_IDS.has(toolId) &&
+            !APP_BUILDER_ONLY_RUNTIME_TOOL_IDS.has(toolId) &&
+            (!WORKSPACE_ONBOARDING_IMPLEMENTATION_ONLY_RUNTIME_TOOL_IDS.has(
+              toolId,
+            ) ||
+              allowImplementationTools),
         ),
       ]),
     );
@@ -1232,7 +1391,9 @@ function projectExtraToolIdsForSession(params: {
       ...params.extraToolIds.filter(
         (toolId) =>
           !SUBAGENT_ORCHESTRATION_RUNTIME_TOOL_IDS.has(toolId) &&
-          !MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS.has(toolId),
+          !MAIN_SESSION_ONLY_RUNTIME_TOOL_IDS.has(toolId) &&
+          !APP_BUILDER_ONLY_RUNTIME_TOOL_IDS.has(toolId) &&
+          !HR_ONLY_RUNTIME_TOOL_IDS.has(toolId),
       ),
     ]),
   );
@@ -1267,11 +1428,57 @@ function explicitHolabossUserId(request: TsRunnerRequest): string | undefined {
   );
 }
 
-function teammateSkillContextId(request: TsRunnerRequest): string | undefined {
-  if (normalizedSessionKindValue(request.session_kind) !== "subagent") {
-    return undefined;
+function teammateSkillContextId(
+  request: TsRunnerRequest,
+  options: { logger?: LoggerLike } = {},
+): string | undefined {
+  const workspaceRoot = managedWorkspaceRoot();
+  const sandboxRoot = path.dirname(workspaceRoot);
+  const dbPath = defaultHostStateDbPathForSandbox(sandboxRoot);
+  if (!fs.existsSync(dbPath)) {
+    return firstNonEmptyString(request.context.teammate_id) ?? undefined;
   }
-  return firstNonEmptyString(request.context.teammate_id) ?? undefined;
+
+  const store = new RuntimeStateStore({
+    workspaceRoot,
+    sandboxRoot,
+    dbPath,
+  });
+  try {
+    const issueId = firstNonEmptyString(request.context.issue_id) ?? null;
+    const issue =
+      (issueId
+        ? store.getIssue({
+            workspaceId: request.workspace_id,
+            issueId,
+          })
+        : null) ??
+      store.getIssueBySessionId({
+        workspaceId: request.workspace_id,
+        sessionId: request.session_id,
+      });
+    const subagentRun =
+      !issue
+        ? store.getSubagentRunByChildSession({
+            workspaceId: request.workspace_id,
+            childSessionId: request.session_id,
+          })
+        : null;
+    return (
+      firstNonEmptyString(
+        issue?.assigneeTeammateId,
+        subagentRun?.teammateId,
+        request.context.teammate_id,
+      ) ?? undefined
+    );
+  } catch (error) {
+    options.logger?.warn?.(
+      `Failed to resolve teammate skill context workspace_id=${request.workspace_id} session_id=${request.session_id}: ${errorMessage(error)}`,
+    );
+    return firstNonEmptyString(request.context.teammate_id) ?? undefined;
+  } finally {
+    store.close();
+  }
 }
 
 function bootstrapStartedPayload(params: {
@@ -1531,17 +1738,26 @@ function buildAgentRuntimeConfigRequest(params: {
   const normalizedSessionKind = normalizedSessionKindValue(
     params.request.session_kind,
   );
+  const onboardingState = requestOnboardingState(params.request);
   const frontSession = isFrontSessionKind(normalizedSessionKind);
   const delegatedCapabilitySnapshotEligible =
-    isDelegatingFrontSessionKind(normalizedSessionKind);
+    isDelegatingFrontSessionKind({
+      sessionKind: normalizedSessionKind,
+      onboardingState,
+    });
+  const teammateId = teammateSkillContextId(params.request) ?? null;
   const extraTools = projectExtraToolIdsForSession({
     harnessId: params.harnessId,
     sessionKind: normalizedSessionKind,
+    onboardingState,
     extraToolIds: params.extraToolIds,
+    teammateId,
   });
   const runtimeToolIds = projectRuntimeToolIdsForSession({
     sessionKind: normalizedSessionKind,
+    onboardingState,
     runtimeToolIds: params.runtimeToolIds,
+    teammateId,
   });
   const browserToolIds = projectBrowserToolIdsForSession({
     sessionKind: normalizedSessionKind,
@@ -1556,12 +1772,14 @@ function buildAgentRuntimeConfigRequest(params: {
         harnessId: params.harnessId,
         sessionKind: "subagent",
         extraToolIds: params.delegatedExtraToolIds ?? params.extraToolIds,
+        teammateId: null,
       })
     : null;
   const delegatedRuntimeToolIds = delegatedCapabilitySnapshotEligible
     ? projectRuntimeToolIdsForSession({
         sessionKind: "subagent",
         runtimeToolIds: params.runtimeToolIds,
+        teammateId: null,
       })
     : null;
   const delegatedBrowserToolIds = delegatedCapabilitySnapshotEligible
@@ -1585,6 +1803,7 @@ function buildAgentRuntimeConfigRequest(params: {
     workspace_id: params.request.workspace_id,
     input_id: params.request.input_id,
     session_kind: params.request.session_kind ?? null,
+    onboarding_state: onboardingState ?? undefined,
     harness_id: params.harnessId,
     browser_tools_available: params.browserToolsAvailable && browserToolIds.length > 0,
     browser_tool_ids: browserToolIds,
@@ -2171,7 +2390,10 @@ export async function executeTsRunnerRequest(
         }),
     );
     const stagedDelegatedBrowserTools =
-      isDelegatingFrontSessionKind(request.session_kind)
+      isDelegatingFrontSessionKind({
+        sessionKind: request.session_kind,
+        onboardingState: requestOnboardingState(request),
+      })
         ? measureBootstrapStage(
             bootstrapStageTimingsMs,
             "stage_delegated_browser_tools",
@@ -2194,10 +2416,15 @@ export async function executeTsRunnerRequest(
     const workspaceSkills = measureBootstrapStage(
       bootstrapStageTimingsMs,
       "resolve_workspace_skills",
-      () =>
-        resolveWorkspaceSkills(bootstrap.workspaceDir, {
-          teammateId: teammateSkillContextId(request) ?? null,
-        }),
+      () => {
+        const teammateId = teammateSkillContextId(request, { logger }) ?? null;
+        return projectSessionVisibleWorkspaceSkills({
+          workspaceSkills: resolveWorkspaceSkills(bootstrap.workspaceDir, {
+            teammateId,
+          }),
+          teammateId,
+        });
+      },
     );
     const preparedInstruction = prepareInstructionWithQuotedWorkspaceSkills({
       instruction: request.instruction,
@@ -2450,9 +2677,10 @@ export async function executeTsRunnerRequest(
             currentUserContext,
             operatorSurfaceContext,
             pendingUserMemoryContext,
-            teammateRoutingContext: isDelegatingFrontSessionKind(
-              request.session_kind,
-            )
+            teammateRoutingContext: isDelegatingFrontSessionKind({
+              sessionKind: request.session_kind,
+              onboardingState: requestOnboardingState(request),
+            })
               ? loadTeammateRoutingContext({
                   workspaceRoot: bootstrap.workspaceRoot,
                   workspaceId: request.workspace_id,

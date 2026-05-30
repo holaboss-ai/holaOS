@@ -9,6 +9,7 @@ interface AuthUserPayload {
   email?: string | null;
   name?: string | null;
   image?: string | null;
+  timezone?: string | null;
   [key: string]: unknown;
 }
 

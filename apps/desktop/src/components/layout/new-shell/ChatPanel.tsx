@@ -74,9 +74,9 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
     setSessionOpenRequest(null);
   }, [selectedWorkspaceId, setSessionOpenRequest, setView]);
 
-  // When a prefill request arrives from outside (e.g. Automations "New
-  // schedule"), open a fresh draft session so the prefill lands in a clean
-  // composer rather than appending to an in-flight conversation.
+  // Some prefills (for example schedule creation/editing) want a clean draft
+  // composer, while others (for example "New issue") should preserve the
+  // current session and only seed the input text.
   const lastPrefillRequestKeyRef = useRef<number | null>(null);
   useEffect(() => {
     if (!composerPrefill) return;
@@ -84,14 +84,16 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
       return;
     }
     lastPrefillRequestKeyRef.current = composerPrefill.requestKey;
-    sessionRequestKeyRef.current += 1;
-    setSessionOpenRequest({
-      sessionId: "",
-      requestKey: sessionRequestKeyRef.current,
-      mode: "draft",
-    });
+    if ((composerPrefill.sessionMode ?? "preserve") === "draft") {
+      sessionRequestKeyRef.current += 1;
+      setSessionOpenRequest({
+        sessionId: "",
+        requestKey: sessionRequestKeyRef.current,
+        mode: "draft",
+      });
+    }
     setView("chat");
-  }, [composerPrefill, setView]);
+  }, [composerPrefill, setSessionOpenRequest, setView]);
 
   const handleReturnToChat = useCallback(() => {
     setView("chat");

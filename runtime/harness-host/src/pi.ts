@@ -93,6 +93,7 @@ import {
   harnessGenAiSpanAttributes,
   type HarnessGenAiUsageMetrics,
 } from "./harness-ai-monitoring.js";
+import { createPiHashlineToolDefinitions } from "./pi-hashline-tools.js";
 import { resolvePiWebSearchToolDefinitions } from "./pi-web-search.js";
 
 export type PiMappedEvent = {
@@ -140,7 +141,6 @@ export interface PiDeps {
   createSession: (request: HarnessHostPiRequest) => Promise<PiSessionHandle>;
 }
 
-const EMBEDDED_SKILLS_DIR_ENV = "HOLABOSS_EMBEDDED_SKILLS_DIR";
 
 type PiInternalCompactionSession = {
   _checkCompaction?: (assistantMessage: unknown, skipAbortedCheck?: boolean) => Promise<void>;
@@ -194,7 +194,9 @@ const PI_HARNESS_CLIENT_NAME = "holaboss-pi-harness";
 const PI_HARNESS_CLIENT_VERSION = "0.1.0";
 const PI_REQUEST_TOOL_NAME_ALIASES: Record<string, string> = {
   find: "glob",
+  grep: "ripgrep",
   ls: "list",
+  ripgrep: "grep",
 };
 // The host provides local implementations for these public tool names. If the
 // runtime capability surface also returns them, OpenAI-compatible providers see
@@ -247,6 +249,16 @@ export type PiMcpToolset = {
   mcpToolMetadata: Map<string, PiMcpToolMetadata>;
   unavailableServers: PiMcpServerUnavailableInfo[];
 };
+
+function createRipgrepTool(cwd: string): ReturnType<typeof createGrepTool> {
+  const grepTool = createGrepTool(cwd);
+  return {
+    ...grepTool,
+    name: "ripgrep",
+    label: "ripgrep",
+    description: "Search file contents with ripgrep (rg). Respects .gitignore.",
+  };
+}
 
 export interface PiPromptPayload {
   text: string;
@@ -1134,52 +1146,6 @@ function resolvePiSessionDir(workspaceDir: string): string {
   return path.join(workspaceDir, PI_SESSION_DIR);
 }
 
-function directoryExists(target: string): boolean {
-  return fs.statSync(target, { throwIfNoEntry: false })?.isDirectory() ?? false;
-}
-
-function piRuntimeRootDir(): string {
-  const configured = optionalTrimmedString(process.env.HOLABOSS_RUNTIME_ROOT);
-  if (configured) {
-    return path.resolve(configured);
-  }
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-}
-
-function resolveEmbeddedPiSkillDirs(): string[] {
-  const override = optionalTrimmedString(process.env[EMBEDDED_SKILLS_DIR_ENV]);
-  const candidateRoots = override
-    ? [path.resolve(override)]
-    : [
-        path.join(piRuntimeRootDir(), "harnesses", "src", "embedded-skills"),
-        path.join(piRuntimeRootDir(), "runtime", "harnesses", "src", "embedded-skills"),
-      ];
-  const discoveredSkillDirs: string[] = [];
-
-  for (const candidateRoot of candidateRoots) {
-    if (!directoryExists(candidateRoot)) {
-      continue;
-    }
-    const entries = fs
-      .readdirSync(candidateRoot, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => path.join(candidateRoot, entry.name))
-      .map((skillDir) => {
-        try {
-          return fs.realpathSync(skillDir);
-        } catch {
-          return null;
-        }
-      })
-      .filter((skillDir): skillDir is string => Boolean(skillDir))
-      .filter((skillDir) => fs.existsSync(path.join(skillDir, "SKILL.md")))
-      .sort((left, right) => path.basename(left).localeCompare(path.basename(right)));
-    discoveredSkillDirs.push(...entries);
-  }
-
-  return resolveHarnessWorkspaceSkillDirs(discoveredSkillDirs);
-}
-
 function resolveWorkspaceLocalPiSkillDirs(workspaceDir: string): string[] {
   const resolvedWorkspaceDir = path.resolve(workspaceDir);
   let workspaceRealPath: string;
@@ -1224,7 +1190,6 @@ function resolveWorkspaceLocalPiSkillDirs(workspaceDir: string): string[] {
 
 export function resolvePiSkillDirs(request: HarnessHostPiRequest): string[] {
   return resolveHarnessWorkspaceSkillDirs([
-    ...resolveEmbeddedPiSkillDirs(),
     ...resolveWorkspaceLocalPiSkillDirs(request.workspace_dir),
     ...request.workspace_skill_dirs,
   ]);
@@ -1281,7 +1246,10 @@ export function createPiTodoToolDefinitions(params: { stateDir: string; sessionI
 }
 
 function resolvePathWithinWorkspace(
-  policy: Pick<PiWorkspaceBoundaryPolicy, "workspaceDir" | "workspaceRealDir">,
+  policy: Pick<
+    PiWorkspaceBoundaryPolicy,
+    "workspaceDir" | "workspaceRealDir" | "allowedExternalDirs"
+  >,
   candidate: string
 ): string | null {
   return resolvePathWithinHarnessWorkspace(policy, candidate);
@@ -1291,8 +1259,14 @@ export function workspaceBoundaryOverrideRequested(instruction: string): boolean
   return workspaceBoundaryOverrideRequestedFromHarness(instruction);
 }
 
-function createWorkspaceBoundaryPolicy(workspaceDir: string, overrideRequested: boolean): PiWorkspaceBoundaryPolicy {
-  return createHarnessWorkspaceBoundaryPolicy(workspaceDir, overrideRequested);
+function createWorkspaceBoundaryPolicy(
+  workspaceDir: string,
+  overrideRequested: boolean,
+  allowedExternalDirs: readonly string[] = [],
+): PiWorkspaceBoundaryPolicy {
+  return createHarnessWorkspaceBoundaryPolicy(workspaceDir, overrideRequested, {
+    allowedExternalDirs,
+  });
 }
 
 
@@ -1879,13 +1853,18 @@ async function defaultCreateSession(request: HarnessHostPiRequest): Promise<PiSe
   const webSearchTools = toolEnabledForPiRequest(request, "web_search")
     ? await resolvePiWebSearchToolDefinitions()
     : [];
+  const hashlineTools = filterPiToolDefinitionsForRequest(
+    request,
+    createPiHashlineToolDefinitions(request.workspace_dir),
+  );
   const baseTools = filterPiToolDefinitionsForRequest(request, [
     ...createCodingTools(request.workspace_dir),
-    createGrepTool(request.workspace_dir),
+    createRipgrepTool(request.workspace_dir),
     createFindTool(request.workspace_dir),
     createLsTool(request.workspace_dir),
   ]);
   const nonSkillCustomTools: ToolDefinition[] = [
+    ...hashlineTools,
     ...todoTools,
     ...(browserTools as unknown as ToolDefinition[]),
     ...(runtimeToolsForHost as unknown as ToolDefinition[]),
@@ -1894,9 +1873,11 @@ async function defaultCreateSession(request: HarnessHostPiRequest): Promise<PiSe
   ];
   const availableToolNames = [...baseTools, ...nonSkillCustomTools].map((tool) => tool.name);
   const availableCommandIds = workspaceCommandIdsFromRunStartedPayload(request.run_started_payload);
+  const sessionSkillDirs = resolvePiSkillDirs(request);
   const workspaceBoundaryPolicy = createWorkspaceBoundaryPolicy(
     request.workspace_dir,
-    workspaceBoundaryOverrideRequested(request.instruction)
+    workspaceBoundaryOverrideRequested(request.instruction),
+    sessionSkillDirs,
   );
   const skillWideningState = createPiSkillWideningState(
     skillMetadataByAlias,

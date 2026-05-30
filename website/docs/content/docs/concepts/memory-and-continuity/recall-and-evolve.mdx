@@ -1,96 +1,132 @@
 ---
-title: Recall and Evolve
-description: How writeback, evolve jobs, recall selection, and skill candidates work after each run.
+title: Recall Pipeline
+description: How holaOS recalls memory at runtime and writes durable memory back after runs complete.
 ---
 
-`holaOS` splits memory work into an immediate continuity phase and a slower evolve phase.
+The current memory story is best understood as two separate pipelines:
 
-That separation is what keeps the next run cheap to restore while still allowing durable memory, recall, and skill review to improve over time.
+1. recall at query time
+2. durable writeback after runs complete
 
-## Memory lifecycle
+That is the important boundary. `evolve` still exists in code, but it is the name of the background post-run worker, not the primary conceptual model readers need.
 
-The current flow is:
+## Recall at query time
 
-1. User input is queued, and strong-signal user-scoped proposals may be captured in `<workspace-id>/.holaboss/state/runtime.db`.
-2. The runtime compiles the workspace, projects capabilities, computes the prompt package, and persists a sanitized request snapshot before the harness starts.
-3. The current run may use pending proposals as ephemeral context without promoting them into durable memory yet.
-4. When the run finishes, the runtime persists `turn_results`.
-5. An immediate continuity writeback runs inline after the turn result is committed.
-6. That writeback updates volatile runtime projections under `.holaboss/memory/runtime/`, including `session-memory/`.
-7. The runtime then persists a queued evolve job for heavier durable-memory and skill-review work.
-8. The evolve worker reloads the finished turn, recent session state, and current memory catalog state.
-9. Deterministic and optional model-assisted extraction promote durable workspace facts, procedures, and repeated blockers into markdown memory plus catalog rows.
-10. `MEMORY.md` indexes are refreshed only for the durable scopes that changed.
-11. Later runs restore from persisted harness session state, `session-memory`, and scratchpad context.
+When the agent needs workspace memory, it uses `memory_retrieve`.
 
-User-memory proposals remain staged in `<workspace-id>/.holaboss/state/runtime.db` until they are accepted. That acceptance path is what creates durable preference memory or updates the canonical runtime profile in `state/control-plane.db`; queued evolve does not create user preference or profile memory automatically. Repeated runtime blockers can also graduate into durable `knowledge/blockers/` during queued evolve when they stop looking like a one-off run artifact and start looking like stable workspace knowledge.
+That retrieval path is built around the current markdown forest:
 
-## Recall behavior
+- workspace-local interaction trees
+- visible integration trees
+- accepted user memory such as secondary preference docs
 
-Runtime recall is manifest-based and model-mediated. It starts from active durable memory catalog entries in the workspace runtime DB and `state/control-plane.db`, opens the scoped `MEMORY.md` indexes plus candidate leaf files under the memory root, and selects a bounded set of durable memories to inject as context.
+The runtime does not recall by replaying raw transcripts. It recalls from markdown-backed memory structures that have already been materialized into tree form.
 
-Important characteristics:
+## What `memory_retrieve` does
 
-- runtime continuity is restored before broader memory recall
-- durable recall currently requires a selector model; without one, durable recall is skipped rather than guessed
-- durable memory is selected from indexed markdown, not from raw session transcripts
-- stale or low-confidence memory should be penalized more than stable workspace facts
-- time-sensitive `reference` memory should usually be reconfirmed before action
-- recalled memory is context, not a rewrite of the base system prompt
+At a high level, `memory_retrieve`:
 
-When embeddings are configured and the state store has vector support, recall can narrow candidate paths through a derived vector index before the final leaf-file review pass.
+1. decides whether the query should search interaction memory, integration memory, or both
+2. runs a vector first pass when recall embeddings are configured
+3. runs lexical retrieval inside the strongest trees
+4. merges and reranks candidate nodes
+5. returns a bounded evidence pack for prompt-time RAG
 
-## Immediate continuity vs queued evolve
+That means recall is hybrid:
 
-`holaOS` splits post-run work into two phases:
+- lexical retrieval keeps recall working even without embeddings
+- embeddings improve first-pass narrowing when configured
+- neighbor and tree structure help preserve local context instead of returning isolated fragments
+
+The result is a small recalled context pack, not a dump of all memory files.
+
+## What comes back from retrieval
+
+The retrieval result is more structured than “top N matches.”
+
+It includes:
+
+- evidence items
+  - concrete recalled summaries or leaves with title, summary, freshness, score, and reasons
+- a retrieval pack
+  - grouped sections such as known facts, recent high-signal items, constraints, blockers, and open questions
+- coverage signals
+  - whether the final evidence used lexical matches, vector similarity, and neighbor context
+- gap signals
+  - whether the runtime thinks live verification or a narrower external source is still needed
+
+That structure is what lets the harness use memory as RAG context instead of treating retrieval as blind search.
+
+## What gets recalled
+
+Recall can return evidence from:
+
+- workspace interaction memory under `workspace/<workspace-id>/interaction/...`
+- workspace semantic interaction trees under `workspace/<workspace-id>/semantic/interaction/trees/...`
+- integration memory under `memory/integration/trees/...`
+- semantic integration trees under `memory/semantic/integration/trees/...`
+- accepted user memory such as the secondary `memory/preference/...` docs
+
+Markdown is the canonical source. Semantic nodes, search docs, and embeddings are derived retrieval structure built from that markdown.
+
+Two practical consequences follow from that:
+
+- a summary node can be recalled directly when it is the best compact answer
+- a leaf can still bring along neighboring context from the same tree when needed
+
+## What happens after a run
+
+After a run completes, the runtime does not immediately treat the transcript as durable memory.
+
+Instead, it splits post-run work into two paths:
 
 1. immediate continuity writeback
-   - runs inline after the foreground `turn_results` row is committed
-   - keeps next-run continuity fresh without waiting on heavier extraction work
-   - refreshes runtime projections and `session-memory` immediately
-2. queued `evolve` jobs
-   - persist as post-run jobs in `<workspace-id>/.holaboss/state/runtime.db`
-   - drain through the dedicated evolve worker
-   - handles durable-memory promotion, index refresh, and background skill review
+   - refreshes runtime-owned continuity artifacts such as `session-memory`
+   - optimizes the next run for cheap resume
+2. background durable writeback
+   - extracts durable interaction candidates from completed turns
+   - persists accepted candidates as markdown leaves
+   - rebuilds touched interaction trees
+   - refreshes semantic nodes, search docs, and optional embeddings
 
-The queued evolve phase handles slower work such as:
+This is why continuity and durable memory stay separate. Continuity is for resuming the latest work. Durable memory is for future recall.
 
-- deterministic durable candidate extraction
-- optional model-assisted durable extraction when background tasks are configured
-- durable markdown upserts and `MEMORY.md` refresh
-- reusable workspace skill review and candidate drafting
+## Durable writeback details
 
-## Human review boundary
+The current durable writeback path is conservative:
 
-Not everything that looks useful should silently become long-term truth.
+- it only runs when a background memory model is available
+- it processes completed turns in batches of 3
+- it writes durable interaction leaves, not raw turn logs
+- it rebuilds only the interaction entities that were touched
+- it does not auto-promote user preference or profile memory
 
-`holaOS` keeps an explicit human review boundary around the highest-impact cases:
+Integration memory is not written by this path. Integration trees are populated and rebuilt by integration-specific fetch and sync flows.
 
-- user-memory proposals stay pending until someone accepts them, because user preferences and profile facts should not be silently promoted from one message
-- evolve skill candidates stay drafts or proposals until reviewed, because reusable skills can change future behavior across the workspace
-- anything that would materially affect standing policy, durable identity, or repeated operator behavior should be conservative by default rather than auto-promoted
+Accepted user-memory proposals remain a separate path for preference and profile changes.
 
-This boundary is intentional. The system can prepare candidates, summarize evidence, and surface proposals, but it should not quietly rewrite long-term human-facing truth just because one run suggested it.
+## Where `evolve` fits now
 
-## Skill candidate lifecycle
+`evolve` is the background post-run job that currently orchestrates:
 
-Reusable procedural patterns do not become live skills automatically. The current lifecycle is:
+- durable memory writeback
+- interaction tree rebuild side effects
+- optional draft skill review
 
-1. queued evolve reviews a cadence turn
-2. if it finds a reusable pattern, it writes a draft under `workspace/<workspace-id>/evolve/skills/<candidate-id>/SKILL.md`
-3. the runtime stores candidate metadata in `<workspace-id>/.holaboss/state/runtime.db`
-4. candidate skills that merit attention are raised through proposal surfaces rather than silently activated
-5. an accepted proposal opens a tightly scoped review session
-6. after successful review, the candidate can be promoted into the live workspace `skills/` namespace
+It also explains why some product or runtime surfaces still use the word `evolve`: queue rows, workers, candidate reviews, and task proposals still use that implementation name.
 
-## Recall governance
+That name still matters for implementation, worker state, and task proposals, but it is not the main memory concept. The main concept is:
 
-Durable recall is governed separately from storage:
+- recall happens through `memory_retrieve`
+- durable memory is written back asynchronously after runs
 
-- every durable memory entry carries a scope, type, verification policy, and staleness policy
-- every durable memory entry also carries provenance metadata such as source type, observation time, verification time, and confidence
-- recall should favor memories that are both relevant and safe to trust, including durable preferences, workspace procedures, facts, blockers, and references when they match the request
-- stale references should be penalized more aggressively than stable or workspace-sensitive memories
-- recalled durable memory is injected as context, not merged into the base system prompt
+## Practical mental model
 
-Recall selection is staged at query time. The runtime reads durable-memory indexes, and when recall embeddings are available it can first narrow candidate paths through a derived vector index. It then reads only those candidate leaf files and finalizes a small recalled subset for prompt injection. Markdown leaves remain the canonical content source, while vector rows stay derived recall acceleration only.
+Use this model when reasoning about current memory behavior:
+
+- ask-time recall reads from the markdown memory forest through hybrid retrieval
+- post-run writeback converts repeated, reusable interaction signal into new durable leaves
+- semantic trees, search docs, and embeddings are rebuilt from those leaves
+- continuity artifacts help resume the next run, but they are not durable recall memory
+
+That model matches the current code much more closely than the older “recall and evolve” framing.

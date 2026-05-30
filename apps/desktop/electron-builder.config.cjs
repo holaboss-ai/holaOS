@@ -90,6 +90,24 @@ function resolveReleaseChannel() {
 }
 
 const releaseChannel = resolveReleaseChannel();
+const configuredAppUpdateConfigBehavior = (
+  process.env.HOLABOSS_WRITE_APP_UPDATE_CONFIG || ""
+).trim().toLowerCase();
+function shouldWriteAppUpdateConfig() {
+  if (!configuredAppUpdateConfigBehavior) {
+    return true;
+  }
+  if (["1", "true", "yes", "on"].includes(configuredAppUpdateConfigBehavior)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(configuredAppUpdateConfigBehavior)) {
+    return false;
+  }
+  throw new Error(
+    `Unsupported HOLABOSS_WRITE_APP_UPDATE_CONFIG: ${configuredAppUpdateConfigBehavior}`,
+  );
+}
+const writeAppUpdateConfigEnabled = shouldWriteAppUpdateConfig();
 const macIdentity = (process.env.HOLABOSS_MAC_IDENTITY || "").trim();
 const extraResources = [
   {
@@ -192,6 +210,9 @@ module.exports = {
   },
   afterPack: async (context) => {
     if (context.electronPlatformName !== "darwin") {
+      return;
+    }
+    if (!writeAppUpdateConfigEnabled) {
       return;
     }
     const { writeAppUpdateConfig } = await import(

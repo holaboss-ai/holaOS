@@ -1477,7 +1477,7 @@ function instructionWithIssueAssignmentContext(params: {
     return params.baseInstruction;
   }
   const effectiveTeammateId =
-    teammateId || (issue.assigneeTeammateId ?? "").trim();
+    (issue.assigneeTeammateId ?? "").trim() || teammateId;
   if (!effectiveTeammateId) {
     return params.baseInstruction;
   }
@@ -2721,6 +2721,22 @@ function optionalString(value: unknown): string | null {
   return trimmed ? trimmed : null;
 }
 
+function effectiveWorkspaceOnboardingState(
+  workspace: WorkspaceRecord,
+): string | null {
+  const explicit = optionalString(workspace.onboardingState)?.toLowerCase();
+  if (explicit) {
+    return explicit;
+  }
+  if (workspace.onboardingStatus === "completed") {
+    return "completed";
+  }
+  if (workspace.onboardingStatus === "pending") {
+    return "aligning";
+  }
+  return null;
+}
+
 function titleCaseWords(value: string): string {
   return value.replace(/\b([a-z])/g, (match) => match.toUpperCase());
 }
@@ -3354,17 +3370,17 @@ function isSkillPolicyDeniedPayload(payload: Record<string, unknown>): boolean {
   );
 }
 
+type ToolCallSummaryEntry = {
+  toolName: string;
+  toolId: string | null;
+  completed: boolean;
+  error: boolean;
+  browserUsage: Record<string, unknown> | null;
+  editedPaths: string[];
+};
+
 function summarizeToolCalls(
-  toolCallsById: Map<
-    string,
-    {
-      toolName: string;
-      toolId: string | null;
-      completed: boolean;
-      error: boolean;
-      browserUsage: Record<string, unknown> | null;
-    }
-  >,
+  toolCallsById: Map<string, ToolCallSummaryEntry>,
   skillInvocationsById: Map<string, SkillInvocationSummaryEntry> = new Map(),
   wideningAudit: SkillWideningAudit | null = null,
 ): Record<string, unknown> {
@@ -3385,6 +3401,12 @@ function summarizeToolCalls(
       ),
     ].sort((left, right) => left.localeCompare(right)),
   };
+  const editedFiles = [
+    ...new Set(calls.flatMap((call) => call.editedPaths).filter(Boolean)),
+  ].sort((left, right) => left.localeCompare(right));
+  if (editedFiles.length > 0) {
+    summary.edited_files = editedFiles;
+  }
   const browserCalls = calls.filter((call) =>
     browserToolCallCategory(
       browserToolIdFromUsage(call.browserUsage) ??
@@ -3445,6 +3467,129 @@ function summarizeToolCalls(
     summary.skill_policy_widening = widening;
   }
   return summary;
+}
+
+const HASHLINE_SECTION_HEADER_PATTERN = /^¶(.+?)(?:#([0-9A-Fa-f]{3}))?$/;
+
+function normalizeEditedWorkspacePath(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim().replace(/^["'`]+|["'`]+$/g, "");
+  if (!normalized) {
+    return null;
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(normalized)) {
+    return null;
+  }
+  if (
+    normalized === "." ||
+    normalized === ".." ||
+    normalized.endsWith("/..") ||
+    normalized.endsWith("\\..")
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function hashlineEditedPathsFromInput(input: string): string[] {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  for (const rawLine of input.split(/\r?\n/)) {
+    const match = HASHLINE_SECTION_HEADER_PATTERN.exec(rawLine.trim());
+    if (!match) {
+      continue;
+    }
+    const rawPath = (match[1] ?? "").trim();
+    if (!rawPath) {
+      continue;
+    }
+    const unquotedPath =
+      rawPath.length >= 2 &&
+      ((rawPath.startsWith("\"") && rawPath.endsWith("\"")) ||
+        (rawPath.startsWith("'") && rawPath.endsWith("'")))
+        ? rawPath.slice(1, -1)
+        : rawPath;
+    const normalizedPath = normalizeEditedWorkspacePath(unquotedPath);
+    if (!normalizedPath || seen.has(normalizedPath)) {
+      continue;
+    }
+    seen.add(normalizedPath);
+    paths.push(normalizedPath);
+  }
+  return paths;
+}
+
+function editedPathsFromToolArgs(toolArgs: unknown): string[] {
+  if (!isRecord(toolArgs)) {
+    return [];
+  }
+  const directPathKeys = [
+    "file_path",
+    "path",
+    "target_path",
+    "target",
+    "filename",
+    "file",
+  ] as const;
+  for (const key of directPathKeys) {
+    const directPath = normalizeEditedWorkspacePath(toolArgs[key]);
+    if (directPath) {
+      return [directPath];
+    }
+  }
+  for (const [key, candidate] of Object.entries(toolArgs)) {
+    if (
+      /(?:^|_)(?:path|file|filepath|filename|target|destination)$/i.test(key)
+    ) {
+      const directPath = normalizeEditedWorkspacePath(candidate);
+      if (directPath) {
+        return [directPath];
+      }
+    }
+  }
+  const hashlineInput =
+    typeof toolArgs.input === "string"
+      ? toolArgs.input
+      : typeof toolArgs._input === "string"
+        ? toolArgs._input
+        : "";
+  return hashlineInput ? hashlineEditedPathsFromInput(hashlineInput) : [];
+}
+
+function editedPathsFromToolCallPayload(
+  payload: Record<string, unknown>,
+): string[] {
+  const toolName =
+    typeof payload.tool_name === "string"
+      ? payload.tool_name.trim().toLowerCase()
+      : "";
+  const phase =
+    typeof payload.phase === "string" ? payload.phase.trim().toLowerCase() : "";
+  if (toolName !== "edit" || phase !== "completed" || payload.error === true) {
+    return [];
+  }
+  return editedPathsFromToolArgs(payload.tool_args);
+}
+
+function editedFilesFromToolUsageSummary(
+  toolUsageSummary: Record<string, unknown> | null | undefined,
+): string[] {
+  const editedFiles = Array.isArray(toolUsageSummary?.edited_files)
+    ? toolUsageSummary.edited_files
+    : [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of editedFiles) {
+    const filePath = normalizeEditedWorkspacePath(value);
+    if (!filePath || seen.has(filePath)) {
+      continue;
+    }
+    seen.add(filePath);
+    normalized.push(filePath);
+  }
+  return normalized;
 }
 
 function plusMillisecondsIso(
@@ -3685,6 +3830,9 @@ function subagentLifecyclePayload(params: {
     workspaceId: params.run.workspaceId,
     childSessionId: params.run.childSessionId,
   });
+  const editedFiles = editedFilesFromToolUsageSummary(
+    params.turnResult.toolUsageSummary,
+  );
   const payload: Record<string, unknown> = {
     workspace_id: params.run.workspaceId,
     subagent_id: params.run.subagentId,
@@ -3710,6 +3858,9 @@ function subagentLifecyclePayload(params: {
   }
   if (params.run.context) {
     payload.context = params.run.context;
+  }
+  if (editedFiles.length > 0) {
+    payload.edited_files = editedFiles;
   }
   if (forwardableDeliverables.length > 0) {
     payload.forwardable_deliverables = forwardableDeliverables;
@@ -4540,6 +4691,12 @@ export async function processClaimedInput(params: {
     const runtimeContext = isRecord(record.payload.context)
       ? { ...record.payload.context }
       : {};
+    if (sessionKind === "workspace_onboarding") {
+      const onboardingState = effectiveWorkspaceOnboardingState(workspace);
+      if (onboardingState) {
+        runtimeContext.onboarding_state = onboardingState;
+      }
+    }
     const priorExecContext = isRecord(runtimeContext[RUNTIME_EXEC_CONTEXT_KEY])
       ? { ...runtimeContext[RUNTIME_EXEC_CONTEXT_KEY] }
       : {};
@@ -4764,16 +4921,7 @@ export async function processClaimedInput(params: {
     let overflowRecovery: OverflowRecoveryTelemetryRecord | null = null;
     let providerTerminationRecovery: ProviderTerminationRecoveryTelemetryRecord | null =
       null;
-    const toolCallsById = new Map<
-      string,
-      {
-        toolName: string;
-        toolId: string | null;
-        completed: boolean;
-        error: boolean;
-        browserUsage: Record<string, unknown> | null;
-      }
-    >();
+    const toolCallsById = new Map<string, ToolCallSummaryEntry>();
     const skillInvocationsById = new Map<string, SkillInvocationSummaryEntry>();
     const wideningAudit = createSkillWideningAudit();
     const permissionDenials: Array<Record<string, unknown>> = [];
@@ -5181,12 +5329,24 @@ export async function processClaimedInput(params: {
                 browserUsageFromToolResult(eventPayload.result) ??
                 existingCall?.browserUsage ??
                 null;
+              const editedPathsFromEvent = editedPathsFromToolCallPayload(
+                eventPayload,
+              );
               toolCallsById.set(callId, {
                 toolName,
                 toolId,
                 completed,
                 error: errored,
                 browserUsage,
+                editedPaths:
+                  editedPathsFromEvent.length > 0
+                    ? [
+                        ...new Set([
+                          ...(existingCall?.editedPaths ?? []),
+                          ...editedPathsFromEvent,
+                        ]),
+                      ]
+                    : (existingCall?.editedPaths ?? []),
               });
               if (eventPayload.phase === "completed") {
                 toolReplayTrimmed =

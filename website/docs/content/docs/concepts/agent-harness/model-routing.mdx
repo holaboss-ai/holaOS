@@ -49,6 +49,7 @@ The current desktop and runtime path support these provider ids:
 
 - `holaboss_model_proxy` for holaOS Proxy
 - `openai_direct`
+- `openai_codex`
 - `anthropic_direct`
 - `openrouter_direct`
 - `gemini_direct`
@@ -59,6 +60,7 @@ In user-facing terms, the currently supported providers are:
 
 - holaOS Proxy
 - OpenAI
+- OpenAI Codex
 - Anthropic
 - OpenRouter
 - Gemini
@@ -75,6 +77,8 @@ The runtime currently normalizes those providers into these provider kinds:
 - `openrouter`
 
 Most direct providers in the current product surface use the `openai_compatible` path.
+
+`openai_codex` is the notable OpenAI-compatible special case on the desktop side. It still resolves through the OpenAI-compatible routing family, but it can use Codex-specific base URLs instead of the generic OpenAI `/v1` path.
 
 ## Model-proxy transport behind the provider kind
 

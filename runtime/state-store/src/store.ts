@@ -37,17 +37,22 @@ const MAIN_SESSION_BINDING_ROLE = "main_session";
 const MAIN_SESSION_CONVERSATION_KEY = "main_session";
 const GENERAL_TEAMMATE_ID = "general";
 const GENERAL_TEAMMATE_NAME = "General";
+const HR_TEAMMATE_ID = "hr";
+const HR_TEAMMATE_NAME = "HR";
+const APP_BUILDER_TEAMMATE_ID = "app_builder";
+const APP_BUILDER_TEAMMATE_NAME = "App Builder";
 const LEGACY_GENERAL_TEAMMATE_INSTRUCTIONS =
   "General-purpose execution teammate backed by the current subagent runtime.";
 const GENERAL_TEAMMATE_INSTRUCTIONS = [
   LEGACY_GENERAL_TEAMMATE_INSTRUCTIONS,
+  "Do not own holaOS app creation, dashboard polish, or managed app lifecycle work. Route those requests to App Builder instead of absorbing them as generic execution.",
   "For multi-source research, latest-news scans, investigations, comparisons, and other evidence-heavy work, produce a report artifact instead of packing the full findings into the final session message.",
   "Use `write_report` when available; otherwise save a self-contained HTML report under `outputs/reports/`.",
   "Keep the final session message to a concise handoff with the key takeaways and the artifact reference.",
 ].join("\n\n");
 const GENERAL_TEAMMATE_CAPABILITY_PROFILE: TeammateCapabilityProfileRecord = {
   summary:
-    "Fallback executor for general implementation, research, triage, and catch-all delegated work.",
+    "Fallback executor for non-app implementation, research, triage, and catch-all delegated work.",
   capabilities: [
     "generalist",
     "implementation",
@@ -55,8 +60,88 @@ const GENERAL_TEAMMATE_CAPABILITY_PROFILE: TeammateCapabilityProfileRecord = {
     "triage",
     "fallback",
   ],
-  preferredTools: [],
 };
+const HR_TEAMMATE_INSTRUCTIONS = [
+  "Built-in roster and teammate bootstrap owner for the workspace.",
+  "Own requests to create, reshape, merge, or retire teammates. Before creating anyone, inspect the current roster and clarify only the durable remit details that are still missing.",
+  "Provision production-ready teammates, not placeholder profiles. Identify the integrations, recurring workflows, references, and operating rules the role needs before finalizing the teammate.",
+  "If a requested role depends on integrations or connected apps that are not available, ask the user to connect them instead of shipping a crippled teammate.",
+  "Synthesize durable instructions, capability tags, and teammate-local skills when the role needs repeatable workflows, references, scripts, or structured operating guidance.",
+  "Load and follow the `create-teammate` skill before creating or reshaping teammates.",
+].join("\n\n");
+const HR_TEAMMATE_CAPABILITY_PROFILE: TeammateCapabilityProfileRecord = {
+  summary:
+    "Roster manager for teammate design, teammate creation, skills bootstrap, and integration readiness.",
+  capabilities: [
+    "teammates",
+    "roster",
+    "hiring",
+    "skills",
+    "bootstrap",
+    "integrations",
+  ],
+};
+const APP_BUILDER_TEAMMATE_INSTRUCTIONS = [
+  "Built-in application specialist for the workspace.",
+  "Own requests to create, extend, and polish holaOS apps, including both integration modules and dashboard apps.",
+  "Before building or reshaping an app, confirm the app's user-facing purpose, the required integrations, the core data model, and whether the result should be integration-only or include a dashboard surface.",
+  "Use the `app-builder-sdk` skill before creating new apps or making substantial app architecture changes.",
+  "For dashboard-shape apps with a `src/client/` surface, load and follow `build-dashboard` once the SDK and runtime wiring are in place.",
+  "Treat app work as production work: wire the runtime correctly, build and restart the app, and verify readiness before handing it back.",
+  "For dashboard apps, verify the rendered result and iterate on polish instead of stopping at scaffolding or placeholder UI.",
+].join("\n\n");
+const APP_BUILDER_TEAMMATE_CAPABILITY_PROFILE: TeammateCapabilityProfileRecord = {
+  summary:
+    "Specialist builder for holaOS apps, dashboard surfaces, app runtime wiring, managed lifecycle, and app polish.",
+  capabilities: [
+    "apps",
+    "dashboards",
+    "ui",
+    "sdk",
+    "implementation",
+    "lifecycle",
+    "polish",
+  ],
+};
+type SystemTeammateDefinition = Readonly<{
+  teammateId: string;
+  name: string;
+  instructions: string;
+  capabilityProfile: TeammateCapabilityProfileRecord;
+}>;
+
+const SYSTEM_TEAMMATE_DEFINITIONS: readonly SystemTeammateDefinition[] = [
+  {
+    teammateId: GENERAL_TEAMMATE_ID,
+    name: GENERAL_TEAMMATE_NAME,
+    instructions: GENERAL_TEAMMATE_INSTRUCTIONS,
+    capabilityProfile: GENERAL_TEAMMATE_CAPABILITY_PROFILE,
+  },
+  {
+    teammateId: HR_TEAMMATE_ID,
+    name: HR_TEAMMATE_NAME,
+    instructions: HR_TEAMMATE_INSTRUCTIONS,
+    capabilityProfile: HR_TEAMMATE_CAPABILITY_PROFILE,
+  },
+  {
+    teammateId: APP_BUILDER_TEAMMATE_ID,
+    name: APP_BUILDER_TEAMMATE_NAME,
+    instructions: APP_BUILDER_TEAMMATE_INSTRUCTIONS,
+    capabilityProfile: APP_BUILDER_TEAMMATE_CAPABILITY_PROFILE,
+  },
+];
+const SYSTEM_TEAMMATE_DEFINITIONS_BY_ID = new Map<string, SystemTeammateDefinition>(
+  SYSTEM_TEAMMATE_DEFINITIONS.map((definition) => [definition.teammateId, definition]),
+);
+const SYSTEM_TEAMMATE_ORDER_CASE_SQL = SYSTEM_TEAMMATE_DEFINITIONS.map(
+  (definition, index) =>
+    `WHEN kind = 'system' AND teammate_id = '${definition.teammateId}' THEN ${index}`,
+).join("\n            ");
+const CUSTOM_TEAMMATE_ORDER_INDEX = SYSTEM_TEAMMATE_DEFINITIONS.length;
+const SYSTEM_TEAMMATE_IDS = SYSTEM_TEAMMATE_DEFINITIONS.map(
+  (definition) => definition.teammateId,
+);
+const SYSTEM_TEAMMATE_PLACEHOLDERS = SYSTEM_TEAMMATE_IDS.map(() => "?").join(", ");
 const WORKSPACE_SCOPED_LEGACY_BACKFILL_TABLES = [
   "agent_sessions",
   "agent_runtime_sessions",
@@ -128,6 +213,23 @@ function createWorkspaceIdentityWriteError(params: {
   err.workspacePath = params.workspacePath;
   err.cause = params.cause;
   return err;
+}
+
+function stringArraysEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((value, index) => value === right[index]);
+}
+
+function teammateCapabilityProfilesEqual(
+  left: TeammateCapabilityProfileRecord,
+  right: TeammateCapabilityProfileRecord,
+): boolean {
+  return (
+    left.summary === right.summary &&
+    stringArraysEqual(left.capabilities, right.capabilities)
+  );
 }
 
 export interface WorkspaceRecord {
@@ -463,6 +565,7 @@ export type RuntimeUserProfileNameSource = "manual" | "agent" | "auth_fallback";
 export interface RuntimeUserProfileRecord {
   profileId: string;
   name: string | null;
+  timezone: string | null;
   nameSource: RuntimeUserProfileNameSource | null;
   createdAt: string;
   updatedAt: string;
@@ -876,7 +979,6 @@ export interface TeammateSkillRecord {
 export interface TeammateCapabilityProfileRecord {
   summary: string | null;
   capabilities: string[];
-  preferredTools: string[];
 }
 
 export interface TeammateRecord {
@@ -910,6 +1012,7 @@ export interface IssueRecord {
   workspaceId: string;
   issueNumber: number;
   sessionId: string;
+  parentIssueId: string | null;
   title: string;
   description: string | null;
   status: IssueStatus;
@@ -1135,6 +1238,7 @@ type TeammateUpdateFields = Partial<{
 
 type IssueUpdateFields = Partial<{
   sessionId: string;
+  parentIssueId: string | null;
   title: string;
   description: string | null;
   status: IssueStatus;
@@ -2186,7 +2290,10 @@ export class RuntimeStateStore {
     return rows.map((row) => this.rowToAgentSession(row));
   }
 
-  ensureGeneralTeammate(workspaceId: string): TeammateRecord {
+  private ensureSystemTeammate(
+    workspaceId: string,
+    definition: SystemTeammateDefinition,
+  ): TeammateRecord {
     const workspaceDb = this.workspaceRuntimeDb(workspaceId);
     const existing = workspaceDb
       .prepare<[string, string], Record<string, unknown>>(
@@ -2197,27 +2304,41 @@ export class RuntimeStateStore {
           LIMIT 1
         `,
       )
-      .get(workspaceId, GENERAL_TEAMMATE_ID);
+      .get(workspaceId, definition.teammateId);
     if (existing) {
-      const existingInstructions =
-        typeof existing.instructions === "string" ? existing.instructions.trim() : "";
+      const existingRecord = this.rowToTeammate(existing);
       if (
-        !existingInstructions ||
-        existingInstructions === LEGACY_GENERAL_TEAMMATE_INSTRUCTIONS
+        existingRecord.name !== definition.name ||
+        existingRecord.kind !== "system" ||
+        existingRecord.status !== "active" ||
+        (existingRecord.instructions ?? null) !== definition.instructions ||
+        existingRecord.archivedAt !== null ||
+        !teammateCapabilityProfilesEqual(
+          existingRecord.capabilityProfile,
+          definition.capabilityProfile,
+        )
       ) {
         const now = utcNowIso();
         workspaceDb
           .prepare(`
             UPDATE teammates
-            SET instructions = ?, updated_at = ?
+            SET name = ?,
+                kind = 'system',
+                status = 'active',
+                instructions = ?,
+                capability_profile_json = ?,
+                archived_at = NULL,
+                updated_at = ?
             WHERE workspace_id = ?
               AND teammate_id = ?
           `)
           .run(
-            GENERAL_TEAMMATE_INSTRUCTIONS,
+            definition.name,
+            definition.instructions,
+            JSON.stringify(definition.capabilityProfile),
             now,
             workspaceId,
-            GENERAL_TEAMMATE_ID,
+            definition.teammateId,
           );
         const refreshed = workspaceDb
           .prepare<[string, string], Record<string, unknown>>(
@@ -2228,12 +2349,12 @@ export class RuntimeStateStore {
               LIMIT 1
             `,
           )
-          .get(workspaceId, GENERAL_TEAMMATE_ID);
+          .get(workspaceId, definition.teammateId);
         if (refreshed) {
           return this.rowToTeammate(refreshed);
         }
       }
-      return this.rowToTeammate(existing);
+      return existingRecord;
     }
 
     const now = utcNowIso();
@@ -2253,11 +2374,11 @@ export class RuntimeStateStore {
         ) VALUES (?, ?, ?, 'system', 'active', ?, ?, ?, ?, NULL)
       `)
       .run(
-        GENERAL_TEAMMATE_ID,
+        definition.teammateId,
         workspaceId,
-        GENERAL_TEAMMATE_NAME,
-        GENERAL_TEAMMATE_INSTRUCTIONS,
-        JSON.stringify(GENERAL_TEAMMATE_CAPABILITY_PROFILE),
+        definition.name,
+        definition.instructions,
+        JSON.stringify(definition.capabilityProfile),
         now,
         now,
       );
@@ -2270,11 +2391,52 @@ export class RuntimeStateStore {
           LIMIT 1
         `,
       )
-      .get(workspaceId, GENERAL_TEAMMATE_ID);
+      .get(workspaceId, definition.teammateId);
     if (!created) {
-      throw new Error("general teammate row not found after insert");
+      throw new Error(`${definition.teammateId} teammate row not found after insert`);
     }
     return this.rowToTeammate(created);
+  }
+
+  private ensureSystemTeammates(workspaceId: string): Map<string, TeammateRecord> {
+    const ensured = new Map<string, TeammateRecord>();
+    for (const definition of SYSTEM_TEAMMATE_DEFINITIONS) {
+      ensured.set(
+        definition.teammateId,
+        this.ensureSystemTeammate(workspaceId, definition),
+      );
+    }
+    return ensured;
+  }
+
+  ensureGeneralTeammate(workspaceId: string): TeammateRecord {
+    return (
+      this.ensureSystemTeammates(workspaceId).get(GENERAL_TEAMMATE_ID) ??
+      this.ensureSystemTeammate(
+        workspaceId,
+        SYSTEM_TEAMMATE_DEFINITIONS_BY_ID.get(GENERAL_TEAMMATE_ID)!,
+      )
+    );
+  }
+
+  ensureHrTeammate(workspaceId: string): TeammateRecord {
+    return (
+      this.ensureSystemTeammates(workspaceId).get(HR_TEAMMATE_ID) ??
+      this.ensureSystemTeammate(
+        workspaceId,
+        SYSTEM_TEAMMATE_DEFINITIONS_BY_ID.get(HR_TEAMMATE_ID)!,
+      )
+    );
+  }
+
+  ensureAppBuilderTeammate(workspaceId: string): TeammateRecord {
+    return (
+      this.ensureSystemTeammates(workspaceId).get(APP_BUILDER_TEAMMATE_ID) ??
+      this.ensureSystemTeammate(
+        workspaceId,
+        SYSTEM_TEAMMATE_DEFINITIONS_BY_ID.get(APP_BUILDER_TEAMMATE_ID)!,
+      )
+    );
   }
 
   createTeammate(params: {
@@ -2289,7 +2451,7 @@ export class RuntimeStateStore {
     updatedAt?: string;
     archivedAt?: string | null;
   }): TeammateRecord {
-    this.ensureGeneralTeammate(params.workspaceId);
+    this.ensureSystemTeammates(params.workspaceId);
     const teammateId = this.normalizedNullableText(params.teammateId) ?? randomUUID();
     const kind = this.requiredTeammateKind(params.kind ?? "custom");
     const status = this.requiredTeammateStatus(params.status ?? "active");
@@ -2299,11 +2461,13 @@ export class RuntimeStateStore {
       status === "archived"
         ? this.normalizedNullableText(params.archivedAt) ?? now
         : this.normalizedNullableText(params.archivedAt);
+    const systemTeammateDefinition =
+      kind === "system"
+        ? SYSTEM_TEAMMATE_DEFINITIONS_BY_ID.get(teammateId) ?? null
+        : null;
     const capabilityProfile = this.normalizedTeammateCapabilityProfile(
       params.capabilityProfile,
-      kind === "system" && teammateId === GENERAL_TEAMMATE_ID
-        ? GENERAL_TEAMMATE_CAPABILITY_PROFILE
-        : undefined,
+      systemTeammateDefinition?.capabilityProfile,
     );
 
     this.workspaceRuntimeDb(params.workspaceId)
@@ -2350,8 +2514,8 @@ export class RuntimeStateStore {
     teammateId: string;
     includeArchived?: boolean;
   }): TeammateRecord | null {
-    if (params.teammateId === GENERAL_TEAMMATE_ID) {
-      this.ensureGeneralTeammate(params.workspaceId);
+    if (SYSTEM_TEAMMATE_DEFINITIONS_BY_ID.has(params.teammateId)) {
+      this.ensureSystemTeammates(params.workspaceId);
     }
     const row = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string, string, number], Record<string, unknown>>(`
@@ -2376,7 +2540,7 @@ export class RuntimeStateStore {
     limit?: number;
     offset?: number;
   }): TeammateRecord[] {
-    this.ensureGeneralTeammate(params.workspaceId);
+    this.ensureSystemTeammates(params.workspaceId);
     const rows = this.workspaceRuntimeDb(params.workspaceId)
       .prepare<[string, number, number, number], Record<string, unknown>>(`
         SELECT *
@@ -2384,7 +2548,11 @@ export class RuntimeStateStore {
         WHERE workspace_id = ?
           AND (? = 1 OR archived_at IS NULL)
         ORDER BY
-          CASE WHEN kind = 'system' THEN 0 ELSE 1 END ASC,
+          CASE
+            ${SYSTEM_TEAMMATE_ORDER_CASE_SQL}
+            WHEN kind = 'system' THEN ${CUSTOM_TEAMMATE_ORDER_INDEX}
+            ELSE ${CUSTOM_TEAMMATE_ORDER_INDEX + 1}
+          END ASC,
           datetime(updated_at) DESC,
           datetime(created_at) DESC,
           teammate_id DESC
@@ -2439,12 +2607,13 @@ export class RuntimeStateStore {
         continue;
       }
       if (typedKey === "capabilityProfile") {
+        const systemTeammateDefinition =
+          existing.kind === "system"
+            ? SYSTEM_TEAMMATE_DEFINITIONS_BY_ID.get(existing.teammateId) ?? null
+            : null;
         const capabilityProfileDefaults =
           rawValue === null
-            ? existing.kind === "system" &&
-              existing.teammateId === GENERAL_TEAMMATE_ID
-              ? GENERAL_TEAMMATE_CAPABILITY_PROFILE
-              : undefined
+            ? systemTeammateDefinition?.capabilityProfile
             : existing.capabilityProfile;
         values.push(
           JSON.stringify(
@@ -2565,10 +2734,47 @@ export class RuntimeStateStore {
     });
   }
 
+  private normalizedIssueParentId(params: {
+    workspaceId: string;
+    parentIssueId?: string | null;
+    issueId: string;
+  }): string | null {
+    const parentIssueId = this.normalizedNullableText(params.parentIssueId);
+    if (!parentIssueId) {
+      return null;
+    }
+    if (parentIssueId === params.issueId) {
+      throw new Error("issue cannot be its own parent");
+    }
+    const parentIssue = this.getIssue({
+      workspaceId: params.workspaceId,
+      issueId: parentIssueId,
+    });
+    if (!parentIssue) {
+      throw new Error(`parent issue ${parentIssueId} not found`);
+    }
+    const seen = new Set<string>([params.issueId]);
+    let cursor: IssueRecord | null = parentIssue;
+    while (cursor) {
+      if (seen.has(cursor.issueId)) {
+        throw new Error("issue parent chain cannot contain cycles");
+      }
+      seen.add(cursor.issueId);
+      cursor = cursor.parentIssueId
+        ? this.getIssue({
+            workspaceId: params.workspaceId,
+            issueId: cursor.parentIssueId,
+          })
+        : null;
+    }
+    return parentIssueId;
+  }
+
   createIssue(params: {
     issueId?: string;
     workspaceId: string;
     sessionId?: string;
+    parentIssueId?: string | null;
     title: string;
     description?: string | null;
     status: IssueStatus;
@@ -2633,6 +2839,11 @@ export class RuntimeStateStore {
     if (this.getSession({ workspaceId: params.workspaceId, sessionId })) {
       throw new Error(`session ${sessionId} already exists`);
     }
+    const parentIssueId = this.normalizedIssueParentId({
+      workspaceId: params.workspaceId,
+      parentIssueId: params.parentIssueId,
+      issueId,
+    });
 
     const now = params.updatedAt ?? utcNowIso();
     const createdAt = params.createdAt ?? now;
@@ -2666,6 +2877,7 @@ export class RuntimeStateStore {
             workspace_id,
             issue_number,
             session_id,
+            parent_issue_id,
             title,
             description,
             status,
@@ -2679,13 +2891,14 @@ export class RuntimeStateStore {
             created_at,
             updated_at,
             completed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         issueId,
         params.workspaceId,
         nextIssueNumber,
         session.sessionId,
+        parentIssueId,
         this.requiredNormalizedText(params.title, "title"),
         this.normalizedNullableText(params.description),
         status,
@@ -2738,12 +2951,22 @@ export class RuntimeStateStore {
   listIssues(params: {
     workspaceId: string;
     statuses?: IssueStatus[] | null;
+    parentIssueId?: string | null;
     limit?: number;
     offset?: number;
   }): IssueRecord[] {
     const statuses = Array.from(new Set((params.statuses ?? []).filter((status): status is IssueStatus => !!status)));
     const whereClauses = ["workspace_id = ?"];
     const values: unknown[] = [params.workspaceId];
+    if (params.parentIssueId !== undefined) {
+      const normalizedParentIssueId = this.normalizedNullableText(params.parentIssueId);
+      if (normalizedParentIssueId) {
+        whereClauses.push("parent_issue_id = ?");
+        values.push(normalizedParentIssueId);
+      } else {
+        whereClauses.push("parent_issue_id IS NULL");
+      }
+    }
     if (statuses.length > 0) {
       whereClauses.push(`status IN (${statuses.map(() => "?").join(", ")})`);
       values.push(...statuses);
@@ -2834,9 +3057,18 @@ export class RuntimeStateStore {
         { touchExisting: false },
       );
     }
+    const nextParentIssueId =
+      params.fields.parentIssueId === undefined
+        ? existing.parentIssueId
+        : this.normalizedIssueParentId({
+            workspaceId: params.workspaceId,
+            parentIssueId: params.fields.parentIssueId,
+            issueId: existing.issueId,
+          });
 
     const columnMap: Record<keyof IssueUpdateFields, string> = {
       sessionId: "session_id",
+      parentIssueId: "parent_issue_id",
       title: "title",
       description: "description",
       status: "status",
@@ -2872,6 +3104,10 @@ export class RuntimeStateStore {
       }
       if (typedKey === "status") {
         values.push(nextStatus);
+        continue;
+      }
+      if (typedKey === "parentIssueId") {
+        values.push(nextParentIssueId);
         continue;
       }
       if (typedKey === "priority") {
@@ -6398,6 +6634,7 @@ export class RuntimeStateStore {
   upsertRuntimeUserProfile(params: {
     profileId?: string;
     name?: string | null;
+    timezone?: string | null;
     nameSource?: RuntimeUserProfileNameSource | null;
     createdAt?: string;
     updatedAt?: string;
@@ -6407,7 +6644,10 @@ export class RuntimeStateStore {
     const now = params.updatedAt ?? utcNowIso();
     const createdAt = existing?.createdAt ?? params.createdAt ?? now;
     const normalizedName = typeof params.name === "string" ? params.name.trim() : "";
+    const normalizedTimezone =
+      typeof params.timezone === "string" ? params.timezone.trim() : "";
     const resolvedName = normalizedName || null;
+    const resolvedTimezone = normalizedTimezone || null;
     const resolvedNameSource = resolvedName
       ? (params.nameSource ?? existing?.nameSource ?? "manual")
       : null;
@@ -6417,16 +6657,25 @@ export class RuntimeStateStore {
         INSERT INTO runtime_user_profiles (
             profile_id,
             name,
+            timezone,
             name_source,
             created_at,
             updated_at
-        ) VALUES (?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(profile_id) DO UPDATE SET
             name = excluded.name,
+            timezone = excluded.timezone,
             name_source = excluded.name_source,
             updated_at = excluded.updated_at
       `)
-      .run(profileId, resolvedName, resolvedNameSource, createdAt, now);
+      .run(
+        profileId,
+        resolvedName,
+        resolvedTimezone,
+        resolvedNameSource,
+        createdAt,
+        now,
+      );
 
     const record = this.getRuntimeUserProfile({ profileId });
     if (!record) {
@@ -6437,22 +6686,29 @@ export class RuntimeStateStore {
 
   applyRuntimeUserProfileAuthFallback(params: {
     profileId?: string;
-    name: string;
+    name?: string | null;
+    timezone?: string | null;
     updatedAt?: string;
   }): RuntimeUserProfileRecord | null {
     const profileId = (params.profileId ?? "default").trim() || "default";
-    const normalizedName = params.name.trim();
-    if (!normalizedName) {
-      return this.getRuntimeUserProfile({ profileId });
-    }
+    const normalizedName =
+      typeof params.name === "string" ? params.name.trim() : "";
+    const normalizedTimezone =
+      typeof params.timezone === "string" ? params.timezone.trim() : "";
     const existing = this.getRuntimeUserProfile({ profileId });
-    if (existing?.name?.trim()) {
+    const shouldFillName = normalizedName.length > 0 && !(existing?.name?.trim());
+    const shouldFillTimezone =
+      normalizedTimezone.length > 0 && !(existing?.timezone?.trim());
+    if (!shouldFillName && !shouldFillTimezone) {
       return existing;
     }
     return this.upsertRuntimeUserProfile({
       profileId,
-      name: normalizedName,
-      nameSource: "auth_fallback",
+      name: shouldFillName ? normalizedName : existing?.name ?? null,
+      timezone:
+        shouldFillTimezone ? normalizedTimezone : existing?.timezone ?? null,
+      nameSource:
+        shouldFillName ? "auth_fallback" : existing?.nameSource ?? null,
       updatedAt: params.updatedAt,
     });
   }
@@ -11967,15 +12223,17 @@ export class RuntimeStateStore {
         INSERT OR IGNORE INTO runtime_user_profiles (
           profile_id,
           name,
+          timezone,
           name_source,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?)
       `);
       for (const row of rows) {
         statement.run(
           row.profile_id,
           row.name ?? null,
+          row.timezone ?? null,
           row.name_source ?? null,
           row.created_at,
           row.updated_at
@@ -12500,6 +12758,7 @@ export class RuntimeStateStore {
       CREATE TABLE IF NOT EXISTS runtime_user_profiles (
           profile_id TEXT PRIMARY KEY,
           name TEXT,
+          timezone TEXT,
           name_source TEXT,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
@@ -12680,6 +12939,16 @@ export class RuntimeStateStore {
             embedding_model TEXT
         );
       `);
+    }
+    const runtimeUserProfileColumns = new Set<string>(
+      (
+        db.prepare("PRAGMA table_info(runtime_user_profiles)").all() as Array<{
+          name: string;
+        }>
+      ).map((row) => row.name),
+    );
+    if (!runtimeUserProfileColumns.has("timezone")) {
+      db.exec("ALTER TABLE runtime_user_profiles ADD COLUMN timezone TEXT;");
     }
     this.migrateIntegrationConnectionIdentityColumns(db);
     this.migrateAppCatalogProviderColumns(db);
@@ -13009,6 +13278,7 @@ export class RuntimeStateStore {
           workspace_id TEXT NOT NULL,
           issue_number INTEGER NOT NULL,
           session_id TEXT NOT NULL,
+          parent_issue_id TEXT,
           title TEXT NOT NULL,
           description TEXT,
           status TEXT NOT NULL,
@@ -13377,6 +13647,7 @@ export class RuntimeStateStore {
         );
       `);
     }
+    this.ensureIssuesTableSchema(db);
     this.ensureSubagentRunsTableSchema(db);
     this.ensureSessionRuntimeStateTableSchema(db);
     this.ensureTurnArtifactsSchema(db);
@@ -13668,6 +13939,33 @@ export class RuntimeStateStore {
     migrate();
   }
 
+  private ensureIssuesTableSchema(db: Database.Database): void {
+    const tableNames = new Set<string>(
+      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
+        (row) => row.name,
+      ),
+    );
+    if (!tableNames.has("issues")) {
+      return;
+    }
+    const columns = new Set<string>(
+      (db.prepare("PRAGMA table_info(issues)").all() as Array<{ name: string }>).map(
+        (row) => row.name,
+      ),
+    );
+    if (!columns.has("parent_issue_id")) {
+      db.exec("ALTER TABLE issues ADD COLUMN parent_issue_id TEXT;");
+    }
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_issues_workspace_status_updated
+          ON issues (workspace_id, status, updated_at DESC, issue_number DESC);
+      CREATE INDEX IF NOT EXISTS idx_issues_workspace_assignee_status_updated
+          ON issues (workspace_id, assignee_teammate_id, status, updated_at DESC, issue_number DESC);
+      CREATE INDEX IF NOT EXISTS idx_issues_workspace_parent_updated
+          ON issues (workspace_id, parent_issue_id, updated_at DESC, issue_number DESC);
+    `);
+  }
+
   private ensureSubagentRunsTableSchema(db: Database.Database): void {
     const tableNames = new Set<string>(
       (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
@@ -13897,37 +14195,37 @@ export class RuntimeStateStore {
     db.prepare(`
       UPDATE teammates
       SET kind = CASE
-            WHEN teammate_id = ? THEN 'system'
+            WHEN teammate_id IN (${SYSTEM_TEAMMATE_PLACEHOLDERS}) THEN 'system'
             ELSE 'custom'
           END
       WHERE lower(trim(coalesce(kind, ''))) NOT IN ('system', 'custom')
-         OR (teammate_id = ? AND lower(trim(coalesce(kind, ''))) != 'system')
-    `).run(GENERAL_TEAMMATE_ID, GENERAL_TEAMMATE_ID);
+         OR (teammate_id IN (${SYSTEM_TEAMMATE_PLACEHOLDERS}) AND lower(trim(coalesce(kind, ''))) != 'system')
+    `).run(...SYSTEM_TEAMMATE_IDS, ...SYSTEM_TEAMMATE_IDS);
     db.prepare(`
       UPDATE teammates
       SET status = CASE
-            WHEN teammate_id = ? THEN 'active'
+            WHEN teammate_id IN (${SYSTEM_TEAMMATE_PLACEHOLDERS}) THEN 'active'
             WHEN trim(coalesce(archived_at, '')) != '' THEN 'archived'
             ELSE 'active'
           END
       WHERE lower(trim(coalesce(status, ''))) NOT IN ('active', 'archived')
-         OR (teammate_id = ? AND lower(trim(coalesce(status, ''))) != 'active')
-    `).run(GENERAL_TEAMMATE_ID, GENERAL_TEAMMATE_ID);
+         OR (teammate_id IN (${SYSTEM_TEAMMATE_PLACEHOLDERS}) AND lower(trim(coalesce(status, ''))) != 'active')
+    `).run(...SYSTEM_TEAMMATE_IDS, ...SYSTEM_TEAMMATE_IDS);
     if (addedStatusColumn) {
       db.prepare(`
         UPDATE teammates
         SET status = CASE
-              WHEN teammate_id = ? THEN 'active'
+              WHEN teammate_id IN (${SYSTEM_TEAMMATE_PLACEHOLDERS}) THEN 'active'
               WHEN trim(coalesce(archived_at, '')) != '' THEN 'archived'
               ELSE 'active'
             END
-      `).run(GENERAL_TEAMMATE_ID);
+      `).run(...SYSTEM_TEAMMATE_IDS);
     }
     db.prepare(`
       UPDATE teammates
       SET archived_at = NULL
-      WHERE teammate_id = ?
-    `).run(GENERAL_TEAMMATE_ID);
+      WHERE teammate_id IN (${SYSTEM_TEAMMATE_PLACEHOLDERS})
+    `).run(...SYSTEM_TEAMMATE_IDS);
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_teammates_workspace_status_updated
           ON teammates (workspace_id, status, updated_at DESC, created_at DESC);
@@ -13941,22 +14239,29 @@ export class RuntimeStateStore {
     if (!columns.has("capability_profile_json")) {
       db.exec("ALTER TABLE teammates ADD COLUMN capability_profile_json TEXT NOT NULL DEFAULT '{}';");
     }
-    db.prepare(`
-      UPDATE teammates
-      SET capability_profile_json = ?
-      WHERE teammate_id = ?
-        AND trim(coalesce(capability_profile_json, '')) IN ('', '{}')
-    `).run(JSON.stringify(GENERAL_TEAMMATE_CAPABILITY_PROFILE), GENERAL_TEAMMATE_ID);
-    db.prepare(`
-      UPDATE teammates
-      SET instructions = ?
-      WHERE teammate_id = ?
-        AND trim(coalesce(instructions, '')) IN ('', ?)
-    `).run(
-      GENERAL_TEAMMATE_INSTRUCTIONS,
-      GENERAL_TEAMMATE_ID,
-      LEGACY_GENERAL_TEAMMATE_INSTRUCTIONS,
-    );
+    for (const definition of SYSTEM_TEAMMATE_DEFINITIONS) {
+      db.prepare(`
+        UPDATE teammates
+        SET capability_profile_json = ?
+        WHERE teammate_id = ?
+          AND trim(coalesce(capability_profile_json, '')) IN ('', '{}')
+      `).run(
+        JSON.stringify(definition.capabilityProfile),
+        definition.teammateId,
+      );
+      db.prepare(`
+        UPDATE teammates
+        SET instructions = ?
+        WHERE teammate_id = ?
+          AND trim(coalesce(instructions, '')) IN ('', ?)
+      `).run(
+        definition.instructions,
+        definition.teammateId,
+        definition.teammateId === GENERAL_TEAMMATE_ID
+          ? LEGACY_GENERAL_TEAMMATE_INSTRUCTIONS
+          : definition.instructions,
+      );
+    }
   }
 
   private migrateTeammateSkillsColumn(db: Database.Database): void {
@@ -15379,6 +15684,7 @@ export class RuntimeStateStore {
     return {
       profileId: String(row.profile_id),
       name: row.name == null ? null : String(row.name),
+      timezone: row.timezone == null ? null : String(row.timezone),
       nameSource: row.name_source == null ? null : String(row.name_source) as RuntimeUserProfileNameSource,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
@@ -15910,6 +16216,7 @@ export class RuntimeStateStore {
       workspaceId: String(row.workspace_id),
       issueNumber: Number(row.issue_number),
       sessionId: String(row.session_id),
+      parentIssueId: row.parent_issue_id == null ? null : String(row.parent_issue_id),
       title: String(row.title),
       description: row.description == null ? null : String(row.description),
       status: this.requiredIssueStatus(row.status == null ? null : String(row.status)),
@@ -16219,20 +16526,12 @@ export class RuntimeStateStore {
     const capabilities = this.normalizedStringArray(
       Array.isArray(value.capabilities) ? value.capabilities : [],
     );
-    const preferredTools = this.normalizedStringArray(
-      Array.isArray(value.preferredTools)
-        ? value.preferredTools
-        : Array.isArray(value.preferred_tools)
-          ? value.preferred_tools
-          : [],
-    );
     const summary = this.normalizedNullableText(
       typeof value.summary === "string" ? value.summary : null,
     );
     return {
       summary,
       capabilities,
-      preferredTools,
     };
   }
 
@@ -16319,12 +16618,6 @@ export class RuntimeStateStore {
         rawProfile && Object.prototype.hasOwnProperty.call(rawProfile, "capabilities")
           ? parsed.capabilities
           : [...(defaults?.capabilities ?? parsed.capabilities)],
-      preferredTools:
-        rawProfile &&
-        (Object.prototype.hasOwnProperty.call(rawProfile, "preferredTools") ||
-          Object.prototype.hasOwnProperty.call(rawProfile, "preferred_tools"))
-          ? parsed.preferredTools
-          : [...(defaults?.preferredTools ?? parsed.preferredTools)],
     };
   }
 

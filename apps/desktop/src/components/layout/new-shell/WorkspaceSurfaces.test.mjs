@@ -55,8 +55,14 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   assert.match(sidebarSource, />\s*Dashboard\s*</);
   assert.match(sidebarSource, />\s*Issues\s*</);
   assert.match(sidebarSource, />\s*Teammates\s*</);
-  assert.match(sidebarSource, /const setNewIssueOpen = useSetAtom\(newIssueOpenAtom\);/);
-  assert.match(sidebarSource, /onClick=\{\(\) => setNewIssueOpen\(true\)\}/);
+  assert.match(sidebarSource, /const setComposerPrefill = useSetAtom\(chatComposerPrefillAtom\);/);
+  assert.match(sidebarSource, /const setFocusMode = useSetAtom\(focusModeAtom\);/);
+  assert.match(sidebarSource, /const handleNewIssue = useCallback\(\(\) => \{/);
+  assert.match(sidebarSource, /text: "New issue: ",/);
+  assert.match(sidebarSource, /mode: "replace",/);
+  assert.match(sidebarSource, /sessionMode: "preserve",/);
+  assert.match(sidebarSource, /setFocusMode\(false\);/);
+  assert.match(sidebarSource, /onClick=\{handleNewIssue\}/);
   assert.match(
     sidebarSource,
     /<div className="grid gap-2">[\s\S]*>\s*New issue\s*<[\s\S]*>\s*Dashboard\s*<[\s\S]*>\s*Issues\s*<[\s\S]*>\s*Teammates\s*</,
@@ -136,11 +142,12 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   );
   assert.doesNotMatch(dashboardPaneSource, /<span>Agent Team<\/span>/);
   assert.match(dashboardPaneSource, />\s*Dashboard\s*</);
+  assert.match(dashboardPaneSource, /Waiting for Review/);
   assert.match(dashboardPaneSource, /Token Consumption/);
   assert.match(dashboardPaneSource, /Run Activity/);
   assert.match(dashboardPaneSource, /Issues by Priority/);
   assert.match(dashboardPaneSource, /Issues by Status/);
-  assert.match(dashboardPaneSource, /Success Rate/);
+  assert.doesNotMatch(dashboardPaneSource, /Success Rate/);
   assert.match(dashboardPaneSource, /Recent Activity/);
   assert.match(dashboardPaneSource, /Recent Tasks/);
   assert.doesNotMatch(dashboardPaneSource, /WorkspaceSurfaceHeader/);
@@ -155,14 +162,18 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   assert.match(issueDetailPaneSource, /window\.electronAPI\.workspace\.stageSessionAttachments/);
   assert.match(issueDetailPaneSource, /workspaceSurfaceTab\("issues_board"/);
   assert.match(issueDetailPaneSource, /Back to board/);
+  assert.match(issueDetailPaneSource, /Related issues/);
+  assert.match(issueDetailPaneSource, /Create sub-issue/);
+  assert.match(issueDetailPaneSource, /parent_issue_id: issue\.issue_id/);
+  assert.match(issueDetailPaneSource, /Sub-issue of/);
   assert.match(issueDetailPaneSource, /attachments: nextIssueAttachments/);
-  assert.match(issueDetailPaneSource, /Properties/);
+  assert.doesNotMatch(issueDetailPaneSource, /title="Properties"/);
   assert.match(issueDetailPaneSource, /Activity/);
   assert.doesNotMatch(
     issueDetailPaneSource,
     /\{ value: "backlog", label: "Backlog" \},/,
   );
-  assert.match(issueDetailPaneSource, /Backlog \(hidden\)/);
+  assert.doesNotMatch(issueDetailPaneSource, /Backlog \(hidden\)/);
   assert.match(issueDetailPaneSource, /showExecutionInternals: true,/);
   assert.match(issueDetailPaneSource, /<ConversationTurns[\s\S]*showExecutionInternals/);
   assert.match(issueDetailPaneSource, /liveAssistantTurn=\{/);
@@ -176,17 +187,24 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
     teammatesPaneSource,
     /const TEAMMATE_TABLE_GRID_COLUMNS =\s*"grid-cols-\[minmax\(240px,2\.4fr\)_132px_132px_104px_96px\]";/,
   );
+  assert.match(teammatesPaneSource, /DialogPrimitive\.Root/);
   assert.match(teammatesPaneSource, /window\.electronAPI\.workspace\.listTeammates/);
   assert.match(teammatesPaneSource, /window\.electronAPI\.workspace\.listIssues/);
-  assert.match(teammatesPaneSource, /window\.electronAPI\.workspace\.createTeammate/);
+  assert.match(teammatesPaneSource, /window\.electronAPI\.workspace\.ensureMainSession/);
+  assert.match(teammatesPaneSource, /window\.electronAPI\.workspace\.queueSessionInput/);
   assert.match(teammatesPaneSource, /window\.electronAPI\.workspace\.updateTeammate/);
   assert.match(teammatesPaneSource, /useOpenIssueDetailTab/);
   assert.match(teammatesPaneSource, /placeholder="Search teammates\.\.\."/);
   assert.match(teammatesPaneSource, /Back to teammates/);
+  assert.match(teammatesPaneSource, /Send a teammate creation request to the main session\./);
+  assert.match(teammatesPaneSource, /Please ask the built-in HR teammate to create this teammate\./);
+  assert.match(teammatesPaneSource, /Teammate name: \$\{name\}/);
+  assert.match(teammatesPaneSource, /Teammate role: \$\{role\}/);
   assert.match(teammatesPaneSource, /TabsTrigger\s+value="activity"/);
   assert.match(teammatesPaneSource, /TabsTrigger\s+value="issues"/);
   assert.match(teammatesPaneSource, /TabsTrigger\s+value="instructions"/);
   assert.match(teammatesPaneSource, /TabsTrigger\s+value="skills"/);
+  assert.doesNotMatch(teammatesPaneSource, /Preferred tools/);
   assert.doesNotMatch(teammatesPaneSource, /<span>Agent Team<\/span>/);
   assert.match(teammatesPaneSource, />\s*Teammate\s*</);
   assert.doesNotMatch(teammatesPaneSource, /Creating a new teammate/);

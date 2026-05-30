@@ -129,8 +129,11 @@ The package also loads `sqlite-vec` when available so memory recall can use vect
 
 Important distinction:
 
-- workspace-scoped markdown memory lives on disk under each workspace's `.holaboss/memory/`
-- profile-global markdown memory still lives under `memory/preference/`, `memory/identity/`, and the root `MEMORY.md`
+- workspace-scoped interaction memory lives on disk under each workspace's `.holaboss/memory/interaction/`
+- workspace-scoped semantic interaction trees live under `.holaboss/memory/semantic/interaction/trees/`
+- workspace runtime continuity memory lives separately under `.holaboss/memory/runtime/`
+- profile-global integration memory lives under `memory/integration/trees/`
+- profile-global semantic integration trees live under `memory/semantic/integration/trees/`
 - workspace-scoped memory metadata lives in the corresponding workspace runtime DB
 - profile-global memory metadata and canonical runtime profiles live in `control-plane.db`
 
@@ -206,8 +209,9 @@ The runtime currently uses:
 - `state/control-plane.db` for registry, profiles, and integrations
 - `<workspace-id>/.holaboss/state/runtime.db` for workspace execution truth and workspace-scoped runtime metadata
 - workspace files for authored config and app/template state
-- `.holaboss/memory/` under each workspace for workspace-scoped markdown memory
-- global `memory/` for profile-global memory
+- `.holaboss/memory/interaction/` plus `.holaboss/memory/semantic/interaction/trees/` under each workspace for durable interaction memory and its derived semantic trees
+- `.holaboss/memory/runtime/` under each workspace for runtime continuity memory that helps runs resume coherently
+- global `memory/integration/trees/` plus `memory/semantic/integration/trees/` for profile-global integration memory and its derived semantic trees
 - `.holaboss/state/` under each workspace for workspace-local runtime state such as the identity marker and harness session mapping
 
 That split is deliberate. The database tracks runtime truth around the workspace; it does not become the workspace.

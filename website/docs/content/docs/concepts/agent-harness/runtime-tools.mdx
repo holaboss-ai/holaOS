@@ -5,9 +5,19 @@ description: The tool surface the runtime projects into the shipped harness path
 
 This page covers the tool surface the runtime projects into the shipped harness path. Instead of grouping the tools by internal projection layer, this page groups them by the kind of work they help the agent do.
 
-The runtime still chooses which tools appear. The harness does not invent its own environment. But for readers, category is the more useful view than internal tool surface.
+The runtime still chooses which tools appear. The harness does not invent its own environment. But for readers, category is the more useful view than internal projection layers or prompt assembly details.
 
-In the shipped `pi` path, tools such as `todoread`, `todowrite`, `skill`, `web_search`, scratchpad tools, onboarding tools, cronjob tools, image generation, and `write_report` all execute through the shared runtime capability API. The PI host only packages and proxies them.
+In the shipped `pi` path, these tools execute through the shared runtime capability API. The PI host only packages and proxies them.
+
+## Session shaping matters
+
+Tool visibility is not globally fixed.
+
+- `main_session` is intentionally coordination-heavy. It often gets planning, retrieval, delegation, app/runtime management, and report/output tools instead of the full execution surface.
+- delegated `subagent` runs get the heavier execution surface: browser tools, shell/file tools, and the narrower direct tools needed to complete delegated work
+- onboarding sessions add onboarding-specific tools and constraints
+
+So the important truth is not only which tools exist in the product. It is which tool subset the runtime surfaced for this run.
 
 ## Workspace and Files
 
@@ -21,14 +31,30 @@ In the shipped `pi` path, tools such as `todoread`, `todowrite`, `skill`, `web_s
 | `list` | List directory contents and inspect workspace layout. |
 | `download_url` | Download a remote file from a direct URL into the current workspace and return the saved file metadata. |
 
-## Todo and Coordination
+## Planning, Memory, and Coordination
 
 | Tool | What it does |
 | --- | --- |
-| `question` | Pause and ask the user for clarification or confirmation. |
 | `todowrite` | Create or update the current phased todo plan for the current workspace session. |
 | `todoread` | Read the current phased todo plan for the current workspace session, including the phase and task ids needed for later updates. |
+| `scratchpad_read` | Read the current session scratchpad under the runtime-owned workspace state. |
+| `scratchpad_write` | Update the current session scratchpad for working notes and compacted current state. |
+| `memory_retrieve` | Produce a retrieval pack for recall-oriented questions, recent-activity questions, and memory-first problem solving. |
 | `skill` | Load an embedded or workspace skill by id or name and return its canonical skill block plus any declared tool or command grants. |
+| `update_workspace_instructions` | Read or update the managed section of the root `AGENTS.md` file for durable workspace rules and verified procedures. |
+
+`memory_retrieve` is an important current design seam. It is not a tree-browsing tool. It is the runtime’s query-time recall path over the markdown memory forest plus its derived semantic indexes.
+
+## Delegation and Task Routing
+
+| Tool | What it does |
+| --- | --- |
+| `delegate_task` | Spawn delegated work for hidden subagents while the front session stays concise. |
+| `get_task` | Read the current state of one delegated task by task id. |
+| `list_tasks` | List delegated tasks for the current workspace. |
+| `reply_task` | Continue a blocked delegated task when it is waiting on user input. |
+| `cancel_task` | Cancel the active execution for a delegated task. |
+| `rerun_task` | Restart a delegated task from its saved brief and routing context. |
 
 ## Research
 
@@ -38,7 +64,11 @@ In the shipped `pi` path, tools such as `todoread`, `todowrite`, `skill`, `web_s
 
 ## Browser
 
-These tools only appear for workspace sessions when the desktop browser bridge is available. Each workspace gets its own dedicated agent browser surface, so the agent does not interfere with the user's own browser space.
+These tools are not surfaced to every session by default.
+
+In the current `pi` path, browser tools are typically surfaced to delegated `subagent` executions when the desktop browser bridge is available. The front `main_session` usually treats browser-heavy work as a delegation problem first.
+
+Each workspace gets its own dedicated agent browser surface, so the agent does not interfere with the user's own browser space.
 
 The efficient default loop is:
 
@@ -84,18 +114,34 @@ The efficient default loop is:
 
 | Tool | What it does |
 | --- | --- |
-| `holaboss_onboarding_status` | Read the local onboarding status for the current workspace. |
+| `onboarding_status` | Read the local onboarding status for the current workspace. |
+| `holaboss_create_alignment_report` | Persist the onboarding alignment report and advance the controller into review. |
+| `holaboss_create_alignment_question` | Persist onboarding multiple-choice questions and pause for inline user answers. |
+| `holaboss_create_verification_report` | Persist the onboarding verification report before completion. |
 | `holaboss_onboarding_complete` | Mark local workspace onboarding complete with a summary. |
 
 ## Cronjobs
 
 | Tool | What it does |
 | --- | --- |
-| `holaboss_cronjobs_list` | List local cronjobs for the current workspace. |
-| `holaboss_cronjobs_create` | Create a local cronjob for the current workspace. |
-| `holaboss_cronjobs_get` | Read one local cronjob by id. |
-| `holaboss_cronjobs_update` | Update one local cronjob by id. |
-| `holaboss_cronjobs_delete` | Delete one local cronjob by id. |
+| `cronjobs_list` | List local cronjobs for the current workspace. |
+| `cronjobs_create` | Create a local cronjob for the current workspace. In the current system, each run creates a teammate-assigned issue instead of silently doing hidden agent work. |
+| `cronjobs_get` | Read one local cronjob by id. |
+| `cronjobs_update` | Update one local cronjob by id, including its future teammate assignment. |
+| `cronjobs_delete` | Delete one local cronjob by id. |
+
+## Background Terminals
+
+| Tool | What it does |
+| --- | --- |
+| `terminal_sessions_list` | List background terminal sessions for the current workspace. |
+| `terminal_session_start` | Start a PTY-backed background terminal session. |
+| `terminal_session_get` | Read one terminal session’s status and metadata. |
+| `terminal_session_read` | Read terminal output events from a background session. |
+| `terminal_session_wait` | Wait briefly for status or output changes. |
+| `terminal_session_send_input` | Send input text to the running terminal session. |
+| `terminal_session_signal` | Send a signal such as `SIGINT` or `SIGTERM`. |
+| `terminal_session_close` | Close a background terminal session. |
 
 ## Image Generation
 
@@ -110,3 +156,27 @@ The efficient default loop is:
 | `write_report` | Create a report artifact for the current workspace session, save it under `outputs/reports/`, and return stable report metadata so the chat reply can stay brief. |
 
 `write_report` exists for answers that should become a durable artifact instead of a long chat message. It is meant for research summaries, investigations, audits, plans, reviews, comparisons, timelines, and other evidence-heavy findings the operator may want to revisit later.
+
+## Workspace Apps and Data
+
+| Tool | What it does |
+| --- | --- |
+| `workspace_integrations_list_catalog` | List the canonical integration provider ids that app manifests and bridge clients should use. |
+| `holaboss_workspace_integrations_propose_connect` | Ask the user to connect a Composio-backed integration and render a Connect card in the chat UI. |
+| `holaboss_workspace_integrations_set_default_account` | Choose the default connected account for a provider when multiple accounts are active. |
+| `workspace_apps_scaffold` | Create the minimum valid app skeleton under `apps/<app_id>/`. |
+| `workspace_apps_register` | Register or update an app entry in `workspace.yaml`. |
+| `workspace_apps_build` | Run the managed build for one registered app. |
+| `workspace_apps_ensure_running` | Start managed workspace apps through the runtime lifecycle. |
+| `workspace_apps_restart` | Restart one managed workspace app. |
+| `workspace_apps_restart_and_wait_ready` | Restart one managed workspace app and wait until runtime truth reports `ready: true`. |
+| `workspace_apps_wait_until_ready` | Poll one managed app until it is ready or times out. |
+| `workspace_apps_get_status` | Read runtime truth for one app or for all registered apps. |
+| `workspace_apps_get_ports` | Read runtime-managed ports. This is now mostly a legacy helper; `workspace_apps_get_status` is the richer source. |
+| `workspace_apps_probe_endpoints` | Probe managed UI or MCP endpoints without ad hoc shell checks. |
+| `workspace_data_list_tables` | List user-facing tables in `.holaboss/state/data.db`. |
+| `workspace_data_describe_table` | Describe one shared SQLite table. |
+| `workspace_data_sample_rows` | Preview a sample of table rows. |
+| `workspace_data_query` | Run a deterministic read-only SQL query against the shared workspace SQLite. |
+
+This app-and-data layer is one of the biggest current differences from the older docs. The runtime tool surface is no longer only about files, browser, and web. It now includes first-class runtime-managed app operations, integration binding flows, and workspace data inspection.

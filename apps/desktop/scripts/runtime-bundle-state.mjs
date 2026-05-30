@@ -88,12 +88,10 @@ export async function runtimeBundleExists(requiredRuntimePathGroups) {
 }
 
 // Files that the staged runtime bundle does not consume at boot. Editing
-// any of these — agent prompt skill docs, README/CHANGELOG/notes, IDE
-// metadata, lockfile cruft — should NOT trigger a 167s runtime rebuild
-// + Electron main restart. Without this filter, every save to
-// runtime/harnesses/src/embedded-skills/app-builder-sdk/SKILL.md
-// (or any similarly inert sibling) kicked off the full chain and the
-// renderer reconnect loop wedged the desktop.
+// inert markdown/docs outside the embedded skill catalog should not trigger
+// a runtime rebuild. Embedded skills are different: their SKILL.md and
+// referenced sidecar content are loaded directly by the live runtime, so
+// changes under embedded-skills/ must invalidate the staged bundle.
 const RUNTIME_BUNDLE_IGNORED_EXTENSIONS = new Set([
   ".md",
   ".mdx",
@@ -123,6 +121,11 @@ function shouldSkipFile(name) {
   return RUNTIME_BUNDLE_IGNORED_EXTENSIONS.has(name.slice(lastDot).toLowerCase());
 }
 
+function isEmbeddedSkillAsset(targetPath) {
+  const normalized = targetPath.replace(/\\/g, "/");
+  return normalized.includes("/embedded-skills/");
+}
+
 export async function newestMtime(targetPath) {
   const details = await stat(targetPath);
   if (!details.isDirectory()) {
@@ -139,7 +142,8 @@ export async function newestMtime(targetPath) {
     if (entry.isDirectory()) {
       if (RUNTIME_BUNDLE_IGNORED_DIRS.has(entry.name)) continue;
     } else if (entry.isFile()) {
-      if (shouldSkipFile(entry.name)) continue;
+      const entryPath = path.join(targetPath, entry.name);
+      if (!isEmbeddedSkillAsset(entryPath) && shouldSkipFile(entry.name)) continue;
     }
     newest = Math.max(newest, await newestMtime(path.join(targetPath, entry.name)));
   }

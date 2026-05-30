@@ -24,6 +24,7 @@ import type {
 export interface AgentCurrentUserContext {
   profile_id?: string | null;
   name?: string | null;
+  timezone?: string | null;
   name_source?: string | null;
 }
 
@@ -63,7 +64,6 @@ export interface AgentTeammateRoutingContext {
     status: string;
     summary?: string | null;
     capabilities?: string[] | null;
-    preferred_tools?: string[] | null;
     skills?: Array<{
       name: string;
       description?: string | null;
@@ -230,12 +230,12 @@ function sessionPolicyPromptSection(request: ComposeBaseAgentPromptRequest): str
       break;
     case "workspace_onboarding":
       lines.push(
-        "This is a workspace onboarding lab controller session. Act as a user-facing architect and builder with executor-grade tools.",
-        "Run onboarding as a gated design process: converse with the user to gather requirements, converge those requirements into a concrete design report, wait for user confirmation, then execute and implement the confirmed design in the lab workspace.",
-        "Keep the user-facing onboarding thread focused and sequential. Delegate implementation to subagents only after the user confirms the design report, then wait for the delegated implementation to finish before continuing the onboarding conversation.",
-        "After implementation, verify the result and present a concise verification report to the user. If the user is not satisfied, continue the conversation-design-implementation-verification loop in the lab.",
-        "Required requirements to obtain: cronjobs or recurring work, small app builds or slices to implement, workspace file and folder organization, skills or repeatable workflows, and AI manager personality and behavior.",
-        "Only call onboarding completion and merge the lab after the user explicitly accepts the verified implementation."
+        "This is a workspace onboarding controller session. Act as a user-facing architect and implementation orchestrator with executor-grade tools.",
+        "Run onboarding as a gated design process: converse with the user to gather requirements, converge those requirements into a concrete design report, wait for user confirmation, then coordinate implementation of the confirmed design in the workspace.",
+        "Keep the user-facing onboarding thread focused and sequential. After the user confirms the design report, treat implementation as a coordinated execution phase: route teammate provisioning to HR, app creation or migration work to App Builder, and remaining generic workspace execution to General when those teammates and routing tools are available in the current run.",
+        "After implementation, verify the result and present a concise verification report to the user. If the user is not satisfied, continue the conversation-design-implementation-verification loop in the same workspace.",
+        "Required alignment dimensions to obtain: the user's intended outcome, the real work context and systems involved, any research or design evidence needed to justify the plan, the integrations required to understand or act on that work, the teammates to create and how each should behave, the workspace rules that belong in `AGENTS.md`, the useful apps to build, the teammate-owned cronjobs to automate recurring work, and the workspace file and folder organization.",
+        "Only mark onboarding complete after the user explicitly accepts the verified implementation."
       );
       break;
     case "meeting_mode":
@@ -374,12 +374,21 @@ function currentUserContextPromptSection(context: AgentCurrentUserContext | null
   }
   const lines = ["Current user context:"];
   const name = nonEmptyText(context.name);
+  const timezone = nonEmptyText(context.timezone);
 
-  if (!name) {
+  if (!name && !timezone) {
     return "";
   }
 
-  lines.push(`The current operator name is \`${name}\`.`);
+  if (name) {
+    lines.push(`The current operator name is \`${name}\`.`);
+  }
+  if (timezone) {
+    lines.push(`The current operator timezone is \`${timezone}\`.`);
+    lines.push(
+      "Interpret relative dates and times such as `today`, `tomorrow`, `this morning`, and `end of day` in that timezone unless the user says otherwise.",
+    );
+  }
 
   return linesSection(lines);
 }
@@ -477,13 +486,17 @@ function teammateRoutingContextPromptSection(
   const lines = [
     "Teammate routing roster:",
     "Use this roster to choose who should receive delegated work. These are routing profiles for teammate selection, not direct authority grants for the current front session.",
-    "Prefer the teammate whose declared capabilities and preferred tools best match the task. Fall back to `General` when no custom teammate is a clear fit.",
-    "If the user wants to add or reshape teammates, load the `create-teammate` skill via the `skill` tool before creating anyone when that skill is available.",
+    "Prefer the teammate whose declared capabilities, summary, instructions, and skills best match the task. Fall back to `General` when no custom teammate is a clear fit.",
+    "When calling `delegate_task`, always pass an explicit `teammate_id`. The manager owns assignee selection; do not omit it and do not expect the runtime to choose for you.",
+    "Prefer `HR` for teammate creation, teammate reshaping, roster design, and teammate bootstrap work when that teammate is available.",
+    "When the user wants to add or reshape teammates, delegate that work to `HR` instead of trying to perform teammate bootstrap directly in the front session.",
     "Do not create a teammate until the stable remit is understood: responsibilities, boundaries, default work, and how the role differs from the current roster.",
     "If the role is still vague, overlapping, or one-off, inspect the current roster and ask for the concrete missing remit details before calling teammate-creation tools.",
+    "When a new teammate is warranted, treat it as a production bootstrap: identify required integrations, ask the user to connect missing prerequisites, and create teammate-local skills when the role needs repeatable operating guidance.",
   ];
 
   for (const teammate of teammates) {
+    const teammateId = nonEmptyText(teammate.teammate_id);
     const name = nonEmptyText(teammate.name);
     const kind = nonEmptyText(teammate.kind) || "custom";
     const status = nonEmptyText(teammate.status) || "active";
@@ -526,7 +539,10 @@ function teammateRoutingContextPromptSection(
           )
           .slice(0, 6)
       : [];
-    lines.push(`- \`${name}\` [${kind}/${status}]: ${summary}`);
+    const rosterLabel = teammateId
+      ? `\`${name}\` (id: \`${teammateId}\`)`
+      : `\`${name}\``;
+    lines.push(`- ${rosterLabel} [${kind}/${status}]: ${summary}`);
     if (capabilities.length > 0) {
       lines.push(
         `  Capability tags: ${capabilities.map((value) => `\`${value}\``).join(", ")}.`,
@@ -1258,17 +1274,21 @@ export function buildMainSessionPromptSections(
     );
   } else if (normalizedSessionKind === "workspace_onboarding") {
     conversationLines.splice(4, 0,
-      "This session is the workspace onboarding design lab controller.",
-      "You are a user-facing architect and builder. Keep the onboarding thread conversational and uncluttered; do implementation work through delegated workers only after the user has confirmed the design.",
-      "Actively obtain the required workspace alignment inputs: cronjobs or recurring work, small app builds or slices to implement, workspace file and folder organization, skills or repeatable workflows, and AI manager personality and behavior.",
+      "This session is the workspace onboarding controller.",
+      "You are a user-facing architect and implementation orchestrator. Keep the onboarding thread conversational and uncluttered, then coordinate the approved implementation after the user has confirmed the design.",
+      "Actively obtain the required workspace alignment inputs: the user's intended outcome, the current work context, useful external research when it sharpens the design, the integrations to connect, the teammates to create, the workspace rules for `AGENTS.md`, the apps to build, the cronjobs to automate, and the workspace file and folder structure.",
       "Use `holaboss_onboarding_status` to ground the current onboarding state before changing phases or claiming what comes next.",
       "While aligning, if one or several concrete decisions would move the design forward faster as closed choices, call `holaboss_create_alignment_question` and wait for the inline answer card instead of asking the user to answer in freeform chat. Prefer a short question deck when 2-5 tightly related decisions should be answered together, and allow freeform inline responses when the user may want to answer in their own words.",
-      "While aligning, converse first, then when ready, call `holaboss_create_alignment_report` to converge the answers into a concise alignment report that states the proposed workspace structure, scoped app builds, skills, cronjobs, and AI manager behavior.",
-      "The alignment report must include non-empty `summary` and `markdown` fields plus these structured top-level keys: `workspace_structure`, `app_builds`, `skills`, `cronjobs`, `ai_manager_behavior`, `open_questions`, and `implementation_notes`. Keep app builds small and concrete enough that implementation can start from a thin first pass instead of a full product spec.",
+      "Ground the alignment design in the user's actual work context. Add research or best-practice reasoning only when it materially improves the plan, and make that reasoning explicit in the report instead of silently substituting a generic template.",
+      "While aligning, converse first, then when ready, call `holaboss_create_alignment_report` to converge the answers into a concise alignment report that states the user intent, work context, research basis, integrations, teammates, workspace rules, workspace structure, scoped apps, cronjobs, open questions, and implementation notes.",
+      "The alignment report must include non-empty `summary` and `markdown` fields plus these structured top-level keys: `user_intent`, `work_context`, `research_basis`, `integrations`, `teammates`, `workspace_rules`, `workspace_structure`, `apps`, `cronjobs`, `open_questions`, and `implementation_notes`. Teammates should be concrete enough to define remit, prompt, tools, skills, and handoffs. Cronjobs should name an owner teammate. Keep apps thin enough that implementation can start from a focused first pass instead of a full product spec.",
       "After creating the alignment report, stop and wait for the alignment review card. Do not ask the user to type approval words such as `approve`, and do not restate the report as a freeform chat approval handoff.",
-      "Once onboarding state moves to implementing through the review UI, delegate the approved implementation inside the lab workspace. Keep onboarding sequential by waiting for implementation results before moving to verification.",
-      "After delegated implementation finishes, inspect or verify the lab result yourself, then create the verification handoff with `holaboss_create_verification_report`, again including a concise human-readable `markdown` body plus any structured verification fields that should remain machine-readable.",
-      "After creating the verification report, stop and wait for the verification review card. Final acceptance, revision, and merge are handled by the UI, not by a runtime tool call from the model."
+      "Once onboarding state moves to implementing through the review UI, treat the approved alignment report as the source of truth and do not reopen broad design exploration unless a real blocker or ambiguity makes that unavoidable.",
+      "During implementation, orchestrate execution by domain: route teammate creation and teammate-local skills to HR, route app creation, migration, and polish work to App Builder, and route remaining generic workspace execution such as file layout, integration follow-up, workspace rules, and cronjobs to General when those teammates and routing tools are available in the current run.",
+      "Every implementation task brief should quote the relevant part of the approved alignment report, define the concrete artifact or change required, name any prerequisites or dependencies, and require the assignee to verify its own work before handing back a result.",
+      "Stay responsible for sequencing, dependency management, blocker resolution with the user, and final verification. Keep onboarding sequential by finishing the implementation work before moving to verification.",
+      "After implementation finishes, inspect or verify the result yourself, then create the verification handoff with `holaboss_create_verification_report`, again including a concise human-readable `markdown` body plus any structured verification fields that should remain machine-readable.",
+      "After creating the verification report, stop and wait for the verification review card. Final acceptance and revision are handled by the UI, not by a runtime tool call from the model."
     );
   } else if (normalizedSessionKind === "meeting_mode") {
     conversationLines.splice(4, 0,

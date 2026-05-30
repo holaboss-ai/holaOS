@@ -48,6 +48,7 @@ test("cronjob helpers honor next_run_at and preserve legacy scheduling fallback"
     enabled: true,
     cron: "0 9 * * *",
     lastRunAt: null,
+    metadata: { timezone: "America/New_York" },
     nextRunAt: "2025-01-01T10:00:00Z"
   };
   assert.equal(cronjobIsDue(scheduledJob as never, new Date("2025-01-01T09:30:00Z")), false);
@@ -57,10 +58,37 @@ test("cronjob helpers honor next_run_at and preserve legacy scheduling fallback"
     enabled: true,
     cron: "0 9 * * *",
     lastRunAt: null,
+    metadata: {},
     nextRunAt: null
   };
   assert.equal(cronjobIsDue(legacyDueJob as never, new Date("2025-01-01T09:30:00Z")), true);
   assert.ok(cronjobNextRunAt("0 9 * * *", new Date("2025-01-01T09:30:00Z")));
+  assert.equal(
+    cronjobNextRunAt(
+      "0 9 * * *",
+      new Date("2025-01-01T13:30:00Z"),
+      "America/New_York",
+    ),
+    "2025-01-01T14:00:00.000Z",
+  );
+  assert.equal(
+    cronjobNextRunAt("0 9 * * *", new Date("2025-01-01T13:30:00Z"), "UTC"),
+    "2025-01-02T09:00:00.000Z",
+  );
+  assert.equal(
+    cronjobIsDue(
+      {
+        enabled: true,
+        cron: "0 9 * * *",
+        lastRunAt: null,
+        metadata: {},
+        nextRunAt: "2025-01-02T09:00:00.000Z",
+      } as never,
+      new Date("2025-01-01T14:30:00Z"),
+      "America/New_York",
+    ),
+    true,
+  );
   assert.equal(cronjobNextRunAt("not a cron", new Date("2025-01-01T09:30:00Z")), null);
   assert.equal(
     cronjobInstruction("Daily check", { priority: 1, team: "growth" }),
@@ -896,6 +924,7 @@ test("runtime cron worker does not execute a newly created cronjob before next_r
     metadata: {
       source_session_id: "session-main",
       model: "openai_codex/gpt-5.4",
+      timezone: "UTC",
     },
     nextRunAt: "2025-01-01T10:00:00Z",
   });

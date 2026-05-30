@@ -14,6 +14,7 @@ import {
   Loader2,
   MessageSquareText,
   Paperclip,
+  Plus,
   Send,
   Square,
   UserRound,
@@ -45,17 +46,11 @@ import { CHAT_LAYOUT } from "@/lib/chatLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { StatusDot } from "@/components/ui/status-dot";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
+import { useOpenIssueDetailTab } from "./useOpenIssueDetailTab";
 import { useIssueWorkspaceData } from "./useIssues";
 import { useOpenWorkspaceOutput } from "./useOpenWorkspaceOutput";
 import { WorkspaceSurfaceHeader } from "./WorkspaceSurfaceHeader";
@@ -65,28 +60,6 @@ import {
   upsertInternalTab,
   workspaceSurfaceTab,
 } from "./state/internalTabs";
-
-const ISSUE_STATUS_OPTIONS: Array<{
-  value: IssueStatusPayload;
-  label: string;
-  disabled?: boolean;
-}> = [
-  { value: "todo", label: "Todo" },
-  { value: "in_progress", label: "In progress", disabled: true },
-  { value: "in_review", label: "In review" },
-  { value: "blocked", label: "Blocked" },
-  { value: "done", label: "Done" },
-];
-
-const ISSUE_PRIORITY_OPTIONS: Array<{
-  value: IssuePriorityPayload;
-  label: string;
-}> = [
-  { value: "critical", label: "Critical" },
-  { value: "high", label: "High" },
-  { value: "medium", label: "Medium" },
-  { value: "low", label: "Low" },
-];
 
 function issueStatusLabel(status: IssueStatusPayload): string {
   switch (status) {
@@ -280,6 +253,7 @@ export function IssueDetailPane({
 }) {
   const { setSelectedWorkspaceId } = useWorkspaceSelection();
   const { selectedWorkspace } = useWorkspaceDesktop();
+  const openIssueDetailTab = useOpenIssueDetailTab();
   const setInternalTabs = useSetAtom(internalTabsAtom);
   const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
   const { issues, teammatesById, isLoading, statusMessage, refresh } =
@@ -301,15 +275,19 @@ export function IssueDetailPane({
   const assignee = issue?.assignee_teammate_id
     ? teammatesById[issue.assignee_teammate_id] ?? null
     : null;
-  const statusOptions = useMemo(
+  const parentIssue = useMemo(
     () =>
-      issue?.status === "backlog"
-        ? [
-            { value: "backlog", label: "Backlog (hidden)", disabled: true },
-            ...ISSUE_STATUS_OPTIONS,
-          ]
-        : ISSUE_STATUS_OPTIONS,
-    [issue?.status],
+      issue?.parent_issue_id
+        ? issues.find((entry) => entry.issue_id === issue.parent_issue_id) ?? null
+        : null,
+    [issue?.parent_issue_id, issues],
+  );
+  const childIssues = useMemo(
+    () =>
+      issues
+        .filter((entry) => entry.parent_issue_id === issue?.issue_id)
+        .sort((left, right) => right.updated_at.localeCompare(left.updated_at)),
+    [issue?.issue_id, issues],
   );
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -356,6 +334,13 @@ export function IssueDetailPane({
   const [replyAttachments, setReplyAttachments] = useState<File[]>([]);
   const [isReplySubmitting, setIsReplySubmitting] = useState(false);
   const [replyError, setReplyError] = useState("");
+  const [isCreatingSubIssue, setIsCreatingSubIssue] = useState(false);
+  const [subIssueTitle, setSubIssueTitle] = useState("");
+  const [subIssueDescription, setSubIssueDescription] = useState("");
+  const [subIssueAssigneeTeammateId, setSubIssueAssigneeTeammateId] = useState("");
+  const [subIssuePriority, setSubIssuePriority] = useState<IssuePriorityPayload | "">("");
+  const [isSubIssueSubmitting, setIsSubIssueSubmitting] = useState(false);
+  const [subIssueError, setSubIssueError] = useState("");
   const issueFileInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -582,11 +567,19 @@ export function IssueDetailPane({
     setDraftIssueAttachments(issueAttachmentsToListItems(issue.attachments ?? []));
     setIsEditingDetails(false);
     setMutationError("");
+    setIsCreatingSubIssue(false);
+    setSubIssueTitle("");
+    setSubIssueDescription("");
+    setSubIssueAssigneeTeammateId(issue.assignee_teammate_id ?? "");
+    setSubIssuePriority(issue.priority ?? "");
+    setSubIssueError("");
   }, [
+    issue?.assignee_teammate_id,
     issue?.attachments,
     issue?.blocker_reason,
     issue?.description,
     issue?.issue_id,
+    issue?.priority,
     issue?.title,
   ]);
 
@@ -641,6 +634,18 @@ export function IssueDetailPane({
     setSelectedWorkspaceId,
     workspaceId,
   ]);
+
+  const openRelatedIssue = useCallback(
+    (targetIssue: IssueRecordPayload) => {
+      setSelectedWorkspaceId(workspaceId);
+      void openIssueDetailTab({
+        workspaceId: targetIssue.workspace_id,
+        issueId: targetIssue.issue_id,
+        title: targetIssue.title,
+      });
+    },
+    [openIssueDetailTab, setSelectedWorkspaceId, workspaceId],
+  );
 
   useEffect(() => {
     if (!issue) {
@@ -1056,76 +1061,6 @@ export function IssueDetailPane({
     [issue, refresh, refreshThread],
   );
 
-  const handleStatusChange = useCallback(
-    async (nextStatus: IssueStatusPayload) => {
-      if (!issue || nextStatus === issue.status) {
-        return;
-      }
-      let blockerReason: string | null | undefined = undefined;
-      if (nextStatus === "blocked") {
-        const response = window.prompt(
-          "Why is this issue blocked?",
-          issue.blocker_reason ?? "",
-        );
-        if (response == null) {
-          return;
-        }
-        const trimmed = response.trim();
-        if (!trimmed) {
-          setMutationError("Blocked issues need a blocker reason.");
-          return;
-        }
-        blockerReason = trimmed;
-      } else if (issue.blocker_reason) {
-        blockerReason = null;
-      }
-      await runIssueMutation(
-        () =>
-          window.electronAPI.workspace.updateIssue(workspaceId, issue.issue_id, {
-            workspace_id: workspaceId,
-            status: nextStatus,
-            blocker_reason: blockerReason,
-          }),
-        "Failed to update issue status",
-      );
-    },
-    [issue, runIssueMutation, workspaceId],
-  );
-
-  const handleAssigneeChange = useCallback(
-    async (nextTeammateId: string | null) => {
-      if (!issue || (issue.assignee_teammate_id ?? null) === nextTeammateId) {
-        return;
-      }
-      await runIssueMutation(
-        () =>
-          window.electronAPI.workspace.updateIssue(workspaceId, issue.issue_id, {
-            workspace_id: workspaceId,
-            assignee_teammate_id: nextTeammateId,
-          }),
-        "Failed to update issue assignee",
-      );
-    },
-    [issue, runIssueMutation, workspaceId],
-  );
-
-  const handlePriorityChange = useCallback(
-    async (nextPriority: IssuePriorityPayload | null) => {
-      if (!issue || (issue.priority ?? null) === nextPriority) {
-        return;
-      }
-      await runIssueMutation(
-        () =>
-          window.electronAPI.workspace.updateIssue(workspaceId, issue.issue_id, {
-            workspace_id: workspaceId,
-            priority: nextPriority,
-          }),
-        "Failed to update issue priority",
-      );
-    },
-    [issue, runIssueMutation, workspaceId],
-  );
-
   const handleSaveDetails = useCallback(async () => {
     if (!issue) {
       return;
@@ -1188,6 +1123,60 @@ export function IssueDetailPane({
     runIssueMutation,
     workspaceId,
   ]);
+
+  const handleCreateSubIssue = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!issue) {
+        return;
+      }
+      const normalizedTitle = subIssueTitle.trim();
+      if (!normalizedTitle) {
+        setSubIssueError("Sub-issue title is required.");
+        return;
+      }
+      setIsSubIssueSubmitting(true);
+      setSubIssueError("");
+      try {
+        const created = await window.electronAPI.workspace.createIssue({
+          workspace_id: workspaceId,
+          parent_issue_id: issue.issue_id,
+          title: normalizedTitle,
+          description: subIssueDescription.trim() || null,
+          status: "todo",
+          priority: subIssuePriority || null,
+          assignee_teammate_id: subIssueAssigneeTeammateId || null,
+          blocker_reason: null,
+          attachments: [],
+        });
+        setIsCreatingSubIssue(false);
+        setSubIssueTitle("");
+        setSubIssueDescription("");
+        await refresh();
+        void openIssueDetailTab({
+          workspaceId,
+          issueId: created.issue.issue_id,
+          title: created.issue.title,
+        });
+      } catch (error) {
+        setSubIssueError(
+          error instanceof Error ? error.message : "Failed to create sub-issue",
+        );
+      } finally {
+        setIsSubIssueSubmitting(false);
+      }
+    },
+    [
+      issue,
+      openIssueDetailTab,
+      refresh,
+      subIssueAssigneeTeammateId,
+      subIssueDescription,
+      subIssuePriority,
+      subIssueTitle,
+      workspaceId,
+    ],
+  );
 
   const handleIssueAttachmentChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -1415,6 +1404,20 @@ export function IssueDetailPane({
               <UserRound className="size-3.5" />
               {assignee?.name || "Unassigned"}
             </Badge>
+            {parentIssue ? (
+              <button
+                type="button"
+                onClick={() => openRelatedIssue(parentIssue)}
+                className="inline-flex items-center rounded-md border border-border bg-background/70 px-2.5 py-1 text-xs text-foreground/72 transition-colors hover:bg-background"
+              >
+                Sub-issue of {parentIssue.issue_id}
+              </button>
+            ) : null}
+            {childIssues.length > 0 ? (
+              <Badge variant="outline" className="bg-background/70">
+                {childIssues.length} sub-issue{childIssues.length === 1 ? "" : "s"}
+              </Badge>
+            ) : null}
             {issue.priority ? (
               <Badge variant="outline" className="bg-background/70">
                 {issue.priority.slice(0, 1).toUpperCase() +
@@ -1477,6 +1480,207 @@ export function IssueDetailPane({
         <div className="mx-auto w-full max-w-[1680px] px-6 py-8 xl:px-8">
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_188px]">
             <article className="min-w-0 space-y-10">
+              <section className="border-b border-border/70 pb-10">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="space-y-2">
+                    <h2 className="text-[20px] font-semibold tracking-tight text-foreground">
+                      Related issues
+                    </h2>
+                    <p className="max-w-3xl text-sm text-foreground/56">
+                      Break large work into sub-issues and keep the parent issue linked to its downstream tasks.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant={isCreatingSubIssue ? "ghost" : "outline"}
+                    onClick={() => {
+                      setIsCreatingSubIssue((current) => !current);
+                      setSubIssueError("");
+                    }}
+                  >
+                    <Plus className="size-4" />
+                    {isCreatingSubIssue ? "Close sub-issue form" : "Create sub-issue"}
+                  </Button>
+                </div>
+
+                <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+                  <div className="space-y-3">
+                    <div className="text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
+                      Parent
+                    </div>
+                    {parentIssue ? (
+                      <button
+                        type="button"
+                        onClick={() => openRelatedIssue(parentIssue)}
+                        className="flex w-full flex-col gap-2 rounded-2xl border border-border bg-background/60 px-4 py-3 text-left transition-colors hover:bg-background"
+                      >
+                        <div className="flex items-center gap-2 text-xs text-foreground/45">
+                          <span className="font-medium uppercase tracking-[0.14em]">
+                            {parentIssue.issue_id}
+                          </span>
+                          <span>{issueStatusLabel(parentIssue.status)}</span>
+                        </div>
+                        <div className="text-sm font-medium text-foreground">
+                          {parentIssue.title}
+                        </div>
+                      </button>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-border bg-background/45 px-4 py-5 text-sm text-foreground/48">
+                        This issue is a top-level issue.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
+                        Sub-issues
+                      </div>
+                      {childIssues.length > 0 ? (
+                        <div className="text-xs text-foreground/45">
+                          {childIssues.length} linked
+                        </div>
+                      ) : null}
+                    </div>
+                    {childIssues.length > 0 ? (
+                      <div className="space-y-2">
+                        {childIssues.map((childIssue) => {
+                          const childAssignee = childIssue.assignee_teammate_id
+                            ? teammatesById[childIssue.assignee_teammate_id] ?? null
+                            : null;
+                          return (
+                            <button
+                              key={childIssue.issue_id}
+                              type="button"
+                              onClick={() => openRelatedIssue(childIssue)}
+                              className="flex w-full flex-col gap-2 rounded-2xl border border-border bg-background/60 px-4 py-3 text-left transition-colors hover:bg-background"
+                            >
+                              <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/45">
+                                <span className="font-medium uppercase tracking-[0.14em]">
+                                  {childIssue.issue_id}
+                                </span>
+                                <span>{issueStatusLabel(childIssue.status)}</span>
+                                {childIssue.priority ? (
+                                  <span>
+                                    {childIssue.priority.slice(0, 1).toUpperCase() +
+                                      childIssue.priority.slice(1)}
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="text-sm font-medium text-foreground">
+                                {childIssue.title}
+                              </div>
+                              <div className="text-xs text-foreground/48">
+                                {childAssignee?.name || "Unassigned"} · Updated{" "}
+                                {formatRelativeTime(childIssue.updated_at)}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-border bg-background/45 px-4 py-5 text-sm text-foreground/48">
+                        No sub-issues yet.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {isCreatingSubIssue ? (
+                  <form onSubmit={handleCreateSubIssue} className="mt-5 max-w-3xl space-y-3">
+                    <div className="rounded-2xl border border-border bg-background/55 p-4">
+                      <div className="grid gap-3">
+                        <Input
+                          value={subIssueTitle}
+                          onChange={(event) => setSubIssueTitle(event.target.value)}
+                          placeholder="Sub-issue title"
+                          className="h-11 bg-background/70"
+                        />
+                        <Textarea
+                          value={subIssueDescription}
+                          onChange={(event) => setSubIssueDescription(event.target.value)}
+                          placeholder="What should this sub-issue cover?"
+                          className="min-h-[120px] resize-y bg-background/70"
+                        />
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <label className="grid gap-1.5 text-sm text-foreground/62">
+                            <span className="text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
+                              Assignee
+                            </span>
+                            <select
+                              value={subIssueAssigneeTeammateId}
+                              onChange={(event) =>
+                                setSubIssueAssigneeTeammateId(event.target.value)
+                              }
+                              className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-primary"
+                            >
+                              <option value="">Unassigned</option>
+                              {teammates.map((teammate) => (
+                                <option
+                                  key={teammate.teammate_id}
+                                  value={teammate.teammate_id}
+                                >
+                                  {teammate.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="grid gap-1.5 text-sm text-foreground/62">
+                            <span className="text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
+                              Priority
+                            </span>
+                            <select
+                              value={subIssuePriority}
+                              onChange={(event) =>
+                                setSubIssuePriority(
+                                  event.target.value as IssuePriorityPayload | "",
+                                )
+                              }
+                              className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-primary"
+                            >
+                              <option value="">None</option>
+                              <option value="critical">Critical</option>
+                              <option value="high">High</option>
+                              <option value="medium">Medium</option>
+                              <option value="low">Low</option>
+                            </select>
+                          </label>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                          <div className="text-xs text-foreground/48">
+                            New sub-issues start in Todo and keep their own thread and assignee.
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              onClick={() => {
+                                setIsCreatingSubIssue(false);
+                                setSubIssueError("");
+                              }}
+                              disabled={isSubIssueSubmitting}
+                            >
+                              Cancel
+                            </Button>
+                            <Button type="submit" disabled={isSubIssueSubmitting}>
+                              {isSubIssueSubmitting ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : (
+                                <Plus className="size-4" />
+                              )}
+                              Create sub-issue
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    {subIssueError ? (
+                      <div className="text-sm text-destructive">{subIssueError}</div>
+                    ) : null}
+                  </form>
+                ) : null}
+              </section>
+
               {isEditingDetails || issueAttachmentItems.length > 0 ? (
                 <section className="border-b border-border/70 pb-10">
                   <div className="space-y-2">
@@ -1740,130 +1944,6 @@ export function IssueDetailPane({
 
             <aside className="grid content-start gap-6 xl:sticky xl:top-0 xl:self-start xl:border-l xl:border-border/70 xl:pl-5">
               <SidebarSection
-                title="Properties"
-                description="Status, assignee, and priority can be changed while the issue is idle."
-              >
-                <div className="space-y-5">
-                  <div className="flex flex-wrap gap-2">
-                    <Badge variant="outline" className="bg-background/70">
-                      <StatusDot
-                        variant={issueStatusVariant(issue.status)}
-                        pulse={Boolean(issue.active_subagent_id)}
-                      />
-                      {issueStatusLabel(issue.status)}
-                    </Badge>
-                    <Badge variant="outline" className="bg-background/70">
-                      <UserRound className="size-3.5" />
-                      {assignee?.name || "Unassigned"}
-                    </Badge>
-                    {issue.priority ? (
-                      <Badge variant="outline" className="bg-background/70">
-                        {issue.priority.slice(0, 1).toUpperCase() +
-                          issue.priority.slice(1)}
-                      </Badge>
-                    ) : null}
-                    {issue.attachments.length > 0 ? (
-                      <Badge variant="outline" className="bg-background/70">
-                        <Paperclip className="size-3.5" />
-                        {issue.attachments.length} attachment
-                        {issue.attachments.length === 1 ? "" : "s"}
-                      </Badge>
-                    ) : null}
-                  </div>
-
-                  <PropertyRow
-                    label="Status"
-                    description="Todo auto-dispatches when the issue has an assignee."
-                  >
-                    <Select
-                      value={issue.status}
-                      onValueChange={(value) => {
-                        if (!value) return;
-                        void handleStatusChange(value as IssueStatusPayload);
-                      }}
-                      disabled={Boolean(issue.active_subagent_id) || isMutationPending}
-                    >
-                      <SelectTrigger className="h-10 w-full bg-background text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent align="start">
-                    {statusOptions.map((option) => (
-                      <SelectItem
-                        key={option.value}
-                        value={option.value}
-                        disabled={option.disabled}
-                          >
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </PropertyRow>
-
-                  <PropertyRow
-                    label="Assignee"
-                    description="Unassigned Todo issues stay idle until someone takes them."
-                  >
-                    <Select
-                      value={issue.assignee_teammate_id ?? "__unassigned__"}
-                      onValueChange={(value) => {
-                        if (!value) return;
-                        void handleAssigneeChange(
-                          value === "__unassigned__" ? null : value,
-                        );
-                      }}
-                      disabled={Boolean(issue.active_subagent_id) || isMutationPending}
-                    >
-                      <SelectTrigger className="h-10 w-full bg-background text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent align="start">
-                        <SelectItem value="__unassigned__">Unassigned</SelectItem>
-                        {teammates.map((teammate) => (
-                          <SelectItem
-                            key={teammate.teammate_id}
-                            value={teammate.teammate_id}
-                          >
-                            {teammate.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </PropertyRow>
-
-                  <PropertyRow
-                    label="Priority"
-                    description="Optional routing hint for humans reviewing the board."
-                  >
-                    <Select
-                      value={issue.priority ?? "__none__"}
-                      onValueChange={(value) => {
-                        if (!value) return;
-                        void handlePriorityChange(
-                          value === "__none__"
-                            ? null
-                            : (value as IssuePriorityPayload),
-                        );
-                      }}
-                      disabled={Boolean(issue.active_subagent_id) || isMutationPending}
-                    >
-                      <SelectTrigger className="h-10 w-full bg-background text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent align="start">
-                        <SelectItem value="__none__">No priority</SelectItem>
-                        {ISSUE_PRIORITY_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </PropertyRow>
-                </div>
-              </SidebarSection>
-
-              <SidebarSection
                 title="Execution log"
                 description="Current run state for the assigned teammate."
               >
@@ -1970,30 +2050,6 @@ function SidebarSection({
       </div>
       <div className="mt-4">{children}</div>
     </section>
-  );
-}
-
-function PropertyRow({
-  label,
-  description,
-  children,
-}: {
-  label: string;
-  description?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <div className="text-xs font-medium uppercase tracking-[0.18em] text-foreground/38">
-        {label}
-      </div>
-      {description ? (
-        <div className="mt-1 text-xs leading-5 text-foreground/48">
-          {description}
-        </div>
-      ) : null}
-      <div className="mt-2">{children}</div>
-    </div>
   );
 }
 

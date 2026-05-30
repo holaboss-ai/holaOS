@@ -14,6 +14,7 @@ import { load as parseYaml } from "js-yaml";
 import { RuntimeStateStore, utcNowIso } from "@holaboss/runtime-state-store";
 
 import {
+  ONBOARDING_IMPLEMENTING_STATE,
   RuntimeAgentToolsService,
   RuntimeAgentToolsServiceError,
 } from "./runtime-agent-tools.js";
@@ -635,7 +636,7 @@ test("rerunTask restarts an existing delegated task by task id", async () => {
   }
 });
 
-test("delegateTask creates issue-owned runs and routes to a matching custom teammate", async () => {
+test("delegateTask creates issue-owned runs for an explicitly assigned teammate", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-delegate-issue-"));
   const workspaceRoot = path.join(root, "workspace");
   const dbPath = path.join(root, "runtime.db");
@@ -676,6 +677,7 @@ test("delegateTask creates issue-owned runs and routes to a matching custom team
       inputId: parentInput.inputId,
       tasks: [
         {
+          teammateId: teammate.teammateId,
           title: "Dashboard UI",
           goal: "Implement the dashboard cards and charts in React.",
           context: "This is frontend UI work for the workspace home dashboard.",
@@ -685,8 +687,10 @@ test("delegateTask creates issue-owned runs and routes to a matching custom team
 
     const delegatedTask = result.tasks?.[0];
     assert.ok(delegatedTask);
+    assert.equal(delegatedTask?.task_id, "WOR-1");
     assert.equal(delegatedTask?.issue_id, "WOR-1");
     assert.equal(delegatedTask?.teammate_id, teammate.teammateId);
+    assert.equal(delegatedTask?.subagent_id, undefined);
     const issue = store.getIssue({
       workspaceId,
       issueId: String(delegatedTask?.issue_id),
@@ -694,7 +698,12 @@ test("delegateTask creates issue-owned runs and routes to a matching custom team
     assert.ok(issue);
     assert.equal(issue?.status, "todo");
     assert.equal(issue?.assigneeTeammateId, teammate.teammateId);
-    assert.equal(issue?.latestSubagentId, delegatedTask?.subagent_id);
+    const latestRun = store.getSubagentRunByChildSession({
+      workspaceId,
+      childSessionId: String(delegatedTask?.child_session_id ?? ""),
+    });
+    assert.ok(latestRun);
+    assert.equal(issue?.latestSubagentId, latestRun?.subagentId);
     assert.equal(issue?.description, [
       "Implement the dashboard cards and charts in React.",
       "",
@@ -735,8 +744,8 @@ test("delegateTask creates issue-owned runs and routes to a matching custom team
   }
 });
 
-test("delegateTask prefers explicit teammate capability profiles when choosing an assignee", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-delegate-capability-"));
+test("delegateTask requires an explicit teammate id", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-delegate-teammate-"));
   const workspaceRoot = path.join(root, "workspace");
   const dbPath = path.join(root, "runtime.db");
   const workspaceId = "workspace-1";
@@ -756,26 +765,6 @@ test("delegateTask prefers explicit teammate capability profiles when choosing a
       kind: "main_session",
       createdBy: "workspace_user",
     });
-    store.createTeammate({
-      workspaceId,
-      name: "Frontend",
-      instructions: "Own dashboard implementation tasks.",
-      capabilityProfile: {
-        summary: "Best for UI implementation and shipping frontend work.",
-        capabilities: ["frontend", "react", "dashboard"],
-        preferredTools: ["edit", "bash"],
-      },
-    });
-    const researcher = store.createTeammate({
-      workspaceId,
-      name: "Research",
-      instructions: "Own research and sourcing tasks.",
-      capabilityProfile: {
-        summary: "Best for live research, sourcing, and vendor comparisons.",
-        capabilities: ["research", "comparison", "vendors"],
-        preferredTools: ["web_search", "browser_get_state"],
-      },
-    });
     const parentInput = store.enqueueInput({
       workspaceId,
       sessionId: mainSessionId,
@@ -785,21 +774,154 @@ test("delegateTask prefers explicit teammate capability profiles when choosing a
     });
 
     const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    assert.throws(
+      () =>
+        service.delegateTask({
+          workspaceId,
+          sessionId: mainSessionId,
+          inputId: parentInput.inputId,
+          tasks: [
+            {
+              title: "Vendor pricing comparison",
+              goal: "Research current vendor pricing and summarize the differences.",
+              context: "Need live sourcing and comparison notes.",
+              tools: ["web_search"],
+            },
+          ],
+        }),
+      (error: unknown) =>
+        error instanceof RuntimeAgentToolsServiceError &&
+        error.statusCode === 400 &&
+        error.message === "teammate_id is required for delegated tasks",
+    );
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("delegateTask forbids workspace onboarding sessions from spawning subagents before implementing", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-onboarding-direct-"));
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const onboardingSessionId = "workspace-onboarding-1";
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+      onboardingStatus: "pending",
+      onboardingSessionId,
+    });
+    store.ensureSession({
+      workspaceId,
+      sessionId: onboardingSessionId,
+      kind: "workspace_onboarding",
+      createdBy: "workspace_user",
+    });
+    const general = store.ensureGeneralTeammate(workspaceId);
+    const parentInput = store.enqueueInput({
+      workspaceId,
+      sessionId: onboardingSessionId,
+      payload: {
+        text: "Build the approved workspace design.",
+      },
+    });
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    assert.throws(
+      () =>
+        service.delegateTask({
+          workspaceId,
+          sessionId: onboardingSessionId,
+          inputId: parentInput.inputId,
+          tasks: [
+            {
+              teammateId: general.teammateId,
+              goal: "Build the approved workspace design.",
+            },
+          ],
+        }),
+      (error: unknown) =>
+        error instanceof RuntimeAgentToolsServiceError &&
+        error.statusCode === 403 &&
+        error.code === "onboarding_delegation_forbidden" &&
+        error.message === "workspace onboarding can delegate tasks only during implementing",
+    );
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("delegateTask allows workspace onboarding sessions to spawn subagents during implementing", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-onboarding-implementing-"));
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const onboardingSessionId = "workspace-onboarding-1";
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+      onboardingStatus: "pending",
+      onboardingState: ONBOARDING_IMPLEMENTING_STATE,
+      onboardingSessionId,
+    });
+    store.ensureSession({
+      workspaceId,
+      sessionId: onboardingSessionId,
+      kind: "workspace_onboarding",
+      createdBy: "workspace_user",
+    });
+    const general = store.ensureGeneralTeammate(workspaceId);
+    const parentInput = store.enqueueInput({
+      workspaceId,
+      sessionId: onboardingSessionId,
+      payload: {
+        text: "Implement the approved workspace design.",
+      },
+    });
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
     const result = service.delegateTask({
       workspaceId,
-      sessionId: mainSessionId,
+      sessionId: onboardingSessionId,
       inputId: parentInput.inputId,
       tasks: [
         {
-          title: "Vendor pricing comparison",
-          goal: "Research current vendor pricing and summarize the differences.",
-          context: "Need live sourcing and comparison notes.",
-          tools: ["web_search"],
+          teammateId: general.teammateId,
+          title: "Workspace implementation",
+          goal: "Implement the approved workspace design.",
+          context: "Create the generic workspace structure and supporting files.",
         },
       ],
     }) as { tasks?: Array<Record<string, unknown>> };
 
-    assert.equal(result.tasks?.[0]?.teammate_id, researcher.teammateId);
+    const delegatedTask = result.tasks?.[0];
+    assert.ok(delegatedTask);
+    assert.equal(delegatedTask?.task_id, "WOR-1");
+    assert.equal(delegatedTask?.teammate_id, general.teammateId);
+    const issue = store.getIssue({
+      workspaceId,
+      issueId: String(delegatedTask?.issue_id ?? ""),
+    });
+    assert.ok(issue);
+    assert.equal(issue?.assigneeTeammateId, general.teammateId);
+    assert.equal(delegatedTask?.child_session_id, issue?.sessionId);
+    const issueSession = store.getSession({
+      workspaceId,
+      sessionId: String(delegatedTask?.child_session_id ?? ""),
+    });
+    assert.equal(issueSession?.parentSessionId, onboardingSessionId);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });
@@ -891,6 +1013,84 @@ test("queueIssueReply reopens a completed issue on the same persistent issue ses
   }
 });
 
+test("replyTask returns task-oriented payload when queuing a reply into an existing delegated task", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-reply-task-"));
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const workspaceId = "workspace-1";
+  const completedAt = utcNowIso();
+
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    store.createWorkspace({
+      workspaceId,
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    const teammate = store.ensureGeneralTeammate(workspaceId);
+    const issue = store.createIssue({
+      workspaceId,
+      issueId: "HOL-1",
+      sessionId: "session-issue-1",
+      title: "Ship dashboard",
+      description: "Implement the workspace dashboard surface.",
+      status: "done",
+      assigneeTeammateId: teammate.teammateId,
+      createdBy: "workspace_user",
+    });
+    store.ensureSession({
+      workspaceId,
+      sessionId: issue.sessionId,
+      kind: "subagent",
+      parentSessionId: issue.sessionId,
+      createdBy: "workspace_agent",
+      archivedAt: completedAt,
+    });
+    const staleRun = store.createSubagentRun({
+      workspaceId,
+      parentSessionId: issue.sessionId,
+      originMainSessionId: issue.sessionId,
+      ownerMainSessionId: issue.sessionId,
+      childSessionId: issue.sessionId,
+      goal: issue.description ?? issue.title,
+      issueId: issue.issueId,
+      teammateId: teammate.teammateId,
+      status: "completed",
+      completedAt: utcNowIso(),
+    });
+    store.updateIssue({
+      workspaceId,
+      issueId: issue.issueId,
+      fields: {
+        latestSubagentId: staleRun.subagentId,
+      },
+    });
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    const result = service.replyTask({
+      workspaceId,
+      taskId: issue.issueId,
+      text: "Please tighten the empty state copy.",
+      priority: 3,
+    }) as Record<string, unknown>;
+
+    assert.equal(result.task_id, issue.issueId);
+    assert.equal(result.status, "todo");
+    assert.equal(
+      ((result.latest_run as Record<string, unknown> | null) ?? {})?.task_id,
+      issue.issueId,
+    );
+    assert.equal(
+      ((result.latest_run as Record<string, unknown> | null) ?? {})?.subagent_id,
+      staleRun.subagentId,
+    );
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("delegateTask only opts into the user browser surface when the parent input literally says use my browser", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-delegate-browser-"));
   const workspaceRoot = path.join(root, "workspace");
@@ -926,6 +1126,7 @@ test("delegateTask only opts into the user browser surface when the parent input
         text: "Open Notion in my current tab.",
       },
     });
+    const general = store.ensureGeneralTeammate(workspaceId);
 
     const service = new RuntimeAgentToolsService(store, { workspaceRoot });
     const explicitResult = service.delegateTask({
@@ -934,6 +1135,7 @@ test("delegateTask only opts into the user browser surface when the parent input
       inputId: explicitParentInput.inputId,
       tasks: [
         {
+          teammateId: general.teammateId,
           goal: "Open Notion and stop there.",
           useUserBrowserSurface: true,
         },
@@ -945,6 +1147,7 @@ test("delegateTask only opts into the user browser surface when the parent input
       inputId: implicitParentInput.inputId,
       tasks: [
         {
+          teammateId: general.teammateId,
           goal: "Open Notion and stop there.",
           useUserBrowserSurface: true,
         },
@@ -1004,6 +1207,7 @@ test("delegateTask inherits the composer-selected model and thinking when no sub
       kind: "main_session",
       createdBy: "workspace_user",
     });
+    const general = store.ensureGeneralTeammate(workspaceId);
     const parentInput = store.enqueueInput({
       workspaceId,
       sessionId: mainSessionId,
@@ -1022,6 +1226,7 @@ test("delegateTask inherits the composer-selected model and thinking when no sub
       selectedModel: "openai/gpt-5.5",
       tasks: [
         {
+          teammateId: general.teammateId,
           goal: "Research major crypto developments today.",
         },
       ],
@@ -2171,16 +2376,26 @@ test("createTeammate persists teammate metadata without bundling filesystem skil
       harness: "pi",
       status: "active",
     });
+    const hr = store.ensureHrTeammate(workspace.id);
+    const hrIssue = store.createIssue({
+      workspaceId: workspace.id,
+      sessionId: "session-hr-1",
+      title: "Create teammate",
+      description: "Bootstrap a teammate.",
+      status: "todo",
+      assigneeTeammateId: hr.teammateId,
+      createdBy: "workspace_user",
+    });
 
     const service = new RuntimeAgentToolsService(store, { workspaceRoot });
     const result = service.createTeammate({
       workspaceId: workspace.id,
+      sessionId: hrIssue.sessionId,
       name: "Researcher",
       instructions: "Own research work.",
       capabilityProfile: {
         summary: "Best for research and synthesis.",
         capabilities: ["research", "synthesis"],
-        preferredTools: ["web_search", "browser"],
       },
     }) as {
       name: string;
@@ -2188,7 +2403,6 @@ test("createTeammate persists teammate metadata without bundling filesystem skil
       capability_profile: {
         summary: string | null;
         capabilities: string[];
-        preferred_tools: string[];
       };
       skills: Array<unknown>;
     };
@@ -2203,10 +2417,58 @@ test("createTeammate persists teammate metadata without bundling filesystem skil
       "research",
       "synthesis",
     ]);
-    assert.deepEqual(result.capability_profile.preferred_tools, [
-      "web_search",
-      "browser",
-    ]);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("listTeammates returns the live current roster for HR sessions", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-list-teammates-"));
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    const workspace = store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    const hr = store.ensureHrTeammate(workspace.id);
+    const hrIssue = store.createIssue({
+      workspaceId: workspace.id,
+      sessionId: "session-hr-1",
+      title: "Inspect teammate roster",
+      description: "Inspect the current roster before teammate bootstrap.",
+      status: "todo",
+      assigneeTeammateId: hr.teammateId,
+      createdBy: "workspace_user",
+    });
+    store.createTeammate({
+      workspaceId: workspace.id,
+      teammateId: "researcher",
+      name: "Researcher",
+      instructions: "Own research work.",
+    });
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    const result = service.listTeammates({
+      workspaceId: workspace.id,
+      sessionId: hrIssue.sessionId,
+      limit: 10,
+    }) as {
+      tool_id: string;
+      count: number;
+      teammates: Array<{ teammate_id: string }>;
+    };
+
+    assert.equal(result.tool_id, "teammates_list");
+    assert.equal(result.count, 4);
+    assert.deepEqual(
+      result.teammates.map((teammate) => teammate.teammate_id),
+      ["general", "hr", "app_builder", "researcher"],
+    );
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });
@@ -2225,6 +2487,16 @@ test("createTeammateSkill persists one teammate-local filesystem skill bundle", 
       harness: "pi",
       status: "active",
     });
+    const hr = store.ensureHrTeammate(workspace.id);
+    const hrIssue = store.createIssue({
+      workspaceId: workspace.id,
+      sessionId: "session-hr-1",
+      title: "Create teammate skill",
+      description: "Bootstrap a teammate skill.",
+      status: "todo",
+      assigneeTeammateId: hr.teammateId,
+      createdBy: "workspace_user",
+    });
     const teammate = store.createTeammate({
       workspaceId: workspace.id,
       name: "Researcher",
@@ -2234,6 +2506,7 @@ test("createTeammateSkill persists one teammate-local filesystem skill bundle", 
     const service = new RuntimeAgentToolsService(store, { workspaceRoot });
     const result = service.createTeammateSkill({
       workspaceId: workspace.id,
+      sessionId: hrIssue.sessionId,
       teammateId: teammate.teammateId,
       skill: {
         skillId: "research-playbook",
@@ -2285,6 +2558,70 @@ test("createTeammateSkill persists one teammate-local filesystem skill bundle", 
       true,
     );
     assert.equal(fs.existsSync(String(result.skill.file_path ?? "")), true);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("workspace app runtime tools are reserved for App Builder subagent sessions", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hb-runtime-agent-tools-app-builder-guard-"));
+  const workspaceRoot = path.join(root, "workspace");
+  const dbPath = path.join(root, "runtime.db");
+  const store = new RuntimeStateStore({ dbPath, workspaceRoot });
+  try {
+    const workspace = store.createWorkspace({
+      workspaceId: "workspace-1",
+      name: "Workspace 1",
+      harness: "pi",
+      status: "active",
+    });
+    const general = store.ensureGeneralTeammate(workspace.id);
+    const appBuilder = store.ensureAppBuilderTeammate(workspace.id);
+    const generalIssue = store.createIssue({
+      workspaceId: workspace.id,
+      sessionId: "session-general-1",
+      title: "Build an app",
+      description: "Create a new dashboard app.",
+      status: "todo",
+      assigneeTeammateId: general.teammateId,
+      createdBy: "workspace_user",
+    });
+    const appBuilderIssue = store.createIssue({
+      workspaceId: workspace.id,
+      sessionId: "session-app-builder-1",
+      title: "Build an app",
+      description: "Create a new dashboard app.",
+      status: "todo",
+      assigneeTeammateId: appBuilder.teammateId,
+      createdBy: "workspace_user",
+    });
+
+    const service = new RuntimeAgentToolsService(store, { workspaceRoot });
+    await assert.rejects(
+      () =>
+        service.scaffoldWorkspaceApp({
+          workspaceId: workspace.id,
+          sessionId: generalIssue.sessionId,
+          appId: "demo-app",
+          name: "Demo App",
+        }),
+      (error: unknown) =>
+        error instanceof RuntimeAgentToolsServiceError &&
+        error.statusCode === 403 &&
+        error.code === "app_builder_teammate_required" &&
+        error.message === "workspace_apps_scaffold is only available to the App Builder teammate",
+    );
+
+    const result = await service.scaffoldWorkspaceApp({
+      workspaceId: workspace.id,
+      sessionId: appBuilderIssue.sessionId,
+      appId: "demo-app",
+      name: "Demo App",
+    });
+
+    assert.equal(result.app_id, "demo-app");
+    assert.equal(result.app_dir, "apps/demo-app");
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });

@@ -9,18 +9,20 @@ Use the one-line repository installer on a fresh machine, or follow the manual p
 
 ## One-line install
 
-For a fresh-machine bootstrap on macOS, Linux, or WSL, use the repository installer and continue directly into the desktop dev environment after verification:
+For a mostly automatic bootstrap on macOS, Linux, or WSL, install Bun first, then use the repository installer and continue directly into the desktop dev environment after verification:
 
 ```bash
+curl -fsSL https://bun.sh/install | bash
 curl -fsSL https://raw.githubusercontent.com/holaboss-ai/holaOS/main/scripts/install.sh | bash -s -- --launch
 ```
 
 That installer:
 
 - installs missing `git` and Node.js `24` / `npm` when needed
-- clones the repository into `~/holaOS` by default
-- creates `desktop/.env` from `desktop/.env.example` if needed
-- runs `npm run desktop:install`
+- assumes `bun` is already on `PATH`
+- clones the repository into `~/holaboss-ai` by default
+- creates `apps/desktop/.env` from `apps/desktop/.env.example` if needed
+- runs `bun install`
 - runs `npm run desktop:prepare-runtime:local`
 - runs `npm run desktop:typecheck`
 - runs `npm run desktop:dev` when `--launch` is passed
@@ -35,14 +37,15 @@ If you are using the manual path, make sure the machine has:
 
 - `git`
 - `node` version `24` or newer
-- `npm`
+- `bun`
+- `npm` if you want to use the root `npm run ...` wrappers instead of calling `bun` directly
 
 You can verify that quickly with:
 
 ```bash
 git --version
 node --version
-npm --version
+bun --version
 ```
 
 ### Hand-off to a coding agent
@@ -50,7 +53,7 @@ npm --version
 If you are using Codex, Claude Code, Cursor, Windsurf, or another coding agent, you can hand it the setup instructions in one sentence:
 
 ```text
-Clone the holaOS repo from https://github.com/holaboss-ai/holaOS.git if needed, or use the current checkout if it is already open, then follow INSTALL.md exactly to bootstrap local desktop development. If the environment cannot open Electron, stop after verification and tell me the next manual step.
+Clone the holaOS repo from https://github.com/holaboss-ai/holaOS.git if needed, or use the current checkout if it is already open, then follow the source-install runbook in this repo with Bun available on PATH. If the environment cannot open Electron, stop after verification and tell me the next manual step.
 ```
 
 That handoff keeps the installation flow self-contained while leaving the detailed bootstrap steps in the repo-local `INSTALL.md` runbook.
@@ -64,19 +67,19 @@ git clone https://github.com/holaboss-ai/holaOS.git
 cd holaOS
 ```
 
-**Step 2: Install the desktop dependencies**
+**Step 2: Install the repo dependencies**
 
 ```bash
-npm run desktop:install
+bun install
 ```
 
 **Step 3: Create your local environment file**
 
 ```bash
-cp desktop/.env.example desktop/.env
+cp apps/desktop/.env.example apps/desktop/.env
 ```
 
-The minimum value that makes `npm run desktop:dev` pass its preflight is a remote base URL such as `HOLABOSS_BACKEND_BASE_URL` or `HOLABOSS_PROACTIVE_URL`. The checked-in `desktop/.env.example` already includes `HOLABOSS_BACKEND_BASE_URL`, so copying that file is enough for the default local path.
+The minimum value that makes `npm run desktop:dev` pass its preflight is a remote base URL such as `HOLABOSS_BACKEND_BASE_URL` or `HOLABOSS_PROACTIVE_URL`. The checked-in `apps/desktop/.env.example` already includes `HOLABOSS_BACKEND_BASE_URL`, so copying that file is enough for the default local path.
 
 **Step 4: Prepare the local runtime bundle**
 

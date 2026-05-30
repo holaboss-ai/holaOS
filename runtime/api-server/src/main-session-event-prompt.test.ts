@@ -117,3 +117,30 @@ test("queued main-session event prompt entry preserves task references for follo
   assert.equal(payload.issue_id, "HOL-7");
   assert.equal(payload.summary, "Dashboard polish finished.");
 });
+
+test("queued main-session event prompt entry preserves edited file paths for follow-up routing", () => {
+  const entry = queuedMainSessionEventPromptEntry({
+    event_id: "event-4",
+    event_type: "completed",
+    delivery_bucket: "background_update",
+    status: "pending",
+    subagent_id: "subagent-4",
+    created_at: "2026-04-29T00:00:00.000Z",
+    payload: {
+      status: "completed",
+      summary: "Updated apps/desktop/src/App.tsx.",
+      edited_files: [
+        "apps/desktop/src/App.tsx",
+        "apps/desktop/src/App.tsx",
+        "runtime/api-server/src/claimed-input-executor.ts",
+      ],
+    },
+  });
+
+  const payload = entry.payload as Record<string, unknown>;
+
+  assert.deepEqual(payload.edited_files, [
+    "apps/desktop/src/App.tsx",
+    "runtime/api-server/src/claimed-input-executor.ts",
+  ]);
+});

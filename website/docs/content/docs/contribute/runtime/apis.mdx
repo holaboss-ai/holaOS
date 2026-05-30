@@ -14,7 +14,7 @@ The source of truth is code:
 
 These APIs are used by the desktop app and by surrounding platform services. They are operational surfaces for running a workspace, not a generic third-party developer platform.
 
-If a route change also changes durable records, continue to [Runtime State Store](/build-on-holaos/runtime/state-store). If it changes how a run is compiled or which tools/context the harness receives, continue to [Run Compilation](/build-on-holaos/runtime/run-compilation).
+If a route change also changes durable records, continue to [Runtime State Store](/docs/contribute/runtime/state-store). If it changes how a run is compiled or which tools/context the harness receives, continue to [Run Compilation](/docs/contribute/runtime/run-compilation).
 
 ## Launch modes and ports
 
@@ -22,9 +22,11 @@ The same API server shows up under different ports depending on how you started 
 
 - Running `runtime/api-server/dist/index.mjs` directly defaults to `0.0.0.0:3060` unless `SANDBOX_RUNTIME_API_PORT`, `SANDBOX_AGENT_BIND_PORT`, or `PORT` is set.
 - The packaged runtime launcher defaults to `0.0.0.0:8080` through `runtime/deploy/bootstrap/shared.sh`.
-- The embedded desktop runtime binds to `127.0.0.1:5160` because `desktop/electron/main.ts` launches it that way.
+- The embedded desktop runtime binds to `127.0.0.1:<derived-port>`. `apps/desktop/electron/main.ts` resolves that port from `HOLABOSS_RUNTIME_API_PORT` or, when unset, from a hash of the Electron `userData` path. Port `5060` is rejected, and `5160` is only the bootstrap fallback before per-profile derivation runs.
 
 Use the right port before you assume a route is broken.
+
+The examples below use `RUNTIME_PORT` as a placeholder for the desktop runtime port when you are debugging the embedded path.
 
 ## Common endpoint families
 
@@ -35,7 +37,7 @@ Use the right port before you assume a route is broken.
 | Workspaces and files | `/api/v1/workspaces`, `/api/v1/workspaces/:workspaceId/files/*`, `/apply-template`, `/export`, `/snapshot` | `workspace-apps.ts`, `workspace-snapshot.ts`, and workspace materialization helpers |
 | Agent runs and sessions | `/api/v1/agent-runs`, `/api/v1/agent-runs/stream`, `/api/v1/agent-sessions/*`, `/api/v1/agent-sessions/:sessionId/artifacts`, `/api/v1/agent-sessions/by-workspace/:workspaceId/with-artifacts` | `runner-worker.ts`, `ts-runner.ts`, `turn-result-summary.ts`, and state-store session tables |
 | Integrations and auth flows | `/api/v1/integrations/*`, `/api/v1/integrations/oauth/*`, `/api/v1/integrations/broker/*` | `integrations.ts`, `integration-broker.ts`, `oauth-service.ts`, and `composio-service.ts` |
-| Memory and post-run system state | `/api/v1/memory/*`, `/api/v1/memory-update-proposals*`, `/api/v1/task-proposals*` | `memory.js`, `user-memory-proposals.js`, `turn-memory-writeback.js`, and queue or evolve workers |
+| Memory and post-run system state | `/api/v1/memory/*`, `/api/v1/memory-update-proposals*`, `/api/v1/task-proposals*` | `memory.ts`, `user-memory-proposals.ts`, `turn-memory-writeback.ts`, and queue or evolve workers |
 | Apps and resolved-app orchestration | `/api/v1/apps/*`, `/api/v1/apps/:appId/setup-log`, `/api/v1/apps/install-archive`, `/api/v1/internal/workspaces/:workspaceId/resolved-apps/start` | `workspace-apps.ts`, `app-lifecycle-worker.ts`, and `resolved-app-bootstrap.ts` |
 | Outputs, notifications, and cronjobs | `/api/v1/outputs*`, `/api/v1/output-folders*`, `/api/v1/notifications*`, `/api/v1/cronjobs*` | `cron-worker.ts`, state-store output tables, session artifact helpers, and the desktop surfaces that render this state |
 
@@ -53,7 +55,8 @@ That is how `write_report` and other runtime tools can persist outputs with stab
 Representative `write_report` call:
 
 ```bash
-curl -X POST http://127.0.0.1:5160/api/v1/capabilities/runtime-tools/reports \
+RUNTIME_PORT=39160
+curl -X POST http://127.0.0.1:${RUNTIME_PORT}/api/v1/capabilities/runtime-tools/reports \
   -H 'x-holaboss-workspace-id: workspace-1' \
   -H 'x-holaboss-session-id: session-main' \
   -H 'x-holaboss-input-id: input-1' \
@@ -110,8 +113,9 @@ Execution usually crosses `runtime/api-server/src/ts-runner.ts`, the harness reg
 Representative SSE debug call for session outputs:
 
 ```bash
+RUNTIME_PORT=39160
 curl -N \
-  'http://127.0.0.1:5160/api/v1/agent-sessions/session-main/outputs/stream?include_history=false&stop_on_terminal=true'
+  "http://127.0.0.1:${RUNTIME_PORT}/api/v1/agent-sessions/session-main/outputs/stream?include_history=false&stop_on_terminal=true"
 ```
 
 If you change a runtime-tool route that creates outputs or artifacts, also inspect:
@@ -132,8 +136,9 @@ The app install path has two operational contracts worth treating as API behavio
 Representative setup-log debug call:
 
 ```bash
+RUNTIME_PORT=39160
 curl \
-  'http://127.0.0.1:5160/api/v1/apps/my_app/setup-log?workspace_id=workspace-1'
+  "http://127.0.0.1:${RUNTIME_PORT}/api/v1/apps/my_app/setup-log?workspace_id=workspace-1"
 ```
 
 The response includes:
@@ -155,8 +160,9 @@ The response includes:
 For a local embedded desktop runtime:
 
 ```bash
-curl http://127.0.0.1:5160/healthz
-curl http://127.0.0.1:5160/api/v1/runtime/status
+RUNTIME_PORT=39160
+curl http://127.0.0.1:${RUNTIME_PORT}/healthz
+curl http://127.0.0.1:${RUNTIME_PORT}/api/v1/runtime/status
 ```
 
 For standalone runtime debugging, change the port to the one you actually bound, usually `8080` or `3060`.

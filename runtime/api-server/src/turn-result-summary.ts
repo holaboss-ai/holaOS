@@ -43,6 +43,56 @@ function pluralize(value: number, singular: string, plural = `${singular}s`): st
   return value === 1 ? singular : plural;
 }
 
+function editedFilesFromToolUsageSummary(
+  toolUsageSummary: Record<string, unknown>,
+): string[] {
+  const editedFiles = Array.isArray(toolUsageSummary.edited_files)
+    ? toolUsageSummary.edited_files
+    : [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of editedFiles) {
+    if (typeof value !== "string") {
+      continue;
+    }
+    const trimmed = compactWhitespace(value);
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
+function editedFileRunSummary(turnResult: TurnResultRecord): string | null {
+  const editedFiles = editedFilesFromToolUsageSummary(turnResult.toolUsageSummary);
+  if (editedFiles.length === 0) {
+    return null;
+  }
+  const preview = editedFiles.slice(0, 3);
+  const previewText = preview.join(", ");
+  if (turnResult.status === "waiting_user") {
+    return editedFiles.length === 1
+      ? `Updated ${previewText} and is waiting for user input.`
+      : `Updated ${editedFiles.length} files, including ${previewText}, and is waiting for user input.`;
+  }
+  if (turnResult.status === "paused") {
+    return editedFiles.length === 1
+      ? `Updated ${previewText} before the run was paused.`
+      : `Updated ${editedFiles.length} files, including ${previewText}, before the run was paused.`;
+  }
+  if (turnResult.status !== "completed") {
+    return null;
+  }
+  if (editedFiles.length === 1) {
+    return `Updated ${previewText}.`;
+  }
+  return editedFiles.length > 3
+    ? `Updated ${editedFiles.length} files, including ${previewText}.`
+    : `Updated ${editedFiles.length} files: ${previewText}.`;
+}
+
 function browserRunSummary(turnResult: TurnResultRecord): string | null {
   const browser = isRecord(turnResult.toolUsageSummary.browser)
     ? turnResult.toolUsageSummary.browser
@@ -118,6 +168,10 @@ export function compactTurnSummary(turnResult: TurnResultRecord): string | null 
   );
   if (assistantLines.length > 0) {
     return assistantLines.join(" ");
+  }
+  const editedFileSummary = editedFileRunSummary(turnResult);
+  if (editedFileSummary) {
+    return editedFileSummary;
   }
   const browserSummary = browserRunSummary(turnResult);
   if (browserSummary) {

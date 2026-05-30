@@ -390,6 +390,7 @@ declare global {
   interface RuntimeUserProfilePayload {
     profileId: string;
     name: string | null;
+    timezone: string | null;
     nameSource: RuntimeUserProfileNameSource | null;
     createdAt: string | null;
     updatedAt: string | null;
@@ -398,6 +399,7 @@ declare global {
   interface RuntimeUserProfileUpdatePayload {
     profileId?: string | null;
     name?: string | null;
+    timezone?: string | null;
     nameSource?: RuntimeUserProfileNameSource | null;
   }
 
@@ -739,7 +741,6 @@ interface RuntimeNotificationListOptionsPayload {
   interface TeammateCapabilityProfilePayload {
     summary: string | null;
     capabilities: string[];
-    preferred_tools: string[];
   }
 
   interface TeammateRecordPayload {
@@ -840,6 +841,7 @@ interface RuntimeNotificationListOptionsPayload {
     workspace_id: string;
     issue_number: number;
     session_id: string;
+    parent_issue_id: string | null;
     title: string;
     description: string | null;
     status: IssueStatusPayload;
@@ -862,6 +864,7 @@ interface RuntimeNotificationListOptionsPayload {
 
   interface CreateIssuePayload {
     workspace_id: string;
+    parent_issue_id?: string | null;
     title: string;
     description?: string | null;
     status: IssueStatusPayload;
@@ -878,6 +881,7 @@ interface RuntimeNotificationListOptionsPayload {
 
   interface UpdateIssuePayload {
     workspace_id: string;
+    parent_issue_id?: string | null;
     title?: string | null;
     description?: string | null;
     status?: IssueStatusPayload;

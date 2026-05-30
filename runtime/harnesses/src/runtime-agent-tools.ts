@@ -40,15 +40,21 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     policy: "mutate"
   },
   {
+    id: "teammates_list",
+    description:
+      "HR teammate only: list the current workspace teammates so roster bootstrap work can compare against the live available roster before creating or reshaping anyone.",
+    policy: "inspect"
+  },
+  {
     id: "teammates_create",
     description:
-      "Create a custom teammate record for the current workspace, including optional capability profile hints and durable teammate instructions.",
+      "HR teammate only: create a custom teammate record for the current workspace, including optional capability profile hints and durable teammate instructions.",
     policy: "mutate"
   },
   {
     id: "teammate_skills_create",
     description:
-      "Create one teammate-local skill bundle under teammates/<teammate-id>/skills/<skill-id>/ for an existing teammate in the current workspace.",
+      "HR teammate only: create one teammate-local skill bundle under teammates/<teammate-id>/skills/<skill-id>/ for an existing teammate in the current workspace.",
     policy: "mutate"
   },
   {
@@ -70,13 +76,13 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
   {
     id: "delegate_task",
     description:
-      "Delegate one or more background tasks to hidden subagents for the current workspace session while keeping the main conversation free.",
+      "Delegate one or more background tasks to hidden subagents for the current workspace session while keeping the main conversation free. Each delegated task must include an explicit teammate_id chosen by the manager and may optionally include a parent task id when creating a sub-task. Follow-up task tools use the returned task_id, not the subagent_id.",
     policy: "coordinate"
   },
   {
     id: "get_task",
     description:
-      "Read one delegated task by task id and return its current task state plus linked run details when available.",
+      "Read one delegated task by task id and return its current task state plus linked run details when available. Pass the stable task_id such as U5-2, not the subagent_id UUID.",
     policy: "inspect"
   },
   {
@@ -86,15 +92,21 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     policy: "inspect"
   },
   {
+    id: "reply_task",
+    description:
+      "Reply to one delegated task by task id, usually when that task is waiting on user input. Pass the stable task_id such as U5-2, not the subagent_id UUID.",
+    policy: "mutate"
+  },
+  {
     id: "cancel_task",
     description:
-      "Cancel the active execution for one delegated task by task id when that task currently has running work.",
+      "Cancel the active execution for one delegated task by task id when that task currently has running work. Pass the stable task_id such as U5-2, not the subagent_id UUID.",
     policy: "mutate"
   },
   {
     id: "rerun_task",
     description:
-      "Restart one delegated task by task id using its existing task brief and linked child session routing.",
+      "Restart one delegated task by task id using its existing task brief and linked child session routing. Pass the stable task_id such as U5-2, not the subagent_id UUID.",
     policy: "mutate"
   },
   {

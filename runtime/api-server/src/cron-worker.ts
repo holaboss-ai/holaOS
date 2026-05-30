@@ -37,6 +37,65 @@ function normalizedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizedTimezone(value: unknown): string | null {
+  const timezone = normalizedString(value);
+  if (!timezone) {
+    return null;
+  }
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(new Date());
+    return timezone;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveProcessTimezone(): string | null {
+  try {
+    return normalizedTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  } catch {
+    return null;
+  }
+}
+
+export function runtimeUserTimezone(
+  store: Pick<RuntimeStateStore, "getRuntimeUserProfile">,
+): string | null {
+  return (
+    normalizedTimezone(store.getRuntimeUserProfile()?.timezone) ??
+    resolveProcessTimezone()
+  );
+}
+
+function cronjobPinnedTimezone(
+  metadata: Record<string, unknown> | null | undefined,
+): string | null {
+  return isRecord(metadata) ? normalizedTimezone(metadata.timezone) : null;
+}
+
+export function cronjobResolvedTimezone(
+  metadata: Record<string, unknown> | null | undefined,
+  fallbackTimezone?: string | null,
+): string | null {
+  return (
+    cronjobPinnedTimezone(metadata) ??
+    normalizedTimezone(fallbackTimezone) ??
+    resolveProcessTimezone()
+  );
+}
+
+export function cronjobMetadataWithResolvedTimezone(
+  metadata: Record<string, unknown> | null | undefined,
+  fallbackTimezone?: string | null,
+): Record<string, unknown> {
+  const nextMetadata = isRecord(metadata) ? { ...metadata } : {};
+  const timezone = cronjobResolvedTimezone(nextMetadata, fallbackTimezone);
+  if (timezone) {
+    nextMetadata.timezone = timezone;
+  }
+  return nextMetadata;
+}
+
 function titleCaseWords(value: string): string {
   return value.replace(/\b([a-z])/g, (match) => match.toUpperCase());
 }
@@ -261,21 +320,35 @@ export function cronjobCheckIntervalMs(): number {
   return Math.max(5, parsed) * 1000;
 }
 
-export function cronjobNextRunAt(cronExpression: string, now: Date): string | null {
+export function cronjobNextRunAt(
+  cronExpression: string,
+  now: Date,
+  timezone?: string | null,
+): string | null {
   try {
-    const interval = CronExpressionParser.parse(cronExpression, { currentDate: now });
+    const interval = CronExpressionParser.parse(cronExpression, {
+      currentDate: now,
+      ...(normalizedTimezone(timezone) ? { tz: normalizedTimezone(timezone)! } : {}),
+    });
     return interval.next().toISOString();
   } catch {
     return null;
   }
 }
 
-export function cronjobIsDue(job: CronjobRecord, now: Date): boolean {
+export function cronjobIsDue(
+  job: CronjobRecord,
+  now: Date,
+  fallbackTimezone?: string | null,
+): boolean {
   if (!job.enabled) {
     return false;
   }
+  const pinnedTimezone = cronjobPinnedTimezone(job.metadata);
+  const effectiveTimezone =
+    pinnedTimezone ?? cronjobResolvedTimezone(job.metadata, fallbackTimezone);
   const nextRunAtRaw = normalizedString(job.nextRunAt);
-  if (nextRunAtRaw) {
+  if (nextRunAtRaw && pinnedTimezone) {
     const nextRunAt = new Date(nextRunAtRaw);
     if (!Number.isNaN(nextRunAt.getTime())) {
       return now >= nextRunAt;
@@ -283,7 +356,10 @@ export function cronjobIsDue(job: CronjobRecord, now: Date): boolean {
   }
   let lastScheduled: Date;
   try {
-    lastScheduled = CronExpressionParser.parse(job.cron, { currentDate: now }).prev().toDate();
+    lastScheduled = CronExpressionParser.parse(job.cron, {
+      currentDate: now,
+      ...(effectiveTimezone ? { tz: effectiveTimezone } : {}),
+    }).prev().toDate();
   } catch {
     return false;
   }
@@ -597,6 +673,7 @@ export class RuntimeCronWorker implements CronWorkerLike {
 
   async processDueCronjobsOnce(now = new Date()): Promise<number> {
     let processed = 0;
+    const fallbackTimezone = runtimeUserTimezone(this.#store);
     for (const job of this.#store.listCronjobs({ enabledOnly: true })) {
       const workspace = this.#store.getWorkspace(job.workspaceId);
       if (isDraftLabWorkspace(workspace)) {
@@ -613,7 +690,23 @@ export class RuntimeCronWorker implements CronWorkerLike {
         });
         continue;
       }
-      if (!cronjobIsDue(job, now)) {
+      const timezonePinnedOnJob = cronjobPinnedTimezone(job.metadata);
+      const effectiveTimezone =
+        timezonePinnedOnJob ??
+        cronjobResolvedTimezone(job.metadata, fallbackTimezone);
+      const metadataWithTimezone =
+        timezonePinnedOnJob || !effectiveTimezone
+          ? job.metadata
+          : cronjobMetadataWithResolvedTimezone(job.metadata, effectiveTimezone);
+      if (!cronjobIsDue(job, now, fallbackTimezone)) {
+        if (!timezonePinnedOnJob && effectiveTimezone) {
+          this.#store.updateCronjob({
+            workspaceId: job.workspaceId,
+            jobId: job.id,
+            metadata: metadataWithTimezone,
+            nextRunAt: cronjobNextRunAt(job.cron, now, effectiveTimezone),
+          });
+        }
         continue;
       }
       processed += 1;
@@ -650,7 +743,8 @@ export class RuntimeCronWorker implements CronWorkerLike {
         workspaceId: job.workspaceId,
         jobId: job.id,
         lastRunAt: now.toISOString(),
-        nextRunAt: cronjobNextRunAt(job.cron, now),
+        metadata: metadataWithTimezone,
+        nextRunAt: cronjobNextRunAt(job.cron, now, effectiveTimezone),
         runCount: job.runCount + (status === "success" ? 1 : 0),
         lastStatus: status,
         lastError: error

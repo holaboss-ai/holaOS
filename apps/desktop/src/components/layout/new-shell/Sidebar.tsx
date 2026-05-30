@@ -26,6 +26,7 @@ import {
 } from "@/components/panes/ChatPane/ArtifactBrowserModal";
 import type { ArtifactBrowserFilter } from "@/components/panes/ChatPane/types";
 import { FileTypeIcon } from "@/lib/fileIcon";
+import { useStoplightCompensation } from "@/lib/StoplightContext";
 import { useIntegrationBinding } from "@/lib/useIntegrationBinding";
 import { cn } from "@/lib/utils";
 import type { WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
@@ -83,7 +84,6 @@ import {
   controlCenterOpenAtom,
   createWorkspaceOpenAtom,
   focusModeAtom,
-  newIssueOpenAtom,
   publishOpenAtom,
   searchOpenAtom,
   SIDEBAR_MAX_WIDTH,
@@ -457,10 +457,23 @@ function SidebarIssuesSection() {
   const { issues, isLoading, statusMessage } = useIssues(
     selectedWorkspaceId || null,
   );
-  const setNewIssueOpen = useSetAtom(newIssueOpenAtom);
+  const setComposerPrefill = useSetAtom(chatComposerPrefillAtom);
+  const setFocusMode = useSetAtom(focusModeAtom);
   const openIssueDetailTab = useOpenIssueDetailTab();
   const setInternalTabs = useSetAtom(internalTabsAtom);
   const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
+  const prefillKeyRef = useRef(0);
+
+  const handleNewIssue = useCallback(() => {
+    prefillKeyRef.current += 1;
+    setComposerPrefill({
+      text: "New issue: ",
+      requestKey: prefillKeyRef.current,
+      mode: "replace",
+      sessionMode: "preserve",
+    });
+    setFocusMode(false);
+  }, [setComposerPrefill, setFocusMode]);
 
   const handleOpenIssue = useCallback(
     (issue: IssueRecordPayload) => {
@@ -507,7 +520,7 @@ function SidebarIssuesSection() {
         <div className="grid gap-2">
           <Button
             type="button"
-            onClick={() => setNewIssueOpen(true)}
+            onClick={handleNewIssue}
             disabled={!selectedWorkspaceId}
             className="h-8 justify-start rounded-lg px-3 text-xs"
           >
@@ -680,6 +693,11 @@ function IssueListRow({
           <div className="truncate text-xs font-medium text-foreground">
             {issue.title || "Untitled issue"}
           </div>
+          {issue.parent_issue_id ? (
+            <div className="mt-0.5 text-[10.5px] uppercase tracking-[0.14em] text-foreground/35">
+              Sub-issue of {issue.parent_issue_id}
+            </div>
+          ) : null}
           <div className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-foreground/45">
             <span>{issue.issue_id}</span>
             <span aria-hidden>•</span>
@@ -964,6 +982,7 @@ function SidebarAutomationsSection() {
       text: "Create a schedule for ",
       requestKey: prefillKeyRef.current,
       mode: "replace",
+      sessionMode: "draft",
     });
     setFocusMode(false);
   }, [setComposerPrefill, setFocusMode]);
@@ -1946,8 +1965,8 @@ const MAC_WORKSPACE_POPOVER_LEFT_INSET = 72;
 
 function WorkspaceSwitcher() {
   const sidebarWidth = useAtomValue(sidebarWidthAtom);
-  const isMacDesktop = window.electronAPI?.platform === "darwin";
-  const workspacePopoverAlignOffset = isMacDesktop
+  const reserveStoplightGutter = useStoplightCompensation();
+  const workspacePopoverAlignOffset = reserveStoplightGutter
     ? -MAC_WORKSPACE_POPOVER_LEFT_INSET
     : 0;
   const { selectedWorkspaceId, setSelectedWorkspaceId } =
@@ -1990,7 +2009,7 @@ function WorkspaceSwitcher() {
     <div
       className={cn(
         "window-drag flex h-10 shrink-0 items-center pr-2",
-        isMacDesktop ? "pl-20" : "pl-2",
+        reserveStoplightGutter ? "pl-20" : "pl-2",
       )}
     >
       <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>

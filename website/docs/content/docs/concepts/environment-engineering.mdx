@@ -51,8 +51,8 @@ Context makes the distinction concrete. The exact prompt for a step may change w
 | Context layer | What it is |
 | --- | --- |
 | Hot context | the prompt package actually sent to the model for this step |
-| Warm context | recent run or session state that is cheap to resume from, but not always injected in full |
-| Cold context | durable retrievable state such as memory, instructions, skills, artifacts, traces, and policy |
+| Warm context | recent run or session state such as persisted harness session state, `session-memory`, and scratchpad metadata that is cheap to resume from, but not always injected in full |
+| Cold context | durable retrievable state such as authored policy, skills, apps, memory forests, artifacts, traces, and capability rules |
 
 This is why memory should not be treated as synonymous with context. Most memory lives outside the prompt and only becomes hot context when the system decides it is relevant for a particular step.
 
@@ -76,9 +76,9 @@ The `holaOS` environment is not one flat bag of features. It defines several lay
 | Layer | What it contains | Why it exists |
 | --- | --- | --- |
 | Durable authored state | workspace structure, app manifests, skills, commands, standing instructions | preserves authored intent and reproducible shape |
-| Durable adaptive state | durable memory, outputs, traces, feedback, reviewed improvements | preserves learning and improvement over time |
-| Runtime continuity state | turn results, snapshots, checkpoints, warm context | preserves coherent resumption |
-| Projected execution state | visible/callable surface, model routing, attachments, hot context | defines the per-run execution boundary |
+| Durable adaptive state | markdown memory forests, outputs, traces, feedback, reviewed improvements | preserves learning and improvement over time |
+| Runtime continuity state | turn results, request snapshots, session-memory, scratchpad metadata, warm context | preserves coherent resumption |
+| Projected execution state | visible or callable surface, model routing, attachments, hot context | defines the per-run execution boundary |
 
 *[Image placeholder: Environment contract layers. Show authored state, adaptive state, continuity state, and projected execution state around the harness boundary.]*
 
@@ -90,15 +90,19 @@ The `holaOS` environment is not one flat bag of features. It defines several lay
 
 ### Durable adaptive state
 
-- memory that can survive across runs
+- durable memory that can survive across runs
+  - workspace-local interaction leaves and semantic interaction trees
+  - integration leaves and semantic integration trees
+  - accepted user preference or identity memory
 - durable outputs, reusable artifacts, and evaluation traces
 - operator feedback, approvals, and other reward-like signals
 - reviewed improvements such as promoted memory or reusable skills
 
 ### Runtime continuity state
 
-- turn results, snapshots, checkpoints, and session-scoped continuity records
-- runtime-owned state that helps future runs restore context coherently
+- turn results, request snapshots, persisted harness-session state, and session-scoped continuity records
+- runtime-generated continuity projections such as `latest-turn.md`, `recent-turns/`, blockers, and `session-memory`
+- session scratchpads as working memory for multi-step runs
 - warm context that keeps the next step or next run cheap to resume without promoting everything into durable memory
 
 ### Projected execution state
@@ -128,7 +132,7 @@ Continual learning, memory evolution, reflection, and reinforcement are importan
 - the outcomes, evaluations, and operator feedback that judged the run
 - the review boundary that decides what may become durable memory, skill, policy, or capability
 
-If those trajectories and feedback signals are trapped inside one executor, they may help that one loop, but they do not reliably improve the system's ability to handle long-horizon work across time. In `holaOS`, the point is to give roles a durable operating boundary where useful evidence can accumulate into better memory, stronger skills, safer policy, and other reviewed capability over time. Today, the clearest landing zones are durable memory, evolve flows, and candidate skills. The broader direction is larger than that: repeated good work should become inspectable system capability rather than staying trapped inside a transient execution loop. Over time, that could expand into stronger policy, reusable packaged behavior, and other reviewed capability surfaces.
+If those trajectories and feedback signals are trapped inside one executor, they may help that one loop, but they do not reliably improve the system's ability to handle long-horizon work across time. In `holaOS`, the point is to give roles a durable operating boundary where useful evidence can accumulate into better memory, stronger skills, safer policy, and other reviewed capability over time. Today, the clearest landing zones are durable markdown memory, background durable writeback, and reviewed candidate skills. The broader direction is larger than that: repeated good work should become inspectable system capability rather than staying trapped inside a transient execution loop. Over time, that could expand into stronger policy, reusable packaged behavior, and other reviewed capability surfaces.
 
 ## Why this is a system thesis
 
@@ -142,7 +146,10 @@ If you are building on `holaOS`, you are building against an environment contrac
 
 - apps are packaged into workspace-local `apps/<app-id>/`
 - skills are packaged into workspace-local `skills/`
-- memory has explicit storage and governance rules
+- memory has explicit storage, retrieval, and governance rules
+  - durable recall lives in markdown forests
+  - continuity lives in runtime-owned projections and scratchpads
+  - retrieval happens through bounded context resolution rather than full replay
 - the runtime decides capability visibility per run
 - the desktop app is one operator shell, not the only surface
 

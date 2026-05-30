@@ -55,9 +55,11 @@ import {
 } from "./session-checkpoint.js";
 import {
   type CronWorkerLike,
+  cronjobMetadataWithResolvedTimezone,
   executeLocalCronjobDelivery,
   RuntimeCronWorker,
-  cronjobNextRunAt
+  cronjobNextRunAt,
+  runtimeUserTimezone,
 } from "./cron-worker.js";
 import {
   cronjobAuthorRecommendedEnabled,
@@ -675,6 +677,7 @@ function capabilityInputId(params: {
 function cronjobMetadataWithRequestDefaults(params: {
   body: Record<string, unknown>;
   existingMetadata?: Record<string, unknown> | null;
+  fallbackTimezone?: string | null;
 }): Record<string, unknown> {
   const metadata = hasOwn(params.body, "metadata")
     ? { ...(optionalDict(params.body.metadata) ?? {}) }
@@ -695,7 +698,7 @@ function cronjobMetadataWithRequestDefaults(params: {
     }
   }
 
-  return metadata;
+  return cronjobMetadataWithResolvedTimezone(metadata, params.fallbackTimezone);
 }
 
 function requiredCronjobDeliveryInput(value: unknown): {
@@ -723,6 +726,8 @@ function optionalCronjobDeliveryInput(value: unknown): {
 }
 
 function parseDelegateTaskInput(value: unknown): {
+  teammateId?: string | null;
+  parentTaskId?: string | null;
   title?: string | null;
   goal: string;
   context?: string | null;
@@ -739,6 +744,8 @@ function parseDelegateTaskInput(value: unknown): {
     return null;
   }
   return {
+    teammateId: nullableString(value.teammate_id) ?? null,
+    parentTaskId: nullableString(value.parent_task_id) ?? null,
     title: nullableString(value.title) ?? null,
     goal,
     context: nullableString(value.context) ?? null,
@@ -753,6 +760,8 @@ function parseDelegateTaskInput(value: unknown): {
 }
 
 function requiredDelegateTaskInputs(body: Record<string, unknown>): Array<{
+  teammateId?: string | null;
+  parentTaskId?: string | null;
   title?: string | null;
   goal: string;
   context?: string | null;
@@ -1027,17 +1036,6 @@ function requiredTeammateCapabilityProfileInput(
     capabilities: hasOwn(value, "capabilities")
       ? optionalTrimmedStringArray(value.capabilities, `${fieldName}.capabilities`)
       : undefined,
-    preferredTools: hasOwn(value, "preferred_tools")
-      ? optionalTrimmedStringArray(
-          value.preferred_tools,
-          `${fieldName}.preferred_tools`,
-        )
-      : hasOwn(value, "preferredTools")
-        ? optionalTrimmedStringArray(
-            value.preferredTools,
-            `${fieldName}.preferredTools`,
-          )
-        : undefined,
   };
 }
 
@@ -1535,7 +1533,6 @@ function teammateCapabilityProfilePayload(
   return {
     summary: record.summary,
     capabilities: [...record.capabilities],
-    preferred_tools: [...record.preferredTools],
   };
 }
 
@@ -1582,6 +1579,7 @@ function issuePayload(record: IssueRecord): Record<string, unknown> {
     workspace_id: record.workspaceId,
     issue_number: record.issueNumber,
     session_id: record.sessionId,
+    parent_issue_id: record.parentIssueId,
     title: record.title,
     description: record.description,
     status: record.status,
@@ -2063,10 +2061,17 @@ function copiedCronjobFields(params: {
 
   if (isDraftLabWorkspace(sourceWorkspace)) {
     const recommendedEnabled = cronjobAuthorRecommendedEnabled(params.job);
+    const effectiveTimezone = runtimeUserTimezone(params.store);
     return {
       enabled: recommendedEnabled,
-      metadata: stripLabCronjobExecutionDisabledMetadata(metadata),
-      nextRunAt: recommendedEnabled ? cronjobNextRunAt(params.job.cron, new Date()) : null,
+      metadata: cronjobMetadataWithResolvedTimezone(
+        stripLabCronjobExecutionDisabledMetadata(metadata),
+        effectiveTimezone,
+      ),
+      nextRunAt:
+        recommendedEnabled
+          ? cronjobNextRunAt(params.job.cron, new Date(), effectiveTimezone)
+          : null,
     };
   }
 
@@ -2167,13 +2172,13 @@ function ensureWorkspaceOnboardingStarterMessage(params: {
 }
 
 function labPayload(params: {
-  lab: WorkspaceRecord;
+  lab: WorkspaceRecord | null;
   source: WorkspaceRecord;
   session: AgentSessionRecord | null;
   created?: boolean;
 }): Record<string, unknown> {
   return {
-    lab: workspaceRecordPayload(params.lab, null, null),
+    lab: params.lab ? workspaceRecordPayload(params.lab, null, null) : null,
     source: workspaceRecordPayload(params.source, null, null),
     session: params.session ? agentSessionPayload(params.session) : null,
     created: params.created === true,
@@ -2327,7 +2332,12 @@ function ensureWorkspaceLab(params: {
   store: RuntimeStateStore;
   sourceWorkspaceId: string;
   purpose: string;
-}): { lab: WorkspaceRecord; source: WorkspaceRecord; session: AgentSessionRecord; created: boolean } {
+}): {
+  lab: WorkspaceRecord | null;
+  source: WorkspaceRecord;
+  session: AgentSessionRecord;
+  created: boolean;
+} {
   const source = params.store.getWorkspace(params.sourceWorkspaceId);
   if (!source) {
     throw new Error("source workspace not found");
@@ -2368,6 +2378,49 @@ function ensureWorkspaceLab(params: {
       });
     }
     return { lab: existingLab, source, session: existingSession, created: false };
+  }
+
+  if (params.purpose === "workspace_onboarding") {
+    const existingSourceSessions = params.store.listSessions({
+      workspaceId: source.id,
+      includeArchived: false,
+      limit: 50,
+      offset: 0,
+    });
+    const session =
+      existingSourceSessions.find((item) => item.kind === kind) ??
+      params.store.ensureSession({
+        workspaceId: source.id,
+        sessionId: `${kind}-${randomUUID()}`,
+        kind,
+        title: "Workspace Onboarding",
+        createdBy: "system",
+      });
+    ensureWorkspaceOnboardingStarterMessage({
+      store: params.store,
+      workspaceId: source.id,
+      sessionId: session.sessionId,
+    });
+    const updatedSource = params.store.updateWorkspace(source.id, {
+      onboardingStatus: "pending",
+      onboardingState: ONBOARDING_ALIGNMENT_STATE,
+      onboardingSessionId: session.sessionId,
+      onboardingAlignmentQuestion: null,
+      onboardingAlignmentReport: null,
+      onboardingVerificationReport: null,
+      onboardingCompletedAt: null,
+      onboardingCompletionSummary: null,
+      onboardingRequestedAt: utcNowIso(),
+      onboardingRequestedBy: "workspace_user",
+    });
+    return {
+      lab: null,
+      source: updatedSource,
+      session,
+      created: existingSourceSessions.every(
+        (item) => item.sessionId !== session.sessionId,
+      ),
+    };
   }
 
   const lab = params.store.createWorkspace({
@@ -6112,7 +6165,18 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         }),
         tasks: requiredDelegateTaskInputs(request.body),
       });
-      return payload;
+      const delegatedTasks = Array.isArray(payload.tasks) ? payload.tasks : [];
+      const hydratedTasks = delegatedTasks.map((task) => {
+        const delegatedTask = isRecord(task) ? task : {};
+        return runtimeAgentToolsService.getTask({
+          workspaceId,
+          taskId: requiredString(delegatedTask.task_id, "task_id"),
+        });
+      });
+      return {
+        tasks: hydratedTasks,
+        count: hydratedTasks.length,
+      };
     } catch (error) {
       if (error instanceof RuntimeAgentToolsServiceError) {
         return sendError(reply, error.statusCode, error.message);
@@ -6181,6 +6245,36 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         return sendError(reply, error.statusCode, error.message);
       }
       return sendError(reply, 400, error instanceof Error ? error.message : "runtime get task failed");
+    }
+  });
+
+  app.post("/api/v1/capabilities/runtime-tools/tasks/:taskId/reply", async (request, reply) => {
+    if (request.body != null && !isRecord(request.body)) {
+      return sendError(reply, 400, "request body must be an object");
+    }
+    const params = request.params as { taskId: string };
+    const body = isRecord(request.body) ? request.body : {};
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        body,
+      });
+      return runtimeAgentToolsService.replyTask({
+        workspaceId,
+        taskId: requiredString(params.taskId, "taskId"),
+        text: requiredString(body.text, "text"),
+        selectedModel: capabilitySelectedModel({
+          headers: request.headers as Record<string, unknown>,
+          body,
+        }),
+        model: nullableString(body.model) ?? undefined,
+        priority: hasOwn(body, "priority") ? optionalInteger(body.priority, 0) : undefined,
+      });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime reply task failed");
     }
   });
 
@@ -6507,6 +6601,41 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
   });
 
+  app.get("/api/v1/capabilities/runtime-tools/teammates", async (request, reply) => {
+    const query = isRecord(request.query) ? request.query : {};
+    try {
+      const workspaceId = requiredCapabilityWorkspaceId({
+        headers: request.headers as Record<string, unknown>,
+        query,
+      });
+      const sessionId = capabilitySessionId({
+        headers: request.headers as Record<string, unknown>,
+        query,
+      });
+      const result = runtimeAgentToolsService.listTeammates({
+        workspaceId,
+        sessionId: sessionId ?? null,
+        includeArchived: hasOwn(query, "include_archived")
+          ? optionalBoolean(query.include_archived)
+          : undefined,
+        limit: hasOwn(query, "limit") ? optionalInteger(query.limit, 100) : undefined,
+        offset: hasOwn(query, "offset") ? optionalInteger(query.offset, 0) : undefined,
+      });
+      return await maybeShapeCapabilityToolResult({
+        headers: request.headers as Record<string, unknown>,
+        toolId: "teammates_list",
+        payload: result,
+        workspaceId,
+        sessionId,
+      });
+    } catch (error) {
+      if (error instanceof RuntimeAgentToolsServiceError) {
+        return sendError(reply, error.statusCode, error.message);
+      }
+      return sendError(reply, 400, error instanceof Error ? error.message : "runtime list teammates failed");
+    }
+  });
+
   app.post("/api/v1/capabilities/runtime-tools/teammates", async (request, reply) => {
     if (!isRecord(request.body)) {
       return sendError(reply, 400, "request body must be an object");
@@ -6522,6 +6651,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       });
       const result = runtimeAgentToolsService.createTeammate({
         workspaceId,
+        sessionId: sessionId ?? null,
         teammateId: nullableString(request.body.teammate_id) ?? null,
         name: requiredString(request.body.name, "name"),
         instructions: nullableString(request.body.instructions) ?? null,
@@ -6563,6 +6693,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         const params = request.params as { teammateId: string };
         const result = runtimeAgentToolsService.createTeammateSkill({
           workspaceId,
+          sessionId: sessionId ?? null,
           teammateId: requiredString(params.teammateId, "teammateId"),
           skill: requiredTeammateSkillInput(request.body, "skill"),
         });
@@ -7194,6 +7325,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
             headers: request.headers as Record<string, unknown>,
             body,
           }),
+          sessionId: capabilitySessionId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }) || null,
           appId: requiredString(body.app_id, "app_id"),
           name: nullableString(body.name) ?? undefined,
           overwrite: body.overwrite === true,
@@ -7224,6 +7359,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
             headers: request.headers as Record<string, unknown>,
             body,
           }),
+          sessionId: capabilitySessionId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }) || null,
           appId: requiredString(body.app_id, "app_id"),
           configPath: nullableString(body.config_path) ?? undefined,
         });
@@ -7465,6 +7604,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
             headers: request.headers as Record<string, unknown>,
             body,
           }),
+          sessionId: capabilitySessionId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }) || null,
           appId: requiredString(params.appId, "appId"),
           timeoutMs: typeof body.timeout_ms === "number" ? body.timeout_ms : undefined,
         });
@@ -7492,6 +7635,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
             headers: request.headers as Record<string, unknown>,
             body,
           }),
+          sessionId: capabilitySessionId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }) || null,
           appId: requiredString(params.appId, "appId"),
         });
       } catch (error) {
@@ -7518,6 +7665,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
             headers: request.headers as Record<string, unknown>,
             body,
           }),
+          sessionId: capabilitySessionId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }) || null,
           appId: requiredString(params.appId, "appId"),
           timeoutMs: typeof body.timeout_ms === "number" ? body.timeout_ms : undefined,
           pollIntervalMs:
@@ -7547,6 +7698,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
             headers: request.headers as Record<string, unknown>,
             body,
           }),
+          sessionId: capabilitySessionId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }) || null,
           appId: requiredString(params.appId, "appId"),
           timeoutMs: typeof body.timeout_ms === "number" ? body.timeout_ms : undefined,
           pollIntervalMs:
@@ -7576,6 +7731,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
             headers: request.headers as Record<string, unknown>,
             body,
           }),
+          sessionId: capabilitySessionId({
+            headers: request.headers as Record<string, unknown>,
+            body,
+          }) || null,
           appId: requiredString(params.appId, "appId"),
           checks: Array.isArray(body.checks)
             ? body.checks.filter((value): value is string => typeof value === "string")
@@ -7604,6 +7763,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
             headers: request.headers as Record<string, unknown>,
             query: isRecord(request.query) ? request.query : undefined,
           }),
+          sessionId: capabilitySessionId({
+            headers: request.headers as Record<string, unknown>,
+            query: isRecord(request.query) ? request.query : undefined,
+          }) || null,
         });
       } catch (error) {
         if (error instanceof RuntimeAgentToolsServiceError) {
@@ -7628,6 +7791,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
             headers: request.headers as Record<string, unknown>,
             query: isRecord(request.query) ? request.query : undefined,
           }),
+          sessionId: capabilitySessionId({
+            headers: request.headers as Record<string, unknown>,
+            query: isRecord(request.query) ? request.query : undefined,
+          }) || null,
           appId: requiredString(params.appId, "appId"),
         });
       } catch (error) {
@@ -7652,6 +7819,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
             headers: request.headers as Record<string, unknown>,
             query: isRecord(request.query) ? request.query : undefined,
           }),
+          sessionId: capabilitySessionId({
+            headers: request.headers as Record<string, unknown>,
+            query: isRecord(request.query) ? request.query : undefined,
+          }) || null,
         });
       } catch (error) {
         if (error instanceof RuntimeAgentToolsServiceError) {
@@ -7676,6 +7847,10 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
             headers: request.headers as Record<string, unknown>,
             query: isRecord(request.query) ? request.query : undefined,
           }),
+          sessionId: capabilitySessionId({
+            headers: request.headers as Record<string, unknown>,
+            query: isRecord(request.query) ? request.query : undefined,
+          }) || null,
           appId: requiredString(params.appId, "appId"),
         });
       } catch (error) {
@@ -8215,7 +8390,21 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
     const lab = store.getActiveWorkspaceLab(params.workspaceId);
     if (!lab) {
-      return { lab: null, source: workspaceRecordPayload(source), session: null };
+      const session = sessionSelectionUsesOnboarding(source)
+        ? store
+            .listSessions({
+              workspaceId: source.id,
+              includeArchived: false,
+              limit: 50,
+              offset: 0,
+            })
+            .find((item) => item.kind === "workspace_onboarding") ?? null
+        : null;
+      return {
+        lab: null,
+        source: workspaceRecordPayload(source),
+        session: session ? agentSessionPayload(session) : null,
+      };
     }
     const session =
       store
@@ -10909,9 +11098,11 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!workspace) {
       return sendError(reply, 404, "workspace not found");
     }
+    const effectiveTimezone = runtimeUserTimezone(store);
     const requestedEnabled = optionalBoolean(request.body.enabled, true);
     const metadata = cronjobMetadataWithRequestDefaults({
       body: request.body,
+      fallbackTimezone: effectiveTimezone,
     });
     const normalizedCronjobState = isDraftLabWorkspace(workspace)
       ? disableCronjobAutonomyForLab({
@@ -10921,7 +11112,11 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       : {
           enabled: requestedEnabled,
           metadata,
-          nextRunAt: cronjobNextRunAt(requiredString(request.body.cron, "cron"), new Date()),
+          nextRunAt: cronjobNextRunAt(
+            requiredString(request.body.cron, "cron"),
+            new Date(),
+            effectiveTimezone,
+          ),
         };
     const job = store.createCronjob({
       workspaceId,
@@ -10967,6 +11162,11 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
 
     const now = new Date();
+    const effectiveTimezone = runtimeUserTimezone(store);
+    const metadataWithTimezone = cronjobMetadataWithResolvedTimezone(
+      job.metadata,
+      effectiveTimezone,
+    );
     try {
       const result = executeLocalCronjobDelivery(
         store,
@@ -10986,7 +11186,8 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         workspaceId,
         jobId: job.id,
         lastRunAt: now.toISOString(),
-        nextRunAt: cronjobNextRunAt(job.cron, now),
+        metadata: metadataWithTimezone,
+        nextRunAt: cronjobNextRunAt(job.cron, now, effectiveTimezone),
         runCount: job.runCount + 1,
         lastStatus: "success",
         lastError: null,
@@ -11007,7 +11208,8 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         workspaceId,
         jobId: job.id,
         lastRunAt: now.toISOString(),
-        nextRunAt: cronjobNextRunAt(job.cron, now),
+        metadata: metadataWithTimezone,
+        nextRunAt: cronjobNextRunAt(job.cron, now, effectiveTimezone),
         lastStatus: "failed",
         lastError: message,
       });
@@ -11049,6 +11251,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     if (!workspace) {
       return sendError(reply, 404, "workspace not found");
     }
+    const effectiveTimezone = runtimeUserTimezone(store);
     const requestedEnabled =
       hasOwn(request.body, "enabled")
         ? optionalBoolean(request.body.enabled, false)
@@ -11057,8 +11260,12 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       ? cronjobMetadataWithRequestDefaults({
           body: request.body,
           existingMetadata: existing.metadata,
+          fallbackTimezone: effectiveTimezone,
         })
-      : existing.metadata;
+      : cronjobMetadataWithResolvedTimezone(
+          existing.metadata,
+          effectiveTimezone,
+        );
     const normalizedCronjobState = isDraftLabWorkspace(workspace)
       ? disableCronjobAutonomyForLab({
           metadata: resolvedMetadata,
@@ -11066,8 +11273,11 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         })
       : {
           enabled: hasOwn(request.body, "enabled") ? requestedEnabled : null,
-          metadata: metadataProvided ? resolvedMetadata : undefined,
-          nextRunAt: cron == null ? cron : cronjobNextRunAt(cron, new Date()),
+          metadata: resolvedMetadata,
+          nextRunAt:
+            cron == null
+              ? cron
+              : cronjobNextRunAt(cron, new Date(), effectiveTimezone),
         };
     const job = store.updateCronjob({
       workspaceId,
@@ -11196,6 +11406,11 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         import_key: importKey,
         import_warnings: importWarnings,
       };
+      const effectiveTimezone = runtimeUserTimezone(store);
+      const importedMetadata = cronjobMetadataWithResolvedTimezone(
+        importedMeta,
+        effectiveTimezone,
+      );
 
       let job: CronjobRecord;
       try {
@@ -11209,8 +11424,8 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           instruction: entryInstruction,
           enabled: false,
           delivery: entryDelivery,
-          metadata: importedMeta,
-          nextRunAt: cronjobNextRunAt(entryCron, new Date()),
+          metadata: importedMetadata,
+          nextRunAt: cronjobNextRunAt(entryCron, new Date(), effectiveTimezone),
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -11505,6 +11720,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         issueId: nullableString(request.body.issue_id) ?? undefined,
         workspaceId,
         sessionId: nullableString(request.body.session_id) ?? undefined,
+        parentIssueId: nullableString(request.body.parent_issue_id) ?? null,
         title: requiredString(request.body.title, "title"),
         description: nullableString(request.body.description) ?? null,
         status: requiredString(request.body.status, "status") as IssueRecord["status"],
@@ -11569,6 +11785,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         "status",
         "priority",
         "assignee_teammate_id",
+        "parent_issue_id",
         "blocker_reason",
         "attachments",
       ].some((key) => hasOwn(body, key));
@@ -11584,6 +11801,9 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         issueId: requiredString(params.issueId, "issueId"),
         fields: {
           title: hasOwn(body, "title") ? requiredString(body.title, "title") : undefined,
+          parentIssueId: hasOwn(body, "parent_issue_id")
+            ? (nullableString(body.parent_issue_id) ?? null)
+            : undefined,
           description: hasOwn(body, "description")
             ? (nullableString(body.description) ?? null)
             : undefined,

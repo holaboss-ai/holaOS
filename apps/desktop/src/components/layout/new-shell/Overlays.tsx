@@ -98,6 +98,7 @@ function AutomationsOverlay() {
         text,
         requestKey: prefillKeyRef.current,
         mode: "replace",
+        sessionMode: "draft",
       });
       setFocusMode(false);
       setAutomationsOpen(false);
