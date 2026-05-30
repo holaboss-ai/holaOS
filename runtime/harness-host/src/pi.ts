@@ -116,6 +116,19 @@ export type PiEventMapperState = {
   skillMetadataByAlias: ReadonlyMap<string, PiSkillMetadata>;
   terminalState: "completed" | "failed" | null;
   waitingForUser: boolean;
+  /** A retryable assistant error that pi will attempt to recover from.
+   *  Held back from emission until pi confirms outcome (auto_retry_end
+   *  success=false → promote; successful subsequent message_end →
+   *  clear; agent_end without observed retry → fallback promote). */
+  pendingRetryableFailure: PendingRetryableFailure | null;
+};
+
+export type PendingRetryableFailure = {
+  message: string;
+  stopReason: string;
+  provider: string | null;
+  model: string | null;
+  event: string;
 };
 
 export interface PiSessionHandle {
@@ -2100,6 +2113,17 @@ function normalizeAssistantFailureMessage(errorMessage: unknown, content: unknow
   );
 }
 
+/** Mirrors `pi-coding-agent`'s `_isRetryableError` regex so the mapper
+ *  defers terminal failure for exactly the cases pi will internally
+ *  retry. Source: `@mariozechner/pi-coding-agent/dist/core/agent-session.js`
+ *  `_isRetryableError`. Keep in sync on pi upgrades. */
+function isPiRetryableErrorMessage(message: string | null | undefined): boolean {
+  if (!message) return false;
+  return /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|timed? out|timeout|terminated|retry delay/i.test(
+    message
+  );
+}
+
 function maybeMapAssistantTerminalFailure(
   event: AgentSessionEvent,
   sessionFile: string,
@@ -2119,8 +2143,33 @@ function maybeMapAssistantTerminalFailure(
   if (stopReason !== "error" && stopReason !== "aborted") {
     return [];
   }
-  state.terminalState = "failed";
   const failureMessage = normalizeAssistantFailureMessage(message.errorMessage, message.content, stopReason);
+  const provider = optionalTrimmedString(message.provider) ?? null;
+  const model = optionalTrimmedString(message.model) ?? null;
+  // Retryable assistant errors (transient stream termination, provider
+  // overload, 5xx, etc.) are NOT promoted to run_failed here. pi schedules
+  // its own retry via setTimeout(agent.continue, 0) right after firing
+  // this message_end/turn_end. Emitting run_failed eagerly marks the run
+  // terminally failed, which causes the subagent runner to tear down the
+  // harness before pi's retry continuation actually runs — so retries
+  // never get a chance to recover. Instead we stash the failure and
+  // promote it at one of three later checkpoints:
+  //   - successful subsequent assistant message_end → clear (recovered)
+  //   - auto_retry_end with success=false → emit run_failed (exhausted)
+  //   - agent_end while still pending → emit run_failed (fallback for
+  //     the case our regex matched but pi's did not, so pi never queued
+  //     a retry and just ended the loop)
+  if (stopReason === "error" && isPiRetryableErrorMessage(failureMessage)) {
+    state.pendingRetryableFailure = {
+      message: failureMessage,
+      stopReason,
+      provider,
+      model,
+      event: event.type,
+    };
+    return [];
+  }
+  state.terminalState = "failed";
   return [
     {
       event_type: "run_failed",
@@ -2128,14 +2177,36 @@ function maybeMapAssistantTerminalFailure(
         type: stopReason === "aborted" ? "AbortError" : "ProviderError",
         message: failureMessage,
         stop_reason: stopReason,
-        provider: optionalTrimmedString(message.provider) ?? null,
-        model: optionalTrimmedString(message.model) ?? null,
+        provider,
+        model,
         event: event.type,
         source: "pi",
         harness_session_id: sessionFile,
       },
     },
   ];
+}
+
+function buildPendingFailureRunFailed(
+  pending: PendingRetryableFailure,
+  sessionFile: string,
+  triggerEvent: string,
+  retryExhausted: boolean
+): PiMappedEvent {
+  return {
+    event_type: "run_failed",
+    payload: {
+      type: "ProviderError",
+      message: pending.message,
+      stop_reason: pending.stopReason,
+      provider: pending.provider,
+      model: pending.model,
+      event: triggerEvent,
+      source: "pi",
+      harness_session_id: sessionFile,
+      ...(retryExhausted ? { retry_exhausted: true } : {}),
+    },
+  };
 }
 
 function mapNativePiEvent(event: AgentSessionEvent, sessionFile: string): PiMappedEvent {
@@ -2206,6 +2277,17 @@ function mapPiEvent(
       return [nativeEvent];
     case "message_end":
     case "turn_end": {
+      // A successful assistant message following a stashed retryable
+      // failure means pi's internal retry recovered. Clear the pending
+      // failure so the eventual agent_end emits run_completed.
+      const settledMessage = isRecord(event.message) ? event.message : null;
+      if (
+        settledMessage?.role === "assistant" &&
+        settledMessage.stopReason !== "error" &&
+        settledMessage.stopReason !== "aborted"
+      ) {
+        state.pendingRetryableFailure = null;
+      }
       const terminalFailure = maybeMapAssistantTerminalFailure(event, sessionFile, state);
       return terminalFailure == null ? [nativeEvent] : [nativeEvent, ...terminalFailure];
     }
@@ -2313,6 +2395,15 @@ function mapPiEvent(
       if (state.terminalState === "failed") {
         return [nativeEvent];
       }
+      // If a retryable failure is still pending at agent_end, pi never
+      // queued (or completed) a retry — promote to terminal failure so
+      // the runtime doesn't silently turn a stream error into success.
+      if (state.pendingRetryableFailure) {
+        const pending = state.pendingRetryableFailure;
+        state.pendingRetryableFailure = null;
+        state.terminalState = "failed";
+        return [nativeEvent, buildPendingFailureRunFailed(pending, sessionFile, "agent_end", false)];
+      }
       state.terminalState = "completed";
       return [
         nativeEvent,
@@ -2330,6 +2421,31 @@ function mapPiEvent(
           },
         },
       ];
+    case "auto_retry_end": {
+      // pi emits auto_retry_end ONLY when retries are exhausted
+      // (success=false). If a stashed pending failure exists, promote
+      // it now. The success=true branch is defensive — pi doesn't
+      // currently emit it, but if it did we'd clear the pending state.
+      if (event.success === true) {
+        state.pendingRetryableFailure = null;
+        return [nativeEvent];
+      }
+      if (state.terminalState === "failed") {
+        return [nativeEvent];
+      }
+      const pending = state.pendingRetryableFailure;
+      state.pendingRetryableFailure = null;
+      state.terminalState = "failed";
+      const fallbackError = optionalTrimmedString(event.finalError) ?? "Provider error after retries exhausted";
+      const resolved: PendingRetryableFailure = pending ?? {
+        message: fallbackError,
+        stopReason: "error",
+        provider: null,
+        model: null,
+        event: "auto_retry_end",
+      };
+      return [nativeEvent, buildPendingFailureRunFailed(resolved, sessionFile, "auto_retry_end", true)];
+    }
     default:
       return [nativeEvent];
   }
@@ -2345,6 +2461,7 @@ export function createPiEventMapperState(
     skillMetadataByAlias,
     terminalState: null,
     waitingForUser: false,
+    pendingRetryableFailure: null,
   };
 }
 
@@ -2510,6 +2627,32 @@ export async function runPi(request: HarnessHostPiRequest, deps: PiDeps = defaul
     async (span) => {
       try {
         await handle.session.sendUserMessage(await promptContentForRequest(request));
+        // pi-coding-agent's `_handleRetryableError` schedules retries
+        // via `setTimeout(agent.continue, 0)` AFTER emitting the
+        // current agent_end event. sendUserMessage's promise can
+        // resolve before that setTimeout fires, which would tear down
+        // the harness mid-retry. Wait for any in-flight retry so the
+        // mapper sees the retry's outcome (success → run_completed,
+        // auto_retry_end success=false → run_failed). Cast guards the
+        // pi version that doesn't expose these (older releases): the
+        // optional methods are absent, the if-branch is skipped, and
+        // behavior reverts to pre-fix.
+        // `waitForRetry` is exposed as a public method on AgentSession
+        // but typed `private` in `pi-coding-agent`'s d.ts (declaration
+        // bug — the runtime allows access). Cast via unknown to reach
+        // it without triggering the visibility check.
+        const retryable = handle.session as unknown as {
+          isRetrying?: boolean;
+          waitForRetry?: () => Promise<void>;
+        };
+        if (retryable.isRetrying && typeof retryable.waitForRetry === "function") {
+          try {
+            await retryable.waitForRetry();
+          } catch {
+            // waitForRetry errors are surfaced via the next agent
+            // event; nothing to do here.
+          }
+        }
         if (!terminalEmitted) {
           const usagePayload = tokenUsagePayloadFromHarnessUsage(aggregatedUsage);
           emitRunnerEvent(request, nextSequence(), "run_completed", {

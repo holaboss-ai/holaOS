@@ -319,6 +319,205 @@ test("mapPiSessionEvent extracts nested Gemini provider error messages", () => {
   );
 });
 
+test("mapPiSessionEvent defers run_failed for retryable assistant errors so pi's internal retry can run", () => {
+  const sessionFile = "/tmp/pi-session.jsonl";
+  const state = createPiEventMapperState();
+
+  // OpenAI gpt-5.4 stream terminated mid-flight — matches pi-coding-agent's
+  // retryable regex, so the mapper should stash the failure and NOT emit
+  // run_failed yet.
+  const derived = derivedPiEvents(
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        api: "openai-responses",
+        provider: "openai",
+        model: "gpt-5.4",
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: "error",
+        errorMessage: "terminated",
+        timestamp: Date.now(),
+      },
+    } as never,
+    sessionFile,
+    state
+  );
+
+  assert.deepEqual(derived, []);
+  assert.equal(state.terminalState, null);
+  assert.equal(state.pendingRetryableFailure?.message, "terminated");
+});
+
+test("mapPiSessionEvent promotes a stashed retryable failure to run_failed on auto_retry_end success=false", () => {
+  const sessionFile = "/tmp/pi-session.jsonl";
+  const state = createPiEventMapperState();
+
+  // First: a "terminated" error gets stashed.
+  derivedPiEvents(
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        api: "openai-responses",
+        provider: "openai",
+        model: "gpt-5.4",
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: "error",
+        errorMessage: "terminated",
+        timestamp: Date.now(),
+      },
+    } as never,
+    sessionFile,
+    state
+  );
+
+  // Then pi exhausts retries and emits auto_retry_end with success=false.
+  const derived = derivedPiEvents(
+    {
+      type: "auto_retry_end",
+      success: false,
+      attempt: 3,
+      finalError: "terminated",
+    } as never,
+    sessionFile,
+    state
+  );
+
+  assert.deepEqual(derived, [
+    {
+      event_type: "run_failed",
+      payload: {
+        type: "ProviderError",
+        message: "terminated",
+        stop_reason: "error",
+        provider: "openai",
+        model: "gpt-5.4",
+        event: "auto_retry_end",
+        source: "pi",
+        harness_session_id: sessionFile,
+        retry_exhausted: true,
+      },
+    },
+  ]);
+  assert.equal(state.terminalState, "failed");
+  assert.equal(state.pendingRetryableFailure, null);
+});
+
+test("mapPiSessionEvent clears a stashed retryable failure when a subsequent assistant message succeeds", () => {
+  const sessionFile = "/tmp/pi-session.jsonl";
+  const state = createPiEventMapperState();
+
+  // First: stash a "terminated" error.
+  derivedPiEvents(
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        api: "openai-responses",
+        provider: "openai",
+        model: "gpt-5.4",
+        stopReason: "error",
+        errorMessage: "terminated",
+        timestamp: Date.now(),
+      },
+    } as never,
+    sessionFile,
+    state
+  );
+  assert.notEqual(state.pendingRetryableFailure, null);
+
+  // pi's retry succeeds — assistant emits a normal message_end with
+  // stopReason "stop". The mapper should clear the pending failure.
+  derivedPiEvents(
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "ok" }],
+        api: "openai-responses",
+        provider: "openai",
+        model: "gpt-5.4",
+        stopReason: "stop",
+        timestamp: Date.now(),
+      },
+    } as never,
+    sessionFile,
+    state
+  );
+
+  assert.equal(state.pendingRetryableFailure, null);
+  assert.equal(state.terminalState, null);
+
+  // agent_end after recovery emits run_completed, not run_failed.
+  const derived = derivedPiEvents(
+    { type: "agent_end", messages: [] } as never,
+    sessionFile,
+    state
+  );
+
+  assert.equal(derived.length, 1);
+  assert.equal(derived[0]?.event_type, "run_completed");
+  assert.equal(state.terminalState, "completed");
+});
+
+test("mapPiSessionEvent promotes a stashed retryable failure to run_failed on agent_end when no retry was observed", () => {
+  const sessionFile = "/tmp/pi-session.jsonl";
+  const state = createPiEventMapperState();
+
+  // Stash a retryable failure.
+  derivedPiEvents(
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        api: "openai-responses",
+        provider: "openai",
+        model: "gpt-5.4",
+        stopReason: "error",
+        errorMessage: "fetch failed",
+        timestamp: Date.now(),
+      },
+    } as never,
+    sessionFile,
+    state
+  );
+
+  // agent_end fires with no preceding auto_retry_start/auto_retry_end —
+  // pi never queued a retry. Mapper falls back to promoting the
+  // pending failure here.
+  const derived = derivedPiEvents(
+    { type: "agent_end", messages: [] } as never,
+    sessionFile,
+    state
+  );
+
+  assert.equal(derived.length, 1);
+  assert.equal(derived[0]?.event_type, "run_failed");
+  assert.equal((derived[0]?.payload as Record<string, unknown>).message, "fetch failed");
+  assert.equal((derived[0]?.payload as Record<string, unknown>).event, "agent_end");
+  assert.equal(state.terminalState, "failed");
+  assert.equal(state.pendingRetryableFailure, null);
+});
+
 test("mapPiSessionEvent emits a pi_native_event passthrough for non-streaming Pi session events", () => {
   const sessionFile = "/tmp/pi-session.jsonl";
   const cases = [

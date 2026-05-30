@@ -15868,37 +15868,95 @@ async function pickWorkspaceRelocationFolder(
   return { canceled: false, rootPath };
 }
 
+// Per-workspace request coalescing + short result cache for
+// `listRuntimeStates`. There are 10+ React polling sites in the
+// renderer (WorkspaceControlCenter, ChatPane, IssueDetailPane,
+// OperationsDrawer, AutomationsPane, …) each running its own
+// setInterval at 750–2500ms against the same endpoint. Without
+// coalescing, observed HTTP traffic was ~1.27 runtime-states
+// requests/second per active workspace × 3 workspaces ≈ 3.8/s
+// sustained, ~175k hits / 12.8h logged.
+//
+// In-flight coalesce: while one request is pending, any concurrent
+// caller for the same workspace shares the same Promise.
+// Short cache: after resolution, hold the value for
+// `LIST_RUNTIME_STATES_CACHE_WINDOW_MS` so back-to-back polls within
+// the window collapse to one HTTP call. The window is short enough
+// (500ms) that UI freshness for "is the agent responding?" stays
+// imperceptible; the per-renderer poll intervals (≥750ms) are
+// upper-bounded by their own setInterval cadence, not by this cache.
+const LIST_RUNTIME_STATES_CACHE_WINDOW_MS = 500;
+type ListRuntimeStatesPending = {
+  promise: Promise<SessionRuntimeStateListResponsePayload>;
+  /** When set, the promise has settled and the cached value remains
+   *  valid until this wall-clock millisecond. Until then, in-flight. */
+  settledUntil: number | null;
+};
+const listRuntimeStatesPending = new Map<string, ListRuntimeStatesPending>();
+
 async function listRuntimeStates(
   workspaceId: string,
 ): Promise<SessionRuntimeStateListResponsePayload> {
-  try {
-    const response =
-      await requestWorkspaceRuntimeJson<SessionRuntimeStateListResponsePayload>(
-        workspaceId,
-        {
-          method: "GET",
-          path: `/api/v1/agent-sessions/by-workspace/${encodeURIComponent(workspaceId)}/runtime-states`,
-          params: {
-            limit: 100,
-            offset: 0,
-          },
-        },
-      );
-    const items = cacheRuntimeStateRecords(workspaceId, response.items ?? []);
-    return {
-      ...response,
-      items,
-      count: items.length,
-    };
-  } catch (error) {
-    if (isTransientRuntimeError(error)) {
-      const items = cachedRuntimeStateRecords(workspaceId);
-      if (items.length > 0) {
-        return { items, count: items.length };
-      }
-    }
-    throw error;
+  const now = Date.now();
+  const existing = listRuntimeStatesPending.get(workspaceId);
+  if (existing) {
+    if (existing.settledUntil === null) return existing.promise;
+    if (existing.settledUntil > now) return existing.promise;
   }
+  const promise = (async () => {
+    try {
+      const response =
+        await requestWorkspaceRuntimeJson<SessionRuntimeStateListResponsePayload>(
+          workspaceId,
+          {
+            method: "GET",
+            path: `/api/v1/agent-sessions/by-workspace/${encodeURIComponent(workspaceId)}/runtime-states`,
+            params: {
+              limit: 100,
+              offset: 0,
+            },
+          },
+        );
+      const items = cacheRuntimeStateRecords(workspaceId, response.items ?? []);
+      return {
+        ...response,
+        items,
+        count: items.length,
+      };
+    } catch (error) {
+      if (isTransientRuntimeError(error)) {
+        const items = cachedRuntimeStateRecords(workspaceId);
+        if (items.length > 0) {
+          return { items, count: items.length };
+        }
+      }
+      throw error;
+    }
+  })();
+  const entry: ListRuntimeStatesPending = { promise, settledUntil: null };
+  listRuntimeStatesPending.set(workspaceId, entry);
+  // After settlement, freeze the entry as a cached value for the
+  // coalesce window so concurrent late callers within the window
+  // share it; expire it after that. We only clear the slot if the
+  // entry is still the latest (a refresh might have replaced it).
+  promise.then(
+    () => {
+      entry.settledUntil = Date.now() + LIST_RUNTIME_STATES_CACHE_WINDOW_MS;
+      setTimeout(() => {
+        if (listRuntimeStatesPending.get(workspaceId) === entry) {
+          listRuntimeStatesPending.delete(workspaceId);
+        }
+      }, LIST_RUNTIME_STATES_CACHE_WINDOW_MS + 50);
+    },
+    () => {
+      // Failed requests must not be cached — let the next caller
+      // re-issue immediately.
+      if (listRuntimeStatesPending.get(workspaceId) === entry) {
+        listRuntimeStatesPending.delete(workspaceId);
+      }
+    },
+  );
+  return promise;
 }
 
 function normalizeListAgentSessionsRequest(
