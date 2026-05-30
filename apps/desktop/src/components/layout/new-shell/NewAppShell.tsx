@@ -24,7 +24,10 @@ import { NotificationStack } from "./NotificationStack";
 import { Overlays } from "./Overlays";
 import { SearchDialog } from "./SearchDialog";
 import { Sidebar } from "./Sidebar";
-import { internalTabsAtom } from "./state/internalTabs";
+import {
+  activeInternalTabIdAtom,
+  internalTabsAtom,
+} from "./state/internalTabs";
 import {
   createWorkspaceOpenAtom,
   focusModeAtom,
@@ -67,6 +70,8 @@ function NewAppShellContent() {
   const workspaceMainViewMap = useAtomValue(workspaceMainViewModeMapAtom);
   const { browserState } = useWorkspaceBrowser("user");
   const internalTabs = useAtomValue(internalTabsAtom);
+  const setInternalTabs = useSetAtom(internalTabsAtom);
+  const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
   const totalTabs = browserState.tabs.length + internalTabs.length;
   const prevTotalTabsRef = useRef(totalTabs);
   const seededMainViewWorkspaceIdRef = useRef<string | null>(null);
@@ -93,6 +98,14 @@ function NewAppShellContent() {
     // Workspaces with no recorded preference (created before this feature
     // shipped) inherit whatever focusMode currently is — no surprises.
   }, [selectedWorkspaceId, workspaceMainViewMap, focusMode, setFocusMode]);
+
+  // Internal (file/image) tabs live in a global atom; clear on every
+  // workspace switch so a brand-new or freshly-selected workspace doesn't
+  // inherit the previous workspace's open file tabs.
+  useEffect(() => {
+    setInternalTabs([]);
+    setActiveInternalTabId(null);
+  }, [selectedWorkspaceId, setInternalTabs, setActiveInternalTabId]);
 
   // Auto-exit focus when a new tab appears (⌘T, chat link, sidebar app).
   // Opening a tab is an explicit "show me this" signal; staying hidden

@@ -3548,21 +3548,56 @@ export function ChatPane({
   // float to the top so users don't have to scroll past the alphabetical
   // workspace tree to re-mention a file they just had open.
   const allRecentFiles = useAtomValue(recentFilesAtom);
-  const recentAbsolutePathsForWorkspace = useMemo(() => {
+  // Recent files as WorkspaceFileEntry-shaped rows, in most-recent-first
+  // order. Prefer the rich entry from the bounded workspace walk when
+  // available; otherwise synthesize one from filePath + label so files
+  // that listWorkspaceFiles skips (dotdirs like .holaboss, paths deeper
+  // than maxDepth=4, anything past the maxFiles=500 cap) still surface
+  // in the @ picker instead of vanishing silently.
+  const recentFileEntriesForWorkspace = useMemo<WorkspaceFileEntry[]>(() => {
     const workspaceId = selectedWorkspace?.id ?? null;
-    if (!workspaceId) return new Map<string, number>();
-    // Map absolutePath → rank (lower rank = more recent). Built once so
-    // the picker doesn't re-scan the recents list for every entry.
-    const ranked = new Map<string, number>();
-    let rank = 0;
-    for (const entry of allRecentFiles) {
-      if (entry.workspaceId !== workspaceId) continue;
-      if (!entry.filePath) continue;
-      if (ranked.has(entry.filePath)) continue;
-      ranked.set(entry.filePath, rank++);
+    if (!workspaceId) return [];
+
+    const byAbsolutePath = new Map<string, WorkspaceFileEntry>();
+    for (const entry of workspaceFiles) {
+      byAbsolutePath.set(entry.absolutePath, entry);
     }
-    return ranked;
-  }, [allRecentFiles, selectedWorkspace?.id]);
+
+    const rawWorkspacePath = selectedWorkspace?.workspace_path?.trim() ?? "";
+    const workspacePathPrefix = rawWorkspacePath
+      ? `${rawWorkspacePath.replace(/[\\/]+$/, "")}/`
+      : "";
+
+    const entries: WorkspaceFileEntry[] = [];
+    const seenAbsolutePaths = new Set<string>();
+    for (const recent of allRecentFiles) {
+      if (recent.workspaceId !== workspaceId) continue;
+      if (!recent.filePath || seenAbsolutePaths.has(recent.filePath)) continue;
+      seenAbsolutePaths.add(recent.filePath);
+
+      const fromWalk = byAbsolutePath.get(recent.filePath);
+      if (fromWalk) {
+        entries.push(fromWalk);
+        continue;
+      }
+      const relativePath =
+        workspacePathPrefix && recent.filePath.startsWith(workspacePathPrefix)
+          ? recent.filePath.slice(workspacePathPrefix.length)
+          : recent.label;
+      if (!relativePath) continue;
+      entries.push({
+        name: recent.label,
+        relativePath,
+        absolutePath: recent.filePath,
+      });
+    }
+    return entries;
+  }, [
+    allRecentFiles,
+    selectedWorkspace?.id,
+    selectedWorkspace?.workspace_path,
+    workspaceFiles,
+  ]);
 
   // `@` references content WITHIN the current workspace — files at
   // any depth + installed apps. Future kinds (sessions, memories,
@@ -3603,22 +3638,11 @@ export function ChatPane({
     // dedupe set guards against duplicate items when we fall through
     // to the alphabetical workspace listing below.
     const emittedRelativePaths = new Set<string>();
-    if (recentAbsolutePathsForWorkspace.size > 0) {
-      const recentMatches = workspaceFiles
-        .filter((entry) =>
-          recentAbsolutePathsForWorkspace.has(entry.absolutePath),
-        )
-        .sort(
-          (a, b) =>
-            (recentAbsolutePathsForWorkspace.get(a.absolutePath) ?? 0) -
-            (recentAbsolutePathsForWorkspace.get(b.absolutePath) ?? 0),
-        );
-      for (const entry of recentMatches) {
-        const item = fileEntryToItem(entry);
-        if (!item) continue;
-        items.push(item);
-        emittedRelativePaths.add(entry.relativePath);
-      }
+    for (const entry of recentFileEntriesForWorkspace) {
+      const item = fileEntryToItem(entry);
+      if (!item) continue;
+      items.push(item);
+      emittedRelativePaths.add(entry.relativePath);
     }
 
     // Remaining files — alphabetical (as listWorkspaceFiles sorts), skip
@@ -3645,7 +3669,7 @@ export function ChatPane({
     }
 
     return items;
-  }, [installedApps, recentAbsolutePathsForWorkspace, workspaceFiles]);
+  }, [installedApps, recentFileEntriesForWorkspace, workspaceFiles]);
 
   // handle → workspace-file entry map. Built from the same slug logic
   // as composerMentionableItems above so a `@<handle>` typed by the
@@ -3655,8 +3679,8 @@ export function ChatPane({
   // not be picked up by file-read tools.
   const mentionableFilesByHandle = useMemo(() => {
     const byHandle = new Map<string, WorkspaceFileEntry>();
-    for (const entry of workspaceFiles) {
-      const handle = entry.relativePath
+    const slugifyEntry = (entry: WorkspaceFileEntry) =>
+      entry.relativePath
         .split("/")
         .map((segment) =>
           segment
@@ -3666,11 +3690,21 @@ export function ChatPane({
         )
         .filter(Boolean)
         .join("/");
+    for (const entry of workspaceFiles) {
+      const handle = slugifyEntry(entry);
       if (!handle) continue;
       byHandle.set(handle, entry);
     }
+    // Synthesized recent entries (those not in the bounded walk) also
+    // need a handle so `@<file>` send-time staging can resolve them.
+    for (const entry of recentFileEntriesForWorkspace) {
+      const handle = slugifyEntry(entry);
+      if (!handle) continue;
+      if (byHandle.has(handle)) continue;
+      byHandle.set(handle, entry);
+    }
     return byHandle;
-  }, [workspaceFiles]);
+  }, [recentFileEntriesForWorkspace, workspaceFiles]);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionOutputs, setSessionOutputs] = useState<

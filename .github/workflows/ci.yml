@@ -1063,3 +1063,79 @@ jobs:
             --notes-file "${notes_path}" \
             "${prerelease_flag[@]}" \
             "${upload_paths[@]}"
+
+      # Phase 1 of the GitHub → R2 migration: mirror every binary that
+      # the previous step pushed to holaOS-releases up to a Cloudflare
+      # R2 bucket so we can validate global download throughput before
+      # flipping electron-updater away from `provider: "github"`.
+      # GitHub Releases stay authoritative for now — installed clients
+      # ignore R2 entirely until a future release flips the
+      # `electron-builder.config.cjs` publish config.
+      #
+      # Soft-gated: missing R2 secrets log a warning and exit 0 so this
+      # workflow stays mergeable before the bucket + GH secrets land.
+      - name: Mirror release assets to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # R2 ignores region but the AWS SDK insists on having one set;
+          # `auto` is the documented value.
+          AWS_DEFAULT_REGION: auto
+          # Full endpoint URL — e.g. https://<account-id>.r2.cloudflarestorage.com
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          # Bucket name — e.g. holaos-releases
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${AWS_ACCESS_KEY_ID:-}" ] \
+              || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ] \
+              || [ -z "${R2_ENDPOINT_URL:-}" ] \
+              || [ -z "${R2_BUCKET:-}" ]; then
+            echo "::warning::R2_* secrets not configured — skipping R2 mirror"
+            exit 0
+          fi
+
+          # Re-derive the asset list by walking release-assets/. We
+          # intentionally don't reuse the previous step's
+          # ${upload_paths[@]} array — running a fresh `find` keeps the
+          # mirror step self-contained and easy to re-run in isolation.
+          mapfile -t assets < <(
+            find release-assets -type f \
+              \( -name '*.dmg' \
+                 -o -name '*.zip' \
+                 -o -name '*.exe' \
+                 -o -name '*.tar.gz' \
+                 -o -name '*.sha256' \
+                 -o -name '*.blockmap' \
+                 -o -name '*.yml' \
+                 -o -name '*.json' \
+              \) -print
+          )
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "::error::no release assets found under release-assets/ — nothing to mirror"
+            exit 1
+          fi
+
+          echo "Mirroring ${#assets[@]} asset(s) to R2 bucket: ${R2_BUCKET}"
+          for asset in "${assets[@]}"; do
+            name="$(basename "${asset}")"
+            # Manifests (latest*.yml / beta*.yml / runtime json) drive
+            # auto-updater — must be revalidated each check. Binaries
+            # carry version in filename, so safe to cache for a year.
+            case "${name}" in
+              *.yml|*.json|*.sha256)
+                cache_control="public, max-age=60, must-revalidate"
+                ;;
+              *)
+                cache_control="public, max-age=31536000, immutable"
+                ;;
+            esac
+            echo "  → ${name}"
+            aws s3 cp "${asset}" "s3://${R2_BUCKET}/${name}" \
+              --endpoint-url "${R2_ENDPOINT_URL}" \
+              --cache-control "${cache_control}" \
+              --only-show-errors
+          done
+
+          echo "Mirror complete — bucket: ${R2_BUCKET}, ${#assets[@]} files uploaded."

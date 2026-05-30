@@ -1,0 +1,418 @@
+name: Publish Intel macOS Desktop
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+      release_tag:
+        required: true
+        type: string
+      release_title:
+        required: false
+        type: string
+      prerelease:
+        required: true
+        type: boolean
+      release_channel:
+        required: true
+        type: string
+      artifact_only:
+        required: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to release
+        required: true
+        default: main
+        type: string
+      release_tag:
+        description: Existing or new GitHub release tag in holaOS-releases
+        required: true
+        type: string
+      release_title:
+        description: Optional GitHub release title (defaults to holaOS <version> Intel macOS desktop)
+        required: false
+        type: string
+      prerelease:
+        description: Mark the GitHub release as a prerelease when first created
+        required: true
+        default: false
+        type: boolean
+      release_channel:
+        description: Desktop release channel metadata baked into the packaged config
+        required: true
+        default: latest
+        type: choice
+        options:
+          - latest
+          - beta
+      artifact_only:
+        description: Build the Intel macOS artifact without attaching it to holaOS-releases
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_GH_REPO: holaboss-ai/holaOS-releases
+  DESKTOP_ASSET_PREFIX: holaboss-desktop-macos-intel
+  DESKTOP_RELEASE_ASSET_NAME: holaOS-macos-x64.dmg
+
+jobs:
+  publish-intel-macos-desktop:
+    runs-on: macos-13
+    env:
+      MAC_CERTIFICATE: ${{ secrets.MAC_CERTIFICATE }}
+      MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref }}
+
+      - name: Validate release metadata
+        id: release_meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_tag="${{ inputs.release_tag }}"
+          if ! printf '%s' "${release_tag}" | grep -Eq '^holaOS-[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "release_tag must match holaOS-YYYY.MDD.R; got ${release_tag}" >&2
+            exit 1
+          fi
+
+          release_version="${release_tag#holaOS-}"
+          release_title="${{ inputs.release_title }}"
+          if [ -z "${release_title}" ]; then
+            release_title="holaOS ${release_version} Intel macOS desktop"
+          fi
+
+          release_channel="${{ inputs.release_channel }}"
+          if [ "${release_channel}" != "latest" ] && [ "${release_channel}" != "beta" ]; then
+            echo "release_channel must be one of: latest, beta; got ${release_channel}" >&2
+            exit 1
+          fi
+          if [ "${release_channel}" = "beta" ] && [ "${{ inputs.prerelease }}" != "true" ]; then
+            echo "beta channel releases must be marked as prerelease" >&2
+            exit 1
+          fi
+          if [ "${release_channel}" = "latest" ] && [ "${{ inputs.prerelease }}" = "true" ]; then
+            echo "latest channel releases must not be marked as prerelease" >&2
+            exit 1
+          fi
+
+          {
+            echo "release_sha=$(git rev-parse HEAD)"
+            echo "release_tag=${release_tag}"
+            echo "release_title=${release_title}"
+            echo "release_channel=${release_channel}"
+            echo "prerelease=${{ inputs.prerelease }}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Require macOS x64 runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$(uname -s)" != "Darwin" ]; then
+            echo "publish-macos-intel-desktop must run on macOS" >&2
+            exit 1
+          fi
+          if [ "$(uname -m)" != "x86_64" ]; then
+            echo "publish-macos-intel-desktop requires an x64 runner; got $(uname -m)" >&2
+            exit 1
+          fi
+
+      - name: Install workspace dependencies (covers desktop)
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+        run: bun install --frozen-lockfile
+
+      - name: Build macOS runtime bundle
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_ENVIRONMENT: production
+          HOLABOSS_RUNTIME_VERSION: ${{ steps.release_meta.outputs.release_tag }}
+        run: bash runtime/deploy/package_macos_runtime.sh out/runtime-macos
+
+      - name: Build app SDK
+        run: bun --filter=@holaboss/app-sdk run build
+
+      - name: Require mac signing and notarization credentials
+        run: |
+          missing=()
+          [ -n "${MAC_CERTIFICATE}" ] || missing+=("MAC_CERTIFICATE")
+          [ -n "${MAC_CERTIFICATE_PASSWORD}" ] || missing+=("MAC_CERTIFICATE_PASSWORD")
+          [ -n "${APPLE_ID}" ] || missing+=("APPLE_ID")
+          [ -n "${APPLE_APP_SPECIFIC_PASSWORD}" ] || missing+=("APPLE_APP_SPECIFIC_PASSWORD")
+          [ -n "${APPLE_TEAM_ID}" ] || missing+=("APPLE_TEAM_ID")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "missing required mac release secrets: ${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Build desktop code for Intel macOS release
+        working-directory: apps/desktop
+        shell: bash
+        env:
+          HOLABOSS_RELEASE_TAG: ${{ steps.release_meta.outputs.release_tag }}
+          HOLABOSS_RELEASE_CHANNEL: ${{ steps.release_meta.outputs.release_channel }}
+          HOLABOSS_ENABLE_APP_UPDATES: "0"
+          HOLABOSS_RUNTIME_DIR: ${{ github.workspace }}/out/runtime-macos/
+          HOLABOSS_AUTH_BASE_URL: ${{ vars.HOLABOSS_AUTH_BASE_URL }}
+          HOLABOSS_AUTH_SIGN_IN_URL: ${{ vars.HOLABOSS_AUTH_SIGN_IN_URL }}
+          HOLABOSS_BACKEND_BASE_URL: ${{ vars.HOLABOSS_BACKEND_BASE_URL }}
+          HOLABOSS_DESKTOP_CONTROL_PLANE_BASE_URL: ${{ vars.HOLABOSS_DESKTOP_CONTROL_PLANE_BASE_URL }}
+          HOLABOSS_PROJECTS_URL: ${{ vars.HOLABOSS_PROJECTS_URL }}
+          HOLABOSS_MARKETPLACE_URL: ${{ vars.HOLABOSS_MARKETPLACE_URL }}
+          HOLABOSS_PROACTIVE_URL: ${{ vars.HOLABOSS_PROACTIVE_URL }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          CSC_LINK: ${{ env.MAC_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ env.MAC_CERTIFICATE_PASSWORD }}
+        run: |
+          soft_limit="$(ulimit -Sn)"
+          hard_limit="$(ulimit -Hn)"
+          echo "open file limits before build: soft=${soft_limit} hard=${hard_limit}"
+          target_limit=65536
+          if [ "${hard_limit}" != "unlimited" ] && [ "${hard_limit}" -lt "${target_limit}" ]; then
+            target_limit="${hard_limit}"
+          fi
+          if [ "${soft_limit}" -lt "${target_limit}" ]; then
+            ulimit -n "${target_limit}" || true
+          fi
+          echo "open file limits for build: soft=$(ulimit -Sn) hard=$(ulimit -Hn)"
+          npm run prepare:runtime
+          npm run prepare:packaged-config
+          npm run build
+
+      - name: Build signed Intel macOS app bundle
+        id: build_signed_app
+        working-directory: apps/desktop
+        shell: bash
+        env:
+          HOLABOSS_RELEASE_TAG: ${{ steps.release_meta.outputs.release_tag }}
+          HOLABOSS_WRITE_APP_UPDATE_CONFIG: "0"
+          CSC_LINK: ${{ env.MAC_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ env.MAC_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          rm -rf out/release
+          node scripts/run-electron-builder.mjs \
+            --projectDir "$PWD" \
+            --publish never \
+            --mac dir \
+            --x64 \
+            --config.mac.notarize=false
+          app_path="$(find out/release -maxdepth 2 -name '*.app' -print -quit)"
+          if [ -z "${app_path}" ]; then
+            echo "no .app bundle found under apps/desktop/out/release" >&2
+            exit 1
+          fi
+          app_path="$(cd "$(dirname "${app_path}")" && pwd)/$(basename "${app_path}")"
+          if [ -f "${app_path}/Contents/Resources/app-update.yml" ]; then
+            echo "Intel mac release must not embed app-update.yml because mac updater manifests remain arm64-only" >&2
+            exit 1
+          fi
+          packaged_app="${RUNNER_TEMP}/holaOS-intel.app"
+          rm -rf "${packaged_app}"
+          ditto "${app_path}" "${packaged_app}"
+          echo "app_path=${packaged_app}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate signed Intel macOS app bundle
+        shell: bash
+        run: |
+          app_path="${{ steps.build_signed_app.outputs.app_path }}"
+          if [ -z "${app_path}" ] || [ ! -d "${app_path}" ]; then
+            echo "signed Intel macOS app bundle was not produced or no longer exists: ${app_path}" >&2
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "${app_path}"
+
+      - name: Notarize signed Intel macOS app bundle
+        working-directory: apps/desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="${{ steps.build_signed_app.outputs.app_path }}"
+          if [ -z "${app_path}" ] || [ ! -d "${app_path}" ]; then
+            echo "signed Intel macOS app bundle was not produced correctly: ${app_path}" >&2
+            exit 1
+          fi
+          max_attempts=3
+          attempt=1
+          while true; do
+            log_path="${RUNNER_TEMP}/notarize-intel-app-attempt-${attempt}.log"
+            echo "notarization attempt ${attempt}/${max_attempts}"
+
+            if node scripts/notarize-app.mjs "${app_path}" 2>&1 | tee "${log_path}"; then
+              break
+            fi
+
+            if [ "${attempt}" -ge "${max_attempts}" ]; then
+              echo "notarization failed after ${attempt} attempts" >&2
+              exit 1
+            fi
+
+            if ! grep -Fq "Failed to notarize via notarytool" "${log_path}"; then
+              echo "notarization failed with a non-notarytool error; not retrying" >&2
+              exit 1
+            fi
+
+            if ! grep -Eq \
+              'The Internet connection appears to be offline|NSURLErrorDomain Code=-1009|network connection was lost|timed out|temporarily unavailable|could not connect to the server|A server with the specified hostname could not be found' \
+              "${log_path}"; then
+              echo "notarization failed with a non-retryable error; not retrying" >&2
+              exit 1
+            fi
+
+            sleep_seconds=$((attempt * 60))
+            echo "transient notarization failure detected; retrying after ${sleep_seconds}s" >&2
+            sleep "${sleep_seconds}"
+            attempt=$((attempt + 1))
+          done
+
+      - name: Validate notarized Intel macOS app bundle
+        shell: bash
+        run: |
+          app_path="${{ steps.build_signed_app.outputs.app_path }}"
+          if [ -z "${app_path}" ] || [ ! -d "${app_path}" ]; then
+            echo "notarized Intel macOS app bundle was not produced: ${app_path}" >&2
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "${app_path}"
+          spctl -a -vv -t exec "${app_path}"
+          xcrun stapler validate "${app_path}"
+
+      - name: Build Intel macOS desktop release artifact
+        working-directory: apps/desktop
+        shell: bash
+        env:
+          HOLABOSS_RELEASE_TAG: ${{ steps.release_meta.outputs.release_tag }}
+          HOLABOSS_WRITE_APP_UPDATE_CONFIG: "0"
+        run: |
+          set -euo pipefail
+          app_path="${{ steps.build_signed_app.outputs.app_path }}"
+          if [ -z "${app_path}" ] || [ ! -d "${app_path}" ]; then
+            echo "notarized Intel macOS app bundle was not produced correctly: ${app_path}" >&2
+            exit 1
+          fi
+          rm -rf out/release
+          node scripts/run-electron-builder.mjs \
+            --projectDir "$PWD" \
+            --publish never \
+            --prepackaged "${app_path}" \
+            --mac dmg \
+            --x64 \
+            --config.mac.notarize=false
+
+      - name: Validate Intel macOS release artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg_path="$(find apps/desktop/out/release -maxdepth 1 -name '*.dmg' -print -quit)"
+          if [ -z "${dmg_path}" ]; then
+            echo "no Intel macOS DMG found in apps/desktop/out/release" >&2
+            exit 1
+          fi
+          if find apps/desktop/out/release -maxdepth 1 \( -name '*.zip' -o -name '*.blockmap' -o -name '*-mac.yml' \) | grep -q .; then
+            echo "Intel macOS release artifacts must not emit zip, blockmap, or *-mac.yml updater files" >&2
+            find apps/desktop/out/release -maxdepth 1 -type f -print >&2
+            exit 1
+          fi
+
+      - name: Normalize Intel macOS release asset name
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg_path="$(find apps/desktop/out/release -maxdepth 1 -name '*.dmg' -print -quit)"
+          if [ -z "${dmg_path}" ]; then
+            echo "no Intel macOS DMG found in apps/desktop/out/release" >&2
+            exit 1
+          fi
+          cp "${dmg_path}" "apps/desktop/out/release/${DESKTOP_RELEASE_ASSET_NAME}"
+
+      - name: Upload Intel macOS release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.DESKTOP_ASSET_PREFIX }}-${{ inputs.release_tag }}
+          path: apps/desktop/out/release/${{ env.DESKTOP_RELEASE_ASSET_NAME }}
+          if-no-files-found: error
+
+      - name: Prepare release notes
+        if: ${{ !inputs.artifact_only }}
+        id: release_notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes_path="${RUNNER_TEMP}/intel-macos-release-notes.md"
+          cat > "${notes_path}" <<'EOF'
+          Intel macOS x64 desktop build for `${{ steps.release_meta.outputs.release_tag }}`.
+
+          - channel: `${{ steps.release_meta.outputs.release_channel }}`
+          - commit: `${{ steps.release_meta.outputs.release_sha }}`
+          - asset: `${DESKTOP_RELEASE_ASSET_NAME}`
+          - updater: disabled in this build; the shared `latest-mac.yml` / `beta-mac.yml` manifests remain Apple Silicon only
+          EOF
+          echo "notes_path=${notes_path}" >> "${GITHUB_OUTPUT}"
+
+      - name: Ensure GitHub release exists
+        if: ${{ !inputs.artifact_only }}
+        env:
+          GH_TOKEN: ${{ secrets.HOLABOSS_RELEASES_REPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "Intel macOS release publishing to ${RELEASE_GH_REPO} requires HOLABOSS_RELEASES_REPO_TOKEN" >&2
+            exit 1
+          fi
+          if gh release view --repo "${RELEASE_GH_REPO}" "${{ steps.release_meta.outputs.release_tag }}" >/dev/null 2>&1; then
+            exit 0
+          fi
+
+          prerelease_flag=()
+          if [ "${{ steps.release_meta.outputs.prerelease }}" = "true" ]; then
+            prerelease_flag+=(--prerelease)
+          fi
+
+          gh release create "${{ steps.release_meta.outputs.release_tag }}" \
+            --repo "${RELEASE_GH_REPO}" \
+            --title "${{ steps.release_meta.outputs.release_title }}" \
+            --notes-file "${{ steps.release_notes.outputs.notes_path }}" \
+            "${prerelease_flag[@]}"
+
+      - name: Upload Intel macOS release asset
+        if: ${{ !inputs.artifact_only }}
+        env:
+          GH_TOKEN: ${{ secrets.HOLABOSS_RELEASES_REPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "Intel macOS release publishing to ${RELEASE_GH_REPO} requires HOLABOSS_RELEASES_REPO_TOKEN" >&2
+            exit 1
+          fi
+          gh release upload "${{ steps.release_meta.outputs.release_tag }}" \
+            --repo "${RELEASE_GH_REPO}" \
+            "apps/desktop/out/release/${DESKTOP_RELEASE_ASSET_NAME}" \
+            --clobber
