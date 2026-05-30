@@ -11,6 +11,7 @@ import {
 } from "react";
 import { trackUmamiEvent } from "@/lib/analytics/umami";
 import { getMarketplaceAppSdkClient } from "@/lib/app-sdk-client";
+import { waitForComposioConnectionInvalidation } from "@/lib/composioConnectionEvents";
 import { type AuthSession, useDesktopAuthSession } from "@/lib/auth/authClient";
 import { loadWorkspaceOnboardingPreference } from "@/features/workspace-onboarding/preferences";
 import { hydrateInstalledWorkspaceApps, type WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
@@ -93,8 +94,31 @@ export class IntegrationConnectCancelled extends Error {
   }
 }
 
+/**
+ * Thrown when the OAuth poll loop infers the user closed the authorization
+ * window before completing. Distinct from the generic timeout error so the
+ * UI can swap "we're still waiting" for an actionable "click to reconnect."
+ *
+ * Heuristic that produces this: the desktop window regained focus, then
+ * stayed focused for several seconds while the connected_account status
+ * stayed in INITIATED. Composio doesn't emit any webhook for stale
+ * INITIATED connections (verified empirically — `connected_account.expired`
+ * is only fired for ACTIVE tokens that expire), so polling is the only
+ * signal available and this is its best inferential exit.
+ */
+export class IntegrationConnectAbandoned extends Error {
+  constructor() {
+    super("Integration connect abandoned — OAuth window appears closed");
+    this.name = "IntegrationConnectAbandoned";
+  }
+}
+
 export const COMPOSIO_POLL_INTERVAL_MS = 3000;
-export const COMPOSIO_POLL_MAX_TICKS = 100;
+// 30 ticks × 3s = 90s hard cap. Was 100 (5min); OAuth completes in
+// 5-30s in practice, and the abandoned-detection heuristic below now
+// gives sub-20s feedback for the common "user closed the tab" case,
+// so a long absolute timeout no longer earns its keep.
+export const COMPOSIO_POLL_MAX_TICKS = 30;
 export const COMPOSIO_POLL_TIMEOUT_MS =
   COMPOSIO_POLL_INTERVAL_MS * COMPOSIO_POLL_MAX_TICKS;
 
@@ -103,6 +127,19 @@ export const COMPOSIO_POLL_TIMEOUT_MS =
 // completions, then back off to the steady 3s baseline. Total tick
 // count still respects COMPOSIO_POLL_MAX_TICKS.
 const COMPOSIO_POLL_INTERVAL_PROGRESSION_MS = [800, 1200, 1800, 2400] as const;
+
+// Abandoned-OAuth heuristic thresholds. Tilt toward false negatives
+// (slow to abandon) over false positives (kill a legit slow OAuth) —
+// the recovery cost is asymmetric: a missed abandon costs 90s of wait;
+// a false-positive abandon costs the user a full OAuth redo.
+//
+//   * MIN_ELAPSED: status must have stayed INITIATED for 15s overall.
+//     Fast OAuth (8-12s) wouldn't trip even on instant focus return.
+//   * FOCUS_GRACE: once focus returns, allow 12s for Composio to flip
+//     INITIATED → ACTIVE. Their typical flip latency is 1-5s; 12s is
+//     ~3x safety margin.
+const OAUTH_ABANDON_MIN_ELAPSED_MS = 15_000;
+const OAUTH_ABANDON_FOCUS_GRACE_MS = 12_000;
 function composioPollIntervalForTick(tick: number): number {
   return (
     COMPOSIO_POLL_INTERVAL_PROGRESSION_MS[tick] ?? COMPOSIO_POLL_INTERVAL_MS
@@ -217,6 +254,16 @@ interface WorkspaceDesktopContextValue {
     signal?: AbortSignal;
     whoami?: PendingIntegrationWhoami | null;
   }) => Promise<{ connectionId: string }>;
+  /** True while at least one `connectIntegrationProvider(...)` call is
+   *  mid-OAuth (browser tab open, poll loop running). Drives the chat
+   *  composer disable so users don't fire messages into the agent before
+   *  the integration is wired in — half-connected accounts otherwise fail
+   *  noisily on the next tool call. */
+  isIntegrationConnectInFlight: boolean;
+  /** Display names of the providers currently being connected, in start
+   *  order. Empty when nothing is in flight. Used to compose the disabled
+   *  reason ("Connecting Gmail…"). */
+  inFlightIntegrationProviderNames: string[];
   templateSourceMode: TemplateSourceMode;
   setTemplateSourceMode: (value: TemplateSourceMode) => void;
   createHarnessOptions: WorkspaceHarnessOption[];
@@ -424,6 +471,20 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
   const [isResolvingIntegrations, setIsResolvingIntegrations] = useState(false);
   const [pendingAppInstall, setPendingAppInstall] = useState<{ appId: string; provider: string } | null>(null);
   const [isConnectingAppIntegration, setIsConnectingAppIntegration] = useState(false);
+  // Stack of provider display names currently mid-OAuth via
+  // connectIntegrationProvider(). Stack (not boolean) because multiple
+  // connects can overlap — e.g. agent emits two pending_integrations
+  // back-to-back, both cards started before the first resolves.
+  //
+  // Source of truth is the ref Map (immune to React batching), and we
+  // mirror it into state after every mutation so consumers can subscribe
+  // via the normal context value. Token-based bookkeeping (vs index-
+  // based splice) keeps overlapping connects from removing the wrong
+  // entry on exit.
+  const inFlightConnectsRef = useRef<Map<number, string>>(new Map());
+  const inFlightConnectIdRef = useRef(0);
+  const [inFlightIntegrationProviderNames, setInFlightIntegrationProviderNames] =
+    useState<string[]>([]);
   // Per-call AbortController for the in-flight app-install connect flow.
   // A controller is created in `connectAndInstallApp`, captured here so the
   // Cancel button can abort it. Other callers (e.g. chat pane's connect
@@ -1284,6 +1345,22 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
 
     const MAX_CONSECUTIVE_ERRORS = 20;
 
+    // Register this connect in the in-flight map BEFORE any awaits so the
+    // chat composer flips disabled the moment the user clicks Connect,
+    // not after the first round-trip lands ~300ms later. The token-based
+    // remove (vs splice by index) survives overlapping connects.
+    const entryId = inFlightConnectIdRef.current++;
+    const displayName = toolkitDisplayName(provider);
+    inFlightConnectsRef.current.set(entryId, displayName);
+    setInFlightIntegrationProviderNames(
+      Array.from(inFlightConnectsRef.current.values()),
+    );
+
+    // Hoisted so the finally block can unregister even if the try body
+    // throws before the listener was installed.
+    let onFocusBack: (() => void) | null = null;
+
+    try {
     // Parallelize the two independent pre-OAuth round-trips. Before this
     // was serial — getConfig → snapshot → composioConnect — adding ~300-800ms
     // of latency before the browser even opens. The snapshot only needs
@@ -1309,6 +1386,21 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
 
     await window.electronAPI.ui.openExternalUrl(link.redirect_url);
 
+    // Abandoned-OAuth detection: Composio doesn't emit any webhook for
+    // INITIATED connections that never complete (verified — `expired`
+    // only fires for ACTIVE tokens), so the only signal that the user
+    // closed the browser is the desktop window regaining focus while
+    // status is still INITIATED. Track the first focus-back event for
+    // the lifetime of this connect; we'll consult it inside the loop.
+    const oauthStartedAt = Date.now();
+    let firstFocusBackAt: number | null = null;
+    onFocusBack = () => {
+      if (firstFocusBackAt === null) {
+        firstFocusBackAt = Date.now();
+      }
+    };
+    window.addEventListener("focus", onFocusBack);
+
     // Once we've found the new connection id, skip the full list call on
     // subsequent ticks — we only need to poll its status. Halves per-tick
     // round-trip cost during the INITIATED → ACTIVE window where Composio
@@ -1316,10 +1408,28 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
     let knownNewConnectionId: string | null = null;
     let consecutiveErrors = 0;
     for (let tick = 0; tick < COMPOSIO_POLL_MAX_TICKS; tick++) {
-      await sleepUntilFocusOrTimeout(
-        composioPollIntervalForTick(tick),
-        signal,
-      );
+      // Race the polling tick against a webhook-fed SSE invalidation for
+      // this specific connected_account. If the cloud BFF fires before the
+      // next focus tick, we wake immediately and skip the wait. The SSE
+      // wait only attaches once we've discovered the ca_xxx — earlier
+      // ticks still need the list call to find it.
+      if (knownNewConnectionId) {
+        await Promise.race([
+          sleepUntilFocusOrTimeout(
+            composioPollIntervalForTick(tick),
+            signal,
+          ),
+          waitForComposioConnectionInvalidation({
+            externalId: knownNewConnectionId,
+            signal,
+          }).catch(() => undefined),
+        ]);
+      } else {
+        await sleepUntilFocusOrTimeout(
+          composioPollIntervalForTick(tick),
+          signal,
+        );
+      }
       throwIfAborted();
       if (knownNewConnectionId === null) {
         let current;
@@ -1384,7 +1494,23 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
             `Authorization for ${provider} ${status.toLowerCase()}. Please try again.`,
           );
         }
-        // INITIATED / INITIATING / anything else — keep polling.
+        // INITIATED / INITIATING — apply the abandoned heuristic:
+        //   * window has regained focus at least once (user came back)
+        //   * focus has been on us for OAUTH_ABANDON_FOCUS_GRACE_MS
+        //     (8s — gives the user time to glance back at chat and
+        //     return to the browser before we give up)
+        //   * total elapsed is OAUTH_ABANDON_MIN_ELAPSED_MS (12s — guards
+        //     against firing during fast OAuths that complete during the
+        //     window's first focus-back)
+        // All three together is a high-confidence signal the user closed
+        // the OAuth tab without completing.
+        if (
+          firstFocusBackAt !== null &&
+          Date.now() - firstFocusBackAt > OAUTH_ABANDON_FOCUS_GRACE_MS &&
+          Date.now() - oauthStartedAt > OAUTH_ABANDON_MIN_ELAPSED_MS
+        ) {
+          throw new IntegrationConnectAbandoned();
+        }
       }
     }
     throw new Error(
@@ -1392,6 +1518,18 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
         (COMPOSIO_POLL_MAX_TICKS * COMPOSIO_POLL_INTERVAL_MS) / 1000
       }s. Please try again.`,
     );
+    } finally {
+      if (onFocusBack) {
+        window.removeEventListener("focus", onFocusBack);
+      }
+      // Always pop — success, throw, and cancel paths all land here so the
+      // chat composer can't get stuck in a "Connecting…" disabled state
+      // after the connect resolves.
+      inFlightConnectsRef.current.delete(entryId);
+      setInFlightIntegrationProviderNames(
+        Array.from(inFlightConnectsRef.current.values()),
+      );
+    }
   }
 
   function cancelAppIntegrationConnect() {
@@ -1956,6 +2094,8 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       isConnectingAppIntegration,
       cancelAppIntegrationConnect,
       connectIntegrationProvider,
+      isIntegrationConnectInFlight: inFlightIntegrationProviderNames.length > 0,
+      inFlightIntegrationProviderNames,
       templateSourceMode,
       setTemplateSourceMode,
       createHarnessOptions: WORKSPACE_HARNESS_OPTIONS,
@@ -2040,6 +2180,7 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
       installAppFromCatalog,
       pendingAppInstall,
       isConnectingAppIntegration,
+      inFlightIntegrationProviderNames,
       templateSourceMode,
       selectedCreateHarness,
       selectedTemplateFolder,

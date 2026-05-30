@@ -18,10 +18,15 @@ import { COMPOSIO_POLL_TIMEOUT_MS } from "@/lib/workspaceDesktop";
 export function OAuthWaitIndicator({
   displayName,
   onCancel,
+  onReopen,
   compact = false,
 }: {
   displayName: string;
   onCancel: () => void;
+  /** Optional handler to reopen the OAuth URL (e.g. user closed the tab or
+   *  popup was blocked). When provided, surfaces a "Reopen" affordance from
+   *  t=0 so users can recover without restarting the whole flow. */
+  onReopen?: () => void;
   /** Inline-only variant — single row, no progress bar. */
   compact?: boolean;
 }) {
@@ -29,9 +34,15 @@ export function OAuthWaitIndicator({
   const focusedAfterStart = useReturnedToAppAfterStart();
   const remainingMs = Math.max(0, COMPOSIO_POLL_TIMEOUT_MS - elapsedMs);
   const fraction = Math.min(1, elapsedMs / COMPOSIO_POLL_TIMEOUT_MS);
-  const showFirstHelper = elapsedMs > 30_000;
+  // Surface the "tab didn't open / lost track of it" hint much earlier
+  // (12s instead of 30s). Most successful OAuths complete in 15-25s, so the
+  // earlier hint catches the genuine "where did the window go?" case before
+  // users give up and assume the app is broken.
+  const showFirstHelper = elapsedMs > 12_000;
   const showStrongerHelper = elapsedMs > 90_000;
-  const refocusHint = focusedAfterStart && elapsedMs > 5_000;
+  // The user refocused the desktop window without finishing OAuth — likely
+  // closed the tab. Surface immediately rather than waiting 5s.
+  const refocusHint = focusedAfterStart;
 
   if (compact) {
     return (
@@ -41,9 +52,22 @@ export function OAuthWaitIndicator({
       >
         <LoaderCircle className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />
         <span className="flex-1 truncate">
-          Waiting for {displayName} authorization…
+          Finish authorizing {displayName} in your browser…
         </span>
         <span className="tabular-nums opacity-70">{formatRemaining(remainingMs)}</span>
+        {onReopen ? (
+          <Button
+            aria-label={`Reopen ${displayName} authorization`}
+            className="h-6 px-2 text-xs"
+            onClick={onReopen}
+            size="sm"
+            title="Reopen authorization window"
+            type="button"
+            variant="ghost"
+          >
+            Reopen
+          </Button>
+        ) : null}
         <Button
           aria-label="Cancel connection"
           className="ml-1 h-6 px-2 text-xs"
@@ -64,11 +88,22 @@ export function OAuthWaitIndicator({
       <div className="flex items-center gap-2">
         <LoaderCircle className="size-3 shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none" />
         <span className="flex-1 truncate text-sm font-medium text-foreground">
-          Waiting for {displayName} authorization…
+          Finish authorizing {displayName} in your browser…
         </span>
         <span className="text-xs tabular-nums text-muted-foreground">
           {formatRemaining(remainingMs)} left
         </span>
+        {onReopen ? (
+          <Button
+            className="h-7 px-3 text-xs"
+            onClick={onReopen}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Reopen
+          </Button>
+        ) : null}
         <Button
           className="h-7 px-3 text-xs"
           onClick={onCancel}
@@ -80,19 +115,15 @@ export function OAuthWaitIndicator({
         </Button>
       </div>
       <ProgressBar fraction={fraction} />
-      {(showFirstHelper || refocusHint) && !showStrongerHelper ? (
-        <div className="text-xs text-muted-foreground">
-          {refocusHint
-            ? `Did the ${displayName} window close before you finished? Cancel and try again.`
-            : "If the authorization window didn't open, reopen it from your browser tabs."}
-        </div>
-      ) : null}
-      {showStrongerHelper ? (
-        <div className="text-xs text-amber-600 dark:text-amber-400">
-          Still waiting. Cancel and reconnect if the {displayName} window isn't
-          responding.
-        </div>
-      ) : null}
+      <div className="text-xs text-muted-foreground">
+        {showStrongerHelper
+          ? `Still waiting. If the ${displayName} window isn't responding, cancel and reconnect.`
+          : refocusHint
+            ? `Did the ${displayName} tab close before you finished? Use Reopen to try again.`
+            : showFirstHelper
+              ? `If the ${displayName} tab didn't open, reopen it from your browser tabs${onReopen ? " or click Reopen above" : ""}.`
+              : `A browser tab opened for ${displayName}. Sign in and approve access — we'll detect it automatically.`}
+      </div>
     </div>
   );
 }

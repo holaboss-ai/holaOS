@@ -1,6 +1,6 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { Globe, Plus, Search } from "lucide-react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { BrowserPane } from "@/components/panes/BrowserPane";
 import { useWorkspaceBrowser } from "@/components/panes/useWorkspaceBrowser";
 import { FileTypeIcon } from "@/lib/fileIcon";
@@ -37,6 +37,19 @@ export function Center() {
   const activeInternal = activeInternalTabId
     ? internalTabs.find((t) => t.id === activeInternalTabId) ?? null
     : null;
+
+  // Fall back to an internal tab when browser tabs are empty so we don't
+  // land on NewTabLanding while file/image tabs still exist in the top bar.
+  useEffect(() => {
+    if (
+      !hasActiveTab &&
+      activeInternalTabId === null &&
+      internalTabs.length > 0
+    ) {
+      const fallback = internalTabs[internalTabs.length - 1];
+      setActiveInternalTabId(fallback.id);
+    }
+  }, [hasActiveTab, activeInternalTabId, internalTabs, setActiveInternalTabId]);
 
   const closeActiveInternalTab = useCallback(() => {
     if (!activeInternalTabId) return;

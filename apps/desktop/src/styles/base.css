@@ -77,6 +77,15 @@ body {
   -webkit-app-region: no-drag;
 }
 
+/* Sonner toasts portal to document.body and land in macOS's hiddenInset
+ * title-bar drag region (top ~38px). Without no-drag, clicks on the
+ * close button get swallowed as window-drag events. */
+[data-sonner-toaster],
+[data-sonner-toaster] * {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
 /* ---- Container queries ---- */
 
 /* Narrow panels: clamp popouts and stack settings rows. */

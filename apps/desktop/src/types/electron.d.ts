@@ -1569,6 +1569,24 @@ interface RuntimeNotificationListOptionsPayload {
     path: string;
   }
 
+  // Mirrors shared/composio-events-protocol.ts — duplicated here so the
+  // ambient ElectronAPI surface doesn't need a module import.
+  interface ComposioConnectionInvalidatedEventPayload {
+    type: "connection.invalidated";
+    /** Composio connected_account_id (ca_xxx) — match against account_external_id. */
+    connection_id: string;
+    /** Original Composio event type, e.g. `composio.connected_account.expired`. */
+    event_type: string;
+    received_at: number;
+  }
+
+  type ComposioEventsBridgeStatusPayload =
+    | { state: "idle"; reason?: string }
+    | { state: "connecting" }
+    | { state: "open" }
+    | { state: "reconnecting"; nextAttemptInMs: number; attempt: number }
+    | { state: "stopped"; reason: string };
+
   interface HolabossCreateWorkspacePayload {
     holaboss_user_id: string;
     location?: WorkspaceLocationPayload | null;
@@ -2484,6 +2502,14 @@ interface RuntimeNotificationListOptionsPayload {
       onAuthenticated: (callback: (user: AuthUserPayload) => unknown) => () => void;
       onUserUpdated: (callback: (user: AuthUserPayload | null) => unknown) => () => void;
       onError: (callback: (context: AuthErrorPayload) => unknown) => () => void;
+    };
+    composio: {
+      onConnectionInvalidated: (
+        listener: (payload: ComposioConnectionInvalidatedEventPayload) => unknown,
+      ) => () => void;
+      onStatusChange: (
+        listener: (payload: ComposioEventsBridgeStatusPayload) => unknown,
+      ) => () => void;
     };
     tabs: {
       showContextMenu: (opts: {

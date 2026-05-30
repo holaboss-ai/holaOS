@@ -143,6 +143,10 @@ import {
   runtimeErrorFromBody,
 } from "@holaboss/runtime-client";
 import { installBffFetchHandler } from "./bff-fetch.js";
+import {
+  createComposioEventsBridge,
+  type ComposioEventsBridge,
+} from "./composio-events-bridge.js";
 import { installBrowserPaneHandlers } from "./browser-pane/index.js";
 import {
   copyBrowserWorkspaceProfile as importBrowsersCopyBrowserWorkspaceProfile,
@@ -1185,6 +1189,7 @@ let appQuitCleanupPromise: Promise<void> | null = null;
 let appQuitCleanupFinished = false;
 let pendingAuthUser: AuthUserPayload | null = null;
 let pendingAuthError: AuthErrorPayload | null = null;
+let composioEventsBridge: ComposioEventsBridge | null = null;
 let runtimeStatus: RuntimeStatusPayload = {
   status: "disabled",
   available: false,
@@ -8283,6 +8288,10 @@ function emitAuthAuthenticated(user: AuthUserPayload) {
   for (const listener of gatewayAuthCallbackListeners) {
     listener();
   }
+  // Cookie just rotated. Drop any in-flight SSE stream and reconnect so
+  // the bridge picks up the fresh session immediately rather than after
+  // the next backoff tick.
+  composioEventsBridge?.restart();
 }
 
 function emitAuthUserUpdated(user: AuthUserPayload | null) {
@@ -8301,6 +8310,9 @@ function emitAuthUserUpdated(user: AuthUserPayload | null) {
     for (const listener of gatewayAuthCallbackListeners) {
       listener();
     }
+    composioEventsBridge?.restart();
+  } else {
+    composioEventsBridge?.stop("auth_user_cleared");
   }
 }
 
@@ -23296,6 +23308,20 @@ app.whenReady().then(async () => {
       console.info(`[bff-fetch] ${JSON.stringify(event)}`);
     },
   });
+
+  composioEventsBridge = createComposioEventsBridge({
+    getCookieHeader: () => authCookieHeader(),
+    getApiBaseUrl: () => AUTH_BASE_URL ?? "",
+    getTargetWindows: () =>
+      mainWindow && !mainWindow.isDestroyed() ? [mainWindow] : [],
+    log: (event) => {
+      // eslint-disable-next-line no-console
+      console.info(`[composio-events] ${JSON.stringify(event)}`);
+    },
+  });
+  if (authCookieHeader()) {
+    composioEventsBridge.start();
+  }
 
   installBrowserPaneHandlers({
     getMainWindow: () => mainWindow,

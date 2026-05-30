@@ -23,6 +23,11 @@ import {
 import { AddIntegrationDialog } from "@/components/panes/AddIntegrationDialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   SettingsCard,
   SettingsSection,
 } from "@/components/settings";
@@ -63,6 +68,20 @@ interface IntegrationCard {
 
 function normalizeErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Request failed.";
+}
+
+// Surface errors through sonner so a follow-up mutation can't silently
+// overwrite them. The previous setStatusMessage(...) approach rendered as
+// gray inline text below the grid that any subsequent progress message
+// (or the next user click) would wipe before the user finished reading.
+// Persistent until dismissed — closeButton makes that dismissal obvious.
+function notifyError(error: unknown, fallbackTitle = "Something went wrong") {
+  const message = normalizeErrorMessage(error);
+  toast.error(fallbackTitle, {
+    description: message === fallbackTitle ? undefined : message,
+    duration: Number.POSITIVE_INFINITY,
+    closeButton: true,
+  });
 }
 
 function normalizedText(value: string | null | undefined): string {
@@ -277,7 +296,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
     Map<string, ConnectionWorkspaceUsageEntry["workspaces"]>
   >(new Map());
   // workspace-default account per (provider slug, workspace id). Drives the
-  // "Default here" inline chip on connection rows and the Manage-expand
+  // "Default" inline chip on connection rows and the Manage-expand
   // dropdown that lets users pick which account each workspace defaults to.
   // Nested map shape: providerSlug → workspaceId → connectionId.
   const [defaultsByProvider, setDefaultsByProvider] = useState<
@@ -360,7 +379,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
     } catch (error) {
       setIntegrations([]);
       setConnections([]);
-      setStatusMessage(normalizeErrorMessage(error));
+      notifyError(error, "Couldn't load integrations");
     } finally {
       setIsLoading(false);
     }
@@ -468,7 +487,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
           next.set(providerId, inner);
           return next;
         });
-        setStatusMessage(normalizeErrorMessage(error));
+        notifyError(error, "Couldn't set workspace default");
       } finally {
         setMutatingDefaultKey(null);
       }
@@ -522,7 +541,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
         }
       } catch (error) {
         if (!cancelled) {
-          setStatusMessage(normalizeErrorMessage(error));
+          notifyError(error, "Context fetch status failed");
         }
       }
     }
@@ -780,9 +799,12 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
       return;
     }
     if (!integration.supportsManaged) {
-      setStatusMessage(
-        `${integration.name} does not support managed sign-in in this runtime.`,
-      );
+      toast.error(`${integration.name} can't be connected here`, {
+        description:
+          "Managed sign-in isn't supported for this provider in the current runtime.",
+        duration: 8000,
+        closeButton: true,
+      });
       return;
     }
 
@@ -803,9 +825,12 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
 
       const connectedAccountId = link.connected_account_id;
       if (!connectedAccountId) {
-        setStatusMessage(
-          `${integration.name} did not return a connected account id. Please try again.`,
-        );
+        toast.error(`${integration.name} authorization didn't start`, {
+          description:
+            "The provider didn't return a connected account id. Try again in a moment.",
+          duration: 10_000,
+          closeButton: true,
+        });
         return;
       }
 
@@ -838,20 +863,28 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
           status === "INACTIVE" ||
           status === "MISSING"
         ) {
-          setStatusMessage(
-            `Authorization for ${integration.name} ${status.toLowerCase()}. Please try again.`,
-          );
+          toast.error(`${integration.name} authorization ${status.toLowerCase()}`, {
+            description: "Try connecting again — the previous attempt didn't complete.",
+            duration: Number.POSITIVE_INFINITY,
+            closeButton: true,
+          });
           return;
         }
         if (status !== "ACTIVE") {
           continue;
         }
-        await window.electronAPI.workspace.composioFinalize({
+        // composioFinalize writes a runtime row whose connection_id is a
+        // fresh UUID; everything downstream (set-default, rebind, MCP host)
+        // keys off THAT id, not Composio's ca_xxx. Capturing the return
+        // value avoids the "integration connection ca_xxx not found" 400
+        // that surfaced when those callers were handed the upstream id.
+        const finalized = await window.electronAPI.workspace.composioFinalize({
           connected_account_id: connectedAccountId,
           provider: integration.providerId,
           owner_user_id: userId,
           account_label: integration.name,
         });
+        const runtimeConnectionId = finalized.connection_id;
         // Layer-2 auto-default: when the user explicitly connects an
         // account from Settings AND the selected workspace has no
         // workspace_default set for this provider yet, the just-
@@ -871,7 +904,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
               await window.electronAPI.workspace.setWorkspaceDefaultAccount(
                 selectedWorkspaceId,
                 integration.providerId,
-                connectedAccountId,
+                runtimeConnectionId,
               );
             }
           } catch {
@@ -887,7 +920,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
           await rebindWorkspaceAppsForProvider({
             workspaceId: selectedWorkspaceId,
             provider: integration.providerId,
-            connectionId: connectedAccountId,
+            connectionId: runtimeConnectionId,
           });
           // The agent reaches integrations through the composio-mcp host;
           // its toolkit list is cached per host. Ensure-running pokes it to
@@ -909,9 +942,14 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
         return;
       }
 
-      setStatusMessage("Connection timed out.");
+      toast.error(`${integration.name} connection timed out`, {
+        description:
+          "We waited 5 minutes for the authorization to complete. Try again — if you finished it in the browser, the next attempt should pick up your session.",
+        duration: Number.POSITIVE_INFINITY,
+        closeButton: true,
+      });
     } catch (error) {
-      setStatusMessage(normalizeErrorMessage(error));
+      notifyError(error, `${integration.name} connect failed`);
     } finally {
       setConnectingProviderId(null);
     }
@@ -961,7 +999,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
             externalId,
           );
         } catch (upstreamError) {
-          setStatusMessage(normalizeErrorMessage(upstreamError));
+          notifyError(upstreamError, "Couldn't revoke upstream account");
           return;
         }
       }
@@ -971,7 +1009,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
       invalidateIntegrationAccountCache([connectionId]);
       void loadData();
     } catch (error) {
-      setStatusMessage(normalizeErrorMessage(error));
+      notifyError(error, "Disconnect failed");
     } finally {
       setDisconnectingConnectionId(null);
     }
@@ -997,7 +1035,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
         }
         await loadData();
       } catch (error) {
-        setStatusMessage(normalizeErrorMessage(error));
+        notifyError(error, "Couldn't update workspace integration");
       } finally {
         setMutatingOverrideKey(null);
       }
@@ -1029,7 +1067,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
         }
         await loadData();
       } catch (error) {
-        setStatusMessage(normalizeErrorMessage(error));
+        notifyError(error, "Couldn't pin account");
       } finally {
         setMutatingOverrideKey(null);
       }
@@ -1145,7 +1183,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
       }
       setStatusMessage(contextFetchDisplayMessage(result.status));
     } catch (error) {
-      setStatusMessage(normalizeErrorMessage(error));
+      notifyError(error, "Context fetch failed");
     }
   }
 
@@ -1167,7 +1205,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
           : "No stored integration memory found for this account.",
       );
     } catch (error) {
-      setStatusMessage(normalizeErrorMessage(error));
+      notifyError(error, "Couldn't clear integration memory");
     } finally {
       setClearingIntegrationMemoryConnectionId(null);
     }
@@ -1195,7 +1233,7 @@ export function IntegrationsPane({ embedded }: { embedded?: boolean } = {}) {
           : "Background context fetch disabled for this account.",
       );
     } catch (error) {
-      setStatusMessage(normalizeErrorMessage(error));
+      notifyError(error, "Couldn't update auto-fetch setting");
     } finally {
       setTogglingContextAutoFetchConnectionId(null);
     }
@@ -1828,7 +1866,7 @@ function ConnectedProviderCard({
   mutatingOverrideKey: string | null;
   /** Map of workspaceId → default connectionId for THIS provider. */
   defaultsByWorkspace: Map<string, string>;
-  /** Currently focused workspace — drives the inline "Default here" chip
+  /** Currently focused workspace — drives the inline "Default" chip
    *  on the connection row. */
   selectedWorkspaceId: string | null;
   /** Key `${workspaceId}:${providerId}` currently being mutated. */
@@ -1959,12 +1997,18 @@ function ConnectedProviderCard({
                   {label}
                 </span>
                 {isDefaultHere ? (
-                  <span
-                    className="shrink-0 rounded-sm bg-foreground/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-foreground"
-                    title="Default account for the currently-selected workspace"
-                  >
-                    Default here
-                  </span>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <span className="shrink-0 cursor-default rounded-sm bg-foreground/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-foreground">
+                          Default
+                        </span>
+                      }
+                    />
+                    <TooltipContent>
+                      Default account for this workspace
+                    </TooltipContent>
+                  </Tooltip>
                 ) : null}
                 {workspaceCount > 0 ? (
                   <span className="shrink-0 text-[10px] text-muted-foreground">

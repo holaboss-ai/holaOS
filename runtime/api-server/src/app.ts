@@ -10434,29 +10434,71 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
 
   app.get("/api/v1/agent-sessions/by-workspace/:workspaceId/runtime-states", async (request) => {
     const params = request.params as { workspaceId: string };
-    const activeLab = store.getActiveWorkspaceLab(params.workspaceId);
-    const states = store
-      .listRuntimeStates(params.workspaceId)
-      .concat(activeLab ? store.listRuntimeStates(activeLab.id) : []);
-    const items = states
-      .map((item: SessionRuntimeStateRecord) => {
+
+    // Workspaces (or labs) whose folder has been moved/deleted will throw from
+    // workspaceRuntimeDb. Isolate each source so a single bad bundle can't
+    // turn the whole endpoint into a 500.
+    const listStatesSafe = (workspaceId: string): SessionRuntimeStateRecord[] => {
+      try {
+        return store.listRuntimeStates(workspaceId);
+      } catch (error) {
+        app.log.warn(
+          { err: error instanceof Error ? error.message : String(error), workspaceId },
+          "by-workspace/runtime-states: listRuntimeStates failed",
+        );
+        return [];
+      }
+    };
+
+    let activeLab: WorkspaceRecord | null = null;
+    try {
+      activeLab = store.getActiveWorkspaceLab(params.workspaceId);
+    } catch (error) {
+      app.log.warn(
+        { err: error instanceof Error ? error.message : String(error), workspaceId: params.workspaceId },
+        "by-workspace/runtime-states: getActiveWorkspaceLab failed",
+      );
+    }
+
+    const states = [
+      ...listStatesSafe(params.workspaceId),
+      ...(activeLab ? listStatesSafe(activeLab.id) : []),
+    ];
+
+    const items: Record<string, unknown>[] = [];
+    for (const item of states) {
+      try {
         const hasQueuedInputs = store.hasAvailableInputsForSession({
           workspaceId: item.workspaceId,
           sessionId: item.sessionId,
         });
-        return runtimeStateListItemPayload({
-          store,
-          record: item,
-          lastTurnResult:
-            store.listTurnResults({
-              workspaceId: item.workspaceId,
-              sessionId: item.sessionId,
-              limit: 1,
-              offset: 0,
-            })[0] ?? null,
-          hasQueuedInputs,
-        });
-      });
+        const lastTurnResult =
+          store.listTurnResults({
+            workspaceId: item.workspaceId,
+            sessionId: item.sessionId,
+            limit: 1,
+            offset: 0,
+          })[0] ?? null;
+        items.push(
+          runtimeStateListItemPayload({
+            store,
+            record: item,
+            lastTurnResult,
+            hasQueuedInputs,
+          }),
+        );
+      } catch (error) {
+        app.log.warn(
+          {
+            err: error instanceof Error ? error.message : String(error),
+            workspaceId: item.workspaceId,
+            sessionId: item.sessionId,
+          },
+          "by-workspace/runtime-states: skipping runtime state due to error",
+        );
+      }
+    }
+
     return { items, count: items.length };
   });
 

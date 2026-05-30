@@ -3514,6 +3514,8 @@ export function ChatPane({
     workspaceErrorMessage,
     refreshWorkspaceData,
     installedApps,
+    isIntegrationConnectInFlight,
+    inFlightIntegrationProviderNames,
   } = useWorkspaceDesktop();
 
   // Recursive list of workspace files for the `@` picker. The walk
@@ -8265,12 +8267,18 @@ export function ChatPane({
         : isResponding
           ? "This issue is actively running. Wait for the current run to finish before replying."
           : "";
+  const integrationConnectingDisabledReason = isIntegrationConnectInFlight
+    ? inFlightIntegrationProviderNames.length === 1
+      ? `Finish connecting ${inFlightIntegrationProviderNames[0]} in your browser before sending another message.`
+      : `Finish connecting ${inFlightIntegrationProviderNames.join(", ")} in your browser before sending another message.`
+    : "";
   const composerBaseDisabledReason =
     readOnlyInspectionDisabledReason ||
     issueComposerDisabledReason ||
     baseComposerDisabledReason ||
     onboardingReviewDisabledReason ||
     onboardingImplementingDisabledReason ||
+    integrationConnectingDisabledReason ||
     (usesHostedManagedCredits && isOutOfCredits
       ? "You're out of credits for managed usage."
       : "") ||
