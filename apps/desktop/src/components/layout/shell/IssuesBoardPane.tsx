@@ -1,4 +1,4 @@
-import { Loader2, Square, UserRound } from "lucide-react";
+import { Loader2, MessageSquareText, Play, Square, UserRound } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -130,6 +130,27 @@ function issuePriorityRank(priority: IssuePriorityPayload | null): number {
   }
 }
 
+/**
+ * Whether a blocked issue can be resumed with a one-click PATCH status=todo.
+ *
+ * The runtime auto-dispatches the issue when status transitions back to
+ * `todo` with an assignee, but `dispatchIssue` (runtime-agent-tools.ts)
+ * rejects 409 `issue_run_already_queued` if the latest subagent run is in
+ * `queued | running | waiting_on_user`. We can't see the run status from
+ * the issue payload directly, so we sniff the blocker_reason which is set
+ * by the runtime itself at:
+ *   - "Run cancelled by user."  (cancelSubagent / app-close cancel)
+ *   - "Run failed[: <reason>]." (failed paths)
+ * Anything else (the agent's own `waiting_on_user` message) means the
+ * latest run is waiting on the user and dispatch would 409; the card
+ * should surface a Reply affordance instead so the user can answer.
+ */
+function isBlockedIssueResumable(issue: IssueRecordPayload): boolean {
+  if (issue.status !== "blocked") return false;
+  const reason = (issue.blocker_reason ?? "").trim();
+  return reason.startsWith("Run cancelled") || reason.startsWith("Run failed");
+}
+
 function issuePriorityBadgeClass(priority: IssuePriorityPayload | null): string {
   switch (priority) {
     case "critical":
@@ -225,6 +246,40 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
       );
     },
     [mutateIssue, workspaceId],
+  );
+
+  // Resume a blocked-but-resumable issue (cancelled / failed) by flipping
+  // status back to `todo`; the runtime auto-dispatches a fresh subagent on
+  // the existing session so the agent continues with full history.
+  const handleResumeIssue = useCallback(
+    async (issue: IssueRecordPayload) => {
+      await mutateIssue(
+        issue.issue_id,
+        () =>
+          window.electronAPI.workspace.updateIssue(workspaceId, issue.issue_id, {
+            workspace_id: workspaceId,
+            status: "todo",
+          }),
+        "Failed to resume issue",
+      );
+    },
+    [mutateIssue, workspaceId],
+  );
+
+  // Open the detail tab focused on the reply composer. Used when a blocked
+  // issue is NOT auto-resumable (agent is waiting on user input) — typing
+  // a specific answer is the only path forward.
+  const handleReplyToIssue = useCallback(
+    (issue: IssueRecordPayload) => {
+      setSelectedWorkspaceId(workspaceId);
+      void openIssueDetailTab({
+        workspaceId: issue.workspace_id,
+        issueId: issue.issue_id,
+        title: issue.title,
+        focusComposer: true,
+      });
+    },
+    [openIssueDetailTab, setSelectedWorkspaceId, workspaceId],
   );
 
   return (
@@ -394,6 +449,40 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
                                   <Square className="size-3.5" />
                                   Stop
                                 </Button>
+                              ) : issue.status === "blocked" ? (
+                                isBlockedIssueResumable(issue) ? (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 rounded-full border-orange-500/30 bg-orange-500/10 px-2.5 text-[11px] text-orange-700 hover:bg-orange-500/15 hover:text-orange-700 dark:text-orange-200 dark:hover:text-orange-200"
+                                    onClick={() => void handleResumeIssue(issue)}
+                                    disabled={pending}
+                                    title={
+                                      issue.blocker_reason ||
+                                      "Resume the cancelled run"
+                                    }
+                                  >
+                                    <Play className="size-3.5" />
+                                    Resume
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 rounded-full border-orange-500/30 bg-orange-500/10 px-2.5 text-[11px] text-orange-700 hover:bg-orange-500/15 hover:text-orange-700 dark:text-orange-200 dark:hover:text-orange-200"
+                                    onClick={() => handleReplyToIssue(issue)}
+                                    disabled={pending}
+                                    title={
+                                      issue.blocker_reason ||
+                                      "Reply to unblock this issue"
+                                    }
+                                  >
+                                    <MessageSquareText className="size-3.5" />
+                                    Reply
+                                  </Button>
+                                )
                               ) : null}
                             </div>
 

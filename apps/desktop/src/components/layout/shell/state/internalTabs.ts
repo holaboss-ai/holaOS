@@ -36,6 +36,14 @@ export type InternalTab =
 export const internalTabsAtom = atom<InternalTab[]>([]);
 export const activeInternalTabIdAtom = atom<string | null>(null);
 
+// One-shot signal: when an issue detail tab is opened via "Reply" on a
+// blocked board card, its tab id lands here. The IssueDetailPane reads it
+// on mount, removes itself from the set, and auto-focuses the composer.
+// Re-clicking the same tab later does NOT re-trigger focus.
+export const pendingIssueComposerFocusAtom = atom<Set<string>>(
+  new Set<string>(),
+);
+
 let counter = 0;
 export function makeInternalTabId(): string {
   counter += 1;
