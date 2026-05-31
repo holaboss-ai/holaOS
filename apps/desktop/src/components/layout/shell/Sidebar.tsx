@@ -56,6 +56,7 @@ import {
   RotateCw,
   Search,
   Settings,
+  Star,
   Trash2,
   Upload,
   Wrench,
@@ -74,6 +75,13 @@ import {
   upsertInternalTab,
   workspaceSurfaceTab,
 } from "./state/internalTabs";
+import {
+  favoriteKey,
+  type FavoriteItem,
+  favoritesForWorkspaceAtom,
+  isFavoriteAtom,
+  toggleFavoriteAtom,
+} from "./state/favorites";
 import {
   type RecentFile,
   recentFilesAtom,
@@ -371,6 +379,8 @@ function SidebarHomeSection() {
         <AppsSection />
       </SidebarGroup>
 
+      <FavoritesSection workspaceId={selectedWorkspaceId || null} />
+
       {recents.length > 0 ? (
         <SidebarGroup>
           <SectionLabel>Recents</SectionLabel>
@@ -411,6 +421,171 @@ function SidebarHomeSection() {
           ) : null}
         </SidebarGroup>
       ) : null}
+    </div>
+  );
+}
+
+// User-curated "pinned" items. Complements Recents (auto, time-decayed)
+// with explicit signal: issues/files/URLs the user marked as worth
+// returning to. Hidden when empty so the sidebar stays compact until the
+// user has actually starred something.
+function FavoritesSection({
+  workspaceId,
+}: {
+  workspaceId: string | null;
+}) {
+  const selector = useAtomValue(favoritesForWorkspaceAtom);
+  const favorites = useMemo(
+    () => selector(workspaceId),
+    [selector, workspaceId],
+  );
+
+  if (favorites.length === 0) return null;
+
+  return (
+    <SidebarGroup>
+      <SectionLabel>Favorites</SectionLabel>
+      {favorites.map((item) => (
+        <FavoriteRow key={item.id} item={item} />
+      ))}
+    </SidebarGroup>
+  );
+}
+
+function FavoriteRow({ item }: { item: FavoriteItem }) {
+  const toggleFavorite = useSetAtom(toggleFavoriteAtom);
+  const openIssueDetailTab = useOpenIssueDetailTab();
+  const { openUrlInBrowserTab } = useOpenWorkspaceOutput();
+  const [internalTabs, setInternalTabs] = useAtom(internalTabsAtom);
+  const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
+  const [faviconError, setFaviconError] = useState(false);
+
+  const handleOpen = useCallback(() => {
+    if (item.kind === "issue") {
+      openIssueDetailTab({
+        workspaceId: item.workspaceId,
+        issueId: item.issueId,
+        title: item.title,
+      });
+      return;
+    }
+    if (item.kind === "file") {
+      const existing = internalTabs.find(
+        (t) => t.kind === "file" && t.filePath === item.filePath,
+      );
+      if (existing) {
+        setActiveInternalTabId(existing.id);
+        return;
+      }
+      const tab = {
+        id: makeInternalTabId(),
+        kind: "file" as const,
+        filePath: item.filePath,
+        label: item.label || fileNameFromPath(item.filePath),
+      };
+      setInternalTabs((prev) => [...prev, tab]);
+      setActiveInternalTabId(tab.id);
+      return;
+    }
+    openUrlInBrowserTab(item.url);
+  }, [
+    item,
+    internalTabs,
+    openIssueDetailTab,
+    openUrlInBrowserTab,
+    setActiveInternalTabId,
+    setInternalTabs,
+  ]);
+
+  const handleRemove = useCallback(
+    (event: React.MouseEvent) => {
+      event.stopPropagation();
+      if (item.kind === "issue") {
+        toggleFavorite({
+          kind: "issue",
+          workspaceId: item.workspaceId,
+          issueId: item.issueId,
+          title: item.title,
+        });
+      } else if (item.kind === "file") {
+        toggleFavorite({
+          kind: "file",
+          workspaceId: item.workspaceId,
+          filePath: item.filePath,
+          label: item.label,
+        });
+      } else {
+        toggleFavorite({
+          kind: "url",
+          url: item.url,
+          title: item.title,
+          faviconUrl: item.faviconUrl,
+        });
+      }
+    },
+    [item, toggleFavorite],
+  );
+
+  const label =
+    item.kind === "issue"
+      ? item.title || "Untitled issue"
+      : item.kind === "file"
+        ? item.label
+        : item.title || item.url;
+
+  const titleAttr =
+    item.kind === "issue"
+      ? `${item.issueId} · ${item.title || "Untitled"}`
+      : item.kind === "file"
+        ? item.filePath
+        : item.url;
+
+  return (
+    <div
+      role="group"
+      className="group/fav relative flex items-center rounded-[6px] transition-colors hover:bg-foreground/[0.04]"
+    >
+      <button
+        type="button"
+        onClick={handleOpen}
+        title={titleAttr}
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-[6px] px-2 py-[5px] text-left text-xs text-foreground/70"
+      >
+        <span
+          aria-hidden
+          className="grid size-3.5 shrink-0 place-items-center overflow-hidden rounded-[3px] text-foreground/55"
+        >
+          {item.kind === "issue" ? (
+            <CircleDot className="size-3" />
+          ) : item.kind === "file" ? (
+            <FileTypeIcon filePath={item.filePath} size={14} />
+          ) : item.faviconUrl && !faviconError ? (
+            <img
+              src={item.faviconUrl}
+              alt=""
+              className="size-3.5 rounded-[2px] object-contain"
+              onError={() => setFaviconError(true)}
+            />
+          ) : (
+            <Globe className="size-3" />
+          )}
+        </span>
+        <span className="truncate">{label}</span>
+      </button>
+      <div
+        aria-hidden
+        className="mr-0 w-0 shrink-0 overflow-hidden transition-[width,margin-right] duration-snappy ease-out-expo group-hover/fav:mr-1 group-hover/fav:w-5"
+      >
+        <button
+          type="button"
+          aria-label="Remove from favorites"
+          title="Remove from favorites"
+          onClick={handleRemove}
+          className="grid size-5 place-items-center rounded text-foreground/50 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+        >
+          <X className="size-3" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -757,52 +932,93 @@ function IssueListRow({
   assigneeName: string | null;
   onOpen: () => void;
 }) {
+  const { selectedWorkspaceId } = useWorkspaceSelection();
   const statusVariant = issueStatusVariant(issue.status);
   const statusLabel = issueStatusLabel(issue.status);
   const priorityLabel = issuePriorityLabel(issue.priority);
+  const toggleFavorite = useSetAtom(toggleFavoriteAtom);
+  const isFavoriteFn = useAtomValue(isFavoriteAtom);
+  const favKey = selectedWorkspaceId
+    ? favoriteKey({
+        kind: "issue",
+        workspaceId: selectedWorkspaceId,
+        issueId: issue.issue_id,
+      })
+    : null;
+  const starred = favKey ? isFavoriteFn(favKey) : false;
+
+  const handleToggleStar = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (!selectedWorkspaceId) return;
+    toggleFavorite({
+      kind: "issue",
+      workspaceId: selectedWorkspaceId,
+      issueId: issue.issue_id,
+      title: issue.title || "Untitled issue",
+    });
+  };
 
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="flex w-full flex-col gap-1 rounded-lg border border-border bg-card px-2.5 py-2 text-left transition-colors hover:bg-foreground/[0.025]"
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-xs font-medium text-foreground">
-            {issue.title || "Untitled issue"}
-          </div>
-          {issue.parent_issue_id ? (
-            <div className="mt-0.5 text-[10.5px] uppercase tracking-[0.14em] text-foreground/35">
-              Sub-issue of {issue.parent_issue_id}
+    <div className="group/issue relative">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex w-full flex-col gap-1 rounded-lg border border-border bg-card px-2.5 py-2 text-left transition-colors hover:bg-foreground/[0.025]"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="truncate text-xs font-medium text-foreground">
+              {issue.title || "Untitled issue"}
             </div>
-          ) : null}
-          <div className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-foreground/45">
-            <span>{issue.issue_id}</span>
-            <span aria-hidden>•</span>
-            <span>{issueRelativeTime(issue.updated_at)}</span>
+            {issue.parent_issue_id ? (
+              <div className="mt-0.5 text-[10.5px] uppercase tracking-[0.14em] text-foreground/35">
+                Sub-issue of {issue.parent_issue_id}
+              </div>
+            ) : null}
+            <div className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-foreground/45">
+              <span>{issue.issue_id}</span>
+              <span aria-hidden>•</span>
+              <span>{issueRelativeTime(issue.updated_at)}</span>
+            </div>
           </div>
+          <ChevronRight className="mt-0.5 size-3 shrink-0 text-foreground/30" />
         </div>
-        <ChevronRight className="mt-0.5 size-3 shrink-0 text-foreground/30" />
-      </div>
-      <div className="flex flex-wrap items-center gap-1.5 text-[10.5px] text-foreground/60">
-        <span className="inline-flex items-center gap-1 rounded-full bg-foreground/[0.05] px-1.5 py-0.5">
-          <StatusDot
-            variant={statusVariant}
-            pulse={issue.status === "in_progress"}
-          />
-          {statusLabel}
-        </span>
-        {priorityLabel ? (
-          <span className="rounded-full bg-foreground/[0.05] px-1.5 py-0.5">
-            {priorityLabel}
+        <div className="flex flex-wrap items-center gap-1.5 text-[10.5px] text-foreground/60">
+          <span className="inline-flex items-center gap-1 rounded-full bg-foreground/[0.05] px-1.5 py-0.5">
+            <StatusDot
+              variant={statusVariant}
+              pulse={issue.status === "in_progress"}
+            />
+            {statusLabel}
           </span>
-        ) : null}
-        <span className="rounded-full bg-foreground/[0.05] px-1.5 py-0.5">
-          {assigneeName ?? "Unassigned"}
-        </span>
-      </div>
-    </button>
+          {priorityLabel ? (
+            <span className="rounded-full bg-foreground/[0.05] px-1.5 py-0.5">
+              {priorityLabel}
+            </span>
+          ) : null}
+          <span className="rounded-full bg-foreground/[0.05] px-1.5 py-0.5">
+            {assigneeName ?? "Unassigned"}
+          </span>
+        </div>
+      </button>
+      <button
+        type="button"
+        aria-label={starred ? "Remove from favorites" : "Add to favorites"}
+        title={starred ? "Remove from favorites" : "Add to favorites"}
+        onClick={handleToggleStar}
+        className={cn(
+          "absolute top-1.5 right-6 grid size-5 place-items-center rounded text-foreground/45 transition-[opacity,background-color,color] duration-snappy ease-out hover:bg-foreground/[0.06] hover:text-foreground",
+          starred
+            ? "opacity-100 text-foreground/70"
+            : "opacity-0 group-hover/issue:opacity-100",
+        )}
+      >
+        <Star
+          className={cn("size-3", starred && "fill-current")}
+          strokeWidth={1.75}
+        />
+      </button>
+    </div>
   );
 }
 
@@ -1853,6 +2069,10 @@ function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
   const [faviconError, setFaviconError] = useState(false);
   const showFavicon = Boolean(entry.faviconUrl) && !faviconError;
   const { openUrlInBrowserTab } = useOpenWorkspaceOutput();
+  const toggleFavorite = useSetAtom(toggleFavoriteAtom);
+  const isFavoriteFn = useAtomValue(isFavoriteAtom);
+  const favKey = favoriteKey({ kind: "url", url: entry.url });
+  const starred = isFavoriteFn(favKey);
 
   const handleOpen = (opts?: { forceNewTab?: boolean }) =>
     openUrlInBrowserTab(entry.url, opts);
@@ -1871,6 +2091,16 @@ function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
     } catch {
       // history list will refresh on the next event
     }
+  };
+
+  const handleToggleStar = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    toggleFavorite({
+      kind: "url",
+      url: entry.url,
+      title,
+      faviconUrl: entry.faviconUrl ?? undefined,
+    });
   };
 
   return (
@@ -1903,8 +2133,26 @@ function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
       </button>
       <div
         aria-hidden
-        className="mr-0 w-0 shrink-0 overflow-hidden transition-[width,margin-right] duration-200 ease-out-expo group-hover/recent:mr-1 group-hover/recent:w-5 group-has-[[aria-expanded=true]]/recent:mr-1 group-has-[[aria-expanded=true]]/recent:w-5"
+        className={cn(
+          "mr-0 flex w-0 shrink-0 items-center gap-0.5 overflow-hidden transition-[width,margin-right] duration-200 ease-out-expo group-hover/recent:mr-1 group-hover/recent:w-11 group-has-[[aria-expanded=true]]/recent:mr-1 group-has-[[aria-expanded=true]]/recent:w-11",
+          starred && "mr-1 w-11",
+        )}
       >
+        <button
+          type="button"
+          aria-label={starred ? "Remove from favorites" : "Add to favorites"}
+          title={starred ? "Remove from favorites" : "Add to favorites"}
+          onClick={handleToggleStar}
+          className={cn(
+            "grid size-5 shrink-0 place-items-center rounded transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
+            starred ? "text-foreground/70" : "text-foreground/50",
+          )}
+        >
+          <Star
+            className={cn("size-3.5", starred && "fill-current")}
+            strokeWidth={1.75}
+          />
+        </button>
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
@@ -1912,7 +2160,7 @@ function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
                 type="button"
                 aria-label="Recent actions"
                 onClick={(e) => e.stopPropagation()}
-                className="grid size-5 place-items-center rounded text-foreground/50 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+                className="grid size-5 shrink-0 place-items-center rounded text-foreground/50 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
               >
                 <MoreHorizontal className="size-3.5" />
               </button>
@@ -1950,6 +2198,24 @@ function RecentFileRow({ entry }: { entry: RecentFile }) {
   const { workspaces } = useWorkspaceDesktop();
   const setComposerPrefill = useSetAtom(chatComposerPrefillAtom);
   const prefillKeyRef = useRef(0);
+  const toggleFavorite = useSetAtom(toggleFavoriteAtom);
+  const isFavoriteFn = useAtomValue(isFavoriteAtom);
+  const favKey = favoriteKey({
+    kind: "file",
+    workspaceId: entry.workspaceId,
+    filePath: entry.filePath,
+  });
+  const starred = isFavoriteFn(favKey);
+
+  const handleToggleStar = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    toggleFavorite({
+      kind: "file",
+      workspaceId: entry.workspaceId,
+      filePath: entry.filePath,
+      label: entry.label || fileNameFromPath(entry.filePath),
+    });
+  };
 
   const handleOpen = () => {
     const existing = internalTabs.find(
@@ -2023,8 +2289,26 @@ function RecentFileRow({ entry }: { entry: RecentFile }) {
       </button>
       <div
         aria-hidden
-        className="mr-0 flex w-0 shrink-0 items-center gap-0.5 overflow-hidden transition-[width,margin-right] duration-200 ease-out-expo group-hover/recent:mr-1 group-hover/recent:w-11 group-has-[[aria-expanded=true]]/recent:mr-1 group-has-[[aria-expanded=true]]/recent:w-11"
+        className={cn(
+          "mr-0 flex w-0 shrink-0 items-center gap-0.5 overflow-hidden transition-[width,margin-right] duration-200 ease-out-expo group-hover/recent:mr-1 group-hover/recent:w-[68px] group-has-[[aria-expanded=true]]/recent:mr-1 group-has-[[aria-expanded=true]]/recent:w-[68px]",
+          starred && "mr-1 w-[68px]",
+        )}
       >
+        <button
+          type="button"
+          aria-label={starred ? "Remove from favorites" : "Add to favorites"}
+          title={starred ? "Remove from favorites" : "Add to favorites"}
+          onClick={handleToggleStar}
+          className={cn(
+            "grid size-5 shrink-0 place-items-center rounded transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
+            starred ? "text-foreground/70" : "text-foreground/50",
+          )}
+        >
+          <Star
+            className={cn("size-3.5", starred && "fill-current")}
+            strokeWidth={1.75}
+          />
+        </button>
         <button
           type="button"
           aria-label="Mention in chat"
