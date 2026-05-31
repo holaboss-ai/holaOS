@@ -4572,7 +4572,7 @@ test("runTsRunnerCli passes image_urls into the pi harness request", async () =>
   );
 });
 
-test("runTsRunnerCli includes embedded default skill ids and source directories for the pi harness", async () => {
+test("runTsRunnerCli strips embedded default skills from main-session pi harness requests", async () => {
   const sandboxRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "hb-ts-runner-pi-embedded-skills-"),
   );
@@ -4664,7 +4664,7 @@ test("runTsRunnerCli includes embedded default skill ids and source directories 
   assert.deepEqual(
     (capturedProjectRequest as { workspace_skill_ids: string[] })
       .workspace_skill_ids,
-    ["holaboss-runtime"],
+    [],
   );
   assert.ok(capturedHarnessRequest);
   assert.deepEqual(
@@ -4673,7 +4673,7 @@ test("runTsRunnerCli includes embedded default skill ids and source directories 
         workspace_skill_dirs: string[];
       }
     ).workspace_skill_dirs,
-    [fs.realpathSync(embeddedSkillDir)],
+    [],
   );
 });
 
@@ -4714,6 +4714,7 @@ test("runTsRunnerCli keeps embedded skills authoritative when a workspace skill 
       "--request-base64",
       encodeRequest({
         ...baseRequest(),
+        session_kind: "subagent",
         context: {
           _sandbox_runtime_exec_v1: {
             harness: "pi",
@@ -4814,6 +4815,7 @@ test("runTsRunnerCli resolves workspace skill ids and source directories for the
       "--request-base64",
       encodeRequest({
         ...baseRequest(),
+        session_kind: "subagent",
         instruction: ["/alpha", "", "Draft the follow-up email."].join("\n"),
         context: {
           _sandbox_runtime_exec_v1: {

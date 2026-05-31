@@ -246,6 +246,33 @@ function directResolvedMcpServerIdsForSession(
   return serverIds ?? [];
 }
 
+function directWorkspaceSkillIdsForSession(
+  sessionKind: string | null | undefined,
+  skillIds: string[] | null | undefined,
+): string[] {
+  if (directMcpDisabledForSession(sessionKind)) {
+    return [];
+  }
+  return skillIds ?? [];
+}
+
+function directWorkspaceSkillDescriptionsForSession(
+  sessionKind: string | null | undefined,
+  skillIds: string[],
+  descriptions: Record<string, string> | null | undefined,
+): Record<string, string> | null {
+  if (directMcpDisabledForSession(sessionKind)) {
+    return null;
+  }
+  if (!descriptions) {
+    return null;
+  }
+  const filteredEntries = skillIds
+    .map((skillId) => [skillId, descriptions[skillId]] as const)
+    .filter((entry): entry is readonly [string, string] => typeof entry[1] === "string");
+  return filteredEntries.length > 0 ? Object.fromEntries(filteredEntries) : null;
+}
+
 interface ConfiguredRuntimeProvider {
   id: string;
   kind: string;
@@ -1530,6 +1557,15 @@ export function projectAgentRuntimeConfig(
 ): AgentRuntimeConfigCliResponse {
   const selectedModel =
     request.selected_model?.trim() || defaultExecutionModel();
+  const directWorkspaceSkillIds = directWorkspaceSkillIdsForSession(
+    request.session_kind ?? null,
+    request.workspace_skill_ids ?? [],
+  );
+  const directWorkspaceSkillDescriptions = directWorkspaceSkillDescriptionsForSession(
+    request.session_kind ?? null,
+    directWorkspaceSkillIds,
+    request.workspace_skill_descriptions ?? null,
+  );
   const directResolvedMcpToolRefs = directResolvedMcpToolRefsForSession(
     request.session_kind ?? null,
     request.resolved_mcp_tool_refs,
@@ -1551,8 +1587,8 @@ export function projectAgentRuntimeConfig(
     workspaceCommandIds: request.workspace_command_ids ?? null,
     defaultTools: request.default_tools,
     extraTools: request.extra_tools,
-    workspaceSkillIds: request.workspace_skill_ids ?? [],
-    workspaceSkillDescriptions: request.workspace_skill_descriptions ?? null,
+    workspaceSkillIds: directWorkspaceSkillIds,
+    workspaceSkillDescriptions: directWorkspaceSkillDescriptions,
     resolvedMcpToolRefs: directResolvedMcpToolRefs,
     resolvedMcpServerIds: directResolvedMcpServerIds,
     toolServerIdMap: request.tool_server_id_map ?? null,
@@ -1587,7 +1623,7 @@ export function projectAgentRuntimeConfig(
   const promptComposition = composeAgentPrompt(request.agent.prompt, {
     defaultTools: request.default_tools,
     extraTools: request.extra_tools,
-    workspaceSkillIds: request.workspace_skill_ids ?? [],
+    workspaceSkillIds: directWorkspaceSkillIds,
     resolvedMcpToolRefs: directResolvedMcpToolRefs,
     resolvedMcpServerIds: directResolvedMcpServerIds,
     sessionKind: request.session_kind ?? null,
@@ -1630,8 +1666,8 @@ export function projectAgentRuntimeConfig(
     model_client: resolveModelClientConfig(request, target),
     tools,
     workspace_tool_ids: workspaceToolIds,
-    workspace_skill_ids: request.workspace_skill_ids ?? [],
-    workspace_skill_descriptions: request.workspace_skill_descriptions ?? null,
+    workspace_skill_ids: directWorkspaceSkillIds,
+    workspace_skill_descriptions: directWorkspaceSkillDescriptions,
     output_schema_member_id: outputSchemaMemberId,
     output_format: outputFormat,
     workspace_config_checksum: request.workspace_config_checksum,

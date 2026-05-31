@@ -69,6 +69,7 @@ import {
   prepareInstructionWithQuotedWorkspaceSkills,
   projectSessionVisibleWorkspaceSkills,
   resolveWorkspaceSkills,
+  type ResolvedWorkspaceSkill,
 } from "./workspace-skills.js";
 import { resolveProductRuntimeConfig } from "./runtime-config.js";
 import {
@@ -1420,6 +1421,16 @@ function projectResolvedMcpServerIdsForSession(params: {
   return params.resolvedMcpServerIds;
 }
 
+function projectWorkspaceSkillsForSession(params: {
+  sessionKind: string | null | undefined;
+  workspaceSkills: ResolvedWorkspaceSkill[];
+}): ResolvedWorkspaceSkill[] {
+  if (isFrontSessionKind(params.sessionKind)) {
+    return [];
+  }
+  return params.workspaceSkills;
+}
+
 function explicitHolabossUserId(request: TsRunnerRequest): string | undefined {
   return (
     firstNonEmptyString(
@@ -2414,19 +2425,22 @@ export async function executeTsRunnerRequest(
           workspaceDir: bootstrap.workspaceDir,
         }),
     );
-    const workspaceSkills = measureBootstrapStage(
-      bootstrapStageTimingsMs,
-      "resolve_workspace_skills",
-      () => {
-        const teammateId = teammateSkillContextId(request, { logger }) ?? null;
-        return projectSessionVisibleWorkspaceSkills({
-          workspaceSkills: resolveWorkspaceSkills(bootstrap.workspaceDir, {
+    const workspaceSkills = projectWorkspaceSkillsForSession({
+      sessionKind: request.session_kind,
+      workspaceSkills: measureBootstrapStage(
+        bootstrapStageTimingsMs,
+        "resolve_workspace_skills",
+        () => {
+          const teammateId = teammateSkillContextId(request, { logger }) ?? null;
+          return projectSessionVisibleWorkspaceSkills({
+            workspaceSkills: resolveWorkspaceSkills(bootstrap.workspaceDir, {
+              teammateId,
+            }),
             teammateId,
-          }),
-          teammateId,
-        });
-      },
-    );
+          });
+        },
+      ),
+    });
     const preparedInstruction = prepareInstructionWithQuotedWorkspaceSkills({
       instruction: request.instruction,
       workspaceSkills,

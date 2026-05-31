@@ -276,6 +276,61 @@ test("projectAgentRuntimeConfig returns ordered prompt layers and renders system
   }
 });
 
+test("projectAgentRuntimeConfig strips workspace skills from main sessions", () => {
+  process.env.HOLABOSS_MODEL_PROXY_BASE_URL =
+    "https://runtime.example/api/v1/model-proxy";
+  process.env.HOLABOSS_USER_ID = "user-1";
+  try {
+    const result = projectAgentRuntimeConfig({
+      session_id: "session-1",
+      workspace_id: "workspace-1",
+      input_id: "input-1",
+      session_kind: "main_session",
+      harness_id: "pi",
+      browser_tools_available: false,
+      browser_tool_ids: [],
+      runtime_tool_ids: ["delegate_task"],
+      workspace_command_ids: [],
+      runtime_exec_model_proxy_api_key: "hbrt.v1.token",
+      runtime_exec_sandbox_id: "sandbox-1",
+      runtime_exec_run_id: "run-1",
+      selected_model: null,
+      default_provider_id: "openai",
+      session_mode: "code",
+      workspace_config_checksum: "checksum-1",
+      workspace_skill_ids: ["frontend-design"],
+      workspace_skill_descriptions: {
+        "frontend-design": "Luxury UI and HTML presentation guidance",
+      },
+      default_tools: ["read"],
+      extra_tools: ["delegate_task"],
+      delegated_default_tools: ["read"],
+      delegated_extra_tools: ["delegate_task"],
+      delegated_runtime_tool_ids: ["delegate_task"],
+      delegated_resolved_mcp_tool_refs: [],
+      resolved_mcp_tool_refs: [],
+      resolved_output_schemas: {},
+      agent: {
+        id: "workspace.general",
+        model: "gpt-5.2",
+        prompt: "You are concise.",
+      },
+    });
+
+    assert.deepEqual(result.workspace_skill_ids, []);
+    assert.equal(result.workspace_skill_descriptions, null);
+    assert.equal(result.tools.skill, undefined);
+    assert.doesNotMatch(result.context_messages?.join("\n\n") ?? "", /Workspace skill catalog:/);
+    assert.doesNotMatch(
+      result.context_messages?.join("\n\n") ?? "",
+      /Invoke a relevant skill via the `skill` tool whenever the user request matches its description\./,
+    );
+    assert.equal(result.capability_manifest?.context.workspace_skills_available, false);
+  } finally {
+    delete process.env.HOLABOSS_MODEL_PROXY_BASE_URL;
+  }
+});
+
 test("projectAgentRuntimeConfig keeps workspace sessions free of todo continuity policy even when todo tools are enabled", () => {
   process.env.HOLABOSS_MODEL_PROXY_BASE_URL =
     "https://runtime.example/api/v1/model-proxy";
