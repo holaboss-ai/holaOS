@@ -3288,12 +3288,14 @@ export class DesktopBrowserToolService implements DesktopBrowserToolServiceLike 
         const startedAt = Date.now();
         const format = args.format === "jpeg" ? "jpeg" : "png";
         const quality = optionalInteger(args.quality);
+        const fullPage = optionalBoolean(args.full_page, false);
         const screenshot = await this.#browserFetch(config, {
           method: "POST",
           path: "/screenshot",
           body: {
             format,
-            ...(quality !== null ? { quality } : {})
+            ...(quality !== null ? { quality } : {}),
+            ...(fullPage ? { full_page: true } : {}),
           },
           workspaceId: context.workspaceId,
           sessionId: context.sessionId,

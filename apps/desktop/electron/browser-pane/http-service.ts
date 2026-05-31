@@ -18,8 +18,10 @@ import {
 } from "node:http";
 import {
   type BrowserWindow,
+  type NativeImage,
   type Session,
   type WebContents,
+  nativeImage,
 } from "electron";
 
 import type { BrowserSpaceId } from "../../shared/browser-pane-protocol.js";
@@ -335,7 +337,7 @@ export function createBrowserHttpService(
 ): BrowserHttpService {
   async function captureBrowserScreenshotWithRetries(
     tab: HttpServiceTabRecord,
-  ): Promise<import("electron").NativeImage> {
+  ): Promise<NativeImage> {
     const maxAttempts = 3;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
@@ -358,6 +360,53 @@ export function createBrowserHttpService(
       }
     }
     throw new Error("Browser screenshot capture exhausted all retries.");
+  }
+
+  // Full-page capture via Chrome DevTools Protocol. Electron's
+  // `webContents.capturePage()` only ever returns the visible viewport;
+  // for dashboards taller than the window, agent verification sees
+  // only the above-the-fold slice. CDP's Page.captureScreenshot with
+  // `captureBeyondViewport: true` walks the full scroll height in
+  // one call and returns the result as base64. We decode it back into
+  // a NativeImage so the existing handler can keep using getSize() /
+  // toPNG() / toJPEG() unchanged.
+  async function captureBrowserFullPageScreenshot(
+    tab: HttpServiceTabRecord,
+    format: "png" | "jpeg",
+    quality: number,
+  ): Promise<NativeImage> {
+    const wc = tab.view.webContents;
+    const detachAfter = !wc.debugger.isAttached();
+    if (detachAfter) {
+      wc.debugger.attach("1.3");
+    }
+    try {
+      const cdpParams: Record<string, unknown> = {
+        format,
+        captureBeyondViewport: true,
+        fromSurface: true,
+      };
+      if (format === "jpeg") {
+        cdpParams.quality = quality;
+      }
+      const result = (await wc.debugger.sendCommand(
+        "Page.captureScreenshot",
+        cdpParams,
+      )) as { data?: string };
+      const data = typeof result?.data === "string" ? result.data : "";
+      if (!data) {
+        throw new Error("CDP Page.captureScreenshot returned no data.");
+      }
+      return nativeImage.createFromBuffer(Buffer.from(data, "base64"));
+    } finally {
+      if (detachAfter && wc.debugger.isAttached()) {
+        try {
+          wc.debugger.detach();
+        } catch {
+          // best-effort detach
+        }
+      }
+    }
   }
 
   async function handleRequest(
@@ -1301,9 +1350,13 @@ export function createBrowserHttpService(
         const qualityRaw =
           typeof payload.quality === "number" ? payload.quality : 90;
         const quality = Math.max(0, Math.min(100, Math.round(qualityRaw)));
+        const fullPage = payload.full_page === true;
         const image = await deps.withTemporarilyRenderedBrowserTab(
           activeTab,
-          async () => captureBrowserScreenshotWithRetries(activeTab),
+          async () =>
+            fullPage
+              ? captureBrowserFullPageScreenshot(activeTab, format, quality)
+              : captureBrowserScreenshotWithRetries(activeTab),
           { waitForRenderedFrame: true },
         );
         const buffer = format === "jpeg" ? image.toJPEG(quality) : image.toPNG();
