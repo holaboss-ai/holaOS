@@ -2133,10 +2133,7 @@ function RecentRow({ entry }: { entry: BrowserHistoryEntryPayload }) {
       </button>
       <div
         aria-hidden
-        className={cn(
-          "mr-0 flex w-0 shrink-0 items-center gap-0.5 overflow-hidden transition-[width,margin-right] duration-200 ease-out-expo group-hover/recent:mr-1 group-hover/recent:w-11 group-has-[[aria-expanded=true]]/recent:mr-1 group-has-[[aria-expanded=true]]/recent:w-11",
-          starred && "mr-1 w-11",
-        )}
+        className="mr-0 flex w-0 shrink-0 items-center gap-0.5 overflow-hidden transition-[width,margin-right] duration-200 ease-out-expo group-hover/recent:mr-1 group-hover/recent:w-11 group-has-[[aria-expanded=true]]/recent:mr-1 group-has-[[aria-expanded=true]]/recent:w-11"
       >
         <button
           type="button"
@@ -2289,10 +2286,7 @@ function RecentFileRow({ entry }: { entry: RecentFile }) {
       </button>
       <div
         aria-hidden
-        className={cn(
-          "mr-0 flex w-0 shrink-0 items-center gap-0.5 overflow-hidden transition-[width,margin-right] duration-200 ease-out-expo group-hover/recent:mr-1 group-hover/recent:w-[68px] group-has-[[aria-expanded=true]]/recent:mr-1 group-has-[[aria-expanded=true]]/recent:w-[68px]",
-          starred && "mr-1 w-[68px]",
-        )}
+        className="mr-0 flex w-0 shrink-0 items-center gap-0.5 overflow-hidden transition-[width,margin-right] duration-200 ease-out-expo group-hover/recent:mr-1 group-hover/recent:w-[68px] group-has-[[aria-expanded=true]]/recent:mr-1 group-has-[[aria-expanded=true]]/recent:w-[68px]"
       >
         <button
           type="button"
