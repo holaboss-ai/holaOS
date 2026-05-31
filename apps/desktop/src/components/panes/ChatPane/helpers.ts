@@ -193,6 +193,24 @@ export function removeSlashCommandText(
  *  carets and against different item lists without one swallowing the
  *  other. The matched character set is wider than slash (allows `.`)
  *  so handles like `agent.work` resolve. */
+/** Slugify a workspace-relative file path into a mention handle that
+ *  round-trips through `findActiveMentionRange`. Non-letter / non-digit
+ *  characters drop per segment; CJK filenames stay intact. Shared between
+ *  the composer's mention list and any UI that wants to push an `@file`
+ *  into the composer programmatically. */
+export function slugifyFilePathForMention(relativePath: string): string {
+  return relativePath
+    .split("/")
+    .map((segment) =>
+      segment
+        .toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^\p{L}\p{N}_.\-]/gu, ""),
+    )
+    .filter(Boolean)
+    .join("/");
+}
+
 export function findActiveMentionRange(
   value: string,
   caretIndex: number,

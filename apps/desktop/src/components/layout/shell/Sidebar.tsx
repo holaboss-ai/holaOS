@@ -24,6 +24,7 @@ import {
   outputKindLabel,
   sortOutputsLatestFirst,
 } from "@/components/panes/ChatPane/ArtifactBrowserModal";
+import { slugifyFilePathForMention } from "@/components/panes/ChatPane/helpers";
 import type { ArtifactBrowserFilter } from "@/components/panes/ChatPane/types";
 import { FileTypeIcon } from "@/lib/fileIcon";
 import { useStoplightCompensation } from "@/lib/StoplightContext";
@@ -35,6 +36,7 @@ import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import {
+  AtSign,
   Bot,
   CircleDot,
   ChevronDown,
@@ -1945,6 +1947,9 @@ function RecentFileRow({ entry }: { entry: RecentFile }) {
   const [internalTabs, setInternalTabs] = useAtom(internalTabsAtom);
   const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
   const removeRecentFile = useSetAtom(removeRecentFileAtom);
+  const { workspaces } = useWorkspaceDesktop();
+  const setComposerPrefill = useSetAtom(chatComposerPrefillAtom);
+  const prefillKeyRef = useRef(0);
 
   const handleOpen = () => {
     const existing = internalTabs.find(
@@ -1972,6 +1977,31 @@ function RecentFileRow({ entry }: { entry: RecentFile }) {
     }
   };
 
+  const mentionHandle = useMemo(() => {
+    if (!entry.workspaceId) return null;
+    const ws = workspaces.find((w) => w.id === entry.workspaceId);
+    const wsPath = ws?.workspace_path?.trim() ?? "";
+    const prefix = wsPath ? `${wsPath.replace(/[\\/]+$/, "")}/` : "";
+    const relativePath =
+      prefix && entry.filePath.startsWith(prefix)
+        ? entry.filePath.slice(prefix.length)
+        : entry.label;
+    if (!relativePath) return null;
+    const handle = slugifyFilePathForMention(relativePath);
+    return handle || null;
+  }, [entry.filePath, entry.label, entry.workspaceId, workspaces]);
+
+  const handleMention = () => {
+    if (!mentionHandle) return;
+    prefillKeyRef.current += 1;
+    setComposerPrefill({
+      text: `@${mentionHandle} `,
+      requestKey: prefillKeyRef.current,
+      mode: "append",
+      sessionMode: "preserve",
+    });
+  };
+
   return (
     <div
       role="group"
@@ -1993,8 +2023,23 @@ function RecentFileRow({ entry }: { entry: RecentFile }) {
       </button>
       <div
         aria-hidden
-        className="mr-0 w-0 shrink-0 overflow-hidden transition-[width,margin-right] duration-200 ease-out-expo group-hover/recent:mr-1 group-hover/recent:w-5 group-has-[[aria-expanded=true]]/recent:mr-1 group-has-[[aria-expanded=true]]/recent:w-5"
+        className="mr-0 flex w-0 shrink-0 items-center gap-0.5 overflow-hidden transition-[width,margin-right] duration-200 ease-out-expo group-hover/recent:mr-1 group-hover/recent:w-11 group-has-[[aria-expanded=true]]/recent:mr-1 group-has-[[aria-expanded=true]]/recent:w-11"
       >
+        <button
+          type="button"
+          aria-label="Mention in chat"
+          title={
+            mentionHandle ? "Mention in chat" : "Mention not available"
+          }
+          disabled={!mentionHandle}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleMention();
+          }}
+          className="grid size-5 shrink-0 place-items-center rounded text-foreground/50 transition-colors hover:bg-foreground/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-foreground/50"
+        >
+          <AtSign className="size-3.5" />
+        </button>
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
@@ -2002,7 +2047,7 @@ function RecentFileRow({ entry }: { entry: RecentFile }) {
                 type="button"
                 aria-label="File actions"
                 onClick={(e) => e.stopPropagation()}
-                className="grid size-5 place-items-center rounded text-foreground/50 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+                className="grid size-5 shrink-0 place-items-center rounded text-foreground/50 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
               >
                 <MoreHorizontal className="size-3.5" />
               </button>
@@ -2012,6 +2057,13 @@ function RecentFileRow({ entry }: { entry: RecentFile }) {
             <DropdownMenuItem onClick={handleOpen}>
               <Plus className="size-3.5" />
               Open
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!mentionHandle}
+              onClick={handleMention}
+            >
+              <AtSign className="size-3.5" />
+              Mention in chat
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => void handleCopyPath()}>
               <Copy className="size-3.5" />

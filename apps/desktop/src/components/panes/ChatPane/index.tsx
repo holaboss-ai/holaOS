@@ -194,6 +194,7 @@ import {
   buildComposerSlashCommandOptions,
   findActiveSlashCommandRange,
   removeSlashCommandText,
+  slugifyFilePathForMention,
   findActiveMentionRange,
   replaceMentionText,
   injectMentionLinks,
@@ -3609,20 +3610,7 @@ export function ChatPane({
     const fileEntryToItem = (
       entry: WorkspaceFileEntry,
     ): ChatComposerMentionItem | null => {
-      // Slugify each path segment so the inserted token round-trips
-      // through findActiveMentionRange. Unicode letters / digits are
-      // preserved so CJK-named files (e.g. `产品方案.md`) survive
-      // round-trip; only true non-letter characters get stripped.
-      const handle = entry.relativePath
-        .split("/")
-        .map((segment) =>
-          segment
-            .toLowerCase()
-            .replace(/\s+/g, "-")
-            .replace(/[^\p{L}\p{N}_.\-]/gu, ""),
-        )
-        .filter(Boolean)
-        .join("/");
+      const handle = slugifyFilePathForMention(entry.relativePath);
       if (!handle) return null;
       return {
         id: `file:${entry.relativePath}`,
@@ -3679,26 +3667,15 @@ export function ChatPane({
   // not be picked up by file-read tools.
   const mentionableFilesByHandle = useMemo(() => {
     const byHandle = new Map<string, WorkspaceFileEntry>();
-    const slugifyEntry = (entry: WorkspaceFileEntry) =>
-      entry.relativePath
-        .split("/")
-        .map((segment) =>
-          segment
-            .toLowerCase()
-            .replace(/\s+/g, "-")
-            .replace(/[^\p{L}\p{N}_.\-]/gu, ""),
-        )
-        .filter(Boolean)
-        .join("/");
     for (const entry of workspaceFiles) {
-      const handle = slugifyEntry(entry);
+      const handle = slugifyFilePathForMention(entry.relativePath);
       if (!handle) continue;
       byHandle.set(handle, entry);
     }
     // Synthesized recent entries (those not in the bounded walk) also
     // need a handle so `@<file>` send-time staging can resolve them.
     for (const entry of recentFileEntriesForWorkspace) {
-      const handle = slugifyEntry(entry);
+      const handle = slugifyFilePathForMention(entry.relativePath);
       if (!handle) continue;
       if (byHandle.has(handle)) continue;
       byHandle.set(handle, entry);
