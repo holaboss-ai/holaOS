@@ -10,7 +10,6 @@ const BOARD_PANE_PATH = new URL("./IssuesBoardPane.tsx", import.meta.url);
 const DASHBOARD_PANE_PATH = new URL("./WorkspaceDashboardPane.tsx", import.meta.url);
 const ISSUE_DETAIL_PANE_PATH = new URL("./IssueDetailPane.tsx", import.meta.url);
 const TEAMMATES_PANE_PATH = new URL("./TeammatesPane.tsx", import.meta.url);
-const SURFACE_HEADER_PATH = new URL("./WorkspaceSurfaceHeader.tsx", import.meta.url);
 
 test("workspace surfaces wire board and dashboard tabs through the shell", async () => {
   const [
@@ -22,7 +21,6 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
     dashboardPaneSource,
     issueDetailPaneSource,
     teammatesPaneSource,
-    surfaceHeaderSource,
   ] = await Promise.all([
     readFile(CENTER_PATH, "utf8"),
     readFile(SIDEBAR_PATH, "utf8"),
@@ -32,7 +30,6 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
     readFile(DASHBOARD_PANE_PATH, "utf8"),
     readFile(ISSUE_DETAIL_PANE_PATH, "utf8"),
     readFile(TEAMMATES_PANE_PATH, "utf8"),
-    readFile(SURFACE_HEADER_PATH, "utf8"),
   ]);
 
   assert.match(centerSource, /import \{ TeammatesPane \} from "\.\/TeammatesPane";/);
@@ -166,9 +163,6 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   assert.match(issueDetailPaneSource, /liveAssistantTurn=\{/);
   assert.match(issueDetailPaneSource, /messages\.length > 0 \|\| showLiveAssistantTurn/);
   assert.doesNotMatch(issueDetailPaneSource, /getMessageWrapperClassName=\{/);
-  // NOTE: WorkspaceSurfaceHeader is currently unused — see the file itself
-  // for export shape. Pane-level usage assertions were removed when each
-  // pane started managing its own chrome.
 
   assert.match(teammatesPaneSource, /export function TeammatesPane/);
   assert.match(
@@ -198,8 +192,4 @@ test("workspace surfaces wire board and dashboard tabs through the shell", async
   assert.match(teammatesPaneSource, /value: "skills",/);
   assert.match(teammatesPaneSource, /ConfirmDialog/);
   assert.match(teammatesPaneSource, /SKILL\.md/);
-
-  assert.match(surfaceHeaderSource, /export function WorkspaceSurfaceHeader/);
-  assert.match(surfaceHeaderSource, /statusMessage/);
-  assert.match(surfaceHeaderSource, /meta/);
 });
