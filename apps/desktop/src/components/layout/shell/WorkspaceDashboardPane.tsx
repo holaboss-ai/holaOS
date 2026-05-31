@@ -1,16 +1,16 @@
-import { Loader2 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { Loader2, Square } from "lucide-react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/components/ui/status-dot";
 import { cn } from "@/lib/utils";
 import { useOpenIssueDetailTab } from "./useOpenIssueDetailTab";
 import { useIssueWorkspaceData } from "./useIssues";
-
-const PRIORITY_ORDER: IssuePriorityPayload[] = [
-  "critical",
-  "high",
-  "medium",
-  "low",
-];
 
 const STATUS_ORDER: IssueStatusPayload[] = [
   "todo",
@@ -66,10 +66,6 @@ function issueStatusVariant(
     default:
       return "info";
   }
-}
-
-function issuePriorityLabel(priority: IssuePriorityPayload): string {
-  return priority.slice(0, 1).toUpperCase() + priority.slice(1);
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -152,36 +148,45 @@ function windowDayKeys(days: number): string[] {
 
 function buildDailyBars(
   results: SessionTurnResultPayload[],
-  options: {
-    valueForDay: (items: SessionTurnResultPayload[]) => number;
-    color: string;
-  },
-) {
+): Array<{ key: string; label: string; value: number }> {
   const days = windowDayKeys(DAY_WINDOW);
-  const grouped = new Map<string, SessionTurnResultPayload[]>();
+  const grouped = new Map<string, number>();
   for (const result of results) {
     const key = dayKey(turnResultTimestamp(result));
-    const bucket = grouped.get(key);
-    if (bucket) {
-      bucket.push(result);
-    } else {
-      grouped.set(key, [result]);
-    }
+    grouped.set(key, (grouped.get(key) ?? 0) + 1);
   }
   return days.map((key, index) => ({
     key,
     label:
-      index === 0 || index === Math.floor(days.length / 2) || index === days.length - 1
+      index === 0 ||
+      index === Math.floor(days.length / 2) ||
+      index === days.length - 1
         ? dayLabel(key)
         : "",
-    value: options.valueForDay(grouped.get(key) ?? []),
-    color: options.color,
+    value: grouped.get(key) ?? 0,
   }));
 }
 
-function shortIssueId(issueId: string): string {
-  const normalized = issueId.trim();
-  return normalized || "Issue";
+/**
+ * Map an issue status to one of the project's semantic tokens so the
+ * stacked board-mix bar and the StatusDot across the app share the same
+ * palette. Brand orange (`bg-primary`) means "active work" — only used
+ * for in_progress.
+ */
+function statusSegmentBg(status: IssueStatusPayload): string {
+  switch (status) {
+    case "done":
+      return "bg-success";
+    case "in_progress":
+      return "bg-primary";
+    case "in_review":
+      return "bg-info";
+    case "blocked":
+      return "bg-warning";
+    case "todo":
+    default:
+      return "bg-muted-foreground/45";
+  }
 }
 
 function activityTone(
@@ -358,11 +363,6 @@ export function WorkspaceDashboardPane({
     const statusCounts = Object.fromEntries(
       STATUS_ORDER.map((status) => [status, 0]),
     ) as Record<IssueStatusPayload, number>;
-    const priorityCounts = Object.fromEntries(
-      PRIORITY_ORDER.map((priority) => [priority, 0]),
-    ) as Record<IssuePriorityPayload, number>;
-    let todoAssignedCount = 0;
-    let todoIdleCount = 0;
     let completedThisWeek = 0;
     let inputTokens = 0;
     let outputTokens = 0;
@@ -371,16 +371,6 @@ export function WorkspaceDashboardPane({
 
     for (const issue of visibleIssues) {
       statusCounts[issue.status] += 1;
-      if (issue.priority) {
-        priorityCounts[issue.priority] += 1;
-      }
-      if (issue.status === "todo") {
-        if (issue.assignee_teammate_id) {
-          todoAssignedCount += 1;
-        } else {
-          todoIdleCount += 1;
-        }
-      }
       if (issue.status === "done" && issue.completed_at) {
         const completedAtMs = Date.parse(issue.completed_at);
         if (!Number.isNaN(completedAtMs) && completedAtMs >= weekAgo) {
@@ -411,11 +401,8 @@ export function WorkspaceDashboardPane({
       inProgressCount: statusCounts.in_progress,
       blockedCount: statusCounts.blocked,
       reviewCount: statusCounts.in_review,
-      todoAssignedCount,
-      todoIdleCount,
       completedThisWeek,
       statusCounts,
-      priorityCounts,
       inputTokens,
       outputTokens,
       totalTokens,
@@ -423,66 +410,48 @@ export function WorkspaceDashboardPane({
   }, [recentIssueTurnResults, teammates.length, visibleIssues]);
 
   const runActivityBars = useMemo(
-    () =>
-      buildDailyBars(recentIssueTurnResults, {
-        valueForDay: (items) => items.length,
-        color: "bg-emerald-400/85",
-      }),
+    () => buildDailyBars(recentIssueTurnResults),
     [recentIssueTurnResults],
   );
-
-  const priorityBars = useMemo(
-    () =>
-      PRIORITY_ORDER.map((priority) => ({
-        key: priority,
-        label:
-          priority === "critical"
-            ? "Critical"
-            : priority === "high"
-              ? "High"
-              : priority === "medium"
-                ? "Medium"
-                : "Low",
-        value: summary.priorityCounts[priority],
-        color:
-          priority === "critical"
-            ? "bg-red-400/85"
-            : priority === "high"
-              ? "bg-orange-400/85"
-              : priority === "medium"
-                ? "bg-amber-300/85"
-                : "bg-slate-400/85",
-      })),
-    [summary.priorityCounts],
+  const totalRecentRuns = useMemo(
+    () => runActivityBars.reduce((sum, bar) => sum + bar.value, 0),
+    [runActivityBars],
+  );
+  const peakRunDay = useMemo(
+    () => runActivityBars.reduce((max, bar) => Math.max(max, bar.value), 0),
+    [runActivityBars],
   );
 
-  const statusBars = useMemo(
-    () =>
-      STATUS_ORDER.map((status) => ({
-        key: status,
-        label:
-          status === "in_progress"
-            ? "WIP"
-            : status === "in_review"
-              ? "Review"
-              : status === "blocked"
-                ? "Blocked"
-                : status === "done"
-                  ? "Done"
-                  : "Todo",
-        value: summary.statusCounts[status],
-        color:
-          status === "done"
-            ? "bg-emerald-400/85"
-            : status === "blocked"
-              ? "bg-amber-300/85"
-              : status === "in_progress"
-                ? "bg-violet-400/85"
-                : status === "in_review"
-                  ? "bg-sky-400/85"
-                  : "bg-slate-400/85",
-      })),
-    [summary.statusCounts],
+  // Live "now" band — issues with an active subagent right this moment,
+  // grouped with their assignee teammate so the dashboard opens with
+  // *who is doing what*, not "Agents enabled: N".
+  const activeIssues = useMemo(() => {
+    return visibleIssues
+      .filter((issue) => Boolean(issue.active_subagent_id))
+      .map((issue) => ({
+        issue,
+        teammateName: issue.assignee_teammate_id
+          ? teammatesById[issue.assignee_teammate_id]?.name ?? "Teammate"
+          : "Teammate",
+      }));
+  }, [teammatesById, visibleIssues]);
+
+  const [stoppingIssueId, setStoppingIssueId] = useState("");
+  const handleStopIssueRun = useCallback(
+    async (issue: IssueRecordPayload) => {
+      if (!issue.active_subagent_id) return;
+      if (!window.confirm(`Stop ${issue.issue_id}?`)) return;
+      setStoppingIssueId(issue.issue_id);
+      try {
+        await window.electronAPI.workspace.stopIssueRun(
+          workspaceId,
+          issue.issue_id,
+        );
+      } finally {
+        setStoppingIssueId("");
+      }
+    },
+    [workspaceId],
   );
 
   const recentTasks = useMemo(
@@ -539,166 +508,299 @@ export function WorkspaceDashboardPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="border-b border-border px-6 py-3">
-        <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-foreground/35">
-          <span>Dashboard</span>
+      {/* Compact top bar — eyebrow on the left, time window on the right.
+          Keeps chrome out of the way; the page itself does the talking. */}
+      <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-6">
+        <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Dashboard
         </div>
-      </div>
+        <div className="text-xs text-muted-foreground">Last 14 days</div>
+      </header>
 
       {dashboardStatusMessage ? (
-        <div className="border-b border-border px-6 py-3">
-          <div className="rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground/65">
-            {dashboardStatusMessage}
-          </div>
+        <div className="border-b border-border bg-card/40 px-6 py-2 text-sm text-muted-foreground">
+          {dashboardStatusMessage}
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
+      <div className="min-h-0 flex-1 overflow-auto bg-fg-4">
         {isLoadingIssues && visibleIssues.length === 0 ? (
           <div className="grid h-full place-items-center">
-            <Loader2 className="size-5 animate-spin text-foreground/35" />
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="grid gap-5">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <MetricCard
-                label="Agents Enabled"
-                value={summary.activeTeammates}
-                detail={`${summary.completedThisWeek} done this week`}
-              />
-              <MetricCard
-                label="Tasks In Progress"
-                value={summary.inProgressCount}
-                detail={`${summary.blockedCount} blocked, ${summary.todoAssignedCount + summary.todoIdleCount} todo`}
-              />
-              <MetricCard
-                label="Token Consumption"
-                value={formatCompactNumber(summary.totalTokens)}
-                detail={`${formatCompactNumber(summary.inputTokens)} in / ${formatCompactNumber(summary.outputTokens)} out · last 14 days`}
-              />
-              <MetricCard
-                label="Waiting for Review"
-                value={summary.reviewCount}
-                detail={
-                  summary.reviewCount === 0
-                    ? "Nothing waiting right now"
-                    : `${summary.reviewCount} task${summary.reviewCount === 1 ? "" : "s"} need review`
+          <div className="mx-auto w-full max-w-[1180px] space-y-5 px-6 py-6">
+            {/* NOW band — live agent activity. The single brand-orange
+                pulse on the dashboard sits here, because this is the
+                only thing on the page that's actually moving. */}
+            <Card>
+              <CardHeader
+                eyebrow="Now"
+                meta={
+                  activeIssues.length === 0
+                    ? "Idle"
+                    : `${activeIssues.length} ${activeIssues.length === 1 ? "teammate" : "teammates"} working`
                 }
               />
-            </div>
-
-            <div className="grid gap-4 xl:grid-cols-3">
-              <MiniBarChartCard
-                title="Run Activity"
-                subtitle="Last 14 days"
-                bars={runActivityBars}
-                legend={[
-                  { label: "Completed and terminal runs", color: "bg-emerald-400/85" },
-                ]}
-              />
-              <MiniBarChartCard
-                title="Issues by Priority"
-                subtitle="Current board mix"
-                bars={priorityBars}
-                legend={PRIORITY_ORDER.map((priority, index) => ({
-                  label: issuePriorityLabel(priority),
-                  color: priorityBars[index]?.color ?? "bg-slate-400/85",
-                }))}
-              />
-              <MiniBarChartCard
-                title="Issues by Status"
-                subtitle="Current board mix"
-                bars={statusBars}
-                legend={STATUS_ORDER.map((status, index) => ({
-                  label: issueStatusLabel(status),
-                  color: statusBars[index]?.color ?? "bg-slate-400/85",
-                }))}
-              />
-            </div>
-
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
-              <ActivityListCard
-                title="Recent Activity"
-                emptyLabel="No recent activity yet"
-              >
-                {recentActivity.length > 0 ? (
-                  recentActivity.map((entry) => (
-                    <button
-                      key={entry.id}
-                      type="button"
-                      onClick={() =>
-                        void openIssueDetailTab({
-                          workspaceId,
-                          issueId: entry.issueId,
-                        })
-                      }
-                      className="flex w-full items-start justify-between gap-4 rounded-xl border border-border bg-card/70 px-4 py-3 text-left transition hover:border-foreground/15 hover:bg-card"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                          <StatusDot variant={entry.tone} />
-                          <span className="truncate">{entry.label}</span>
-                        </div>
-                        <div className="mt-1 truncate text-sm text-foreground/55">
-                          {entry.issueTitle}
-                        </div>
-                      </div>
-                      <span className="shrink-0 text-xs text-foreground/40">
-                        {issueRelativeTime(entry.timestamp)}
-                      </span>
-                    </button>
-                  ))
-                ) : (
-                  <EmptyState label="No recent activity yet" />
-                )}
-              </ActivityListCard>
-
-              <ActivityListCard
-                title="Recent Tasks"
-                emptyLabel="No tasks yet"
-              >
-                {recentTasks.length > 0 ? (
-                  recentTasks.map((issue) => (
-                    <button
-                      key={issue.issue_id}
-                      type="button"
-                      onClick={() =>
-                        void openIssueDetailTab({
-                          workspaceId: issue.workspace_id,
-                          issueId: issue.issue_id,
-                        })
-                      }
-                      className="flex w-full items-center justify-between gap-4 rounded-xl border border-border bg-card/70 px-4 py-3 text-left transition hover:border-foreground/15 hover:bg-card"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 text-xs text-foreground/42">
-                          <span>{shortIssueId(issue.issue_id)}</span>
-                          {issue.assignee_teammate_id ? (
-                            <span>
-                              {teammatesById[issue.assignee_teammate_id]?.name ??
-                                "Assigned"}
+              {activeIssues.length > 0 ? (
+                <ul className="divide-y divide-border">
+                  {activeIssues.map(({ issue, teammateName }) => (
+                    <li key={issue.issue_id}>
+                      <div className="group flex w-full items-center gap-3 px-5 py-3 transition-colors hover:bg-foreground/[0.025]">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void openIssueDetailTab({
+                              workspaceId,
+                              issueId: issue.issue_id,
+                              title: issue.title,
+                            })
+                          }
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                        >
+                          <div className="relative grid size-8 shrink-0 place-items-center rounded-full bg-fg-8 text-sm font-semibold text-foreground">
+                            {teammateName.trim().slice(0, 1).toUpperCase() ||
+                              "?"}
+                            <span
+                              aria-hidden
+                              className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-primary ring-2 ring-card"
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 text-base">
+                              <span className="font-semibold text-foreground">
+                                {teammateName}
+                              </span>
+                              <span className="font-mono text-xs text-muted-foreground">
+                                {issue.issue_id}
+                              </span>
+                            </div>
+                            <div className="truncate text-sm text-muted-foreground">
+                              {issue.title || "Untitled issue"}
+                            </div>
+                          </div>
+                          <div className="hidden shrink-0 items-center gap-2 text-xs text-muted-foreground md:flex">
+                            <StatusDot variant="primary" pulse size="md" />
+                            <span className="tabular-nums">
+                              Working · {issueRelativeTime(issue.updated_at)}
                             </span>
+                          </div>
+                        </button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 shrink-0 gap-1 px-2 text-xs opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                          onClick={() => void handleStopIssueRun(issue)}
+                          disabled={stoppingIssueId === issue.issue_id}
+                          aria-label={`Stop ${issue.issue_id}`}
+                        >
+                          {stoppingIssueId === issue.issue_id ? (
+                            <Loader2 className="size-3 animate-spin" />
                           ) : (
-                            <span>Unassigned</span>
+                            <Square className="size-3" />
                           )}
-                          <span>{issueRelativeTime(issue.updated_at)}</span>
-                        </div>
-                        <div className="mt-1 flex items-center gap-2 text-sm font-medium text-foreground">
+                          Stop
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="flex items-center gap-2.5 px-5 py-4 text-sm text-muted-foreground">
+                  <StatusDot variant="muted" size="md" />
+                  <span>
+                    Nothing running right now. Move an issue to Todo with an
+                    assignee to kick off work.
+                  </span>
+                </div>
+              )}
+            </Card>
+
+            {/* Metric strip — 4 numbers + token row in one card. Internal
+                divide-x line gives them column structure without
+                fragmenting into 4 islands. */}
+            <Card>
+              <div className="grid grid-cols-2 divide-x divide-border md:grid-cols-4">
+                <Stat
+                  label="In progress"
+                  value={summary.inProgressCount}
+                  hint={
+                    summary.inProgressCount === 0
+                      ? "Idle"
+                      : `Across ${summary.activeTeammates} teammate${summary.activeTeammates === 1 ? "" : "s"}`
+                  }
+                />
+                <Stat
+                  label="In review"
+                  value={summary.reviewCount}
+                  hint={
+                    summary.reviewCount === 0
+                      ? "Nothing waiting"
+                      : "Awaiting your call"
+                  }
+                />
+                <Stat
+                  label="Blocked"
+                  value={summary.blockedCount}
+                  tone={summary.blockedCount > 0 ? "warning" : "default"}
+                  hint={
+                    summary.blockedCount === 0
+                      ? "Clear"
+                      : "Needs your input"
+                  }
+                />
+                <Stat
+                  label="Done this week"
+                  value={summary.completedThisWeek}
+                  tone={summary.completedThisWeek > 0 ? "success" : "default"}
+                  hint={
+                    summary.completedThisWeek === 0
+                      ? "Nothing shipped yet"
+                      : `${summary.totalIssues} total on the board`
+                  }
+                />
+              </div>
+              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-border px-5 py-2.5 text-xs">
+                <span>
+                  <span className="font-semibold tabular-nums text-foreground">
+                    {formatCompactNumber(summary.totalTokens)}
+                  </span>
+                  <span className="ml-1 text-muted-foreground">
+                    tokens · last 14 days
+                  </span>
+                </span>
+                <span className="tabular-nums text-muted-foreground">
+                  {formatCompactNumber(summary.inputTokens)} in ·{" "}
+                  {formatCompactNumber(summary.outputTokens)} out
+                </span>
+              </div>
+            </Card>
+
+            {/* Run activity chart + Board mix — side by side at xl,
+                stacked below. Both feel like the same "analytics row". */}
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+              <Card>
+                <CardHeader
+                  eyebrow="Run activity"
+                  meta={
+                    totalRecentRuns > 0
+                      ? `${totalRecentRuns} run${totalRecentRuns === 1 ? "" : "s"} · peak ${peakRunDay}/day`
+                      : "No runs yet"
+                  }
+                />
+                <div className="px-5 pb-5 pt-2">
+                  <RunActivityChart
+                    bars={runActivityBars}
+                    peak={peakRunDay}
+                  />
+                </div>
+              </Card>
+              <Card>
+                <CardHeader
+                  eyebrow="Board mix"
+                  meta={`${summary.totalIssues} issue${summary.totalIssues === 1 ? "" : "s"}`}
+                />
+                <div className="px-5 pb-5 pt-3">
+                  <StatusSegmentBar
+                    statusCounts={summary.statusCounts}
+                    total={summary.totalIssues}
+                  />
+                </div>
+              </Card>
+            </div>
+
+            {/* Two recent line lists — divide-y rows inside each card.
+                Mirrors the sub-issues list in IssueDetailPane so the
+                product reads as one piece of software, not three. */}
+            <div className="grid gap-5 xl:grid-cols-2">
+              <Card>
+                <CardHeader eyebrow="Recent activity" />
+                {recentActivity.length > 0 ? (
+                  <ul className="divide-y divide-border">
+                    {recentActivity.map((entry) => (
+                      <li key={entry.id}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void openIssueDetailTab({
+                              workspaceId,
+                              issueId: entry.issueId,
+                              title: entry.issueTitle,
+                            })
+                          }
+                          className="flex w-full items-start gap-3 px-5 py-2.5 text-left transition-colors hover:bg-foreground/[0.025]"
+                        >
+                          <StatusDot
+                            variant={entry.tone}
+                            size="md"
+                            className="mt-1.5"
+                          />
+                          <div className="min-w-0 flex-1 space-y-0.5">
+                            <div className="truncate text-base text-foreground">
+                              {entry.label}
+                            </div>
+                            <div className="truncate text-sm text-muted-foreground">
+                              {entry.issueTitle}
+                            </div>
+                          </div>
+                          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                            {issueRelativeTime(entry.timestamp)}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <EmptyRow label="No recent activity yet" />
+                )}
+              </Card>
+
+              <Card>
+                <CardHeader eyebrow="Recent issues" />
+                {recentTasks.length > 0 ? (
+                  <ul className="divide-y divide-border">
+                    {recentTasks.map((issue) => (
+                      <li key={issue.issue_id}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void openIssueDetailTab({
+                              workspaceId: issue.workspace_id,
+                              issueId: issue.issue_id,
+                              title: issue.title,
+                            })
+                          }
+                          className="flex w-full items-center gap-3 px-5 py-2.5 text-left transition-colors hover:bg-foreground/[0.025]"
+                        >
                           <StatusDot
                             variant={issueStatusVariant(issue.status)}
                             pulse={issue.status === "in_progress"}
+                            size="md"
                           />
-                          <span className="truncate">
+                          <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                            {issue.issue_id}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-base text-foreground">
                             {issue.title || "Untitled issue"}
                           </span>
-                        </div>
-                      </div>
-                    </button>
-                  ))
+                          <span className="hidden shrink-0 text-xs text-muted-foreground md:inline">
+                            {issue.assignee_teammate_id
+                              ? teammatesById[issue.assignee_teammate_id]
+                                  ?.name ?? "Assigned"
+                              : "Unassigned"}
+                          </span>
+                          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                            {issueRelativeTime(issue.updated_at)}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 ) : (
-                  <EmptyState label="No tasks yet" />
+                  <EmptyRow label="No issues yet" />
                 )}
-              </ActivityListCard>
+              </Card>
             </div>
           </div>
         )}
@@ -707,117 +809,197 @@ export function WorkspaceDashboardPane({
   );
 }
 
-function MetricCard({
+/**
+ * Card surface for dashboard sections. Uses `bg-card` + `shadow-xs`,
+ * which (per tokens.css) bakes a 0-0-0-0.5px hairline ring into the
+ * shadow stack and reads as "barely lifted" — sm is reserved for
+ * buttons/popovers. We deliberately omit a separate `border` so the
+ * ring doesn't double.
+ */
+function Card({ children }: { children: ReactNode }) {
+  return (
+    <section className="overflow-hidden rounded-xl bg-card shadow-xs">
+      {children}
+    </section>
+  );
+}
+
+function CardHeader({
+  eyebrow,
+  meta,
+}: {
+  eyebrow: string;
+  meta?: string;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-b border-border px-5 py-3">
+      <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        {eyebrow}
+      </h2>
+      {meta ? (
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {meta}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function Stat({
   label,
   value,
-  detail,
+  hint,
   tone = "default",
 }: {
   label: string;
   value: number | string;
-  detail: string;
-  tone?: "default" | "success";
+  hint?: string;
+  tone?: "default" | "warning" | "success";
 }) {
   return (
-    <div
-      className={cn(
-        "rounded-2xl border border-border bg-card/85 px-4 py-4 shadow-sm",
-        tone === "success" && "bg-emerald-500/6",
-      )}
-    >
-      <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-foreground/42">
+    <div className="space-y-1.5 px-5 py-4">
+      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
-      <div className="mt-3 text-4xl font-semibold tracking-tight text-foreground">
+      <div
+        className={cn(
+          "text-4xl font-semibold leading-none tracking-tight tabular-nums",
+          tone === "warning"
+            ? "text-warning"
+            : tone === "success"
+              ? "text-success"
+              : "text-foreground",
+        )}
+      >
         {value}
       </div>
-      <div className="mt-2 text-sm text-foreground/55">{detail}</div>
+      {hint ? (
+        <div className="text-xs text-muted-foreground">{hint}</div>
+      ) : null}
     </div>
   );
 }
 
-function MiniBarChartCard({
-  title,
-  subtitle,
+function RunActivityChart({
   bars,
-  legend,
-  valueSuffix = "",
+  peak,
 }: {
-  title: string;
-  subtitle: string;
-  bars: Array<{ key: string; label: string; value: number; color: string }>;
-  legend: Array<{ label: string; color: string }>;
-  valueSuffix?: string;
+  bars: Array<{ key: string; label: string; value: number }>;
+  peak: number;
 }) {
-  const maxValue = Math.max(1, ...bars.map((bar) => bar.value));
-  const hasAny = bars.some((bar) => bar.value > 0);
-
+  const denominator = Math.max(1, peak);
   return (
-    <div className="rounded-2xl border border-border bg-card/85 px-4 py-4 shadow-sm">
-      <div className="text-lg font-medium text-foreground">{title}</div>
-      <div className="mt-1 text-sm text-foreground/45">{subtitle}</div>
-      {hasAny ? (
-        <>
-          <div className="mt-6 flex h-44 items-end gap-3">
-            {bars.map((bar) => (
+    <div>
+      <div className="flex h-32 items-end gap-1">
+        {bars.map((bar) => {
+          const isPeak = bar.value > 0 && bar.value === peak;
+          const heightPct =
+            bar.value === 0
+              ? 5
+              : Math.max(10, Math.round((bar.value / denominator) * 100));
+          return (
+            <div
+              key={bar.key}
+              className="flex min-w-0 flex-1 flex-col items-center justify-end"
+              title={`${bar.label || bar.key}: ${bar.value} run${bar.value === 1 ? "" : "s"}`}
+            >
               <div
-                key={bar.key}
-                className="flex min-w-0 flex-1 flex-col items-center gap-2"
-              >
-                <div className="flex h-32 w-full items-end justify-center">
-                  <div
-                    className={cn("w-full max-w-9 rounded-t-sm", bar.color)}
-                    style={{
-                      height: `${Math.max(4, Math.round((bar.value / maxValue) * 100))}%`,
-                    }}
-                    title={`${bar.value}${valueSuffix}`}
-                  />
-                </div>
-                <div className="h-4 text-center text-[11px] text-foreground/42">
-                  {bar.label}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs text-foreground/52">
-            {legend.map((item) => (
-              <span key={item.label} className="inline-flex items-center gap-2">
-                <span className={cn("size-2 rounded-full", item.color)} />
-                {item.label}
-              </span>
-            ))}
-          </div>
-        </>
-      ) : (
-        <div className="mt-6">
-          <EmptyState label="No chart data yet" />
-        </div>
-      )}
+                className={cn(
+                  "w-full max-w-[16px] rounded-t-[3px] transition-colors",
+                  bar.value === 0
+                    ? "bg-fg-6"
+                    : isPeak
+                      ? "bg-primary"
+                      : "bg-fg-32",
+                )}
+                style={{ height: `${heightPct}%` }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-2 flex justify-between text-xs text-muted-foreground tabular-nums">
+        {bars.map((bar) => (
+          <span
+            key={bar.key}
+            className="flex-1 text-center"
+            aria-hidden={!bar.label}
+          >
+            {bar.label}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
 
-function ActivityListCard({
-  title,
-  emptyLabel,
-  children,
+function StatusSegmentBar({
+  statusCounts,
+  total,
 }: {
-  title: string;
-  emptyLabel: string;
-  children: ReactNode;
+  statusCounts: Record<IssueStatusPayload, number>;
+  total: number;
 }) {
   return (
-    <div className="rounded-2xl border border-border bg-card/85 px-4 py-4 shadow-sm">
-      <div className="mb-4 text-lg font-medium text-foreground">{title}</div>
-      <div className="grid gap-3">{children || <EmptyState label={emptyLabel} />}</div>
+    <div className="space-y-4">
+      {total > 0 ? (
+        <div
+          className="flex h-2.5 w-full overflow-hidden rounded-full bg-fg-6"
+          role="img"
+          aria-label={`Issue status mix: ${STATUS_ORDER.map(
+            (status) => `${issueStatusLabel(status)} ${statusCounts[status]}`,
+          ).join(", ")}`}
+        >
+          {STATUS_ORDER.map((status) => {
+            const count = statusCounts[status];
+            if (count === 0) return null;
+            const percent = (count / total) * 100;
+            return (
+              <div
+                key={status}
+                className={cn("h-full", statusSegmentBg(status))}
+                style={{ width: `${percent}%` }}
+                title={`${issueStatusLabel(status)}: ${count}`}
+              />
+            );
+          })}
+        </div>
+      ) : (
+        <div className="h-2.5 w-full rounded-full bg-fg-6" />
+      )}
+      <ul className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm md:grid-cols-3">
+        {STATUS_ORDER.map((status) => (
+          <li
+            key={status}
+            className="flex items-center justify-between gap-2"
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <span
+                aria-hidden
+                className={cn(
+                  "size-2 shrink-0 rounded-full",
+                  statusSegmentBg(status),
+                )}
+              />
+              <span className="truncate text-muted-foreground">
+                {issueStatusLabel(status)}
+              </span>
+            </span>
+            <span className="shrink-0 font-semibold tabular-nums text-foreground">
+              {statusCounts[status]}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
 
-function EmptyState({ label }: { label: string }) {
+function EmptyRow({ label }: { label: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-border bg-background/35 px-3 py-6 text-center text-sm text-foreground/48">
+    <div className="px-5 py-4 text-sm text-muted-foreground">
       {label}
     </div>
   );
 }
+

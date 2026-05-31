@@ -84,6 +84,7 @@ import {
   controlCenterOpenAtom,
   createWorkspaceOpenAtom,
   focusModeAtom,
+  newIssueOpenAtom,
   publishOpenAtom,
   searchOpenAtom,
   SIDEBAR_MAX_WIDTH,
@@ -95,7 +96,7 @@ import {
   settingsSectionAtom,
   sidebarCollapsedAtom,
 } from "./state/ui";
-import { useIssues } from "./useIssues";
+import { type SidebarIssueListItem, useIssues } from "./useIssues";
 import { useOpenIssueDetailTab } from "./useOpenIssueDetailTab";
 import {
   useRecentBrowserHistory,
@@ -360,7 +361,7 @@ function SidebarHomeSection() {
   }, [urlRecents, fileRecents]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pt-3 pb-3">
       <SidebarGroup>
         <NavItem icon={<Search />} onClick={() => setSearchOpen(true)}>
           Search
@@ -452,28 +453,69 @@ function SidebarGlobalFooter() {
 // cards so the motion stays restrained instead of springy.
 const INBOX_EASE = [0.32, 0.72, 0, 1] as const;
 
+function SidebarNavRow({
+  icon,
+  label,
+  onClick,
+  disabled,
+  count,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  count?: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "flex h-7 items-center gap-2 rounded-md px-2 text-left text-xs font-medium text-foreground/70 transition-colors",
+        "hover:bg-foreground/[0.04] hover:text-foreground",
+        "disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent",
+      )}
+    >
+      <span className="grid place-items-center text-foreground/55 [&>svg]:size-3.5">
+        {icon}
+      </span>
+      <span className="flex-1 truncate">{label}</span>
+      {count !== undefined ? (
+        <span className="tabular-nums text-foreground/45">{count}</span>
+      ) : null}
+    </button>
+  );
+}
+
 function SidebarIssuesSection() {
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const { issues, isLoading, statusMessage } = useIssues(
     selectedWorkspaceId || null,
   );
-  const setComposerPrefill = useSetAtom(chatComposerPrefillAtom);
-  const setFocusMode = useSetAtom(focusModeAtom);
+  const setNewIssueOpen = useSetAtom(newIssueOpenAtom);
   const openIssueDetailTab = useOpenIssueDetailTab();
   const setInternalTabs = useSetAtom(internalTabsAtom);
   const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
-  const prefillKeyRef = useRef(0);
+  const [showDone, setShowDone] = useState(false);
+
+  const { activeIssues, doneIssues } = useMemo(() => {
+    const active: SidebarIssueListItem[] = [];
+    const done: SidebarIssueListItem[] = [];
+    for (const item of issues) {
+      if (item.issue.status === "done") {
+        done.push(item);
+      } else {
+        active.push(item);
+      }
+    }
+    return { activeIssues: active, doneIssues: done };
+  }, [issues]);
 
   const handleNewIssue = useCallback(() => {
-    prefillKeyRef.current += 1;
-    setComposerPrefill({
-      text: "New issue: ",
-      requestKey: prefillKeyRef.current,
-      mode: "replace",
-      sessionMode: "preserve",
-    });
-    setFocusMode(false);
-  }, [setComposerPrefill, setFocusMode]);
+    if (!selectedWorkspaceId) return;
+    setNewIssueOpen(true);
+  }, [selectedWorkspaceId, setNewIssueOpen]);
 
   const handleOpenIssue = useCallback(
     (issue: IssueRecordPayload) => {
@@ -513,48 +555,51 @@ function SidebarIssuesSection() {
     });
   }, [selectedWorkspaceId, setActiveInternalTabId, setInternalTabs]);
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-3">
-      <SectionLabel>Agent Team</SectionLabel>
-      <div className="mb-2 px-0.5">
-        <div className="grid gap-2">
-          <Button
-            type="button"
-            onClick={handleNewIssue}
-            disabled={!selectedWorkspaceId}
-            className="h-8 justify-start rounded-lg px-3 text-xs"
-          >
-            <Plus className="size-3.5" />
-            New issue
-          </Button>
-          <button
-            type="button"
-            onClick={handleOpenDashboard}
-            disabled={!selectedWorkspaceId}
-            className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            <LayoutDashboard className="size-3.5 text-foreground/55" />
-            <span>Dashboard</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleOpenBoard}
-            disabled={!selectedWorkspaceId}
-            className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            <CircleDot className="size-3.5 text-foreground/55" />
-            <span>Issues</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleOpenTeammates}
-            disabled={!selectedWorkspaceId}
-            className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            <Bot className="size-3.5 text-foreground/55" />
-            <span>Teammates</span>
-          </button>
+  if (!selectedWorkspaceId) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pt-3 pb-3">
+        <SectionLabel>Agent Team</SectionLabel>
+        <div className="grid flex-1 place-items-center px-4 py-12 text-center">
+          <p className="max-w-[200px] text-xs leading-relaxed text-foreground/55">
+            Select a workspace from the top bar to view its agent team and
+            issues.
+          </p>
         </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pt-3 pb-3">
+      <SectionLabel className="justify-between">
+        <span>Agent Team</span>
+        <button
+          type="button"
+          onClick={handleNewIssue}
+          aria-label="New issue"
+          title="New issue"
+          className="flex size-4 items-center justify-center rounded text-foreground/50 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+        >
+          <Plus className="size-3" />
+        </button>
+      </SectionLabel>
+      <div className="mb-2 flex flex-col gap-0.5 px-0.5">
+        <SidebarNavRow
+          icon={<LayoutDashboard />}
+          label="Dashboard"
+          onClick={handleOpenDashboard}
+        />
+        <SidebarNavRow
+          icon={<CircleDot />}
+          label="Issues"
+          onClick={handleOpenBoard}
+          count={activeIssues.length || undefined}
+        />
+        <SidebarNavRow
+          icon={<Bot />}
+          label="Teammates"
+          onClick={handleOpenTeammates}
+        />
       </div>
       {statusMessage ? (
         <AnimatePresence initial={false}>
@@ -564,7 +609,7 @@ function SidebarIssuesSection() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.14, ease: INBOX_EASE }}
-            className="mx-0.5 mt-1 mb-1.5 rounded-md border border-border bg-foreground/[0.03] px-2 py-1.5 text-[11px] leading-snug text-foreground/65"
+            className="mx-0.5 mt-1 mb-1.5 rounded-md border border-border bg-foreground/[0.03] px-2 py-1.5 text-xs leading-snug text-foreground/65"
           >
             {statusMessage}
           </motion.div>
@@ -580,22 +625,54 @@ function SidebarIssuesSection() {
           <div className="grid place-items-center px-3 py-12 text-center">
             <div className="flex flex-col items-center gap-2">
               <CircleDot className="size-5 text-foreground/30" />
-              <div className="text-xs text-foreground/55">
-                No issues yet
-              </div>
+              <div className="text-xs text-foreground/55">No issues yet</div>
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-1 px-0.5 pt-1">
-            {issues.map(({ issue, assignee }) => (
-              <IssueListRow
-                key={issue.issue_id}
-                issue={issue}
-                assigneeName={assignee?.name ?? null}
-                onOpen={() => handleOpenIssue(issue)}
-              />
-            ))}
-          </div>
+          <>
+            {activeIssues.length > 0 ? (
+              <div className="flex flex-col gap-1 px-0.5 pt-1">
+                {activeIssues.map(({ issue, assignee }) => (
+                  <IssueListRow
+                    key={issue.issue_id}
+                    issue={issue}
+                    assigneeName={assignee?.name ?? null}
+                    onOpen={() => handleOpenIssue(issue)}
+                  />
+                ))}
+              </div>
+            ) : null}
+            {doneIssues.length > 0 ? (
+              <div className="mt-2 flex flex-col gap-1 px-0.5">
+                <button
+                  type="button"
+                  onClick={() => setShowDone((prev) => !prev)}
+                  aria-expanded={showDone}
+                  className="flex h-6 items-center gap-1 rounded-md px-1.5 text-left text-xs font-medium text-foreground/50 transition-colors hover:bg-foreground/[0.04] hover:text-foreground/80"
+                >
+                  <ChevronRight
+                    className={cn(
+                      "size-3 shrink-0 transition-transform",
+                      showDone && "rotate-90",
+                    )}
+                  />
+                  <span>{doneIssues.length} done</span>
+                </button>
+                {showDone ? (
+                  <div className="flex flex-col gap-1 pt-0.5">
+                    {doneIssues.map(({ issue, assignee }) => (
+                      <IssueListRow
+                        key={issue.issue_id}
+                        issue={issue}
+                        assigneeName={assignee?.name ?? null}
+                        onOpen={() => handleOpenIssue(issue)}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </>
         )}
       </div>
     </div>
@@ -604,7 +681,7 @@ function SidebarIssuesSection() {
 
 function SidebarInboxSection() {
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-3">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pt-3 pb-3">
       <SectionLabel>Inbox</SectionLabel>
       <div className="grid min-h-0 flex-1 place-items-center px-3 py-12 text-center">
         <div className="flex flex-col items-center gap-2">
@@ -840,7 +917,7 @@ function SidebarArtifactsSection() {
   }, []);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-3">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pt-3 pb-3">
       <SectionLabel>
         Artifacts
         {totalCount > 0 ? (
@@ -988,7 +1065,7 @@ function SidebarAutomationsSection() {
   }, [setComposerPrefill, setFocusMode]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pt-3 pb-3">
       <SectionLabel>
         Automations
         {cronjobs.length > 0 ? (

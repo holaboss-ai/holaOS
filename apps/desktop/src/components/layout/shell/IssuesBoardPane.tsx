@@ -1,4 +1,16 @@
-import { Loader2, MessageSquareText, Play, Square, UserRound } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Circle,
+  CircleDot,
+  Eye,
+  Loader2,
+  MessageSquareText,
+  Plus,
+  Play,
+  Square,
+  type LucideIcon,
+} from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -23,45 +35,20 @@ const BOARD_STATUS_ORDER: VisibleBoardStatus[] = [
   "done",
 ];
 
-const BOARD_COLUMN_CHROME: Record<
-  VisibleBoardStatus,
-  {
-    shellClass: string;
-    headerClass: string;
-    emptyClass: string;
-  }
-> = {
-  todo: {
-    shellClass: "border-sky-500/16 bg-sky-500/[0.04] shadow-sm backdrop-blur-sm",
-    headerClass: "border-sky-500/14 bg-sky-500/[0.06]",
-    emptyClass: "border-sky-500/16 bg-background/45 text-foreground/48",
-  },
-  in_progress: {
-    shellClass: "border-amber-500/18 bg-amber-500/[0.06] shadow-sm backdrop-blur-sm",
-    headerClass: "border-amber-500/18 bg-amber-500/[0.11]",
-    emptyClass:
-      "border-amber-500/18 bg-background/45 text-amber-700/78 dark:text-amber-200/70",
-  },
-  in_review: {
-    shellClass:
-      "border-emerald-500/18 bg-emerald-500/[0.055] shadow-sm backdrop-blur-sm",
-    headerClass: "border-emerald-500/18 bg-emerald-500/[0.1]",
-    emptyClass:
-      "border-emerald-500/18 bg-background/45 text-emerald-700/78 dark:text-emerald-200/70",
-  },
-  blocked: {
-    shellClass:
-      "border-orange-500/18 bg-orange-500/[0.055] shadow-sm backdrop-blur-sm",
-    headerClass: "border-orange-500/18 bg-orange-500/[0.1]",
-    emptyClass:
-      "border-orange-500/18 bg-background/45 text-orange-700/78 dark:text-orange-200/70",
-  },
-  done: {
-    shellClass: "border-sky-500/18 bg-sky-500/[0.055] shadow-sm backdrop-blur-sm",
-    headerClass: "border-sky-500/18 bg-sky-500/[0.1]",
-    emptyClass:
-      "border-sky-500/18 bg-background/45 text-sky-700/78 dark:text-sky-200/70",
-  },
+const BOARD_STATUS_ICON: Record<VisibleBoardStatus, LucideIcon> = {
+  todo: Circle,
+  in_progress: CircleDot,
+  in_review: Eye,
+  blocked: AlertCircle,
+  done: CheckCircle2,
+};
+
+const BOARD_STATUS_ICON_CLASS: Record<VisibleBoardStatus, string> = {
+  todo: "text-muted-foreground",
+  in_progress: "text-primary",
+  in_review: "text-info",
+  blocked: "text-warning",
+  done: "text-success",
 };
 
 function issueRelativeTime(value: string): string {
@@ -87,26 +74,6 @@ function issueStatusLabel(status: IssueStatusPayload): string {
       return status
         .replace(/_/g, " ")
         .replace(/\b\w/g, (char) => char.toUpperCase());
-  }
-}
-
-function issueStatusVariant(
-  status: IssueStatusPayload,
-): "success" | "warning" | "info" | "primary" | "muted" {
-  switch (status) {
-    case "done":
-      return "success";
-    case "blocked":
-      return "warning";
-    case "in_progress":
-      return "primary";
-    case "in_review":
-      return "info";
-    case "backlog":
-      return "muted";
-    case "todo":
-    default:
-      return "info";
   }
 }
 
@@ -151,18 +118,25 @@ function isBlockedIssueResumable(issue: IssueRecordPayload): boolean {
   return reason.startsWith("Run cancelled") || reason.startsWith("Run failed");
 }
 
-function issuePriorityBadgeClass(priority: IssuePriorityPayload | null): string {
+/**
+ * Soft pastel pill for priority. Saturation scales with urgency
+ * (critical → destructive, high → warning, medium → info, low → muted)
+ * and uses project tokens so dark mode adapts automatically.
+ */
+function issuePriorityBadgeClass(
+  priority: IssuePriorityPayload | null,
+): string {
   switch (priority) {
     case "critical":
-      return "border-red-500/18 bg-red-500/10 text-red-700 dark:text-red-200";
+      return "bg-destructive/12 text-destructive";
     case "high":
-      return "border-orange-500/18 bg-orange-500/10 text-orange-700 dark:text-orange-200";
+      return "bg-warning/18 text-foreground";
     case "medium":
-      return "border-amber-500/18 bg-amber-500/10 text-amber-800 dark:text-amber-200";
+      return "bg-info/12 text-info";
     case "low":
-      return "border-slate-500/18 bg-slate-500/10 text-slate-700 dark:text-slate-300";
+      return "bg-fg-8 text-muted-foreground";
     default:
-      return "border-border bg-background/70 text-foreground/55";
+      return "bg-fg-6 text-muted-foreground";
   }
 }
 
@@ -225,7 +199,9 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
         await action();
         await refresh();
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : fallbackMessage);
+        setErrorMessage(
+          error instanceof Error ? error.message : fallbackMessage,
+        );
       } finally {
         setPendingIssueId("");
       }
@@ -241,7 +217,11 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
       }
       await mutateIssue(
         issue.issue_id,
-        () => window.electronAPI.workspace.stopIssueRun(workspaceId, issue.issue_id),
+        () =>
+          window.electronAPI.workspace.stopIssueRun(
+            workspaceId,
+            issue.issue_id,
+          ),
         "Failed to stop issue run",
       );
     },
@@ -256,10 +236,14 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
       await mutateIssue(
         issue.issue_id,
         () =>
-          window.electronAPI.workspace.updateIssue(workspaceId, issue.issue_id, {
-            workspace_id: workspaceId,
-            status: "todo",
-          }),
+          window.electronAPI.workspace.updateIssue(
+            workspaceId,
+            issue.issue_id,
+            {
+              workspace_id: workspaceId,
+              status: "todo",
+            },
+          ),
         "Failed to resume issue",
       );
     },
@@ -284,95 +268,70 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="border-b border-border px-6 py-3">
-        <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-foreground/35">
-          <span>Issues</span>
+      {/* Top bar — matches the dashboard's compact header so the new
+          shell reads as one piece of software. */}
+      <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-6">
+        <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Issues
         </div>
-      </div>
+        <div className="text-xs tabular-nums text-muted-foreground">
+          {visibleIssues.length} total
+        </div>
+      </header>
 
       {errorMessage || statusMessage ? (
-        <div className="border-b border-border px-6 py-3">
-          <div className="rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground/65">
-            {errorMessage || statusMessage}
-          </div>
+        <div className="border-b border-border bg-card/40 px-6 py-2 text-sm text-muted-foreground">
+          {errorMessage || statusMessage}
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-6 py-4">
+      <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden bg-fg-6 px-4 py-3">
         {isLoading && visibleIssues.length === 0 ? (
           <div className="grid h-full place-items-center">
-            <Loader2 className="size-5 animate-spin text-foreground/35" />
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="flex h-full min-h-full min-w-full items-stretch gap-5 pb-3">
+          <div className="flex h-full min-h-full min-w-full items-start gap-3 pb-2">
             {BOARD_STATUS_ORDER.map((status) => {
-              const tone = BOARD_COLUMN_CHROME[status];
               const columnIssues = issuesByStatus[status];
-              const isCollapsed = columnIssues.length === 0;
+              const StatusIcon = BOARD_STATUS_ICON[status];
+              const iconClass = BOARD_STATUS_ICON_CLASS[status];
               return (
                 <section
                   key={status}
-                  className={cn(
-                    "flex h-full min-h-0 min-w-0 self-stretch flex-col overflow-hidden rounded-2xl border transition-[flex-grow,flex-basis,background-color,border-color] duration-200",
-                    isCollapsed
-                      ? "min-w-[128px] flex-[1_1_0%]"
-                      : "min-w-[320px] flex-[3_1_0%]",
-                    tone.shellClass,
-                  )}
+                  className="flex h-full min-h-0 w-64 shrink-0 flex-col rounded-xl bg-fg-2 px-2 pb-2 pt-2"
                 >
-                  <div
-                    className={cn(
-                      "flex items-center border-b py-3",
-                      isCollapsed
-                        ? "justify-start px-4"
-                        : "justify-between gap-3 px-4",
-                      tone.headerClass,
-                    )}
-                  >
-                    <div className="flex min-w-0 items-center gap-2.5">
-                      <StatusDot
-                        variant={issueStatusVariant(status)}
-                        pulse={status === "in_progress"}
-                      />
-                      {isCollapsed ? (
-                        <div className="flex min-w-0 items-baseline gap-2">
-                          <h2
-                            className="truncate text-[14px] font-semibold text-foreground"
-                            title={issueStatusLabel(status)}
-                          >
-                            {issueStatusLabel(status)}
-                          </h2>
-                          <span className="shrink-0 text-xs text-foreground/45">
-                            {columnIssues.length}
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="flex items-baseline gap-2">
-                          <h2 className="text-[15px] font-semibold text-foreground">
-                            {issueStatusLabel(status)}
-                          </h2>
-                          <span className="text-xs text-foreground/45">
-                            {columnIssues.length}
-                          </span>
-                        </div>
-                      )}
-                    </div>
+                  {/* Column header — sits inside the column pillow. */}
+                  <div className="flex items-center gap-1.5 px-1 pb-2 pt-0.5">
+                    <StatusIcon
+                      className={cn("size-3.5 shrink-0", iconClass)}
+                      strokeWidth={2.25}
+                    />
+                    <h2 className="text-sm font-semibold text-foreground">
+                      {issueStatusLabel(status)}
+                    </h2>
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {columnIssues.length}
+                    </span>
+                    <button
+                      type="button"
+                      className="ml-auto grid size-5 place-items-center rounded text-muted-foreground transition-colors hover:bg-foreground/2 hover:text-foreground"
+                      aria-label={`Add issue to ${issueStatusLabel(status)}`}
+                      title="Add issue (coming soon)"
+                    >
+                      <Plus className="size-3" strokeWidth={2.25} />
+                    </button>
                   </div>
 
-                  <div
-                    className={cn(
-                      "flex min-h-0 flex-1 overflow-y-auto",
-                      isCollapsed ? "px-2 py-2.5" : "flex-col gap-3 px-3 py-3",
-                    )}
-                  >
+                  {/* Column body — cards (bg-card) lift above the
+                      column pillow (bg-fg-2) which lifts above the
+                      page wash (bg-fg-6). Three-tier elevation reads
+                      cleanly without competing colors. */}
+                  <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-0.5">
                     {columnIssues.length === 0 ? (
-                      <div
-                        className={cn(
-                          "min-h-[220px] flex-1 rounded-xl border",
-                          tone.emptyClass,
-                        )}
-                        aria-label={`${issueStatusLabel(status)} column empty`}
-                      />
+                      <div className="rounded-lg border border-dashed border-border/70 px-3 py-5 text-center text-xs text-muted-foreground">
+                        No {issueStatusLabel(status).toLowerCase()}
+                      </div>
                     ) : (
                       columnIssues.map((issue) => {
                         const pending = pendingIssueId === issue.issue_id;
@@ -380,112 +339,161 @@ export function IssuesBoardPane({ workspaceId }: { workspaceId: string }) {
                         const assigneeName =
                           issue.assignee_teammate_id == null
                             ? "Unassigned"
-                            : (teammatesById[issue.assignee_teammate_id]?.name ??
-                                "Assigned");
+                            : (teammatesById[issue.assignee_teammate_id]
+                                ?.name ?? "Assigned");
+                        const blockerHint = (issue.blocker_reason ?? "").trim();
+                        const isResumable = isBlockedIssueResumable(issue);
                         return (
                           <div
                             key={issue.issue_id}
                             className={cn(
-                              "group rounded-xl border border-border/80 bg-background/92 px-3.5 py-3 shadow-sm transition duration-snappy hover:border-foreground/10 hover:bg-background",
-                              running && "ring-1 ring-primary/30",
+                              "group overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-foreground/15",
+                              running &&
+                                "border-primary/30 ring-1 ring-primary/25",
                             )}
                           >
-                            <div className="flex items-start justify-between gap-2.5">
-                              <button
-                                type="button"
-                                onClick={() => openIssueDetail(issue)}
-                                className="min-w-0 flex-1 text-left"
-                              >
-                                <div className="flex flex-wrap items-center gap-2 text-[11px] text-foreground/40">
-                                  <span className="font-medium uppercase tracking-[0.14em]">
+                            <button
+                              type="button"
+                              onClick={() => openIssueDetail(issue)}
+                              className="block w-full text-left transition-colors hover:bg-foreground/2"
+                            >
+                              {/* Header row: pulse dot (if running) + id + priority pill + action */}
+                              <div className="flex items-center justify-between gap-1.5 px-3 pt-2.5">
+                                <div className="flex min-w-0 items-center gap-1.5 text-xs">
+                                  {running ? (
+                                    <StatusDot
+                                      variant="primary"
+                                      pulse
+                                      size="md"
+                                      className="shrink-0"
+                                    />
+                                  ) : null}
+                                  <span className="shrink-0 font-mono text-muted-foreground">
                                     {issue.issue_id}
                                   </span>
                                   {issue.priority ? (
                                     <span
                                       className={cn(
-                                        "rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                                        "shrink-0 rounded px-1 py-px text-xs font-medium",
                                         issuePriorityBadgeClass(issue.priority),
                                       )}
                                     >
                                       {issuePriorityLabel(issue.priority)}
                                     </span>
                                   ) : null}
-                                  {running ? (
-                                    <span className="rounded-full border border-primary/16 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                                      Working
-                                    </span>
-                                  ) : null}
                                 </div>
-                                <div className="mt-2 line-clamp-1 text-[15px] font-semibold leading-5 text-foreground">
-                                  {issue.title || "Untitled issue"}
-                                </div>
-                                {issue.parent_issue_id ? (
-                                  <div className="mt-1 text-[11px] uppercase tracking-[0.14em] text-foreground/38">
-                                    Sub-issue of {issue.parent_issue_id}
-                                  </div>
-                                ) : null}
-                                {issue.description ? (
-                                  <div className="mt-1.5 line-clamp-1 text-[13px] leading-5 text-foreground/52">
-                                    {issue.description}
-                                  </div>
-                                ) : null}
-                                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-foreground/45">
-                                  <span className="inline-flex min-w-0 items-center gap-1.5">
-                                    <UserRound className="size-3" />
-                                    <span className="truncate">{assigneeName}</span>
-                                  </span>
-                                  <span>Updated {issueRelativeTime(issue.updated_at)}</span>
-                                </div>
-                              </button>
-                              {running ? (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 rounded-full border-border bg-background/70 px-2.5 text-[11px] hover:bg-background"
-                                  onClick={() => void handleStopIssue(issue)}
-                                  disabled={pending}
-                                >
-                                  <Square className="size-3.5" />
-                                  Stop
-                                </Button>
-                              ) : issue.status === "blocked" ? (
-                                isBlockedIssueResumable(issue) ? (
+                                {running ? (
                                   <Button
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    className="h-7 rounded-full border-orange-500/30 bg-orange-500/10 px-2.5 text-[11px] text-orange-700 hover:bg-orange-500/15 hover:text-orange-700 dark:text-orange-200 dark:hover:text-orange-200"
-                                    onClick={() => void handleResumeIssue(issue)}
+                                    className="h-5 shrink-0 gap-1 px-1.5 text-xs"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void handleStopIssue(issue);
+                                    }}
                                     disabled={pending}
-                                    title={
-                                      issue.blocker_reason ||
-                                      "Resume the cancelled run"
-                                    }
                                   >
-                                    <Play className="size-3.5" />
-                                    Resume
+                                    <Square className="size-3" />
+                                    Stop
                                   </Button>
-                                ) : (
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-7 rounded-full border-orange-500/30 bg-orange-500/10 px-2.5 text-[11px] text-orange-700 hover:bg-orange-500/15 hover:text-orange-700 dark:text-orange-200 dark:hover:text-orange-200"
-                                    onClick={() => handleReplyToIssue(issue)}
-                                    disabled={pending}
-                                    title={
-                                      issue.blocker_reason ||
-                                      "Reply to unblock this issue"
-                                    }
-                                  >
-                                    <MessageSquareText className="size-3.5" />
-                                    Reply
-                                  </Button>
-                                )
-                              ) : null}
-                            </div>
+                                ) : issue.status === "blocked" ? (
+                                  isResumable ? (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      className="h-6 shrink-0 gap-1 bg-warning px-2 text-xs font-medium text-warning-foreground hover:bg-warning/90"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        void handleResumeIssue(issue);
+                                      }}
+                                      disabled={pending}
+                                      title={
+                                        blockerHint ||
+                                        "Resume the cancelled run"
+                                      }
+                                    >
+                                      <Play className="size-3" />
+                                      Resume
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      className="h-6 shrink-0 gap-1 bg-warning px-2 text-xs font-medium text-warning-foreground hover:bg-warning/90"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        handleReplyToIssue(issue);
+                                      }}
+                                      disabled={pending}
+                                      title={
+                                        blockerHint ||
+                                        "Reply to unblock this issue"
+                                      }
+                                    >
+                                      <MessageSquareText className="size-3" />
+                                      Reply
+                                    </Button>
+                                  )
+                                ) : null}
+                              </div>
 
+                              {/* Title — single line, Linear-style font-medium
+                                  + tight leading. Truncates rather than wrapping
+                                  to keep card height predictable. */}
+                              <div className="line-clamp-1 px-3 pt-1.5 text-sm font-medium leading-tight text-foreground">
+                                {issue.title || "Untitled issue"}
+                              </div>
+
+                              {/* Sub-issue parent reference */}
+                              {issue.parent_issue_id ? (
+                                <div className="px-3 pt-1 text-xs text-muted-foreground">
+                                  Sub-issue of{" "}
+                                  <span className="font-mono">
+                                    {issue.parent_issue_id}
+                                  </span>
+                                </div>
+                              ) : null}
+
+                              {/* Description — hidden when a blocker hint
+                                  takes the slot below. */}
+                              {issue.description && !blockerHint ? (
+                                <div className="line-clamp-2 px-3 pt-1 text-xs leading-snug text-muted-foreground">
+                                  {issue.description}
+                                </div>
+                              ) : null}
+
+                              {/* Blocker hint — inline secondary text with
+                                  a warning glyph. Reads as a flagged
+                                  description rather than a framed strip. */}
+                              {blockerHint ? (
+                                <div className="flex items-start gap-1.5 px-3 pt-1 text-xs leading-snug">
+                                  <AlertCircle className="mt-0.5 size-3 shrink-0 text-warning" />
+                                  <span className="line-clamp-2 text-muted-foreground">
+                                    {blockerHint}
+                                  </span>
+                                </div>
+                              ) : null}
+
+                              {/* Footer — hairline + minimal metadata.
+                                  Date text (no icon) + assignee avatar
+                                  pinned right. */}
+                              <div className="mt-2 flex items-center justify-between gap-2 border-t border-border px-3 py-1.5 text-xs tabular-nums text-muted-foreground">
+                                <span>
+                                  {issueRelativeTime(issue.updated_at)}
+                                </span>
+                                <span
+                                  className="grid size-5 shrink-0 place-items-center rounded-full bg-fg-12 text-xs font-semibold text-foreground"
+                                  title={assigneeName}
+                                  aria-label={assigneeName}
+                                >
+                                  {assigneeName
+                                    .trim()
+                                    .slice(0, 1)
+                                    .toUpperCase() || "?"}
+                                </span>
+                              </div>
+                            </button>
                           </div>
                         );
                       })
