@@ -91,6 +91,7 @@ import {
   inspectDashboardUiUsage,
 } from "./workspace-app-ui-lint.js";
 import {
+  type OnboardingAlignmentReport,
   parseOnboardingAlignmentReport,
   sanitizeOnboardingAlignmentReport,
 } from "../../../shared/onboarding-contract.js";
@@ -2851,10 +2852,9 @@ function parseStoredAlignmentQuestion(
 
 function parseStoredAlignmentReport(
   raw: string | null | undefined,
-): JsonValue | null {
+): OnboardingAlignmentReport | null {
   const parsed = parseStoredOnboardingPayload(raw);
-  const normalized = parseOnboardingAlignmentReport(parsed);
-  return normalized as unknown as JsonValue | null;
+  return parseOnboardingAlignmentReport(parsed);
 }
 
 export function effectiveOnboardingState(workspace: WorkspaceRecord): string | null {
@@ -3537,9 +3537,8 @@ export class RuntimeAgentToolsService {
         context: {
           source: "alignment_approval",
           approved_alignment_report_summary:
-            parseOnboardingAlignmentReport(
-              source.onboardingAlignmentReport,
-            )?.summary ?? null,
+            parseStoredAlignmentReport(source.onboardingAlignmentReport)
+              ?.summary ?? null,
         },
       },
     });
