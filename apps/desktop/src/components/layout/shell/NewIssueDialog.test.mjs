@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const NEW_APP_SHELL_PATH = new URL("./NewAppShell.tsx", import.meta.url);
+const APP_SHELL_PATH = new URL("./AppShell.tsx", import.meta.url);
 const NEW_ISSUE_DIALOG_PATH = new URL("./NewIssueDialog.tsx", import.meta.url);
 const BOARD_PANE_PATH = new URL("./IssuesBoardPane.tsx", import.meta.url);
 const SEARCH_DIALOG_PATH = new URL("./SearchDialog.tsx", import.meta.url);
@@ -18,7 +18,7 @@ test("new shell issue creation dialog stages attachments, creates issues, and op
     sidebarSource,
     uiStateSource,
   ] = await Promise.all([
-    readFile(NEW_APP_SHELL_PATH, "utf8"),
+    readFile(APP_SHELL_PATH, "utf8"),
     readFile(NEW_ISSUE_DIALOG_PATH, "utf8"),
     readFile(BOARD_PANE_PATH, "utf8"),
     readFile(SEARCH_DIALOG_PATH, "utf8"),

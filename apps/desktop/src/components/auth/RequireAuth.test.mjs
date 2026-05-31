@@ -30,6 +30,6 @@ test("App.tsx wraps the shell in RequireAuth and keeps Umami inside the gate", a
   assert.match(source, /import \{ RequireAuth \} from "@\/components\/auth\/RequireAuth";/);
   assert.match(
     source,
-    /<RequireAuth>\s*<UmamiIdentity \/>\s*\{useNewShell \? <NewAppShell \/> : <AppShell \/>\}\s*<\/RequireAuth>/,
+    /<RequireAuth>\s*<UmamiIdentity \/>\s*<AppShell \/>\s*<\/RequireAuth>/,
   );
 });

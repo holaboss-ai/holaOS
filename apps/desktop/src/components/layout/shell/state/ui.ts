@@ -95,7 +95,7 @@ export const focusModeAtom = atomWithStorage(
  *                            takes over the middle when tabs are empty.
  *
  * Keyed by workspaceId so each workspace can remember its own choice.
- * NewAppShell seeds focusModeAtom from this map on workspace activation,
+ * AppShell seeds focusModeAtom from this map on workspace activation,
  * so the preference acts as the initial state but the in-session focus
  * toggle still wins until the user navigates away and back.
  */

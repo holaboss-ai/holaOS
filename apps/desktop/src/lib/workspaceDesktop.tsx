@@ -16,7 +16,7 @@ import { type AuthSession, useDesktopAuthSession } from "@/lib/auth/authClient";
 import { loadWorkspaceOnboardingPreference } from "@/features/workspace-onboarding/preferences";
 import { hydrateInstalledWorkspaceApps, type WorkspaceInstalledAppDefinition } from "@/lib/workspaceApps";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
-import { focusModeAtom, workspaceMainViewModeMapAtom } from "@/components/layout/new-shell/state/ui";
+import { focusModeAtom, workspaceMainViewModeMapAtom } from "@/components/layout/shell/state/ui";
 import { useSetAtom } from "jotai";
 import { toolkitDisplayName } from "@/lib/toolkitDisplay";
 

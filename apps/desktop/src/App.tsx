@@ -3,11 +3,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Toaster } from "sonner";
 import { RequireAuth } from "@/components/auth/RequireAuth";
-import { AppShell } from "@/components/layout/AppShell";
-import { NewAppShell } from "@/components/layout/new-shell";
+import { AppShell } from "@/components/layout/shell";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
-
-const NEW_SHELL_STORAGE_KEY = "holaboss-new-layout-shell-v1";
 import {
   identifyUmamiUser,
   trackUmamiEvent,
@@ -15,6 +12,11 @@ import {
 import { installRendererAuthCacheListeners } from "@/lib/app-sdk-client";
 import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { TooltipProvider } from "./components/ui/tooltip";
+
+// localStorage key the old shell-toggle used to write to. Cleaned up
+// on boot so it doesn't sit forever as dead bytes — the toggle is gone
+// and the new shell is the only shell.
+const LEGACY_SHELL_TOGGLE_STORAGE_KEY = "holaboss-new-layout-shell-v1";
 
 function UmamiIdentity() {
   const { data } = useDesktopAuthSession();
@@ -66,17 +68,15 @@ function App() {
     return installRendererAuthCacheListeners();
   }, []);
 
-  // Side-by-side layout redesign. VITE_NEW_LAYOUT_SHELL=1 forces the new
-  // shell at boot; otherwise reads the user's choice from localStorage
-  // (Settings → Experimental toggles it and reloads).
-  const [useNewShell] = useState(() => {
-    if (import.meta.env.VITE_NEW_LAYOUT_SHELL === "1") return true;
+  // One-shot cleanup of the retired shell-toggle key. Runs once on mount;
+  // missing key / disabled storage are both fine to ignore.
+  useEffect(() => {
     try {
-      return localStorage.getItem(NEW_SHELL_STORAGE_KEY) === "1";
+      localStorage.removeItem(LEGACY_SHELL_TOGGLE_STORAGE_KEY);
     } catch {
-      return false;
+      // ignore
     }
-  });
+  }, []);
 
   return (
     <ErrorBoundary>
@@ -84,7 +84,7 @@ function App() {
         <TooltipProvider>
           <RequireAuth>
             <UmamiIdentity />
-            {useNewShell ? <NewAppShell /> : <AppShell />}
+            <AppShell />
           </RequireAuth>
         </TooltipProvider>
         {/*
