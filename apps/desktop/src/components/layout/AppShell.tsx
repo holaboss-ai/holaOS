@@ -71,6 +71,19 @@ import {
   WorkspaceSelectionProvider,
 } from "@/lib/workspaceSelection";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import {
+  type AppTheme,
+  type ColorScheme,
+  type ControlCenterCardsPerRow,
+  isAppTheme,
+  isColorScheme,
+  isControlCenterCardsPerRow,
+  isThemeVariant,
+  splitAppTheme,
+  type ThemeVariant,
+  THEME_VARIANTS,
+  THEMES,
+} from "./themes";
 
 const THEME_STORAGE_KEY = "holaboss-theme-v1";
 const DEV_APP_UPDATE_PREVIEW_STORAGE_KEY = "holaboss-dev-app-update-preview-v1";
@@ -91,24 +104,6 @@ const CONTROL_CENTER_CARDS_PER_ROW_STORAGE_KEY =
 const CONTROL_CENTER_WORKSPACE_CARD_ORDER_STORAGE_KEY =
   "holaboss-control-center-workspace-card-order-v1";
 const LAST_SHELL_VIEW_STORAGE_KEY = "holaboss-last-shell-view-v1";
-const THEMES = [
-  "holaos-dark",
-  "holaos-light",
-  "catppuccin-dark",
-  "catppuccin-light",
-  "rose-pine-dark",
-  "rose-pine-light",
-  "solarized-dark",
-  "solarized-light",
-  "nord-dark",
-  "nord-light",
-  "one-dark-pro-dark",
-  "one-dark-pro-light",
-  "gruvbox-dark",
-  "gruvbox-light",
-  "vitesse-dark",
-  "vitesse-light",
-] as const;
 const MIN_EXPLORER_PANEL_WIDTH = 220;
 const MAX_EXPLORER_PANEL_WIDTH = 480;
 const EXPLORER_REVEAL_SNAP_THRESHOLD = 90;
@@ -186,44 +181,6 @@ declare global {
       clear: () => void;
     };
   }
-}
-
-export type AppTheme = (typeof THEMES)[number];
-
-function isAppTheme(value: string): value is AppTheme {
-  return THEMES.includes(value as AppTheme);
-}
-
-// Appearance model — two orthogonal axes combined into the legacy AppTheme
-// string for Electron IPC and `data-theme` application.
-export const THEME_VARIANTS = [
-  "holaos",
-  "catppuccin",
-  "rose-pine",
-  "solarized",
-  "nord",
-  "one-dark-pro",
-  "gruvbox",
-  "vitesse",
-] as const;
-
-export type ThemeVariant = (typeof THEME_VARIANTS)[number];
-
-function isThemeVariant(value: string): value is ThemeVariant {
-  return THEME_VARIANTS.includes(value as ThemeVariant);
-}
-
-export type ColorScheme = "system" | "light" | "dark";
-export type ControlCenterCardsPerRow = 2 | 3 | 4;
-
-function isColorScheme(value: string): value is ColorScheme {
-  return value === "system" || value === "light" || value === "dark";
-}
-
-function isControlCenterCardsPerRow(
-  value: number,
-): value is ControlCenterCardsPerRow {
-  return value === 2 || value === 3 || value === 4;
 }
 
 const COLOR_SCHEME_STORAGE_KEY = "holaboss-color-scheme";
@@ -1002,27 +959,6 @@ function loadSeenTaskProposalIdsByWorkspace(): Record<string, string[]> {
   }
 
   return {};
-}
-
-function splitAppTheme(
-  value: string,
-): { variant: ThemeVariant; scheme: "light" | "dark" } | null {
-  if (!isAppTheme(value)) {
-    return null;
-  }
-  if (value.endsWith("-dark")) {
-    const variant = value.slice(0, -"-dark".length);
-    if (isThemeVariant(variant)) {
-      return { variant, scheme: "dark" };
-    }
-  }
-  if (value.endsWith("-light")) {
-    const variant = value.slice(0, -"-light".length);
-    if (isThemeVariant(variant)) {
-      return { variant, scheme: "light" };
-    }
-  }
-  return null;
 }
 
 function loadColorScheme(): ColorScheme {

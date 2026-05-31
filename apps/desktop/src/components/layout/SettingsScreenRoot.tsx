@@ -69,7 +69,7 @@ import type {
   ColorScheme,
   ControlCenterCardsPerRow,
   ThemeVariant,
-} from "@/components/layout/AppShell";
+} from "@/components/layout/themes";
 
 /**
  * Theme swatches mirror the SettingsDialog's previous mapping. They're
