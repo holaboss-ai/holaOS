@@ -64,6 +64,13 @@ export const settingsOpenAtom = atom(false);
 /** Is the Marketplace overlay open? */
 export const marketplaceOpenAtom = atom(false);
 
+/**
+ * Is the Control Center (full-screen workspace grid) open? Takes over
+ * the center + chat panel so the user sees the cross-workspace dashboard
+ * instead of the active workspace.
+ */
+export const controlCenterOpenAtom = atom(false);
+
 /** Is the Apps expandable group in the sidebar expanded? Persists. */
 export const appsExpandedAtom = atomWithStorage(
   "holaboss-new-shell-apps-expanded-v1",
@@ -165,6 +172,7 @@ export const browserViewSuspendedAtom = atom(
     get(automationsOpenAtom) ||
     get(settingsOpenAtom) ||
     get(marketplaceOpenAtom) ||
+    get(controlCenterOpenAtom) ||
     get(activeInternalTabIdAtom) !== null ||
     get(overlayOpenCountAtom) > 0,
 );

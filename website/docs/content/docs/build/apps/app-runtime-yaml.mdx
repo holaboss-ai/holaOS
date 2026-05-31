@@ -51,8 +51,8 @@ env_contract:
   - HOLABOSS_WORKSPACE_ID
 
 integrations:
-  - key: primary_google
-    provider: google
+  - key: primary_gmail
+    provider: gmail
     capability: gmail
     scopes:
       - https://www.googleapis.com/auth/gmail.modify
@@ -149,8 +149,8 @@ The parser accepts:
 
 ```yaml title="app.runtime.yaml"
 integrations:
-  - key: primary_google
-    provider: google
+  - key: primary_gmail
+    provider: gmail
     capability: gmail
     scopes:
       - https://www.googleapis.com/auth/gmail.modify
@@ -164,6 +164,8 @@ Current `credential_source` values are:
 - `platform`
 - `manual`
 - `broker`
+
+Use the exact canonical `provider` id from the runtime integration catalog. Legacy aliases such as `google` are still accepted for compatibility, but new manifests should prefer specific ids such as `gmail`, `googlesheets`, `googledrive`, or `googlecalendar`.
 
 Do not declare both `integration` and `integrations` in the same file.
 

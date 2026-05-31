@@ -24,6 +24,8 @@ const READINESS_CODES = [
   "integration_needs_reauth",
 ] as const
 
+type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+
 export type IntegrationStatusCode = (typeof READINESS_CODES)[number]
 
 function asReadinessCode(value: unknown): IntegrationStatusCode {
@@ -55,7 +57,7 @@ export interface GetIntegrationStatusOpts {
   /** Narrow the result to a single provider. `ready` reflects that provider
    *  only; `issues` contains at most one entry. Useful for per-toolkit UI. */
   provider?: string
-  fetchImpl?: typeof fetch
+  fetchImpl?: FetchLike
 }
 
 function parseGrant(grant: string): { workspaceId: string; appId: string } | null {

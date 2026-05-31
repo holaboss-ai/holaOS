@@ -14,9 +14,9 @@ For the shipped `pi` path, one run moves through these seams:
 1. `runtime/api-server/src/ts-runner.ts`: compiles the workspace runtime plan, resolves workspace skills, stages browser/runtime/MCP capability surfaces, loads session memory and scratchpad context, and chooses the harness adapter.
 2. `runtime/api-server/src/agent-runtime-config.ts`: projects prompt layers, capability manifests, selected model client config, and the visible tool map for the run.
 3. `runtime/api-server/src/harness-registry.ts`: coordinates harness-level readiness, timeouts, browser tooling, runtime tooling, and MCP preparation policy.
-4. `runtime/harnesses/src/pi.ts`: builds the reduced host request that crosses from runtime code into the harness host. That request carries the cleaned instruction body, runtime-prepared quoted skill blocks, workspace skill manifests, prompt content, model client config, and prepared MCP payloads.
+4. `runtime/harnesses/src/pi.ts`: builds the reduced host request that crosses from runtime code into the harness host. That request carries the raw instruction, workspace skill directories, prompt content, model client config, and prepared MCP payloads.
 5. `runtime/harness-host/src/index.ts`: dispatches the registered host plugin by command.
-6. `runtime/harness-host/src/pi.ts`: creates the PI session, renders the PI prompt body, injects browser and runtime tool wrappers, materializes the MCP surface from the prepared server payload, applies local skill widening, enforces workspace boundaries for PI-managed local tools, normalizes executor-specific reasoning settings, and maps PI-native events back into the runtime event contract.
+6. `runtime/harness-host/src/pi.ts`: creates the PI session, renders the PI prompt body, expands leading slash skill references from workspace skill directories, injects browser and runtime tool wrappers, materializes the MCP surface from the prepared server payload, applies local skill widening, enforces workspace boundaries for PI-managed local tools, normalizes executor-specific reasoning settings, and maps PI-native events back into the runtime event contract.
 7. `runtime/harness-host/src/contracts.ts`: defines the normalized host request and runner-event contract shared between runtime and host.
 
 If you are unsure where a behavior belongs, trace this path before you patch anything.
@@ -30,32 +30,35 @@ Representative reduced host request from `runtime/harnesses/src/pi.ts`:
   session_id: params.request.session_id,
   browser_tools_enabled:
     String(params.request.session_kind ?? "").trim().toLowerCase() ===
-    "workspace_session",
+    "subagent",
   browser_space: params.browserSpace ?? null,
   input_id: params.request.input_id,
-  instruction: params.prepared_instruction?.body ?? params.request.instruction,
-  quoted_skill_blocks: params.prepared_instruction?.quoted_skill_blocks ?? [],
-  missing_quoted_skill_ids:
-    params.prepared_instruction?.missing_quoted_skill_ids ?? [],
+  instruction: params.request.instruction,
   context_messages: params.runtimeConfig.context_messages ?? [],
+  tools: { ...params.runtimeConfig.tools },
   attachments: params.request.attachments ?? [],
+  image_urls: params.request.image_urls ?? [],
+  debug: Boolean(params.request.debug),
+  harness_session_id: params.bootstrap.requestedHarnessSessionId,
+  persisted_harness_session_id: params.bootstrap.persistedHarnessSessionId,
   thinking_value: params.request.thinking_value ?? null,
   provider_id: params.runtimeConfig.provider_id,
   model_id: params.runtimeConfig.model_id,
+  selected_model:
+    typeof params.request.model === "string" && params.request.model.trim().length > 0
+      ? params.request.model.trim()
+      : null,
+  timeout_seconds: params.timeoutSeconds,
   runtime_api_base_url: params.runtimeApiBaseUrl ?? null,
   system_prompt: params.runtimeConfig.system_prompt,
-  workspace_skills: params.workspaceSkills.map((skill) => ({
-    skill_id: skill.skill_id,
-    skill_name: skill.skill_name,
-    source_dir: skill.source_dir,
-    file_path: skill.file_path,
-    origin: skill.origin,
-    granted_tools: [...skill.granted_tools],
-    granted_commands: [...skill.granted_commands],
+  workspace_skill_dirs: params.workspaceSkills.map((skill) => skill.source_dir),
+  mcp_servers: params.mcpServers.map((server) => ({
+    name: server.name,
+    config: { ...server.config },
   })),
-  mcp_servers: params.mcpServers,
-  mcp_tool_refs: params.mcpToolRefs,
+  mcp_tool_refs: params.mcpToolRefs.map((toolRef) => ({ ...toolRef })),
   workspace_config_checksum: params.runtimeConfig.workspace_config_checksum,
+  run_started_payload: params.runStartedPayload,
   model_client: params.runtimeConfig.model_client,
 }
 ```
@@ -75,7 +78,7 @@ Representative reduced host request from `runtime/harnesses/src/pi.ts`:
 - `runtime/harness-host/src/runtime-todo-coordinator.ts`: shared waiting-user and todo coordination helper used by the PI host.
 - `runtime/harness-host/src/workspace-boundary.ts`: shared workspace-boundary policy helpers for PI-managed local tools.
 - `runtime/harness-host/src/pi-browser-tools.ts`: browser bridge used by the PI host.
-- `runtime/harness-host/src/pi-runtime-tools.ts`: runtime-managed tool bridge for todo, scratchpad, `skill`, `web_search`, onboarding, cronjobs, image generation, and `write_report`.
+- `runtime/harness-host/src/pi-runtime-tools.ts`: runtime-managed tool bridge for todo, scratchpad, `memory_retrieve`, `skill`, `web_search`, delegation, onboarding, cronjobs, terminal sessions, workspace app/data helpers, integration connect flows, image generation, and `write_report`.
 - `runtime/harnesses/src/desktop-browser-tools.ts`, `runtime/harnesses/src/runtime-agent-tools.ts`, and `runtime/harnesses/src/native-web-search-tools.ts`: canonical ids and descriptions for the projected browser, runtime, and web-search surfaces.
 - `runtime/api-server/src/runtime-agent-tools.ts` and `runtime/api-server/src/native-web-search.ts`: shared runtime execution path for runtime-backed tools, including `skill` and `web_search`.
 - `runtime/api-server/src/backend-agent-runs-contract.ts`: backend-owned run registration contract for Sentry waterfall reconstruction and model-proxy usage correlation.
@@ -132,29 +135,28 @@ The backend should join these relayed events with model-proxy requests by `run_i
 
 ## Prompt construction boundary
 
-The runtime owns prompt meaning. The PI host owns prompt-body serialization.
+The runtime owns prompt meaning. The PI host owns prompt-body serialization and current slash-skill expansion.
 
 The runtime prepares:
 
 - `system_prompt`
 - `context_messages`
-- `quoted_skill_blocks`
-- `missing_quoted_skill_ids`
 - attachment metadata
 
 The PI host turns that prepared package into the PI prompt body by:
 
-1. rendering `quoted_skill_blocks`
-2. rendering any missing-skill warning
-3. appending the cleaned instruction
-4. appending the `Runtime context:` block built from `context_messages`
-5. appending attachment-derived prompt sections from `attachment-prompt-content.ts`
+1. resolving workspace skill directories from `request.workspace_dir` plus `request.workspace_skill_dirs`
+2. expanding any leading slash skill references from `request.instruction`
+3. rendering any missing-skill warning
+4. appending the cleaned instruction body
+5. appending the `Runtime context:` block built from `context_messages`
+6. appending attachment-derived prompt sections from `attachment-prompt-content.ts`
 
 That split keeps prompt semantics harness-agnostic while still letting the `pi` host use a PI-native request format.
 
 ## Quoted workspace skill expansion
 
-Leading slash skill references in the user instruction are handled before the harness host request is built.
+In the current `pi` path, leading slash skill references are expanded in the host, not forwarded as pre-rendered blocks from the runtime adapter.
 
 When the instruction starts with lines like:
 
@@ -165,24 +167,23 @@ When the instruction starts with lines like:
 Review this lead and draft next-step guidance.
 ```
 
-`prepareInstructionWithQuotedWorkspaceSkills(...)` in `runtime/api-server/src/workspace-skills.ts`:
-
-- parses the leading slash lines
-- resolves those ids against the runtime-resolved workspace skill set
-- renders canonical `<skill ...>` blocks
-- strips the slash lines from the instruction body
-
-The PI adapter forwards the prepared payload:
+`buildPiPromptPayload(...)` in `runtime/harness-host/src/pi.ts`:
 
 ```ts
 {
-  instruction: preparedInstruction.body,
-  quoted_skill_blocks: preparedInstruction.quoted_skill_blocks,
-  missing_quoted_skill_ids: preparedInstruction.missing_quoted_skill_ids,
+  instruction: request.instruction,
+  workspace_skill_dirs: request.workspace_skill_dirs,
 }
 ```
 
-The host renders the prepared blocks. It does not resolve slash-prefixed skill references itself.
+The host then:
+
+- loads skills from the resolved workspace skill directories
+- parses the leading slash lines from `instruction`
+- renders canonical quoted skill blocks into the PI prompt body
+- strips the slash lines from the visible instruction body
+
+`prepareInstructionWithQuotedWorkspaceSkills(...)` still exists on the runtime side, but the current PI adapter does not forward those prepared blocks into the reduced host request.
 
 ## Runtime-backed `skill` and `web_search`
 
@@ -197,6 +198,7 @@ PI still keeps two local responsibilities around `skill`:
 
 - applying returned tool and command grants to the live widening state
 - mapping skill lifecycle events onto normalized runtime events
+- expanding leading slash skill references into quoted prompt content before the run starts
 
 That keeps skill meaning runtime-owned while leaving PI-local enforcement over PI-managed tools in the host.
 

@@ -5,6 +5,12 @@ import {
   type BffFetchRequest,
   type BffFetchResponse,
 } from "../shared/bff-fetch-protocol.js";
+import {
+  COMPOSIO_EVENTS_INVALIDATED_CHANNEL,
+  COMPOSIO_EVENTS_STATUS_CHANNEL,
+  type ComposioConnectionInvalidatedEvent,
+  type ComposioEventsBridgeStatus,
+} from "../shared/composio-events-protocol.js";
 
 interface FileSystemEntry {
   name: string;
@@ -1812,6 +1818,35 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.on("auth:error", wrapped);
       return () => ipcRenderer.removeListener("auth:error", wrapped);
     }
+  },
+  composio: {
+    // Subscribe to the cloud BFF's SSE stream of Composio
+    // `connected_account.*` events. Renderer never opens the EventSource
+    // itself — main owns the long-lived connection and forwards each frame
+    // over IPC. Match the event's `connection_id` (Composio's ca_xxx)
+    // against the local row's `account_external_id` to find what to refetch.
+    onConnectionInvalidated: (
+      listener: (payload: ComposioConnectionInvalidatedEvent) => void
+    ) => {
+      const wrapped = (
+        _event: Electron.IpcRendererEvent,
+        payload: ComposioConnectionInvalidatedEvent
+      ) => listener(payload);
+      ipcRenderer.on(COMPOSIO_EVENTS_INVALIDATED_CHANNEL, wrapped);
+      return () =>
+        ipcRenderer.removeListener(COMPOSIO_EVENTS_INVALIDATED_CHANNEL, wrapped);
+    },
+    onStatusChange: (
+      listener: (payload: ComposioEventsBridgeStatus) => void
+    ) => {
+      const wrapped = (
+        _event: Electron.IpcRendererEvent,
+        payload: ComposioEventsBridgeStatus
+      ) => listener(payload);
+      ipcRenderer.on(COMPOSIO_EVENTS_STATUS_CHANNEL, wrapped);
+      return () =>
+        ipcRenderer.removeListener(COMPOSIO_EVENTS_STATUS_CHANNEL, wrapped);
+    },
   },
   tabs: {
     showContextMenu: (opts: {

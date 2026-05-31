@@ -69,6 +69,15 @@ export function useWorkspaceBrowser(
   useEffect(() => {
     let mounted = true;
 
+    // Reset local state at the top of every workspace switch. Without
+    // this, the renderer keeps painting the PREVIOUS workspace's tab
+    // list during the setActiveWorkspace IPC roundtrip — a brand-new
+    // workspace then appears to "inherit" the old one's tabs until main
+    // emits its first onStateChange for the new workspace. The payload
+    // shape has no workspaceId field so we can't filter inside
+    // applyState; resetting up-front is the simplest correct fix.
+    setBrowserState(initialBrowserState(browserSpace));
+
     const applyState = (state: BrowserTabListPayload) => {
       if (!mounted || state.space !== browserSpace) {
         return;
@@ -77,7 +86,6 @@ export function useWorkspaceBrowser(
     };
 
     if (!selectedWorkspaceId) {
-      setBrowserState(initialBrowserState(browserSpace));
       return () => {
         mounted = false;
       };

@@ -1,19 +1,21 @@
 ---
 title: Workspaces
-description: Workspaces are the unit of organization in holaOS — self-contained AI environments with their own agent, memory, apps, and files.
+description: Workspaces are the unit of organization in holaOS — focused AI environments with their own agent, workspace memory, apps, and files.
 ---
 
 <p className="eyebrow">Core concept</p>
 
-A workspace is a self-contained AI environment scoped to a single use case. It has its own agent identity, its own installed Apps and Skills, its own memory, and its own outputs — nothing leaks across workspace boundaries. If you want a focused LinkedIn growth assistant, a separate inbox triage agent, and another workspace dedicated to competitive research, those three live independently. Each one knows only what you've told it, remembers only what it has built up in its own context, and runs the apps and automations relevant to that job. You can have as many workspaces as you need and switch between them from the desktop shell.
+A workspace is a focused AI environment scoped to a single use case. It has its own agent identity, its own installed Apps and Skills, its own workspace-scoped memory, and its own outputs. If you want a focused LinkedIn growth assistant, a separate inbox triage agent, and another workspace dedicated to competitive research, those three live independently day to day. Each one runs its own tasks, keeps its own workspace files, and accumulates its own local context. Some account-level surfaces, such as profile-global memory or reusable integration connections, can still be shared deliberately across workspaces. You can have as many workspaces as you need and switch between them from the desktop shell.
 
 ## Creating a workspace
 
 **Blank workspace** — Start with an empty environment and configure everything yourself. You choose which Apps to install, author your own `AGENTS.md` standing instructions, and add Skills as you go. Best suited for people who know exactly what they want to build or are experimenting with a new workflow.
 
-**From a marketplace Template** — The recommended starting point for most users. Browse Templates at `/marketplace`, find one that matches your use case (e.g. a LinkedIn outreach assistant, a content calendar manager), and fork it. The workspace arrives pre-configured with a curated set of Apps, Skills, and standing instructions. On first launch, the template's agent runs through a short onboarding flow — it asks you questions about your setup, goals, and preferences, then writes those answers into the workspace's memory and `AGENTS.md` so it's personalized from the start. You skip the blank-page problem and get a running environment in minutes.
+**From a marketplace Template** — The recommended starting point for most users when the desktop is signed into a runtime-bound holaOS session. A marketplace template arrives pre-configured with a curated set of Apps, Skills, and standing instructions. If the template includes onboarding, the first run can gather your preferences and stage durable workspace guidance so you skip the blank-page problem and get a running environment in minutes.
 
-**From a local folder** — Point holaOS at a folder on disk (such as a git repo a teammate shared) and it loads that folder as a workspace. Useful for internal team sharing without going through marketplace review. The folder must follow the standard workspace layout described in [What's on disk](#whats-on-disk) below.
+**From a local template folder** — Point holaOS at a local folder that already contains a `workspace.yaml`. The desktop materializes that template into a new workspace. It does not adopt the source folder in place as a live workspace root.
+
+For any new workspace, you can also choose a custom empty folder for where the resulting workspace files should live on disk.
 
 ## Inside a workspace (tour)
 
@@ -23,8 +25,8 @@ Once a workspace is open you interact with it through several panes:
 - **Outputs / artifacts panel** — where the agent deposits finished work: drafts, exported files, images, data tables.
 - **Apps list** — the set of Apps installed in this workspace, each showing its current running status.
 - **Skills list** — Skills available to the agent, both installed from the marketplace and ones you've authored locally.
-- **Memory drawer** — the durable memory the agent has accumulated across runs: facts, preferences, and context it will carry into every future task.
-- **Automations surface** — where you configure scheduled runs and event-driven triggers for this workspace.
+- **Memory drawer** — the durable memory surfaces the agent has accumulated across runs: interaction memory, recalled integration context, and accepted preference memory it can retrieve in future tasks.
+- **Automations surface** — where you configure scheduled runs for this workspace and review recent automation activity.
 
 Everything else in the UI is just zooming into one of these.
 
@@ -34,24 +36,26 @@ Every workspace maps to a folder you can open, inspect, and edit directly. The a
 
 ```
 workspace/
-  workspace.yaml     # Runtime plan: active agent, installed apps, registered skills
+  .git/              # Desktop initializes this when git is available
   AGENTS.md          # Standing policy file — the agent's persistent instructions
+  workspace.yaml     # Runtime plan: active agent, installed apps, registered skills
   ONBOARD.md         # Optional onboarding script; runs once if present and has content
   apps/              # Installed apps, each with its own app.runtime.yaml
   skills/            # Workspace-local skills, each under skills/<id>/SKILL.md
-  memory/            # Durable memory surfaces, shared at the OS level across workspaces
+  .holaboss/         # Runtime-owned state, memory, and staged attachments
 ```
 
 `AGENTS.md` is the most important file to know about. It's where standing instructions live — who the agent is, what tone it uses, what rules to follow. Templates ship with a pre-written `AGENTS.md`; blank workspaces start with a minimal scaffold. You can edit it like any text file.
+
+Runtime-owned continuity, workspace-scoped memory, and staged attachments live under `.holaboss/`. Profile-global preference and identity memory live outside the workspace root under the OS-level `memory/` tree.
 
 For the full specification of the workspace filesystem and runtime contract, see [Concepts → Workspace Model](/docs/concepts/workspace-model).
 
 ## Managing workspaces
 
 - **Switching** — Use the workspace switcher in the desktop shell to move between active workspaces. Each opens in its own context.
-- **Renaming** — Rename a workspace from its settings panel at any time; the display name is separate from the folder name on disk.
-- **Archiving** — Archiving removes a workspace from the active list but keeps all its data: outputs, memory, and files are preserved. You can unarchive it later.
-- **Deleting** — Deletion is permanent. The workspace folder and all its contents — memory, outputs, apps — are removed from disk. Archive first if you are not certain.
+- **Appearance** — You can change a workspace's icon and icon color later from the workspace switcher. In current Desktop builds, the workspace name itself is set at creation time.
+- **Deleting** — Deletion removes the workspace from Desktop and clears its runtime-managed state. For Desktop-managed workspace folders, the local folder is wiped by default. For custom workspace locations, the files are preserved by default and can be cleaned up manually if you no longer want them.
 
 ## Read next
 

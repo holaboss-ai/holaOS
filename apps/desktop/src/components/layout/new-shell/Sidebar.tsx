@@ -45,6 +45,7 @@ import {
   Home,
   LayoutDashboard,
   Inbox,
+  LayoutGrid,
   Link2,
   Loader2,
   MoreHorizontal,
@@ -80,6 +81,7 @@ import {
   appsExpandedAtom,
   automationsOpenAtom,
   chatComposerPrefillAtom,
+  controlCenterOpenAtom,
   createWorkspaceOpenAtom,
   focusModeAtom,
   publishOpenAtom,
@@ -420,8 +422,18 @@ function SidebarGlobalFooter() {
   const setSettingsOpen = useSetAtom(settingsOpenAtom);
   const setSettingsSection = useSetAtom(settingsSectionAtom);
   const settingsOpen = useAtomValue(settingsOpenAtom);
+  const [controlCenterOpen, setControlCenterOpen] = useAtom(
+    controlCenterOpenAtom,
+  );
   return (
     <div className="shrink-0 border-t border-sidebar-border px-2 py-1.5">
+      <NavItem
+        icon={<LayoutGrid />}
+        active={controlCenterOpen}
+        onClick={() => setControlCenterOpen((prev) => !prev)}
+      >
+        All workspaces
+      </NavItem>
       <NavItem
         icon={<Settings />}
         active={settingsOpen}
@@ -1447,7 +1459,7 @@ interface AppRowMultiIntegration {
 
 type ProviderRowStateSummary = {
   kind: "loading" | "no_connection" | "needs_binding" | "bound" | "no_workspace";
-  busy: "connecting" | "binding" | null;
+  busy: "connecting" | "binding" | "verifying" | null;
   hasError: boolean;
 };
 

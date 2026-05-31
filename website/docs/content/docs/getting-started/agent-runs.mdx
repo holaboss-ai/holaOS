@@ -35,9 +35,9 @@ The agent has two layers of persistent knowledge that carry across runs.
 
 `AGENTS.md` is standing policy — instructions that apply on every run without exception. If you want the agent to always write in a particular voice, always cc a specific address, or always follow a platform-specific format, put it in `AGENTS.md`. It's read at the start of every run.
 
-Durable memory lives under `memory/` as a set of markdown files. These hold accumulated facts, decisions, and preferences — the kind of thing you'd otherwise repeat every session. After a run the runtime may draft memory candidates for review: specific things worth writing down so the agent can recall them later. You can accept, edit, or discard those drafts, or edit the memory files directly at any time — changes take effect on the next run. Unlike a long chat history, durable memory gives the agent targeted recall without replaying everything you've ever said.
+Durable memory is stored as markdown-backed memory surfaces. Workspace-local interaction memory lives under `.holaboss/memory/interaction/` plus `.holaboss/memory/semantic/interaction/trees/`, while profile-global preference and identity memory live under the shared `memory/` root. Integration context is also stored as markdown trees under the global `memory/` root. These surfaces hold accumulated facts, decisions, summaries, and preferences — the kind of thing you'd otherwise repeat every session. After a run, the runtime can write back durable interaction candidates in the background, and accepted user-memory proposals can promote explicit preference memory. You can edit the memory files directly at any time — changes take effect on the next run. Unlike a long chat history, durable memory gives the agent targeted recall without replaying everything you've ever said.
 
-For the full model of how memory is structured, how recall works, and how memory evolves over time, see [Memory and Continuity](/docs/concepts/memory-and-continuity).
+For the full model of how memory is structured, how recall works, and how durable memory is written back over time, see [Memory and Continuity](/docs/concepts/memory-and-continuity).
 
 ## Interrupting and redirecting
 
@@ -54,7 +54,7 @@ You don't have to wait for a run to finish. If the agent is heading the wrong wa
   <Card
     title="Memory and Continuity"
     href="/docs/concepts/memory-and-continuity"
-    description="How durable memory, recall, and skill evolution actually work."
+    description="How durable memory, recall, and runtime continuity actually work."
   />
   <Card
     title="Agent Harness"

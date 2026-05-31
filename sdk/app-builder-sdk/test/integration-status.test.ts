@@ -3,7 +3,10 @@
 // per-provider filter path that vibe-coded UI most commonly uses.
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { getIntegrationStatus } from "../src/runtime/integration-status.ts"
+import {
+  getIntegrationStatus,
+  type GetIntegrationStatusOpts,
+} from "../src/runtime/integration-status.ts"
 
 type CapturedRequest = { url: string }
 type ScriptedResponse = { status: number; body: unknown }
@@ -11,7 +14,7 @@ type ScriptedResponse = { status: number; body: unknown }
 const captured: CapturedRequest[] = []
 const scripted: ScriptedResponse[] = []
 
-const scriptedFetch: typeof fetch = async (input) => {
+const scriptedFetch: NonNullable<GetIntegrationStatusOpts["fetchImpl"]> = async (input) => {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
   captured.push({ url })
   const next = scripted.shift()

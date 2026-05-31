@@ -4,14 +4,50 @@
 
 set -e
 
-DATA_DIR="${HOLABOSS_DESKTOP_USER_DATA_PATH:-$HOME/.holaboss-desktop}"
+DEFAULT_USER_DATA_DIR="${HOLABOSS_DESKTOP_USER_DATA_DIR:-holaboss-local-dev}"
+DATA_DIR="${HOLABOSS_DESKTOP_USER_DATA_PATH:-}"
+if [ -z "$DATA_DIR" ]; then
+  case "$(uname -s)" in
+    Darwin)
+      DATA_DIR="$HOME/Library/Application Support/$DEFAULT_USER_DATA_DIR"
+      ;;
+    Linux)
+      DATA_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/$DEFAULT_USER_DATA_DIR"
+      ;;
+    MINGW*|MSYS*|CYGWIN*)
+      DATA_DIR="${APPDATA:-$HOME/AppData/Roaming}/$DEFAULT_USER_DATA_DIR"
+      ;;
+    *)
+      DATA_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/$DEFAULT_USER_DATA_DIR"
+      ;;
+  esac
+fi
 SANDBOX_ROOT="$DATA_DIR/sandbox-host"
 RUNTIME_DB="$SANDBOX_ROOT/state/host-state.db"
 RUNTIME_CONFIG="$SANDBOX_ROOT/state/runtime-config.json"
 RUNTIME_LOG="$DATA_DIR/runtime.log"
-RUNTIME_PORT=5060
+RUNTIME_PORT="${HOLABOSS_RUNTIME_API_PORT:-}"
+if [ -z "$RUNTIME_PORT" ]; then
+  RUNTIME_PORT="$(
+    DATA_DIR="$DATA_DIR" python3 - <<'PY'
+import hashlib
+import os
+import os.path
+
+data_dir = os.path.realpath(os.environ["DATA_DIR"])
+digest = hashlib.sha256(data_dir.encode("utf-8")).hexdigest()[:8]
+print(39160 + (int(digest, 16) % 2000))
+PY
+  )"
+fi
+if [ "$RUNTIME_PORT" = "5060" ]; then
+  RUNTIME_PORT=5160
+fi
 
 echo "=== Desktop Runtime Status ==="
+echo ""
+echo "userData: $DATA_DIR"
+echo "runtime port: $RUNTIME_PORT"
 echo ""
 
 # 1. Runtime process

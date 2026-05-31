@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Toaster } from "sonner";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { AppShell } from "@/components/layout/AppShell";
@@ -86,17 +87,34 @@ function App() {
             {useNewShell ? <NewAppShell /> : <AppShell />}
           </RequireAuth>
         </TooltipProvider>
-        <Toaster
-          // top-center on purpose: the right and right-bottom areas often
-          // sit underneath a BrowserView (workspace browser pane) which
-          // is an OS-level overlay above the HTML renderer — anything
-          // sonner portals there gets visually clipped or hidden behind
-          // it, and z-index can't beat a BrowserView. Top-center is
-          // always pure HTML, can't be covered.
-          position="top-center"
-          richColors
-          theme="dark"
-        />
+        {/*
+          Sonner mounts its toast container inline (no React portal), so
+          a `position: fixed` ancestor with `transform`, `filter`, or
+          `will-change` would trap the container in that ancestor's
+          stacking context and bury toasts under any dialog portaled to
+          document.body (Settings overlay, AppIntegrationsDialog, etc.).
+          Explicitly portal the Toaster to document.body so it always
+          sits at the root stacking context where its `z-index:
+          999999999` actually wins. Without this, an inert refactor
+          upstream (animating a parent with `transform-gpu`, for
+          example) would silently hide every error toast behind the
+          Settings dialog.
+        */}
+        {createPortal(
+          <Toaster
+            // top-center on purpose: the right and right-bottom areas
+            // often sit underneath a BrowserView (workspace browser
+            // pane) which is an OS-level overlay above the HTML
+            // renderer — anything sonner draws there gets visually
+            // clipped or hidden behind it, and z-index can't beat a
+            // BrowserView. Top-center is always pure HTML, can't be
+            // covered.
+            position="top-center"
+            richColors
+            theme="dark"
+          />,
+          document.body,
+        )}
       </QueryClientProvider>
     </ErrorBoundary>
   );

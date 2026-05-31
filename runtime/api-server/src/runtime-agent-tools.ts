@@ -116,6 +116,85 @@ function buildSessionRefreshFields(newMcpServers: string[]): JsonObject {
   };
 }
 
+/** Per-app visual signature manifest. Written by the agent at the end
+ *  of each polish pass; read by future polish passes for sibling apps
+ *  in the same workspace to enforce signature divergence. Stored at
+ *  `apps/{appId}/.signature.json`. */
+type AppSignature = {
+  app_id: string;
+  captured_at: string;
+  typography: string;
+  palette: string;
+  layout_archetype: string;
+  hero_treatment: string;
+  density: string;
+};
+
+/** Read `.signature.json` for every dashboard-shape app in the workspace
+ *  except `excludeAppId`. Malformed or missing files are silently
+ *  skipped — the constraint degrades gracefully (an app with no
+ *  signature manifest simply isn't in the "must differ from" set). */
+function readWorkspaceSignatures(workspaceDir: string, excludeAppId: string): AppSignature[] {
+  const appsDir = path.join(workspaceDir, "apps");
+  let entries: string[];
+  try {
+    entries = readdirSync(appsDir);
+  } catch {
+    return [];
+  }
+  const signatures: AppSignature[] = [];
+  for (const appId of entries) {
+    if (appId === excludeAppId) continue;
+    if (!appIsDashboardShape(workspaceDir, appId)) continue;
+    const signaturePath = path.join(appsDir, appId, ".signature.json");
+    if (!existsSync(signaturePath)) continue;
+    try {
+      const raw = readFileSync(signaturePath, "utf8");
+      const parsed = JSON.parse(raw) as Partial<AppSignature>;
+      if (
+        typeof parsed.typography === "string" &&
+        typeof parsed.palette === "string" &&
+        typeof parsed.layout_archetype === "string" &&
+        typeof parsed.hero_treatment === "string" &&
+        typeof parsed.density === "string"
+      ) {
+        signatures.push({
+          app_id: typeof parsed.app_id === "string" ? parsed.app_id : appId,
+          captured_at: typeof parsed.captured_at === "string" ? parsed.captured_at : "",
+          typography: parsed.typography,
+          palette: parsed.palette,
+          layout_archetype: parsed.layout_archetype,
+          hero_treatment: parsed.hero_treatment,
+          density: parsed.density,
+        });
+      }
+    } catch {
+      // malformed manifest; skip without failing the polish pass.
+    }
+  }
+  return signatures;
+}
+
+function formatExistingSignaturesBlock(signatures: AppSignature[]): string {
+  if (signatures.length === 0) {
+    return [
+      "No sibling dashboard apps have declared a signature yet — this is the first one in the workspace.",
+      "Make a deliberate, specific choice for every axis below. Every later app in this workspace will be required to differ from yours, so vague labels (\"custom\", \"modern\", \"unique\") will cripple future apps' ability to demonstrate divergence.",
+    ].join("\n");
+  }
+  const lines = ["The following sibling dashboard apps in this workspace have already declared visual signatures:", ""];
+  for (const sig of signatures) {
+    lines.push(`  • \`${sig.app_id}\``);
+    lines.push(`      typography: ${sig.typography}`);
+    lines.push(`      palette: ${sig.palette}`);
+    lines.push(`      layout_archetype: ${sig.layout_archetype}`);
+    lines.push(`      hero_treatment: ${sig.hero_treatment}`);
+    lines.push(`      density: ${sig.density}`);
+    lines.push("");
+  }
+  return lines.join("\n").trimEnd();
+}
+
 /**
  * Build the auto-queued post-build polish-pass prompt for a dashboard
  * app. The wording is deliberately concrete on three operational points
@@ -138,14 +217,42 @@ function buildSessionRefreshFields(newMcpServers: string[]): JsonObject {
  * patterns — naming the failure mode anchored the agent on it. Visual
  * authority belongs entirely to `interface-design` content; the prompt
  * stays purely operational.
+ *
+ * Step 0 (workspace signature constraint) is the one exception to the
+ * "purely operational" rule: it injects a stateful list of sibling-app
+ * signatures and requires the new app to differ from each on ≥2 of 5
+ * axes. This exists because interface-design's "find your signature"
+ * doctrine has no cross-app visibility — every app independently
+ * converges to the same training-prior default (typically an editorial
+ * dashboard signature for analytics-shape apps). Injecting siblings
+ * gives the skill the workspace context it needs to actually diverge.
  */
-function buildPolishPassPrompt(appId: string): string {
+function buildPolishPassPrompt(appId: string, existingSignatures: AppSignature[]): string {
   return [
     "[Auto-queued post-build polish pass]",
     "",
     `The dashboard app \`${appId}\` was just confirmed running in this workspace. Before continuing with anything else, perform a design polish pass on its src/client/.`,
     "",
-    "1. Invoke `skill({ name: \"interface-design\" })` to load the design rules. Read its full output, including any `.interface-design/system.md` artifact it writes to disk.",
+    "ORIENTATION (re-read at every checkpoint below).",
+    "",
+    "The dashboard is the user's tool, not a thing about itself. They open it to do work — read state, take action, decide what's next. Hero space goes to what they need to act on; chrome space to what the app does. The user should walk into work-in-progress, not into an introduction.",
+    "",
+    "If the rendered output reads like a magazine cover, a portfolio page, or a description of the app's capabilities, you have made the wrong thing — even if the spatial sketch is correct and the skill rules were followed. Linear's project view is the neighborhood. The app's homepage is not.",
+    "",
+    "0. WORKSPACE SIGNATURE CONSTRAINT (read this first — it shapes every choice in the steps below).",
+    "",
+    formatExistingSignaturesBlock(existingSignatures),
+    "",
+    "Your design MUST differ from EVERY existing signature on AT LEAST 2 of these 5 axes:",
+    "  - typography (typeface family + hero scale, e.g. serif-hero, sans-stack, mono-dense, mixed-editorial)",
+    "  - palette (dominant color world, e.g. dark-navy, light-paper, warm-cream, cold-terminal, forest-green)",
+    "  - layout_archetype (macro spatial pattern, e.g. command-deck, time-rail, kanban, card-grid, split-pane, instrument-panel)",
+    "  - hero_treatment (large-serif-headline, compact-title, no-hero, metric-led, status-strip, etc.)",
+    "  - density (one of: spacious, balanced, dense, hyper-dense)",
+    "",
+    "When the interface-design skill's \"find your signature\" exploration suggests a direction that matches >3 of these axes against ANY existing app, REJECT that direction and explore a different one. Sameness across the workspace is the failure mode this constraint exists to prevent — if every app in this workspace ends up reading as the same product, the constraint has failed.",
+    "",
+    "1. Invoke `skill({ name: \"interface-design\" })` to load the design rules. Read its full output, including any `.interface-design/system.md` artifact it writes to disk. Apply step 0's constraint AS YOU DO the skill's domain/color-world exploration — do not run the exploration first and then check the constraint after.",
     "",
     "1.5. Spatial composition sketch. BEFORE any heredoc rewrite, write a plain-text spatial sketch as a comment block at the top of the main route/component file. Answer each question with SPECIFIC field/section names from this app's data model — vague answers (\"the KPI row\", \"the user lands on the main area\") do not satisfy this step. The JSX you write in step 2 MUST implement what the sketch describes.",
     "    - What are the 3–5 distinct information regions on this dashboard? Name them by content (\"open work counts split by relation\"), not by visual (\"the metrics strip\").",
@@ -159,11 +266,25 @@ function buildPolishPassPrompt(appId: string): string {
     "",
     `3. Re-run \`workspace_apps_build\` + \`workspace_apps_restart_and_wait_ready\` for \`${appId}\`.`,
     "",
-    "4. Verify with `browser_screenshot`. Look at the rendered output and compare it line-by-line against the spatial sketch you wrote in step 1.5 AND the `interface-design` rules you loaded. If the screenshot doesn't match either, return to step 2 and rewrite again. Two iterations is normal.",
+    "4. Verify with `browser_screenshot`. Look at the rendered output and compare it line-by-line against the spatial sketch you wrote in step 1.5 AND the `interface-design` rules you loaded. ALSO compare it against the sibling signatures listed in step 0: if your rendered output reads as the same product as any sibling (same hero shape + same palette family + same overall vibe), the constraint has failed even if your declared labels look different on paper. If the screenshot doesn't match the sketch, the skill rules, OR fails the divergence check, return to step 2 and rewrite again. Two iterations is normal.",
     "",
-    "5. Only after the screenshot matches the sketch AND the interface-design rules, declare the polish pass done.",
+    `5. Write your final signature declaration to \`apps/${appId}/.signature.json\` via \`bash\` heredoc (\`cat > apps/${appId}/.signature.json <<'EOF' ... EOF\`). Use this exact schema:`,
     "",
-    "The user is the one who will see the rendered UI. A clean tool-call ceremony without visible visual improvement fails this pass — there is no half-credit for invoking the skill, doing trivial edits, and reporting 'looks good'.",
+    "    {",
+    `      "app_id": "${appId}",`,
+    "      \"captured_at\": \"<ISO-8601 UTC timestamp, e.g. 2026-05-30T10:57:12Z>\",",
+    "      \"typography\": \"<kebab-case label>\",",
+    "      \"palette\": \"<kebab-case label>\",",
+    "      \"layout_archetype\": \"<kebab-case label>\",",
+    "      \"hero_treatment\": \"<kebab-case label>\",",
+    "      \"density\": \"<one of: spacious, balanced, dense, hyper-dense>\"",
+    "    }",
+    "",
+    "    These labels are how future polish passes for sibling apps know what to differ from. Be specific and accurate — labels must describe what you ACTUALLY built, not what you wished you built. Vague labels (\"custom\", \"modern\", \"unique\", \"refined\") defeat the constraint for the next app and are not acceptable.",
+    "",
+    "6. Only after the screenshot matches the sketch AND the interface-design rules AND the divergence check AND the signature manifest is written, declare the polish pass done.",
+    "",
+    "The user is the one who will see the rendered UI. A clean tool-call ceremony without visible visual improvement fails this pass — there is no half-credit for invoking the skill, doing trivial edits, and reporting 'looks good'. Producing a signature that visually duplicates a sibling app also fails this pass, even if every other step was performed.",
   ].join("\n");
 }
 
@@ -1006,8 +1127,13 @@ mcpApp.get("/mcp/sse", (req: Request, res: Response) => {
     res.flushHeaders();
   }
 
+  // MCP SSE transport: the "endpoint" event data MUST be a URL string
+  // that the client can pass to new URL(data, baseUrl). Previously we
+  // wrote a JSON object here, which the client then URL-encoded as a
+  // path segment and POSTed to /mcp/<that-json>, hitting 404 and
+  // silently disabling the app's MCP tools.
   res.write(
-    \`event: endpoint\\ndata: \${JSON.stringify({ sessionId, messagePath: "/mcp/messages" })}\\n\\n\`,
+    \`event: endpoint\\ndata: /mcp/messages?sessionId=\${encodeURIComponent(sessionId)}\\n\\n\`,
   );
   res.write(\`event: ready\\ndata: \${JSON.stringify({ appId })}\\n\\n\`);
 
@@ -7481,6 +7607,7 @@ export class RuntimeAgentToolsService {
       );
       for (const appId of targetAppIds) {
         if (!appIsDashboardShape(workspaceDir, appId)) continue;
+        const existingSignatures = readWorkspaceSignatures(workspaceDir, appId);
         const idempotencyKey = `polish-pass:${polishSessionId}:${appId}`;
         try {
           const input = this.store.enqueueInput({
@@ -7488,7 +7615,7 @@ export class RuntimeAgentToolsService {
             sessionId: polishSessionId,
             idempotencyKey,
             payload: {
-              text: buildPolishPassPrompt(appId),
+              text: buildPolishPassPrompt(appId, existingSignatures),
               image_urls: [],
               context: {
                 source: "runtime_auto_queue",
@@ -7566,6 +7693,7 @@ export class RuntimeAgentToolsService {
       });
       if (pending.length > 0) continue;
 
+      const existingSignatures = readWorkspaceSignatures(workspaceDir, appId);
       const idempotencyKey = `polish-pass:${sessionId}:${appId}`;
       try {
         const input = this.store.enqueueInput({
@@ -7573,7 +7701,7 @@ export class RuntimeAgentToolsService {
           sessionId,
           idempotencyKey,
           payload: {
-            text: buildPolishPassPrompt(appId),
+            text: buildPolishPassPrompt(appId, existingSignatures),
             image_urls: [],
             context: {
               source: "runtime_auto_queue",

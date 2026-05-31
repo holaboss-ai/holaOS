@@ -5,7 +5,7 @@ description: How run artifacts, persisted harness state, and session-memory snap
 
 Runtime continuity is the part of the system that lets the next run resume cheaply and coherently without replaying the full transcript.
 
-It is runtime-owned state, not durable markdown memory.
+It is runtime-owned state, not durable markdown memory and not part of the long-term interaction or integration forests.
 
 ## Run package and continuity artifacts
 
@@ -28,6 +28,23 @@ The most important continuity artifacts are:
 - user-memory proposals in `<workspace-id>/.holaboss/state/runtime.db`
   - staged strong-signal user-memory candidates that the current run can use ephemerally before acceptance
 
+Those continuity files are markdown, but they are not durable recall memory. They exist to help the runtime resume work, not to populate the durable memory forest.
+
+## Session memory vs scratchpad
+
+Current continuity uses two different session-scoped surfaces:
+
+- `session-memory`
+  - runtime-generated continuity projection
+  - lives at `workspace/<workspace-id>/runtime/session-memory/<session-id>.md`
+  - used as compact resume context for the next run
+- session scratchpad
+  - agent-managed working notes
+  - lives under `.holaboss/state/scratchpads/<session-id>.md`
+  - used for interim findings, evidence lists, candidate items, and compacted working state during a long task
+
+The scratchpad is working memory, not durable memory. It is also not the same thing as todo state.
+
 ## Continuity writeback
 
 The continuity path after a run is:
@@ -39,6 +56,19 @@ The continuity path after a run is:
 
 The point of this split is to keep the next run cheap to restore without waiting for heavier background extraction.
 
+## What the next run actually sees
+
+At resume time, the runtime does not dump all continuity artifacts into the prompt.
+
+Instead it restores a bounded subset:
+
+- persisted harness session state
+- the latest session-memory excerpt if one exists
+- scratchpad metadata and preview
+- durable memory only when the new request actually needs recall
+
+The scratchpad contents themselves are not automatically loaded in full. The runtime exposes scratchpad metadata and preview in prompt context, and the agent reads the scratchpad explicitly only when it needs the notes.
+
 ## Restoration story
 
 Imagine a deploy run pauses because the agent needs approval before continuing.
@@ -48,13 +78,13 @@ On the next run, `holaOS` restores continuity in a deliberate order:
 1. it reopens the persisted harness session state so native session continuity is available again
 2. it restores the latest session-memory snapshot so the next run can see the latest blocker, recent intent, and resume state
 3. it surfaces scratchpad metadata, with explicit scratchpad reads when the agent needs the note contents
-4. it then adds only the bounded durable memories that are relevant to the new request, such as a recurring deploy blocker or a reusable release procedure
+4. it then adds only the bounded durable memories that are relevant to the new request, such as a recurring deploy blocker, a reusable release procedure, or a recalled integration fact from the memory trees
 
 What it intentionally does not restore:
 
 - the full raw transcript
 - every prior turn in full detail
-- every durable memory file in the workspace
+- every durable memory file in the workspace or global integration memory root
 - stale references as unquestioned truth
 
 That is the point of runtime continuity: resume the important state cheaply, not replay everything indiscriminately.
@@ -71,5 +101,9 @@ Use these rules of thumb when reasoning about resume state:
   - volatile runtime projections for inspection and debugging
 - `<workspace-id>/.holaboss/memory/runtime/session-memory/`
   - session-scoped continuity snapshots used during resume restoration
+- `<workspace-id>/.holaboss/state/scratchpads/`
+  - session-scoped working notes, separate from durable memory and separate from todo state
+- `<workspace-id>/.holaboss/memory/interaction/` and `memory/integration/`
+  - not continuity; these are durable memory surfaces and are recalled separately through the memory retrieval pipeline
 
-At restore time, the runtime uses persisted harness session state plus the latest `session-memory` excerpt if it exists. It no longer restores from a separate compaction-boundary artifact. If a piece of information is only needed to resume the latest session, it belongs in runtime continuity rather than durable memory. Repeated blockers can begin in runtime projections first and only later be promoted into durable `knowledge/blockers/` during queued evolve.
+At restore time, the runtime uses persisted harness session state plus the latest `session-memory` excerpt if it exists. It no longer restores from a separate compaction-boundary artifact. If a piece of information is only needed to resume the latest session, it belongs in runtime continuity rather than durable memory. Repeated blockers can begin in runtime projections first and only later be promoted into the durable interaction tree during queued evolve.

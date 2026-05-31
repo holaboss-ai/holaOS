@@ -71,7 +71,7 @@ Use `createIntegrationClient(provider)` when the app needs a provider call that 
 ```ts title="src/your-mcp-tool.ts"
 import { createIntegrationClient } from "@holaboss/bridge";
 
-const gmail = createIntegrationClient("google");
+const gmail = createIntegrationClient("gmail");
 
 const response = await gmail.proxy({
   method: "POST",
@@ -89,6 +89,8 @@ Current behavior from `sdk/bridge/src/integration-proxy.ts`:
 - the helper throws on non-`2xx` broker responses instead of silently degrading
 
 This is the correct path for runtime-bound integrations. Apps should not expect raw provider tokens in their environment.
+
+Use the exact canonical `provider_id` from the runtime integration catalog when calling `createIntegrationClient(...)`. Legacy aliases such as `google` still exist for compatibility, but new app code should prefer specific ids such as `gmail`, `googlesheets`, or `googledrive`.
 
 ## Durable Outputs
 
@@ -179,6 +181,6 @@ In the current desktop shell, that presentation no longer falls back through the
 ## Validation
 
 ```bash
-npm run sdk:bridge:typecheck
-npm run sdk:bridge:test
+bun --filter=@holaboss/bridge run typecheck
+bun --filter=@holaboss/bridge run test
 ```

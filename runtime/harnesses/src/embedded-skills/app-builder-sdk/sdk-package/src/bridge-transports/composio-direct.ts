@@ -11,6 +11,8 @@
 
 import type { TransportFn } from "../bridge.ts"
 
+type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+
 export interface ComposioDirectOpts {
   /** Composio API base URL. Default: https://backend.composio.dev */
   composioBaseUrl?: string
@@ -22,7 +24,7 @@ export interface ComposioDirectOpts {
    * workspace.db integration_connections.account_external_id.
    */
   connectedAccountId: string
-  fetchImpl?: typeof fetch
+  fetchImpl?: FetchLike
 }
 
 export function createComposioDirectTransport(opts: ComposioDirectOpts): TransportFn {

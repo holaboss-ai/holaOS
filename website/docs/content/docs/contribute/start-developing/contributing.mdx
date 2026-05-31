@@ -9,17 +9,17 @@ Use this page after the local dev loop is already running. It is the repo-specif
 
 | Area | Usual files | Minimum validation |
 | --- | --- | --- |
-| Desktop shell, renderer, preload, or Electron main process | `desktop/src/**`, `desktop/electron/**` | `npm run desktop:typecheck`; also run `npm run desktop:e2e` when browser panes, IPC, or runtime launch behavior changes |
+| Desktop shell, renderer, preload, or Electron main process | `apps/desktop/src/**`, `apps/desktop/electron/**` | `npm run desktop:typecheck`; also run `npm run desktop:e2e` when browser panes, IPC, or runtime launch behavior changes |
 | Runtime HTTP APIs, workers, or workspace-app lifecycle | `runtime/api-server/src/**`, `runtime/state-store/src/**` | `npm run runtime:api-server:typecheck` and `npm run runtime:test` |
 | Harness host, adapter, or run projection | `runtime/harness-host/src/**`, `runtime/harnesses/src/**`, `runtime/api-server/src/ts-runner.ts`, `runtime/api-server/src/agent-runtime-config.ts` | `npm run runtime:harness-host:test`, `npm run runtime:api-server:test`, and `npm run runtime:test` |
-| SDK or bridge contracts | `sdk/app-sdk/**`, `sdk/bridge/**` | Run the matching `build`, `typecheck`, and `test` scripts for the package you changed |
-| Docs or VitePress config | `website/docs/**` | `npm run docs:test` |
+| SDK or bridge contracts | `sdk/app-sdk/**`, `sdk/bridge/**` | Run the matching `build`, `typecheck`, and `test` scripts for the package you changed, for example `bun --filter=@holaboss/bridge run typecheck` and `bun --filter=@holaboss/bridge run test` |
+| Docs app and content | `website/docs/**` | `npm run docs:typecheck` and `npm run docs:build` |
 
 ## Cross-cutting rules
 
-- If you change the Electron bridge, update all of `desktop/electron/preload.ts`, `desktop/src/types/electron.d.ts`, and the `ipcMain` handler in `desktop/electron/main.ts`.
+- If you change the Electron bridge, update all of `apps/desktop/electron/preload.ts`, `apps/desktop/src/types/electron.d.ts`, and the `ipcMain` handler in `apps/desktop/electron/main.ts`.
 - If you add or change a runtime route, update `runtime/api-server/src/app.ts`, the backing service or worker, and the relevant tests in `runtime/api-server/src/*.test.ts`.
-- If you change runtime bundle layout, launcher behavior, or required packaged files, update both `runtime/deploy/**` and the desktop staging logic in `desktop/scripts/runtime-bundle*.mjs`.
+- If you change runtime bundle layout, launcher behavior, or required packaged files, update both `runtime/deploy/**` and the desktop staging logic in `apps/desktop/scripts/runtime-bundle*.mjs`.
 - If you change developer workflow, setup, or debugging steps, update the docs page that owns that flow instead of leaving the behavior implicit in code.
 
 ## Default validation matrix
@@ -29,7 +29,8 @@ For mixed desktop and runtime changes, the safe default is:
 ```bash
 npm run desktop:typecheck
 npm run runtime:test
-npm run docs:test
+npm run docs:typecheck
+npm run docs:build
 ```
 
 Add `npm run desktop:e2e` when the change crosses renderer, preload, main-process, or embedded-runtime boundaries.
@@ -50,7 +51,7 @@ feat: add reasoning effort selection across desktop and runtime
 - add catalog-driven reasoning metadata to desktop model configuration
 - pass thinking_value through queued inputs and the reduced harness request
 - map provider-native reasoning values onto the harness runtime config
-- Validation: npm run desktop:typecheck; npm run runtime:test; npm run docs:test
+- Validation: npm run desktop:typecheck; npm run runtime:test; npm run docs:typecheck; npm run docs:build
 ```
 
 ## Review expectations

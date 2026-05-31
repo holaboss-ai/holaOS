@@ -9,11 +9,11 @@ A workspace starts with a base set of capabilities — a chat interface, an agen
 
 ## Apps
 
-An App is a platform integration. It ships a set of MCP tools — callable actions the agent can invoke — and sometimes a UI surface or background jobs alongside them. When an App is installed, the agent gains concrete actions on that platform: draft a LinkedIn post, fetch a Reddit thread, open a GitHub issue, append a row to a Sheet.
+An App is a runtime-managed capability package. Many Apps are platform integrations, but an App can also include local tools, a UI surface, or background jobs alongside its MCP surface. When an App is installed, the agent gains concrete actions for that capability: draft a LinkedIn post, fetch a Reddit thread, open a GitHub issue, append a row to a Sheet.
 
-Available Apps include LinkedIn, Twitter/X, Reddit, Gmail, Sheets, GitHub, and others. Browse the full catalog at `/apps` and install with one click. Once installed, the App's tools are available to the agent immediately — no restart required.
+Available Apps include LinkedIn, Twitter/X, Reddit, Gmail, Sheets, GitHub, and others. Browse the Marketplace catalog and install with one click. Once installed, the App's tools are available to the agent immediately — no restart required.
 
-**Credentials.** Most Apps need access to an external account. After installing, you'll bind credentials — OAuth for platforms that support it, an API key where they don't. Binding happens once per workspace-platform pair. If you have two workspaces — say, one for your personal brand and one for a client — each can bind its own account for the same platform. Credentials stay scoped to the workspace.
+**Credentials.** Most Apps need access to an external account. After installing, you'll connect credentials — OAuth for platforms that support it, an API key where they don't — and then bind those connections into the workspace or a specific App. In practice, Desktop keeps a shared pool of active connections in Settings, and each workspace decides which connection its installed Apps should use. Two workspaces can reuse the same account, bind different accounts for the same provider, or set a workspace-default binding for that provider.
 
 A practical rule: install only what you need. Every App you add is another credential to manage, and the agent's tool surface grows with each install. A focused workspace is easier to reason about.
 
@@ -23,19 +23,17 @@ A Skill is a markdown file — specifically `SKILL.md` inside `skills/<id>/` in 
 
 This makes Skills the right place for deep, context-specific guidance: how to structure a post for a particular audience, what tone to use for a specific campaign type, how to handle a particular edge case. If a rule should apply on every single run without exception, put it in `AGENTS.md` instead — that file is read unconditionally. Skills are for knowledge that only matters sometimes.
 
-Browse published Skills at `/skills` and install into your workspace with one click. You can also write Skills directly — create a markdown file under `skills/<id>/SKILL.md`, add a `name` and `description` to the frontmatter, and write the body. The agent will pick it up on the next run.
+Browse published Skills in Marketplace and install into your workspace with one click. You can also write Skills directly — create a markdown file under `skills/<id>/SKILL.md`, add a `name` and `description` to the frontmatter, and write the body. The agent will pick it up on the next run.
 
 The runtime can also propose Skill drafts. If it notices a pattern — you repeatedly give the same clarification, or a prompt fragment recurs across runs — it may suggest packaging that into a Skill. You review the draft and decide whether to commit it.
 
 ## Automations
 
-An Automation lets the workspace run a task without you initiating it. Instead of typing a message, you define a trigger — a schedule or an event — and the agent wakes up, runs the task, and deposits outputs into the workspace.
+An Automation lets the workspace run a task without you initiating it. Instead of typing a message, you define a schedule and the agent wakes up, runs the task, and deposits outputs into the workspace.
 
-**Scheduled automations** run at a fixed cadence. Examples: "Every morning at 9am, scan new emails and draft replies for my review." "Every Friday at 4pm, pull the week's data from a Sheet and generate a summary." "Every Monday, draft three LinkedIn posts based on last week's top-performing content."
+Automations run at a fixed cadence. Examples: "Every morning at 9am, scan new emails and draft replies for my review." "Every Friday at 4pm, pull the week's data from a Sheet and generate a summary." "Every Monday, draft three LinkedIn posts based on last week's top-performing content."
 
-**Event-driven automations** wake on an external signal. Examples: "When a new email arrives from a specific sender, log it and draft a response." "When a monitored URL changes, note the change and notify me in the workspace."
-
-Configure Automations in the automations panel inside the workspace. Give each one a name, set the trigger, and write the task prompt the agent will receive when it fires.
+Configure Automations in the automations panel inside the workspace. Give each one a name, choose the schedule, and write the task prompt the agent will receive when it fires.
 
 Keep Automations conservative by default. Any automated action that publishes content publicly, sends an email, or spends money should be gated on approval rather than set to fire-and-forget. The agent's approval system works the same way it does in a manual run — see [Working with Your Agent](/docs/getting-started/agent-runs) for how approvals work.
 

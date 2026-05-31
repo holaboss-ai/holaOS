@@ -5733,10 +5733,6 @@ function AppShellContent() {
                 setSubmissionsFocusId(null);
               }
             }}
-            onBackToApp={() => {
-              setSettingsDialogOpen(false);
-              setSubmissionsFocusId(null);
-            }}
             colorScheme={colorScheme}
             onColorSchemeChange={handleColorSchemeChange}
             themeVariant={themeVariant}

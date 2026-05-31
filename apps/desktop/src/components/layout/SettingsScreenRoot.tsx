@@ -305,7 +305,6 @@ export interface SettingsScreenRootProps {
   activeSection: UiSettingsPaneSection;
   appVersion: string;
   onSectionChange: (section: UiSettingsPaneSection) => void;
-  onBackToApp: () => void;
   colorScheme: ColorScheme;
   onColorSchemeChange: (scheme: ColorScheme) => void;
   themeVariant: ThemeVariant;
@@ -324,7 +323,6 @@ export function SettingsScreenRoot({
   activeSection,
   appVersion,
   onSectionChange,
-  onBackToApp,
   colorScheme,
   onColorSchemeChange,
   themeVariant,
@@ -507,7 +505,6 @@ export function SettingsScreenRoot({
       sections={SETTINGS_NAV}
       activeSection={activeSection}
       onSectionChange={onSectionChange}
-      onBackToApp={onBackToApp}
       railFooter={
         <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
           {ABOUT_LINKS.map((link) => {

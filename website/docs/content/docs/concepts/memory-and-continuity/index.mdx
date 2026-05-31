@@ -7,7 +7,7 @@ description: How holaOS separates memory into runtime continuity, durable recall
 
 1. standing workspace policy
 2. runtime continuity for resuming active work
-3. durable memory for facts, procedures, preferences, and identity
+3. durable memory for facts, procedures, preferences, identity, and recalled external context
 
 That split is deliberate. It keeps runtime state, long-term memory, and workspace policy from getting mixed together.
 
@@ -15,29 +15,31 @@ That split is deliberate. It keeps runtime state, long-term memory, and workspac
 
 Today the runtime stores those concerns on different surfaces:
 
-- standing workspace policy lives in authored workspace files such as `AGENTS.md`
-- session continuity lives in runtime-owned artifacts such as `turn_results`, request snapshots, persisted harness state, and session-memory projections
-- session-memory continuity projections live under `<workspace-id>/.holaboss/memory/runtime/session-memory/`
-- operational projections live under `<workspace-id>/.holaboss/memory/runtime/`, including the latest turn, session state, blockers, recent turns, and permission-blocker snapshots
-- durable recalled memory lives under `<workspace-id>/.holaboss/memory/knowledge/`, `memory/preference/`, and `memory/identity/`
-
-The canonical operator profile now lives in `state/control-plane.db`. That profile is runtime-owned identity state, not markdown memory. The runtime keeps pending user-memory proposals in `<workspace-id>/.holaboss/state/runtime.db` so the current run can use them ephemerally without promoting them into durable memory yet.
-
-Accepted user-memory proposals are the separate path that promotes user preference memory into `memory/preference/` or updates the runtime profile in `state/control-plane.db`. The background evolve path does not create user preference or profile memory on its own.
-
-The easiest way to think about the storage boundary is:
-
-| Layer | Purpose | Durable? |
+| Surface | Current shape | Purpose |
 | --- | --- | --- |
-| `state/control-plane.db` | canonical profile state and profile-global memory metadata | yes |
-| `<workspace-id>/.holaboss/state/runtime.db` | workspace execution truth, continuity records, workspace-scoped memory metadata, pending proposals | yes |
-| `<workspace-id>/.holaboss/memory/runtime/` | latest-turn projections, blockers, recent-turn snapshots | no |
-| `<workspace-id>/.holaboss/memory/runtime/session-memory/` | resume-friendly continuity snapshots | semi-volatile |
-| `<workspace-id>/.holaboss/memory/knowledge/` | workspace facts, procedures, blockers, reference memories | yes |
-| `memory/preference/` | user preferences | yes |
-| `memory/identity/` | user identity memory | yes |
+| standing workspace policy | authored workspace files such as `AGENTS.md` | human-owned operating rules |
+| runtime continuity | `turn_results`, request snapshots, persisted harness state, `.holaboss/memory/runtime/`, `.holaboss/memory/runtime/session-memory/` | cheap resume without replaying the full transcript |
+| workspace durable memory | workspace-local markdown leaves plus semantic tree markdown under `.holaboss/memory/` | interaction-derived facts, procedures, blockers, and references |
+| integration durable memory | global markdown leaves plus semantic tree markdown under `memory/` | recalled external context from Gmail, Notion, GitHub, Slack, and other integrations |
+| secondary user-memory docs | `memory/preference/` plus optional `memory/identity/` | accepted long-lived user preferences and identity-style facts outside the main interaction or integration trees |
+| canonical runtime profile | `state/control-plane.db` | profile state owned by the runtime, not by markdown memory |
 
-Runtime files under `runtime/` are meant for inspection and restoration. They are not treated as durable knowledge.
+Durable memory is now markdown-first and tree-based. The canonical content lives in markdown files. The runtime then derives semantic nodes, search docs, relations, and optional embeddings from that markdown so recall can work as hybrid RAG instead of flat file scanning.
+
+Two path conventions exist at the same time:
+
+- physical workspace-local files live under `<workspace-id>/.holaboss/memory/...`
+- memory-tool namespaces refer to those same files as `workspace/<workspace-id>/...`
+
+For example, a workspace interaction tree node can be addressed as `workspace/<workspace-id>/semantic/interaction/trees/<entity-slug>/content.md`, while the physical file lives under `<workspace-id>/.holaboss/memory/semantic/interaction/trees/<entity-slug>/content.md`.
+
+That split between namespace and physical location matters:
+
+- memory tools and APIs speak in memory-root-relative paths such as `workspace/<workspace-id>/...`
+- the local filesystem stores workspace-local memory under `.holaboss/memory/`
+- global memory such as integrations and preferences lives under the configured `memory/` root
+
+Accepted user-memory proposals are still a separate write path. They currently promote durable preference memory into `memory/preference/` and may also update runtime-owned profile state in `state/control-plane.db`. `memory/identity/` remains a supported durable namespace, but it is an optional secondary surface, not the main current auto-write path. The background evolve path does not silently create user preference or profile memory on its own.
 
 ## Source-of-truth boundary
 
@@ -46,9 +48,48 @@ The source-of-truth split is deliberate:
 - runtime execution truth lives in `<workspace-id>/.holaboss/state/runtime.db`
 - canonical operator profile data lives in `state/control-plane.db`
 - durable recalled memory lives in markdown under workspace-local `.holaboss/memory/` plus profile-global `memory/`
+- semantic node rows, search docs, and embeddings are derived indexes over that markdown, not the canonical content
 - standing workspace policy lives in `AGENTS.md`
 
 That is what keeps continuity inspectable without turning workspace policy or durable memory into raw execution logs.
+
+## How to think about the whole system
+
+The most reliable mental model is:
+
+1. `AGENTS.md` and authored workspace files define policy
+2. runtime continuity keeps the current session resumable
+3. durable memory stores what should be recallable later
+4. retrieval reads the durable memory forest through `memory_retrieve`
+5. background writeback turns repeated interaction signal into new durable leaves
+
+That means the system is neither “just a vector database” nor “just a set of markdown files.” The markdown is canonical, while retrieval and browsing are layered on top of it.
+
+## Retrieval model
+
+Current recall is no longer “open `MEMORY.md`, then inspect a few leaves.”
+
+The runtime exposes durable recall through `memory_retrieve`, which:
+
+- plans whether the query should search interaction memory, integration memory, or both
+- runs a vector first pass when recall embeddings are configured
+- adds lexical support retrieval inside the best trees
+- merges and reranks candidates into a bounded evidence pack for prompt-time RAG
+
+Secondary `MEMORY.md` index files still exist as human-readable index surfaces and compatibility manifests, but they are not the primary durable memory shape anymore. The primary shape is the markdown forest itself.
+
+## Browse vs recall
+
+The runtime exposes memory through two different surfaces:
+
+- the memory browser
+  - a browseable and graphable projection of the semantic forest
+  - shows `interaction/trees/...` and `integration/trees/...`
+- `memory_retrieve`
+  - a reasoning-oriented retrieval tool for query-time recall
+  - returns bounded evidence instead of a full tree dump
+
+Those surfaces complement each other. The browser is for inspection. `memory_retrieve` is for task-time context resolution.
 
 ## Read this section
 
@@ -66,9 +107,9 @@ That is what keeps continuity inspectable without turning workspace policy or du
     description="See what counts as durable memory, which files own it, and how the runtime keeps it separate from continuity."
   />
   <DocCard
-    title="Recall and Evolve"
+    title="Recall Pipeline"
     eyebrow="Post-Run Flow"
     href="/docs/concepts/memory-and-continuity/recall-and-evolve"
-    description="See how writeback, evolve jobs, recall selection, and skill candidates work after each run."
+    description="See how memory is recalled at runtime and how durable interaction memory is written back after runs complete."
   />
 </DocCards>

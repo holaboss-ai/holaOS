@@ -1,6 +1,13 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useSetAtom } from "jotai";
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   Activity,
   ArrowLeft,
@@ -19,16 +26,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  CardAction,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -707,602 +705,580 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
   return (
     <>
       <div className="flex h-full min-h-0 flex-col bg-background">
-        <div className="border-b border-border px-6 py-3">
-          <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-foreground/35">
-            <span>Teammate</span>
+        {/* Top bar — matches dashboard / board / issue detail. */}
+        <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-6">
+          <div className="flex min-w-0 items-center gap-2 text-xs">
+            <span className="font-medium uppercase tracking-wider text-muted-foreground">
+              Teammates
+            </span>
             {showingDetail ? (
               <>
-                <span className="text-foreground/20">/</span>
-                <span>{headerTitle}</span>
+                <span className="shrink-0 text-muted-foreground">/</span>
+                <span className="truncate text-foreground">{headerTitle}</span>
               </>
             ) : null}
           </div>
-        </div>
+          {!showingDetail ? (
+            <div className="text-xs tabular-nums text-muted-foreground">
+              {filteredTeammates.length} of {visibleTeammates.length}
+            </div>
+          ) : null}
+        </header>
 
         {showingDetail ? (
-          <div className="border-b border-border px-6 py-3">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between gap-3 border-b border-border px-6 py-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleBackToList}
+                disabled={isSaving}
+                className="-ml-2 gap-1.5 text-muted-foreground hover:text-foreground"
+              >
+                <ArrowLeft className="size-3.5" />
+                Back
+              </Button>
+              {selectedTeammate ? (
                 <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-9 rounded-xl px-3"
-                    onClick={handleBackToList}
-                    disabled={isSaving}
-                  >
-                    <ArrowLeft className="size-4" />
-                    Back to teammates
-                  </Button>
-                  <div className="inline-flex h-9 items-center rounded-xl border border-border bg-card px-4 text-sm font-medium text-foreground shadow-sm">
-                    {headerTitle}
-                  </div>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <StatusDot
+                      variant={teammateStatusVariant(selectedTeammate.status)}
+                    />
+                    {teammateStatusLabel(selectedTeammate.status)}
+                  </span>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {selectedTeammate.skills.length} skills · {selectedIssueCount} issues
+                  </span>
                 </>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <>
-                  {selectedTeammate ? (
-                    <>
-                      <Badge variant="outline" className="h-9 rounded-xl bg-background px-3 text-foreground/65">
-                        <StatusDot
-                          variant={teammateStatusVariant(selectedTeammate.status)}
-                          className="mr-2"
-                        />
-                        {teammateStatusLabel(selectedTeammate.status)}
-                      </Badge>
-                      <Badge variant="outline" className="h-9 rounded-xl bg-background px-3 text-foreground/65">
-                        {selectedTeammate.skills.length} skills
-                      </Badge>
-                      <Badge variant="outline" className="h-9 rounded-xl bg-background px-3 text-foreground/65">
-                        {selectedIssueCount} issues
-                      </Badge>
-                    </>
-                  ) : null}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-9 rounded-xl px-3"
-                    onClick={() => void refresh()}
-                    disabled={isLoading}
-                  >
-                    {isLoading ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="size-4" />
-                    )}
-                    Refresh
-                  </Button>
-                  {selectedTeammate?.status === "archived" ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-9 rounded-xl px-3"
-                      onClick={() => void handleRestore()}
-                      disabled={isSaving || selectedTeammate.kind === "system"}
-                    >
-                      <RotateCcw className="size-4" />
-                      Restore
-                    </Button>
-                  ) : null}
-                  {selectedTeammate?.kind === "custom" ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-9 rounded-xl px-3"
-                      onClick={() => setArchiveConfirmOpen(true)}
-                      disabled={isSaving}
-                    >
-                      <Trash2 className="size-4" />
-                      Archive
-                    </Button>
-                  ) : null}
-                  {canSave ? (
-                    <Button
-                      type="button"
-                      className="h-9 rounded-xl px-4"
-                      onClick={() => void handleSave()}
-                      disabled={draftLocked || isSaving}
-                    >
-                      {isSaving ? <Loader2 className="size-4 animate-spin" /> : null}
-                      Save changes
-                    </Button>
-                  ) : null}
-                </>
-              </div>
+              ) : null}
             </div>
-            {statusMessage ? (
-              <div className="mt-3 rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground/65">
-                {statusMessage}
-              </div>
-            ) : null}
-          </div>
-        ) : statusMessage ? (
-          <div className="border-b border-border px-6 py-3">
-            <div className="rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground/65">
-              {statusMessage}
+
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => void refresh()}
+                disabled={isLoading}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                {isLoading ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-3.5" />
+                )}
+              </Button>
+              {selectedTeammate?.status === "archived" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleRestore()}
+                  disabled={isSaving || selectedTeammate.kind === "system"}
+                >
+                  <RotateCcw className="size-3.5" />
+                  Restore
+                </Button>
+              ) : null}
+              {selectedTeammate?.kind === "custom" ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setArchiveConfirmOpen(true)}
+                  disabled={isSaving}
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              ) : null}
+              {canSave ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => void handleSave()}
+                  disabled={draftLocked || isSaving}
+                >
+                  {isSaving ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : null}
+                  Save
+                </Button>
+              ) : null}
             </div>
           </div>
         ) : null}
 
-        {!showingDetail ? (
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-            <div className="mx-auto max-w-7xl">
-              <Card className="overflow-hidden border-border bg-card/80 shadow-sm">
-                <CardContent className="p-0">
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
-                    <div className="flex min-w-0 flex-1 items-center gap-3">
-                      <div className="relative w-full max-w-md">
-                        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-foreground/38" />
-                        <Input
-                          value={searchQuery}
-                          onChange={(event) => setSearchQuery(event.target.value)}
-                          placeholder="Search teammates..."
-                          className="h-11 rounded-xl bg-background/70 pl-9"
-                        />
-                      </div>
-                      <Badge variant="outline" className="bg-background/80">
-                        All {visibleTeammates.length}
-                      </Badge>
-                      <Badge variant="outline" className="bg-background/80">
-                        Active{" "}
-                        {
-                          visibleTeammates.filter(
-                            (teammate) => teammate.status === "active",
-                          ).length
-                        }
-                      </Badge>
-                    </div>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      <div className="text-sm text-foreground/55">
-                        {filteredTeammates.length} of {visibleTeammates.length}
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-9 rounded-xl px-3"
-                        onClick={() => void refresh()}
-                        disabled={isLoading}
-                      >
-                        {isLoading ? (
-                          <Loader2 className="size-4 animate-spin" />
-                        ) : (
-                          <RefreshCw className="size-4" />
-                        )}
-                        Refresh
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className={cn(
-                          "h-9 rounded-xl px-3",
-                          showArchived ? "bg-card" : "",
-                        )}
-                        onClick={() => setShowArchived((current) => !current)}
-                      >
-                        {showArchived ? "Hide archived" : "Show archived"}
-                      </Button>
-                      <Button
-                        type="button"
-                        className="h-9 rounded-xl px-4"
-                        onClick={handleStartCreate}
-                      >
-                        <Plus className="size-4" />
-                        New teammate
-                      </Button>
-                    </div>
-                  </div>
-                  {showArchived ? (
-                    <div className="border-b border-border px-5 py-3">
-                      <Badge
-                        variant="outline"
-                        className="h-8 rounded-xl bg-background px-3 text-foreground/65"
-                      >
-                        {archivedCount} archived
-                      </Badge>
-                    </div>
-                  ) : null}
+        {statusMessage ? (
+          <div className="border-b border-border bg-card/40 px-6 py-2 text-sm text-muted-foreground">
+            {statusMessage}
+          </div>
+        ) : null}
 
-                  <div
+        {!showingDetail ? (
+          <div className="min-h-0 flex-1 overflow-y-auto bg-fg-4">
+            <div className="mx-auto w-full max-w-[1180px] space-y-4 px-6 py-5">
+              {/* Toolbar — search + filters + actions, no card wrapper */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <div className="relative w-full max-w-sm">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder="Search teammates"
+                      className="h-8 pl-8 text-sm"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowArchived((current) => !current)}
                     className={cn(
-                      "grid gap-4 border-b border-border px-5 py-3 text-[11px] font-medium uppercase tracking-[0.18em] text-foreground/38",
-                      TEAMMATE_TABLE_GRID_COLUMNS,
+                      "text-muted-foreground hover:text-foreground",
+                      showArchived ? "bg-fg-6 text-foreground" : "",
                     )}
                   >
-                    <div>Agent</div>
-                    <div>Status</div>
-                    <div>Workload</div>
-                    <div>Issues</div>
-                    <div>Updated</div>
-                  </div>
+                    {showArchived ? "Hide archived" : "Show archived"}
+                    {showArchived && archivedCount > 0 ? (
+                      <span className="ml-1 tabular-nums text-muted-foreground">
+                        {archivedCount}
+                      </span>
+                    ) : null}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void refresh()}
+                    disabled={isLoading}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    {isLoading ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="size-3.5" />
+                    )}
+                  </Button>
+                  <Button type="button" size="sm" onClick={handleStartCreate}>
+                    <Plus className="size-3.5" />
+                    New teammate
+                  </Button>
+                </div>
+              </div>
 
-                  <div className="divide-y divide-border">
-                    {filteredTeammates.length > 0 ? (
-                      filteredTeammates.map((teammate) => {
-                        const teammateIssues = issues.filter(
-                          (issue) =>
-                            issue.assignee_teammate_id === teammate.teammate_id,
-                        );
-                        const runningCount = teammateIssues.filter(
-                          (issue) =>
-                            issue.status === "in_progress" ||
-                            Boolean(issue.active_subagent_id),
-                        ).length;
-                        return (
-                          <button
-                            key={teammate.teammate_id}
-                            type="button"
-                            className={cn(
-                              "grid w-full gap-4 px-5 py-4 text-left transition-colors hover:bg-background/45",
-                              TEAMMATE_TABLE_GRID_COLUMNS,
-                            )}
-                            onClick={() => handleSelectTeammate(teammate.teammate_id)}
-                          >
+              {/* Table card — bg-card surface, hairline border, divide-y rows */}
+              <div className="overflow-hidden rounded-xl border border-border bg-card">
+                {/* Header */}
+                <div
+                  className={cn(
+                    "grid gap-3 border-b border-border bg-fg-2 px-4 py-2 text-xs font-medium uppercase tracking-wider text-muted-foreground",
+                    TEAMMATE_TABLE_GRID_COLUMNS,
+                  )}
+                >
+                  <div>Agent</div>
+                  <div>Status</div>
+                  <div>Workload</div>
+                  <div>Issues</div>
+                  <div>Updated</div>
+                </div>
+
+                {/* Body */}
+                <div className="divide-y divide-border">
+                  {filteredTeammates.length > 0 ? (
+                    filteredTeammates.map((teammate) => {
+                      const teammateIssues = issues.filter(
+                        (issue) =>
+                          issue.assignee_teammate_id === teammate.teammate_id,
+                      );
+                      const runningCount = teammateIssues.filter(
+                        (issue) =>
+                          issue.status === "in_progress" ||
+                          Boolean(issue.active_subagent_id),
+                      ).length;
+                      return (
+                        <button
+                          key={teammate.teammate_id}
+                          type="button"
+                          className={cn(
+                            "grid w-full gap-3 px-4 py-2.5 text-left transition-colors hover:bg-foreground/[0.025]",
+                            TEAMMATE_TABLE_GRID_COLUMNS,
+                          )}
+                          onClick={() => handleSelectTeammate(teammate.teammate_id)}
+                        >
+                          <div className="flex min-w-0 items-center gap-2.5">
+                            <div className="grid size-7 shrink-0 place-items-center rounded-full bg-fg-8 text-muted-foreground">
+                              {teammate.kind === "system" ? (
+                                <ShieldCheck className="size-3.5" />
+                              ) : (
+                                <UserRound className="size-3.5" />
+                              )}
+                            </div>
                             <div className="min-w-0">
-                              <div className="flex items-center gap-3">
-                                <div className="grid size-10 shrink-0 place-items-center rounded-2xl border border-border bg-background/70">
-                                  {teammate.kind === "system" ? (
-                                    <ShieldCheck className="size-4 text-foreground/45" />
-                                  ) : (
-                                    <UserRound className="size-4 text-foreground/45" />
-                                  )}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <div className="truncate text-[15px] font-semibold text-foreground">
-                                    {teammate.name}
-                                  </div>
-                                  <div className="mt-1 truncate text-[13px] text-foreground/48">
-                                    {teammateSummary(teammate)}
-                                  </div>
-                                </div>
+                              <div className="truncate text-sm font-medium text-foreground">
+                                {teammate.name}
+                              </div>
+                              <div className="truncate text-xs text-muted-foreground">
+                                {teammateSummary(teammate)}
                               </div>
                             </div>
-                            <div className="flex items-center">
-                              <Badge variant="outline" className="bg-background/80">
-                                <StatusDot
-                                  variant={teammateStatusVariant(teammate.status)}
-                                  className="mr-2"
-                                />
-                                {teammateStatusLabel(teammate.status)}
-                              </Badge>
-                            </div>
-                            <div className="flex items-center text-sm text-foreground/68">
-                              {teammateWorkloadLabel(runningCount, teammateIssues.length)}
-                            </div>
-                            <div className="flex items-center gap-2 text-sm text-foreground/68">
-                              <span>{teammateIssues.length}</span>
-                              <span className="text-foreground/35">assigned</span>
-                            </div>
-                            <div className="flex items-center text-sm text-foreground/48">
-                              {relativeTimeLabel(teammate.updated_at)}
-                            </div>
-                          </button>
-                        );
-                      })
-                    ) : (
-                      <div className="px-5 py-12 text-center text-sm text-foreground/48">
-                        {searchQuery.trim()
-                          ? "No teammates match that search."
-                          : "No teammates to show yet."}
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <StatusDot
+                              variant={teammateStatusVariant(teammate.status)}
+                            />
+                            {teammateStatusLabel(teammate.status)}
+                          </div>
+                          <div className="flex items-center text-xs text-muted-foreground">
+                            {teammateWorkloadLabel(
+                              runningCount,
+                              teammateIssues.length,
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
+                            <span className="text-foreground">
+                              {teammateIssues.length}
+                            </span>
+                            <span>assigned</span>
+                          </div>
+                          <div className="flex items-center text-xs tabular-nums text-muted-foreground">
+                            {relativeTimeLabel(teammate.updated_at)}
+                          </div>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="px-4 py-10 text-center text-xs text-muted-foreground">
+                      {searchQuery.trim()
+                        ? "No teammates match that search."
+                        : "No teammates to show yet."}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         ) : (
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-            <div className="mx-auto max-w-7xl">
-              <div className="grid items-start gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-fg-4">
+            <div className="mx-auto w-full max-w-[1180px] px-6 py-5">
+              <div className="grid items-start gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
                 <aside className="space-y-4">
-                  <Card className="overflow-hidden bg-card/85">
-                    <CardContent className="p-0">
-                      <div className="border-b border-border px-5 py-5">
-                        <div className="grid size-14 place-items-center rounded-3xl border border-border bg-background/75">
-                          {selectedTeammate?.kind === "system" ? (
-                            <ShieldCheck className="size-6 text-foreground/45" />
-                          ) : (
-                            <Bot className="size-6 text-foreground/45" />
+                  <div className="overflow-hidden rounded-xl border border-border bg-card">
+                    <div className="px-4 py-4">
+                      <div className="grid size-10 place-items-center rounded-full bg-fg-8 text-muted-foreground">
+                        {selectedTeammate?.kind === "system" ? (
+                          <ShieldCheck className="size-4" />
+                        ) : (
+                          <Bot className="size-4" />
+                        )}
+                      </div>
+                      <div className="mt-3 text-base font-semibold tracking-tight text-foreground">
+                        {selectedTeammate?.name}
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                        <span className="inline-flex items-center gap-1.5">
+                          <StatusDot
+                            variant={teammateStatusVariant(
+                              selectedTeammate?.status ?? "active",
+                            )}
+                          />
+                          {teammateStatusLabel(
+                            selectedTeammate?.status ?? "active",
                           )}
-                        </div>
-                        <div className="mt-5">
-                          <div className="text-2xl font-semibold tracking-tight text-foreground">
-                            {selectedTeammate?.name}
-                          </div>
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <Badge variant="outline" className="bg-background/80">
-                              <StatusDot
-                                variant={teammateStatusVariant(selectedTeammate?.status ?? "active")}
-                                className="mr-2"
-                              />
-                              {teammateStatusLabel(selectedTeammate?.status ?? "active")}
-                            </Badge>
-                            <Badge variant="outline" className="bg-background/80">
-                              {selectedTeammate?.kind === "system" ? "System" : "Custom"}
-                            </Badge>
-                          </div>
-                          <p className="mt-4 text-sm leading-6 text-foreground/58">
-                            {selectedTeammate
-                              ? teammateSummary(selectedTeammate)
-                              : "No teammate selected."}
-                          </p>
-                        </div>
+                        </span>
+                        <span className="text-muted-foreground/40">·</span>
+                        <span>
+                          {selectedTeammate?.kind === "system"
+                            ? "System"
+                            : "Custom"}
+                        </span>
                       </div>
+                      <p className="mt-3 text-xs leading-snug text-muted-foreground">
+                        {selectedTeammate
+                          ? teammateSummary(selectedTeammate)
+                          : "No teammate selected."}
+                      </p>
+                    </div>
 
-                      <div className="space-y-4 px-5 py-5 text-sm">
-                        <MetricRow
-                          label="Assigned issues"
-                          value={`${selectedIssueCount}`}
-                        />
-                        <MetricRow
-                          label="Working now"
-                          value={`${selectedRunningCount}`}
-                        />
-                        <MetricRow
-                          label="Completed"
-                          value={`${selectedCompletedCount}`}
-                        />
-                        <MetricRow
-                          label="Skills"
-                          value={`${
-                            draft.skills.filter(
-                              (skill) => skill.name.trim() || skill.content.trim(),
-                            ).length
-                          }`}
-                        />
-                        <MetricRow
-                          label="Created"
-                          value={relativeTimeLabel(selectedTeammate?.created_at ?? null)}
-                        />
-                        <MetricRow
-                          label="Updated"
-                          value={relativeTimeLabel(selectedTeammate?.updated_at ?? null)}
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
+                    <div className="space-y-2 border-t border-border px-4 py-3">
+                      <MetricRow
+                        label="Assigned issues"
+                        value={`${selectedIssueCount}`}
+                      />
+                      <MetricRow
+                        label="Working now"
+                        value={`${selectedRunningCount}`}
+                      />
+                      <MetricRow
+                        label="Completed"
+                        value={`${selectedCompletedCount}`}
+                      />
+                      <MetricRow
+                        label="Skills"
+                        value={`${
+                          draft.skills.filter(
+                            (skill) =>
+                              skill.name.trim() || skill.content.trim(),
+                          ).length
+                        }`}
+                      />
+                      <MetricRow
+                        label="Created"
+                        value={relativeTimeLabel(
+                          selectedTeammate?.created_at ?? null,
+                        )}
+                      />
+                      <MetricRow
+                        label="Updated"
+                        value={relativeTimeLabel(
+                          selectedTeammate?.updated_at ?? null,
+                        )}
+                      />
+                    </div>
+                  </div>
 
-                  <Card className="bg-card/85">
-                    <CardHeader>
-                      <CardTitle>Routing note</CardTitle>
-                    </CardHeader>
-                      <CardContent>
-                        <p className="text-sm leading-6 text-foreground/58">
-                          The Workspace Manager routes from each teammate&apos;s
-                          capability profile first, then falls back to their
-                        instructions and teammate skill folders. Archived teammates
-                        drop out of routing and disappear from normal navigation.
-                        </p>
-                      </CardContent>
-                  </Card>
+                  <div className="rounded-xl border border-border bg-card px-4 py-3">
+                    <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      Routing note
+                    </div>
+                    <p className="mt-2 text-xs leading-snug text-muted-foreground">
+                      The Workspace Manager routes from each teammate&apos;s
+                      capability profile first, then falls back to their
+                      instructions and teammate skill folders. Archived
+                      teammates drop out of routing and disappear from normal
+                      navigation.
+                    </p>
+                  </div>
                 </aside>
 
                 <div className="min-w-0">
-                  <Card className="overflow-hidden bg-card/85">
+                  <div className="overflow-hidden rounded-xl border border-border bg-card">
                     <Tabs
                       value={detailTab}
-                      onValueChange={(value) => setDetailTab(value as DetailTab)}
+                      onValueChange={(value) =>
+                        setDetailTab(value as DetailTab)
+                      }
                       className="block w-full"
                     >
-                      <div className="border-b border-border px-5">
+                      <div className="border-b border-border px-3">
                         <TabsList
                           variant="line"
-                          className="w-full justify-start rounded-none bg-transparent p-0"
+                          className="h-auto w-full justify-start gap-0 rounded-none bg-transparent p-0"
                         >
-                          <TabsTrigger
-                            value="activity"
-                            className="h-12 rounded-none px-3"
-                          >
-                            <Activity className="size-4" />
-                            Activity
-                          </TabsTrigger>
-                          <TabsTrigger
-                            value="issues"
-                            className="h-12 rounded-none px-3"
-                          >
-                            <ListTodo className="size-4" />
-                            Issues
-                          </TabsTrigger>
-                          <TabsTrigger
-                            value="instructions"
-                            className="h-12 rounded-none px-3"
-                          >
-                            <ScrollText className="size-4" />
-                            Instructions
-                          </TabsTrigger>
-                          <TabsTrigger
-                            value="skills"
-                            className="h-12 rounded-none px-3"
-                          >
-                            <FileCode2 className="size-4" />
-                            Skills
-                          </TabsTrigger>
+                          {(
+                            [
+                              {
+                                value: "activity",
+                                label: "Activity",
+                                Icon: Activity,
+                              },
+                              {
+                                value: "issues",
+                                label: "Issues",
+                                Icon: ListTodo,
+                              },
+                              {
+                                value: "instructions",
+                                label: "Instructions",
+                                Icon: ScrollText,
+                              },
+                              {
+                                value: "skills",
+                                label: "Skills",
+                                Icon: FileCode2,
+                              },
+                            ] as const
+                          ).map(({ value, label, Icon }) => (
+                            <TabsTrigger
+                              key={value}
+                              value={value}
+                              className={cn(
+                                // Strip the primitive's default `border` (4
+                                // sides @ 1px transparent) so the active
+                                // foreground colour doesn't leak onto the
+                                // top / left / right edges as a faux box.
+                                "-mb-px !h-9 !flex-none !rounded-none !border-0 !border-b-2 !border-b-transparent !bg-transparent !px-3 !text-sm !font-medium !text-muted-foreground !shadow-none",
+                                "hover:!text-foreground",
+                                // Active tab: only the bottom border lights
+                                // up. It overlaps the container's
+                                // border-b (via -mb-px) so the gray
+                                // hairline turns into a foreground
+                                // underline under the active tab only.
+                                "data-active:!border-b-foreground data-active:!text-foreground",
+                              )}
+                            >
+                              <Icon className="size-3.5" />
+                              {label}
+                            </TabsTrigger>
+                          ))}
                         </TabsList>
                       </div>
 
-                      <TabsContent value="activity" className="w-full px-5 py-5">
-                        <div className="space-y-4">
-                          <Card className="bg-background/55">
-                            <CardHeader>
-                              <CardTitle>Now</CardTitle>
-                              <CardDescription>
-                                Current workload for this teammate.
-                              </CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-3">
-                              {selectedRunningIssues.length > 0 ? (
-                                selectedRunningIssues.map((issue) => (
-                                  <button
-                                    key={issue.issue_id}
-                                    type="button"
-                                    className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-background/70 px-4 py-3 text-left transition-colors hover:bg-background/90"
-                                    onClick={() =>
-                                      void openIssueDetailTab({
-                                        workspaceId: issue.workspace_id,
-                                        issueId: issue.issue_id,
-                                        title: issue.title,
-                                      })
-                                    }
-                                  >
-                                    <div className="min-w-0">
-                                      <div className="truncate text-sm font-medium text-foreground">
-                                        {issue.issue_id} · {issue.title}
-                                      </div>
-                                      <div className="mt-1 text-sm text-foreground/48">
-                                        Updated {relativeTimeLabel(issue.updated_at)}
-                                      </div>
-                                    </div>
-                                    <Badge
-                                      variant="outline"
-                                      className="bg-background/80"
+                      <TabsContent value="activity" className="w-full px-4 py-4">
+                        <div className="space-y-5">
+                          <DetailSection
+                            eyebrow="Now"
+                            meta={
+                              selectedRunningIssues.length > 0
+                                ? `${selectedRunningIssues.length} active`
+                                : undefined
+                            }
+                          >
+                            {selectedRunningIssues.length > 0 ? (
+                              <ul className="divide-y divide-border">
+                                {selectedRunningIssues.map((issue) => (
+                                  <li key={issue.issue_id}>
+                                    <button
+                                      type="button"
+                                      className="flex w-full items-center gap-2.5 px-1.5 py-2 text-left transition-colors hover:bg-foreground/[0.025]"
+                                      onClick={() =>
+                                        void openIssueDetailTab({
+                                          workspaceId: issue.workspace_id,
+                                          issueId: issue.issue_id,
+                                          title: issue.title,
+                                        })
+                                      }
+                                    >
+                                      <StatusDot variant="primary" pulse />
+                                      <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                                        {issue.issue_id}
+                                      </span>
+                                      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                                        {issue.title}
+                                      </span>
+                                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                                        {relativeTimeLabel(issue.updated_at)}
+                                      </span>
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <EmptyRow label="No active work right now." />
+                            )}
+                          </DetailSection>
+
+                          <DetailSection eyebrow="Recent work">
+                            {selectedIssues.length > 0 ? (
+                              <ul className="divide-y divide-border">
+                                {selectedIssues.slice(0, 5).map((issue) => (
+                                  <li key={issue.issue_id}>
+                                    <button
+                                      type="button"
+                                      className="flex w-full items-center gap-2.5 px-1.5 py-2 text-left transition-colors hover:bg-foreground/[0.025]"
+                                      onClick={() =>
+                                        void openIssueDetailTab({
+                                          workspaceId: issue.workspace_id,
+                                          issueId: issue.issue_id,
+                                          title: issue.title,
+                                        })
+                                      }
                                     >
                                       <StatusDot
-                                        variant="primary"
-                                        className="mr-2"
+                                        variant={issueRowDotVariant(issue.status)}
                                       />
-                                      Working
-                                    </Badge>
-                                  </button>
-                                ))
-                              ) : (
-                                <div className="rounded-2xl border border-dashed border-border bg-background/45 px-4 py-8 text-sm text-foreground/48">
-                                  No active work right now.
-                                </div>
-                              )}
-                            </CardContent>
-                          </Card>
-
-                          <Card className="bg-background/55">
-                            <CardHeader>
-                              <CardTitle>Recent work</CardTitle>
-                              <CardDescription>
-                                The latest issues this teammate has touched.
-                              </CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-3">
-                              {selectedIssues.length > 0 ? (
-                                selectedIssues.slice(0, 5).map((issue) => (
-                                  <button
-                                    key={issue.issue_id}
-                                    type="button"
-                                    className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-background/70 px-4 py-3 text-left transition-colors hover:bg-background/90"
-                                    onClick={() =>
-                                      void openIssueDetailTab({
-                                        workspaceId: issue.workspace_id,
-                                        issueId: issue.issue_id,
-                                        title: issue.title,
-                                      })
-                                    }
-                                  >
-                                    <div className="min-w-0">
-                                      <div className="truncate text-sm font-medium text-foreground">
-                                        {issue.issue_id} · {issue.title}
-                                      </div>
-                                      <div className="mt-1 text-sm text-foreground/48">
-                                        {issueStatusLabel(issue.status)} · Updated{" "}
+                                      <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                                        {issue.issue_id}
+                                      </span>
+                                      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                                        {issue.title}
+                                      </span>
+                                      {issue.priority ? (
+                                        <span
+                                          className={cn(
+                                            "shrink-0 rounded px-1 py-px text-xs font-medium",
+                                            issuePriorityBadgeClass(
+                                              issue.priority,
+                                            ),
+                                          )}
+                                        >
+                                          {issuePriorityLabel(issue.priority)}
+                                        </span>
+                                      ) : null}
+                                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                                         {relativeTimeLabel(issue.updated_at)}
-                                      </div>
-                                    </div>
-                                    <Badge
-                                      variant="outline"
-                                      className={issuePriorityBadgeClass(
-                                        issue.priority,
-                                      )}
-                                    >
-                                      {issuePriorityLabel(issue.priority)}
-                                    </Badge>
-                                  </button>
-                                ))
-                              ) : (
-                                <div className="rounded-2xl border border-dashed border-border bg-background/45 px-4 py-8 text-sm text-foreground/48">
-                                  No issue activity yet.
-                                </div>
-                              )}
-                            </CardContent>
-                          </Card>
+                                      </span>
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <EmptyRow label="No issue activity yet." />
+                            )}
+                          </DetailSection>
                         </div>
                       </TabsContent>
 
-                      <TabsContent value="issues" className="w-full px-5 py-5">
-                        <Card className="bg-background/55">
-                          <CardHeader>
-                            <CardTitle>Assigned issues</CardTitle>
-                            <CardDescription>
-                              All issues currently assigned to this teammate.
-                            </CardDescription>
-                          </CardHeader>
-                          <CardContent className="space-y-3">
-                            {selectedIssues.length > 0 ? (
-                              selectedIssues.map((issue) => (
-                                <button
-                                  key={issue.issue_id}
-                                  type="button"
-                                  className="flex w-full items-center justify-between gap-4 rounded-2xl border border-border bg-background/70 px-4 py-3 text-left transition-colors hover:bg-background/90"
-                                  onClick={() =>
-                                    void openIssueDetailTab({
-                                      workspaceId: issue.workspace_id,
-                                      issueId: issue.issue_id,
-                                      title: issue.title,
-                                    })
-                                  }
-                                >
-                                  <div className="min-w-0">
-                                    <div className="truncate text-sm font-medium text-foreground">
-                                      {issue.issue_id} · {issue.title}
-                                    </div>
-                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-foreground/48">
-                                      <span>{issueStatusLabel(issue.status)}</span>
-                                      <span className="text-foreground/25">•</span>
-                                      <span>
-                                        Updated {relativeTimeLabel(issue.updated_at)}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <div className="flex shrink-0 items-center gap-2">
-                                    <Badge
-                                      variant="outline"
-                                      className="bg-background/80"
-                                    >
+                      <TabsContent value="issues" className="w-full px-4 py-4">
+                        <DetailSection
+                          eyebrow="Assigned issues"
+                          meta={`${selectedIssues.length} total`}
+                        >
+                          {selectedIssues.length > 0 ? (
+                            <ul className="divide-y divide-border">
+                              {selectedIssues.map((issue) => (
+                                <li key={issue.issue_id}>
+                                  <button
+                                    type="button"
+                                    className="flex w-full items-center gap-2.5 px-1.5 py-2 text-left transition-colors hover:bg-foreground/[0.025]"
+                                    onClick={() =>
+                                      void openIssueDetailTab({
+                                        workspaceId: issue.workspace_id,
+                                        issueId: issue.issue_id,
+                                        title: issue.title,
+                                      })
+                                    }
+                                  >
+                                    <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                                      {issue.issue_id}
+                                    </span>
+                                    <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                                      {issue.title}
+                                    </span>
+                                    <span className="shrink-0 text-xs text-muted-foreground">
                                       {issueStatusLabel(issue.status)}
-                                    </Badge>
-                                    <Badge
-                                      variant="outline"
-                                      className={issuePriorityBadgeClass(
-                                        issue.priority,
-                                      )}
-                                    >
-                                      {issuePriorityLabel(issue.priority)}
-                                    </Badge>
-                                  </div>
-                                </button>
-                              ))
-                            ) : (
-                              <div className="rounded-2xl border border-dashed border-border bg-background/45 px-4 py-8 text-sm text-foreground/48">
-                                No assigned issues yet.
-                              </div>
-                            )}
-                          </CardContent>
-                        </Card>
+                                    </span>
+                                    {issue.priority ? (
+                                      <span
+                                        className={cn(
+                                          "shrink-0 rounded px-1 py-px text-xs font-medium",
+                                          issuePriorityBadgeClass(
+                                            issue.priority,
+                                          ),
+                                        )}
+                                      >
+                                        {issuePriorityLabel(issue.priority)}
+                                      </span>
+                                    ) : null}
+                                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                                      {relativeTimeLabel(issue.updated_at)}
+                                    </span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <EmptyRow label="No assigned issues yet." />
+                          )}
+                        </DetailSection>
                       </TabsContent>
 
                       <TabsContent
                         value="instructions"
-                        className="w-full px-5 py-5"
+                        className="w-full px-4 py-4"
                       >
-                        <Card className="bg-background/55">
-                          <CardHeader>
-                            <CardTitle>Identity</CardTitle>
-                            <CardDescription>
-                              Name the teammate and describe the routing behavior the
-                              Workspace Manager should recognize.
-                            </CardDescription>
-                          </CardHeader>
-                          <CardContent className="grid gap-4">
-                            <div>
-                              <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                                Name
-                              </div>
+                        <DetailSection
+                          eyebrow="Identity"
+                          description="Name the teammate and describe the routing behavior the Workspace Manager should recognize."
+                        >
+                          <div className="grid gap-4 pt-1">
+                            <FormField label="Name">
                               <Input
                                 value={draft.name}
                                 onChange={(event) =>
@@ -1313,13 +1289,10 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                                 }
                                 placeholder="Coder"
                                 disabled={draftLocked}
-                                className="h-11 bg-background/75"
+                                className="h-9"
                               />
-                            </div>
-                            <div>
-                              <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                                Routing summary
-                              </div>
+                            </FormField>
+                            <FormField label="Routing summary">
                               <Textarea
                                 value={draft.capabilitySummary}
                                 onChange={(event) =>
@@ -1330,13 +1303,13 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                                 }
                                 placeholder="Own React dashboard implementation, UI refactors, and frontend build issues."
                                 disabled={draftLocked}
-                                className="min-h-[120px] resize-y bg-background/75"
+                                className="min-h-[100px] resize-y"
                               />
-                            </div>
-                            <div>
-                              <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                                Capability tags
-                              </div>
+                            </FormField>
+                            <FormField
+                              label="Capability tags"
+                              hint="Comma-separated domains, specialties, or routing cues."
+                            >
                               <Input
                                 value={draft.capabilityTags}
                                 onChange={(event) =>
@@ -1347,16 +1320,10 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                                 }
                                 placeholder="frontend, react, dashboard, ui"
                                 disabled={draftLocked}
-                                className="h-11 bg-background/75"
+                                className="h-9"
                               />
-                              <div className="mt-2 text-xs text-foreground/45">
-                                Comma-separated domains, specialties, or routing cues.
-                              </div>
-                            </div>
-                            <div>
-                              <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                                Instructions
-                              </div>
+                            </FormField>
+                            <FormField label="Instructions">
                               <Textarea
                                 value={draft.instructions}
                                 onChange={(event) =>
@@ -1367,71 +1334,72 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                                 }
                                 placeholder="Describe what this teammate is good at, how it should work, and any routing cues."
                                 disabled={draftLocked}
-                                className="min-h-[280px] resize-y bg-background/75"
+                                className="min-h-[240px] resize-y"
                               />
-                            </div>
-                          </CardContent>
-                        </Card>
+                            </FormField>
+                          </div>
+                        </DetailSection>
                       </TabsContent>
 
-                      <TabsContent value="skills" className="w-full px-5 py-5">
-                        <Card className="bg-background/55">
-                          <CardHeader>
-                            <div>
-                              <CardTitle>Skills</CardTitle>
-                              <CardDescription>
-                                Manage teammate-local skills stored under the workspace filesystem.
-                              </CardDescription>
-                            </div>
-                            <CardAction>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={handleAddSkill}
-                                disabled={draftLocked}
-                              >
-                                <Plus className="size-4" />
-                                Add skill
-                              </Button>
-                            </CardAction>
-                          </CardHeader>
-
-                          <CardContent className="space-y-4">
-                            <div className="rounded-2xl border border-border bg-background/55 px-4 py-3 text-sm text-foreground/55">
-                              Each skill lives at
-                              <span className="mx-1 font-mono text-foreground/72">
+                      <TabsContent value="skills" className="w-full px-4 py-4">
+                        <DetailSection
+                          eyebrow="Skills"
+                          description="Manage teammate-local skills stored under the workspace filesystem."
+                          action={
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={handleAddSkill}
+                              disabled={draftLocked}
+                            >
+                              <Plus className="size-3.5" />
+                              Add skill
+                            </Button>
+                          }
+                        >
+                          <div className="space-y-3">
+                            <div className="rounded-md bg-fg-2 px-3 py-2 text-xs leading-snug text-muted-foreground">
+                              Each skill lives at{" "}
+                              <span className="font-mono text-foreground">
                                 teammates/&lt;teammate-id&gt;/skills/&lt;skill-id&gt;/SKILL.md
                               </span>
-                              . Removing a skill deletes its entire skill folder, including any helper files inside it.
+                              . Removing a skill deletes its entire skill folder,
+                              including any helper files inside it.
                             </div>
                             {draft.skills.length === 0 ? (
-                              <div className="rounded-2xl border border-dashed border-border bg-background/45 px-4 py-8 text-center text-sm text-foreground/48">
-                                No skills yet
-                              </div>
+                              <EmptyRow label="No skills yet" />
                             ) : (
                               draft.skills.map((skill, index) => (
                                 <div
                                   key={skill.localId}
-                                  className="rounded-2xl border border-border bg-background/70 p-4"
+                                  className="overflow-hidden rounded-lg border border-border bg-fg-2"
                                 >
-                                  <div className="flex items-center justify-between gap-3">
-                                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                                      <FileCode2 className="size-4 text-foreground/45" />
-                                      {skill.skillId?.trim() || skill.name.trim() || `Skill ${index + 1}`}
+                                  <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+                                    <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
+                                      <FileCode2 className="size-3.5 shrink-0 text-muted-foreground" />
+                                      <span className="truncate">
+                                        {skill.skillId?.trim() ||
+                                          skill.name.trim() ||
+                                          `Skill ${index + 1}`}
+                                      </span>
                                     </div>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex shrink-0 items-center gap-1">
                                       {skill.hasSidecarAssets ? (
-                                        <Badge variant="outline" className="bg-card/80 text-[11px]">
+                                        <span className="rounded bg-fg-8 px-1.5 py-0.5 text-xs text-muted-foreground">
                                           Helper files
-                                        </Badge>
+                                        </span>
                                       ) : null}
                                       <Button
                                         type="button"
                                         variant="ghost"
                                         size="sm"
-                                        onClick={() => void handleRevealSkill(skill)}
+                                        onClick={() =>
+                                          void handleRevealSkill(skill)
+                                        }
+                                        className="text-muted-foreground hover:text-foreground"
                                       >
-                                        <FolderOpen className="size-4" />
+                                        <FolderOpen className="size-3.5" />
                                         Reveal
                                       </Button>
                                       {!draftLocked ? (
@@ -1440,26 +1408,29 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                                           variant="ghost"
                                           size="icon-sm"
                                           aria-label="Remove skill"
-                                          onClick={() => handleRemoveSkill(skill.localId)}
+                                          onClick={() =>
+                                            handleRemoveSkill(skill.localId)
+                                          }
+                                          className="text-muted-foreground hover:text-destructive"
                                         >
-                                          <X className="size-4" />
+                                          <X className="size-3.5" />
                                         </Button>
                                       ) : null}
                                     </div>
                                   </div>
-                                  <div className="mt-3 text-xs text-foreground/45">
-                                    {skill.sourceDir?.trim() ||
-                                      teammateSkillRelativePath(
-                                        draft.teammateId,
-                                        skill.skillId,
-                                      ) ||
-                                      "A skill folder will be created after save."}
-                                  </div>
-                                  <div className="mt-4 grid gap-4">
-                                    <div>
-                                      <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                                        Skill id
-                                      </div>
+                                  <div className="space-y-3 bg-card px-3 py-3">
+                                    <div className="font-mono text-xs text-muted-foreground">
+                                      {skill.sourceDir?.trim() ||
+                                        teammateSkillRelativePath(
+                                          draft.teammateId,
+                                          skill.skillId,
+                                        ) ||
+                                        "A skill folder will be created after save."}
+                                    </div>
+                                    <FormField
+                                      label="Skill id"
+                                      hint="Stable folder and invocation id. Leave blank to derive it from the label."
+                                    >
                                       <Input
                                         value={skill.skillId ?? ""}
                                         onChange={(event) =>
@@ -1471,16 +1442,13 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                                         }
                                         placeholder="frontend-playbook"
                                         disabled={draftLocked}
-                                        className="h-10 bg-card/80 font-mono text-[13px]"
+                                        className="h-8 font-mono"
                                       />
-                                      <div className="mt-2 text-xs text-foreground/45">
-                                        Stable folder and invocation id. Leave blank to derive it from the label.
-                                      </div>
-                                    </div>
-                                    <div>
-                                      <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                                        Skill label
-                                      </div>
+                                    </FormField>
+                                    <FormField
+                                      label="Skill label"
+                                      hint="Stored as the SKILL.md description and used as the human-facing label."
+                                    >
                                       <Input
                                         value={skill.name}
                                         onChange={(event) =>
@@ -1492,16 +1460,13 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                                         }
                                         placeholder="frontend"
                                         disabled={draftLocked}
-                                        className="h-10 bg-card/80"
+                                        className="h-8"
                                       />
-                                      <div className="mt-2 text-xs text-foreground/45">
-                                        Stored as the SKILL.md description and used as the human-facing label.
-                                      </div>
-                                    </div>
-                                    <div>
-                                      <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                                        SKILL.md body
-                                      </div>
+                                    </FormField>
+                                    <FormField
+                                      label="SKILL.md body"
+                                      hint="The frontmatter is generated from the skill id and label. The textarea stores the markdown body that follows it."
+                                    >
                                       <Textarea
                                         value={skill.content}
                                         onChange={(event) =>
@@ -1513,21 +1478,18 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
                                         }
                                         placeholder="# Skill&#10;Explain how this teammate should approach the work."
                                         disabled={draftLocked}
-                                        className="min-h-[220px] resize-y bg-card/80 font-mono text-[13px]"
+                                        className="min-h-[180px] resize-y font-mono"
                                       />
-                                      <div className="mt-2 text-xs text-foreground/45">
-                                        The frontmatter is generated from the skill id and label. The textarea stores the markdown body that follows it.
-                                      </div>
-                                    </div>
+                                    </FormField>
                                   </div>
                                 </div>
                               ))
                             )}
-                          </CardContent>
-                        </Card>
+                          </div>
+                        </DetailSection>
                       </TabsContent>
                     </Tabs>
-                  </Card>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1587,35 +1549,29 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
               </div>
 
               <div className="grid gap-4 px-4 py-4">
-                <div>
-                  <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                    Name
-                  </div>
+                <FormField label="Name">
                   <Input
                     value={createName}
                     onChange={(event) => setCreateName(event.target.value)}
                     placeholder="Frontend teammate"
                     disabled={isCreateSubmitting}
-                    className="h-11 bg-background/75"
+                    className="h-9"
                   />
-                </div>
-                <div>
-                  <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/42">
-                    Role
-                  </div>
+                </FormField>
+                <FormField
+                  label="Role"
+                  hint="The main session will route this through the roster workflow, ask any follow-up questions it still needs, and provision a stronger teammate when the remit is clear enough."
+                >
                   <Textarea
                     value={createRole}
                     onChange={(event) => setCreateRole(event.target.value)}
                     placeholder="Own React dashboard implementation, UI polish, and frontend build issues."
                     disabled={isCreateSubmitting}
-                    className="min-h-[120px] resize-y bg-background/75"
+                    className="min-h-[100px] resize-y"
                   />
-                  <div className="mt-2 text-xs text-foreground/45">
-                    The main session will route this through the roster workflow, ask any follow-up questions it still needs, and provision a stronger teammate when the remit is clear enough.
-                  </div>
-                </div>
+                </FormField>
                 {createError ? (
-                  <div className="rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground/65">
+                  <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                     {createError}
                   </div>
                 ) : null}
@@ -1647,9 +1603,103 @@ export function TeammatesPane({ workspaceId }: { workspaceId: string }) {
 
 function MetricRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-foreground/45">{label}</span>
-      <span className="text-right text-foreground/82">{value || "—"}</span>
+    <div className="flex items-baseline justify-between gap-3 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-right tabular-nums text-foreground">
+        {value || "—"}
+      </span>
     </div>
   );
+}
+
+/**
+ * Section block used inside teammate detail tabs. Matches the dashboard's
+ * eyebrow + meta header pattern so all three surfaces (dashboard, board,
+ * teammate detail) speak the same visual language.
+ */
+function DetailSection({
+  eyebrow,
+  meta,
+  description,
+  action,
+  children,
+}: {
+  eyebrow: string;
+  meta?: string;
+  description?: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="space-y-1">
+          <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            {eyebrow}
+          </h3>
+          {description ? (
+            <p className="text-xs leading-snug text-muted-foreground">
+              {description}
+            </p>
+          ) : null}
+        </div>
+        {action ? <div className="shrink-0">{action}</div> : null}
+        {meta ? (
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {meta}
+          </span>
+        ) : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function FormField({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
+      {children}
+      {hint ? (
+        <p className="text-xs leading-snug text-muted-foreground">{hint}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function EmptyRow({ label }: { label: string }) {
+  return (
+    <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
+      {label}
+    </div>
+  );
+}
+
+function issueRowDotVariant(
+  status: IssueStatusPayload,
+): "success" | "primary" | "warning" | "info" | "muted" {
+  switch (status) {
+    case "done":
+      return "success";
+    case "in_progress":
+      return "primary";
+    case "blocked":
+      return "warning";
+    case "in_review":
+      return "info";
+    case "backlog":
+    case "todo":
+    default:
+      return "muted";
+  }
 }

@@ -64,11 +64,11 @@ If you skip step one, later runtime failures are harder to interpret because the
 Use the narrowest validation that matches your change:
 
 ```bash
-npm run docs:test
+npm run docs:typecheck
 npm run docs:build
 npm run desktop:typecheck
 npm run runtime:test
-npm run sdk:bridge:test
+bun --filter=@holaboss/bridge run test
 ```
 
 ## Read by subsystem

@@ -26,6 +26,7 @@ function flattenTree(
   isLast: boolean,
   isRoot: boolean,
 ): TreeRow[] {
+  const children = node.children ?? [];
   const prefix = ancestorsHaveNext.map((hasNext) => (hasNext ? "pipe" : "space"));
   const rows: TreeRow[] = [
     {
@@ -39,8 +40,8 @@ function flattenTree(
     },
   ];
 
-  node.children?.forEach((child, index) => {
-    const childIsLast = index === node.children.length - 1;
+  children.forEach((child, index) => {
+    const childIsLast = index === children.length - 1;
     rows.push(
       ...flattenTree(
         child,

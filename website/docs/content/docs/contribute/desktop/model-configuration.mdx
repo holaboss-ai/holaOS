@@ -7,7 +7,7 @@ description: How holaOS Desktop configures model providers and routing.
 
 holaOS ships with a default model setup. In most cases, you do not need to edit `runtime-config.json` by hand, because the desktop app already exposes the main configuration surfaces for provider connection, managed model catalogs, background tasks, recall embeddings, image generation, and web search.
 
-This page is the configuration reference for operators and builders. For the Electron IPC path, runtime model-catalog refresh flow, queued `thinking_value` handoff, and other execution internals, continue into [Desktop Internals](/build-on-holaos/desktop/internals) and [Runtime APIs](/build-on-holaos/runtime/apis).
+This page is the configuration reference for operators and builders. For the Electron IPC path, runtime model-catalog refresh flow, queued `thinking_value` handoff, and other execution internals, continue into [Desktop Internals](/docs/contribute/desktop/internals) and [Runtime APIs](/docs/contribute/runtime/apis).
 
 The baseline defaults are:
 
@@ -21,20 +21,21 @@ The OSS runtime supports the following provider kinds:
 | Provider kind | Best fit | Notes |
 | --- | --- | --- |
 | `holaboss_proxy` | holaOS-managed setups | Uses the holaOS runtime binding and managed model catalog instead of a local seed list. |
-| `openai_compatible` | Self-hosted or compatible APIs | Best when you already have an OpenAI-style endpoint. Also covers OpenAI, Gemini, Ollama, and MiniMax. |
+| `openai_compatible` | OpenAI-style APIs | Best when you already have an OpenAI-style endpoint. Covers OpenAI, Ollama, MiniMax, and many self-hosted compatible APIs. |
+| `google_compatible` | Gemini via the Google OpenAI-compat path | Uses the Google compatibility surface instead of the generic OpenAI-compatible routing path. |
 | `anthropic_native` | Anthropic accounts and native workflows | Good when you want the provider's own integration path. |
 | `openrouter` | Model experimentation and broad access | Useful when you want to swap models without changing the rest of the setup. |
 
-The desktop settings UI (`Settings -> Model Providers`) lets you connect holaOS Proxy, OpenAI, Anthropic, OpenRouter, Gemini, Ollama, or MiniMax without editing files manually.
+The desktop settings UI (`Settings -> Model Providers`) lets you connect holaOS Proxy, OpenAI, OpenAI Codex, Anthropic, OpenRouter, Gemini, Ollama, or MiniMax without editing files manually.
 
 ## In-app setup
 
 holaOS already provides model configuration in the desktop app:
 
 - open `Settings -> Model Providers`
-- connect a provider such as holaOS Proxy, OpenAI, Anthropic, OpenRouter, Gemini, Ollama, or MiniMax
+- connect a provider such as holaOS Proxy, OpenAI, OpenAI Codex, Anthropic, OpenRouter, Gemini, Ollama, or MiniMax
 - enter the API key and use the built-in provider defaults or edit the model list for that provider
-- use the `Background tasks` panel to choose one connected provider and model for recall selection, finalization, and evolve tasks
+- use the `Background tasks` panel to choose one connected provider and model for recall selection, finalization, and other background LLM tasks
 - use the `Recall embeddings` panel to leave vector-assisted recall on `Automatic` or choose an explicit embedding-capable provider and model
 - use the `Image generation` panel to choose an image-capable provider and model for runtime image generation
 - use the `Defaults` panel to leave `Subagent model` on `Follow composer` or choose a fixed override for hidden delegated and scheduled subagent runs
@@ -47,7 +48,7 @@ When the first direct provider is connected, the desktop seeds background tasks 
 
 The current desktop no longer treats chat models as only freeform strings.
 
-- Direct providers use the shipped fallback catalog in `desktop/shared/model-catalog.ts`.
+- Direct providers use the shipped fallback catalog in `apps/desktop/shared/model-catalog.ts`.
 - Signed-in holaOS-managed sessions can also fetch a managed runtime model catalog from the control plane.
 - The desktop merges that managed catalog with the locally persisted `runtime-config.json` and exposes the result as `providerModelGroups` in the runtime-config snapshot.
 - Managed defaults for background tasks, embeddings, and image generation are also carried with that snapshot as `defaultBackgroundModel`, `defaultEmbeddingModel`, and `defaultImageModel`.
@@ -79,6 +80,9 @@ The shipped fallback catalog currently exposes these reasoning controls:
 | --- | --- |
 | `openai_direct/gpt-5.4` | `none`, `low`, `medium`, `high`, `xhigh` |
 | `openai_direct/gpt-5.3-codex` | `low`, `medium`, `high`, `xhigh` |
+| `openai_codex/gpt-5.4` | `none`, `low`, `medium`, `high`, `xhigh` |
+| `openai_codex/gpt-5.5` | `none`, `low`, `medium`, `high`, `xhigh` |
+| `openai_codex/gpt-5.3-codex` | `low`, `medium`, `high`, `xhigh` |
 | `anthropic_direct/claude-sonnet-4-6` | `low`, `medium`, `high` |
 | `anthropic_direct/claude-opus-4-6` | `low`, `medium`, `high`, `max` |
 | `anthropic_direct/claude-haiku-4-5` | `1024`, `2048`, `8192`, `16384` |
@@ -104,6 +108,7 @@ Runtime URL behavior stays consistent across both modes:
 - if `model_proxy_base_url` is a proxy root, runtime appends provider routes such as `/openai/v1` or `/anthropic/v1`
 - direct mode is enabled when you provide a provider endpoint
 - OpenAI-compatible direct providers typically use a `/v1` endpoint, for example `https://api.openai.com/v1`
+- Google-compatible direct providers use the Gemini compatibility root, for example `https://generativelanguage.googleapis.com/v1beta/openai`
 - Anthropic native direct providers should use the root host, for example `https://api.anthropic.com`
 - known provider hosts normalize as needed, including Gemini host roots to `/v1beta/openai`
 
@@ -134,7 +139,7 @@ You can override that path with:
 - `providers.<id>.api_key`
   - direct provider credential
 - `runtime.background_tasks.provider`
-  - provider for recall selection, finalization, and evolve tasks
+  - provider for recall selection, finalization, and other background LLM tasks
 - `runtime.background_tasks.model`
   - model id used for that background provider
 - `runtime.subagents.model`
@@ -168,6 +173,7 @@ The current built-in background task defaults are:
 
 - `holaboss_model_proxy`: `gpt-5.4`
 - `openai_direct`: `gpt-5.4`
+- `openai_codex`: `gpt-5.4`
 - `anthropic_direct`: `claude-sonnet-4-6`
 - `openrouter_direct`: `openai/gpt-5.4`
 - `gemini_direct`: `gemini-2.5-flash`
@@ -195,6 +201,7 @@ The desktop currently exposes image generation only for the providers that can r
 
 The current shipped desktop does not provide built-in image-generation defaults for:
 
+- `openai_codex`
 - `anthropic_direct`
 - `ollama_direct`
 - `minimax_direct`
@@ -276,7 +283,7 @@ The runtime also treats unprefixed `claude...` model ids as Anthropic models. If
       "api_key": "sk-or-your-openrouter-key"
     },
     "gemini_direct": {
-      "kind": "openai_compatible",
+      "kind": "google_compatible",
       "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
       "api_key": "AIza-your-gemini-api-key"
     },
@@ -319,6 +326,7 @@ Provider `kind` values supported by the runtime resolver:
 
 - `holaboss_proxy`
 - `openai_compatible`
+- `google_compatible`
 - `anthropic_native`
 - `openrouter`
 

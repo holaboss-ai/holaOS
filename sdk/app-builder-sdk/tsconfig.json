@@ -9,8 +9,11 @@
     "noUnusedLocals": false,
     "noEmit": true,
     "allowImportingTsExtensions": true,
-    "lib": ["ES2022"],
-    "types": ["bun-types"]
+    "allowArbitraryExtensions": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["bun-types", "react", "react-dom"]
   },
-  "include": ["src/**/*", "reference/**/*", "test/**/*"]
+  "include": ["src/**/*", "reference/**/*", "test/**/*"],
+  "exclude": ["reference/**/playground/**/*"]
 }

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { subscribeComposioConnectionInvalidated } from "@/lib/composioConnectionEvents";
+import { toolkitDisplayName } from "@/lib/toolkitDisplay";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 
@@ -25,15 +27,41 @@ export type IntegrationBindingState =
       otherActiveConnections: IntegrationConnectionPayload[];
     };
 
-export type IntegrationBindingBusy = "connecting" | "binding" | null;
+export type IntegrationBindingBusy =
+  | "connecting"
+  | "binding"
+  | "verifying"
+  | null;
+
+// Result of a `verify()` call — drives a tiny inline status indicator
+// ("Verified just now", "Verified 2m ago", or an error tone).
+export type IntegrationBindingVerifyOutcome =
+  | { ok: true; at: number; changed: boolean }
+  | { ok: false; at: number; reason: string };
+
+/**
+ * Discriminator for the last connect/verify failure so the UI can pick
+ * between a passive error banner and an actionable affordance.
+ *   - "abandoned": heuristic detected the user closed the OAuth window
+ *   - "generic": anything else (timeout, network, provider rejection)
+ */
+export type IntegrationBindingErrorKind = "abandoned" | "generic" | null;
 
 export interface UseIntegrationBindingResult {
   state: IntegrationBindingState;
   busy: IntegrationBindingBusy;
   errorMessage: string;
+  errorKind: IntegrationBindingErrorKind;
+  /** Last `verify()` result. Null until the user clicks the action. */
+  lastVerify: IntegrationBindingVerifyOutcome | null;
   refresh: () => Promise<void>;
   connect: () => Promise<void>;
   bind: (connectionId: string) => Promise<void>;
+  // Re-probe the bound connection against the upstream provider. Surfaces
+  // `provider_credentials_rejected` so the user finds out the connection is
+  // dead *here* (in the dialog) instead of next time they trigger the app
+  // and it silently fails.
+  verify: () => Promise<void>;
   // Abort the in-flight `connect()` flow. No-op when nothing is running.
   // Used by the UI when the user closes the OAuth window or explicitly
   // clicks the Cancel affordance — without it, a rejected OAuth leaves
@@ -82,6 +110,10 @@ export function useIntegrationBinding({
   const [state, setState] = useState<IntegrationBindingState>({ kind: "loading" });
   const [busy, setBusy] = useState<IntegrationBindingBusy>(null);
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [errorKind, setErrorKind] =
+    useState<IntegrationBindingErrorKind>(null);
+  const [lastVerify, setLastVerify] =
+    useState<IntegrationBindingVerifyOutcome | null>(null);
   const connectAbortRef = useRef<AbortController | null>(null);
 
   // Abort any in-flight connect when the component unmounts so a poll
@@ -182,6 +214,31 @@ export function useIntegrationBinding({
     return () => clearInterval(id);
   }, [selectedWorkspaceId, trimmedProvider, trimmedAppId, refresh]);
 
+  // Real-time Composio invalidation: the cloud BFF webhook handler
+  // broadcasts `connected_account.*` lifecycle events; main pipes them in.
+  // We refresh only when the event targets a connection we already render,
+  // so an unrelated user's expiry on another row doesn't trigger churn.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+  useEffect(() => {
+    if (!selectedWorkspaceId || !trimmedProvider || !trimmedAppId) return;
+    return subscribeComposioConnectionInvalidated((event) => {
+      const externalId = event.connection_id;
+      const snapshot = stateRef.current;
+      const matchesActive =
+        snapshot.kind === "bound" &&
+        snapshot.activeConnection.account_external_id === externalId;
+      const matchesCandidate =
+        snapshot.kind === "needs_binding" &&
+        snapshot.candidates.some((c) => c.account_external_id === externalId);
+      if (matchesActive || matchesCandidate) {
+        void refresh();
+      }
+    });
+  }, [selectedWorkspaceId, trimmedProvider, trimmedAppId, refresh]);
+
   // The running app captured HOLABOSS_APP_GRANT at boot in its bridge
   // transport. Any bind change is invisible until the app process cycles —
   // unconditional restart is cheaper than diffing.
@@ -214,6 +271,7 @@ export function useIntegrationBinding({
 
     setBusy("connecting");
     setErrorMessage("");
+    setErrorKind(null);
     try {
       const { connectionId } = await connectIntegrationProvider({
         provider: trimmedProvider,
@@ -246,8 +304,19 @@ export function useIntegrationBinding({
       const aborted =
         controller.signal.aborted ||
         (error instanceof Error && error.name === "IntegrationConnectCancelled");
-      if (!aborted) {
+      const abandoned =
+        error instanceof Error && error.name === "IntegrationConnectAbandoned";
+      if (abandoned) {
+        // Surface a copy that matches user mental model ("I closed the
+        // window") rather than the raw exception string. UI keys off
+        // errorKind to render a Reconnect button instead of a banner.
+        setErrorMessage(
+          `Looks like you closed the ${toolkitDisplayName(trimmedProvider)} authorization window. Click Reconnect to try again.`,
+        );
+        setErrorKind("abandoned");
+      } else if (!aborted) {
         setErrorMessage(normalizeErrorMessage(error));
+        setErrorKind("generic");
       }
     } finally {
       if (connectAbortRef.current === controller) {
@@ -298,5 +367,74 @@ export function useIntegrationBinding({
     ],
   );
 
-  return { state, busy, errorMessage, refresh, connect, bind, cancel };
+  // Re-probe the bound connection against the upstream provider. The
+  // `composioRefreshConnection` IPC returns one of:
+  //   - changed:true            → identity rewritten, treat as healthy
+  //   - reason "no_new_identity" / no reason → still healthy, nothing changed
+  //   - reason "provider_credentials_rejected" → token is dead, user must reauth
+  //   - reason "account_missing" → upstream Composio row is gone
+  //   - reason "no_external_id"  → can't probe (non-OAuth provider)
+  //
+  // Only meaningful when state.kind === "bound" — caller is expected to
+  // hide the action otherwise. The hook still tolerates being called in a
+  // non-bound state so a stale render doesn't crash; it just surfaces a
+  // benign error.
+  const verify = useCallback(async () => {
+    if (state.kind !== "bound") return;
+    const connectionId = state.activeConnection.connection_id;
+    setBusy("verifying");
+    setErrorMessage("");
+    try {
+      const result =
+        await window.electronAPI.workspace.composioRefreshConnection(
+          connectionId,
+        );
+      const at = Date.now();
+      if (result.reason === "provider_credentials_rejected") {
+        const code = result.providerStatus ? ` (HTTP ${result.providerStatus})` : "";
+        setLastVerify({
+          ok: false,
+          at,
+          reason: `Provider rejected the stored token${code}. Reconnect to re-authorize.`,
+        });
+      } else if (result.reason === "account_missing") {
+        setLastVerify({
+          ok: false,
+          at,
+          reason: "Upstream account no longer exists. Disconnect and reconnect.",
+        });
+      } else if (result.reason === "no_external_id") {
+        setLastVerify({
+          ok: false,
+          at,
+          reason: "No identity to verify on this connection.",
+        });
+      } else {
+        setLastVerify({ ok: true, at, changed: Boolean(result.changed) });
+      }
+      // Pull the latest persisted identity so the `bound` label re-renders.
+      await refresh();
+    } catch (error) {
+      setLastVerify({
+        ok: false,
+        at: Date.now(),
+        reason: normalizeErrorMessage(error),
+      });
+    } finally {
+      setBusy(null);
+    }
+  }, [state, refresh]);
+
+  return {
+    state,
+    busy,
+    errorMessage,
+    errorKind,
+    lastVerify,
+    refresh,
+    connect,
+    bind,
+    verify,
+    cancel,
+  };
 }

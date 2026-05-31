@@ -14,23 +14,25 @@ Install holaOS Desktop, open a workspace, connect a model provider, and send you
 <Tabs items={['Installer', 'From source']}>
 <Tab value="Installer">
 
-Grab the latest signed build from [github.com/holaboss-ai/holaOS/releases](https://github.com/holaboss-ai/holaOS/releases). macOS (Apple Silicon) is available today; additional platforms are on the way.
+Grab the latest desktop build from [github.com/holaboss-ai/holaOS/releases](https://github.com/holaboss-ai/holaOS/releases) and choose the artifact published for your platform.
 
-Download the `.dmg` for your platform, open it, drag holaOS into your Applications folder, and launch it from there. On first open, macOS may prompt you to approve the app in **System Settings → Privacy & Security** — click **Open Anyway** and the app will launch normally from that point on.
+On macOS, open the `.dmg`, drag holaOS into your Applications folder, and launch it from there. On first open, macOS may prompt you to approve the app in **System Settings → Privacy & Security** — click **Open Anyway** and the app will launch normally from that point on. On Windows, run the published installer. If the release you want does not ship an artifact for your platform yet, use the **From source** path below.
 
 </Tab>
 <Tab value="From source">
 
-This path is for contributors who want to modify the desktop, runtime, or harness code. Requires `git`, `node` 24+, and `npm`.
+This path is for contributors who want to modify the desktop, runtime, or harness code. Requires `git`, `node` `24+`, and `bun`.
 
 ```bash
 git clone https://github.com/holaboss-ai/holaOS.git
 cd holaOS
-npm run desktop:install
-cp desktop/.env.example desktop/.env
+bun install
+cp apps/desktop/.env.example apps/desktop/.env
 npm run desktop:prepare-runtime:local
 npm run desktop:dev
 ```
+
+`bun` is a real prerequisite here because the repo scripts shell out to it directly. On macOS, Linux, or WSL you can install it with `curl -fsSL https://bun.sh/install | bash`.
 
 `desktop:dev` validates the environment, stages a local runtime bundle, and launches Electron. For the full six-step walkthrough and dev loops, see [Install from Source](/docs/contribute/start-developing/from-source).
 
@@ -39,28 +41,21 @@ npm run desktop:dev
 
 ## 2. Open your first workspace
 
-When Desktop opens, the first step is to open or create a workspace. Three options are available on the launch screen:
+When Desktop opens, the first step is to create a workspace. Desktop-managed workspaces currently come from one of these sources:
 
 - **Blank workspace** — starts with an empty agent context and no pre-installed apps. Best if you have a specific setup in mind from the start.
-- **Marketplace Template** — fork a pre-built workspace from [holaos.ai/marketplace](/marketplace). The agent identity, installed apps, and standing instructions are already in place, so the workspace is ready to run from the moment you open it.
-- **Local folder** — point Desktop at an existing workspace directory already on your machine.
+- **Marketplace Template** — materialize a pre-built workspace from Marketplace when the desktop is signed into a runtime-bound holaOS session.
+- **Local template folder** — materialize a template from a local folder that already contains `workspace.yaml`.
 
-For a first run, a marketplace Template is the fastest path to a meaningful result. Because the agent, apps, and context come pre-configured, the first task you send will have something concrete to work with rather than starting from nothing.
+You can also choose a custom empty folder for where the new workspace files should live. For a first run, a marketplace Template is the fastest path to a meaningful result because the agent, apps, and context arrive pre-configured.
 
-Each workspace is self-contained — its own agent identity, memory, installed apps, and standing instructions are isolated from every other workspace on the machine.
+Each workspace keeps its own agent identity, workspace files, installed apps, and standing instructions. Some profile-level memory and reusable integration connections can still be shared intentionally across workspaces, but the run context stays separated.
 
 ## 3. Configure your model provider
 
 Model configuration happens inside the workspace after it is open, not during installation. Once a workspace is loaded, open the model settings panel — accessible from the settings icon or the model indicator in the workspace toolbar — and select a provider.
 
-Four providers are supported:
-
-- **OpenAI** — GPT-series models. Requires an OpenAI API key.
-- **Anthropic** — Claude models. Requires an Anthropic API key.
-- **OpenRouter** — Routes across models from many providers under a single key. Useful if you want to switch models or manage spend across providers.
-- **Ollama** — Runs models locally on your machine. No API key needed; Ollama must be installed and running before selecting this option.
-
-For cloud providers, paste your API key into the credentials field and select the model you want to use. For Ollama, point the provider at your local instance and pick from the models you have already pulled. Provider and model selection can be changed at any time, and the change applies only to the current workspace.
+Current desktop builds expose holaOS Proxy plus direct-provider paths such as OpenAI, Anthropic, OpenRouter, Gemini, Ollama, and MiniMax. For cloud providers, paste your API key into the credentials field and select the model you want to use. For Ollama, point the provider at your local instance and pick from the models you have already pulled. Provider and model selection can be changed at any time, and the change applies only to the current workspace.
 
 ## 4. Send your first task
 

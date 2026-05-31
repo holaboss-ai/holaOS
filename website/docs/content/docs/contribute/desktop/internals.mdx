@@ -14,39 +14,41 @@ Use this page when you are changing the Electron shell, renderer-to-main contrac
 - `node scripts/watch-runtime-bundle.mjs` to restage the embedded runtime when `runtime/` changes
 - `electronmon out/dist-electron/main.cjs` to run the app and restart it when the built Electron entrypoint changes
 
-That means desktop work is usually spread across four boundaries: React renderer code, preload bridge code, Electron main-process code, and the staged runtime bundle under `desktop/out/runtime-<platform>`.
+That means desktop work is usually spread across four boundaries: React renderer code, preload bridge code, Electron main-process code, and the staged runtime bundle under `apps/desktop/out/runtime-<platform>`.
 
 ## Main code seams
 
-- `desktop/src/components/layout/AppShell.tsx`: the shell composition and top-level product routing. This is where the top-toolbar shell navigation, agent pane, browser panes, file explorer, applications explorer, app surfaces, operations drawer, task-proposal toasts, settings overlays, and reported non-browser operator surfaces are coordinated.
-- `desktop/src/components/layout/TopTabsBar.tsx`: the shared desktop toolbar, including workspace switching and the shell-level `Space`, `Automations`, and `Marketplace` entry points.
-- `desktop/src/components/onboarding/FirstWorkspacePane.tsx`, `ConfigureStep.tsx`, `BrowserProfileStep.tsx`, and `CreatingView.tsx`: first-workspace flow, including empty/template workspace creation and browser-profile bootstrap choices.
-- `desktop/shared/model-catalog.ts`: shipped fallback model metadata for direct providers and holaOS Proxy model mapping, including reasoning support, allowed thinking values, and input modalities.
-- `desktop/src/lib/workspaceDesktop.tsx` and `desktop/src/lib/workspaceSelection.tsx`: renderer-side workspace state and shell coordination.
-- `desktop/src/components/auth/AuthPanel.tsx`: provider settings, catalog-backed defaults, background-task selection, recall embeddings, and image-generation configuration.
-- `desktop/src/components/panes/ChatPane.tsx`: model picker, per-model reasoning-effort selector, queued chat inputs, and stream/timeline rendering.
-- `desktop/src/components/panes/BrowserPane.tsx`, `SpaceBrowserExplorerPane.tsx`, and `SpaceBrowserDisplayPane.tsx`: the browser-space UI for the `user` and `agent` browser surfaces.
-- `desktop/src/components/panes/FileExplorerPane.tsx`: workspace file explorer, previews, editing, bookmarking, drag-and-drop imports, and file-watch behavior.
-- `desktop/src/components/panes/SpaceApplicationsExplorerPane.tsx`: workspace app list for the space explorer, parallel to files and browser, including the `Add app` action that routes into the Marketplace apps tab.
-- `desktop/src/components/layout/NotificationToastStack.tsx`: runtime-backed notification rendering and activation behavior.
-- `desktop/electron/preload.ts`: the renderer-to-main bridge exposed on `window.electronAPI`.
-- `desktop/src/types/electron.d.ts`: the typed source of truth for the preload bridge. If the renderer can call it, it should be declared here.
-- `desktop/electron/main.ts`: the main-process implementation for IPC, BrowserView orchestration, embedded runtime startup, workspace actions, file system actions, and browser state.
+- `apps/desktop/src/components/layout/AppShell.tsx`: the shell composition and top-level product routing. This is where the top-toolbar shell navigation, agent pane, browser panes, file explorer, applications explorer, app surfaces, operations drawer, task-proposal toasts, settings overlays, and reported non-browser operator surfaces are coordinated.
+- `apps/desktop/src/components/layout/TopTabsBar.tsx`: the shared desktop toolbar, including workspace switching and the shell-level `Space`, `Automations`, and `Marketplace` entry points.
+- `apps/desktop/src/components/onboarding/FirstWorkspacePane.tsx`, `ConfigureStep.tsx`, `BrowserProfileStep.tsx`, and `CreatingView.tsx`: first-workspace flow, including empty/template workspace creation and browser-profile bootstrap choices.
+- `apps/desktop/shared/model-catalog.ts`: shipped fallback model metadata for direct providers and holaOS Proxy model mapping, including reasoning support, allowed thinking values, and input modalities.
+- `apps/desktop/src/lib/workspaceDesktop.tsx` and `apps/desktop/src/lib/workspaceSelection.tsx`: renderer-side workspace state and shell coordination.
+- `apps/desktop/src/components/auth/AuthPanel.tsx`: provider settings, catalog-backed defaults, background-task selection, recall embeddings, and image-generation configuration.
+- `apps/desktop/src/components/panes/ChatPane/index.tsx`: model picker, per-model reasoning-effort selector, queued chat inputs, and stream/timeline rendering.
+- `apps/desktop/src/components/panes/BrowserPane.tsx`, `SpaceBrowserExplorerPane.tsx`, and `SpaceBrowserDisplayPane.tsx`: the browser-space UI for the `user` and `agent` browser surfaces.
+- `apps/desktop/src/components/panes/FileExplorerPane.tsx`: workspace file explorer, previews, editing, bookmarking, drag-and-drop imports, and file-watch behavior.
+- `apps/desktop/src/components/panes/SpaceApplicationsExplorerPane.tsx`: workspace app list for the space explorer, parallel to files and browser, including the `Add app` action that routes into the Marketplace apps tab.
+- `apps/desktop/src/components/layout/NotificationToastStack.tsx`: runtime-backed notification rendering and activation behavior.
+- `apps/desktop/electron/preload.ts`: the renderer-to-main bridge exposed on `window.electronAPI`.
+- `apps/desktop/src/types/electron.d.ts`: the typed source of truth for the preload bridge. If the renderer can call it, it should be declared here.
+- `apps/desktop/electron/main.ts`: the main-process implementation for IPC, BrowserView orchestration, embedded runtime startup, workspace actions, file system actions, and browser state.
 
 ## Embedded runtime lifecycle
 
-The desktop does not talk to the runtime through a vague helper. `desktop/electron/main.ts` owns the launch path:
+The desktop does not talk to the runtime through a vague helper. `apps/desktop/electron/main.ts` owns the launch path:
 
-1. Resolve the staged runtime bundle under `desktop/out/runtime-<platform>` or an override such as `HOLABOSS_RUNTIME_ROOT`.
+1. Resolve the staged runtime bundle under `apps/desktop/out/runtime-<platform>` or an override such as `HOLABOSS_RUNTIME_ROOT`.
 2. Validate that the bundle includes the executable, packaged Node runtime, packaged Python runtime, `package-metadata.json`, and `runtime/api-server/dist/index.mjs`.
-3. Spawn `bin/sandbox-runtime` with desktop-owned env such as `HB_SANDBOX_ROOT`, `SANDBOX_AGENT_BIND_HOST=127.0.0.1`, `SANDBOX_AGENT_BIND_PORT=5160`, `SANDBOX_AGENT_HARNESS`, `HOLABOSS_HOST_STATE_DB_PATH`, `HOLABOSS_CONTROL_PLANE_DB_PATH`, the legacy `HOLABOSS_RUNTIME_DB_PATH` alias, and the bridge settings.
+3. Spawn `bin/sandbox-runtime` with desktop-owned env such as `HB_SANDBOX_ROOT`, `SANDBOX_AGENT_BIND_HOST=127.0.0.1`, `SANDBOX_AGENT_BIND_PORT=<resolved runtime port>`, `SANDBOX_AGENT_HARNESS`, `HOLABOSS_HOST_STATE_DB_PATH`, `HOLABOSS_CONTROL_PLANE_DB_PATH`, the legacy `HOLABOSS_RUNTIME_DB_PATH` alias, and the bridge settings.
 4. Wait for the embedded runtime health check to pass.
 5. Stream stdout and stderr into `runtime.log` under the Electron `userData` directory.
 6. On app quit, block final Electron exit until desktop-owned cleanup tears down the embedded runtime and browser service.
 
 If you are debugging runtime startup from desktop, inspect `runtime.log` and the `sandbox-host` directory under Electron `userData` before you change UI code.
 
-Representative launch shape from `desktop/electron/main.ts`:
+The embedded runtime port is not fixed anymore. `apps/desktop/electron/main.ts` resolves it from `HOLABOSS_RUNTIME_API_PORT` or, when unset, from the resolved Electron `userData` path. Port `5060` is explicitly rejected, which is why older fixed-port assumptions are no longer reliable for diagnostics.
+
+Representative launch shape from `apps/desktop/electron/main.ts`:
 
 ```ts
 const child = spawn(launchSpec.command, launchSpec.args, {
@@ -89,9 +91,9 @@ Important namespaces include:
 
 If you change the desktop contract, update all three layers together:
 
-1. `desktop/electron/preload.ts`
-2. `desktop/src/types/electron.d.ts`
-3. the `ipcMain` handler in `desktop/electron/main.ts`, usually wired through `handleTrustedIpc(...)`
+1. `apps/desktop/electron/preload.ts`
+2. `apps/desktop/src/types/electron.d.ts`
+3. the `ipcMain` handler in `apps/desktop/electron/main.ts`, usually wired through `handleTrustedIpc(...)`
 
 Minimal bridge example:
 
@@ -149,7 +151,7 @@ await window.electronAPI.workspace.importBrowserProfile({
 });
 ```
 
-`createWorkspace()` in `desktop/electron/main.ts` now also emits structured stage logs with the `[holaboss.createWorkspace]` prefix for debugging create failures across materialization, runtime record creation, template apply, and workspace activation.
+`createWorkspace()` in `apps/desktop/electron/main.ts` now also emits structured stage logs with the `[holaboss.createWorkspace]` prefix for debugging create failures across materialization, runtime record creation, template apply, and workspace activation.
 
 ## Browser protocol
 
@@ -182,7 +184,7 @@ await window.electronAPI.workspace.setOperatorSurfaceContext(
 
 The desktop model path is now catalog-driven rather than a flat model string list.
 
-- `desktop/electron/main.ts` refreshes a managed runtime model catalog from the control plane when a signed-in holaOS session is active, caches that catalog, and merges it with the locally persisted `runtime-config.json`.
+- `apps/desktop/electron/main.ts` refreshes a managed runtime model catalog from the control plane when a signed-in holaOS session is active, caches that catalog, and merges it with the locally persisted `runtime-config.json`.
 - The merged runtime-config snapshot exposes `providerModelGroups`, `catalogVersion`, and managed defaults for background tasks, embeddings, and image generation.
 - `AuthPanel.tsx` uses that snapshot to show the actual configured provider/model surface instead of a blind text field.
 - `ChatPane.tsx` uses the same provider groups plus the local fallback catalog to decide whether the selected model supports reasoning and which `thinking_value` choices to show.
@@ -213,7 +215,7 @@ await window.electronAPI.workspace.queueSessionInput({
 
 ### Adding or modifying shipped catalog entries
 
-Use `desktop/shared/model-catalog.ts` when you need the desktop to know more than a raw model id:
+Use `apps/desktop/shared/model-catalog.ts` when you need the desktop to know more than a raw model id:
 
 - display label
 - whether the model supports reasoning
@@ -346,6 +348,6 @@ That routing currently lives in `AppShell.tsx` through `spaceDisplayView`. If yo
 
 - `npm run desktop:typecheck` is the minimum validation for every desktop change.
 - Run `npm run desktop:e2e` when the change crosses renderer, preload, main-process, or embedded-runtime boundaries.
-- Use `desktop/electron/browser-operator-surface-context.test.mjs` and `desktop/electron/runtime-quit-cleanup.test.mjs` as the fastest regression checks when you are touching browser-service context or app-quit cleanup.
-- Use `bash desktop/scripts/check-runtime-status.sh` when the embedded runtime fails to start, a workspace looks corrupted, or app lifecycle behavior diverges from the desktop UI.
+- Use `apps/desktop/electron/browser-operator-surface-context.test.mjs` and `apps/desktop/electron/runtime-quit-cleanup.test.mjs` as the fastest regression checks when you are touching browser-service context or app-quit cleanup.
+- Use `bash apps/desktop/scripts/check-runtime-status.sh` when the embedded runtime fails to start, a workspace looks corrupted, or app lifecycle behavior diverges from the desktop UI. The helper now follows the same `HOLABOSS_RUNTIME_API_PORT` and `userData`-path-derived port rules as the desktop itself.
 - Preserve the renderer/main boundary. Do not move file system access, BrowserView ownership, or runtime process management back into React state.

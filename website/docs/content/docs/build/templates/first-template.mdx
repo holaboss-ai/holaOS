@@ -11,7 +11,7 @@ A Template is a published snapshot of a working Workspace. You don't design one 
 
 ## 1. Open a Workspace
 
-Install holaOS Desktop (macOS, Apple Silicon for now) and start a new blank workspace. Cloud-hosted workspaces are coming; for today, Desktop is the supported path.
+Install holaOS Desktop and start a new blank workspace. Template authoring currently happens through Desktop rather than a separate cloud workspace editor.
 
 A fresh workspace lives under the runtime OS root and looks like this:
 
@@ -21,7 +21,7 @@ A fresh workspace lives under the runtime OS root and looks like this:
   AGENTS.md            # standing instructions read by the root workspace agent
   apps/                # installed Apps (each has its own app.runtime.yaml)
   skills/              # reusable markdown instruction packs
-  memory/              # durable agent memory
+  .holaboss/           # runtime-owned state, memory, attachments, logs
 ```
 
 Pick a model provider (OpenAI, Anthropic, OpenRouter, or local via Ollama) in Desktop's settings before you run anything substantive.
@@ -32,9 +32,9 @@ This is the longest step. You iterate until the workspace genuinely does the job
 
 ### Install Apps
 
-Apps give the agent its capabilities — posting to LinkedIn, drafting Gmail, reading a Sheet, calling a database. Install them from the marketplace or local folders. Pick the **smallest set** that does the job: every App a Template requires is another credential the forker has to configure and another surface that can break on install. If your Template is "write LinkedIn posts," don't bundle the Reddit App.
+Apps give the agent its capabilities — posting to LinkedIn, drafting Gmail, reading a Sheet, calling a database. Install them from the Marketplace or a local app catalog entry. Pick the **smallest set** that does the job: every App a Template requires is another credential the forker has to configure and another surface that can break on install. If your Template is "write LinkedIn posts," don't bundle the Reddit App.
 
-Browse everything available at **[/apps](/apps)**.
+Browse what is available in **Desktop > Marketplace > Apps**.
 
 ### Write `AGENTS.md`
 
@@ -65,13 +65,13 @@ A few rules that matter:
 - **One pattern per skill.** If a Skill is doing three things, split it. Skills are small sharp tools.
 - **Show examples, including failure modes.** What a bad draft looks like, what the fix is.
 - `AGENTS.md` vs. Skill: always-on behavior → `AGENTS.md`. Context-activated behavior → Skill.
-- The runtime can auto-promote recurring patterns from successful runs into Skill drafts. Review and commit them into `skills/` before publishing — drafts live in `memory/` and are not bundled.
+- The runtime can auto-promote recurring patterns from successful runs into Skill drafts. Review and commit them into `skills/` before publishing — runtime-generated drafts live under workspace-managed state in `.holaboss/` and are not bundled.
 
-Browse published Skills at **[/skills](/skills)** — a useful starting point for seeing how other creators structure their descriptions and bodies.
+Browse published Skills from the Marketplace and your existing workspaces — both are useful starting points for how other creators structure descriptions and bodies.
 
 ### Set up Automations
 
-Automations are the scheduled / event-driven side of the workspace — things that run without a human typing a message. Most Templates won't need any; the ones that do are usually "recurring cadence" Templates (daily digest, weekly planning, inbox triage).
+Automations are the scheduled side of the workspace — things that run without a human typing a message. Most Templates won't need any; the ones that do are usually "recurring cadence" Templates (daily digest, weekly planning, inbox triage).
 
 - Use them only where a cadence is genuinely part of the Template's value — a daily LinkedIn growth Template earns its keep by running every morning, not just when the user opens the app.
 - Keep them conservative by default. Automations that post publicly, send email, or spend money should require confirmation rather than fire-and-forget.
@@ -84,16 +84,17 @@ Automations are the scheduled / event-driven side of the workspace — things th
 
 ## 3. Understand what gets packaged
 
-When you publish, holaOS packages your workspace directory plus some metadata bolted on by the Publish flow. A publishable Template has roughly this shape:
+When you publish, holaOS does not upload a byte-for-byte copy of your working workspace. The packager bundles the workspace files that are safe to ship, adds publish metadata, and excludes runtime state plus local App source trees. The resulting archive looks roughly like this:
 
 ```text
-<workspace-root>/
+<template-archive>/
+  manifest.json
+  automations.yaml
   workspace.yaml       # required — the runtime plan
   AGENTS.md            # workspace policy
-  ONBOARD.md           # optional onboarding trigger (see below)
-  README.md            # marketplace shelf copy
+  ONBOARD.md           # optional onboarding trigger if you keep it in the workspace
+  README.md            # optional workspace README if you keep it in the workspace
   skills/<skill-id>/SKILL.md
-  apps/<app-id>/app.runtime.yaml
   ...
 ```
 
@@ -102,24 +103,27 @@ When you publish, holaOS packages your workspace directory plus some metadata bo
 - **`workspace.yaml`** (required) — runtime plan. Template selection fails without it.
 - **`AGENTS.md`** — standing policy read on every boot.
 - **`ONBOARD.md`** — if this exists and has content after the Template is installed, the workspace enters a pending-onboarding state and the agent runs an onboarding session. Use it to ask forkers the questions they need to answer to make the Template work for them.
-- **`README.md`** — shelf copy on the marketplace listing.
-- **`skills/`** — bundled Skills. Subdirectory names under `skills/` also become metadata tags for local Templates.
-- **`apps/`** — each installed App lives here with its own `app.runtime.yaml`.
+- **`README.md`** — optional workspace-level README when you want one inside the materialized workspace.
+- **`skills/`** — bundled Skills. Subdirectory names under `skills/` also become metadata tags for local template folders.
+- **Selected Apps** — the publish manifest records App names, but the publish archive does **not** bundle `apps/` source. Install-time flows fetch each selected App separately from its official archive.
 
 ### Metadata added at publish time
 
-The Publish flow adds a few files automatically:
+The packager currently adds these files automatically:
 
-- `manifest.json` — name, version, author, category, tags, App list, dependencies
-- `onboarding.md` — the question set the agent uses on install (AI-assisted or hand-written)
-- description, tags, category from the Publish dialog
+- `manifest.json` — template id, name, description, category, tags, selected App names, submitted README/onboarding markdown, author, and a publish-manifest `version` field that is currently fixed to `1.0.0` by the desktop flow
+- `automations.yaml` — a serialized snapshot of the workspace's user-authored automations
+
+The Publish dialog also submits listing metadata to the marketplace control plane. If you want onboarding or README content to live inside the installed workspace itself, keep `ONBOARD.md` and `README.md` in the workspace tree.
 
 ### What **not** to ship
 
 A Template is not a live workspace snapshot. Keep these out:
 
 - `.holaboss/` — runtime-managed state
+- `memory/` — legacy personal-memory roots if your workspace still contains one
 - `.git/` — version history of your working copy
+- `apps/` source trees you only have locally — published templates do not bundle App bytes, so unpublished local App directories are not a portable dependency
 - `node_modules/`, `dist/`, `build/`, `__pycache__/`, `.venv/` — fetched or rebuilt on setup
 - `.hb_template_bootstrap_tmp/`, `.hb_app_template_tmp/` — scratch directories
 - local logs, `.env*`, secrets, credentials
@@ -135,17 +139,22 @@ If you're over the limit, the fix is almost always removing something that shoul
 
 ## 4. Publish
 
-Open the **Publish as Template** dialog inside your workspace. It collects name, description, category, tags, the list of Apps you're bundling, and the `readme.md` / `onboarding.md` (you can start from AI-generated drafts).
+Open the **Publish as Template** dialog inside your workspace. It collects the name, description, category, tags, selected App names, and optional README/onboarding markdown drafts (you can start from AI-generated drafts). Templates can be published without Apps, but any selected App must exist as an installable App artifact because the template archive itself does not ship App source.
 
-The submission then moves through three states:
+On desktop, the local publish flow runs in three phases:
 
 ```
-pending_upload  →  pending_review  →  published
-                                 ↘   rejected
+create submission  →  package and upload workspace  →  finalize submission
 ```
 
-- `pending_upload` — submission created, zip not yet uploaded
-- `pending_review` — zip uploaded, waiting for admin approval
+After finalize succeeds, the marketplace submission record is usually in one of these review states:
+
+```
+pending_review  →  published
+                ↘  rejected
+```
+
+- `pending_review` — uploaded and waiting for admin approval
 - `published` — live on the marketplace
 - `rejected` — reviewer sent it back with notes; fix and resubmit
 
@@ -154,33 +163,25 @@ pending_upload  →  pending_review  →  published
 - The Template actually runs after fork — workspace boots, Apps come up healthy
 - No secrets or credentials accidentally shipped
 - Description matches what the Template does
-- Apps listed in the manifest match the ones bundled
-- `onboarding.md` will actually onboard a new user successfully
+- Apps listed in the manifest resolve to real installable App artifacts
+- submitted onboarding content will actually onboard a new user successfully
 
-### Versioning
+### Snapshot discipline
 
-Templates are release artifacts, not loose example folders. When someone installs your Template they should get exactly the version you intended.
+Templates are release artifacts, not loose example folders. Re-publishing the same template name creates a fresh submission snapshot, and a fresh install from that submission should behave exactly the way you tested it.
 
-| Reference | Best for | Recommendation |
-| --- | --- | --- |
-| tag | stable shared releases | good default |
-| commit SHA | exact reproducibility and audits | best when environment drift matters |
-| branch | active development only | avoid for long-lived shared Templates |
-
-Cut a new release whenever the materialized workspace changes in a meaningful way — root policy changes in `AGENTS.md`, `workspace.yaml` behavior changes, bundled App manifests or wiring changes, onboarding flow changes, or Skill changes that materially change behavior. Don't cut a release just for copy edits to optional docs.
-
-**Rule of thumb**: if a fresh workspace created from the Template would behave differently, version it like a real artifact.
+Today the desktop publish flow does not expose a user-editable template version field in the bundle manifest. Treat each publish as a new reviewable snapshot: if a fresh workspace created from the template would behave differently, publish again and re-test the install path.
 
 ### After you publish
 
-- Your `readme.md` renders on the listing page.
-- All your submissions live at **/my-submissions** — status, review notes, install counts, and the ability to remove a Template.
-- To update, run Publish again with an incremented version. The new submission goes through the same review path; the old version stays available until you remove it.
+- Your submitted README markdown renders on the listing page.
+- All your submissions live in **Desktop Settings > Submissions** — status, review notes, submitted App names, and the ability to remove a template submission.
+- To update, run Publish again. The new submission goes through the same review path.
 - Unpublishing only affects future installs — existing forks keep working.
 
-### Local folder Templates
+### Local template folders
 
-If you just want to share internally, a local folder Template works: drop the workspace directory somewhere your team can reach (git, shared drive) and they can materialize it via Desktop's "Use a local folder" path. Local Templates skip review and pinning — they're fine for iteration and team-internal distribution, but not reproducible the way marketplace Templates are. For anything you'd share externally or rely on long-term, publish to the marketplace.
+If you just want to share internally, a local template folder works: put the workspace template somewhere your team can reach and they can materialize it via Desktop's local template folder flow. The folder must already contain `workspace.yaml`. Local template folders skip review and publication metadata — they're fine for iteration and team-internal distribution, but not reproducible the way marketplace templates are. For anything you'd share externally or rely on long-term, publish to the marketplace.
 
 ---
 
@@ -188,7 +189,7 @@ If you just want to share internally, a local folder Template works: drop the wo
 
 - **Scope one thing well.** "A workspace that takes a product launch and writes a week of LinkedIn content" beats "a workspace that posts to Twitter and LinkedIn and drafts emails and tracks analytics." Templates are small sharp tools.
 - **Name for the outcome.** "Daily LinkedIn Growth" beats "LinkedIn Assistant" beats "My Workspace."
-- **Write onboarding like a conversation, not a form.** `onboarding.md` is read by the agent — structure it like questions a sharp coworker would ask on day one.
+- **Write onboarding like a conversation, not a form.** `ONBOARD.md` is read by the agent — structure it like questions a sharp coworker would ask on day one.
 - **Write the README for humans.** Show the outcome, not the architecture. It's your shelf space.
 - **Ship before it's perfect.** Your first version will be wrong in small ways. Let real forkers tell you what breaks.
 

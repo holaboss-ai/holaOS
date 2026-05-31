@@ -11,21 +11,21 @@ If you are packaging a workspace you built as a Template, see **[Templates](/doc
 
 The source of truth is:
 
-- `desktop/electron/main.ts`
+- `apps/desktop/electron/main.ts`
 - `runtime/api-server/src/app.ts`
 
 ## Desktop Creation Flow
 
-`createWorkspace()` in `desktop/electron/main.ts` supports four modes:
+`createWorkspace()` in `apps/desktop/electron/main.ts` supports four modes:
 
 1. `empty`
 2. `empty_onboarding`
-3. local folder template via `template_root_path`
+3. local template folder via `template_root_path`
 4. marketplace template via `template_name` plus optional `template_ref` and `template_commit`
 
 The important implementation detail is that desktop always materializes templates locally. It does not delegate template file writes to a remote service.
 
-## Local Folder Templates
+## Local Template Folders
 
 `materializeLocalTemplate()` does three important things:
 
@@ -52,7 +52,7 @@ Inputs that matter:
 - optional `template_ref`
 - optional `template_commit`
 
-That is the path to use when you need a versioned and shareable template source instead of a local folder.
+That is the path to use when you need a versioned and shareable template source instead of a local template folder.
 
 ## What Happens After Materialization
 
@@ -117,7 +117,7 @@ This is the practical portability contract for workspaces today. If your templat
 
 ## Contributor Rules
 
-- local folder templates must always contain `workspace.yaml`
+- local template folders must always contain `workspace.yaml`
 - marketplace templates should be pinned with `template_ref` or `template_commit`
 - treat `ONBOARD.md` as operational state, not decorative copy
 - keep template outputs clean enough that export still represents a portable workspace
@@ -130,5 +130,6 @@ Use these checks after changing the template flow:
 ```bash
 npm run desktop:typecheck
 npm run runtime:api-server:test
-npm run docs:test
+npm run docs:typecheck
+npm run docs:build
 ```
