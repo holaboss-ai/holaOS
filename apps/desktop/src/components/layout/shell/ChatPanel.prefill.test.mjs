@@ -28,7 +28,9 @@ test("new shell composer prefills can preserve the active session or request a f
     chatPanelSource,
     /setSessionOpenRequest\(\{\s*sessionId: "",\s*requestKey: sessionRequestKeyRef\.current,\s*mode: "draft",\s*\}\);/,
   );
-  assert.match(sidebarSource, /text: "New issue: ",/);
+  // "New issue" no longer goes through the composer-prefill pipeline; it
+  // opens NewIssueDialog directly. The remaining prefill consumers are
+  // SidebarAutomationsSection (draft) and RecentFileRow's `@` action (preserve).
   assert.match(sidebarSource, /sessionMode: "preserve",/);
   assert.match(sidebarSource, /text: "Create a schedule for ",/);
   assert.match(sidebarSource, /sessionMode: "draft",/);
