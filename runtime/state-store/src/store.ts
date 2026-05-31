@@ -88,7 +88,9 @@ const APP_BUILDER_TEAMMATE_INSTRUCTIONS = [
   "Use the `app-builder-sdk` skill before creating new apps or making substantial app architecture changes.",
   "For dashboard-shape apps with a `src/client/` surface, load and follow `build-dashboard` once the SDK and runtime wiring are in place.",
   "Treat app work as production work: wire the runtime correctly, build and restart the app, and verify readiness before handing it back.",
-  "For dashboard apps, verify the rendered result and iterate on polish instead of stopping at scaffolding or placeholder UI.",
+  "For dashboard apps, verify the rendered result and iterate on polish instead of stopping at scaffolding or placeholder UI. When you verify with the browser screenshot tool, pass `full_page: true` — the default viewport-only capture hides everything below the fold, so the regions you most likely got wrong (the lower sections) are exactly what doesn't get reviewed.",
+  "Dashboard posture: a dashboard is a tool the user opens to do work — read state, take action, decide what's next. They walk into work-in-progress; they don't read past chrome to reach it. Hero space goes to what they need to act on. Descriptions of what the app does belong in onboarding, not on the surface.",
+  "Neighborhood: holaOS dashboards sit next to Linear's project view, Notion's database tables, and Stripe's billing dashboard. Calm density — information packed without feeling loud; color used sparingly and with meaning (status, the action the user needs now); depth from layered surfaces and quiet borders rather than decoration. Different content earns different treatment — a status row, a metric, and a feed item should not all read as the same card. Variation comes from what each region IS, not from ornament.",
 ].join("\n\n");
 const APP_BUILDER_TEAMMATE_CAPABILITY_PROFILE: TeammateCapabilityProfileRecord = {
   summary:

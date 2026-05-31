@@ -206,10 +206,12 @@ On pull requests and pushes to `main`, `CI` runs the normal validation jobs only
 - checks out the requested `ref`
 - creates the requested GitHub release in `holaboss-ai/holaOS-releases`
 - attaches the Linux runtime bundle, manifest, and checksum to that same `holaboss-ai/holaOS-releases` tag
-- builds the signed and notarized macOS app, then uploads the DMG, ZIP, blockmaps, and `latest-mac.yml`
+- builds the signed and notarized Apple Silicon macOS app, then uploads the DMG, ZIP, blockmaps, and `latest-mac.yml`
+- calls `.github/workflows/publish-macos-intel-desktop.yml` to stage the notarized Intel macOS (`x64`) DMG, ZIP, blockmap, and mac updater manifest for the same release
+- merges the Apple Silicon and Intel macOS updater manifests before publishing the final shared `latest-mac.yml` / `beta-mac.yml` assets
 - builds the signed Windows NSIS installer, then uploads the installer, blockmap, and channel manifest
 
-There is also a separate `.github/workflows/publish-macos-intel-desktop.yml` workflow for Intel macOS (`x64`) builds. It publishes a notarized `holaOS-macos-x64.dmg` to `holaboss-ai/holaOS-releases`, but intentionally disables in-app auto-update and does not publish `latest-mac.yml` / `beta-mac.yml` for that build. Apple Silicon remains the only macOS updater track in the shared release repo.
+The `.github/workflows/publish-macos-intel-desktop.yml` workflow remains separately dispatchable for Intel-only reruns. It now rebuilds the notarized Intel macOS DMG, ZIP, blockmap, and updater metadata, then merges the Intel updater entries into the existing shared `latest-mac.yml` / `beta-mac.yml` assets on `holaboss-ai/holaOS-releases`. That standalone rerun path assumes the Apple Silicon macOS release assets for the tag already exist in the shared release repo.
 
 Release channel policy:
 - the Linux runtime bundle is published separately for Sprite-backed sandbox consumers

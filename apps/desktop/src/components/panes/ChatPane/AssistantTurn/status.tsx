@@ -55,15 +55,23 @@ export function TraceTimelineStepEntry({
   onToggleStep: (stepId: string) => void;
 }) {
   const expanded = !(collapsedByStepId[step.id] ?? true);
+  const hasDetails = step.details.length > 0;
+  const expandable = step.details.length > 1;
 
   return (
     <div>
       <button
         type="button"
-        onClick={() => step.details.length > 0 && onToggleStep(step.id)}
-        className={`flex w-full items-start gap-2 rounded-md px-2.5 -ml-2.5 py-1 text-left text-xs transition-colors ${step.details.length > 0 ? "hover:bg-muted cursor-pointer" : "cursor-default"}`}
+        onClick={() => expandable && onToggleStep(step.id)}
+        className={`group/step -ml-2 flex w-full items-center gap-2.5 rounded-md py-1 pl-2 pr-2 text-left text-xs transition-colors ${
+          expandable
+            ? "cursor-pointer hover:bg-fg-4"
+            : hasDetails
+              ? "cursor-default"
+              : "cursor-default"
+        }`}
       >
-        <span className="mt-0.5 shrink-0">
+        <span className="grid size-4 shrink-0 place-items-center">
           {step.status === "completed" ? (
             <Check
               className="size-3 text-success motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-75 motion-safe:duration-200 motion-safe:ease-out"
@@ -77,23 +85,27 @@ export function TraceTimelineStepEntry({
             <Clock3 className="size-3 text-muted-foreground" />
           )}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="font-medium text-foreground">{step.title}</span>
-          {step.details.length > 0 ? (
-            <span className="ml-1.5 text-muted-foreground">
+        <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+          <span className="shrink-0 font-medium text-foreground">
+            {step.title}
+          </span>
+          {hasDetails ? (
+            <span className="min-w-0 truncate text-muted-foreground">
               {step.details[0]}
             </span>
           ) : null}
         </span>
-        {step.details.length > 1 ? (
+        {expandable ? (
           <ChevronDown
-            className={`size-3 mt-0.5 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
+            className={`size-3 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
           />
         ) : null}
       </button>
-      {expanded && step.details.length > 1 && !suppressLegacyDetails(step) ? (
-        <div className="ml-6 mt-0.5 mb-1 rounded-md border border-border bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground whitespace-pre-wrap">
-          {step.details.slice(1).join("\n")}
+      {expanded && expandable && !suppressLegacyDetails(step) ? (
+        <div className="ml-6 mb-1 mt-1 overflow-hidden rounded-lg bg-fg-2 px-3.5 py-2.5 text-xs leading-5 text-muted-foreground">
+          <pre className="whitespace-pre-wrap font-sans">
+            {step.details.slice(1).join("\n")}
+          </pre>
         </div>
       ) : null}
       {step.status === "error" ? (
@@ -121,9 +133,13 @@ export function ExecutionTimelineThinkingEntry({
   onLinkClick?: (url: string) => void;
   onLocalLinkClick?: (href: string) => void;
 }) {
+  // Soft tinted surface (no border) so thinking reads as a quoted
+  // "this is the agent's inner voice" block rather than a boxed card.
+  // Mirrors the Mac-chat reference: rounded pillow + generous padding,
+  // structure carried by spacing instead of borders.
   return (
-    <div className="py-1">
-      <div className="-ml-2.5 w-[calc(100%+0.625rem)] rounded-xl border border-border bg-muted px-3.5 py-3">
+    <div className="py-1.5">
+      <div className="rounded-2xl bg-fg-2 px-4 py-3.5">
         <SimpleMarkdown
           className="chat-markdown chat-thinking-markdown max-w-full text-foreground"
           onLinkClick={onLinkClick}

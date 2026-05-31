@@ -98,7 +98,7 @@ import {
 } from "@/lib/attachmentDrag";
 import { getExplorerAttachmentClipboardEntry } from "@/lib/appClipboard";
 import { useAtomValue } from "jotai";
-import { recentFilesAtom } from "@/components/layout/new-shell/state/recentFiles";
+import { recentFilesAtom } from "@/components/layout/shell/state/recentFiles";
 import { CHAT_LAYOUT, chatScrollMaskImage } from "@/lib/chatLayout";
 import { ProviderBrandIcon } from "@/lib/providerBrandIcon";
 import { trackUmamiEvent } from "@/lib/analytics/umami";
@@ -235,7 +235,7 @@ import { Composer } from "./Composer";
 import { UserTurn } from "./UserTurn";
 import { ConversationTurns } from "./ConversationTurns";
 import { BackgroundTaskReferenceCards } from "./BackgroundTaskReferenceCards";
-import { IssueDetailPane } from "@/components/layout/new-shell/IssueDetailPane";
+import { IssueDetailPane } from "@/components/layout/shell/IssueDetailPane";
 
 export type {
   ChatAssistantSegment,

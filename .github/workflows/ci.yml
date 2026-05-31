@@ -559,6 +559,20 @@ jobs:
             apps/desktop/out/release/*-mac.yml
           if-no-files-found: error
 
+  release-macos-intel-desktop:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: ensure-release
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-macos-intel-desktop.yml
+    with:
+      ref: ${{ needs.ensure-release.outputs.release_ref }}
+      release_tag: ${{ needs.ensure-release.outputs.release_tag }}
+      prerelease: ${{ inputs.prerelease }}
+      release_channel: ${{ needs.ensure-release.outputs.release_channel }}
+      artifact_only: true
+    secrets: inherit
+
   release-windows-desktop:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     needs: ensure-release
@@ -899,12 +913,14 @@ jobs:
         needs.ensure-release.result == 'success' &&
         needs.release-linux-runtime.result == 'success' &&
         needs.release-macos-desktop.result == 'success' &&
+        needs.release-macos-intel-desktop.result == 'success' &&
         needs.release-windows-desktop.result == 'success'
       }}
     needs:
       - ensure-release
       - release-linux-runtime
       - release-macos-desktop
+      - release-macos-intel-desktop
       - release-windows-desktop
     permissions:
       actions: read
@@ -920,6 +936,12 @@ jobs:
       SOURCE_GH_REPO: ${{ github.repository }}
       RELEASE_GH_REPO: holaboss-ai/holaOS-releases
     steps:
+      - name: Checkout release repository helpers
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          ref: ${{ needs.ensure-release.outputs.release_sha }}
+
       - name: Download Linux runtime release artifacts
         uses: actions/download-artifact@v8
         with:
@@ -932,11 +954,59 @@ jobs:
           name: holaboss-desktop-macos-${{ inputs.release_tag }}
           path: release-assets/macos-desktop
 
+      - name: Download Intel macOS desktop release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: holaboss-desktop-macos-intel-${{ inputs.release_tag }}
+          path: release-assets/macos-intel-desktop
+
       - name: Download Windows desktop release artifacts
         uses: actions/download-artifact@v8
         with:
           name: holaboss-desktop-windows-${{ inputs.release_tag }}
           path: release-assets/windows-desktop
+
+      - name: Merge shared macOS updater manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          merged_manifest_dir="release-assets/macos-updates"
+          rm -rf "${merged_manifest_dir}"
+          mkdir -p "${merged_manifest_dir}"
+          manifest_count=0
+          while IFS= read -r arm_manifest_path; do
+            manifest_count=$((manifest_count + 1))
+            manifest_name="$(basename "${arm_manifest_path}")"
+            intel_manifest_path="release-assets/macos-intel-desktop/${manifest_name}"
+            if [ ! -f "${intel_manifest_path}" ]; then
+              echo "missing Intel macOS updater manifest: ${intel_manifest_path}" >&2
+              exit 1
+            fi
+            ruby apps/desktop/scripts/merge-mac-update-manifests.rb \
+              "${merged_manifest_dir}/${manifest_name}" \
+              "${arm_manifest_path}" \
+              "${intel_manifest_path}"
+          done < <(find release-assets/macos-desktop -maxdepth 1 -name '*-mac.yml' -print | sort)
+          if [ "${manifest_count}" -eq 0 ]; then
+            echo "no Apple Silicon macOS updater manifests were downloaded" >&2
+            exit 1
+          fi
+          while IFS= read -r merged_manifest_path; do
+            ruby -e '
+              require "yaml"
+              manifest = YAML.load_file(ARGV[0])
+              files = Array(manifest["files"])
+              zip_urls = []
+              files.each do |entry|
+                next unless entry.is_a?(Hash)
+                url = entry["url"].to_s.strip
+                next unless url.end_with?(".zip")
+                zip_urls << url
+              end
+              abort("merged macOS updater manifest is missing an arm64 ZIP: #{ARGV[0]}") unless zip_urls.any? { |url| url.include?("arm64") }
+              abort("merged macOS updater manifest is missing an Intel ZIP: #{ARGV[0]}") unless zip_urls.any? { |url| !url.include?("arm64") }
+            ' "${merged_manifest_path}"
+          done < <(find "${merged_manifest_dir}" -maxdepth 1 -name '*-mac.yml' -print | sort)
 
       - name: Publish validated GitHub release
         env:
@@ -989,7 +1059,8 @@ jobs:
           done
 
           mac_dmg_asset="release-assets/macos-desktop/holaOS-macos-arm64.dmg"
-          mac_zip_asset="$(find release-assets/macos-desktop -maxdepth 1 -name 'holaOS-*-arm64-mac.zip' -print -quit)"
+          mac_zip_asset="$(find release-assets/macos-desktop -maxdepth 1 -name '*.zip' ! -name '*.blockmap' -print -quit)"
+          mac_zip_blockmap_asset="${mac_zip_asset}.blockmap"
           if [ ! -f "${mac_dmg_asset}" ]; then
             echo "missing macOS DMG release asset" >&2
             exit 1
@@ -998,21 +1069,60 @@ jobs:
             echo "missing macOS zip release asset" >&2
             exit 1
           fi
+          if [ ! -f "${mac_zip_blockmap_asset}" ]; then
+            echo "missing macOS zip blockmap release asset" >&2
+            exit 1
+          fi
 
-          upload_paths=(
-            "${linux_runtime_asset}"
-            "${linux_runtime_checksum_asset}"
-            "${linux_runtime_manifest_asset}"
-            "${mac_dmg_asset}"
-            "${mac_zip_asset}"
-          )
+          mac_intel_dmg_asset="release-assets/macos-intel-desktop/holaOS-macos-x64.dmg"
+          mac_intel_zip_asset="$(find release-assets/macos-intel-desktop -maxdepth 1 -name '*.zip' ! -name '*.blockmap' -print -quit)"
+          mac_intel_zip_blockmap_asset="${mac_intel_zip_asset}.blockmap"
+          if [ ! -f "${mac_intel_dmg_asset}" ]; then
+            echo "missing Intel macOS DMG release asset" >&2
+            exit 1
+          fi
+          if [ -z "${mac_intel_zip_asset}" ] || [ ! -f "${mac_intel_zip_asset}" ]; then
+            echo "missing Intel macOS zip release asset" >&2
+            exit 1
+          fi
+          if [ ! -f "${mac_intel_zip_blockmap_asset}" ]; then
+            echo "missing Intel macOS zip blockmap release asset" >&2
+            exit 1
+          fi
+
+          mac_manifest_dir="release-assets/macos-updates"
+          if ! find "${mac_manifest_dir}" -maxdepth 1 -name '*-mac.yml' | grep -q .; then
+            echo "missing merged macOS updater manifests" >&2
+            exit 1
+          fi
+
+          upload_paths=()
+          declare -A upload_asset_names=()
+          append_upload_path() {
+            local asset_path="$1"
+            local asset_name
+            asset_name="$(basename "${asset_path}")"
+            if [ -n "${upload_asset_names[${asset_name}]:-}" ]; then
+              echo "duplicate release asset name would be uploaded: ${asset_name}" >&2
+              exit 1
+            fi
+            upload_asset_names["${asset_name}"]=1
+            upload_paths+=("${asset_path}")
+          }
+
+          append_upload_path "${linux_runtime_asset}"
+          append_upload_path "${linux_runtime_checksum_asset}"
+          append_upload_path "${linux_runtime_manifest_asset}"
+          append_upload_path "${mac_dmg_asset}"
+          append_upload_path "${mac_zip_asset}"
+          append_upload_path "${mac_zip_blockmap_asset}"
+          append_upload_path "${mac_intel_dmg_asset}"
+          append_upload_path "${mac_intel_zip_asset}"
+          append_upload_path "${mac_intel_zip_blockmap_asset}"
 
           while IFS= read -r manifest_path; do
-            upload_paths+=("${manifest_path}")
-          done < <(find release-assets/macos-desktop -maxdepth 1 -name '*-mac.yml' -print | sort)
-          while IFS= read -r blockmap_path; do
-            upload_paths+=("${blockmap_path}")
-          done < <(find release-assets/macos-desktop -maxdepth 1 -name '*.blockmap' -print | sort)
+            append_upload_path "${manifest_path}"
+          done < <(find "${mac_manifest_dir}" -maxdepth 1 -name '*-mac.yml' -print | sort)
 
           windows_release_dir="release-assets/windows-desktop"
           if [ -d "${windows_release_dir}/release" ]; then
@@ -1032,7 +1142,8 @@ jobs:
             exit 1
           fi
 
-          upload_paths+=("${windows_installer_asset}" "${windows_blockmap_asset}")
+          append_upload_path "${windows_installer_asset}"
+          append_upload_path "${windows_blockmap_asset}"
 
           windows_manifest_count=0
           for windows_manifest_asset in "${windows_release_dir}/latest.yml" "${windows_release_dir}/beta.yml"; do
@@ -1043,7 +1154,7 @@ jobs:
               echo "${windows_manifest_asset} does not reference holaOS-windows-x64-setup.exe" >&2
               exit 1
             fi
-            upload_paths+=("${windows_manifest_asset}")
+            append_upload_path "${windows_manifest_asset}"
             windows_manifest_count=$((windows_manifest_count + 1))
           done
           if [ "${windows_manifest_count}" -eq 0 ]; then

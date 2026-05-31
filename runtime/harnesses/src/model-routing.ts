@@ -74,7 +74,8 @@ export interface HarnessResolvedModelProfile {
 }
 
 const DEFAULT_FALLBACK_CONTEXT_WINDOW = 65_536;
-const DEFAULT_FALLBACK_MAX_TOKENS = 8_192;
+const DEFAULT_FALLBACK_MAX_TOKENS = 128_000;
+const UNIFORM_MODEL_MAX_TOKENS = 128_000;
 
 function firstNonEmptyString(...values: Array<string | null | undefined>): string {
   for (const value of values) {
@@ -611,7 +612,7 @@ export function resolveHarnessModelBudget(
   },
 ): HarnessModelBudget {
   const api = resolveHarnessModelApi(request);
-  return (
+  const budget =
     knownModelBudgetOverride(request, api) ??
     catalogModelBudgetForRequest({
       request,
@@ -621,8 +622,14 @@ export function resolveHarnessModelBudget(
     options.fallbackBudget ?? {
       contextWindow: DEFAULT_FALLBACK_CONTEXT_WINDOW,
       maxTokens: DEFAULT_FALLBACK_MAX_TOKENS,
-    }
-  );
+    };
+
+  return {
+    ...budget,
+    // Keep provider registration on a uniform completion budget even when
+    // catalog entries advertise smaller per-model output caps.
+    maxTokens: UNIFORM_MODEL_MAX_TOKENS,
+  };
 }
 
 export function resolveHarnessModelProfile(

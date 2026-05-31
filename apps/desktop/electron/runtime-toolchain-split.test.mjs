@@ -54,7 +54,7 @@ test("runtime startup resolves everything from the embedded runtime root", async
   assert.match(source, /if \(typeof packagedDesktopConfig\.appUpdateEnabled === "boolean"\) \{\s*return packagedDesktopConfig\.appUpdateEnabled;\s*\}/);
   assert.match(source, /return isReleaseStyleAppVersion\(currentAppVersion\(\)\);/);
   assert.match(source, /const hasBundle = Boolean\(runtimeRoot && executablePath\);/);
-  assert.match(source, /status: runtimeUnavailableStatus\(hasBundle\),/);
+  assert.match(source, /const unavailableStatus = runtimeUnavailableStatus\(hasBundle\);/);
   assert.match(source, /const launchSpec = await resolveRuntimeLaunchSpec\(\s*runtimeRoot,\s*executablePath,\s*\);/);
   assert.doesNotMatch(source, /TOOLCHAIN_RELEASE_ASSET_NAMES/);
   assert.doesNotMatch(source, /ensureManagedRuntimeToolchainInstalled/);

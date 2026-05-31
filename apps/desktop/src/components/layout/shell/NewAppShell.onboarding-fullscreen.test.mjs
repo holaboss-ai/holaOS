@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const SOURCE_PATH = new URL("./NewAppShell.tsx", import.meta.url);
+const SOURCE_PATH = new URL("./AppShell.tsx", import.meta.url);
 
 test("experimental onboarding takeover hides the shell sidebar so onboarding uses the full shell width", async () => {
   const source = await readFile(SOURCE_PATH, "utf8");

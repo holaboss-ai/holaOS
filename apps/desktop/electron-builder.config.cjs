@@ -76,6 +76,7 @@ const windowsSigningConfigured =
 const configuredReleaseChannel = (
   process.env.HOLABOSS_RELEASE_CHANNEL || ""
 ).trim().toLowerCase();
+const configuredAppUpdatesEnabled = readEnv("HOLABOSS_ENABLE_APP_UPDATES").toLowerCase();
 
 function resolveReleaseChannel() {
   if (!configuredReleaseChannel || configuredReleaseChannel === "latest") {
@@ -90,12 +91,24 @@ function resolveReleaseChannel() {
 }
 
 const releaseChannel = resolveReleaseChannel();
+
+function shouldEnableAppUpdates() {
+  if (["1", "true", "yes", "on"].includes(configuredAppUpdatesEnabled)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(configuredAppUpdatesEnabled)) {
+    return false;
+  }
+  return true;
+}
+
+const appUpdatesEnabled = shouldEnableAppUpdates();
 const configuredAppUpdateConfigBehavior = (
   process.env.HOLABOSS_WRITE_APP_UPDATE_CONFIG || ""
 ).trim().toLowerCase();
 function shouldWriteAppUpdateConfig() {
   if (!configuredAppUpdateConfigBehavior) {
-    return true;
+    return appUpdatesEnabled;
   }
   if (["1", "true", "yes", "on"].includes(configuredAppUpdateConfigBehavior)) {
     return true;
@@ -142,7 +155,7 @@ const extraResources = [
 module.exports = {
   appId: "com.holaboss.workspace",
   productName: "holaOS",
-  generateUpdatesFilesForAllChannels: true,
+  ...(appUpdatesEnabled ? { generateUpdatesFilesForAllChannels: true } : {}),
   directories: {
     output: "out/release"
   },
@@ -172,14 +185,18 @@ module.exports = {
     // identity:null in electron-builder means "skip signing" — only set the key when an explicit value is provided.
     ...(macIdentity ? { identity: macIdentity } : {})
   },
-  publish: [
-    {
-      provider: "github",
-      owner: githubReleasesOwner,
-      repo: githubReleasesRepo,
-      ...(releaseChannel === "beta" ? { channel: releaseChannel } : {})
-    }
-  ],
+  ...(appUpdatesEnabled
+    ? {
+        publish: [
+          {
+            provider: "github",
+            owner: githubReleasesOwner,
+            repo: githubReleasesRepo,
+            ...(releaseChannel === "beta" ? { channel: releaseChannel } : {})
+          }
+        ]
+      }
+    : {}),
   win: {
     icon: "resources/icon.ico",
     signAndEditExecutable: windowsSigningConfigured,

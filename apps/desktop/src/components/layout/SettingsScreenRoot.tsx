@@ -21,7 +21,6 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import { AuthPanel } from "@/components/auth/AuthPanel";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { BillingSettingsPanel } from "@/components/billing/BillingSettingsPanel";
 import { IntegrationsPane } from "@/components/panes/IntegrationsPane";
 import { MemoryPane } from "@/components/panes/MemoryPane";
@@ -69,7 +68,7 @@ import type {
   ColorScheme,
   ControlCenterCardsPerRow,
   ThemeVariant,
-} from "@/components/layout/AppShell";
+} from "@/components/layout/themes";
 
 /**
  * Theme swatches mirror the SettingsDialog's previous mapping. They're
@@ -894,84 +893,37 @@ export function SettingsScreenRoot({
   );
 }
 
-const NEW_SHELL_STORAGE_KEY = "holaboss-new-layout-shell-v1";
-
 function ExperimentalPanel() {
-  const [newShellEnabled, setNewShellEnabled] = useState(() => {
-    try {
-      return localStorage.getItem(NEW_SHELL_STORAGE_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
   const [workspaceOnboardingPreference, setWorkspaceOnboardingPreference] =
     useState<WorkspaceOnboardingPreference>(
       loadWorkspaceOnboardingPreference,
     );
-  const [confirmEnableOpen, setConfirmEnableOpen] = useState(false);
-
-  const apply = (next: boolean) => {
-    try {
-      localStorage.setItem(NEW_SHELL_STORAGE_KEY, next ? "1" : "0");
-    } catch {
-      /* localStorage unavailable — fall through to reload anyway */
-    }
-    setNewShellEnabled(next);
-    // Reload so App.tsx picks the right shell at boot. The renderer
-    // holds quite a bit of in-flight state between the two shells; a
-    // hard reload is the safe path.
-    window.location.reload();
-  };
 
   return (
-    <>
-      <SettingsCard>
-        <SettingsToggle
-          leading={<FlaskConical className="size-4 text-foreground/60" />}
-          label="New layout shell"
-          description="Adopt the redesigned desktop shell (sidebar collapse, tab-based files, inline apps). The app will reload to apply your choice."
-          checked={newShellEnabled}
-          onCheckedChange={(next) => {
-            if (next) {
-              setConfirmEnableOpen(true);
-            } else {
-              apply(false);
-            }
-          }}
-        />
-        <SettingsMenuSelectRow
-          label="Workspace onboarding mode"
-          description="Controls what Start onboarding uses for new empty workspaces. Deterministic is the default release path; agentic stays opt-in while under construction."
-          value={workspaceOnboardingPreference}
-          onValueChange={(value) => {
-            const nextValue =
-              value === "agentic" ? "agentic" : "deterministic";
-            persistWorkspaceOnboardingPreference(nextValue);
-            setWorkspaceOnboardingPreference(nextValue);
-          }}
-          options={[
-            {
-              value: "deterministic",
-              label: "Deterministic",
-              description: "Centered intro card with a lightweight continue flow.",
-            },
-            {
-              value: "agentic",
-              label: "Agentic",
-              description: "Phase-based conversational onboarding still under active construction.",
-            },
-          ]}
-        />
-      </SettingsCard>
-      <ConfirmDialog
-        open={confirmEnableOpen}
-        onOpenChange={setConfirmEnableOpen}
-        title="Enable the new layout shell?"
-        description="This UI is in active development and may contain bugs. You can switch back from this same page anytime — the app will reload when you do."
-        confirmLabel="Enable and reload"
-        cancelLabel="Not yet"
-        onConfirm={() => apply(true)}
+    <SettingsCard>
+      <SettingsMenuSelectRow
+        label="Workspace onboarding mode"
+        description="Controls what Start onboarding uses for new empty workspaces. Deterministic is the default release path; agentic stays opt-in while under construction."
+        value={workspaceOnboardingPreference}
+        onValueChange={(value) => {
+          const nextValue =
+            value === "agentic" ? "agentic" : "deterministic";
+          persistWorkspaceOnboardingPreference(nextValue);
+          setWorkspaceOnboardingPreference(nextValue);
+        }}
+        options={[
+          {
+            value: "deterministic",
+            label: "Deterministic",
+            description: "Centered intro card with a lightweight continue flow.",
+          },
+          {
+            value: "agentic",
+            label: "Agentic",
+            description: "Phase-based conversational onboarding still under active construction.",
+          },
+        ]}
       />
-    </>
+    </SettingsCard>
   );
 }

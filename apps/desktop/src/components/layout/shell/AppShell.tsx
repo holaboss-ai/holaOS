@@ -46,13 +46,13 @@ import {
 import { TopChrome } from "./TopChrome";
 import { useChatLayout } from "./useChatLayout";
 
-export function NewAppShell() {
+export function AppShell() {
   return (
     <WorkspaceSelectionProvider>
       <WorkspaceDesktopProvider>
         <DesktopBillingProvider>
           <StoplightProvider value={true}>
-            <NewAppShellContent />
+            <AppShellContent />
           </StoplightProvider>
         </DesktopBillingProvider>
       </WorkspaceDesktopProvider>
@@ -60,7 +60,7 @@ export function NewAppShell() {
   );
 }
 
-function NewAppShellContent() {
+function AppShellContent() {
   const setNewTabOpen = useSetAtom(newTabOpenAtom);
   const setSearchOpen = useSetAtom(searchOpenAtom);
   const setSidebarCollapsed = useSetAtom(sidebarCollapsedAtom);

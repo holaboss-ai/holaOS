@@ -45,7 +45,7 @@ interface MarketplacePaneProps {
   /**
    * When true, the outer card chrome (bg-muted, border, rounded-xl,
    * shadow-xs) is dropped so the pane embeds cleanly inside an
-   * already-bordered surface such as the new-shell PaneOverlay.
+   * already-bordered surface such as the shell PaneOverlay.
    */
   variant?: "default" | "embedded";
 }

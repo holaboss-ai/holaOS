@@ -20,7 +20,7 @@ import type { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import type { Menu as MenuPrimitive } from "@base-ui/react/menu";
 
 /**
- * Counter of new-shell overlays (Popover / DropdownMenu / etc.) that are
+ * Counter of shell overlays (Popover / DropdownMenu / etc.) that are
  * currently open. browserViewSuspendedAtom watches this; any non-zero
  * value detaches the native Electron BrowserView so React-rendered
  * popovers don't get painted-over by the OS-level webview.

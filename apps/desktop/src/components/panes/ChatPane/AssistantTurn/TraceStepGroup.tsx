@@ -151,7 +151,7 @@ export function TraceStepGroup({
       <button
         type="button"
         onClick={() => setGroupExpanded((v) => !v)}
-        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 -ml-2.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted"
+        className="-ml-2.5 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-fg-4"
       >
         {groupHasTerminalError ? (
           <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
@@ -162,14 +162,14 @@ export function TraceStepGroup({
         ) : (
           <Check className="size-3.5 shrink-0 text-success" />
         )}
-        <span className="min-w-0 flex-1 truncate leading-5">
+        <span className="min-w-0 flex-1 truncate font-medium leading-5 text-foreground">
           {summaryLabel}
           {summarySuffix}
         </span>
         {stepCount > 0 && !groupIsLive && !groupHasTerminalError ? (
           <span
             aria-hidden
-            className="shrink-0 rounded-full bg-muted px-1.5 py-px text-[10px] tabular-nums text-muted-foreground"
+            className="shrink-0 rounded-full bg-fg-6 px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground"
           >
             {stepCount}
           </span>
@@ -180,7 +180,7 @@ export function TraceStepGroup({
       </button>
 
       {groupExpanded ? (
-        <div className="mt-1 ml-1 space-y-0.5">
+        <div className="ml-1.5 mt-1.5 space-y-1 border-l border-border pl-3.5">
           {items.map((item) =>
             item.kind === "thinking" ? (
               <ExecutionTimelineThinkingEntry

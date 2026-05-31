@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  THEME_VARIANTS,
   type ColorScheme,
   type ControlCenterCardsPerRow,
+  isColorScheme,
+  isControlCenterCardsPerRow,
+  isThemeVariant,
+  splitAppTheme,
   type ThemeVariant,
-} from "@/components/layout/AppShell";
+  THEME_VARIANTS,
+} from "@/components/layout/themes";
 
 const THEME_STORAGE_KEY = "holaboss-theme-v1";
 const COLOR_SCHEME_STORAGE_KEY = "holaboss-color-scheme";
@@ -12,24 +16,17 @@ const THEME_VARIANT_STORAGE_KEY = "holaboss-theme-variant";
 const CONTROL_CENTER_CARDS_PER_ROW_STORAGE_KEY =
   "holaboss-control-center-cards-per-row-v1";
 
-function isThemeVariant(value: string): value is ThemeVariant {
-  return THEME_VARIANTS.includes(value as ThemeVariant);
-}
-
-function isColorScheme(value: string): value is ColorScheme {
-  return value === "system" || value === "light" || value === "dark";
-}
-
-function isControlCenterCardsPerRow(
-  value: number,
-): value is ControlCenterCardsPerRow {
-  return value === 2 || value === 3 || value === 4;
-}
-
 function loadColorScheme(): ColorScheme {
   try {
     const stored = localStorage.getItem(COLOR_SCHEME_STORAGE_KEY);
     if (stored && isColorScheme(stored)) return stored;
+    // Fall back to the legacy combined "<variant>-<scheme>" key for users
+    // upgrading from a pre-split build whose only theme record is there.
+    const legacy = localStorage.getItem(THEME_STORAGE_KEY);
+    if (legacy) {
+      const split = splitAppTheme(legacy);
+      if (split) return split.scheme;
+    }
   } catch {
     // ignore
   }
@@ -40,6 +37,11 @@ function loadThemeVariant(): ThemeVariant {
   try {
     const stored = localStorage.getItem(THEME_VARIANT_STORAGE_KEY);
     if (stored && isThemeVariant(stored)) return stored;
+    const legacy = localStorage.getItem(THEME_STORAGE_KEY);
+    if (legacy) {
+      const split = splitAppTheme(legacy);
+      if (split) return split.variant;
+    }
   } catch {
     // ignore
   }

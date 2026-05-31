@@ -540,6 +540,11 @@ function browserToolParameters(toolId: DesktopBrowserToolId): Record<string, unk
             minimum: 0,
             maximum: 100,
           },
+          full_page: {
+            type: "boolean",
+            description:
+              "Capture the entire scrollable page rather than just the visible viewport. Use this when verifying a dashboard or any layout taller than the viewport — the default viewport-only screenshot hides everything below the fold.",
+          },
         },
         additionalProperties: false,
       };

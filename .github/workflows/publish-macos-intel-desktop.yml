@@ -65,7 +65,7 @@ env:
 
 jobs:
   publish-intel-macos-desktop:
-    runs-on: macos-13
+    runs-on: macos-15-intel
     env:
       MAC_CERTIFICATE: ${{ secrets.MAC_CERTIFICATE }}
       MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
@@ -176,7 +176,6 @@ jobs:
         env:
           HOLABOSS_RELEASE_TAG: ${{ steps.release_meta.outputs.release_tag }}
           HOLABOSS_RELEASE_CHANNEL: ${{ steps.release_meta.outputs.release_channel }}
-          HOLABOSS_ENABLE_APP_UPDATES: "0"
           HOLABOSS_RUNTIME_DIR: ${{ github.workspace }}/out/runtime-macos/
           HOLABOSS_AUTH_BASE_URL: ${{ vars.HOLABOSS_AUTH_BASE_URL }}
           HOLABOSS_AUTH_SIGN_IN_URL: ${{ vars.HOLABOSS_AUTH_SIGN_IN_URL }}
@@ -211,7 +210,7 @@ jobs:
         shell: bash
         env:
           HOLABOSS_RELEASE_TAG: ${{ steps.release_meta.outputs.release_tag }}
-          HOLABOSS_WRITE_APP_UPDATE_CONFIG: "0"
+          HOLABOSS_RELEASE_CHANNEL: ${{ steps.release_meta.outputs.release_channel }}
           CSC_LINK: ${{ env.MAC_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ env.MAC_CERTIFICATE_PASSWORD }}
         run: |
@@ -229,8 +228,8 @@ jobs:
             exit 1
           fi
           app_path="$(cd "$(dirname "${app_path}")" && pwd)/$(basename "${app_path}")"
-          if [ -f "${app_path}/Contents/Resources/app-update.yml" ]; then
-            echo "Intel mac release must not embed app-update.yml because mac updater manifests remain arm64-only" >&2
+          if [ ! -f "${app_path}/Contents/Resources/app-update.yml" ]; then
+            echo "app-update.yml is missing from signed Intel macOS app bundle" >&2
             exit 1
           fi
           packaged_app="${RUNNER_TEMP}/holaOS-intel.app"
@@ -303,12 +302,12 @@ jobs:
           spctl -a -vv -t exec "${app_path}"
           xcrun stapler validate "${app_path}"
 
-      - name: Build Intel macOS desktop release artifact
+      - name: Build Intel macOS desktop release artifacts from notarized app bundle
         working-directory: apps/desktop
         shell: bash
         env:
           HOLABOSS_RELEASE_TAG: ${{ steps.release_meta.outputs.release_tag }}
-          HOLABOSS_WRITE_APP_UPDATE_CONFIG: "0"
+          HOLABOSS_RELEASE_CHANNEL: ${{ steps.release_meta.outputs.release_channel }}
         run: |
           set -euo pipefail
           app_path="${{ steps.build_signed_app.outputs.app_path }}"
@@ -321,24 +320,63 @@ jobs:
             --projectDir "$PWD" \
             --publish never \
             --prepackaged "${app_path}" \
-            --mac dmg \
+            --mac dmg zip \
             --x64 \
             --config.mac.notarize=false
 
-      - name: Validate Intel macOS release artifact
+      - name: Validate Intel macOS auto-update artifacts
         shell: bash
         run: |
           set -euo pipefail
+          primary_channel="${{ steps.release_meta.outputs.release_channel }}"
+          if [ "${primary_channel}" = "beta" ]; then
+            primary_manifest_name="beta-mac.yml"
+          else
+            primary_manifest_name="latest-mac.yml"
+          fi
           dmg_path="$(find apps/desktop/out/release -maxdepth 1 -name '*.dmg' -print -quit)"
+          zip_path="$(find apps/desktop/out/release -maxdepth 1 -name '*.zip' ! -name '*.blockmap' -print -quit)"
+          manifest_path="apps/desktop/out/release/${primary_manifest_name}"
           if [ -z "${dmg_path}" ]; then
             echo "no Intel macOS DMG found in apps/desktop/out/release" >&2
             exit 1
           fi
-          if find apps/desktop/out/release -maxdepth 1 \( -name '*.zip' -o -name '*.blockmap' -o -name '*-mac.yml' \) | grep -q .; then
-            echo "Intel macOS release artifacts must not emit zip, blockmap, or *-mac.yml updater files" >&2
-            find apps/desktop/out/release -maxdepth 1 -type f -print >&2
+          if [ -z "${zip_path}" ]; then
+            echo "no Intel macOS zip found in apps/desktop/out/release" >&2
             exit 1
           fi
+          if [ ! -f "${manifest_path}" ]; then
+            echo "${primary_manifest_name} was not generated for Intel macOS" >&2
+            exit 1
+          fi
+          if [ "${primary_channel}" = "latest" ]; then
+            beta_manifest_path="apps/desktop/out/release/beta-mac.yml"
+            cp "${manifest_path}" "${beta_manifest_path}"
+            if [ ! -f "${beta_manifest_path}" ]; then
+              echo "beta-mac.yml was not generated for stable-channel Intel macOS compatibility" >&2
+              exit 1
+            fi
+          fi
+          if ! zipinfo -1 "${zip_path}" | grep -Eq '^holaOS\.app/'; then
+            echo "Intel macOS zip does not contain holaOS.app as the root app bundle" >&2
+            exit 1
+          fi
+          if ! zipinfo -1 "${zip_path}" | grep -Fxq 'holaOS.app/Contents/Resources/app-update.yml'; then
+            echo "app-update.yml is missing from final Intel macOS zip" >&2
+            exit 1
+          fi
+          extract_dir="${RUNNER_TEMP}/intel-mac-zip-signature-verify"
+          rm -rf "${extract_dir}"
+          mkdir -p "${extract_dir}"
+          ditto -x -k "${zip_path}" "${extract_dir}"
+          extracted_app="${extract_dir}/holaOS.app"
+          if [ ! -d "${extracted_app}" ]; then
+            echo "holaOS.app was not extracted from the final Intel macOS zip" >&2
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "${extracted_app}"
+          spctl -a -vv -t exec "${extracted_app}"
+          xcrun stapler validate "${extracted_app}"
 
       - name: Normalize Intel macOS release asset name
         shell: bash
@@ -355,7 +393,11 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ env.DESKTOP_ASSET_PREFIX }}-${{ inputs.release_tag }}
-          path: apps/desktop/out/release/${{ env.DESKTOP_RELEASE_ASSET_NAME }}
+          path: |
+            apps/desktop/out/release/${{ env.DESKTOP_RELEASE_ASSET_NAME }}
+            apps/desktop/out/release/*.zip
+            apps/desktop/out/release/*.zip.blockmap
+            apps/desktop/out/release/*-mac.yml
           if-no-files-found: error
 
       - name: Prepare release notes
@@ -371,7 +413,7 @@ jobs:
           - channel: `${{ steps.release_meta.outputs.release_channel }}`
           - commit: `${{ steps.release_meta.outputs.release_sha }}`
           - asset: `${DESKTOP_RELEASE_ASSET_NAME}`
-          - updater: disabled in this build; the shared `latest-mac.yml` / `beta-mac.yml` manifests remain Apple Silicon only
+          - updater: shared `latest-mac.yml` / `beta-mac.yml` manifests include both Apple Silicon and Intel macOS ZIP assets
           EOF
           echo "notes_path=${notes_path}" >> "${GITHUB_OUTPUT}"
 
@@ -386,22 +428,62 @@ jobs:
             echo "Intel macOS release publishing to ${RELEASE_GH_REPO} requires HOLABOSS_RELEASES_REPO_TOKEN" >&2
             exit 1
           fi
-          if gh release view --repo "${RELEASE_GH_REPO}" "${{ steps.release_meta.outputs.release_tag }}" >/dev/null 2>&1; then
-            exit 0
+          if ! gh release view --repo "${RELEASE_GH_REPO}" "${{ steps.release_meta.outputs.release_tag }}" >/dev/null 2>&1; then
+            echo "Intel macOS updater publishing requires an existing ${RELEASE_GH_REPO} release for ${{ steps.release_meta.outputs.release_tag }}" >&2
+            exit 1
           fi
 
-          prerelease_flag=()
-          if [ "${{ steps.release_meta.outputs.prerelease }}" = "true" ]; then
-            prerelease_flag+=(--prerelease)
-          fi
-
-          gh release create "${{ steps.release_meta.outputs.release_tag }}" \
+      - name: Download shared macOS updater manifests
+        if: ${{ !inputs.artifact_only }}
+        id: download_shared_manifests
+        env:
+          GH_TOKEN: ${{ secrets.HOLABOSS_RELEASES_REPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest_dir="${RUNNER_TEMP}/existing-mac-manifests"
+          rm -rf "${manifest_dir}"
+          mkdir -p "${manifest_dir}"
+          gh release download "${{ steps.release_meta.outputs.release_tag }}" \
             --repo "${RELEASE_GH_REPO}" \
-            --title "${{ steps.release_meta.outputs.release_title }}" \
-            --notes-file "${{ steps.release_notes.outputs.notes_path }}" \
-            "${prerelease_flag[@]}"
+            --pattern '*-mac.yml' \
+            --dir "${manifest_dir}"
+          if ! find "${manifest_dir}" -maxdepth 1 -name '*-mac.yml' | grep -q .; then
+            echo "shared macOS updater manifests are missing from ${RELEASE_GH_REPO} release ${{ steps.release_meta.outputs.release_tag }}" >&2
+            exit 1
+          fi
+          echo "manifest_dir=${manifest_dir}" >> "${GITHUB_OUTPUT}"
 
-      - name: Upload Intel macOS release asset
+      - name: Merge Intel macOS updater manifests with existing release manifests
+        if: ${{ !inputs.artifact_only }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          existing_manifest_dir="${{ steps.download_shared_manifests.outputs.manifest_dir }}"
+          if [ -z "${existing_manifest_dir}" ] || [ ! -d "${existing_manifest_dir}" ]; then
+            echo "existing shared macOS updater manifest directory is unavailable: ${existing_manifest_dir}" >&2
+            exit 1
+          fi
+          local_manifest_count=0
+          while IFS= read -r local_manifest_path; do
+            local_manifest_count=$((local_manifest_count + 1))
+            manifest_name="$(basename "${local_manifest_path}")"
+            shared_manifest_path="${existing_manifest_dir}/${manifest_name}"
+            if [ ! -f "${shared_manifest_path}" ]; then
+              echo "shared macOS updater manifest is missing from ${RELEASE_GH_REPO}: ${manifest_name}" >&2
+              exit 1
+            fi
+            ruby apps/desktop/scripts/merge-mac-update-manifests.rb \
+              "${local_manifest_path}" \
+              "${shared_manifest_path}" \
+              "${local_manifest_path}"
+          done < <(find apps/desktop/out/release -maxdepth 1 -name '*-mac.yml' -print | sort)
+          if [ "${local_manifest_count}" -eq 0 ]; then
+            echo "no local Intel macOS updater manifests were produced" >&2
+            exit 1
+          fi
+
+      - name: Upload Intel macOS release assets
         if: ${{ !inputs.artifact_only }}
         env:
           GH_TOKEN: ${{ secrets.HOLABOSS_RELEASES_REPO_TOKEN }}
@@ -415,4 +497,7 @@ jobs:
           gh release upload "${{ steps.release_meta.outputs.release_tag }}" \
             --repo "${RELEASE_GH_REPO}" \
             "apps/desktop/out/release/${DESKTOP_RELEASE_ASSET_NAME}" \
+            apps/desktop/out/release/*.zip \
+            apps/desktop/out/release/*.zip.blockmap \
+            apps/desktop/out/release/*-mac.yml \
             --clobber

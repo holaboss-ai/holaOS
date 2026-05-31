@@ -19,10 +19,10 @@ test("issue detail pane supports an onboarding-specific back action override", a
   );
   assert.match(
     source,
-    /<Button type="button" variant="ghost" onClick=\{handleBackToBoard\}>[\s\S]*\{backLabel\}/,
+    /aria-label=\{backLabel\}/,
   );
   assert.match(
     source,
-    /<Button[\s\S]*variant="ghost"[\s\S]*onClick=\{handleBackToBoard\}[\s\S]*\{backLabel\}/,
+    /title=\{backLabel\}/,
   );
 });

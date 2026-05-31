@@ -2224,7 +2224,7 @@ test("buildPiProviderConfig uses Anthropic Messages API for managed Holaboss Cla
     "X-Holaboss-User-Id": "user-1",
   });
   assert.equal(providerConfig.models[0]?.contextWindow, 1_000_000);
-  assert.equal(providerConfig.models[0]?.maxTokens, 64_000);
+  assert.equal(providerConfig.models[0]?.maxTokens, 128_000);
 });
 
 test("requestedPiThinkingLevel maps provider-native values into Pi thinking levels", () => {
@@ -2302,7 +2302,7 @@ test("buildPiProviderConfig uses pi-ai native Google provider for direct Gemini 
   assert.equal(providerConfig.authHeader, false);
   assert.equal(providerConfig.models[0]?.api, "google-generative-ai");
   assert.equal(providerConfig.models[0]?.contextWindow, 1_048_576);
-  assert.equal(providerConfig.models[0]?.maxTokens, 65_536);
+  assert.equal(providerConfig.models[0]?.maxTokens, 128_000);
   assert.equal(providerConfig.models[0]?.compat, undefined);
 });
 
@@ -2327,7 +2327,7 @@ test("buildPiProviderConfig disables store for Google-compatible proxy routes", 
   });
 });
 
-test("buildPiProviderConfig falls back to legacy limits for unknown custom models", () => {
+test("buildPiProviderConfig falls back to shared default limits for unknown custom models", () => {
   const providerConfig = buildPiProviderConfig({
     ...baseRequest(),
     provider_id: "custom_openai_compat",
@@ -2340,7 +2340,7 @@ test("buildPiProviderConfig falls back to legacy limits for unknown custom model
   });
 
   assert.equal(providerConfig.models[0]?.contextWindow, 65_536);
-  assert.equal(providerConfig.models[0]?.maxTokens, 8_192);
+  assert.equal(providerConfig.models[0]?.maxTokens, 128_000);
 });
 
 test("createPiMcpCustomTools filters discovery to allowlisted tools and forwards calls via mcporter", async () => {

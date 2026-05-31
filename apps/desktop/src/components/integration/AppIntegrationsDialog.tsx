@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useEffect } from "react";
 import { IntegrationLogo } from "@/components/integration/IntegrationLogo";
-import { overlayOpenCountAtom } from "@/components/layout/new-shell/overlay-presence";
+import { overlayOpenCountAtom } from "@/components/layout/shell/overlay-presence";
 import { Button } from "@/components/ui/button";
 import {
   type IntegrationBindingVerifyOutcome,
@@ -53,7 +53,7 @@ export function AppIntegrationsDialog({
   appName: string;
   integrations: AppIntegrationsDialogIntegration[];
 }) {
-  // Bump the new-shell overlay counter while the dialog is open so
+  // Bump the shell overlay counter while the dialog is open so
   // BrowserPane detaches its native BrowserView (collapses to 0x0). The
   // OS-level webview composites above the renderer and would otherwise
   // paint over the dialog, swallowing clicks — same pattern as
