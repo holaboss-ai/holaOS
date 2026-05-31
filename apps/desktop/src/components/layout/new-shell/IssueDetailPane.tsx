@@ -247,9 +247,13 @@ function runtimeStateEffectiveStatus(
 export function IssueDetailPane({
   workspaceId,
   issueId,
+  onBack,
+  backLabel = "Back to board",
 }: {
   workspaceId: string;
   issueId: string;
+  onBack?: () => void;
+  backLabel?: string;
 }) {
   const { setSelectedWorkspaceId } = useWorkspaceSelection();
   const { selectedWorkspace } = useWorkspaceDesktop();
@@ -620,6 +624,10 @@ export function IssueDetailPane({
   }, []);
 
   const handleBackToBoard = useCallback(() => {
+    if (onBack) {
+      onBack();
+      return;
+    }
     const normalizedWorkspaceId = workspaceId.trim();
     if (!normalizedWorkspaceId) {
       return;
@@ -629,6 +637,7 @@ export function IssueDetailPane({
     setInternalTabs((prev) => upsertInternalTab(prev, tab));
     setActiveInternalTabId(tab.id);
   }, [
+    onBack,
     setActiveInternalTabId,
     setInternalTabs,
     setSelectedWorkspaceId,
@@ -1431,7 +1440,7 @@ export function IssueDetailPane({
           !isEditingDetails ? (
             <Button type="button" variant="ghost" onClick={handleBackToBoard}>
               <ArrowLeft className="size-4" />
-              Back to board
+              {backLabel}
             </Button>
           ) : (
             <>
@@ -1442,7 +1451,7 @@ export function IssueDetailPane({
                 disabled={isMutationPending}
               >
                 <ArrowLeft className="size-4" />
-                Back to board
+                {backLabel}
               </Button>
               <Button
                 type="button"

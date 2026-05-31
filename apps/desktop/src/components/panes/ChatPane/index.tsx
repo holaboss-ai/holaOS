@@ -234,6 +234,8 @@ import { AssistantTurn } from "./AssistantTurn";
 import { Composer } from "./Composer";
 import { UserTurn } from "./UserTurn";
 import { ConversationTurns } from "./ConversationTurns";
+import { BackgroundTaskReferenceCards } from "./BackgroundTaskReferenceCards";
+import { IssueDetailPane } from "@/components/layout/new-shell/IssueDetailPane";
 
 export type {
   ChatAssistantSegment,
@@ -328,6 +330,66 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
+}
+
+const ONBOARDING_IMPLEMENTATION_TASK_STATUSES = [
+  "queued",
+  "running",
+  "waiting_on_user",
+] as const;
+const ONBOARDING_IMPLEMENTATION_TASK_POLL_INTERVAL_MS = 1000;
+
+function issueBackgroundTaskSourceType(sourceType: string | null | undefined) {
+  const normalized = (sourceType ?? "").trim().toLowerCase();
+  return normalized === "issue" || normalized === "delegate_task";
+}
+
+function backgroundTaskReferenceIdentity(reference: ChatBackgroundTaskReference) {
+  return [
+    reference.workspaceId.trim(),
+    (reference.sourceType ?? "").trim().toLowerCase(),
+    reference.issueId?.trim() || "",
+    reference.sourceId?.trim() || "",
+  ].join("|");
+}
+
+function dedupeBackgroundTaskReferences(
+  references: ChatBackgroundTaskReference[],
+) {
+  const seen = new Set<string>();
+  const next: ChatBackgroundTaskReference[] = [];
+  for (const reference of references) {
+    const key = backgroundTaskReferenceIdentity(reference);
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    next.push(reference);
+  }
+  return next;
+}
+
+function backgroundTaskUpdatedAtTime(task: BackgroundTaskRecordPayload) {
+  return Date.parse(task.updated_at || "") || 0;
+}
+
+function onboardingImplementationTaskReference(
+  task: BackgroundTaskRecordPayload,
+): ChatBackgroundTaskReference | null {
+  const workspaceId = task.workspace_id.trim();
+  const sourceType = (task.source_type ?? "").trim();
+  const issueId = (task.source_id ?? "").trim();
+  if (!workspaceId || !issueId || !issueBackgroundTaskSourceType(sourceType)) {
+    return null;
+  }
+  return {
+    workspaceId,
+    sourceType,
+    sourceId: issueId,
+    issueId,
+    title: task.title?.trim() || task.goal?.trim() || issueId,
+    status: task.status?.trim() || null,
+  };
 }
 
 const ONBOARDING_REPORT_FIELD_LABELS: Record<string, string> = {
@@ -3404,6 +3466,12 @@ interface ChatPaneArtifactBrowserRequest {
   scope?: "reply" | "session";
 }
 
+interface OnboardingIssueDetailTarget {
+  workspaceId: string;
+  issueId: string;
+  title: string | null;
+}
+
 interface ChatPaneProps {
   onOpenOutput?: (output: WorkspaceOutputRecordPayload) => void;
   onSyncFileDisplayFromAgentOperation?: (path: string) => void;
@@ -3900,6 +3968,14 @@ export function ChatPane({
   const skeletonStartedAtRef = useRef(0);
   const skeletonGenerationRef = useRef(0);
   const [activeSessionId, setActiveSessionId] = useState("");
+  const [onboardingImplementationTaskReferences, setOnboardingImplementationTaskReferences] =
+    useState<ChatBackgroundTaskReference[]>([]);
+  const [onboardingImplementationTasksLoading, setOnboardingImplementationTasksLoading] =
+    useState(false);
+  const [onboardingImplementationTasksError, setOnboardingImplementationTasksError] =
+    useState("");
+  const [onboardingIssueDetailTarget, setOnboardingIssueDetailTarget] =
+    useState<OnboardingIssueDetailTarget | null>(null);
   const effectiveSessionOpenRequest =
     sessionOpenRequest ?? localSessionOpenRequest;
   localSessionOpenRequestRef.current = localSessionOpenRequest;
@@ -7440,6 +7516,10 @@ export function ChatPane({
       readOnly: true,
     });
   };
+  const onboardingImplementationMode =
+    isOnboardingVariant &&
+    (selectedWorkspace?.onboarding_state || "").trim().toLowerCase() ===
+      "implementing";
 
   const handleOpenBackgroundTaskSession = (task: BackgroundTaskRecordPayload) => {
     if (onOpenBackgroundTask?.(task) === true) {
@@ -7482,6 +7562,24 @@ export function ChatPane({
 
   const handleOpenBackgroundTaskReference = useCallback(
     (reference: ChatBackgroundTaskReference) => {
+      if (onboardingImplementationMode) {
+        const workspaceId = reference.workspaceId.trim();
+        const sourceType = (reference.sourceType ?? "").trim();
+        const issueId =
+          reference.issueId?.trim() || reference.sourceId?.trim() || "";
+        if (
+          workspaceId &&
+          issueId &&
+          issueBackgroundTaskSourceType(sourceType)
+        ) {
+          setOnboardingIssueDetailTarget({
+            workspaceId,
+            issueId,
+            title: reference.title?.trim() || null,
+          });
+          return;
+        }
+      }
       const workspaceId = reference.workspaceId.trim();
       const sourceType = (reference.sourceType ?? "").trim() || null;
       const sourceId =
@@ -7539,7 +7637,7 @@ export function ChatPane({
       };
       onOpenBackgroundTask?.(syntheticTask);
     },
-    [onOpenBackgroundTask],
+    [onOpenBackgroundTask, onboardingImplementationMode],
   );
 
   const onComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -8186,6 +8284,13 @@ export function ChatPane({
   const onboardingFlowState = isOnboardingVariant
     ? (selectedWorkspace?.onboarding_state || "").trim().toLowerCase()
     : "";
+  const workspaceOnboardingSessionId = (
+    selectedWorkspace?.onboarding_session_id || ""
+  ).trim();
+  const onboardingImplementationControllerSessionId =
+    onboardingImplementationMode
+      ? (activeSessionId || workspaceOnboardingSessionId).trim()
+      : "";
   const alignmentQuestion = parseOnboardingAlignmentQuestion(
     selectedWorkspace?.alignment_question,
   );
@@ -8285,6 +8390,116 @@ export function ChatPane({
     (!isOnboardingVariant && !resolvedChatModel
       ? modelSelectionUnavailableReason
       : "");
+  const onboardingImplementationTaskStripVisible = onboardingImplementationMode;
+
+  useEffect(() => {
+    if (!onboardingImplementationTaskStripVisible) {
+      setOnboardingImplementationTaskReferences([]);
+      setOnboardingImplementationTasksError("");
+      setOnboardingImplementationTasksLoading(false);
+      setOnboardingIssueDetailTarget(null);
+      return;
+    }
+    if (
+      onboardingIssueDetailTarget &&
+      onboardingIssueDetailTarget.workspaceId !== selectedWorkspaceId
+    ) {
+      setOnboardingIssueDetailTarget(null);
+    }
+  }, [
+    onboardingImplementationTaskStripVisible,
+    onboardingIssueDetailTarget,
+    selectedWorkspaceId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !onboardingImplementationTaskStripVisible ||
+      !selectedWorkspaceId ||
+      !onboardingImplementationControllerSessionId
+    ) {
+      setOnboardingImplementationTaskReferences([]);
+      setOnboardingImplementationTasksError("");
+      setOnboardingImplementationTasksLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    let requestInFlight = false;
+    const workspaceId = selectedWorkspaceId;
+    const controllerSessionId = onboardingImplementationControllerSessionId;
+
+    const loadTasks = async (options?: { showLoading?: boolean }) => {
+      if (requestInFlight) {
+        return;
+      }
+      requestInFlight = true;
+      if (options?.showLoading) {
+        setOnboardingImplementationTasksLoading(true);
+      }
+      try {
+        const response = await window.electronAPI.workspace.listBackgroundTasks({
+          workspaceId,
+          ownerMainSessionId: controllerSessionId,
+          statuses: [...ONBOARDING_IMPLEMENTATION_TASK_STATUSES],
+          limit: 50,
+        });
+        if (cancelled) {
+          return;
+        }
+        const nextReferences = dedupeBackgroundTaskReferences(
+          (response.tasks ?? [])
+            .slice()
+            .sort(
+              (left, right) =>
+                backgroundTaskUpdatedAtTime(right) -
+                backgroundTaskUpdatedAtTime(left),
+            )
+            .map(onboardingImplementationTaskReference)
+            .filter(
+              (
+                reference,
+              ): reference is ChatBackgroundTaskReference => reference !== null,
+            ),
+        );
+        setOnboardingImplementationTaskReferences(nextReferences);
+        setOnboardingImplementationTasksError("");
+      } catch (error) {
+        if (!cancelled) {
+          setOnboardingImplementationTasksError(normalizeErrorMessage(error));
+        }
+      } finally {
+        requestInFlight = false;
+        if (!cancelled && options?.showLoading) {
+          setOnboardingImplementationTasksLoading(false);
+        }
+      }
+    };
+
+    const refreshVisibleTasks = () => {
+      if (cancelled || document.visibilityState !== "visible") {
+        return;
+      }
+      void loadTasks();
+    };
+
+    void loadTasks({ showLoading: true });
+    const intervalId = window.setInterval(
+      refreshVisibleTasks,
+      ONBOARDING_IMPLEMENTATION_TASK_POLL_INTERVAL_MS,
+    );
+    document.addEventListener("visibilitychange", refreshVisibleTasks);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", refreshVisibleTasks);
+    };
+  }, [
+    onboardingImplementationControllerSessionId,
+    onboardingImplementationTaskStripVisible,
+    selectedWorkspaceId,
+  ]);
+
   const runIssueMutation = useCallback(
     async (action: () => Promise<unknown>, fallbackMessage: string) => {
       if (!selectedWorkspaceId || !activeIssue) {
@@ -9057,6 +9272,51 @@ export function ChatPane({
       ) : null}
     </div>
   ) : null;
+  const onboardingImplementationTaskStrip = onboardingImplementationTaskStripVisible ? (
+    <div className="flex shrink-0 justify-center px-4 pt-2">
+      <div className={`w-full ${CHAT_LAYOUT.contentMaxWidth}`}>
+        <div className="rounded-2xl border border-border/80 bg-background/75 px-4 py-3 shadow-[0_12px_30px_rgba(15,23,42,0.05)] backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                Implementing approved plan
+              </div>
+              <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                {onboardingImplementationTaskReferences.length > 0
+                  ? "Open a delegated task to inspect its full issue thread. Back returns here."
+                  : onboardingImplementationTasksLoading
+                    ? "Delegating work and opening issue threads..."
+                    : "Task pills will appear here as delegated work starts."}
+              </div>
+            </div>
+            {onboardingImplementationTasksLoading &&
+            onboardingImplementationTaskReferences.length === 0 ? (
+              <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
+            ) : null}
+          </div>
+          {onboardingImplementationTasksError ? (
+            <div className="mt-3 rounded-xl border border-destructive/20 bg-destructive/[0.04] px-3 py-2 text-xs text-destructive">
+              {onboardingImplementationTasksError}
+            </div>
+          ) : null}
+          {onboardingImplementationTaskReferences.length > 0 ? (
+            <div className="mt-3">
+              <BackgroundTaskReferenceCards
+                references={onboardingImplementationTaskReferences}
+                onOpenReference={handleOpenBackgroundTaskReference}
+              />
+            </div>
+          ) : !onboardingImplementationTasksError ? (
+            <div className="mt-3 rounded-xl border border-dashed border-border/80 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              {onboardingImplementationTasksLoading
+                ? "Waiting for the first delegated task to register."
+                : "No delegated tasks are visible yet."}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  ) : null;
   useEffect(() => {
     if (creditWarningSeverity) {
       trackUmamiEvent("credit_warning_shown", {
@@ -9559,48 +9819,59 @@ export function ChatPane({
           </div>
         ) : null}
 
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          {!isOnboardingVariant && isViewingBoundMainSession ? (
-            <div className="flex shrink-0 justify-center px-4 pt-2 empty:hidden">
-              <BackgroundTasksPane
-                workspaceId={selectedWorkspaceId}
-                variant="inline"
-                onOpenTaskSession={handleOpenBackgroundTaskSession}
-              />
-            </div>
-          ) : null}
-          <div
-            className="group/chat-scroll relative min-h-0 flex-1 overflow-hidden"
-            style={{
-              maskImage: chatScrollMaskImage(),
-              WebkitMaskImage: chatScrollMaskImage(),
-            }}
-          >
+        {onboardingIssueDetailTarget ? (
+          <div className="min-h-0 flex-1">
+            <IssueDetailPane
+              workspaceId={onboardingIssueDetailTarget.workspaceId}
+              issueId={onboardingIssueDetailTarget.issueId}
+              onBack={() => setOnboardingIssueDetailTarget(null)}
+              backLabel="Back to onboarding"
+            />
+          </div>
+        ) : (
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {!isOnboardingVariant && isViewingBoundMainSession ? (
+              <div className="flex shrink-0 justify-center px-4 pt-2 empty:hidden">
+                <BackgroundTasksPane
+                  workspaceId={selectedWorkspaceId}
+                  variant="inline"
+                  onOpenTaskSession={handleOpenBackgroundTaskSession}
+                />
+              </div>
+            ) : null}
+            {isOnboardingVariant ? onboardingImplementationTaskStrip : null}
             <div
-              ref={messagesRef}
-              onWheelCapture={(event) => {
-                if (event.deltaY < 0) {
-                  shouldAutoScrollRef.current = false;
-                }
+              className="group/chat-scroll relative min-h-0 flex-1 overflow-hidden"
+              style={{
+                maskImage: chatScrollMaskImage(),
+                WebkitMaskImage: chatScrollMaskImage(),
               }}
-              onScroll={(event) => {
-                const { currentTarget } = event;
-                const nextScrollTop = currentTarget.scrollTop;
-                const scrolledUp = nextScrollTop < lastChatScrollTopRef.current;
-                lastChatScrollTopRef.current = nextScrollTop;
-                const nearBottom = isNearChatBottom(currentTarget);
-                shouldAutoScrollRef.current = scrolledUp ? false : nearBottom;
-                setIsAwayFromChatBottom((current) =>
-                  current === !nearBottom ? current : !nearBottom,
-                );
-                if (
-                  currentTarget.scrollTop <= CHAT_HISTORY_TOP_LOAD_THRESHOLD_PX
-                ) {
-                  void loadOlderSessionHistory();
-                }
-              }}
-              className="chat-scrollbar-thin h-full min-h-0 overflow-x-hidden overflow-y-auto"
             >
+              <div
+                ref={messagesRef}
+                onWheelCapture={(event) => {
+                  if (event.deltaY < 0) {
+                    shouldAutoScrollRef.current = false;
+                  }
+                }}
+                onScroll={(event) => {
+                  const { currentTarget } = event;
+                  const nextScrollTop = currentTarget.scrollTop;
+                  const scrolledUp = nextScrollTop < lastChatScrollTopRef.current;
+                  lastChatScrollTopRef.current = nextScrollTop;
+                  const nearBottom = isNearChatBottom(currentTarget);
+                  shouldAutoScrollRef.current = scrolledUp ? false : nearBottom;
+                  setIsAwayFromChatBottom((current) =>
+                    current === !nearBottom ? current : !nearBottom,
+                  );
+                  if (
+                    currentTarget.scrollTop <= CHAT_HISTORY_TOP_LOAD_THRESHOLD_PX
+                  ) {
+                    void loadOlderSessionHistory();
+                  }
+                }}
+                className="chat-scrollbar-thin h-full min-h-0 overflow-x-hidden overflow-y-auto"
+              >
               {hasMessages ? (
                 <div
                   ref={messagesContentRef}
@@ -9897,6 +10168,8 @@ export function ChatPane({
               )}
             </div>
           ) : null}
+          </div>
+        )}
 
           {showHistoryRestoreScreen ? <HistoryRestoreSkeleton /> : null}
 
@@ -9919,7 +10192,6 @@ export function ChatPane({
             onClose={closeImageAttachmentPreview}
           />
         </div>
-      </div>
   );
 
   if (isEmbeddedVariant) {

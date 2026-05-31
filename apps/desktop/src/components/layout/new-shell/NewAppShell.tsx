@@ -176,10 +176,11 @@ function NewAppShellContent() {
 
   const showMiddle = layout === "split";
   const showControlCenter = controlCenterOpen;
+  const showSidebar = !showControlCenter && !onboardingModeActive;
 
   return (
     <div className="relative flex h-screen w-screen overflow-hidden text-foreground antialiased">
-      {showControlCenter ? null : <Sidebar />}
+      {showSidebar ? <Sidebar /> : null}
       {onboardingModeActive ? (
         <div className="flex min-w-0 flex-1 flex-col bg-background">
           <ExperimentalWorkspaceOnboardingTakeover />
