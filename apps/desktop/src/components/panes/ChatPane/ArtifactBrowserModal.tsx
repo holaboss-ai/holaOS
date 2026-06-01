@@ -209,6 +209,55 @@ export function outputChangeLabel(output: WorkspaceOutputRecordPayload) {
   return "";
 }
 
+/**
+ * Resolves the most-descriptive label we can show for an output, in
+ * priority order. The producer-side `output.title` wins when it's set
+ * (the dominant case — agent-authored files use this, write_report
+ * sets it, etc.). When it's empty (frequently the case for module-app
+ * creates where the app sometimes passes "" through), fall through:
+ *
+ *  - metadata.summary (set by write_report-style tools) — trimmed to
+ *    a single readable line so the row stays scannable
+ *  - file path basename — preserves the agent's filename even when
+ *    the title wasn't propagated upstream
+ *  - capitalized artifact_type — for app outputs, "Tweet" / "Post"
+ *    reads better than the previous "${kind} #${n}" counter
+ *  - fallback (caller-provided counter, then literal "Untitled
+ *    artifact")
+ */
+const TITLE_SUMMARY_MAX = 64;
+
+export function outputDisplayTitle(
+  output: WorkspaceOutputRecordPayload,
+  fallback?: string,
+): string {
+  const title = output.title?.trim();
+  if (title) {
+    return title;
+  }
+  const summary = outputMetadataString(output, "summary");
+  if (summary) {
+    const firstLine = summary.split(/\r?\n/).find(Boolean)?.trim() ?? "";
+    const cleaned = firstLine || summary.trim();
+    return cleaned.length > TITLE_SUMMARY_MAX
+      ? `${cleaned.slice(0, TITLE_SUMMARY_MAX - 1).trimEnd()}…`
+      : cleaned;
+  }
+  const path = outputDisplayPath(output);
+  if (path) {
+    const segments = path.split(/[\\/]/).filter(Boolean);
+    const basename = segments[segments.length - 1];
+    if (basename) {
+      return basename;
+    }
+  }
+  const artifactType = outputMetadataString(output, "artifact_type");
+  if (artifactType) {
+    return artifactType.charAt(0).toUpperCase() + artifactType.slice(1);
+  }
+  return fallback?.trim() || "Untitled artifact";
+}
+
 export function outputSecondaryLabel(output: WorkspaceOutputRecordPayload) {
   const parts = [outputKindLabel(output)];
   const sizeLabel = formatAttachmentSize(
@@ -587,7 +636,7 @@ export function ArtifactBrowserModal({
                         {kindLabel}
                       </div>
                       <div className="truncate text-sm font-medium text-foreground">
-                        {output.title || "Untitled artifact"}
+                        {outputDisplayTitle(output)}
                       </div>
                     </div>
                     {changeLabel ? (

@@ -5,6 +5,7 @@ import {
   dedupeOutputsForDisplay,
   outputBrowserFilterForOutput,
   outputChangeLabel,
+  outputDisplayTitle,
   outputKindLabel,
   sortOutputsLatestFirst,
 } from "@/components/panes/ChatPane/ArtifactBrowserModal";
@@ -99,7 +100,10 @@ export function ArtifactsPane({
           );
     if (normalizedSearchQuery) {
       result = result.filter((output) => {
-        const title = (output.title ?? "").toLowerCase();
+        // Search the resolved display label, not just the raw title, so
+        // outputs whose title fell back to a filename or summary still
+        // match queries against that visible text.
+        const title = outputDisplayTitle(output).toLowerCase();
         const kind = outputKindLabel(output).toLowerCase();
         return (
           title.includes(normalizedSearchQuery) ||
@@ -223,7 +227,7 @@ export function ArtifactsPane({
                 >
                   <OutputArtifactIcon output={output} variant="bare" />
                   <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-                    {output.title || "Untitled artifact"}
+                    {outputDisplayTitle(output)}
                   </span>
                   <span className="shrink-0 truncate text-xs text-muted-foreground">
                     {kindLabel}

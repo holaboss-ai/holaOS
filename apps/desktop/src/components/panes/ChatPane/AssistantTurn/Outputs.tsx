@@ -3,6 +3,7 @@ import { useState } from "react";
 import {
   OutputArtifactIcon,
   dedupeOutputsForDisplay,
+  outputDisplayTitle,
   outputKindLabel,
   outputSecondaryLabel,
 } from "../ArtifactBrowserModal";
@@ -29,8 +30,12 @@ export function AssistantTurnOutputs({
     shouldCollapse && !expanded
       ? displayOutputs.slice(0, INLINE_OUTPUT_COLLAPSE_THRESHOLD)
       : displayOutputs;
-  // Stable per-kind sequence numbers ("Twitter draft #2") so the default
-  // title is informative even when the agent omits a title.
+  // Stable per-kind sequence numbers ("Tweet #2") used as the LAST
+  // resort if neither output.title nor any metadata-derived label
+  // (summary / filename / artifact_type) is available. With the new
+  // outputDisplayTitle fallback chain, this counter ends up showing
+  // far less often — but still wins over "Untitled artifact" when
+  // the producer truly gave us nothing to name the row.
   const kindCounters = new Map<string, number>();
   const labelByOutputId = new Map<string, string>();
   for (const output of displayOutputs) {
@@ -101,8 +106,7 @@ function ArtifactRow({
   onOpen?: (output: WorkspaceOutputRecordPayload) => void;
   output: WorkspaceOutputRecordPayload;
 }) {
-  const displayTitle =
-    output.title?.trim() || defaultTitle || "Untitled artifact";
+  const displayTitle = outputDisplayTitle(output, defaultTitle);
   return (
     <button
       className="group flex h-9 w-full min-w-0 items-center gap-2 rounded-md border border-transparent px-2 text-left transition-colors hover:border-border hover:bg-foreground/[0.03] disabled:cursor-default disabled:hover:border-transparent disabled:hover:bg-transparent"
