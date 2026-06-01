@@ -65,12 +65,13 @@ test("new shell issue creation dialog stages attachments, creates issues, and op
   assert.doesNotMatch(boardPaneSource, />\s*Members\s*</);
   assert.doesNotMatch(boardPaneSource, />\s*Agents\s*</);
   assert.doesNotMatch(boardPaneSource, /setNewIssueOpen/);
-  assert.match(sidebarSource, /const setComposerPrefill = useSetAtom\(chatComposerPrefillAtom\);/);
-  assert.match(sidebarSource, /const handleNewIssue = useCallback\(\(\) => \{/);
-  assert.match(sidebarSource, /text: "New issue: ",/);
-  assert.match(sidebarSource, /sessionMode: "preserve",/);
+  // Sidebar's new-issue affordance now opens the NewIssueDialog directly
+  // instead of prefilling the chat composer — the old flow shipped before
+  // the dialog existed.
+  assert.match(sidebarSource, /const setNewIssueOpen = useSetAtom\(newIssueOpenAtom\);/);
+  assert.match(sidebarSource, /const handleNewIssue = useCallback\(\(\) => \{[\s\S]*?setNewIssueOpen\(true\);/);
   assert.match(sidebarSource, /onClick=\{handleNewIssue\}/);
-  assert.match(sidebarSource, />\s*New issue\s*</);
+  assert.match(sidebarSource, /aria-label="New issue"/);
   assert.doesNotMatch(searchDialogSource, /label="New issue"/);
   assert.doesNotMatch(sidebarSource, /function SidebarNewIssueAction\(\) \{/);
 });

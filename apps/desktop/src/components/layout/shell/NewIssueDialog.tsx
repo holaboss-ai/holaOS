@@ -1,9 +1,10 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useAtom } from "jotai";
-import { Loader2, Paperclip, Plus, Trash2, X } from "lucide-react";
+import { Loader2, Paperclip, X } from "lucide-react";
 import {
   type ChangeEvent,
   type FormEvent,
+  type KeyboardEvent,
   useCallback,
   useEffect,
   useRef,
@@ -90,7 +91,10 @@ export function NewIssueDialog() {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [status, setStatus] = useState<IssueStatusPayload | "">("");
+  // Default to "todo" so the minimum-effort flow is: type title → submit.
+  // Almost every new issue starts in todo; users can re-status from the
+  // board or detail pane when they actually need anything else.
+  const [status, setStatus] = useState<IssueStatusPayload>("todo");
   const [assigneeTeammateId, setAssigneeTeammateId] = useState("");
   const [priority, setPriority] = useState<IssuePriorityPayload | "">("");
   const [blockerReason, setBlockerReason] = useState("");
@@ -99,7 +103,7 @@ export function NewIssueDialog() {
   const reset = useCallback(() => {
     setTitle("");
     setDescription("");
-    setStatus("");
+    setStatus("todo");
     setAssigneeTeammateId("");
     setPriority("");
     setBlockerReason("");
@@ -159,6 +163,19 @@ export function NewIssueDialog() {
     [],
   );
 
+  // Cmd/Ctrl+Enter submits from any field. Plain Enter in <Textarea>
+  // adds a newline (expected); plain Enter in <Input> submits the form
+  // natively, so this only really matters for the description.
+  const handleFormKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLFormElement>) => {
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        (event.currentTarget as HTMLFormElement).requestSubmit();
+      }
+    },
+    [],
+  );
+
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -168,10 +185,6 @@ export function NewIssueDialog() {
       }
       if (!title.trim()) {
         setErrorMessage("Issue title is required.");
-        return;
-      }
-      if (!status) {
-        setErrorMessage("Issue status is required.");
         return;
       }
       if (status === "blocked" && !blockerReason.trim()) {
@@ -247,7 +260,11 @@ export function NewIssueDialog() {
             animationTimingFunction: "var(--ease-out-expo)",
           }}
         >
-          <form onSubmit={handleSubmit} className="flex flex-col">
+          <form
+            onSubmit={handleSubmit}
+            onKeyDown={handleFormKeyDown}
+            className="flex flex-col"
+          >
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <div className="text-sm font-medium text-foreground">
                 New issue
@@ -273,7 +290,7 @@ export function NewIssueDialog() {
 
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-1.5">
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-foreground/45">
+                  <div className="text-xs font-medium uppercase tracking-wide text-foreground/45">
                     Assignee
                   </div>
                   <Select
@@ -304,17 +321,17 @@ export function NewIssueDialog() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-foreground/45">
+                  <div className="text-xs font-medium uppercase tracking-wide text-foreground/45">
                     Status
                   </div>
                   <Select
-                    value={status || undefined}
+                    value={status}
                     onValueChange={(value) =>
                       setStatus(value as IssueStatusPayload)
                     }
                   >
                     <SelectTrigger className="w-full bg-background">
-                      <SelectValue placeholder="Select status" />
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent align="start" className="min-w-[220px]">
                       {ISSUE_STATUS_OPTIONS.map((option) => (
@@ -327,7 +344,7 @@ export function NewIssueDialog() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-foreground/45">
+                  <div className="text-xs font-medium uppercase tracking-wide text-foreground/45">
                     Priority
                   </div>
                   <Select
@@ -355,7 +372,7 @@ export function NewIssueDialog() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-foreground/45">
+                  <div className="text-xs font-medium uppercase tracking-wide text-foreground/45">
                     Attachments
                   </div>
                   <div className="flex items-center gap-2">
@@ -385,40 +402,16 @@ export function NewIssueDialog() {
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-foreground/45">
-                  Description
-                </div>
-                <Textarea
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  placeholder="Add description..."
-                  className="min-h-40 resize-none bg-background"
-                />
-              </div>
-
-              {status === "blocked" ? (
-                <div className="space-y-1.5">
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-foreground/45">
-                    Blocker reason
-                  </div>
-                  <Textarea
-                    value={blockerReason}
-                    onChange={(event) => setBlockerReason(event.target.value)}
-                    placeholder="What is blocking this issue?"
-                    className="min-h-20 resize-none bg-background"
-                  />
-                </div>
-              ) : null}
-
               {attachments.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {attachments.map((file) => (
                     <span
                       key={`${file.name}:${file.size}:${file.lastModified}`}
-                      className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.06] px-2 py-1 text-xs text-foreground/70"
+                      className="inline-flex items-center gap-1.5 rounded-md bg-foreground/[0.06] py-1 pl-2 pr-1 text-xs text-foreground/75"
                     >
-                      {file.name}
+                      <span className="max-w-[220px] truncate">
+                        {file.name}
+                      </span>
                       <button
                         type="button"
                         onClick={() =>
@@ -433,18 +426,44 @@ export function NewIssueDialog() {
                             ),
                           )
                         }
-                        className="grid size-4 place-items-center rounded-full text-foreground/45 transition-colors hover:bg-foreground/[0.08] hover:text-foreground"
+                        className="grid size-4 place-items-center rounded text-foreground/45 transition-colors hover:bg-foreground/[0.08] hover:text-foreground"
                         aria-label={`Remove ${file.name}`}
                       >
-                        <Trash2 className="size-3" />
+                        <X className="size-3" />
                       </button>
                     </span>
                   ))}
                 </div>
               ) : null}
 
+              <div className="space-y-1.5">
+                <div className="text-xs font-medium uppercase tracking-wide text-foreground/45">
+                  Description
+                </div>
+                <Textarea
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  placeholder="Add description..."
+                  className="min-h-40 resize-none bg-background"
+                />
+              </div>
+
+              {status === "blocked" ? (
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-foreground/45">
+                    Blocker reason
+                  </div>
+                  <Textarea
+                    value={blockerReason}
+                    onChange={(event) => setBlockerReason(event.target.value)}
+                    placeholder="What is blocking this issue?"
+                    className="min-h-20 resize-none bg-background"
+                  />
+                </div>
+              ) : null}
+
               {errorMessage ? (
-                <div className="rounded-md border border-destructive/25 bg-destructive/8 px-3 py-2 text-xs text-destructive">
+                <div className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                   {errorMessage}
                 </div>
               ) : null}
@@ -455,26 +474,32 @@ export function NewIssueDialog() {
               ) : null}
             </div>
 
-            <div className="flex items-center justify-between border-t border-border px-4 py-3">
+            <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
               <button
                 type="button"
                 onClick={() => handleOpenChange(false)}
-                className="text-sm text-foreground/45 transition-colors hover:text-foreground"
+                className="text-sm text-foreground/55 transition-colors hover:text-foreground"
               >
-                Discard draft
+                Cancel
               </button>
-              <Button
-                type="submit"
-                disabled={isSubmitting || !selectedWorkspaceId}
-                className="h-10 min-w-32"
-              >
-                {isSubmitting ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Plus className="size-4" />
-                )}
-                Create issue
-              </Button>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-foreground/45">
+                  <kbd className="rounded border border-border bg-foreground/[0.04] px-1 py-0.5 font-sans text-[10px] text-foreground/65">
+                    ⌘ ↵
+                  </kbd>{" "}
+                  to create
+                </span>
+                <Button
+                  type="submit"
+                  disabled={isSubmitting || !selectedWorkspaceId}
+                  className="h-9 min-w-28"
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : null}
+                  Create issue
+                </Button>
+              </div>
             </div>
           </form>
         </DialogPrimitive.Popup>

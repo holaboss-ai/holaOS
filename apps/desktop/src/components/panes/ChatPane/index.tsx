@@ -194,6 +194,7 @@ import {
   buildComposerSlashCommandOptions,
   findActiveSlashCommandRange,
   removeSlashCommandText,
+  slugifyFilePathForMention,
   findActiveMentionRange,
   replaceMentionText,
   injectMentionLinks,
@@ -3677,20 +3678,7 @@ export function ChatPane({
     const fileEntryToItem = (
       entry: WorkspaceFileEntry,
     ): ChatComposerMentionItem | null => {
-      // Slugify each path segment so the inserted token round-trips
-      // through findActiveMentionRange. Unicode letters / digits are
-      // preserved so CJK-named files (e.g. `产品方案.md`) survive
-      // round-trip; only true non-letter characters get stripped.
-      const handle = entry.relativePath
-        .split("/")
-        .map((segment) =>
-          segment
-            .toLowerCase()
-            .replace(/\s+/g, "-")
-            .replace(/[^\p{L}\p{N}_.\-]/gu, ""),
-        )
-        .filter(Boolean)
-        .join("/");
+      const handle = slugifyFilePathForMention(entry.relativePath);
       if (!handle) return null;
       return {
         id: `file:${entry.relativePath}`,
@@ -3747,26 +3735,15 @@ export function ChatPane({
   // not be picked up by file-read tools.
   const mentionableFilesByHandle = useMemo(() => {
     const byHandle = new Map<string, WorkspaceFileEntry>();
-    const slugifyEntry = (entry: WorkspaceFileEntry) =>
-      entry.relativePath
-        .split("/")
-        .map((segment) =>
-          segment
-            .toLowerCase()
-            .replace(/\s+/g, "-")
-            .replace(/[^\p{L}\p{N}_.\-]/gu, ""),
-        )
-        .filter(Boolean)
-        .join("/");
     for (const entry of workspaceFiles) {
-      const handle = slugifyEntry(entry);
+      const handle = slugifyFilePathForMention(entry.relativePath);
       if (!handle) continue;
       byHandle.set(handle, entry);
     }
     // Synthesized recent entries (those not in the bounded walk) also
     // need a handle so `@<file>` send-time staging can resolve them.
     for (const entry of recentFileEntriesForWorkspace) {
-      const handle = slugifyEntry(entry);
+      const handle = slugifyFilePathForMention(entry.relativePath);
       if (!handle) continue;
       if (byHandle.has(handle)) continue;
       byHandle.set(handle, entry);
@@ -9645,6 +9622,12 @@ export function ChatPane({
               onOpenAutomations={onOpenAutomations}
               onOpenArtifacts={onOpenArtifacts}
               onEnterFocusMode={onEnterFocusMode}
+              isResponding={isResponding}
+              pausePending={isPausePending}
+              pauseUnavailable={isSubmittingMessage}
+              onPause={() => {
+                void pauseCurrentRun();
+              }}
             />
           </div>
         ) : null}
@@ -10054,8 +10037,12 @@ export function ChatPane({
 
             {hasMessages && isAwayFromChatBottom ? (
               <button
-                aria-label="Jump to latest message"
-                className="absolute bottom-3 left-1/2 z-30 grid size-8 -translate-x-1/2 place-items-center rounded-full border border-border bg-background text-foreground shadow-xs transition-colors hover:bg-muted animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
+                type="button"
+                aria-label={
+                  isResponding
+                    ? "Resume following live response"
+                    : "Jump to latest message"
+                }
                 onClick={() => {
                   const container = messagesRef.current;
                   if (!container) return;
@@ -10065,9 +10052,19 @@ export function ChatPane({
                     behavior: "smooth",
                   });
                 }}
-                type="button"
+                className="absolute bottom-3 right-3 z-30 inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-popover px-2.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
               >
-                <ChevronDown className="size-4" />
+                {isResponding ? (
+                  <>
+                    <StatusDot variant="primary" size="sm" pulse />
+                    <span>Resume tail</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="size-3.5" strokeWidth={2} />
+                    <span>Latest</span>
+                  </>
+                )}
               </button>
             ) : null}
           </div>

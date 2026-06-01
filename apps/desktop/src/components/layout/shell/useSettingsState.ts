@@ -96,7 +96,9 @@ export function useSettingsState() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme);
+      // Legacy THEME_STORAGE_KEY is intentionally not written anymore —
+      // its only consumer was the retired AppShell. App.tsx clears any
+      // historical value on boot.
       localStorage.setItem(COLOR_SCHEME_STORAGE_KEY, colorScheme);
       localStorage.setItem(THEME_VARIANT_STORAGE_KEY, themeVariant);
     } catch {

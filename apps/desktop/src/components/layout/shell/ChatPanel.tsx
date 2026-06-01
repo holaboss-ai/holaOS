@@ -26,6 +26,10 @@ import {
 import { cn } from "@/lib/utils";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import {
+  composerDraftForWorkspaceAtom,
+  setComposerDraftAtom,
+} from "./state/composerDrafts";
+import {
   activeInternalTabIdAtom,
   type InternalTab,
   internalTabsAtom,
@@ -231,6 +235,16 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
     setFocusMode(true);
   }, [setFocusMode]);
 
+  const composerDraftSelector = useAtomValue(composerDraftForWorkspaceAtom);
+  const setComposerDraft = useSetAtom(setComposerDraftAtom);
+  const composerDraftText = composerDraftSelector(selectedWorkspaceId || null);
+  const handleComposerDraftTextChange = useCallback(
+    (text: string) => {
+      setComposerDraft({ workspaceId: selectedWorkspaceId || null, text });
+    },
+    [selectedWorkspaceId, setComposerDraft],
+  );
+
   const body =
     view === "sessions" ? (
       <SessionsView
@@ -251,6 +265,8 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
         onSessionOpenRequestConsumed={handleSessionOpenRequestConsumed}
         composerPrefillRequest={composerPrefill}
         onEnterFocusMode={isCanvas ? undefined : handleEnterFocusMode}
+        composerDraftText={composerDraftText}
+        onComposerDraftTextChange={handleComposerDraftTextChange}
       />
     );
 
@@ -322,6 +338,7 @@ function ChatPanelResizeHandle() {
       role="separator"
       aria-orientation="vertical"
       aria-label="Resize chat panel"
+      title="Drag to resize · Double-click to reset"
       onMouseDown={onMouseDown}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
@@ -357,7 +374,7 @@ function CanvasHeader() {
       initial={{ opacity: 0, y: -2 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.18, ease: CHAT_EASE }}
-      className="flex h-9 shrink-0 items-center gap-1 border-b border-border bg-background/80 px-2 backdrop-blur-sm"
+      className="flex h-9 shrink-0 items-center gap-1 border-b border-border bg-background px-2"
     >
       <AnimatePresence initial={false} mode="popLayout">
         {showTabsDropdown ? (
@@ -374,26 +391,25 @@ function CanvasHeader() {
         ) : null}
       </AnimatePresence>
       <div className="ml-auto flex items-center gap-0.5">
-        <Button
-          variant="ghost"
-          size="icon-sm"
+        <button
+          type="button"
           aria-label="New tab"
+          title="New tab (⌘T)"
           onClick={() => openNewTab(true)}
-          className="window-no-drag text-foreground/55 hover:text-foreground"
+          className="window-no-drag grid size-7 shrink-0 place-items-center rounded-md text-foreground/55 transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
         >
           <Plus className="size-3.5" strokeWidth={1.75} />
-        </Button>
+        </button>
         {focusMode && totalTabsHidden > 0 ? (
-          <Button
-            variant="ghost"
-            size="icon-sm"
+          <button
+            type="button"
             aria-label="Show tabs panel"
             title="Show tabs panel"
             onClick={() => setFocusMode(false)}
-            className="window-no-drag text-foreground/45 hover:text-foreground/85"
+            className="window-no-drag grid size-7 shrink-0 place-items-center rounded-md text-foreground/55 transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
           >
             <PanelLeftOpen className="size-3.5" strokeWidth={1.5} />
-          </Button>
+          </button>
         ) : null}
       </div>
     </motion.div>
@@ -472,13 +488,16 @@ function HiddenTabsDropdown({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="window-no-drag inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-foreground/55 transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:bg-foreground/[0.04] focus-visible:outline-none data-[popup-open]:bg-foreground/[0.04] data-[popup-open]:text-foreground"
+        className="window-no-drag inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-foreground/60 transition-colors hover:bg-foreground/[0.05] hover:text-foreground focus-visible:bg-foreground/[0.05] focus-visible:outline-none data-[popup-open]:bg-foreground/[0.05] data-[popup-open]:text-foreground"
         title="Hidden tabs"
       >
         <span className="tabular-nums">
           {totalTabsHidden} tab{totalTabsHidden === 1 ? "" : "s"}
         </span>
-        <ChevronDown className="size-3 opacity-60" strokeWidth={1.75} />
+        <ChevronDown
+          className="size-3 text-foreground/55"
+          strokeWidth={1.75}
+        />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="bottom" className="w-72">
         {items.map((item) => (
@@ -490,7 +509,7 @@ function HiddenTabsDropdown({
             <TabIconForItem item={item} />
             <span className="min-w-0 flex-1 truncate">{item.label}</span>
             {item.hint ? (
-              <span className="shrink-0 truncate text-[10px] text-foreground/40">
+              <span className="shrink-0 truncate text-xs text-foreground/55">
                 {item.hint}
               </span>
             ) : null}

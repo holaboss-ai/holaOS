@@ -13,10 +13,18 @@ import { installRendererAuthCacheListeners } from "@/lib/app-sdk-client";
 import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { TooltipProvider } from "./components/ui/tooltip";
 
-// localStorage key the old shell-toggle used to write to. Cleaned up
-// on boot so it doesn't sit forever as dead bytes — the toggle is gone
-// and the new shell is the only shell.
-const LEGACY_SHELL_TOGGLE_STORAGE_KEY = "holaboss-new-layout-shell-v1";
+// localStorage keys we used to write but no longer do. Cleaned up on
+// boot so they don't sit forever as dead bytes.
+//   - "holaboss-new-layout-shell-v1": the experimental shell toggle that's
+//     gone now that the new shell is the only shell.
+//   - "holaboss-theme-v1": the legacy combined "<variant>-<scheme>" theme
+//     string. The shell now reads color-scheme + theme-variant separately;
+//     useSettingsState backfills the split form from this key on first run
+//     before we drop it here.
+const RETIRED_STORAGE_KEYS = [
+  "holaboss-new-layout-shell-v1",
+  "holaboss-theme-v1",
+] as const;
 
 function UmamiIdentity() {
   const { data } = useDesktopAuthSession();
@@ -68,11 +76,15 @@ function App() {
     return installRendererAuthCacheListeners();
   }, []);
 
-  // One-shot cleanup of the retired shell-toggle key. Runs once on mount;
-  // missing key / disabled storage are both fine to ignore.
+  // One-shot cleanup of retired keys. Runs once on mount; missing keys
+  // and disabled storage are both fine to ignore. useSettingsState reads
+  // its lazy initial state before this effect fires, so any migration off
+  // these keys still gets a chance to run before we drop them.
   useEffect(() => {
     try {
-      localStorage.removeItem(LEGACY_SHELL_TOGGLE_STORAGE_KEY);
+      for (const key of RETIRED_STORAGE_KEYS) {
+        localStorage.removeItem(key);
+      }
     } catch {
       // ignore
     }

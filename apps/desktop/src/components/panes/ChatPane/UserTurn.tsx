@@ -116,7 +116,7 @@ function UserTurnComponent({
   return (
     <div className="group/user-turn flex min-w-0 justify-end">
       <div
-        className={`relative z-0 flex min-w-0 max-w-[80%] flex-col items-end gap-2 group-hover/user-turn:z-10 group-focus-within/user-turn:z-10 ${showHoverFooter ? "pb-7" : ""}`.trim()}
+        className={`relative z-0 flex min-w-0 max-w-[75%] flex-col items-end gap-2 group-hover/user-turn:z-10 group-focus-within/user-turn:z-10 ${showHoverFooter ? "pb-7" : ""}`.trim()}
       >
         {parsedQuotedSkills.skillIds.length > 0 ? (
           <div className="flex max-w-full flex-wrap justify-end gap-1">
@@ -202,7 +202,7 @@ function UserTurnComponent({
               </Button>
             ) : null}
             {timeLabel ? (
-              <span className="select-none whitespace-nowrap text-[10px] leading-none tabular-nums">
+              <span className="select-none whitespace-nowrap text-xs leading-none tabular-nums">
                 {timeLabel}
               </span>
             ) : null}

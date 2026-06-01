@@ -1,4 +1,4 @@
-import { Boxes, Clock3, Inbox, PanelLeftClose } from "lucide-react";
+import { Boxes, Clock3, Inbox, Loader2, PanelLeftClose, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -25,6 +25,16 @@ interface ChatHeaderProps {
    * legacy AppShell — which has no focus mode — stays unchanged.
    */
   onEnterFocusMode?: () => void;
+  /**
+   * When true, a "Pause" button appears at the right of the header so
+   * the user can halt the current run without scrolling back down to
+   * the composer. Disabled while pausePending / pauseUnavailable to
+   * mirror the composer's own state.
+   */
+  isResponding?: boolean;
+  pausePending?: boolean;
+  pauseUnavailable?: boolean;
+  onPause?: () => void;
 }
 
 export function ChatHeader({
@@ -37,7 +47,13 @@ export function ChatHeader({
   onOpenAutomations,
   onOpenArtifacts,
   onEnterFocusMode,
+  isResponding = false,
+  pausePending = false,
+  pauseUnavailable = false,
+  onPause,
 }: ChatHeaderProps) {
+  const showPauseButton = isResponding && Boolean(onPause);
+  const pauseDisabled = pausePending || pauseUnavailable;
   const seed = workspace?.id ?? agentName ?? "default";
 
   return (
@@ -73,7 +89,7 @@ export function ChatHeader({
             {agentName}
           </span>
           {subtitle ? (
-            <span className="truncate text-[11px] leading-tight text-muted-foreground">
+            <span className="truncate text-xs leading-tight text-muted-foreground">
               {subtitle}
             </span>
           ) : null}
@@ -82,6 +98,39 @@ export function ChatHeader({
 
       <TooltipProvider delay={250}>
         <div className="flex shrink-0 items-center gap-0.5">
+          {showPauseButton ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => onPause?.()}
+                    disabled={pauseDisabled}
+                    aria-label={pausePending ? "Pausing run" : "Pause run"}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    {pausePending ? (
+                      <Loader2
+                        className="size-4 animate-spin"
+                        strokeWidth={1.75}
+                      />
+                    ) : (
+                      <Square
+                        className="size-3.5 fill-current"
+                        strokeWidth={0}
+                      />
+                    )}
+                  </Button>
+                }
+              />
+              <TooltipContent>
+                {pausePending ? "Pausing…" : "Pause run"}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
+
           {onOpenInbox ? (
             <Tooltip>
               <TooltipTrigger
@@ -97,7 +146,7 @@ export function ChatHeader({
                     <Inbox className="size-4" />
                     {inboxUnreadCount > 0 ? (
                       <StatusDot
-                        variant="destructive"
+                        variant="primary"
                         size="sm"
                         className="absolute right-1 top-1 border border-card"
                       />

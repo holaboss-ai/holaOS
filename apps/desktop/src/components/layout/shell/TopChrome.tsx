@@ -1,8 +1,8 @@
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import {
   Bot,
-  CircleDot,
   ChevronDown,
+  CircleDot,
   FolderKanban,
   Globe,
   Image as ImageIcon,
@@ -14,18 +14,19 @@ import {
   Plus,
   X,
 } from "lucide-react";
-import { FileTypeIcon } from "@/lib/fileIcon";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useWorkspaceBrowser } from "@/components/panes/useWorkspaceBrowser";
+import { FileTypeIcon } from "@/lib/fileIcon";
+import { cn } from "@/lib/utils";
+import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import {
   PopoverContent,
   PopoverTrigger,
   SuspendingPopover as Popover,
 } from "./overlay-presence";
-import { useWorkspaceBrowser } from "@/components/panes/useWorkspaceBrowser";
-import { useWorkspaceSelection } from "@/lib/workspaceSelection";
-import { cn } from "@/lib/utils";
 import {
   activeInternalTabIdAtom,
   type InternalTab,
@@ -38,8 +39,7 @@ export function TopChrome() {
   const openNewTab = useSetAtom(newTabOpenAtom);
   const { selectedWorkspaceId } = useWorkspaceSelection();
   const { browserState } = useWorkspaceBrowser("user");
-  const sidebarCollapsed = useAtomValue(sidebarCollapsedAtom);
-  const setSidebarCollapsed = useSetAtom(sidebarCollapsedAtom);
+  const [sidebarCollapsed, setSidebarCollapsed] = useAtom(sidebarCollapsedAtom);
   const [internalTabs, setInternalTabs] = useAtom(internalTabsAtom);
   const [activeInternalTabId, setActiveInternalTabId] = useAtom(
     activeInternalTabIdAtom,
@@ -65,32 +65,44 @@ export function TopChrome() {
     setActiveInternalTabId(id);
   };
 
-  const handleCloseInternalTab = (id: string) => {
-    setInternalTabs((prev) => {
-      const next = prev.filter((t) => t.id !== id);
-      if (activeInternalTabId === id) {
-        // Activate the previous sibling if any, else clear (revert to browser).
-        const idx = prev.findIndex((t) => t.id === id);
-        const fallback = next[idx - 1] ?? next[0] ?? null;
-        setActiveInternalTabId(fallback?.id ?? null);
-      }
-      return next;
-    });
-  };
+  const handleCloseInternalTab = useCallback(
+    (id: string) => {
+      setInternalTabs((prev) => {
+        const next = prev.filter((t) => t.id !== id);
+        if (activeInternalTabId === id) {
+          // Activate the previous sibling if any, else clear (revert to browser).
+          const idx = prev.findIndex((t) => t.id === id);
+          const fallback = next[idx - 1] ?? next[0] ?? null;
+          setActiveInternalTabId(fallback?.id ?? null);
+        }
+        return next;
+      });
+    },
+    [activeInternalTabId, setInternalTabs, setActiveInternalTabId],
+  );
+
+  // Keep latest refs for the close-active-tab IPC handler so the
+  // subscription is registered once and never sees stale closures.
+  const activeInternalTabIdRef = useRef(activeInternalTabId);
+  const activeBrowserTabIdRef = useRef(browserState.activeTabId);
+  const handleCloseInternalTabRef = useRef(handleCloseInternalTab);
+  activeInternalTabIdRef.current = activeInternalTabId;
+  activeBrowserTabIdRef.current = browserState.activeTabId;
+  handleCloseInternalTabRef.current = handleCloseInternalTab;
 
   useEffect(() => {
     return window.electronAPI.app.onCloseActiveTab(() => {
-      if (activeInternalTabId) {
-        handleCloseInternalTab(activeInternalTabId);
+      const internalId = activeInternalTabIdRef.current;
+      if (internalId) {
+        handleCloseInternalTabRef.current(internalId);
         return;
       }
-      const activeId = browserState.activeTabId;
-      if (activeId) {
-        void window.electronAPI.browser.closeTab(activeId);
+      const browserId = activeBrowserTabIdRef.current;
+      if (browserId) {
+        void window.electronAPI.browser.closeTab(browserId);
       }
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeInternalTabId, browserState.activeTabId]);
+  }, []);
 
   const openContextMenu =
     (list: "browser" | "internal", tabId: string) =>
@@ -193,7 +205,7 @@ export function TopChrome() {
             : "Collapse sidebar (⌘\\)"
         }
         onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-        className="window-no-drag mr-1 grid size-7 shrink-0 place-items-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+        className="window-no-drag mr-1 grid size-7 shrink-0 place-items-center rounded-md text-foreground/55 transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
       >
         {sidebarCollapsed ? (
           <PanelLeftOpen className="size-3.5" />
@@ -201,49 +213,170 @@ export function TopChrome() {
           <PanelLeftClose className="size-3.5" />
         )}
       </button>
-      {browserState.tabs.map((tab) => (
-        <Tab
-          key={tab.id}
-          id={tab.id}
-          title={tab.title || hostFromUrl(tab.url) || "New Tab"}
-          faviconUrl={tab.faviconUrl}
-          loading={tab.loading}
-          active={
-            tab.id === browserState.activeTabId && !activeInternalTabId
-          }
-          onSelect={handleSelectBrowserTab}
-          onClose={handleCloseBrowserTab}
-          onContextMenu={openContextMenu("browser", tab.id)}
-        />
-      ))}
-      {internalTabs.map((tab) => (
-        <InternalTabChip
-          key={tab.id}
-          id={tab.id}
-          kind={tab.kind}
-          label={tab.label}
-          filePath={tab.kind === "file" ? tab.filePath : null}
-          active={tab.id === activeInternalTabId}
-          onSelect={handleSelectInternalTab}
-          onClose={handleCloseInternalTab}
-          onContextMenu={openContextMenu("internal", tab.id)}
-        />
-      ))}
-      {agentTabCount > 0 ? <ScratchGroupChip /> : null}
-      <Button
-        variant="ghost"
-        size="icon-sm"
+      <div className="window-no-drag flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {browserState.tabs.map((tab) => (
+          <BrowserTab
+            key={tab.id}
+            id={tab.id}
+            title={tab.title || hostFromUrl(tab.url) || "New Tab"}
+            faviconUrl={tab.faviconUrl}
+            loading={tab.loading}
+            active={
+              tab.id === browserState.activeTabId && !activeInternalTabId
+            }
+            onSelect={handleSelectBrowserTab}
+            onClose={handleCloseBrowserTab}
+            onContextMenu={openContextMenu("browser", tab.id)}
+          />
+        ))}
+        {internalTabs.map((tab) => (
+          <InternalTab
+            key={tab.id}
+            id={tab.id}
+            kind={tab.kind}
+            label={tab.label}
+            filePath={tab.kind === "file" ? tab.filePath : null}
+            active={tab.id === activeInternalTabId}
+            onSelect={handleSelectInternalTab}
+            onClose={handleCloseInternalTab}
+            onContextMenu={openContextMenu("internal", tab.id)}
+          />
+        ))}
+        {agentTabCount > 0 ? <ScratchGroupChip /> : null}
+      </div>
+      <button
+        type="button"
         aria-label="New tab"
+        title="New tab (⌘T)"
         onClick={() => openNewTab(true)}
-        className="window-no-drag ml-1 text-foreground/55 hover:text-foreground"
+        className="window-no-drag ml-0.5 grid size-7 shrink-0 place-items-center rounded-md text-foreground/55 transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
       >
         <Plus className="size-3.5" strokeWidth={1.75} />
-      </Button>
+      </button>
     </header>
   );
 }
 
-function InternalTabChip({
+// Shared chip used by both browser tabs and in-app tabs (issue detail,
+// file preview, dashboards, etc.). Owns: active/inactive surface, middle-
+// click close, right-click context menu, hover-reveal close affordance.
+// Per-kind concerns (favicon vs file icon, loading spinner) come in via
+// `leadingIcon`.
+function TabChip({
+  id,
+  title,
+  active,
+  leadingIcon,
+  onSelect,
+  onClose,
+  onContextMenu,
+}: {
+  id: string;
+  title: string;
+  active?: boolean;
+  leadingIcon: ReactNode;
+  onSelect: (id: string) => void;
+  onClose: (id: string) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <div
+      role="tab"
+      aria-selected={active}
+      title={title}
+      onClick={() => onSelect(id)}
+      onContextMenu={onContextMenu}
+      onMouseDown={(e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          onClose(id);
+        }
+      }}
+      className={cn(
+        "window-no-drag group/tab flex h-7 max-w-[180px] shrink-0 cursor-default items-center rounded-md px-2.5 text-sm transition-colors",
+        active
+          ? "bg-foreground/[0.09] text-foreground"
+          : "text-foreground/60 hover:bg-foreground/[0.05] hover:text-foreground/85",
+      )}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <span
+          aria-hidden
+          className="grid size-3.5 shrink-0 place-items-center text-foreground/60"
+        >
+          {leadingIcon}
+        </span>
+        <span className="flex-1 truncate">{title}</span>
+      </div>
+      <div
+        aria-hidden
+        className="ml-0 w-0 shrink-0 overflow-hidden transition-[width,margin-left] duration-snappy ease-out-expo group-hover/tab:ml-1.5 group-hover/tab:w-3.5"
+      >
+        <button
+          type="button"
+          aria-label="Close tab"
+          tabIndex={-1}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose(id);
+          }}
+          className="grid size-3.5 shrink-0 place-items-center rounded-full bg-foreground/10 text-foreground/60 opacity-0 transition-opacity duration-fast ease-out hover:bg-foreground/20 hover:text-foreground group-hover/tab:opacity-100"
+        >
+          <X className="size-2.5" strokeWidth={2.5} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function BrowserTab({
+  id,
+  title,
+  faviconUrl,
+  loading,
+  active,
+  onSelect,
+  onClose,
+  onContextMenu,
+}: {
+  id: string;
+  title: string;
+  faviconUrl?: string;
+  loading?: boolean;
+  active?: boolean;
+  onSelect: (id: string) => void;
+  onClose: (id: string) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
+}) {
+  const [faviconError, setFaviconError] = useState(false);
+  const showFavicon = Boolean(faviconUrl) && !faviconError && !loading;
+  const icon = loading ? (
+    <Loader2 className="size-3.5 animate-spin" />
+  ) : showFavicon ? (
+    <img
+      src={faviconUrl}
+      alt=""
+      className="size-3.5 rounded-[2px] object-contain"
+      onError={() => setFaviconError(true)}
+    />
+  ) : (
+    <Globe className="size-3.5" />
+  );
+
+  return (
+    <TabChip
+      id={id}
+      title={title}
+      active={active}
+      leadingIcon={icon}
+      onSelect={onSelect}
+      onClose={onClose}
+      onContextMenu={onContextMenu}
+    />
+  );
+}
+
+function InternalTab({
   id,
   kind,
   label,
@@ -262,60 +395,30 @@ function InternalTabChip({
   onClose: (id: string) => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
+  const icon = filePath ? (
+    <FileTypeIcon filePath={filePath} size={14} className="shrink-0" />
+  ) : kind === "issue_detail" ? (
+    <CircleDot className="size-3.5" />
+  ) : kind === "issues_board" ? (
+    <FolderKanban className="size-3.5" />
+  ) : kind === "teammates" ? (
+    <Bot className="size-3.5" />
+  ) : kind === "workspace_dashboard" ? (
+    <LayoutDashboard className="size-3.5" />
+  ) : (
+    <ImageIcon className="size-3.5" />
+  );
+
   return (
-    <div
-      role="tab"
-      aria-selected={active}
+    <TabChip
+      id={id}
       title={label}
-      onClick={() => onSelect(id)}
+      active={active}
+      leadingIcon={icon}
+      onSelect={onSelect}
+      onClose={onClose}
       onContextMenu={onContextMenu}
-      onMouseDown={(e) => {
-        if (e.button === 1) {
-          e.preventDefault();
-          onClose(id);
-        }
-      }}
-      className={cn(
-        "window-no-drag group/tab flex h-7 max-w-[180px] cursor-default items-center rounded-md px-2.5 text-sm transition-colors",
-        active
-          ? "bg-foreground/[0.07] text-foreground"
-          : "text-foreground/60 hover:bg-foreground/[0.04]",
-      )}
-    >
-      <div className="flex min-w-0 flex-1 items-center gap-1.5">
-        {filePath ? (
-          <FileTypeIcon filePath={filePath} size={14} className="shrink-0" />
-        ) : kind === "issue_detail" ? (
-          <CircleDot className="size-3.5 shrink-0 text-foreground/60" />
-        ) : kind === "issues_board" ? (
-          <FolderKanban className="size-3.5 shrink-0 text-foreground/60" />
-        ) : kind === "teammates" ? (
-          <Bot className="size-3.5 shrink-0 text-foreground/60" />
-        ) : kind === "workspace_dashboard" ? (
-          <LayoutDashboard className="size-3.5 shrink-0 text-foreground/60" />
-        ) : (
-          <ImageIcon className="size-3.5 shrink-0 text-foreground/60" />
-        )}
-        <span className="flex-1 truncate">{label}</span>
-      </div>
-      <div
-        aria-hidden
-        className="ml-0 w-0 shrink-0 overflow-hidden transition-[width,margin-left] duration-300 ease-out-expo group-hover/tab:ml-1.5 group-hover/tab:w-3.5"
-      >
-        <button
-          type="button"
-          aria-label="Close tab"
-          tabIndex={-1}
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose(id);
-          }}
-          className="grid size-3.5 shrink-0 place-items-center rounded-full bg-foreground/10 text-foreground/60 opacity-0 transition-opacity duration-200 ease-out hover:bg-foreground/20 hover:text-foreground group-hover/tab:opacity-100"
-        >
-          <X className="size-2.5" strokeWidth={2.5} />
-        </button>
-      </div>
-    </div>
+    />
   );
 }
 
@@ -325,98 +428,6 @@ function hostFromUrl(url: string): string {
   } catch {
     return "";
   }
-}
-
-function Tab({
-  id,
-  title,
-  faviconUrl,
-  loading,
-  active,
-  driver,
-  onSelect,
-  onClose,
-  onContextMenu,
-}: {
-  id: string;
-  title: string;
-  faviconUrl?: string;
-  loading?: boolean;
-  active?: boolean;
-  driver?: "agent" | "watch";
-  onSelect: (id: string) => void;
-  onClose: (id: string) => void;
-  onContextMenu?: (e: React.MouseEvent) => void;
-}) {
-  const [faviconError, setFaviconError] = useState(false);
-  const showFavicon = Boolean(faviconUrl) && !faviconError && !loading;
-
-  return (
-    <div
-      role="tab"
-      aria-selected={active}
-      title={title}
-      onClick={() => onSelect(id)}
-      onContextMenu={onContextMenu}
-      onMouseDown={(e) => {
-        if (e.button === 1) {
-          e.preventDefault();
-          onClose(id);
-        }
-      }}
-      className={cn(
-        "window-no-drag group/tab flex h-7 max-w-[180px] cursor-default items-center rounded-md px-2.5 text-sm transition-colors",
-        active
-          ? "bg-foreground/[0.07] text-foreground"
-          : "text-foreground/60 hover:bg-foreground/[0.04]",
-      )}
-    >
-      <div className="flex min-w-0 flex-1 items-center gap-1.5">
-        <span
-          aria-hidden
-          className="grid size-3.5 shrink-0 place-items-center text-foreground/60"
-        >
-          {loading ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : showFavicon ? (
-            <img
-              src={faviconUrl}
-              alt=""
-              className="size-3.5 rounded-[2px] object-contain"
-              onError={() => setFaviconError(true)}
-            />
-          ) : (
-            <Globe className="size-3.5" />
-          )}
-        </span>
-        <span className="flex-1 truncate">{title}</span>
-        {driver === "agent" ? (
-          <span
-            className="size-1.5 shrink-0 rounded-full bg-primary transition-opacity duration-300 ease-emphasized group-hover/tab:opacity-0"
-            title="Agent driving"
-            aria-label="Agent driving"
-          />
-        ) : null}
-      </div>
-      <div
-        aria-hidden
-        className="ml-0 w-0 shrink-0 overflow-hidden transition-[width,margin-left] duration-300 ease-out-expo group-hover/tab:ml-1.5 group-hover/tab:w-3.5"
-      >
-        <button
-          type="button"
-          aria-label="Close tab"
-          tabIndex={-1}
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose(id);
-          }}
-          className="grid size-3.5 shrink-0 place-items-center rounded-full bg-foreground/10 text-foreground/60 opacity-0 transition-opacity duration-200 ease-out hover:bg-foreground/20 hover:text-foreground group-hover/tab:opacity-100"
-        >
-          <X className="size-2.5" strokeWidth={2.5} />
-        </button>
-      </div>
-    </div>
-  );
 }
 
 function ScratchGroupChip() {
@@ -435,7 +446,7 @@ function ScratchGroupChip() {
           <Button
             variant="outline"
             size="sm"
-            className="window-no-drag ml-1 h-7 gap-1.5 border-dashed border-foreground/15 bg-transparent px-2.5 text-sm font-normal text-foreground/60 aria-expanded:border-foreground/25 aria-expanded:text-foreground"
+            className="window-no-drag ml-1 h-7 gap-1.5 border-dashed border-foreground/15 bg-transparent px-2.5 text-sm font-normal text-foreground/60 aria-expanded:text-foreground"
           >
             <Package className="size-3.5" />
             <span>Agent scratch</span>
@@ -535,19 +546,19 @@ function ScratchRow({ tab }: { tab: BrowserStatePayload }) {
         </span>
         <span className="flex min-w-0 flex-1 flex-col leading-tight">
           <span className="truncate text-sm text-foreground">{title}</span>
-          <span className="truncate text-xs text-foreground/35">{host}</span>
+          <span className="truncate text-xs text-foreground/45">{host}</span>
         </span>
       </button>
       <div
         aria-hidden
-        className="ml-0 w-0 shrink-0 overflow-hidden transition-[width,margin-left] duration-300 ease-out-expo group-hover/scratch-row:ml-1 group-hover/scratch-row:w-4"
+        className="ml-0 w-0 shrink-0 overflow-hidden transition-[width,margin-left] duration-snappy ease-out-expo group-hover/scratch-row:ml-1 group-hover/scratch-row:w-4"
       >
         <button
           type="button"
           aria-label="Close tab"
           tabIndex={-1}
           onClick={handleClose}
-          className="grid size-4 place-items-center rounded-full bg-foreground/10 text-foreground/60 opacity-0 transition-opacity duration-200 ease-out hover:bg-foreground/20 hover:text-foreground group-hover/scratch-row:opacity-100"
+          className="grid size-4 place-items-center rounded-full bg-foreground/10 text-foreground/60 opacity-0 transition-opacity duration-fast ease-out hover:bg-foreground/20 hover:text-foreground group-hover/scratch-row:opacity-100"
         >
           <X className="size-2.5" strokeWidth={2.5} />
         </button>

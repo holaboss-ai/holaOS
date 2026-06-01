@@ -20,10 +20,14 @@ test("AppShell swaps into onboarding takeover mode for onboarding workspaces", a
     source,
     /const \{\s*onboardingModeActive,\s*workspaces,\s*hasHydratedWorkspaceList\s*\} =\s*useWorkspaceDesktop\(\);/,
   );
-  assert.match(
-    source,
-    /\{onboardingModeActive \? \(\s*<div className="flex min-w-0 flex-1 flex-col bg-background">\s*<ExperimentalWorkspaceOnboardingTakeover \/>\s*<\/div>\s*\) : \(\s*<>\s*<div[\s\S]*?<TopChrome \/>\s*<Center \/>\s*<\/div>\s*<ChatPanel layout=\{layout\} \/>\s*<\/>\s*\)\}/,
-  );
+  // The shell now branches three ways — onboarding takeover, control-center
+  // takeover, default chrome — so the old single-regex check is too brittle.
+  // Keep separate checks for each branch's anchor element.
+  assert.match(source, /onboardingModeActive \? \(/);
+  assert.match(source, /<ExperimentalWorkspaceOnboardingTakeover \/>/);
+  assert.match(source, /<TopChrome \/>/);
+  assert.match(source, /<Center \/>/);
+  assert.match(source, /<ChatPanel layout=\{layout\} \/>/);
   assert.match(source, /\{isWindowsTitleBar \? <WindowsTitlebarControls \/> : null\}/);
   assert.match(source, /<NewIssueDialog \/>/);
   assert.match(source, /function WindowsTitlebarControls\(\) \{/);

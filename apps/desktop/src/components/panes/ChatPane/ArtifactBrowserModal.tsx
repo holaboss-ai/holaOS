@@ -9,8 +9,8 @@ import {
   Waypoints,
   X,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { StatusDot } from "@/components/ui/status-dot";
 import { chatMessageTimeLabel } from "./helpers";
 import { formatAttachmentSize } from "./AttachmentList";
 import type { ArtifactBrowserFilter } from "./types";
@@ -207,6 +207,84 @@ export function outputChangeLabel(output: WorkspaceOutputRecordPayload) {
     return "Updated";
   }
   return "";
+}
+
+/**
+ * Renders the Created / Updated change indicator with a colored dot
+ * pulled from the StatusDot variant set, so "what's new vs what got
+ * touched again" is scannable at a glance. The text stays muted —
+ * color lives in the dot only — to keep the row from competing with
+ * the title.
+ *
+ * Returns null when the output has no recognized change_type, so
+ * callers can render unconditionally without a guard.
+ */
+export function OutputChangeBadge({
+  output,
+}: {
+  output: WorkspaceOutputRecordPayload;
+}) {
+  const changeType = outputMetadataString(output, "change_type");
+  if (changeType !== "created" && changeType !== "modified") {
+    return null;
+  }
+  const label = changeType === "created" ? "New" : "Updated";
+  const variant = changeType === "created" ? "success" : "info";
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+      <StatusDot variant={variant} size="sm" />
+      {label}
+    </span>
+  );
+}
+
+/**
+ * Resolves the most-descriptive label we can show for an output, in
+ * priority order. The producer-side `output.title` wins when it's set
+ * (the dominant case — agent-authored files use this, write_report
+ * sets it, etc.). When it's empty (frequently the case for module-app
+ * creates where the app sometimes passes "" through), fall through:
+ *
+ *  - metadata.summary (set by write_report-style tools) — trimmed to
+ *    a single readable line so the row stays scannable
+ *  - file path basename — preserves the agent's filename even when
+ *    the title wasn't propagated upstream
+ *  - capitalized artifact_type — for app outputs, "Tweet" / "Post"
+ *    reads better than the previous "${kind} #${n}" counter
+ *  - fallback (caller-provided counter, then literal "Untitled
+ *    artifact")
+ */
+const TITLE_SUMMARY_MAX = 64;
+
+export function outputDisplayTitle(
+  output: WorkspaceOutputRecordPayload,
+  fallback?: string,
+): string {
+  const title = output.title?.trim();
+  if (title) {
+    return title;
+  }
+  const summary = outputMetadataString(output, "summary");
+  if (summary) {
+    const firstLine = summary.split(/\r?\n/).find(Boolean)?.trim() ?? "";
+    const cleaned = firstLine || summary.trim();
+    return cleaned.length > TITLE_SUMMARY_MAX
+      ? `${cleaned.slice(0, TITLE_SUMMARY_MAX - 1).trimEnd()}…`
+      : cleaned;
+  }
+  const path = outputDisplayPath(output);
+  if (path) {
+    const segments = path.split(/[\\/]/).filter(Boolean);
+    const basename = segments[segments.length - 1];
+    if (basename) {
+      return basename;
+    }
+  }
+  const artifactType = outputMetadataString(output, "artifact_type");
+  if (artifactType) {
+    return artifactType.charAt(0).toUpperCase() + artifactType.slice(1);
+  }
+  return fallback?.trim() || "Untitled artifact";
 }
 
 export function outputSecondaryLabel(output: WorkspaceOutputRecordPayload) {
@@ -569,7 +647,6 @@ export function ArtifactBrowserModal({
             <div className="grid gap-2">
               {filteredOutputs.map((output) => {
                 const kindLabel = outputKindLabel(output);
-                const changeLabel = outputChangeLabel(output);
                 return (
                   <button
                     key={output.id}
@@ -583,21 +660,14 @@ export function ArtifactBrowserModal({
                   >
                     <OutputArtifactIcon output={output} />
                     <div className="min-w-0 flex-1">
-                      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                         {kindLabel}
                       </div>
                       <div className="truncate text-sm font-medium text-foreground">
-                        {output.title || "Untitled artifact"}
+                        {outputDisplayTitle(output)}
                       </div>
                     </div>
-                    {changeLabel ? (
-                      <Badge
-                        variant="outline"
-                        className="shrink-0 text-[10px] uppercase"
-                      >
-                        {changeLabel}
-                      </Badge>
-                    ) : null}
+                    <OutputChangeBadge output={output} />
                   </button>
                 );
               })}

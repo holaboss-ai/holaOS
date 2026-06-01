@@ -42,32 +42,30 @@ test("new shell issues sidebar opens issue detail tabs and keeps inbox empty", a
   assert.match(sidebarSource, /section === "issues" \? <SidebarIssuesSection \/> : null/);
   assert.match(sidebarSource, /\{ key: "issues", label: "Agent Team", icon: <Bot \/> \}/);
   assert.match(sidebarSource, /const MAC_WORKSPACE_POPOVER_LEFT_INSET = 72;/);
-  assert.match(sidebarSource, /const isMacDesktop = window\.electronAPI\?\.platform === "darwin";/);
+  // Mac-only stoplight gutter detection moved into `useStoplightCompensation()`;
+  // the workspace switcher just consumes the boolean and offsets the popover.
+  assert.match(sidebarSource, /useStoplightCompensation\(\)/);
   assert.match(
     sidebarSource,
-    /const workspacePopoverAlignOffset = isMacDesktop\s*\?\s*-MAC_WORKSPACE_POPOVER_LEFT_INSET\s*:\s*0;/,
+    /const workspacePopoverAlignOffset = reserveStoplightGutter\s*\?\s*-MAC_WORKSPACE_POPOVER_LEFT_INSET\s*:\s*0;/,
   );
   assert.match(
     sidebarSource,
-    /className=\{cn\(\s*"window-drag flex h-10 shrink-0 items-center pr-2",\s*isMacDesktop \? "pl-20" : "pl-2",\s*\)\}/,
+    /className=\{cn\(\s*"window-drag flex h-10 shrink-0 items-center pr-2",\s*reserveStoplightGutter \? "pl-20" : "pl-2",\s*\)\}/,
   );
   assert.match(sidebarSource, /alignOffset=\{workspacePopoverAlignOffset\}/);
+
   assert.match(sidebarSource, /function SidebarIssuesSection\(\) \{/);
-  assert.match(sidebarSource, />\s*New issue\s*</);
-  assert.match(sidebarSource, />\s*Dashboard\s*</);
-  assert.match(sidebarSource, />\s*Issues\s*</);
-  assert.match(sidebarSource, />\s*Teammates\s*</);
-  assert.match(sidebarSource, /const setComposerPrefill = useSetAtom\(chatComposerPrefillAtom\);/);
-  assert.match(sidebarSource, /const setFocusMode = useSetAtom\(focusModeAtom\);/);
-  assert.match(sidebarSource, /const handleNewIssue = useCallback\(\(\) => \{/);
-  assert.match(sidebarSource, /text: "New issue: ",/);
-  assert.match(sidebarSource, /sessionMode: "preserve",/);
-  assert.match(sidebarSource, /setFocusMode\(false\);/);
+  assert.match(sidebarSource, /function SidebarNavRow\(/);
+  assert.match(sidebarSource, /label="Dashboard"\s*onClick=\{handleOpenDashboard\}/);
+  assert.match(sidebarSource, /label="Issues"\s*onClick=\{handleOpenBoard\}/);
+  assert.match(sidebarSource, /label="Teammates"\s*onClick=\{handleOpenTeammates\}/);
+  assert.match(sidebarSource, /aria-label="New issue"/);
+  assert.match(sidebarSource, /const setNewIssueOpen = useSetAtom\(newIssueOpenAtom\);/);
+  assert.match(sidebarSource, /const handleNewIssue = useCallback\(\(\) => \{[\s\S]*?setNewIssueOpen\(true\);/);
   assert.match(sidebarSource, /onClick=\{handleNewIssue\}/);
-  assert.match(
-    sidebarSource,
-    /<div className="grid gap-2">[\s\S]*>\s*New issue\s*<[\s\S]*>\s*Dashboard\s*<[\s\S]*>\s*Issues\s*<[\s\S]*>\s*Teammates\s*</,
-  );
+  assert.doesNotMatch(sidebarSource, /text: "New issue: ",/);
+  assert.doesNotMatch(sidebarSource, /<div className="grid gap-2">/);
   assert.match(sidebarSource, /const openIssueDetailTab = useOpenIssueDetailTab\(\);/);
   assert.match(sidebarSource, /void openIssueDetailTab\(\{\s*workspaceId: issue\.workspace_id,\s*issueId: issue\.issue_id,/);
   assert.doesNotMatch(sidebarSource, /sessionId: issue\.session_id/);
