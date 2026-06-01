@@ -265,9 +265,17 @@ export function Composer({
   >("menu");
   const [skillPickerQuery, setSkillPickerQuery] = useState("");
   const [caretIndex, setCaretIndex] = useState(0);
-  const [dismissedSlashCommandKey, setDismissedSlashCommandKey] = useState("");
+  // Dismissed-range "anchor" — the .start of the slash/mention range the
+  // user dismissed (Esc / outside-click). The picker stays hidden as long
+  // as the caret is still inside a range starting at the same anchor.
+  // Tracking the full (start, end, query) key would un-stick on the very
+  // next keystroke (range.end advances → key changes → "no longer
+  // dismissed"), so Escape ended up being a one-frame no-op.
+  const [dismissedSlashCommandStart, setDismissedSlashCommandStart] =
+    useState<number | null>(null);
   const [highlightedSlashIndex, setHighlightedSlashIndex] = useState(0);
-  const [dismissedMentionKey, setDismissedMentionKey] = useState("");
+  const [dismissedMentionStart, setDismissedMentionStart] =
+    useState<number | null>(null);
   const [highlightedMentionIndex, setHighlightedMentionIndex] = useState(0);
   const composerFooterRef = useRef<HTMLDivElement | null>(null);
   const composerActionsRef = useRef<HTMLDivElement | null>(null);
@@ -286,22 +294,16 @@ export function Composer({
     () => findActiveSlashCommandRange(input, caretIndex),
     [caretIndex, input],
   );
-  const activeSlashCommandKey = activeSlashRange
-    ? `${activeSlashRange.start}:${activeSlashRange.end}:${activeSlashRange.query}`
-    : "";
   const showSlashCommandMenu =
     !inputDisabled &&
     activeSlashRange !== null &&
-    activeSlashCommandKey !== dismissedSlashCommandKey;
+    activeSlashRange.start !== dismissedSlashCommandStart;
   const activeMentionRange = useMemo(
     // Slash takes precedence — both pickers can't be live at once.
     () =>
       activeSlashRange ? null : findActiveMentionRange(input, caretIndex),
     [activeSlashRange, caretIndex, input],
   );
-  const activeMentionKey = activeMentionRange
-    ? `${activeMentionRange.start}:${activeMentionRange.end}:${activeMentionRange.query}`
-    : "";
   const mentionItemsList = mentionableItems ?? [];
   const filteredMentionItems = useMemo(() => {
     if (inputDisabled || !activeMentionRange || mentionItemsList.length === 0) {
@@ -323,7 +325,7 @@ export function Composer({
     activeMentionRange !== null &&
     mentionItemsList.length > 0 &&
     filteredMentionItems.length > 0 &&
-    activeMentionKey !== dismissedMentionKey;
+    activeMentionRange.start !== dismissedMentionStart;
   const filteredSlashCommands = useMemo(() => {
     if (inputDisabled || !activeSlashRange) {
       return [];
@@ -436,36 +438,40 @@ export function Composer({
   useEffect(() => {
     setHighlightedMentionIndex(0);
   }, [activeMentionRange?.query, filteredMentionItems.length]);
+  // Clear the dismissed anchor once the caret has actually left the
+  // dismissed range — either the user moved out of it (no active range,
+  // or a fresh range with a different .start), or backspaced past the
+  // anchor character entirely. Until then the dismissal sticks.
   useEffect(() => {
-    if (!dismissedMentionKey) {
+    if (dismissedMentionStart === null) {
       return;
     }
-    if (!activeMentionKey) {
-      setDismissedMentionKey("");
+    if (activeMentionRange === null) {
+      setDismissedMentionStart(null);
       return;
     }
-    if (dismissedMentionKey !== activeMentionKey) {
-      setDismissedMentionKey("");
+    if (activeMentionRange.start !== dismissedMentionStart) {
+      setDismissedMentionStart(null);
     }
-  }, [activeMentionKey, dismissedMentionKey]);
+  }, [activeMentionRange, dismissedMentionStart]);
   useEffect(() => {
-    if (!dismissedSlashCommandKey) {
+    if (dismissedSlashCommandStart === null) {
       return;
     }
-    if (!activeSlashCommandKey) {
-      setDismissedSlashCommandKey("");
+    if (activeSlashRange === null) {
+      setDismissedSlashCommandStart(null);
       return;
     }
-    if (dismissedSlashCommandKey !== activeSlashCommandKey) {
-      setDismissedSlashCommandKey("");
+    if (activeSlashRange.start !== dismissedSlashCommandStart) {
+      setDismissedSlashCommandStart(null);
     }
-  }, [activeSlashCommandKey, dismissedSlashCommandKey]);
+  }, [activeSlashRange, dismissedSlashCommandStart]);
   useEffect(() => {
     if (inputDisabled) {
       setComposerActionsMenuOpen(false);
       setComposerActionsView("menu");
       setSkillPickerQuery("");
-      setDismissedSlashCommandKey("");
+      setDismissedSlashCommandStart(null);
     }
   }, [inputDisabled]);
   useEffect(() => {
@@ -479,14 +485,16 @@ export function Composer({
       if (!menu || !(target instanceof Node) || menu.contains(target)) {
         return;
       }
-      setDismissedSlashCommandKey(activeSlashCommandKey);
+      if (activeSlashRange) {
+        setDismissedSlashCommandStart(activeSlashRange.start);
+      }
     };
 
     document.addEventListener("pointerdown", handlePointerDown);
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown);
     };
-  }, [activeSlashCommandKey, showSlashCommandMenu]);
+  }, [activeSlashRange, showSlashCommandMenu]);
   const visibleFooterControlCount = 1 + (showThinkingValueSelector ? 1 : 0) + 1;
   const fullPrimaryControlWidth = showModelSelector
     ? noAvailableModels
@@ -584,9 +592,12 @@ export function Composer({
       activeMentionRange,
       `@${item.handle}`,
     );
-    // Explicitly dismiss the current mention key so the picker can't
+    // Anchor a dismissal at the now-stale start so the picker can't
     // re-open against the freshly-inserted handle on the same render.
-    setDismissedMentionKey(activeMentionKey);
+    // The dismissed-anchor effect clears this once the caret moves
+    // outside the new (post-insertion) range, which it has — start
+    // shifts by the inserted token width.
+    setDismissedMentionStart(activeMentionRange.start);
     onChange(nextInput.value);
     setCaretIndex(nextInput.caretIndex);
     window.requestAnimationFrame(() => {
@@ -631,7 +642,9 @@ export function Composer({
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        setDismissedMentionKey(activeMentionKey);
+        if (activeMentionRange) {
+          setDismissedMentionStart(activeMentionRange.start);
+        }
         return;
       }
     }
@@ -666,7 +679,9 @@ export function Composer({
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        setCaretIndex(-1);
+        if (activeSlashRange) {
+          setDismissedSlashCommandStart(activeSlashRange.start);
+        }
         return;
       }
     }
