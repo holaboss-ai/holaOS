@@ -9362,6 +9362,12 @@ export function ChatPane({
               onOpenAutomations={onOpenAutomations}
               onOpenArtifacts={onOpenArtifacts}
               onEnterFocusMode={onEnterFocusMode}
+              isResponding={isResponding}
+              pausePending={isPausePending}
+              pauseUnavailable={isSubmittingMessage}
+              onPause={() => {
+                void pauseCurrentRun();
+              }}
             />
           </div>
         ) : null}
