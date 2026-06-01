@@ -9,8 +9,8 @@ import {
   Waypoints,
   X,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { StatusDot } from "@/components/ui/status-dot";
 import { chatMessageTimeLabel } from "./helpers";
 import { formatAttachmentSize } from "./AttachmentList";
 import type { ArtifactBrowserFilter } from "./types";
@@ -207,6 +207,35 @@ export function outputChangeLabel(output: WorkspaceOutputRecordPayload) {
     return "Updated";
   }
   return "";
+}
+
+/**
+ * Renders the Created / Updated change indicator with a colored dot
+ * pulled from the StatusDot variant set, so "what's new vs what got
+ * touched again" is scannable at a glance. The text stays muted —
+ * color lives in the dot only — to keep the row from competing with
+ * the title.
+ *
+ * Returns null when the output has no recognized change_type, so
+ * callers can render unconditionally without a guard.
+ */
+export function OutputChangeBadge({
+  output,
+}: {
+  output: WorkspaceOutputRecordPayload;
+}) {
+  const changeType = outputMetadataString(output, "change_type");
+  if (changeType !== "created" && changeType !== "modified") {
+    return null;
+  }
+  const label = changeType === "created" ? "New" : "Updated";
+  const variant = changeType === "created" ? "success" : "info";
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+      <StatusDot variant={variant} size="sm" />
+      {label}
+    </span>
+  );
 }
 
 /**
@@ -618,7 +647,6 @@ export function ArtifactBrowserModal({
             <div className="grid gap-2">
               {filteredOutputs.map((output) => {
                 const kindLabel = outputKindLabel(output);
-                const changeLabel = outputChangeLabel(output);
                 return (
                   <button
                     key={output.id}
@@ -632,21 +660,14 @@ export function ArtifactBrowserModal({
                   >
                     <OutputArtifactIcon output={output} />
                     <div className="min-w-0 flex-1">
-                      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                         {kindLabel}
                       </div>
                       <div className="truncate text-sm font-medium text-foreground">
                         {outputDisplayTitle(output)}
                       </div>
                     </div>
-                    {changeLabel ? (
-                      <Badge
-                        variant="outline"
-                        className="shrink-0 text-[10px] uppercase"
-                      >
-                        {changeLabel}
-                      </Badge>
-                    ) : null}
+                    <OutputChangeBadge output={output} />
                   </button>
                 );
               })}

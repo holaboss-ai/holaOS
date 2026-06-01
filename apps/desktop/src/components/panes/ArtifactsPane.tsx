@@ -2,9 +2,9 @@ import { Boxes, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   OutputArtifactIcon,
+  OutputChangeBadge,
   dedupeOutputsForDisplay,
   outputBrowserFilterForOutput,
-  outputChangeLabel,
   outputDisplayTitle,
   outputKindLabel,
   sortOutputsLatestFirst,
@@ -225,7 +225,6 @@ export function ArtifactsPane({
                 </div>
                 {group.items.map((output) => {
                   const kindLabel = outputKindLabel(output);
-                  const changeLabel = outputChangeLabel(output);
                   return (
                     <button
                       key={output.id}
@@ -241,11 +240,7 @@ export function ArtifactsPane({
                       <span className="shrink-0 truncate text-xs text-muted-foreground">
                         {kindLabel}
                       </span>
-                      {changeLabel ? (
-                        <span className="shrink-0 text-xs uppercase tracking-wide text-muted-foreground/70">
-                          {changeLabel}
-                        </span>
-                      ) : null}
+                      <OutputChangeBadge output={output} />
                     </button>
                   );
                 })}
