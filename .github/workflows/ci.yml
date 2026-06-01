@@ -1175,16 +1175,27 @@ jobs:
             "${prerelease_flag[@]}" \
             "${upload_paths[@]}"
 
-      # Phase 1 of the GitHub → R2 migration: mirror every binary that
-      # the previous step pushed to holaOS-releases up to a Cloudflare
-      # R2 bucket so we can validate global download throughput before
-      # flipping electron-updater away from `provider: "github"`.
-      # GitHub Releases stay authoritative for now — installed clients
-      # ignore R2 entirely until a future release flips the
-      # `electron-builder.config.cjs` publish config.
+      # Mirror every binary the previous step pushed to holaOS-releases
+      # up to a Cloudflare R2 bucket. GitHub Releases stay authoritative
+      # for installed clients — electron-updater keeps pulling from
+      # `provider: "github"` until a future PR flips electron-builder
+      # config over to `generic` + R2.
+      #
+      # Layout (under ${R2_KEY_PREFIX}, which scopes us into a
+      # subdirectory of a shared bucket like landing-assets/desktop/):
+      #
+      #   ${prefix}<channel>/<name>          — marketing downloads
+      #                                         (latest/holaOS-macos-arm64.dmg,
+      #                                          beta/holaOS-macos-arm64.dmg)
+      #   ${prefix}tags/<tag>/<name>         — pinned-version downloads
+      #
+      # The bare ${prefix}<name> (flat) layout used by PR #410 is gone —
+      # it had no channel awareness, so a beta release would overwrite
+      # the stable file name in the root. Marketing downloads now route
+      # through <channel>/ which is safe to overwrite per-channel.
       #
       # Soft-gated: missing R2 secrets log a warning and exit 0 so this
-      # workflow stays mergeable before the bucket + GH secrets land.
+      # workflow stays mergeable in environments without the bucket.
       - name: Mirror release assets to Cloudflare R2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -1194,8 +1205,11 @@ jobs:
           AWS_DEFAULT_REGION: auto
           # Full endpoint URL — e.g. https://<account-id>.r2.cloudflarestorage.com
           R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
-          # Bucket name — e.g. holaos-releases
+          # Bucket name — e.g. landing-assets
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          # Key prefix inside the bucket. Trailing slash required when
+          # set. Empty means upload to bucket root.
+          R2_KEY_PREFIX: desktop/
         run: |
           set -euo pipefail
 
@@ -1205,6 +1219,11 @@ jobs:
               || [ -z "${R2_BUCKET:-}" ]; then
             echo "::warning::R2_* secrets not configured — skipping R2 mirror"
             exit 0
+          fi
+
+          if [ -z "${RELEASE_CHANNEL:-}" ] || [ -z "${RELEASE_TAG:-}" ]; then
+            echo "::error::RELEASE_CHANNEL and RELEASE_TAG must be set on the job env" >&2
+            exit 1
           fi
 
           # Re-derive the asset list by walking release-assets/. We
@@ -1228,7 +1247,14 @@ jobs:
             exit 1
           fi
 
-          echo "Mirroring ${#assets[@]} asset(s) to R2 bucket: ${R2_BUCKET}"
+          channel_prefix="${R2_KEY_PREFIX}${RELEASE_CHANNEL}/"
+          tag_prefix="${R2_KEY_PREFIX}tags/${RELEASE_TAG}/"
+
+          echo "Mirroring ${#assets[@]} asset(s) to R2"
+          echo "  bucket:  ${R2_BUCKET}"
+          echo "  channel: ${channel_prefix}"
+          echo "  tag:     ${tag_prefix}"
+
           for asset in "${assets[@]}"; do
             name="$(basename "${asset}")"
             # Manifests (latest*.yml / beta*.yml / runtime json) drive
@@ -1242,11 +1268,16 @@ jobs:
                 cache_control="public, max-age=31536000, immutable"
                 ;;
             esac
-            echo "  → ${name}"
-            aws s3 cp "${asset}" "s3://${R2_BUCKET}/${name}" \
-              --endpoint-url "${R2_ENDPOINT_URL}" \
-              --cache-control "${cache_control}" \
-              --only-show-errors
+
+            for dest_key in \
+                "${channel_prefix}${name}" \
+                "${tag_prefix}${name}"; do
+              echo "  → ${dest_key}"
+              aws s3 cp "${asset}" "s3://${R2_BUCKET}/${dest_key}" \
+                --endpoint-url "${R2_ENDPOINT_URL}" \
+                --cache-control "${cache_control}" \
+                --only-show-errors
+            done
           done
 
-          echo "Mirror complete — bucket: ${R2_BUCKET}, ${#assets[@]} files uploaded."
+          echo "Mirror complete — ${#assets[@]} files × 2 destinations uploaded."
