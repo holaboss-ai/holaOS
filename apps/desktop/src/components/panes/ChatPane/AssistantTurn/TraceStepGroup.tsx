@@ -77,17 +77,35 @@ export function TraceStepGroup({
   const previousLiveRef = useRef(live);
   const previousLiveOutputStartedRef = useRef(liveOutputStarted);
   const previousForceExpandTokenRef = useRef(forceExpandToken);
+  // Once the user has clicked the chevron during a live session, stop
+  // auto-snapping the group on liveOutputStarted transitions. Their
+  // explicit toggle wins — the worst feel is collapsing the trace out
+  // from under someone who just decided they wanted to follow it.
+  // A `forceExpand` action from the assistant footer menu counts as a
+  // fresh system request and resets the override.
+  const userOverrodeRef = useRef(false);
+
+  const handleToggleExpanded = () => {
+    userOverrodeRef.current = true;
+    setGroupExpanded((v) => !v);
+  };
 
   useEffect(() => {
     if (forceExpandToken !== previousForceExpandTokenRef.current) {
       previousForceExpandTokenRef.current = forceExpandToken;
       if (forceExpandToken > 0) {
+        userOverrodeRef.current = false;
         setGroupExpanded(true);
       }
     }
   }, [forceExpandToken]);
 
   useEffect(() => {
+    if (userOverrodeRef.current) {
+      previousLiveRef.current = live;
+      previousLiveOutputStartedRef.current = liveOutputStarted;
+      return;
+    }
     if (live && !previousLiveRef.current) {
       setGroupExpanded(!liveOutputStarted);
     }
@@ -150,7 +168,7 @@ export function TraceStepGroup({
     <div className="mt-3 first:mt-0">
       <button
         type="button"
-        onClick={() => setGroupExpanded((v) => !v)}
+        onClick={handleToggleExpanded}
         className="-ml-2.5 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-fg-4"
       >
         {groupHasTerminalError ? (
