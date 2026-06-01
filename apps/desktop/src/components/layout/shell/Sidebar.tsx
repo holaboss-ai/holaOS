@@ -455,7 +455,7 @@ function FavoritesSection({
 function FavoriteRow({ item }: { item: FavoriteItem }) {
   const toggleFavorite = useSetAtom(toggleFavoriteAtom);
   const openIssueDetailTab = useOpenIssueDetailTab();
-  const { openUrlInBrowserTab } = useOpenWorkspaceOutput();
+  const { openOutput, openUrlInBrowserTab } = useOpenWorkspaceOutput();
   const [internalTabs, setInternalTabs] = useAtom(internalTabsAtom);
   const setActiveInternalTabId = useSetAtom(activeInternalTabIdAtom);
   const [faviconError, setFaviconError] = useState(false);
@@ -487,11 +487,33 @@ function FavoriteRow({ item }: { item: FavoriteItem }) {
       setActiveInternalTabId(tab.id);
       return;
     }
+    if (item.kind === "output") {
+      // Re-fetch the live payload so URL / file resolution uses the
+      // current module routes, not the snapshot at star time. If the
+      // output has been deleted between star and click, silently no-op
+      // — the entry stays in Favorites so the user can prune it.
+      void (async () => {
+        try {
+          const result = await window.electronAPI.workspace.listOutputs({
+            workspaceId: item.workspaceId,
+            limit: 500,
+          });
+          const found = result.items?.find((o) => o.id === item.outputId);
+          if (found) {
+            await openOutput(found);
+          }
+        } catch {
+          // non-fatal
+        }
+      })();
+      return;
+    }
     openUrlInBrowserTab(item.url);
   }, [
     item,
     internalTabs,
     openIssueDetailTab,
+    openOutput,
     openUrlInBrowserTab,
     setActiveInternalTabId,
     setInternalTabs,
@@ -514,6 +536,13 @@ function FavoriteRow({ item }: { item: FavoriteItem }) {
           filePath: item.filePath,
           label: item.label,
         });
+      } else if (item.kind === "output") {
+        toggleFavorite({
+          kind: "output",
+          workspaceId: item.workspaceId,
+          outputId: item.outputId,
+          title: item.title,
+        });
       } else {
         toggleFavorite({
           kind: "url",
@@ -531,14 +560,18 @@ function FavoriteRow({ item }: { item: FavoriteItem }) {
       ? item.title || "Untitled issue"
       : item.kind === "file"
         ? item.label
-        : item.title || item.url;
+        : item.kind === "output"
+          ? item.title || "Untitled artifact"
+          : item.title || item.url;
 
   const titleAttr =
     item.kind === "issue"
       ? `${item.issueId} · ${item.title || "Untitled"}`
       : item.kind === "file"
         ? item.filePath
-        : item.url;
+        : item.kind === "output"
+          ? item.title || item.outputId
+          : item.url;
 
   return (
     <div
@@ -559,6 +592,8 @@ function FavoriteRow({ item }: { item: FavoriteItem }) {
             <CircleDot className="size-3" />
           ) : item.kind === "file" ? (
             <FileTypeIcon filePath={item.filePath} size={14} />
+          ) : item.kind === "output" ? (
+            <Package className="size-3" />
           ) : item.faviconUrl && !faviconError ? (
             <img
               src={item.faviconUrl}

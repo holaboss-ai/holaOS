@@ -40,6 +40,20 @@ export type FavoriteItem =
       title: string;
       faviconUrl?: string;
       starredAt: string;
+    }
+  | {
+      // Workspace artifact / output. We keep only the minimal pointer
+      // (workspaceId + outputId + the title at star time) rather than the
+      // full payload — the latter goes stale when the module renames a
+      // route or when the producer republishes. At open time the sidebar
+      // re-fetches the live payload via listOutputs and replays
+      // openOutput, which keeps URL / file resolution honest.
+      kind: "output";
+      id: string;
+      workspaceId: string;
+      outputId: string;
+      title: string;
+      starredAt: string;
     };
 
 // Stable composite key per kind. Used both as the React/Set key and as
@@ -48,13 +62,17 @@ export function favoriteKey(
   input:
     | { kind: "issue"; workspaceId: string; issueId: string }
     | { kind: "file"; workspaceId: string | null; filePath: string }
-    | { kind: "url"; url: string },
+    | { kind: "url"; url: string }
+    | { kind: "output"; workspaceId: string; outputId: string },
 ): string {
   if (input.kind === "issue") {
     return `issue:${input.workspaceId}:${input.issueId}`;
   }
   if (input.kind === "file") {
     return `file:${input.workspaceId ?? "_"}:${input.filePath}`;
+  }
+  if (input.kind === "output") {
+    return `output:${input.workspaceId}:${input.outputId}`;
   }
   return `url:${input.url}`;
 }
@@ -90,7 +108,13 @@ export const toggleFavoriteAtom = atom(
           filePath: string;
           label: string;
         }
-      | { kind: "url"; url: string; title: string; faviconUrl?: string },
+      | { kind: "url"; url: string; title: string; faviconUrl?: string }
+      | {
+          kind: "output";
+          workspaceId: string;
+          outputId: string;
+          title: string;
+        },
   ) => {
     const key = favoriteKey(input);
     const prev = get(favoritesAtom);
@@ -122,6 +146,15 @@ export const toggleFavoriteAtom = atom(
         label: input.label,
         starredAt: now,
       };
+    } else if (input.kind === "output") {
+      next = {
+        kind: "output",
+        id: key,
+        workspaceId: input.workspaceId,
+        outputId: input.outputId,
+        title: input.title,
+        starredAt: now,
+      };
     } else {
       next = {
         kind: "url",
@@ -151,6 +184,7 @@ export const favoritesForWorkspaceAtom = atom((get) => {
     all.filter((entry) => {
       if (entry.kind === "url") return true;
       if (!workspaceId) return false;
+      // issue / file / output all carry a workspaceId scope.
       return entry.workspaceId === workspaceId;
     });
 });
