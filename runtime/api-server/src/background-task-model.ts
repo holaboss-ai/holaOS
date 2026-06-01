@@ -41,7 +41,7 @@ const BACKGROUND_TASK_MODEL_DEFAULTS: Record<string, string | null> = {
   openrouter_direct: "openai/gpt-5.4",
   gemini_direct: "gemini-2.5-flash",
   ollama_direct: null,
-  minimax_direct: "MiniMax-M2.7",
+  minimax_direct: "MiniMax-M3",
 };
 
 export interface BackgroundTaskModelSelection {

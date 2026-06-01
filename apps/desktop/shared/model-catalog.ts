@@ -252,6 +252,13 @@ export const PROVIDER_MODEL_CATALOG: ProviderModelCatalog = {
     source: "local",
     models: [
       {
+        model_id: "MiniMax-M3",
+        label: "MiniMax M3",
+        reasoning: false,
+        thinking_values: [],
+        input_modalities: ["text"],
+      },
+      {
         model_id: "MiniMax-M2.7",
         label: "MiniMax M2.7",
         reasoning: false,
