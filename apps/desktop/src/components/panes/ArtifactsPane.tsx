@@ -115,6 +115,10 @@ export function ArtifactsPane({
   }, [allDisplayOutputs, filter, normalizedSearchQuery]);
   const totalCount = allDisplayOutputs.length;
   const isSearching = normalizedSearchQuery.length > 0;
+  const groupedOutputs = useMemo(
+    () => groupOutputsByTime(filteredOutputs),
+    [filteredOutputs],
+  );
 
   if (!workspaceId) {
     return (
@@ -213,36 +217,102 @@ export function ArtifactsPane({
               : "No artifacts match this filter."}
           </div>
         ) : (
-          <div className="-mx-1 flex flex-col">
-            {filteredOutputs.map((output) => {
-              const kindLabel = outputKindLabel(output);
-              const changeLabel = outputChangeLabel(output);
-              return (
-                <button
-                  key={output.id}
-                  type="button"
-                  onClick={() => onOpenOutput?.(output)}
-                  disabled={!onOpenOutput}
-                  className="group flex h-9 w-full min-w-0 items-center gap-2.5 rounded-md px-2 text-left transition-colors hover:bg-foreground/[0.04] disabled:cursor-default disabled:hover:bg-transparent"
-                >
-                  <OutputArtifactIcon output={output} variant="bare" />
-                  <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-                    {outputDisplayTitle(output)}
-                  </span>
-                  <span className="shrink-0 truncate text-xs text-muted-foreground">
-                    {kindLabel}
-                  </span>
-                  {changeLabel ? (
-                    <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground/70">
-                      {changeLabel}
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
+          <div className="-mx-1 flex flex-col gap-3">
+            {groupedOutputs.map((group) => (
+              <div key={group.label} className="flex flex-col">
+                <div className="px-2 pt-1 pb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">
+                  {group.label}
+                </div>
+                {group.items.map((output) => {
+                  const kindLabel = outputKindLabel(output);
+                  const changeLabel = outputChangeLabel(output);
+                  return (
+                    <button
+                      key={output.id}
+                      type="button"
+                      onClick={() => onOpenOutput?.(output)}
+                      disabled={!onOpenOutput}
+                      className="group flex h-9 w-full min-w-0 items-center gap-2.5 rounded-md px-2 text-left transition-colors hover:bg-foreground/[0.04] disabled:cursor-default disabled:hover:bg-transparent"
+                    >
+                      <OutputArtifactIcon output={output} variant="bare" />
+                      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                        {outputDisplayTitle(output)}
+                      </span>
+                      <span className="shrink-0 truncate text-xs text-muted-foreground">
+                        {kindLabel}
+                      </span>
+                      {changeLabel ? (
+                        <span className="shrink-0 text-xs uppercase tracking-wide text-muted-foreground/70">
+                          {changeLabel}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         )}
       </div>
     </div>
   );
+}
+
+interface ArtifactGroup {
+  label: string;
+  items: WorkspaceOutputRecordPayload[];
+}
+
+/**
+ * Buckets outputs by recency relative to the local "now". Inputs are
+ * already sorted latest-first by the caller, so within each bucket the
+ * order is preserved.
+ *
+ * Empty buckets are dropped so the rendered list never shows a
+ * dangling header. The Earlier bucket catches anything older than
+ * the rolling 7-day window — switching to month-based buckets would
+ * pretend at a precision the workspace's actual output volume usually
+ * doesn't earn.
+ */
+function groupOutputsByTime(
+  outputs: WorkspaceOutputRecordPayload[],
+): ArtifactGroup[] {
+  if (outputs.length === 0) {
+    return [];
+  }
+  const now = new Date();
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  ).getTime();
+  const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000;
+  // Rolling 7-day window (last week) — anything older falls into Earlier.
+  const startOfThisWeek = startOfToday - 6 * 24 * 60 * 60 * 1000;
+
+  const buckets: ArtifactGroup[] = [
+    { label: "Today", items: [] },
+    { label: "Yesterday", items: [] },
+    { label: "Earlier this week", items: [] },
+    { label: "Earlier", items: [] },
+  ];
+
+  for (const output of outputs) {
+    const created = Date.parse(output.created_at || "");
+    if (!Number.isFinite(created)) {
+      buckets[3]!.items.push(output);
+      continue;
+    }
+    if (created >= startOfToday) {
+      buckets[0]!.items.push(output);
+    } else if (created >= startOfYesterday) {
+      buckets[1]!.items.push(output);
+    } else if (created >= startOfThisWeek) {
+      buckets[2]!.items.push(output);
+    } else {
+      buckets[3]!.items.push(output);
+    }
+  }
+
+  return buckets.filter((bucket) => bucket.items.length > 0);
 }
