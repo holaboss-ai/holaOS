@@ -156,7 +156,7 @@ function IntegrationProposalCard({
               : `Send your next message — the agent can now use ${displayName}.`}
           </div>
         </div>
-        <span className="shrink-0 text-[11px] text-muted-foreground opacity-0 transition-opacity group-hover/proposal:opacity-100">
+        <span className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover/proposal:opacity-100">
           Reconnect
         </span>
       </button>
@@ -226,7 +226,7 @@ function IntegrationProposalCard({
         )}
       </div>
       {errorMessage ? (
-        <div className="rounded-md bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
+        <div className="rounded-md bg-destructive/10 px-2 py-1 text-xs text-destructive">
           {errorMessage}
         </div>
       ) : null}

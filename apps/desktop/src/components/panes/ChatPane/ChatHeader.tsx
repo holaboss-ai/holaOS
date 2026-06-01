@@ -73,7 +73,7 @@ export function ChatHeader({
             {agentName}
           </span>
           {subtitle ? (
-            <span className="truncate text-[11px] leading-tight text-muted-foreground">
+            <span className="truncate text-xs leading-tight text-muted-foreground">
               {subtitle}
             </span>
           ) : null}

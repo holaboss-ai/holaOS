@@ -90,7 +90,7 @@ export function BackgroundTaskReferenceCards({
                   {primary}
                 </span>
                 {status ? (
-                  <span className="shrink-0 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                  <span className="shrink-0 text-xs uppercase tracking-[0.12em] text-muted-foreground">
                     {status}
                   </span>
                 ) : null}

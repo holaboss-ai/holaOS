@@ -322,7 +322,7 @@ function AssistantTurnComponent({
       {showActionsMenu || (showAvatar && timeLabel) ? (
         <div className="flex h-6 items-center gap-2 pl-9">
           {showAvatar && timeLabel ? (
-            <span className="select-none text-[10px] leading-none text-muted-foreground tabular-nums">
+            <span className="select-none text-xs leading-none text-muted-foreground tabular-nums">
               {timeLabel}
             </span>
           ) : null}
