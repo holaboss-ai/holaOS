@@ -27,6 +27,10 @@ test("deterministic workspace onboarding does not enqueue a starter prompt", asy
   assert.match(source, /chunks complete/);
   assert.match(
     source,
+    /onboardingFlowState !== "deterministic_context_fetching"[\s\S]*trackedConnectionIds\.length > 0[\s\S]*setIsContinuing\(true\)[\s\S]*await continueDeterministicOnboarding\(\)[\s\S]*setIsContinuing\(false\)/,
+  );
+  assert.match(
+    source,
     /You can enter the workspace while that keeps running in the background\./,
   );
   assert.match(source, /"Enter workspace now"/);

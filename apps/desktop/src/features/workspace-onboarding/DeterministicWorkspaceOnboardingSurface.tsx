@@ -338,6 +338,7 @@ export function DeterministicWorkspaceOnboardingSurface() {
   const [dismissedWorkspaceError, setDismissedWorkspaceError] = useState<
     string | null
   >(null);
+  const autoContinuingWorkspaceIdRef = useRef<string | null>(null);
 
   // Per-toolkit AbortControllers so each card's Cancel button can short-
   // circuit `connectIntegrationProvider`'s ~5-minute timeout. One entry
@@ -378,6 +379,7 @@ export function DeterministicWorkspaceOnboardingSurface() {
     setContextFetchStatusByConnectionId({});
     setExistingConnectionsBySlug({});
     setHasReachedFetching(false);
+    autoContinuingWorkspaceIdRef.current = null;
     for (const controller of Object.values(connectControllersRef.current)) {
       controller.abort();
     }
@@ -549,6 +551,36 @@ export function DeterministicWorkspaceOnboardingSurface() {
     trackedConnectionIds.length > 0 &&
     (trackedFetchStatuses.length < trackedConnectionIds.length ||
       trackedFetchStatuses.some((status) => status.status === "running"));
+
+  useEffect(() => {
+    if (
+      onboardingFlowState !== "deterministic_context_fetching" ||
+      trackedConnectionIds.length > 0 ||
+      isContinuing ||
+      !selectedWorkspace?.id
+    ) {
+      return;
+    }
+    if (autoContinuingWorkspaceIdRef.current === selectedWorkspace.id) {
+      return;
+    }
+    autoContinuingWorkspaceIdRef.current = selectedWorkspace.id;
+    setIsContinuing(true);
+    void (async () => {
+      try {
+        await continueDeterministicOnboarding();
+      } finally {
+        autoContinuingWorkspaceIdRef.current = null;
+        setIsContinuing(false);
+      }
+    })();
+  }, [
+    continueDeterministicOnboarding,
+    isContinuing,
+    onboardingFlowState,
+    selectedWorkspace?.id,
+    trackedConnectionIds.length,
+  ]);
 
   useEffect(() => {
     if (!isFetchingContext || !shouldPollFetchStatuses) {
