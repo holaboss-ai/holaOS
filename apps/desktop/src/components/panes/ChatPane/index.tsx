@@ -9760,8 +9760,12 @@ export function ChatPane({
 
             {hasMessages && isAwayFromChatBottom ? (
               <button
-                aria-label="Jump to latest message"
-                className="absolute bottom-3 left-1/2 z-30 grid size-8 -translate-x-1/2 place-items-center rounded-full border border-border bg-background text-foreground shadow-xs transition-colors hover:bg-muted animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
+                type="button"
+                aria-label={
+                  isResponding
+                    ? "Resume following live response"
+                    : "Jump to latest message"
+                }
                 onClick={() => {
                   const container = messagesRef.current;
                   if (!container) return;
@@ -9771,9 +9775,19 @@ export function ChatPane({
                     behavior: "smooth",
                   });
                 }}
-                type="button"
+                className="absolute bottom-3 right-3 z-30 inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-popover px-2.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
               >
-                <ChevronDown className="size-4" />
+                {isResponding ? (
+                  <>
+                    <StatusDot variant="primary" size="sm" pulse />
+                    <span>Resume tail</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="size-3.5" strokeWidth={2} />
+                    <span>Latest</span>
+                  </>
+                )}
               </button>
             ) : null}
           </div>
