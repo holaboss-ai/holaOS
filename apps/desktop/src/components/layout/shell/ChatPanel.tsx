@@ -26,6 +26,10 @@ import {
 import { cn } from "@/lib/utils";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
 import {
+  composerDraftForWorkspaceAtom,
+  setComposerDraftAtom,
+} from "./state/composerDrafts";
+import {
   activeInternalTabIdAtom,
   type InternalTab,
   internalTabsAtom,
@@ -231,6 +235,16 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
     setFocusMode(true);
   }, [setFocusMode]);
 
+  const composerDraftSelector = useAtomValue(composerDraftForWorkspaceAtom);
+  const setComposerDraft = useSetAtom(setComposerDraftAtom);
+  const composerDraftText = composerDraftSelector(selectedWorkspaceId || null);
+  const handleComposerDraftTextChange = useCallback(
+    (text: string) => {
+      setComposerDraft({ workspaceId: selectedWorkspaceId || null, text });
+    },
+    [selectedWorkspaceId, setComposerDraft],
+  );
+
   const body =
     view === "sessions" ? (
       <SessionsView
@@ -251,6 +265,8 @@ export function ChatPanel({ layout = "split" }: { layout?: ChatLayout }) {
         onSessionOpenRequestConsumed={handleSessionOpenRequestConsumed}
         composerPrefillRequest={composerPrefill}
         onEnterFocusMode={isCanvas ? undefined : handleEnterFocusMode}
+        composerDraftText={composerDraftText}
+        onComposerDraftTextChange={handleComposerDraftTextChange}
       />
     );
 
