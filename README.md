@@ -29,6 +29,8 @@
 
 # HolaOS (What is HolaOS):
 
+[![Listed on TakoAPI](https://takoapi.com/api/badge/holaboss-ai-holaos)](https://takoapi.com/agents/holaboss-ai-holaos)
+
 <p align="center">
   <img src="docs/images/desktop-workspace.png" alt="holaOS desktop workspace screenshot" width="1280" />
 </p>
